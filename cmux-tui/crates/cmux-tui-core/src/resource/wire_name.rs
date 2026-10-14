@@ -58,6 +58,8 @@ impl ResourceOperation {
             Self::ChiefProfileDelete => "chief.profile.delete",
             Self::ChiefProfileAvatarSet => "chief.profile.avatar.set",
             Self::ChiefProfileAvatarGet => "chief.profile.avatar.get",
+            Self::ParticipantAvatarSet => "participant.avatar.set",
+            Self::ParticipantAvatarGet => "participant.avatar.get",
             Self::CredentialVerify => "credential.verify",
             Self::CredentialMint => "credential.mint",
             Self::CredentialRotate => "credential.rotate",

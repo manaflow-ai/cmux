@@ -52,7 +52,9 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     "confirm": []
   },
   "home-channels": {
-    "read": [],
+    "read": [
+      "participant.avatar.get"
+    ],
     "gesture": [
       "workspace.open_url"
     ],

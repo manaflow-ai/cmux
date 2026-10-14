@@ -18,6 +18,13 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     })
   }
 
+  /** RPC: the chief's owner (participant.avatar.get finds the account that keeps its avatar), or null. */
+  async ownerOf(agent: string): Promise<string | null> {
+    const row = this.boundRow()
+    const head = row ? this.bind(row.entity).currentState : undefined
+    return head && head.agent === agent ? (head.owner_user ?? null) : null
+  }
+
   /** The chief itself (agent token) or its owner. */
   private allowed(head: mux.MuxHead, p: Principal): boolean {
     if (p.kind === "agent") return p.agent !== undefined && p.agent === head.agent

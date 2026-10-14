@@ -6,6 +6,7 @@ import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { AddChannel } from "./AddChannel";
 import { AttachmentContext } from "./AttachmentViews";
+import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark } from "./Avatar";
 import { Composer } from "./Composer";
 import { ConversationList, useStamp } from "./ConversationList";
@@ -108,6 +109,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     [people, me],
   );
   const channels = useMemo(() => channelIds(snap.conversations.values(), me), [snap.conversations, me]);
+  const runsWithPeople = useMemo<RunsContextValue>(() => ({ ...runs, people }), [runs, people]);
   const online = snap.connection === "online";
   const name = open ? conversationName(open, me) : "";
   const channel = open ? channels.has(open.id) : false;
@@ -364,6 +366,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   );
   return (
     <AttachmentContext.Provider value={store.attachments}>
+      <AvatarContext.Provider value={store.avatars}>
     <div className="lg-page">
       <ConversationList
         conversations={snap.conversations}
@@ -445,7 +448,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                 </button>
               </output>
             )}
-            <RunsContext.Provider value={runs}>
+            <RunsContext.Provider value={runsWithPeople}>
               <div className="lg-stage" ref={column} data-drop-zone>
                 <Timeline
                   conversation={snap.selected}
@@ -555,6 +558,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
       )}
       {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
     </div>
+      </AvatarContext.Provider>
     </AttachmentContext.Provider>
   );
 }

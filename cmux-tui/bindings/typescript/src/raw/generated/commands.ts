@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d0cd6b073142853e05872a82893772bcb5ed0cacca2cf14f0d093f119c9232b3. */
+/* cmux-tui mux protocol 12, IR cb3b7f47ebf655c6935fd696672bea9a5dbe3a9234f372f85573dd87058588f5. */
 
 
 import type * as T from "./types.js";
@@ -471,6 +471,13 @@ export interface CloudMuxUnsubscribeRequest extends CmuxRequestBase {
   cmd: "cloud-mux-unsubscribe";
 }
 export type CloudMuxUnsubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudParticipantAvatarGetRequest extends CmuxRequestBase {
+  cmd: "cloud-participant-avatar-get";
+  "participant_id": string;
+}
+export type CloudParticipantAvatarGetResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
@@ -2696,6 +2703,7 @@ export type CmuxRequest =
   | CloudMuxAckRequest
   | CloudMuxSubscribeRequest
   | CloudMuxUnsubscribeRequest
+  | CloudParticipantAvatarGetRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -3298,6 +3306,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-participant-avatar-get": {
+    request: CloudParticipantAvatarGetRequest;
+    result: CloudParticipantAvatarGetResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "participant-avatars-v1";
     stream: null;
   };
   "cloud-session-clear": {

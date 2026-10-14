@@ -1,7 +1,9 @@
-// A participant's initials on a neutral tile (the theme's foreground at low strength; no hue).
+// A participant's picture (participant-avatars-v1), or their initials on a neutral tile (the
+// theme's foreground at low strength; no hue) when they have none.
 // Agents get a rounded square, people a circle, so a glance tells them apart. A Chief's tile can
 // carry its live state as a small mark on the corner (working: a quiet pulse; waiting: the one
 // warning color). A channel is a hash tile with a hairline.
+import { useAvatarPicture } from "./avatars";
 import type { ChiefState } from "./model";
 import type { HomeParticipant } from "./types";
 
@@ -24,14 +26,19 @@ export function Avatar({
   state?: ChiefState;
 }) {
   const agent = participant?.kind === "agent";
+  const picture = useAvatarPicture(participant?.id);
   return (
     <span
-      className={`hc-avatar${size >= 24 ? " large" : ""}${agent ? " agent" : ""}${participant?.chief ? " chief" : ""}`}
+      className={`hc-avatar${size >= 24 ? " large" : ""}${agent ? " agent" : ""}${participant?.chief ? " chief" : ""}${picture ? " picture" : ""}`}
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
-      {/* A small tile has room for one letter only. */}
-      {initials(participant?.name ?? "?").slice(0, size >= 24 ? 2 : 1)}
+      {picture ? (
+        <img className="hc-avatar-img" src={picture} alt="" draggable={false} />
+      ) : (
+        /* A small tile has room for one letter only. */
+        initials(participant?.name ?? "?").slice(0, size >= 24 ? 2 : 1)
+      )}
       {state && state !== "idle" && <span className={`lg-state-mark ${state}`} />}
     </span>
   );

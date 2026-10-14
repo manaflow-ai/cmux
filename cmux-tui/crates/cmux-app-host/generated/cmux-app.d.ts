@@ -12,6 +12,7 @@ declare namespace Cmux {
   type Automation = { id: Cmux.AutomationId; owner: Cmux.TeamId; name: string; description: string; enabled: boolean; version: number; triggers: Array<Cmux.Trigger>; body: Cmux.Body; target: Cmux.TargetPolicy; concurrency: Cmux.Concurrency; budget: Cmux.Budget; created_by: Cmux.UserId; created_at: number; updated_at: number; next_run_at: number | null }
   type AutomationId = string
   type AutomationSettings = { agent_run_default_seconds: number | null }
+  type AvatarRef = { sha256: string; media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; bytes: number }
   type Body = unknown
   type BrowserAttachFrame = { kind: "frame"; mime_type: "image/png" | "image/jpeg"; data_base64: string; width_px: number; height_px: number; pointer_frame_seq: string | null }
   type BrowserAttachItem = unknown
@@ -1091,6 +1092,14 @@ interface CmuxGlobal {
     }
     /** `pane.zoom` (mutation, scope `workspace:write`) */
     zoom: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; enabled?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
+  }
+  participant: {
+    avatar: {
+      /** `participant.avatar.get` (read, scope `participant:read`): A participant's avatar with its bytes, or null. Any signed-in caller may read it (like a display name). */
+      get: CmuxOp<{ participant_id: Cmux.ParticipantId }, { participant_id: Cmux.ParticipantId; avatar: { sha256: string; media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; bytes: number; data: string } | null }>
+      /** `participant.avatar.set` (mutation, scope `participant:write`): Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's. */
+      set: CmuxOp<{ participant_id: Cmux.ParticipantId; bytes?: string; clear?: boolean; expected_revision?: string }, Cmux.MutationResult<{ participant_id: Cmux.ParticipantId; avatar: Cmux.AvatarRef | null }>>
+    }
   }
   participants: {
     /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */

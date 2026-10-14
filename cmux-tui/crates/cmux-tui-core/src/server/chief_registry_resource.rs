@@ -14,6 +14,12 @@
 //! harnesses, engine or `self_edit`, never another Chief, never create or
 //! delete. Such a request is refused with `operation.failed` reason
 //! `chief_self_edit_denied` before anything is written.
+//!
+//! `chief.profile.avatar.set` / `.get` are thin aliases of
+//! `participant.avatar.*` for a Chief (participant_avatars.rs): the same
+//! store, the same rules, the result shapes of before. The picture's type
+//! comes from its bytes; a `media_type` the alias's caller sends must match
+//! them (else validation.invalid, as before).
 
 use std::sync::Arc;
 
@@ -95,8 +101,66 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
                         "bytes": avatar.bytes, "data": STANDARD.encode(data)}})),
                 }
             }
-            _ => mutate(mux, store, &caller, request),
+            _ => {
+                let key = request.envelope.idempotency_key.clone().unwrap_or_default();
+                mutate(mux, store, &caller, operation, fields, key)
+            }
         }
+    })
+}
+
+/// `participant.avatar.set` for a Chief: the `chief.profile.avatar.set`
+/// write (its callers, its self_edit rule, its ledger and the brain
+/// supervisor's `chief_written`), with the fields `chief` and `data` or
+/// `clear`. The committed write's result (`value` is the Chief record).
+pub(super) fn set_chief_avatar(
+    mux: &Mux,
+    client: u64,
+    fields: &Map<String, Value>,
+    key: String,
+) -> Result<Value, ResourceError> {
+    let operation = Op::ChiefProfileAvatarSet;
+    with_store(mux, operation, |store| {
+        let caller = caller(mux, client, store)?;
+        mutate(mux, store, &caller, operation, fields, key)
+    })
+}
+
+/// A Chief's avatar and bytes for any reader (`participant.avatar.get`):
+/// `None` for no picture, or no live Chief of that id.
+pub(super) fn chief_avatar(
+    mux: &Mux,
+    operation: Op,
+    chief: &str,
+) -> Result<chief_registry::AvatarBytes, ResourceError> {
+    with_store(mux, operation, |store| match store.avatar(chief) {
+        Ok(Ok(found)) => Ok(found),
+        Ok(Err(_)) => Ok(None),
+        Err(e) => Err(internal(operation, &e)),
+    })
+}
+
+/// A person's avatar and bytes from the shared store.
+pub(super) fn person_avatar(
+    mux: &Mux,
+    operation: Op,
+    participant: &str,
+) -> Result<chief_registry::AvatarBytes, ResourceError> {
+    with_store(mux, operation, |store| {
+        store.person_avatar(participant).map_err(|e| internal(operation, &e))
+    })
+}
+
+/// Sets or clears a person's avatar in the shared store (the caller's rule
+/// is participant_avatars.rs's).
+pub(super) fn set_person_avatar(
+    mux: &Mux,
+    operation: Op,
+    participant: &str,
+    change: AvatarChange,
+) -> Result<(Option<chief_registry::AvatarRef>, u64), ResourceError> {
+    with_store(mux, operation, |store| {
+        store.set_person_avatar(participant, change).map_err(|e| internal(operation, &e))
     })
 }
 
@@ -104,11 +168,10 @@ fn mutate(
     mux: &Mux,
     store: &mut ChiefStore,
     caller: &Caller,
-    request: &ParsedResourceRequest,
+    operation: Op,
+    fields: &Map<String, Value>,
+    key: String,
 ) -> Result<Value, ResourceError> {
-    let operation = request.envelope.operation;
-    let fields = &request.fields;
-    let key = request.envelope.idempotency_key.clone().unwrap_or_default();
     if key.is_empty() {
         return Err(ResourceError::validation_invalid(
             Some("idempotency_key"),
@@ -153,6 +216,9 @@ fn mutate(
         .map_err(|e| internal(operation, &e))?;
     match outcome {
         Ok((record, replayed)) => {
+            if !replayed && operation == Op::ChiefProfileAvatarSet {
+                super::participant_avatars::publish(mux, &record.id, record.avatar.as_ref());
+            }
             if !replayed {
                 mux.chiefs().brains.chief_written(
                     &record,
@@ -209,7 +275,9 @@ fn self_edit_allowed(
     }
 }
 
-fn avatar_change(
+/// The avatar change of a request: `data` (base64; the type comes from the
+/// bytes), or `clear: true`.
+pub(super) fn avatar_change(
     operation: Op,
     fields: &Map<String, Value>,
 ) -> Result<AvatarChange, ResourceError> {
@@ -221,15 +289,23 @@ fn avatar_change(
             let bytes = STANDARD.decode(data).map_err(|_| {
                 ResourceError::validation_invalid(Some("data"), "data must be base64")
             })?;
-            let media_type = fields.get("media_type").and_then(Value::as_str).unwrap_or("");
-            if let Some(refusal) = chief_registry::validate_avatar(media_type, &bytes) {
-                return Err(refused(operation, &refusal));
+            let media_type =
+                chief_registry::validate_avatar(&bytes).map_err(|r| refused(operation, &r))?;
+            // The type is the bytes'; a claimed type (the alias's media_type)
+            // that contradicts them is refused, as the alias always did.
+            if let Some(claimed) = fields.get("media_type").and_then(Value::as_str)
+                && claimed != media_type
+            {
+                return Err(refused(
+                    operation,
+                    &Refusal::Invalid("data", format!("is not a {claimed} image")),
+                ));
             }
             Ok(AvatarChange::Set { media_type: media_type.to_owned(), bytes })
         }
         _ => Err(ResourceError::validation_invalid(
             Some("data"),
-            "give data and media_type, or clear: true",
+            "give data (a PNG, JPEG, GIF or WebP picture), or clear: true",
         )),
     }
 }

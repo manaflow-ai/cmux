@@ -38,6 +38,7 @@ import { homeSearch, type SearchParams } from "./home-search.ts"
 import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
+import { fromBase64 } from "./home-avatars.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
 import { listUserTeams, personalPrincipal, principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
@@ -233,6 +234,22 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           origin: payload.origin ?? "cli",
           ...(payload.expected_revision ? { expected_revision: payload.expected_revision } : {})
         }
+        // Participant avatars: the bytes go to R2 through the account's UserDO, outside its op ledger (home-avatars.ts).
+        if (payload.op === "participant.avatar.set") {
+          const params = (payload.params ?? {}) as { participant_id?: unknown; bytes?: unknown; clear?: unknown }
+          const reply = (r: { ok: true; avatar: unknown } | { ok: false; code: string; message: string }) =>
+            r.ok
+              ? { ok: true, op: payload.op, value: { participant_id: params.participant_id, avatar: r.avatar }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `user:${principal.user}`, sequence: 0 }
+              : { ok: false, op: payload.op, error: { code: r.code, message: r.message, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `user:${principal.user}`, sequence: 0 }
+          if (typeof params.participant_id !== "string" || (params.clear === true) === (typeof params.bytes === "string")) {
+            return reply({ ok: false, code: "validation.invalid", message: "give participant_id and bytes (base64), or clear: true" })
+          }
+          const data = typeof params.bytes === "string" ? fromBase64(params.bytes) : null
+          if (typeof params.bytes === "string" && !data) return reply({ ok: false, code: "avatar_invalid", message: "bytes must be base64" })
+          if (!principal.user) return reply({ ok: false, code: "forbidden", message: "an avatar is set by a signed-in person" })
+          const r = yield* Effect.tryPromise({ try: () => rpc<{ ok: true; avatar: unknown } | { ok: false; code: string; message: string }>(userStub(principal.user!).avatarSet(principal.user!, principal, params.participant_id as string, data)), catch: unreachable })
+          return reply(r)
+        }
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
         if (payload.op === "integration.complete" || providerOpNames.has(payload.op) || googleProviderOpNames.has(payload.op)) return yield* externalOp(principal, frame)
         // DNS checks and the domain's DomainDO run in TeamDO, outside its reducer (team-domain-external.ts).
@@ -388,6 +405,17 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
             return yield* new BadRequest({ code: r.code === "selector.not_found" ? "selector.not_found" : "validation.invalid", message: r.message })
           }
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
+        }
+        // Participant avatars: read from the account that keeps them (a person's own, a Chief's owner's; home-avatars.ts).
+        if (payload.op === "participant.avatar.get") {
+          const participant = (payload.params as { participant_id?: unknown } | null)?.participant_id
+          if (typeof participant !== "string" || !/^(user|agent)_[A-Za-z0-9_.-]{1,64}$/.test(participant)) return yield* new BadRequest({ code: "validation.invalid", message: "participant.avatar.get needs a participant_id" })
+          const owner = participant.startsWith("user_")
+            ? participant
+            : yield* Effect.tryPromise({ try: () => rpc<string | null>(env.MUX_DO.get(env.MUX_DO.idFromName(participant)).ownerOf(participant)), catch: unreachable })
+          if (!owner) return { op: payload.op, value: { participant_id: participant, avatar: null }, stream: "avatars", revision: "0" }
+          const r = yield* Effect.tryPromise({ try: () => rpc<{ ok: true; avatar: unknown } | { ok: false; code: string; message: string }>(userStub(owner).avatarGet(owner, participant)), catch: unreachable })
+          return { op: payload.op, value: { participant_id: participant, avatar: r.ok ? r.avatar : null }, stream: "avatars", revision: "0" }
         }
         const resolved = yield* principalFor(def.owner, principal)
         // G8: an approval is read from the team and owner (ConnectionDO, or CloudDO for Cloud) that posted it, for its members (approval-route.ts).

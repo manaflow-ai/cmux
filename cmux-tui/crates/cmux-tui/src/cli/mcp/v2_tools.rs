@@ -50,6 +50,7 @@ const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux ch
 
 /// The person's Chiefs: the owner and each Chief itself (its own bound
 /// connection) use the registry; an MCP client is an agent acting as the user.
+const AVATAR_REASON: &str = "A person's picture is set by that person (cmux avatar set, Home) and a Chief's by the person or that Chief, never by an agent acting as the user.";
 const CHIEF_REGISTRY_REASON: &str = "The person's Chiefs are edited by the person (cmux chief new|edit|delete, Home) and by each Chief on its own bound connection, never by an agent acting as the user.";
 
 /// Launch credentials (identity.md section 2) are the session host's and the
@@ -99,6 +100,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.profile.delete", CHIEF_REGISTRY_REASON),
     ("chief.profile.avatar.set", CHIEF_REGISTRY_REASON),
     ("chief.profile.avatar.get", CHIEF_REGISTRY_REASON),
+    ("participant.avatar.set", AVATAR_REASON),
+    ("participant.avatar.get", AVATAR_REASON),
     ("machine.list", MACHINE_REASON),
     ("machine.get", MACHINE_REASON),
     ("session.list", MACHINE_REASON),

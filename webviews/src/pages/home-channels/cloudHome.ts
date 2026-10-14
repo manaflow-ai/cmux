@@ -56,6 +56,17 @@ export class CloudHome {
     return this.known.has(id);
   }
 
+  /** Whether participant `id` (not the person) is in a cloud conversation this page read: its
+   *  picture is the Cloud owner's. */
+  hasParticipant(id: string): boolean {
+    if (id === LOCAL_USER) return false;
+    for (const head of this.heads.values()) {
+      const people = head.participants;
+      if (Array.isArray(people) && people.some((person) => (person as Json | null)?.id === id)) return true;
+    }
+    return false;
+  }
+
   /** The person's id rewritten to the page's `me` in an owner value (people, authors, cursors). */
   localize<T>(value: T): T {
     const me = this.participant;

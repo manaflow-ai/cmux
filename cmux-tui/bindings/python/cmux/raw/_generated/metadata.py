@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'd0cd6b073142853e05872a82893772bcb5ed0cacca2cf14f0d093f119c9232b3'
+IR_SHA256 = 'cb3b7f47ebf655c6935fd696672bea9a5dbe3a9234f372f85573dd87058588f5'
 
 
 @dataclass(frozen=True)
@@ -659,6 +659,17 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+        },
+    ),
+    'cloud-participant-avatar-get': CommandMetadata(
+        'cloud-participant-avatar-get',
+        'local-admin',
+        12,
+        'participant-avatars-v1',
+        ('local-admin',),
+        None,
+        {
+            'participant_id': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-session-clear': CommandMetadata(
@@ -3633,6 +3644,7 @@ EVENTS = {
     'pairing-resolved': EventMetadata('pairing-resolved', 7, None, ('subscribe',), 'emitted'),
     'pane-added': EventMetadata('pane-added', 7, None, ('subscribe-deltas',), 'emitted'),
     'pane-closed': EventMetadata('pane-closed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'participant-avatar-changed': EventMetadata('participant-avatar-changed', 12, 'participant-avatars-v1', ('subscribe',), 'emitted'),
     'personal-changed': EventMetadata('personal-changed', 12, 'profiles-v1', ('subscribe',), 'emitted'),
     'program-status-changed': EventMetadata('program-status-changed', 12, None, ('subscribe',), 'emitted'),
     'render-delta': EventMetadata('render-delta', 7, None, ('attach-render',), 'emitted'),
