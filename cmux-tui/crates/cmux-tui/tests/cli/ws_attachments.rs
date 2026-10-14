@@ -11,8 +11,8 @@ use base64::Engine;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use super::ws_conversations::{TOKEN, Ws, ws_addr};
-use super::*;
+use super::super::*;
+use super::{TOKEN, Ws, ws_addr};
 
 fn hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()

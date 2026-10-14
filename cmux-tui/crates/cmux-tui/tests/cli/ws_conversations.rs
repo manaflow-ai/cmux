@@ -12,6 +12,10 @@ use tokio_tungstenite::tungstenite::{self, Message, WebSocket};
 
 use super::*;
 
+/// Attachments from a browser page over the same WebSocket (`ws-attachments-v1`).
+#[path = "ws_attachments.rs"]
+mod attachments;
+
 pub(super) const TOKEN: &str = "ws-conversations-test-credential";
 
 pub(super) struct Ws {

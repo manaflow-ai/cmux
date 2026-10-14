@@ -3728,9 +3728,6 @@ mod wg_hub;
 #[path = "cli/workspace_open_url.rs"]
 mod workspace_open_url;
 #[cfg(unix)]
-#[path = "cli/ws_attachments.rs"]
-mod ws_attachments;
-#[cfg(unix)]
 #[path = "cli/ws_conversations.rs"]
 mod ws_conversations;
 use state_helpers::*;
