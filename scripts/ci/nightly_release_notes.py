@@ -49,6 +49,13 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
     commits = []
     for page in range(1, 101):
         comparison = github.rest(f"compare/{base}...{head}?per_page=100&page={page}")
+        if comparison["status"] == "diverged" and branch.startswith("rc/") and page == 1:
+            # A new RC line is a new rc/vX.Y.Z branch cut from main, so the
+            # previous line's published commit is not its ancestor. Summarize
+            # from where the two lines split.
+            merge_base = (comparison.get("merge_base_commit") or {}).get("sha")
+            if merge_base and merge_base != base:
+                return collect_prs(github, merge_base, head, branch)
         if comparison["status"] not in ("ahead", "identical"):
             raise RuntimeError("Published SHA is not an ancestor of the built SHA; verify the channel marker before retrying")
         commits.extend(c["sha"] for c in comparison["commits"])
@@ -79,7 +86,10 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
                 raise RuntimeError("A commit has more than ten associated PRs; inspect its associations before retrying")
             for pr in associated["nodes"]:
                 merged = pr.get("mergeCommit") or {}
-                if pr["mergedAt"] and pr["baseRefName"] == branch and merged.get("oid") in members:
+                # An RC branch is cut from main and gets picks, so its notes
+                # include PRs merged to main in the compared range.
+                bases = {branch, "main"} if branch.startswith("rc/") else {branch}
+                if pr["mergedAt"] and pr["baseRefName"] in bases and merged.get("oid") in members:
                     prs[pr["number"]] = pr
     return list(prs.values())
 
