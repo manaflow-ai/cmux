@@ -23,6 +23,7 @@
 
 use super::{Hub, Session};
 use crate::rpc::RpcError;
+use crate::store::{EventRecord, Store};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -38,6 +39,14 @@ const MAX_NAME_CHARS: usize = 120;
 #[derive(Default)]
 pub(crate) struct Offers {
     open: StdMutex<HashMap<String, HashMap<String, u64>>>,
+}
+
+impl Offers {
+    /// Drop chat `id`'s open offers on import: its records may have moved on
+    /// on another daemon, so the next use reads them again.
+    pub(crate) fn forget(&self, id: &str) {
+        self.open.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
 }
 
 /// The offer `params` describe, checked: what `session_offer` records.
@@ -183,22 +192,26 @@ impl Hub {
 
     /// The ids of the chat's recorded offers without a recorded decision.
     fn recorded_open_offers(&self, session: &Session) -> Result<HashMap<String, u64>, RpcError> {
-        let events = self
-            .events(&session.id, 0, usize::MAX)
-            .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        // Streamed, not collected: a long chat's log stays on disk.
         let mut open = HashMap::new();
-        for event in events.iter().filter(|e| e.dir == "mux") {
-            let Some(id) = event.msg.get("offerId").and_then(Value::as_str) else { continue };
-            match event.kind.as_str() {
-                "session_offer" => {
-                    open.insert(id.to_owned(), event.at);
+        self.store
+            .scan(&session.id, 0, &mut |event: EventRecord| {
+                if event.dir == "mux"
+                    && let Some(id) = event.msg.get("offerId").and_then(Value::as_str)
+                {
+                    match event.kind.as_str() {
+                        "session_offer" => {
+                            open.insert(id.to_owned(), event.at);
+                        }
+                        "session_offer_decision" => {
+                            open.remove(id);
+                        }
+                        _ => {}
+                    }
                 }
-                "session_offer_decision" => {
-                    open.remove(id);
-                }
-                _ => {}
-            }
-        }
+                true
+            })
+            .map_err(|e| RpcError::internal(format!("{e:#}")))?;
         Ok(open)
     }
 }

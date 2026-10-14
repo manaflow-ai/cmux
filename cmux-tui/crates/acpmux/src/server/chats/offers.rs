@@ -1,6 +1,8 @@
 //! The session offer methods (`hub/offers.rs`). The agent's tool offers over
 //! the unix socket; the person answers. A chat this daemon does not host is
-//! left to the usual routing (its peer answers).
+//! left to the usual routing, but its peer sees the answer as a peer's, not
+//! the person's, and refuses it: only the app of the daemon that hosts the
+//! chat answers its offers.
 
 use super::super::{Conn, Origin, str_param};
 use crate::hub::Hub;
