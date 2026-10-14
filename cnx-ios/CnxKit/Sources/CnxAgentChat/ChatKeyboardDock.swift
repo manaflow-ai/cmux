@@ -72,6 +72,19 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var stackHeight: CGFloat = 96
     private var positionedInitially = false
     private var shownIdentity: ObjectIdentifier?
+    private var keyboardPin: NSLayoutConstraint?
+    private var fallbackPin: NSLayoutConstraint?
+    private let notifiedKeyboard = UILayoutGuide()
+    /// Offset of the notified keyboard's top from the view's bottom (<= 0).
+    private var notifiedKeyboardTop: NSLayoutConstraint?
+    private var dragLink: CADisplayLink?
+    /// The keyboard layout guide did not move with a docked keyboard: seen
+    /// on the iOS 27.0 simulator (24A434), where the guide stayed at the
+    /// bottom edge for this transcript and for Chief's conversation while
+    /// SwiftUI's keyboard inset moved. From then on the stack follows the
+    /// keyboard's notifications (inside their animation) and, while a drag
+    /// dismisses the keyboard, its drawn frame every display frame.
+    private static var layoutGuideStalls = false
     private var lastOffsetY: CGFloat = 0
     /// The external stack's bottom with the keyboard down, view coordinates.
     private var externalRest: CGFloat?
@@ -140,7 +153,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        view.keyboardLayoutGuide.followsUndockedKeyboard = true
+        // Docked keyboards only. With `followsUndockedKeyboard` the guide
+        // never left the bottom edge on iOS 27 (the composer stayed behind
+        // the keyboard); iOS 26 tracked either way.
+        view.keyboardLayoutGuide.followsUndockedKeyboard = false
         view.keyboardLayoutGuide.usesBottomSafeArea = false
         view.addLayoutGuide(dockGuide)
         view.addLayoutGuide(openArea)
@@ -194,13 +210,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         ])
 
         // Above a docked keyboard (the guide's top is the view's bottom when
-        // it is hidden). Only near the bottom edge: with a hardware keyboard
-        // the guide can report a 0-wide 44 pt frame near the top of the
-        // screen (the terminal's composer jumped there, feat-cnx-ios-e2e);
-        // away from the bottom the stack stays at its resting place.
-        view.keyboardLayoutGuide.setConstraints([
-            dockGuide.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -Self.dockGap),
-        ], activeWhenNearEdge: .bottom)
+        // it is hidden). With a hardware keyboard the guide can report a
+        // 0-wide 44 pt frame near the top of the screen (the terminal's
+        // composer jumped there, feat-cnx-ios-e2e); `keyboardPinApplies`
+        // switches the pin off for such a frame and the stack rests.
+        let pin = dockGuide.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -Self.dockGap)
+        pin.isActive = !Self.layoutGuideStalls
+        keyboardPin = pin
+        // The same pin against the keyboard's frame from its notifications,
+        // for when the layout guide stalls (see `layoutGuideStalls`).
+        view.addLayoutGuide(notifiedKeyboard)
+        let notifiedTop = notifiedKeyboard.topAnchor.constraint(equalTo: view.bottomAnchor)
+        notifiedKeyboardTop = notifiedTop
+        let fallback = dockGuide.bottomAnchor.constraint(lessThanOrEqualTo: notifiedKeyboard.topAnchor, constant: -Self.dockGap)
+        fallback.isActive = Self.layoutGuideStalls
+        fallbackPin = fallback
+        NSLayoutConstraint.activate([
+            notifiedTop,
+            notifiedKeyboard.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            notifiedKeyboard.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            notifiedKeyboard.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
 
         switch placement {
         case .owned:
@@ -270,8 +300,21 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         #endif
     }
 
+    /// A keyboard frame worth following: as wide as the view and touching
+    /// its bottom (a docked software keyboard, or the guide at rest).
+    private var keyboardPinApplies: Bool {
+        let frame = view.keyboardLayoutGuide.layoutFrame
+        return frame.width >= view.bounds.width - 1 && frame.maxY >= view.bounds.maxY - 1
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        if let pin = keyboardPin, !Self.layoutGuideStalls, pin.isActive != keyboardPinApplies {
+            pin.isActive = keyboardPinApplies
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+            return
+        }
         let top = topInset ?? view.safeAreaInsets.top
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         // As in Messages, a transcript drag takes the keyboard once the finger
@@ -399,15 +442,61 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // interactive dismissal moves the guide but lays out later, outside
         // the animation; laying out now rides the keyboard's remaining curve
         // instead of jumping.
+        let top = notifiedTop(note)
+        notifiedKeyboardTop?.constant = top - view.bounds.maxY
         view.setNeedsLayout()
         let remaining = UIView.inheritedAnimationDuration
+        let layout = {
+            self.view.layoutIfNeeded()
+            // A docked keyboard the guide did not follow: switch to the
+            // notified frame, in this same animation.
+            if !Self.layoutGuideStalls, top < self.view.bounds.maxY - 40,
+               self.view.keyboardLayoutGuide.layoutFrame.minY > top + 40 {
+                Self.layoutGuideStalls = true
+                self.keyboardPin?.isActive = false
+                self.fallbackPin?.isActive = true
+                self.view.setNeedsLayout()
+                self.view.layoutIfNeeded()
+            }
+        }
         guard remaining > 0 else {
-            view.layoutIfNeeded()
+            layout()
             return
         }
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
-            self.view.layoutIfNeeded()
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) { layout() }
+    }
+
+    /// The keyboard's top in this view from a frame notification (the
+    /// view's bottom when it hides or is not docked).
+    private func notifiedTop(_ note: Notification) -> CGFloat {
+        guard let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue,
+              let window = view.window else { return view.bounds.maxY }
+        let frame = view.convert(end, from: window.screen.coordinateSpace)
+        guard frame.height > 0, frame.width >= view.bounds.width - 1, frame.maxY >= view.bounds.maxY - 1 else { return view.bounds.maxY }
+        return min(view.bounds.maxY, frame.minY)
+    }
+
+    /// While the guide stalls and a drag dismisses the keyboard, the stack
+    /// follows the keyboard as drawn, every display frame.
+    private func followDraggedKeyboard(_ on: Bool) {
+        guard Self.layoutGuideStalls, on != (dragLink != nil) else { return }
+        if on {
+            let link = CADisplayLink(target: DragLinkTarget(self), selector: #selector(DragLinkTarget.tick))
+            link.add(to: .main, forMode: .common)
+            dragLink = link
+        } else {
+            dragLink?.invalidate()
+            dragLink = nil
         }
+    }
+
+    fileprivate func draggedKeyboardFrame() {
+        guard scrollView.isTracking, let top = KeyboardProbe.drawnTop(in: view.window) else { return }
+        let local = view.convert(CGPoint(x: 0, y: top), from: nil).y
+        let constant = min(local, view.bounds.maxY) - view.bounds.maxY
+        guard let constraint = notifiedKeyboardTop, abs(constraint.constant - constant) > 0.01 else { return }
+        constraint.constant = constant
+        UIView.performWithoutAnimation { view.layoutIfNeeded() }
     }
 
     @objc private func dockPanned(_ pan: UIPanGestureRecognizer) {
@@ -422,6 +511,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     // MARK: Scrolling
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { followDraggedKeyboard(true) }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { followDraggedKeyboard(false) }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let y = scrollView.contentOffset.y
@@ -529,6 +622,51 @@ final class PassthroughView: UIView {
     }
 }
 
+/// Breaks the display link's retain of the controller.
+@MainActor
+private final class DragLinkTarget: NSObject {
+    weak var owner: ChatTranscriptController?
+    init(_ owner: ChatTranscriptController) { self.owner = owner }
+    @objc func tick() { owner?.draggedKeyboardFrame() }
+}
+
+/// The keyboard as drawn this frame: the system's placeholder for the
+/// remote keyboard in the app's text effects window (presentation layers),
+/// window coordinates. Read-only; nil when it cannot be found.
+@MainActor
+enum KeyboardProbe {
+    static func drawnTop(in window: UIWindow?) -> CGFloat? {
+        guard let window, let scene = window.windowScene else { return nil }
+        for w in scene.windows where NSStringFromClass(type(of: w)).contains("TextEffects") {
+            guard let host = find(in: w, where: { NSStringFromClass(type(of: $0)).contains("RemoteKeyboardPlaceholder") }) else { continue }
+            let rect = window.convert(onScreen(host, in: w), from: w)
+            return rect.height > 1 ? min(rect.minY, window.bounds.maxY) : window.bounds.maxY
+        }
+        return nil
+    }
+
+    /// A view's frame in its window as drawn this frame: the presentation
+    /// layers' geometry all the way up.
+    static func onScreen(_ view: UIView, in window: UIView) -> CGRect {
+        var layer: CALayer? = view.layer
+        var rect = (view.layer.presentation() ?? view.layer).bounds
+        while let current = layer, current !== window.layer {
+            let p = current.presentation() ?? current
+            guard let superlayer = current.superlayer else { break }
+            let sp = superlayer.presentation() ?? superlayer
+            rect = p.convert(rect, to: sp)
+            layer = superlayer
+        }
+        return rect
+    }
+
+    static func find(in view: UIView, where match: (UIView) -> Bool) -> UIView? {
+        if match(view) { return view }
+        for sub in view.subviews { if let found = find(in: sub, where: match) { return found } }
+        return nil
+    }
+}
+
 /// Lets the composer's swipe-down recognizer run beside the text view's own.
 private final class DockPanDelegate: NSObject, UIGestureRecognizerDelegate {
     @MainActor static let shared = DockPanDelegate()
@@ -600,42 +738,19 @@ final class ChatKeyboardTrace {
         handle?.write(Data(line.utf8))
     }
 
-    /// The top of the keyboard's on-screen frame this frame (its host view
-    /// in the app's text effects window), window coordinates.
     static func keyboardTop(in window: UIWindow?) -> CGFloat? {
-        guard let window else { return nil }
-        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
-            for w in scene.windows where NSStringFromClass(type(of: w)).contains("TextEffects") || NSStringFromClass(type(of: w)).contains("Keyboard") {
-                if let host = find(in: w, named: "_UIRemoteKeyboardPlaceholderView") ?? find(in: w, named: "UIInputSetHostView") {
-                    let r = onScreen(host, in: w)
-                    let inWindow = window.convert(r, from: w)
-                    if inWindow.height > 1 { return min(inWindow.minY, window.bounds.maxY) }
-                }
-            }
-        }
-        return window.bounds.maxY
+        KeyboardProbe.drawnTop(in: window) ?? window?.bounds.maxY
     }
 
-    /// A view's frame in its window as drawn this frame: the presentation
-    /// layers' geometry all the way up.
     static func onScreen(_ view: UIView, in window: UIView) -> CGRect {
-        var layer: CALayer? = view.layer
-        var rect = (view.layer.presentation() ?? view.layer).bounds
-        while let current = layer, current !== window.layer {
-            let p = current.presentation() ?? current
-            guard let superlayer = current.superlayer else { break }
-            let sp = superlayer.presentation() ?? superlayer
-            rect = p.convert(rect, to: sp)
-            layer = superlayer
-        }
-        return rect
+        KeyboardProbe.onScreen(view, in: window)
     }
 
     /// The composer's glass card: the widest glass view in the window.
     static func composerCard(in window: UIWindow) -> UIView? {
         var best: UIView?
         func walk(_ v: UIView) {
-            if v.bounds.width > 300, v.bounds.height < 400, NSStringFromClass(type(of: v)).contains("GlassInteractionView") {
+            if v.bounds.width > 300, v.bounds.height < 400, NSStringFromClass(type(of: v)).contains("Glass") {
                 if best == nil || v.bounds.width > best!.bounds.width { best = v }
             }
             for sub in v.subviews { walk(sub) }
@@ -649,14 +764,8 @@ final class ChatKeyboardTrace {
         return find(in: window) { $0 is UINavigationBar && !$0.isHidden && $0.window != nil && $0.frame.height > 0 }
     }
 
-    private static func find(in view: UIView, named name: String) -> UIView? {
-        find(in: view) { NSStringFromClass(type(of: $0)) == name }
-    }
-
     private static func find(in view: UIView, where match: (UIView) -> Bool) -> UIView? {
-        if match(view) { return view }
-        for sub in view.subviews { if let found = find(in: sub, where: match) { return found } }
-        return nil
+        KeyboardProbe.find(in: view, where: match)
     }
 }
 #endif

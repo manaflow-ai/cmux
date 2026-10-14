@@ -569,8 +569,17 @@ nonisolated struct DrawnHeightReporter: ViewModifier, Animatable {
         get { height }
         set {
             height = newValue
-            // SwiftUI sets the interpolated value here once per frame.
-            if newValue > 0 { MainActor.assumeIsolated { report(newValue) } }
+            // SwiftUI sets the interpolated value here once per frame, on
+            // the main thread, or on its asynchronous render thread (seen
+            // during an interactive keyboard dismissal on iOS 27), which
+            // hands the value to the main thread.
+            guard newValue > 0 else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { report(newValue) }
+            } else {
+                let report = report
+                DispatchQueue.main.async { report(newValue) }
+            }
         }
     }
 

@@ -20,19 +20,22 @@ SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch "$udid" dev.cmux.cnx -cnx.setup
 sleep 5
 
 field() {
-  # The composer's field, or the collapsed "Follow up" capsule.
-  axe tap --label "Reply to Claude" --element-type TextArea --udid "$udid" >/dev/null 2>&1 ||
-    axe tap --label "Reply to Claude" --udid "$udid" >/dev/null 2>&1 ||
-    axe tap --label "Follow up" --udid "$udid" >/dev/null
+  # The composer's field, or the collapsed capsule (both are labelled
+  # "Reply to Claude"): a real touch at the lowest such element.
+  local y
+  y=$(composer_y)
+  axe tap -x 150 -y "${y:-800}" --tap-style physical --udid "$udid" >/dev/null
 }
 composer_y() {
   axe describe-ui --udid "$udid" | python3 -I -c '
 import json, sys
+found = []
 def walk(n):
     if n.get("AXLabel") == "Reply to Claude":
-        f = n["frame"]; print(int(f["y"] + f["height"] / 2)); sys.exit()
+        f = n["frame"]; found.append(int(f["y"] + f["height"] / 2))
     for c in n.get("children", []): walk(c)
-for n in json.load(sys.stdin): walk(n)'
+for n in json.load(sys.stdin): walk(n)
+if found: print(max(found))'
 }
 
 swipe_composer() {
