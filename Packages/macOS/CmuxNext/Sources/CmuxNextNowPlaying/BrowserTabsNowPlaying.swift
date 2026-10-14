@@ -21,6 +21,9 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
     private static let artworkSide: CGFloat = 96
     /// How long after a failed artwork fetch a read asks the tab again (tests shorten it).
     @ObservationIgnored var artworkRetry: TimeInterval = 10
+    /// The artwork fetch that failed last, and when. Out of observation, so a failure triggers no
+    /// read and no refetch loop; a read ``artworkRetry`` later asks the tab again.
+    @ObservationIgnored private var failedArtwork: (url: URL, at: Date)?
 
     public init() {}
 
@@ -55,22 +58,33 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
         Task { await tab.media(media) }
     }
 
-    /// The artwork for `url` once loaded; asks the tab for it the first time.
+    /// The artwork for `url` once loaded; asks the tab for it the first time, and again a while
+    /// after a fetch that failed (the tab was still loading, the network dropped).
     private func artworkData(_ url: URL?, tab id: BrowserTabID) -> Data? {
         guard let url else { return nil }
-        if let artwork, artwork.url == url { return artwork.data }
+        if let artwork, artwork.url == url, artwork.data != nil || !retryDue(url) { return artwork.data }
         // Loaded after this read returns, so the read never writes what it observes.
         Task { [weak self] in self?.loadArtwork(url, tab: id) }
         return nil
     }
 
+    private func retryDue(_ url: URL) -> Bool {
+        guard let failedArtwork, failedArtwork.url == url else { return false }
+        return Date().timeIntervalSince(failedArtwork.at) >= artworkRetry
+    }
+
     private func loadArtwork(_ url: URL, tab id: BrowserTabID) {
-        guard artwork?.url != url, let tab = browserTab(id) else { return }
-        artwork = (url, nil)
+        guard artwork?.url != url || retryDue(url), let tab = browserTab(id) else { return }
+        failedArtwork = nil
+        if artwork?.url != url { artwork = (url, nil) }
         Task { [weak self] in
             let image = await tab.fetchFavicon(url)
             guard let self, self.artwork?.url == url else { return }
-            self.artwork = (url, image.flatMap(Self.png))
+            guard let data = image.flatMap(Self.png) else {
+                self.failedArtwork = (url, Date())
+                return
+            }
+            self.artwork = (url, data)
         }
     }
 
