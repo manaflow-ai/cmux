@@ -133,6 +133,16 @@ import Testing
         return bezier((low + high) / 2, Double(c1.y), Double(c2.y))
     }
 
+    /// What the panel looks like when an expected animation is missing (macOS 27 lane, 2026-10-14).
+    private static func diagnose(_ presenter: TooltipPresenter, _ layer: CALayer, _ before: CALayer?) -> String {
+        let rise = layer.animation(forKey: "transform.translation.y")
+        let age = rise.map { CACurrentMediaTime() - $0.beginTime }
+        return "shown \(presenter.shown?.text ?? "nil"), visible \(presenter.panel.isVisible), fadingOut \(presenter.panel.isFadingOut), "
+            + "same layer \(before === layer), keys \(layer.animationKeys() ?? []), rise age \(age.map { "\($0)" } ?? "nil"), "
+            + "opacity \(layer.opacity), presented \(layer.presentation()?.opacity ?? -1), fadeIn \(Motion.duration(.fadeIn)), "
+            + "speed \(Motion.speed), reduce \(Motion.reduceMotion), active \(NSApp.isActive), screens \(NSScreen.screens.count)"
+    }
+
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
     func theFirstTooltipFadesInRisingAndAWarmNeighborsIsThereAtOnce() async throws {
         Motion.reduceMotionOverride = false
@@ -145,9 +155,11 @@ import Testing
         }
         try #require(window.screen != nil, "the window has no screen")
         try #require(Motion.duration(.fadeIn) > 0, "fades are off on this host")
+        let before = presenter.panel.surface.layer
         try await Self.rest(on: buttons[0], presenter, clock)
         let layer = try #require(presenter.panel.surface.layer)
-        let fade = try #require(layer.animation(forKey: "opacity") as? CABasicAnimation, "the first tooltip did not fade in")
+        let fade = try #require(layer.animation(forKey: "opacity") as? CABasicAnimation,
+                                "the first tooltip did not fade in: \(Self.diagnose(presenter, layer, before))")
         let rise = try #require(layer.animation(forKey: "transform.translation.y") as? CABasicAnimation,
                                 "the first tooltip did not rise")
         #expect(fade.duration == Motion.duration(.fadeIn))
