@@ -197,6 +197,19 @@ export function continueAfterResponse(work: Promise<unknown>, label: string): vo
   }
 }
 
+/**
+ * Keeps a continuation span's export alive past the response through after().
+ * The promise never rejects; outside a request scope (tests, scripts) there is
+ * no function to keep alive, so it simply runs detached.
+ */
+function flushAfterResponse(flush: Promise<void>): void {
+  try {
+    after(() => flush);
+  } catch {
+    void flush;
+  }
+}
+
 /** Most continuations one function instance runs at once (see withVmAnswerDeadline). */
 export const VM_MAX_BACKGROUND_CONTINUATIONS = 64;
 
@@ -327,7 +340,7 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
     if (options.continuationKey !== undefined && continuations.hasKey(options.continuationKey)) {
       // The same re-entrant operation on the same machine is already running
       // in the background: this retry adds no second continuation.
-      void logContinuationResult(options.label, "superseded", log);
+      flushAfterResponse(logContinuationResult(options.label, "superseded", log));
       yield* Fiber.interruptFork(fiber);
       return yield* options.onDeadline();
     }
@@ -337,14 +350,14 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
       // time the work would have had in the background.
       const inline = yield* Fiber.await(fiber).pipe(Effect.timeout(options.continueForMs), Effect.option);
       if (Option.isNone(inline)) {
-        void logContinuationResult(options.label, "inline_stopped_at_max_duration", { ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS });
+        flushAfterResponse(logContinuationResult(options.label, "inline_stopped_at_max_duration", { ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS }));
         yield* Fiber.interruptFork(fiber);
         return yield* options.onDeadline();
       }
-      void logContinuationResult(options.label, inline.value._tag === "Success" ? "inline_completed" : "inline_failed", {
+      flushAfterResponse(logContinuationResult(options.label, inline.value._tag === "Success" ? "inline_completed" : "inline_failed", {
         ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS,
         ...(inline.value._tag === "Failure" ? { cause: summarizeCause(inline.value.cause) } : {}),
-      });
+      }));
       return yield* inline.value;
     }
     // Each continuation owns only its own fiber: it holds no lock or permit a
@@ -359,8 +372,10 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
           ...log,
           ...(finished._tag === "Failure" ? { cause: summarizeCause(finished.cause) } : {}),
         })),
-        onFailure: () => Effect.promise(() => logContinuationResult(options.label, "stopped_at_max_duration", { ...log, continueForMs: options.continueForMs }))
-          .pipe(Effect.andThen(Fiber.interruptFork(fiber))),
+        // Stop the work first, so nothing it does lands after the recorded stop.
+        onFailure: () => Fiber.interruptFork(fiber).pipe(
+          Effect.andThen(Effect.promise(() => logContinuationResult(options.label, "stopped_at_max_duration", { ...log, continueForMs: options.continueForMs }))),
+        ),
       }),
       Effect.ensuring(Effect.sync(() => continuations.release(key))),
     );
