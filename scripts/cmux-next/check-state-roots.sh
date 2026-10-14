@@ -33,8 +33,8 @@ for arg in "$@"; do
 done
 root="${root:-$(git rev-parse --show-toplevel)}"
 baseline="$root/scripts/cmux-next/state-roots-baseline.tsv"
-pattern='\.cmux/(chief|mux)|\.acpmux([^A-Za-z0-9_-]|$)|"\.cmux"|Application Support/cmux|cmux/(tags|builds)/'
-comment='^[[:space:]]*(//|\*|/\*)'
+pattern='\.cmux/(chief|mux)|["/]\.acpmux(["/]|$)|"\.cmux"|Application Support/cmux([^A-Za-z0-9_-]|$)|cmux/(tags|builds)/'
+comment='[[:space:]]*(//|\*|/\*)'
 
 # Product source files, repo-relative, sorted.
 files() {
