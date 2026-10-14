@@ -332,22 +332,16 @@ input[type="submit"] {
      two in step). Frosted glass: the host's tint (--cmux-tooltip-tint: the popup surface at the
      least alpha that keeps the text 4.5:1 over pure black and pure white, whatever the blur
      averages), else the popup surface at 86%; a 24px blur; the separator rim one device pixel
-     (--cmux-hairline, else 1px, 0.5px at 2x); elevation 1 (the subtle-elevation work's
+     (--cmux-hairline); elevation 1 (the subtle-elevation work's
      --elevation-1). It fades in with the popup open and out with the popup close (the native
      fadeIn and fadeOut tokens), rising 2px. Reduce Transparency: the opaque popup surface. */
   --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) 86%, transparent));
   --tooltip-blur: blur(24px) saturate(1.6);
-  --tooltip-rim-width: var(--cmux-hairline, 1px);
+  --tooltip-rim-width: var(--cmux-hairline);
   --tooltip-shadow: 0 1px 2px color-mix(in srgb, black 7%, transparent);
   --tooltip-fade-in: var(--ui-popup-open, 120ms);
   --tooltip-fade-out: var(--ui-popup-close, 80ms);
   --tooltip-rise: 2px;
-}
-
-@media (min-resolution: 2dppx) {
-  :root {
-    --tooltip-rim-width: var(--cmux-hairline, 0.5px);
-  }
 }
 
 /* Reduce Motion: the tooltip still fades, with no rise. */
