@@ -58,6 +58,7 @@ public enum TerminalSessionChoice {
         if mockDataEnabled {
             // A Codex-like inline TUI streaming history (reproduction harness).
             if ProcessInfo.processInfo.arguments.contains("-cnx-term-fake-codex") { return FakeCodexSession() }
+            if ProcessInfo.processInfo.arguments.contains("-cnx-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
             return MockTerminalSession()
         }
         #endif

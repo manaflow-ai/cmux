@@ -20,8 +20,15 @@ public final class FakeCodexSession: TerminalSession {
     /// Lines per second.
     private let rate: Double
 
-    public init(rate: Double = 14) {
+    /// Working, not streaming: a long transcript, then only the status line
+    /// redrawn every second the way Codex does it: the cursor goes up to the
+    /// live area, clears to the end of the screen, and the rows come back in
+    /// a later write (user report 2026-10-14, "blinking and oscillating").
+    private let idleRedraw: Bool
+
+    public init(rate: Double = 14, idleRedraw: Bool = false) {
         self.rate = rate
+        self.idleRedraw = idleRedraw
     }
 
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
@@ -31,6 +38,25 @@ public final class FakeCodexSession: TerminalSession {
         for index in 1...6 { emit("shell line \(index)\r\n") }
         emit("> codex\r\n")
         drawLive(timer: 0)
+        if idleRedraw {
+            for index in 1...300 { insertHistory("transcript line \(index)") }
+            drawLive(timer: 0)
+            task = Task { @MainActor [weak self] in
+                var tick = 0
+                while let self, !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    tick += 1
+                    let liveTop = self.rows - 4
+                    // Clear the live area in one write...
+                    self.emit("\u{1B}[?25l\u{1B}[\(liveTop);1H\u{1B}[J")
+                    // ...and draw it again in the next one.
+                    try? await Task.sleep(for: .milliseconds(30))
+                    self.drawLive(timer: tick)
+                    self.emit("\u{1B}[?25h")
+                }
+            }
+            return
+        }
         task = Task { @MainActor [weak self] in
             var tick = 0
             // A pause first, then a long reply streams in.

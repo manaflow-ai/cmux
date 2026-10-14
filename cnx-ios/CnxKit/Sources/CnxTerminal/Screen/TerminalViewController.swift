@@ -62,6 +62,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var freezeView: UIView?
     private var freezeBatches = 0
     private var freezeStarted: CFTimeInterval = 0
+    /// A reset's replay being fed: layout waits for all of it.
+    private var replayGate = TerminalReplayGate()
     /// Clips the key bar while its height follows the keyboard; the bar
     /// itself keeps its 44 pt layout pinned to the clip's top.
     private let keyBarClip = UIView()
@@ -582,7 +584,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func sessionEvent(_ event: TerminalSessionEvent) {
         switch event {
         case .output(let data):
-            if data == Self.mirrorReset { freezeLastFrame() }
+            let isReset = data == Self.mirrorReset
+            if isReset {
+                freezeLastFrame()
+                // The rows being read are rebuilt from the replay: back to the
+                // prompt once it is laid out (user report 2026-10-14).
+                following = true
+            }
+            replayGate.received(data.count, isReset: isReset)
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
             model.ingest(event)
@@ -663,7 +672,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         feedInFlight = false
-        if freezeView != nil, raw > Self.mirrorReset.count, replayHasContent() {
+        let replayDone = replayGate.parsed(raw)
+        if replayGate.isReplaying {
+            // A reset's replay is still being fed: no layout, no frame swap
+            // until all of it is parsed (user report 2026-10-14).
+            outputSinceProbe = true
+            if output.isEmpty { stopOutputLink() }
+            return
+        }
+        if replayDone {
+            outputSinceProbe = true
+            updateDocument()
+            pinToBottomIfFollowing()
+        }
+        if freezeView != nil, raw > Self.mirrorReset.count || replayDone, replayHasContent() {
             // The replay is parsed and draws something: drop the held frame on
             // the next present (or after one more batch, whichever comes first).
             freezeBatches += 1
@@ -732,6 +754,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let held = ObjectIdentifier(snapshot)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.freezeCap) { [weak self] in
             guard let self, let view = self.freezeView, ObjectIdentifier(view) == held else { return }
+            if self.replayGate.isReplaying {
+                self.replayGate.expire()
+                self.outputSinceProbe = true
+                self.updateDocument()
+                self.pinToBottomIfFollowing()
+            }
             self.unfreeze()
         }
     }
@@ -852,7 +880,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// Recomputes the document height from Ghostty's scrollbar and the cursor.
     private func updateDocument() {
-        guard !model.isTUI, cell.height > 0 else { return }
+        guard !model.isTUI, cell.height > 0, !replayGate.isReplaying else { return }
         // The document only grows with output (the total changes); probing the
         // cursor moves Ghostty's viewport for a moment, so it is not repeated
         // for reports that only moved the viewport (scrolling).
@@ -899,8 +927,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         // Pinned while following; a document that ends above the place on
         // screen (nothing left there but blank rows) follows again.
+        // Only a finger on the page holds the pin back; a deceleration or
+        // bounce must not leave a following view behind growing output.
         if let target = follow.documentResized(offsetY: scrollView.contentOffset.y, maxOffsetY: maxOffsetY,
-                                               userIsScrolling: scrollView.isTracking || scrollView.isDecelerating) {
+                                               userIsScrolling: scrollView.isTracking || (scrollView.isDecelerating && !following)) {
             scrollView.contentOffset.y = target
         }
         // Output that grows the document below a reader shows Jump to bottom
