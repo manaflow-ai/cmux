@@ -170,7 +170,7 @@ final class EmptySectionRowView: SidebarRowView {
         addSubview(label)
     }
 
-    func configure(pinned: Bool) {
+    func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
         label.stringValue = pinned ? Strings.pinnedEmpty : Strings.sectionEmpty
         label.font = SidebarStyle.subtitleFont
         needsLayout = true

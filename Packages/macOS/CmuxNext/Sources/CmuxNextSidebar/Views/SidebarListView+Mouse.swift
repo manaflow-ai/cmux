@@ -56,8 +56,11 @@ extension SidebarListView {
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
-        case .section, .emptySection, .folder, .item:
-            break // an item row runs on mouse-up, so a press can still drag it
+        case .item:
+            // It runs on mouse-up (as a band item: the App moves the one selection), so a press can still drag it.
+            SidebarGroupKeys(list: self).setFocus(nil)
+        case .section, .emptySection, .folder, .block:
+            break
         }
         self.press = press
     }
@@ -105,7 +108,7 @@ extension SidebarListView {
         case let .item(item):
             // A link opens its page, a tab shows, an app opens, as in the band.
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
-        case .emptySection, .folder:
+        case .emptySection, .folder, .block:
             break
         }
         reload(animated: true)

@@ -77,6 +77,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var excludedGroup: GroupID?
     /// A listed document item removed from the layout (being dragged).
     public var excludedItem: String?
+    /// The height of each document section's block (its items in its own arrangement), by section id.
+    public var blockHeights: [String: CGFloat] = [:]
+    /// Document sections folded by their header: their groups do not list.
+    public var collapsedDocSections: Set<String> = []
     /// When set, only these workspaces show; containers force-expand.
     public var filterMatches: Set<WorkspaceID>?
     /// Show the drop zone for an empty pinned section.

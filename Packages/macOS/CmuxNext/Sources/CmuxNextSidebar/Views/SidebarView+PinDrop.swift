@@ -11,8 +11,7 @@ import AppKit
         sidebar.aboveRegion.dropToListProbe = { [weak sidebar] windowPoint in
             sidebar.map { isOverList($0, windowPoint) } ?? false
         }
-        // On the document an item's drag runs through SidebarDocBandDrag (one drop look); this is the older path.
-        sidebar.aboveRegion.docHost = sidebar
+        // The older path: on the document every section draws in the list (SidebarBlockRowView), so these never run.
         sidebar.aboveRegion.onDropToList = { [weak sidebar] id in sidebar?.model.send(.layout(.itemRemove(id))) }
         // A drop's preview or landing changed a band's height: the bands lay
         // out again, so no gap stays above the list (cx-odqn).

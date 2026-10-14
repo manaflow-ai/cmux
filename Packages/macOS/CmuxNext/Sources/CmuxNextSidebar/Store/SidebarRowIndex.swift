@@ -41,7 +41,7 @@ nonisolated struct SidebarRowIndex: Sendable {
         switch sections[path.section].nodes[path.node] {
         case let .workspace(ws): ws
         case let .group(group): group.workspaces[path.member ?? 0]
-        case let .item(item): item.row // never indexed: an item row has no workspace
+        case let .item(item): SidebarWorkspace(id: WorkspaceID(item.id), title: item.title) // never indexed: no path names an item row
         }
     }
 

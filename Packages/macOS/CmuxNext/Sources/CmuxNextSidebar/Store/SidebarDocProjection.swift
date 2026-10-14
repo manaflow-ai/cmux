@@ -130,11 +130,17 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     }
 
     /// A non-workspace item as a list row: its title (a link's page title,
-    /// the stored label, else its reference). No favicon yet: the page's icon address is not in the document.
+    /// the stored label, else its reference) and a link's page icon address.
     static func listItem(_ item: SidebarDocItem) -> SidebarListItem {
         let ref = ref(item.body, id: item.id)
         let title = label(item) ?? ref.value // a built-in or app takes its own title on the main actor (`arrange`)
-        return SidebarListItem(id: item.id, ref: ref, title: title)
+        var iconAddress = item.iconURL
+        if iconAddress == nil, case .url(let page, _) = item.body, let url = URL(string: page), let host = url.host, let scheme = url.scheme,
+           ["http", "https"].contains(scheme.lowercased()) {
+            let shownHost = host.contains(":") ? "[\(host)]" : host // an IPv6 host takes brackets
+            iconAddress = "\(scheme)://\(shownHost)\(url.port.map { ":\($0)" } ?? "")/favicon.ico" // the site's own until the item stores one
+        }
+        return SidebarListItem(id: item.id, ref: ref, title: title, iconAddress: iconAddress)
     }
 
     static func layoutItem(_ item: SidebarDocItem) -> LayoutItem {

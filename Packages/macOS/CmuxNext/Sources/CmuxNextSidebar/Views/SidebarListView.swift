@@ -20,10 +20,12 @@ final class SidebarListView: NSView {
     var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     var sections: [SectionID: SidebarSection] = [:]
-    /// Where a band item dragged over the list would land (sidebar-v2): the list shows it as its own drag's gap or group highlight.
-    var bandDrop: DropTarget? {
-        didSet { if bandDrop != oldValue { reload(animated: true) } }
-    }
+    /// The sections the list draws in their own arrangement (tiles, a grid, a line, item rows) on the sidebar document.
+    var blocks: SidebarListBlocks?
+    /// A drop into a block whose move is on the way (`SidebarHeldDrop`).
+    var heldDrop: SidebarHeldDrop?
+    /// Wires a new block's region as the sidebar wires its bands (activation, menus, app views).
+    var configureBlockRegion: ((SidebarRegionView) -> Void)?
     /// Listed document items (link, tab, app rows) by item id.
     var listItems: [String: SidebarListItem] = [:]
     /// The drag gap CALayer, under the rows.
@@ -91,6 +93,13 @@ final class SidebarListView: NSView {
         groupEditing.wire()
         // A row content change configures its one row (SidebarRowIndex), never reloads the list.
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
+        // A favicon arrived: the link rows draw it (one configure per realized link row).
+        faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                guard let self else { return }
+                for row in self.displayed.rows { if case .item = row.key, let view = self.rowViews[row.key] { self.configure(view, row: row, animated: false) } }
+            }
+        }
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
@@ -101,11 +110,13 @@ final class SidebarListView: NSView {
             // Leave the frame client alone: an active one goes idle on its next tick
             // once self is gone (touching the lazy property here would create one).
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+            if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
         }
     }
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
     private var occlusionObserver: (any NSObjectProtocol)?
+    private var faviconObserver: (any NSObjectProtocol)?
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this list's card only.
@@ -156,6 +167,7 @@ final class SidebarListView: NSView {
         }
         for workspace in workspaces.values { for tab in workspace.tabs { tabs[tab.id] = tab } }
         if let drag, !drag.isValid(in: model) { cancelDrag() }
+        settleHeldDrop()
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
@@ -172,12 +184,10 @@ final class SidebarListView: NSView {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
         }
-        // A band item dragged over the list opens the same gap a row drag does (one drop look).
-        if includeGap, drag == nil, case let .position(position)? = bandDrop {
-            o.gap = position
-            o.gapHeight = metrics.rowHeight
-        }
+        o.blockHeights = blockHeights(includeGap: includeGap)
+        o.collapsedDocSections = Set(model.collapsedLayoutSections.map(\.rawValue))
         guard let drag else { return o }
+        if drag.docItems != nil { o.showEmptyPinned = true } // an empty Pinned takes a drop on the document
         switch drag.payload {
         case let .workspaces(ids):
             o.excludedWorkspaces.formUnion(ids)
@@ -195,6 +205,8 @@ final class SidebarListView: NSView {
     }
     func frame(for row: SidebarRow) -> NSRect {
         // Group members start right of their group's line (`SidebarStyle.groupGutter`).
+        // A block's region draws its own insets, as the band did.
+        if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
         let gutter: CGFloat = switch row.key {
         case .workspace, .tab: row.group == nil ? 0 : SidebarStyle.groupGutter
         default: 0
@@ -306,24 +318,23 @@ final class SidebarListView: NSView {
             view.configure(ws, row: row)
             view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
-        case let (.item(id), view as WorkspaceRowView):
-            // The workspace row's look: favicon if any, regular-weight title, no kind glyph.
+        case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
-            view.configure(item.row, row: row)
-            view.isSecondarySelected = false
-            view.isDropTarget = false
-            view.setAccessibilityIdentifier("cmux.sidebar.item.\(id)")
+            view.configure(item, favicon: item.iconAddress.flatMap { SidebarModel.itemFavicon?($0) }, row: row)
+        case let (.block(id), view as SidebarBlockRowView):
+            guard let content = blockContent(id, includeGap: true) else { return }
+            view.show(content, width: bounds.width, animated: animated)
         case let (.tab(_, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
             view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):
             guard let group = groups[id] else { return }
             view.configure(group, row: row, animated: animated)
-            view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id) || bandDrop == .intoGroup(id)
+            view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
-        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned)
+        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         default:
             break

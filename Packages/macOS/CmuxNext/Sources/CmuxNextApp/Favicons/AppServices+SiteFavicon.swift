@@ -19,6 +19,13 @@ extension AppServices {
         return open?.faviconURL ?? origin + "/favicon.ico"
     }
 
+    /// The favicon address an open tab on the site of page `page` shows; nil without one (a sidebar link stores it).
+    func openTabFaviconAddress(_ page: String) -> String? {
+        guard let origin = URL(string: page).flatMap(BookmarkURL.faviconKey(for:)) else { return nil }
+        let address = siteFaviconAddress(origin: origin)
+        return address == origin + "/favicon.ico" ? nil : address
+    }
+
     /// The favicon of the page at `url` for `profile`, nil while it loads or without one.
     func siteFavicon(_ url: URL, profile: BrowserProfileID) -> TabImage? {
         guard let origin = BookmarkURL.faviconKey(for: url) else { return nil }

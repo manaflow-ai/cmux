@@ -34,6 +34,8 @@ public final class SidebarDocStore {
     /// A refetch asked for while one was in flight runs after it.
     @ObservationIgnored private var refetchAgain = false
     /// The last projection (`projection(live:)`), by version and live set.
+    /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
+    @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     @ObservationIgnored var projectionCache: (version: UInt64, live: [SidebarDocWorkspaceRef], projection: SidebarDocProjection)?
     /// Refs already sent to `sidebar.adopt` this session.
     @ObservationIgnored private var adopting: Set<SidebarDocWorkspaceRef> = []
@@ -114,7 +116,7 @@ public final class SidebarDocStore {
         isActive ? mirror?.acceptance(dragging: items) ?? [:] : [:]
     }
 
-    public static let pinnedSection = "sec_pinned"
+    nonisolated public static let pinnedSection = "sec_pinned"
 
     // MARK: Intents
 

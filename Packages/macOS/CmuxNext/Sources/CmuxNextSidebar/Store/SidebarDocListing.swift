@@ -8,9 +8,10 @@ import Foundation
 /// `SidebarDocSections`); this puts them where the document has them:
 /// - a machine section lists its links, tabs and apps between its rows,
 ///   in document order (`SidebarNode.item`);
-/// - a group of Pinned or a custom section leaves its machine and lists in
-///   that section's own list section (`SectionID.custom`), first in the
-///   list, right under the band that draws the section's tiles. An empty
+/// - every other section (Pinned, custom, app sections) is a list section
+///   (`SectionID.custom`) at its own place in the document order: its items
+///   draw in its own arrangement (`SidebarRowKey.block`), and its groups
+///   leave their machine and list there as header and member rows. An empty
 ///   kept group lists there too.
 extension SidebarDocProjection {
     /// `sections` arranged as this document places items; `drag` names each row's item and each list section's document section.
@@ -34,20 +35,25 @@ extension SidebarDocProjection {
             if section.machine != nil { section.nodes = Self.machineNodes(section, projection, drag: drag) }
             return section
         }
-        var listed: [SidebarSection] = []
-        for group in projection.bandGroups {
-            let node = SidebarNode.group(pulled[group.id] ?? Self.emptyGroup(group))
-            if let last = listed.indices.last, listed[last].id == .custom(group.section) {
-                listed[last].nodes.append(node)
-            } else {
-                let title = projection.layout.section(LayoutSectionID(group.section))
-                listed.append(SidebarSection(kind: .custom(SidebarCustomSection(id: group.section, title: title?.title, showsTitle: false)),
-                                             nodes: [node]))
+        // Every section of the document in its order: the sections before the machine lists (Pinned,
+        // custom, app sections) draw their items in their own arrangement (a block) and their groups as
+        // list rows; the machine lists follow; a section after them lists its groups only.
+        var before: [SidebarSection] = [], after: [SidebarSection] = []
+        var passedMachines = false
+        for layoutSection in projection.layout.sections {
+            if layoutSection.content == .workspaces {
+                passedMachines = true
+                continue
             }
+            let id = layoutSection.id.rawValue
+            let nodes = projection.bandGroups.filter { $0.section == id }.map { SidebarNode.group(pulled[$0.id] ?? Self.emptyGroup($0)) }
+            guard !passedMachines || !nodes.isEmpty else { continue }
+            let section = SidebarSection(kind: .custom(SidebarCustomSection(id: id, title: layoutSection.title, showsTitle: false)), nodes: nodes)
+            if passedMachines { after.append(section) } else { before.append(section) }
         }
-        // First in the list, after the legacy Pinned section when one shows.
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count
-        arranged.insert(contentsOf: listed, at: at)
+        arranged.insert(contentsOf: before, at: at)
+        arranged += after
         return arranged
     }
 
@@ -104,5 +110,22 @@ extension SidebarModel {
             }
         }
         return nil
+    }
+}
+
+extension SidebarDocStore {
+    /// Stores the page icon address `known` gives for each url item (an open
+    /// tab's favicon, learned by the App's favicon store) on the item, once
+    /// per address: `item.update {patch: {icon_url}}`, no undo step.
+    public func storeIconURLs(_ known: (String) -> String?) {
+        guard isActive else { return }
+        var ops: [[String: Any]] = []
+        for item in records.items.values {
+            guard case .url(let page, _) = item.body, let address = known(page), address != item.iconURL,
+                  requestedIconURLs[item.id] != address else { continue }
+            requestedIconURLs[item.id] = address
+            ops.append(["op": "item.update", "id": item.id, "patch": ["icon_url": address]])
+        }
+        if !ops.isEmpty { send(ops: ops, title: Self.moveTitle, undoable: false) }
     }
 }

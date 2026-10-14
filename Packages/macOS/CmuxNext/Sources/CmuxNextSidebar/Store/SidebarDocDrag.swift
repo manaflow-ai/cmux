@@ -55,7 +55,8 @@ public struct SidebarDocDrag {
     /// The drag geometry over `layout`'s rows (the list as drawn without
     /// the dragged rows and the gap): one slot per workspace, group and
     /// section row; tab and folder rows take no drop.
-    public func geometry(_ layout: SidebarLayout, width: CGFloat, acceptance: [String: SidebarDocAcceptance]) -> (SidebarDragGeometry, [String: SidebarRow]) {
+    public func geometry(_ layout: SidebarLayout, width: CGFloat, acceptance: [String: SidebarDocAcceptance],
+                         blocks: [String: SidebarRegionLayout] = [:]) -> (SidebarDragGeometry, [String: SidebarRow]) {
         var slots: [SidebarDragGeometry.Slot] = []
         var rows: [String: SidebarRow] = [:]
         for row in layout.rows {
@@ -72,6 +73,9 @@ public struct SidebarDocDrag {
             case .section, .emptySection:
                 slots.append(.init(key: section, item: nil, section: section, frame: frame, kind: .section))
                 rows[section] = row
+            case .block(let id):
+                // A block's items: tiles and rows of its own arrangement, at their base frames.
+                if let block = blocks[id] { slots += blockSlots(block, at: row.y) }
             case .tab, .folder:
                 continue
             }

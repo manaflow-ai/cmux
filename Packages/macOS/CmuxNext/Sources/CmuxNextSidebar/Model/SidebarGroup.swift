@@ -105,22 +105,18 @@ public nonisolated enum SidebarNode: Identifiable, Hashable, Sendable {
 
 /// A url, tab or app item of the sidebar document listed as a row
 /// (sidebar-v2): its document item id, what a click runs, and what it draws
-/// (favicon if any, regular-weight title, no kind glyph).
+/// (the favicon at `iconAddress` when known, regular-weight title, no kind glyph).
 public nonisolated struct SidebarListItem: Hashable, Sendable {
     public var id: String
     public var ref: LayoutItemRef
     public var title: String
-    public var icon: WorkspaceIcon?
+    /// The page icon address of a link (stored on the item, else the site's own).
+    public var iconAddress: String?
 
-    public init(id: String, ref: LayoutItemRef, title: String, icon: WorkspaceIcon? = nil) {
+    public init(id: String, ref: LayoutItemRef, title: String, iconAddress: String? = nil) {
         self.id = id
         self.ref = ref
         self.title = title
-        self.icon = icon
-    }
-
-    /// The row the list draws for it: a workspace row's content, never closable.
-    public var row: SidebarWorkspace {
-        SidebarWorkspace(id: WorkspaceID("item:\(id)"), title: title, icon: icon, isClosable: false)
+        self.iconAddress = iconAddress
     }
 }

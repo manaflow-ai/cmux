@@ -94,7 +94,7 @@ extension SidebarView {
         return model.layout.sections.flatMap { section in
             section.items.map { item -> SidebarDebugItem in
                 var frame: CGRect?
-                for region in bandRegions {
+                for region in bandRegions + list.blockRegions {
                     guard let view = region.itemView(item.id), view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue }
                     let inWindow = view.convert(view.bounds, to: nil)
                     frame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
@@ -117,7 +117,7 @@ extension SidebarView {
 
     /// The list's rows and their views, the selection and the drag (debug).
     /// The drag's last drop probe (debug): nil while nothing is dragged.
-    public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe ?? aboveRegion.reorder?.docBand?.probe }
+    public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
 
     public func debugRows() -> (rows: [SidebarDebugRow], selection: [String], dragging: [String]) {
         let rows = list.displayed.rows.map { row -> SidebarDebugRow in

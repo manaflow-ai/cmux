@@ -102,9 +102,12 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     public var span: Int?
     /// The name stored with the item (a closed workspace draws it).
     public var label: String?
+    /// A url item's page icon address (body `icon_url`): the favicon its row draws.
+    public var iconURL: String?
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
-                label: String? = nil) {
+                label: String? = nil, iconURL: String? = nil) {
+        self.iconURL = iconURL
         self.id = id
         self.section = section
         self.parent = parent

@@ -23,12 +23,7 @@ extension SidebarView {
         }
         for region in bandRegions {
             region.liftHost = self
-            region.onActivateWithModifiers = { [weak self, weak region] id, flags in
-                // The profile control opens its menu over itself.
-                if let view = region?.itemView(id), view.showsAvatar, self?.footerBand.showProfileMenu(from: view) == true { return }
-                self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
-            }
-            region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
+            wireItems(region)
             // A drop gives the layout the order the band showed (R77).
             region.onReorder = { [weak self] subject, shown in
                 guard let self, let op = SidebarRegionReorder.op(for: subject, shown: shown, document: self.model.layout) else { return }
@@ -38,6 +33,13 @@ extension SidebarView {
                 }
                 self.model.send(.layout(op))
             }
+        }
+        // The sidebar document draws its sections in the list (one renderer); their regions take the same activation and menus.
+        list.configureBlockRegion = { [weak self] region in
+            guard let self else { return }
+            self.wireItems(region)
+            region.contextMenuProvider = self.list.contextMenuProvider
+            region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
         SidebarPinDrops.install(self)
         // The footer row (the profile control and the spaces dots) takes no
@@ -52,6 +54,16 @@ extension SidebarView {
         wantsLayer = true
         aboveLine.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
         layer?.addSublayer(aboveLine)
+    }
+
+    /// A region's item activation and section folding (the bands and the list's blocks).
+    private func wireItems(_ region: SidebarRegionView) {
+        region.onActivateWithModifiers = { [weak self, weak region] id, flags in
+            // The profile control opens its menu over itself.
+            if let view = region?.itemView(id), view.showsAvatar, self?.footerBand.showProfileMenu(from: view) == true { return }
+            self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
+        }
+        region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
     }
 
     /// Gives the three regions their sections: the band above the list,
@@ -79,7 +91,27 @@ extension SidebarView {
             SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,
                                       look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width))
         }
-        aboveRegion.update(content(shownAbove), width: width)
+        if model.docDrag != nil {
+            // The sidebar document (one renderer): its sections draw in the list, in document order; the band
+            // above keeps only the client's own item (What's New).
+            let docSections = above.presenting(hidingItems: hidden, apps: apps).map(titled)
+            // Only the blocks' own items' infos: another item's change does not reload the list.
+            let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
+            let blocks = SidebarListBlocks(sections: Dictionary(docSections.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first }),
+                                           infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look, metrics: metrics,
+                                           drawsLines: Borders.drawsLines, appHeights: appHeights(docSections, width: width))
+            aboveRegion.update(content(model.transientTopSection.map { [$0] } ?? []), width: width)
+            if list.blocks != blocks {
+                list.blocks = blocks
+                list.reload(animated: true)
+            }
+        } else {
+            aboveRegion.update(content(shownAbove), width: width)
+            if list.blocks != nil {
+                list.blocks = nil
+                list.reload(animated: false)
+            }
+        }
         // No bottom-left sections (Lawrence 2026-10-10, cx-n0i9: "no more bottom left stuff"): the
         // band below the list draws nothing; only the footer row stays. A stored layout keeps
         // its sections there (no user data is removed); they just do not draw.

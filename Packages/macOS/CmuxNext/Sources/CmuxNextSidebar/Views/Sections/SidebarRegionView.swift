@@ -30,9 +30,13 @@ final class SidebarRegionView: NSView {
     var dropToListProbe: ((NSPoint?) -> Bool)?
     /// A workspace item was dropped on the list.
     var onDropToList: ((LayoutItemID) -> Void)?
-    /// The sidebar this band draws in: on the sidebar document an item's
-    /// drag hit-tests the band and the list as one (`SidebarDocBandDrag`).
-    weak var docHost: SidebarView?
+    /// The list this region draws one section in (the sidebar document's
+    /// one renderer, `SidebarBlockRowView`): its item drags are the list's.
+    weak var docList: SidebarListView?
+    /// The item whose press the list's drag holds (it stays in the window, hidden, until the release).
+    var docPressedItem: LayoutItemID?
+    /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
+    var docSpentPress: LayoutItemID?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The region's height changed outside its host's layout (a drag's
     /// preview, a landed drop): the host lays its bands out again.
@@ -113,6 +117,18 @@ final class SidebarRegionView: NSView {
         layoutResult = result
         apply(shown)
     }
+
+    /// Shows `content` (a list block, `SidebarBlockRowView`): animated, the
+    /// items spring to their new frames, as the list's rows do for a gap.
+    func show(_ content: Content, width: CGFloat, animated: Bool) {
+        guard animated, self.content != nil, content != self.content || width != self.width else { return update(content, width: width) }
+        self.content = content
+        self.width = width
+        relayout(animated: true)
+    }
+
+    /// The layout of `content` at `width` (a list block's height and hit test).
+    static func layout(of content: Content, width: CGFloat) -> SidebarRegionLayout { layout(content, width: width) }
 
     /// Lays out the shown order again; animated, every row springs to its frame.
     func relayout(animated: Bool) {
@@ -215,11 +231,17 @@ final class SidebarRegionView: NSView {
                 }
                 view.configure(content.infos[id] ?? .fallback(for: item), style: style)
                 place(view, row.frame)
+                if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
             }
         }
         // A dragged item's view owns the press (AppKit sends it the drags
         // and the release): it stays, hidden, while a preview leaves it out.
-        let pressed = Set((reorder?.hidden ?? []).map(ObjectIdentifier.init))
+        var pressed = Set((reorder?.hidden ?? []).map(ObjectIdentifier.init))
+        // A list block's tile the list's drag lifted: it holds the press, so it stays (hidden) until the release.
+        if let id = docPressedItem, let view = itemViews[id], !liveItems.contains(id) {
+            pressed.insert(ObjectIdentifier(view))
+            view.alphaValue = 0
+        }
         for (id, view) in itemViews where !liveItems.contains(id) && !pressed.contains(ObjectIdentifier(view)) {
             view.removeFromSuperview()
             itemViews[id] = nil

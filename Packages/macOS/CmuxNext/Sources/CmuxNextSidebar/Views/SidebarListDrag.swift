@@ -49,8 +49,14 @@ final class SidebarListDrag {
     var docAcceptance: [String: SidebarDocAcceptance] = [:]
     var docGeometry: (SidebarDragGeometry, [String: SidebarRow])?
     var docTarget: SidebarDocTarget?
-    /// The document drag is over the band: its line shows there and the list opens no gap.
-    var overBand = false
+    /// A drag of an item a list block draws (a Pinned or custom tile or row): its section and item.
+    var tileSource: (section: String, item: LayoutItemID)?
+    /// The region whose tile holds the press (it keeps the view until the release).
+    weak var tileRegion: SidebarRegionView?
+    /// Where the drop opens a gap in a block (a tile section): the section and the index among its items.
+    var blockTarget: SidebarBlockGap?
+    /// Each block's laid-out items without the dragged one, at the drag's begin (its hit test's base).
+    var blockBases: [String: SidebarRegionLayout] = [:]
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?
@@ -104,6 +110,7 @@ final class SidebarListDrag {
         case let .workspaces(ids): ids.allSatisfy { model.workspace($0) != nil }
         case let .group(group): model.group(group) != nil
         case let .item(id): model.sections.contains { $0.nodes.contains { $0.id == .item(id) } }
+            || (tileSource.flatMap { model.layout.section(LayoutSectionID($0.section)) }?.items.contains { $0.id.rawValue == id } ?? false)
         }
     }
 }

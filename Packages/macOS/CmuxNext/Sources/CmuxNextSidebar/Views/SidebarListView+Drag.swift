@@ -7,6 +7,7 @@ extension SidebarListView {
     typealias Drag = SidebarListDrag
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)
+        heldDrop = nil
         guard displayed.row(for: press.key) != nil else { return }
         let payload: DragPayload
         var hidden: Set<SidebarRowKey>
@@ -31,7 +32,7 @@ extension SidebarListView {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, index: row.siblingIndex))
-        case .tab, .section, .emptySection, .folder:
+        case .tab, .section, .emptySection, .folder, .block:
             return
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
@@ -69,8 +70,12 @@ extension SidebarListView {
         if offerHandoff(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
-        // The lifted row follows the pointer vertically; x stays locked.
-        SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: visibleRect)
+        // The lifted row follows the pointer vertically; x stays locked. A tile has neighbours beside it: it follows both ways.
+        if drag.tileSource != nil {
+            SidebarReorderLift.follow(drag.lift, origin: CGPoint(x: point.x - drag.grabOffsetX, y: point.y - drag.grabOffsetY), visible: visibleRect)
+        } else {
+            SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: visibleRect)
+        }
         autoscroll.update(windowPoint: windowPoint)
         let card = drag.probeCard
         if point.y != drag.lastY {
@@ -92,12 +97,15 @@ extension SidebarListView {
         if SidebarListPinDrop.finish(self, drag) { return }
         if let items = drag.docItems, let doc = model.docDrag {
             guard let target = drag.docTarget else { return cancelDrag() }
+            let gapFrame = drag.blockTarget.flatMap(blockGapFrame)
+            // The block keeps the gap and hides the moved items until the move lands (no snap back).
+            heldDrop = SidebarHeldDrop(hidden: Set(items), gap: drag.blockTarget, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
             revealedActive = nil
             doc.drop(items, target)
             suppressed = drag.hiddenKeys
             reload(animated: true)
-            return land(drag)
+            return land(drag, at: gapFrame)
         }
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
@@ -124,21 +132,40 @@ extension SidebarListView {
     private func updateDocDrag(_ drag: Drag, point: NSPoint) {
         guard let doc = model.docDrag else { return }
         if drag.docGeometry == nil {
+            drag.blockBases = blockBases()
             let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
-            drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance)
+            drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance, blocks: drag.blockBases)
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
-        let y = SidebarDragGeometry.baseY(displayY: drag.probeCard.midY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
+        let displayY = drag.probeCard.midY
+        let y = drag.blockTarget != nil ? baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases)
+            : SidebarDragGeometry.baseY(displayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
         guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else {
+            // Nowhere to drop: no gap shows.
             drag.docTarget = nil
+            if drag.target != nil || drag.blockTarget != nil {
+                (drag.target, drag.blockTarget) = (nil, nil)
+                reload(animated: true)
+            }
             return
         }
-        drag.probe = SidebarDropProbe(hit, displayY: drag.probeCard.midY, baseY: y)
+        drag.probe = SidebarDropProbe(hit, displayY: displayY, baseY: y)
         drag.docTarget = hit.target
-        let target = hit.target == nil ? nil : rows[hit.slot.key].map { SidebarDocDrag.display(hit, row: $0) }
         drag.lift.setRefused(hit.target == nil)
-        guard target != drag.target else { return }
+        // A list row shows the list's gap or group fill; a block's item opens a gap among the block's items.
+        var target: DropTarget?
+        var blockTarget: SidebarBlockGap?
+        if let docTarget = hit.target {
+            if let row = rows[hit.slot.key] {
+                target = SidebarDocDrag.display(hit, row: row)
+            } else {
+                blockTarget = SidebarBlockGap(section: hit.slot.section,
+                                              index: blockIndex(docTarget, section: hit.slot.section, moving: drag.docItems ?? []))
+            }
+        }
+        guard target != drag.target || blockTarget != drag.blockTarget else { return }
         drag.target = target
+        drag.blockTarget = blockTarget
         reload(animated: true)
     }
 
@@ -148,6 +175,7 @@ extension SidebarListView {
         SidebarListPinDrop.end(self)
         self.drag = nil
         press?.cancelled = true
+        if let source = drag.tileSource { drag.tileRegion?.docSpentPress = source.item } // the tile's press drags nothing more
         suppressed = drag.hiddenKeys
         reload(animated: true)
         land(drag)

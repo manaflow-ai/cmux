@@ -16,7 +16,8 @@ extension SidebarListView {
         default: nil
         }
         // Held over the band: the list without the dragged rows (the pin drop's outcome, cx-odqn).
-        guard let drag, drag.pinTarget == nil, let position = shownPosition else {
+        // A tile has no list row to move: the list opens its gap (`options`).
+        guard let drag, drag.pinTarget == nil, drag.tileSource == nil, let position = shownPosition else {
             return SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true))
         }
         var sections = model.sections

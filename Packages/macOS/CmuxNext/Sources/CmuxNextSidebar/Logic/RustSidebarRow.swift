@@ -39,8 +39,8 @@ nonisolated struct RustRowKey: Codable {
             id = nil
             section = RustSectionID(value)
             workspace = nil
-        case let .item(item):
-            // Never sent: `RustRow.resolvable` leaves document item rows out.
+        case let .item(item), let .block(item):
+            // Never sent: `RustRow.resolvable` leaves document rows out.
             kind = "item"
             id = item
             section = nil

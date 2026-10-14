@@ -140,17 +140,31 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let gapHere = o.gap?.section == section.id
             if nodes.isEmpty && filtering { continue }
             if isPinned && nodes.isEmpty && !o.showEmptyPinned && !gapHere { continue }
-            // A document section's groups list under its band (sidebar-v2): it draws no header or empty zone of its own.
+            // A document section (sidebar-v2) draws its items in its own arrangement (one block row, its
+            // region draws the header), then its groups as list rows; collapsed, only the block shows.
             let isDocSection = section.isDocSection
-            if isDocSection && nodes.isEmpty && !gapHere { continue }
+            var docID: String?
+            if case let .custom(custom) = section.kind { docID = custom.id }
+            let blockHeight = docID.flatMap { o.blockHeights[$0] } ?? 0
+            if let docID, o.collapsedDocSections.contains(docID) { nodes = [] }
+            let emptyDropZone = docID == SidebarDocStore.pinnedSection && o.showEmptyPinned && !filtering
+            if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
             let flat = o.flattensMachines && section.machine != nil
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
-            // Consecutive computers in one list read as one list: no gap.
-            if !firstSection && !(flat && previousWasMachine) { y += m.sectionSpacing }
+            // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
+            if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += m.sectionSpacing }
             firstSection = false
             previousWasMachine = section.machine != nil
+            if let docID, blockHeight > 0 {
+                rows.append(SidebarRow(
+                    key: .block(docID), y: y, height: blockHeight, section: section.id,
+                    group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
+                    isCollapsed: false, childCount: 0, groupColor: nil
+                ))
+                y += blockHeight
+            }
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
             let showsHeader = !isDocSection && (section.machine == nil
@@ -175,7 +189,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if nodes.isEmpty {
                 if gapHere {
                     openGapIfNeeded(section: section.id, group: nil, index: 0)
-                } else {
+                } else if blockHeight == 0 {
                     rows.append(SidebarRow(
                         key: .emptySection(section.id), y: y, height: m.emptySectionHeight, section: section.id,
                         group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
@@ -212,7 +226,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                     }
                 case let .item(item):
-                    let content = WorkspaceRowContent(icon: item.icon)
+                    let content = WorkspaceRowContent() // one line, as a compact workspace row
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .item(item.id), y: y, height: h, section: section.id,

@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
+import Foundation
 
 /// The sidebar document (sidebar-v2, `sidebar-doc-v1`): one store for the home session; its bands shown through
 /// `SidebarLayoutService.docLayout`, its machine order read by `PersonalSidebar`, and every move (drag, keyboard,
@@ -26,6 +27,15 @@ enum SidebarDocWiring {
             PinCommands(context: AppActionContext(services: services)).registerUndo(title: title) { _ in undo() }
         }
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
+        // Link rows draw the favicon at their item's icon address; an open tab's favicon address is stored on the item.
+        SidebarModel.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
+        // task-owner: the app's services (live for the app); event-driven (Observation)
+        Task { [weak services] in
+            for await _ in ObservationStream({ (services?.favicons.revision, store.version) }) {
+                NotificationCenter.default.post(name: SidebarModel.itemFaviconsChanged, object: nil)
+                store.storeIconURLs { page in services?.openTabFaviconAddress(page) }
+            }
+        }
         // task-owner: the app's services (live for the app); event-driven (Observation)
         Task { for await _ in ObservationStream({ (local.connection != nil, serves()) }) { store.refresh() } }
         // task-owner: the app's services; one view call per document or live-set change

@@ -147,7 +147,7 @@ nonisolated enum SidebarDocWire {
             default: .other(self.body.tag)
             }
             return SidebarDocItem(id: id, section: section, parent: parent, body: body, showsLabel: showsLabel ?? true, span: span,
-                                  label: label ?? self.body.string("label"))
+                                  label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url"))
         }
     }
 
