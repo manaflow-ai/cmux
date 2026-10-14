@@ -233,8 +233,9 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
     pending.delete(id);
   };
   let feed;
+  let ownership;
   const flushPending = () => {
-    if (disposed || !feed) return;
+    if (disposed || !feed || !ownership) return;
     for (const [id, events] of pending) {
       if (!ownership.belongs(id)) continue;
       pending.delete(id);
@@ -246,7 +247,7 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
       }
     }
   };
-  const ownership = createOwnership(ctx, flushPending);
+  ownership = createOwnership(ctx, flushPending);
   feed = await CMUXFeed(ctx, {
     tui: true,
     ownsSession: ownership.belongs,
@@ -263,6 +264,11 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
     if (!events.has(event.type)) events.set(event.type, event);
   };
   const onEvent = ({ details, event }) => {
+    // OpenCode v2 exposes route/tab state as reactive reads rather than a
+    // stable callback. Re-check queued starts at every event boundary too, so
+    // a restored route that commits between lifecycle events is admitted
+    // without a wall-clock retry or a dropped final attempt.
+    flushPending();
     void handleEvent(ctx, ownership, feed, details || event, environment, {
       cancel: cancelPending,
       enqueue: enqueueSessionStart,
