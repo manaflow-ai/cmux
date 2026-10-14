@@ -1019,3 +1019,18 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* A narrow conversation (under the dock width): the name keeps its room; the faces and the
+   context line give way, and times never wrap. */
+@container lg-main (max-width: 480px) {
+  .lg-faces,
+  .lg-header-context {
+    display: none;
+  }
+}
+.lg-header-title {
+  min-width: 4em;
+}
+.hc-msg.lg-msg .hc-msg-time {
+  white-space: nowrap;
+}
