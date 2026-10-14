@@ -16,16 +16,34 @@ import Observation
 /// dirty; one flush per main-actor turn maps the dirty rows again (each
 /// observation fires once and is armed again, so none piles up) and hands
 /// the changed ones to `onChange`.
+///
+/// Each row has one live observation at most: before a row is observed
+/// again while its observation is still armed (the inputs changed), and
+/// when a row is forgotten, the feed fires that observation through the
+/// row's `Cancel` signal, so the registrar drops it, and the stale
+/// callback is ignored by its generation. Observation tracking has no
+/// cancel call; without this every inputs change left one registration per
+/// unchanged row behind.
 @MainActor
 public final class SidebarRowFeed {
     /// Maps one row from its store; runs on the main actor (the feed and its callers are main-actor).
     public typealias Make = () -> SidebarWorkspace
+
+    /// Read by every row mapping under its observation; writing it fires
+    /// (and so removes) that observation.
+    @Observable
+    private final class Cancel {
+        var epoch: UInt64 = 0
+    }
 
     private final class Entry {
         var make: Make
         var row: SidebarWorkspace
         /// The row's mapping has an observation armed.
         var armed = false
+        /// The armed observation's generation; a callback of an older one is stale.
+        var generation: UInt64 = 0
+        let cancel = Cancel()
         /// The pass that last named the row.
         var pass: UInt64
 
@@ -65,6 +83,7 @@ public final class SidebarRowFeed {
     /// Forgets every row and stops reporting (the window closed).
     public func reset() {
         onChange = nil
+        for entry in entries.values { disarm(entry) }
         entries.removeAll()
         dirty.removeAll()
     }
@@ -95,7 +114,10 @@ public final class SidebarRowFeed {
     }
 
     private func fillNow(_ sections: [SidebarSection]) -> [SidebarSection] {
-        for (id, entry) in entries where entry.pass != pass { entries[id] = nil }
+        for (id, entry) in entries where entry.pass != pass {
+            disarm(entry)
+            entries[id] = nil
+        }
         var rows: [SidebarWorkspace] = []
         rows.reserveCapacity(named.count)
         let remap = inputsChanged
@@ -109,20 +131,36 @@ public final class SidebarRowFeed {
         return SidebarRowIndex.patching(rows, in: sections)
     }
 
-    /// Maps `entry` under an observation that marks it dirty on its next change.
+    /// Maps `entry` under an observation that marks it dirty on its next
+    /// change; an observation still armed is removed first (one per row).
     private func arm(_ id: WorkspaceID, _ entry: Entry) -> SidebarWorkspace {
+        disarm(entry)
         entry.armed = true
-        return withObservationTracking { entry.make() } onChange: { [weak self] in
+        let generation = entry.generation
+        let cancel = entry.cancel
+        return withObservationTracking {
+            _ = cancel.epoch
+            return entry.make()
+        } onChange: { [weak self] in
             if Thread.isMainThread {
-                MainActor.assumeIsolated { self?.markDirty(id) } // main-proof: checked on the line above
+                MainActor.assumeIsolated { self?.markDirty(id, generation: generation) } // main-proof: checked on the line above
             } else {
-                Task { @MainActor [weak self] in self?.markDirty(id) }
+                Task { @MainActor [weak self] in self?.markDirty(id, generation: generation) }
             }
         }
     }
 
-    private func markDirty(_ id: WorkspaceID) {
-        guard let entry = entries[id] else { return }
+    /// Removes `entry`'s armed observation: the write fires it (the registrar
+    /// drops it) and the new generation makes its callback a no-op.
+    private func disarm(_ entry: Entry) {
+        entry.generation &+= 1
+        guard entry.armed else { return }
+        entry.armed = false
+        entry.cancel.epoch &+= 1
+    }
+
+    private func markDirty(_ id: WorkspaceID, generation: UInt64) {
+        guard let entry = entries[id], entry.generation == generation else { return }
         entry.armed = false
         dirty.insert(id)
         guard !flushScheduled else { return }
