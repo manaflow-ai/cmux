@@ -188,6 +188,7 @@ impl Hub {
             *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
+        self.offers.forget(&meta.id);
         self.append(
             &session,
             "mux",

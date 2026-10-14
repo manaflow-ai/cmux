@@ -37,6 +37,8 @@
 //! found", like `_acpmux/directories`. Agents and MCP get them only through
 //! the `chats.read` scope, which is never granted by default.
 
+mod offers;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -60,6 +62,9 @@ pub(super) async fn route(
 ) -> Result<Value, RpcError> {
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
     if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = offers::dispatch(hub, conn, m, &params) {
         return reply;
     }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
