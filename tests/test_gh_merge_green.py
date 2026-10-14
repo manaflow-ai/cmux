@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import os
 import shlex
+import sys
 import textwrap
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -314,11 +315,19 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, full=True, rollup=(), rollup_head=HEAD):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, full=True, rollup=(), rollup_head=HEAD, excuse=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
-        `gh pr view --json statusCheckRollup` read returns rollup."""
+        `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
+        stands in for scripts/ci/base_red_excuse.py through a python3 on PATH."""
         gh = Path(directory) / "gh"
+        if excuse is not None:
+            python = Path(directory) / "python3"
+            python.write_text(
+                "#!/bin/sh\n"
+                "case \"$1\" in */base_red_excuse.py) printf '%s\\n' " + shlex.quote(excuse[1]) + "; exit " + str(int(excuse[0])) + ";; esac\n"
+                "exec " + shlex.quote(sys.executable) + " \"$@\"\n")
+            python.chmod(0o755)
         if full:
             extra_args = ("--full", *extra_args)
         rollup_payload = shlex.quote(json.dumps({"headRefOid": rollup_head, "files": [{"path": f} for f in changed_files], "statusCheckRollup": [
@@ -375,6 +384,17 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("exploration PR, needs a decision from Leo or the team before merging.", result.stderr)
+
+    def test_an_early_refusal_prints_exactly_one_summary_line(self):
+        """The exploration label refuses before the base decides the gate; the run still says so once."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, labels=("exploration",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("refused", summary[0])
+            self.assertNotIn("merged", summary[0])
 
     def test_exploration_label_refuses_main_fix_before_validator(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -570,6 +590,44 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("cmux-next path routing", result.stderr)
+
+    OVERRIDE = "the fast tier is red on the feat-cmux-next base for the same test"
+    LINT = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+
+    def test_override_waives_a_red_fast_lane_on_the_fast_gate(self):
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     extra_args=("--override", self.OVERRIDE), event_log=events,
+                                     excuse=(1, "the base is green"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["comment", "merge"])
+            self.assertIn("--override waives cmux-next fast tier", result.stderr)
+
+    def test_override_does_not_waive_a_red_lint_check_on_the_fast_gate(self):
+        rollup = list(self.FAST_GREEN) + [(self.LINT, "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     extra_args=("--override", self.OVERRIDE), event_log=events,
+                                     excuse=(1, "the base is green"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertFalse(events.exists(), "the override reason was posted before refusing")
+            self.assertIn(self.LINT, result.stderr)
+
+    def test_a_red_fast_lane_the_base_shares_merges_on_the_fast_gate(self):
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     event_log=events, excuse=(0, "cmux-next fast tier: red on the base too"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["merge"])
+            self.assertIn("note: cmux-next fast tier: red on the base too", result.stderr)
 
     def test_full_keeps_the_wait_for_every_check(self):
         with tempfile.TemporaryDirectory() as directory:

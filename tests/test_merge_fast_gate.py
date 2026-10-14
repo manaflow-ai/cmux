@@ -10,8 +10,9 @@ spec.loader.exec_module(gate)
 HEAD = "a" * 40
 
 
-def check(name, status="COMPLETED", conclusion="SUCCESS"):
-    return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion}
+def check(name, status="COMPLETED", conclusion="SUCCESS", started=None, completed=None):
+    return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion,
+            "startedAt": started, "completedAt": completed}
 
 
 class Reader:
@@ -86,6 +87,35 @@ class FastGate(unittest.TestCase):
         rollup.pop(1)
         _, _, reds = run(Reader(rollup))
         self.assertEqual(reds, [])
+
+    def test_the_latest_started_run_wins_whatever_the_rollup_order(self):
+        """The rollup is not ordered by time: an older green listed after a newer red must not hide it."""
+        for newer in ("CANCELLED", "FAILURE"):
+            with self.subTest(newer=newer):
+                rollup = [c for c in GREEN if c["name"] != "cmux-next fast tier"] + [
+                    check("cmux-next fast tier", conclusion=newer, started="2026-10-14T10:05:00Z", completed="2026-10-14T10:09:00Z"),
+                    check("cmux-next fast tier", started="2026-10-14T09:00:00Z", completed="2026-10-14T09:04:00Z")]
+                _, _, reds = run(Reader(rollup))
+                self.assertEqual(reds, ["cmux-next fast tier"])
+        # Equal start times fall back to completedAt, then list order.
+        rollup = [c for c in GREEN if c["name"] != "cmux-next fast tier"] + [
+            check("cmux-next fast tier", conclusion="FAILURE", started="2026-10-14T10:00:00Z", completed="2026-10-14T10:09:00Z"),
+            check("cmux-next fast tier", started="2026-10-14T10:00:00Z", completed="2026-10-14T10:02:00Z")]
+        _, _, reds = run(Reader(rollup))
+        self.assertEqual(reds, ["cmux-next fast tier"])
+
+    def test_a_webviews_change_stops_waiting_when_the_web_caller_finished_or_skipped_it(self):
+        """No react-apps-check is coming once the caller job "web" finished, or react-apps-check was skipped."""
+        for rollup in ([check("web")], [check("web", conclusion="SKIPPED")], [check("web / react-apps-check", conclusion="SKIPPED")]):
+            with self.subTest(rollup=rollup):
+                waited, _, reds = run(Reader(rollup, files=("webviews/src/a.ts",)), covered=False)
+                self.assertEqual((waited, reds), (0, []))
+        # A red caller with no react-apps-check is a red, not a pass.
+        _, _, reds = run(Reader([check("web", conclusion="FAILURE")], files=("webviews/src/a.ts",)), covered=False)
+        self.assertEqual(reds, ["web"])
+        # A running caller still waits.
+        with self.assertRaisesRegex(gate.Refused, "react-apps-check"):
+            run(Reader([check("web", "IN_PROGRESS", "")], files=("webviews/src/a.ts",)), timeout=60, covered=False)
 
     def test_times_out_naming_the_lane_and_refuses_a_moved_head(self):
         with self.assertRaisesRegex(gate.Refused, "still waiting on cmux-next fast tier"):
