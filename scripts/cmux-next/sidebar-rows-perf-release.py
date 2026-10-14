@@ -292,7 +292,7 @@ def main_thread_profile(trace):
 
 
 def record(name, ticks, terms, profile):
-    path = os.path.join(opts.out, "traces", f"{opts.label}-{name}.trace")
+    path = os.path.join(SCRATCH, "traces", f"{opts.label}-{name}.trace")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     shutil.rmtree(path, ignore_errors=True)
     tick_end = None
@@ -300,9 +300,12 @@ def record(name, ticks, terms, profile):
         start_ticks(terms, TICK_RUN_S)
         tick_end = time.monotonic() + TICK_RUN_S
         time.sleep(1)  # harness: the tick programs are running before the recorder attaches
+    # The recorder's ktrace intermediates (1-12 GB each) go to a temp dir of this run, removed after the export.
+    xct_tmp = os.path.join(SCRATCH, "xctrace-tmp")
+    os.makedirs(xct_tmp, exist_ok=True)
     proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Animation Hitches", "--attach", str(Target.pid),
                              "--time-limit", "60s", "--output", path, "--no-prompt"],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=dict(os.environ, TMPDIR=xct_tmp + "/"))
     time.sleep(4)  # harness: the recorder attaches before the gesture
     began = time.monotonic()
     bad = sweep("down") + sweep("up")
@@ -317,11 +320,20 @@ def record(name, ticks, terms, profile):
     result = {"name": name, "gesture_s": gesture_s, "wheel_errors": [json.dumps(b)[:200] for b in bad[:3]],
               "xctrace_exit": proc.returncode}
     if not os.path.exists(path):
+        shutil.rmtree(xct_tmp, ignore_errors=True)
         result["error"] = f"no trace: {(out or '')[-300:]}"
         return result
     result.update(hitches(path, Target.pid))
     if profile:
         result["profile"] = main_thread_profile(path)
+    # Report (never delete: other jobs' files) ktrace intermediates that still landed in the default temp dir.
+    default_tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    leaked = [f for f in (os.listdir(default_tmp) if os.path.isdir(default_tmp) else [])
+              if f.startswith("instruments") and f.endswith(".ktrace") and os.path.getmtime(os.path.join(default_tmp, f)) >= began - 10]
+    result["default_tmp_ktrace_since_start"] = len(leaked)
+    # Keep only the numbers: the trace and the recorder's intermediates are removed (host disk).
+    shutil.rmtree(path, ignore_errors=True)
+    shutil.rmtree(xct_tmp, ignore_errors=True)
     if tick_end:
         time.sleep(max(0.0, tick_end - time.monotonic()) + 1)  # harness: the tick programs end before the next run
     print(f"{name}: {json.dumps({k: v for k, v in result.items() if k != 'profile'})}", flush=True)
@@ -374,4 +386,5 @@ finally:
         json.dump(summary, fh, indent=1)
     subprocess.run([STOP], check=False)
     cua("end_session", {})
+    shutil.rmtree(SCRATCH, ignore_errors=True)
 sys.exit(1 if failures else 0)
