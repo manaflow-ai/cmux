@@ -417,9 +417,13 @@ stash named after their workspace instead of in the closed history; a tab
 that is not a web page or is incognito refuses `{tabs}`, and `{workspace}`
 leaves such tabs (and pinned ones) open as `skipped`. Members keep the
 closed-history tab record (URL with secret query keys stripped, profile,
-engine, back/forward history), so `stash.restore {stash, members?, target?}`
-reopens them like `closed.reopen` (`here`) or in one new workspace
-(`new_workspace`); restored members leave the stash in the same commit.
+engine, back/forward history) and a stable member `id`; `members` names
+members by those ids, and an id the stash no longer holds is
+`resource.not_found` with nothing changed. `stash.restore {stash, members?,
+target?, pane?}` reopens them like `closed.reopen` (`here`; a member whose
+own pane is gone opens in `pane`, the pane the user acted from) or in one
+new workspace (`new_workspace`); restored members leave the stash in the
+same commit. App tabs and pages that are not http(s) are never stashed.
 `stash.delete` drops members or a stash, `stash.import {source: onetab,
 groups}` stores OneTab groups (http(s) pages only), and `stash.list` never
 shows back/forward history. Changes are `state_upsert`/`state_delete` of
