@@ -117,7 +117,8 @@ fn with_no_keychain_keys_work_for_one_router_run_and_the_status_says_ephemeral()
         &home,
         json!({"op": "mint_key", "scope": {"harness": "fake", "session": "s1", "surfaces": [], "families": ["open_ai_chat"], "expires_at": 0}}),
     );
-    let key = minted["key"].as_str().unwrap_or_else(|| panic!("no key minted: {minted}")).to_owned();
+    let key =
+        minted["key"].as_str().unwrap_or_else(|| panic!("no key minted: {minted}")).to_owned();
     // Within the run the key is accepted: the relay answers that no hosted
     // upstream is signed in (503), never that the key is unknown (401).
     assert_eq!(relay_status(port, &key), 503);
