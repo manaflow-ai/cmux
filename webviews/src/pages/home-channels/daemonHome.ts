@@ -48,7 +48,8 @@ function participant(raw: Json): HomeParticipant {
   return {
     id: String(raw.id),
     kind: raw.kind === "agent" ? "agent" : "human",
-    name: chief ? "Chief" : String(raw.display_name ?? raw.id),
+    // Several Chiefs keep their own names; one without a name is "Chief".
+    name: String(raw.display_name || (chief ? "Chief" : raw.id)),
     chief,
   };
 }
@@ -162,6 +163,13 @@ export function conversation(raw: Json, me: string): HomeConversation {
   };
   const text = plain(last);
   if (text !== undefined) result.lastText = text;
+  if (last && !last.retracted_at) {
+    result.lastAuthor = String(last.author);
+    result.lastAt = time(last.created_at);
+    const work = ((last.parts as Json[] | undefined) ?? []).find((item) => item.type === "work");
+    const status = work && String(work.status);
+    if (status === "running" || status === "waiting" || status === "done" || status === "failed") result.lastWork = status;
+  }
   return result;
 }
 

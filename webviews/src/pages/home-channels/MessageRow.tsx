@@ -40,6 +40,12 @@ export interface MessageRowProps {
   parent?: HomeMessage;
   /** A link opened this message: it is marked (the timeline scrolls to it). */
   highlighted?: boolean;
+  /** The keyboard's current message (j/k): r, t, c and e act on it. */
+  focused?: boolean;
+  /** My send the owner has not shown yet: sending, or failed with Retry and Discard. */
+  pending?: "sending" | "failed";
+  onRetry?(): void;
+  onDiscard?(): void;
 }
 
 export const MessageRow = memo(function MessageRow({
@@ -62,22 +68,27 @@ export const MessageRow = memo(function MessageRow({
   depth = 0,
   parent,
   highlighted = false,
+  focused = false,
+  pending,
+  onRetry,
+  onDiscard,
 }: MessageRowProps) {
   const { t, format } = strings;
   const author = people.get(message.author);
   const time = timeFormat.format(message.createdAt);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const textOnly = message.parts.length > 0 && message.parts.every((part) => part.type === "text");
-  const own = !message.retracted && message.author === me;
+  const own = !message.retracted && message.author === me && pending === undefined;
   const canEdit = own && textOnly && onEdit !== undefined && onEditStart !== undefined;
   return (
     <article
-      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}`}
+      className={`hc-msg lg-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}${focused ? " focused" : ""}${pending ? ` pending ${pending}` : ""}`}
       aria-label={`${author?.name ?? message.author}, ${time}`}
+      aria-current={focused ? "true" : undefined}
       data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
     >
       <div className="hc-msg-gutter">
-        {head ? <Avatar participant={author} size={36} /> : <time className="hc-msg-hover-time">{time}</time>}
+        {head ? <Avatar participant={author} size={20} /> : <time className="hc-msg-hover-time">{time}</time>}
       </div>
       <div className="hc-msg-main">
         {parent && depth > MAX_THREAD_INDENT && (
@@ -108,6 +119,18 @@ export const MessageRow = memo(function MessageRow({
         {message.editedAt && !message.retracted && !editing && (
           <span className="hc-msg-edited">{t("message.edited")}</span>
         )}
+        {pending === "sending" && <p className="lg-pending">{t("pending.sending")}</p>}
+        {pending === "failed" && (
+          <p className="lg-pending failed" role="alert">
+            <span>{t("pending.failed")}</span>
+            <button type="button" className="lg-link-button" onClick={onRetry}>
+              {t("pending.retry")}
+            </button>
+            <button type="button" className="lg-link-button" onClick={onDiscard}>
+              {t("pending.discard")}
+            </button>
+          </p>
+        )}
         {message.reactions.length > 0 && <Reactions message={message} me={me} people={people} onReact={onReact} />}
         {thread && onOpenThread && (
           <ThreadLink thread={thread} people={people} strings={strings} onOpen={() => onOpenThread(message.id)} />
@@ -131,7 +154,7 @@ export const MessageRow = memo(function MessageRow({
           </div>
         )}
       </div>
-      {!message.retracted && !editing && (
+      {!message.retracted && !editing && pending === undefined && (
         <MessageActions
           strings={strings}
           canEdit={canEdit}
@@ -164,8 +187,8 @@ export function DraftRow({
   const author = people.get(draft.participant);
   const writing = <span className="hc-writing">{strings.t("draft.writing")}</span>;
   return (
-    <article className={`hc-msg draft${head ? " head" : ""}`} aria-busy="true">
-      <div className="hc-msg-gutter">{head && <Avatar participant={author} size={36} />}</div>
+    <article className={`hc-msg lg-msg draft${head ? " head" : ""}`} aria-busy="true">
+      <div className="hc-msg-gutter">{head && <Avatar participant={author} size={20} />}</div>
       <div className="hc-msg-main">
         {head && <Head author={author} fallback={draft.participant} time={writing} strings={strings} />}
         <Markdown className="hc-md">{draft.text}</Markdown>

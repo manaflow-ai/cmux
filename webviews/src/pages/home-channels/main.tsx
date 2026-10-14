@@ -18,12 +18,13 @@ import { HomeChannelsPage } from "./HomeChannelsPage";
 import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore } from "./store";
-import { DaemonGate, InstanceBar, type DaemonSource, type HostCredential } from "./DaemonGate";
+import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
 import "../../agent-session/acpmux/conversation/conversation.css";
 import "./styles.css";
+import "./ledger.css";
 import { appPopupHost } from "../shared/pagePopupHost";
 
 export function mountHomeChannelsPage(
@@ -57,9 +58,8 @@ export function mountDaemonHomeChannelsPage(
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <DaemonGate source={source} strings={strings}>
-        {(daemon, pages) => (
+        {(daemon) => (
           <div className="hc-daemon">
-            <InstanceBar daemon={daemon} strings={strings} pageUrl={pages ? `${pages}home-channels/` : undefined} />
             <DaemonHome daemon={daemon} strings={strings} />
           </div>
         )}
