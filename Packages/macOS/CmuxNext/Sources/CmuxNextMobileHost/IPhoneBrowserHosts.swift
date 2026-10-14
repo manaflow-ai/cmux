@@ -1,14 +1,13 @@
 import CmuxNextMobile
-import Foundation
-
-#if DEBUG
 import CmuxNextRemoteBrowser
+import Foundation
 
 /// The phone's streamed browser tabs run on this app's own remote browser
 /// host (`Contents/Helpers/cmux-remote-browser-host.app`, the CEF host its
 /// remote browser tabs use), one ``LocalRemoteBrowserHost`` per phone tab,
 /// started and stopped at hostd's request (cnx-ios/verify/browser-stream.md).
-/// DEBUG only, like the host it bundles.
+/// Every configuration bundles the host (arm64 only); each host listens on loopback
+/// with its own secret, and only cnx-hostd reaches it (cnx-ios/SECURITY.md, `browser`).
 final class IPhoneBrowserHosts: CnxBrowserHosting {
     enum Failure: Error { case noHost }
 
@@ -19,8 +18,16 @@ final class IPhoneBrowserHosts: CnxBrowserHosting {
         self.workRoot = workRoot
     }
 
-    /// The bundled host, else nil (a build without it refuses phone browser tabs).
-    static func available() -> Bool { LocalRemoteBrowserHostLocator().executable() != nil }
+    /// Whether this Mac can run the bundled host: it is arm64 only, so an Intel Mac
+    /// (and a build without it) refuses phone browser tabs and hostd says no
+    /// `browser-stream-v1`.
+    static func available() -> Bool {
+        #if arch(arm64)
+        LocalRemoteBrowserHostLocator().executable() != nil
+        #else
+        false
+        #endif
+    }
 
     func start(tab: String, url: String, onExit: @escaping @Sendable () -> Void) async throws -> (port: UInt16, secret: String) {
         try await registry.start(tab: tab, url: url, workRoot: workRoot, onExit: onExit)
@@ -59,4 +66,3 @@ final class IPhoneBrowserHosts: CnxBrowserHosting {
         }
     }
 }
-#endif

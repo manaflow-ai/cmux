@@ -193,6 +193,45 @@ and answers the phone, but Chief replies only while a brain runs in that home
 (a DEV or NIGHTLY build that opened Home, `cmux chief`, or
 `CMUX_NEXT_MUX_HOST`). The phone says so instead of pretending.
 
+## `browser`: streamed browser tabs (the remote browser host)
+
+A phone browser tab streams from a CEF remote browser host the Mac app runs,
+`Contents/Helpers/cmux-remote-browser-host.app`. Release builds bundle it too
+(arm64 only; on an Intel Mac the app never starts it and hostd advertises no
+`browser-stream-v1`, so the phone hides New Browser Tab).
+
+- **Who reaches it.** Only cnx-hostd, for a paired phone (`auth` passes first;
+  the `browser` service is behind the same gate as every other). The app starts
+  one host per phone tab when hostd asks (`need_browser`), with
+  `--listen 127.0.0.1:0`: a loopback port, never another interface
+  (`RemoteBrowserHostListening` refuses a non-loopback address). Each host has
+  its own random secret (32 bytes, `SecRandomCopyBytes`), passed to hostd on
+  stdin and never logged; the host admits only a hello that carries it. The
+  host's stdin is its lifeline: it exits when the app quits or stops it.
+- **What it loads.** hostd checks every address before the host sees it: the
+  first page and every `rb.navigate` must be `http://`, `https://` or
+  `about:blank` (`allowed_url`); `file:`, `javascript:`, `data:`, `chrome:` and
+  every other scheme are refused, and the other `rb.*` messages are an
+  allowlist (`browser.rs`). Inside a page, CEF's own rules apply: a web page
+  cannot open `file:` URLs.
+- **What it can touch.** Its CEF cache lives in a fresh work folder that is
+  removed when it exits (`<state>/browser`), separate from the person's own
+  cmux browser profiles. It runs as the person, like the app's own CEF.
+- **Signing.** The host app and its five helper apps are signed with the
+  hardened runtime and a secure timestamp (`scripts/sign-cmux-bundle.sh`,
+  `rbh_sign`); the GPU and Renderer helpers get `com.apple.security.cs.allow-jit`,
+  the same entitlement the app's own CEF helpers get. Its CEF framework is a
+  symlink to the app's own (`../../../../Frameworks/...`): `codesign --verify
+  --deep --strict` passes on the app, but a strict verify of the host app alone
+  rejects the symlink. Whether Apple's notarization accepts it is unproven
+  (tracker cx-0y2y); if not, the host must load CEF from an explicit path.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | It renders web pages the phone opens, as the Mac's own browser would. No local file, script URL or app scheme is opened. |
+| Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
+| Reads local state the remote should not see? | Only what a web page sees in a fresh profile: no cookies, history or saved logins of the person. |
+
 ## `daemon`: agent tabs and tab create, close and select
 
 Added by `feat-cnx-ios-dataflow` so tabs made on the phone are real tabs of
