@@ -331,9 +331,8 @@ async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     assert_eq!(summary["lastTurn"]["status"], "completed");
 }
 
-/// A daemon over an on-disk store whose event segments roll every `segment_bytes`.
-async fn setup_segmented(segment_bytes: u64) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
-    let dir = std::env::temp_dir().join(format!("acpmux-tail-{}", uuid::Uuid::now_v7()));
+/// The fake agent over an on-disk store whose event segments roll every `segment_bytes`.
+fn segmented_config(segment_bytes: u64) -> Config {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -356,6 +355,13 @@ async fn setup_segmented(segment_bytes: u64) -> (Arc<Hub>, TestClient, std::path
     cfg.store.mode = StoreMode::Local;
     cfg.store.segment_bytes = segment_bytes;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
+    cfg
+}
+
+/// A daemon over [`segmented_config`] in a fresh directory.
+async fn setup_segmented(segment_bytes: u64) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("acpmux-tail-{}", uuid::Uuid::now_v7()));
+    let cfg = segmented_config(segment_bytes);
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
     let hub = Hub::new(cfg, store);
     hold_person_key(&hub);
@@ -421,5 +427,142 @@ async fn tail_pages_read_only_the_newest_segments() {
         .expect("an older page loads without reading the oldest segment");
     assert_eq!(seqs(&older), transcript[transcript.len() - 8..transcript.len() - 4]);
     assert_eq!(older["hasMore"], true);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Measurement, not a check (cx-2lv1k): what opening and scrolling a long chat costs the daemon.
+/// 3000 turns of about 60 records each in the default 8 MiB segments; prints milliseconds.
+/// `scripts/ci/cargo-test-selected.sh -p acpmux --test hub_integration history_page_cost -- --ignored --nocapture`
+#[tokio::test]
+#[ignore]
+async fn history_page_cost() {
+    use acpmux::store::EventRecord;
+    use std::time::Instant;
+    let (hub, mut c, dir) = setup_segmented(8 * 1024 * 1024).await;
+    let id = new_session(&mut c, "long").await;
+    let session = hub.resolve("long").unwrap();
+    let cfg = segmented_config(8 * 1024 * 1024);
+    let mut seq = session.meta().last_seq;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let update = |seq: u64, kind: &str, body: Value| EventRecord {
+        seq,
+        at: seq,
+        dir: "in".into(),
+        kind: kind.into(),
+        msg: json!({"jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "agent-1", "update": body}}),
+        host_seq: None,
+    };
+    let mux = |seq: u64, kind: &str, msg: Value| EventRecord {
+        seq,
+        at: seq,
+        dir: "mux".into(),
+        kind: kind.into(),
+        msg,
+        host_seq: None,
+    };
+    let output = "x".repeat(900);
+    let started = Instant::now();
+    for turn in 0..3000 {
+        let mut push = |rec: EventRecord| store.append(&id, &rec).unwrap();
+        seq += 1;
+        push(mux(seq, "user_message", json!({"text": format!("Question {turn}")})));
+        seq += 1;
+        push(mux(seq, "turn_started", json!({})));
+        for step in 0..5 {
+            let call = format!("call-{turn}-{step}");
+            seq += 1;
+            push(update(
+                seq,
+                "tool_call",
+                json!({"sessionUpdate": "tool_call", "toolCallId": call,
+                "title": "git status", "kind": "execute", "status": "in_progress",
+                "rawInput": {"command": "cd ~/wt/lanes/long && git status && git diff --stat"}}),
+            ));
+            seq += 1;
+            push(update(
+                seq,
+                "tool_call_update",
+                json!({"sessionUpdate": "tool_call_update",
+                "toolCallId": call, "status": "completed",
+                "content": [{"type": "content", "content": {"type": "text", "text": output}}]}),
+            ));
+        }
+        for _ in 0..48 {
+            seq += 1;
+            push(update(
+                seq,
+                "agent_message_chunk",
+                json!({"sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "the checks on the merged head are green, "}}),
+            ));
+        }
+        seq += 1;
+        push(mux(seq, "turn_result", json!({"status": "completed"})));
+    }
+    store.flush().unwrap();
+    let bytes: u64 = std::fs::read_dir(dir.join("sessions").join(&id).join("events"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.metadata().unwrap().len())
+        .sum();
+    eprintln!(
+        "history_page_cost: {seq} records, {:.1} MiB, written in {} ms",
+        bytes as f64 / 1048576.0,
+        started.elapsed().as_millis()
+    );
+
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    let mut a = connect(&hub).await;
+    let kinds = json!([
+        "transcript",
+        "available_commands_update",
+        "usage_update",
+        "config_option_update",
+        "secret_request",
+        "secret_decision"
+    ]);
+    let time = |label: &'static str, ms: u128| eprintln!("history_page_cost: {label}: {ms} ms");
+    for round in 0..3 {
+        let t = Instant::now();
+        let att = a
+            .request(method::MUX_ATTACH, json!({"sessionId": id, "kinds": kinds, "limit": 400}))
+            .await
+            .unwrap();
+        time(
+            if round == 0 { "open (attach, newest 400)" } else { "open again" },
+            t.elapsed().as_millis(),
+        );
+        assert_eq!(att["events"].as_array().unwrap().len(), 400);
+        a.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+    }
+    let t = Instant::now();
+    let older = a
+        .request(
+            method::MUX_EVENTS,
+            json!({"sessionId": id, "kinds": ["transcript"], "limit": 400, "beforeSeq": seq / 2}),
+        )
+        .await
+        .unwrap();
+    time("older page from mid-history", t.elapsed().as_millis());
+    assert_eq!(older["events"].as_array().unwrap().len(), 400);
+    let t = Instant::now();
+    let early = a
+        .request(
+            method::MUX_EVENTS,
+            json!({"sessionId": id, "kinds": ["transcript"], "limit": 400, "beforeSeq": seq / 20}),
+        )
+        .await
+        .unwrap();
+    time("older page near the start", t.elapsed().as_millis());
+    assert_eq!(early["events"].as_array().unwrap().len(), 400);
+    let t = Instant::now();
+    let all = hub.events(&id, 0, usize::MAX).unwrap();
+    time("whole log, for reference", t.elapsed().as_millis());
+    assert_eq!(all.last().unwrap().seq, seq);
     let _ = std::fs::remove_dir_all(&dir);
 }
