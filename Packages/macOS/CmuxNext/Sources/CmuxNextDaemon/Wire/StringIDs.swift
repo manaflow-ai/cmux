@@ -1,4 +1,7 @@
 import Foundation
+#if DEBUG
+import CmuxNextWakeups
+#endif
 
 /// Marker for the entity a durable string id names.
 public protocol DaemonStringIDKind: Sendable {}
@@ -82,7 +85,12 @@ extension DaemonStringID where Kind == StringIDKind.Terminal {
     /// A caller-reserved id for `create-terminal` (canonical 32-character UUID).
     public static func generate() -> Self {
         let uuid = DaemonCommandScope.current?.nextDerivedUUID("terminal-id") ?? UUID()
-        return Self(rawValue: uuid.uuidString.lowercased().replacingOccurrences(of: "-", with: ""))
+        let id = Self(rawValue: uuid.uuidString.lowercased().replacingOccurrences(of: "-", with: ""))
+        #if DEBUG
+        // The first id minted after a traced new terminal action keys its trace.
+        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.bind(terminal: id.rawValue) }
+        #endif
+        return id
     }
 }
 

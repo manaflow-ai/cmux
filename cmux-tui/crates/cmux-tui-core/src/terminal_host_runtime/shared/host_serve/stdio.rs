@@ -44,6 +44,7 @@ pub fn serve_terminal_host_stdio(
     };
     let (launch, adopt) = adopt_launch::decode(&launch_frame, adopt_fd, &mut bootstrapped)?;
     crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
+    crate::debug_spans::label_terminal(|| bootstrapped.terminal_id.to_hex());
     let (shared, _pty_lock) = match adopt_launch::start(&launch, adopt, &bootstrapped) {
         Ok(shared) => shared,
         Err(error) => {

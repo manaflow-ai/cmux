@@ -6,7 +6,10 @@ import QuartzCore
 /// frame to its `IOSurfaceLayer` (`setContents:` on the main thread; Core
 /// Animation commits it at the end of that run-loop turn). Installed only
 /// while the probe is enabled: it adds a `setContents:` override to the
-/// layer's runtime class that calls `CALayer`'s and then marks.
+/// layer's runtime class that calls `CALayer`'s and then marks. DEBUG builds
+/// also install it for a `debug.new_terminal_trace` run (``NewTerminalTrace``),
+/// whose `first_contents` and `prompt_contents` marks it makes; once installed it
+/// stays, costing one relaxed atomic load per frame while no trace runs.
 enum TypingFrameProbe {
     private typealias SetContents = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
 
@@ -29,6 +32,9 @@ enum TypingFrameProbe {
         { layer, contents in
             original(layer, selector, contents)
             TypingLatencyProbe.shared.mark(.contents)
+            #if DEBUG
+            if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(layer)) }
+            #endif
         }
     }
 }
