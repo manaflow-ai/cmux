@@ -374,3 +374,64 @@ async fn an_unsent_message_stays_unsent_after_a_restart() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn a_message_the_person_edited_is_no_longer_the_senders_to_withdraw() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session().await;
+    let running = c.busy(&session, None).await;
+    let waiting = c
+        .queue(prompt(&session, "p-e", "from builder", Some(&provenance(&session, "msg-ed"))))
+        .await;
+    let edit = json!({"sessionId": session, "promptId": "p-e", "op": "update", "text": "the person's rewrite"});
+    c.call("_acpmux/queue_edit", edit).await;
+
+    let value = c.reply(WITHDRAW, json!({"sessionId": session, "msgId": "msg-ed"})).await;
+    assert_eq!(value.pointer("/error/data/reason"), Some(&json!("withdraw.edited")), "{value}");
+    c.cancel(&session).await;
+    c.reply_to(running).await;
+    c.reply_to(waiting).await;
+    assert!(c.ran(&session, "p-e").await, "the person's rewrite never ran");
+}
+
+#[tokio::test]
+async fn a_persons_own_prompt_is_not_a_message_to_withdraw() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session().await;
+    let running = c.busy(&session, None).await;
+    let waiting = c.queue(prompt(&session, "p-own", "the person's words", None)).await;
+
+    let value = c.reply(WITHDRAW, json!({"sessionId": session, "promptId": "p-own"})).await;
+    assert_eq!(
+        value.pointer("/error/data/reason"),
+        Some(&json!("withdraw.not_a_message")),
+        "{value}"
+    );
+    c.cancel(&session).await;
+    c.reply_to(running).await;
+    c.reply_to(waiting).await;
+    assert!(c.ran(&session, "p-own").await, "the person's prompt never ran");
+}
+
+#[tokio::test]
+async fn a_message_sent_now_into_a_turn_that_ended_is_too_late() {
+    let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
+    let mut c = Client::open(&hub);
+    let session = c.new_session().await;
+    let turn = c.send("session/prompt", prompt(&session, "p-turn", "work", None)).await;
+    c.until(|v| v.pointer("/params/update/content/text") == Some(&json!("turn: work"))).await;
+    let p = provenance(&session, "msg-now");
+    let waiting = c.queue(prompt(&session, "p-now", "sent now", Some(&p))).await;
+    let send_now = json!({"sessionId": session, "promptId": "p-now", "op": "send_now"});
+    let sent = c.call("_acpmux/queue_edit", send_now).await;
+    assert_eq!(sent["sent"], "steer", "{sent}");
+    c.reply_to(turn).await;
+    c.reply_to(waiting).await;
+    c.wait_record(&session, "turn_result", |_| true).await;
+
+    let late = c.withdraw(&session, "msg-now").await;
+    assert_eq!(late["outcome"], "too_late", "{late}");
+    assert!(c.records(&session, "prompt_retracted").await.is_empty());
+}
