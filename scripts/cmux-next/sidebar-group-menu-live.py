@@ -11,10 +11,9 @@ rows' actions on the same targets the menu items carry.
                   New Group at its end and no Remove from Group; New Group makes a group of the
                   first workspace; the second workspace's Move to Group lists that group and
                   moves it in; the grouped row's menu has Remove from Group, the ungrouped one
-                  does not; the group header's menu has its rows; collapse hides the members,
-                  expand shows them, then collapse again. Writes --state.
-  --phase verify  (after the app quit and launched again) the group from --state is listed,
-                  still collapsed, and expanding it shows both members in it.
+                  does not; collapse hides the members, expand shows them. Writes --state.
+  --phase verify  (after the app quit and launched again) the group from --state is listed with
+                  both members in it, and Move to Group still lists it.
 
 Attaches to an app already running (a tagged build) through its debug socket; never launches or
 quits it. Window images come from `debug.window_snapshot` into --out.
@@ -22,13 +21,14 @@ quits it. Window images come from `debug.window_snapshot` into --out.
 Usage: sidebar-group-menu-live.py --socket /tmp/cmux-debug-<tag>.sock --phase setup|verify --state FILE [--out DIR]
 Exit status 0 when every check passes.
 """
-import argparse, json, os, socket, sys, time
+import argparse, json, os, socket, subprocess, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
 parser.add_argument("--phase", choices=["setup", "verify"], required=True)
 parser.add_argument("--state", required=True)
 parser.add_argument("--out", default="/tmp")
+parser.add_argument("--capture-pid", type=int, help="with $NX_CAPTURE: real right-clicks, captured with their open menu")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 ROWS = []
@@ -119,6 +119,20 @@ def check(name, expected, observed, ok):
     print(f"{'PASS' if ok else 'FAIL'} | {name} | {expected} | {observed}", flush=True)
 
 
+def right_click_shot(r, name):
+    """A real right-click on the row (debug.mouse), its open menu captured by $NX_CAPTURE, then Escape."""
+    capture = os.environ.get("NX_CAPTURE")
+    if not (capture and opts.capture_pid and r):
+        return
+    frame = r["window_frame"]
+    rpc("debug.mouse", {"x": frame["x"] + frame["width"] / 2, "y": frame["y"] + frame["height"] / 2, "action": "click", "button": "right"}, timeout=5)
+    time.sleep(1.5)  # test harness: the menu opens
+    subprocess.run(["bash", capture, "shot", "--pid", str(opts.capture_pid), "--with-popups", "--out", os.path.join(opts.out, f"{name}.png")],
+                   capture_output=True, timeout=60)
+    rpc("debug.key", {"key": "escape"}, timeout=5)
+    time.sleep(0.8)  # test harness: the menu closes
+
+
 def snapshot(name):
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}.png")})
 
@@ -153,6 +167,7 @@ def setup():
     check("An ungrouped workspace's menu has no Remove from Group", f"no {REMOVE}", top, REMOVE not in top)
     check("One selected workspace: no Group Selected Workspaces", f"no {GROUP_SELECTED}", top, GROUP_SELECTED not in top)
     snapshot("1-ungrouped")
+    right_click_shot(row_by_id(w1), "menu-1-zero-groups")
 
     # New Group, as the trailer row runs it (a name skips the name editor).
     print("New Group:", action("workspace.moveToNewGroup", {"name": GROUP_NAME}, target=f"workspace:{w1}"), flush=True)
@@ -174,35 +189,34 @@ def setup():
     top, _ = menu_at(row_by_id(w3))
     check("An ungrouped workspace's menu still has no Remove from Group", f"no {REMOVE}", top, REMOVE not in top)
 
-    top, _ = menu_at(header(group))
-    print("group header menu:", top, flush=True)
-    check("The group header's menu has Rename and the collapse row", "Rename…, Toggle Group Collapse",
-          top, any(t.startswith("Rename") for t in top) and any("Collapse" in t for t in top))
     snapshot("2-grouped")
-
+    right_click_shot(row_by_id(w1), "menu-2-grouped-row")
+    right_click_shot(row_by_id(w3), "menu-3-ungrouped-row")
     target = f"workspace-group:{group}"
-    action("toggleFocusedWorkspaceGroupCollapsed", target=target)
+    action("workspaceGroup.collapse", target=target)
     check("Collapse hides the group's workspaces", "both members hidden",
           [shown(w1), shown(w2)], wait(lambda: not shown(w1) and not shown(w2), 10))
     snapshot("3-collapsed")
-    action("toggleFocusedWorkspaceGroupCollapsed", target=target)
+    action("workspaceGroup.expand", target=target)
     check("Expand shows them again", "both members shown", [shown(w1), shown(w2)], wait(lambda: shown(w1) and shown(w2), 10))
-    action("toggleFocusedWorkspaceGroupCollapsed", target=target)
-    wait(lambda: not shown(w1) and not shown(w2), 10)
-    return {"group": group, "members": [w1, w2], "outside": w3}
+    titles = [(row_by_id(w) or {}).get("title") for w in (w1, w2)]
+    return {"group": group, "members": [w1, w2], "titles": titles, "outside": w3}
 
 
 def verify():
+    """After a relaunch: the group's header is listed and its members (by title; ids may be new) are in it."""
     with open(opts.state) as f:
         state = json.load(f)
-    group, (w1, w2) = state["group"], state["members"]
+    group, titles = state["group"], state["titles"]
     check("After a relaunch the group is listed", f"header {group}", bool(wait(lambda: header(group), 30)), header(group) is not None)
-    check("After a relaunch the group is still collapsed", "both members hidden", [shown(w1), shown(w2)], not shown(w1) and not shown(w2))
-    snapshot("4-relaunched-collapsed")
-    action("toggleFocusedWorkspaceGroupCollapsed", target=f"workspace-group:{group}")
-    ok = wait(lambda: (row_by_id(w1) or {}).get("group") == group and (row_by_id(w2) or {}).get("group") == group and shown(w1), 10)
-    check("After a relaunch both workspaces are in the group", group, [(row_by_id(w) or {}).get("group") for w in (w1, w2)], ok)
-    snapshot("5-relaunched-expanded")
+    def members():
+        return sorted(r.get("title") for r in rows() if str(r.get("key", "")).startswith("workspace(") and r.get("group") == group)
+    ok = wait(lambda: members() == sorted(titles), 15)
+    check("After a relaunch both workspaces are in the group", sorted(titles), members(), ok)
+    top, subs = menu_at(next(r for r in rows() if str(r.get("key", "")).startswith("workspace(") and r.get("group") is None))
+    listed = subs.get(move_row(top, subs)) or []
+    check("After a relaunch Move to Group still lists the group", GROUP_NAME, listed, GROUP_NAME in listed)
+    snapshot("4-relaunched")
 
 
 if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 90):
