@@ -366,6 +366,21 @@ try:
         cli("workspace", "create", "--name", f"S{index:04d}")
     if opts.stress:
         wait(lambda: f"S{opts.stress - 1:04d}" in json.dumps(window().get("rows", [])) or None, 600)
+        # The new workspaces scrolled the list to its end, so Alpha and the Pinned tiles have no on-screen frame (hitch7
+        # failed on a None tile frame): wheel the list back to its top before the drags.
+        def at_top():
+            alpha, pinned = rows().get("Alpha"), section_items("sec_pinned")
+            return bool(alpha and alpha.get("window_frame") and pinned and all(i.get("window_frame") for i in pinned))
+        for _ in range(60):
+            if at_top():
+                break
+            anchor = next((r for r in window().get("rows", []) if r.get("in_list") and r.get("window_frame")), None)
+            if not anchor:
+                break
+            rpc("debug.mouse", {"x": center(anchor["window_frame"])[0], "y": center(anchor["window_frame"])[1], "action": "scroll",
+                                "dy": 4000})
+            time.sleep(0.2)  # test harness: let the scroll apply
+        print("list at top:", at_top(), flush=True)
     trace = trace_start()
 
     # 1. A workspace row into Pinned tiles (between the two tiles).
