@@ -10,7 +10,8 @@ The script attaches to an app already running (a capture slot's `capture-host la
 tagged build) through its debug socket, opens a workspace with three terminal tabs and splits it
 right (`action.run`), then drags a left tab with paced `debug.mouse` moves (0.7 s, one per
 frame) onto the right pane's tab, at 85% of its width and then (with another left tab) at 15%,
-and reads the tab order of the right pane (`snapshot.get`). It never launches or quits the app.
+and reads the tab order of the right pane (`snapshot.get`); then again with one-letter tab titles
+(`renameTab`), whose tabs draw narrower than the strip's even share. It never launches or quits the app.
 
 Usage: strip-drop-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock
 Exit status 0 when every check passes.
@@ -148,9 +149,14 @@ def drop_on(source_pane, target_pane, fraction):
     return moved, anchor, tab_ids(target_pane)
 
 
-def main():
-    if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
-        sys.exit("the app does not answer on " + opts.socket)
+def rename(tab, name):
+    rpc("action.run", {"action": "renameTab", "args": {"name": name}, "target": f"tab:{tab}"})
+
+
+def drops(short):
+    """One workspace's two drops; `short` renames the tabs to one letter, so the target tab is
+    narrower than the strip's even share (its title fits it)."""
+    label = " (one-letter titles)" if short else ""
     two_tab_strip()
     print("newSurface:", action("newSurface", focus=True), flush=True)
     wait(lambda: any(len(s.get("tabs") or []) == 3 for s in strips()), 15)
@@ -158,19 +164,29 @@ def main():
     pair = wait(lambda: (lambda ss: ss if len(ss) == 2 and sorted(len(s.get("tabs") or []) for s in ss) == [1, 3] else None)(strips()), 15)
     if not pair:
         sys.exit(f"no side-by-side pair: {json.dumps(strips())[:600]}")
-    time.sleep(1)  # test harness: the split settles
     source = next(s for s in pair if len(s["tabs"]) == 3)["pane"]
     target = next(s for s in pair if len(s["tabs"]) == 1)["pane"]
+    if short:
+        for tab, name in zip(tab_ids(source) + tab_ids(target), ["A", "B", "C", "T"]):
+            rename(tab, name)
+    time.sleep(1)  # test harness: the split and titles settle
+    print("target tab:", next(s for s in strips() if s.get("pane") == target)["tabs"][0]["frame"], flush=True)
 
     moved, anchor, after = drop_on(source, target, 0.85)
-    row("a drop on the right end of the other pane's tab lands after it", f"[{anchor[-6:]}, {moved[-6:]}]",
+    row("a drop on the right end of the other pane's tab lands after it" + label, f"[{anchor[-6:]}, {moved[-6:]}]",
         [t[-6:] for t in after], after == [anchor, moved])
 
     moved, anchor, after = drop_on(source, target, 0.15)
-    row("a drop on the left end of the other pane's first tab lands before it", f"{moved[-6:]} first, then {anchor[-6:]}",
+    row("a drop on the left end of the other pane's first tab lands before it" + label, f"{moved[-6:]} first, then {anchor[-6:]}",
         [t[-6:] for t in after], after[:2] == [moved, anchor])
-    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "strip-drop.png")})
 
+
+def main():
+    if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
+        sys.exit("the app does not answer on " + opts.socket)
+    drops(short=False)
+    drops(short=True)
+    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "strip-drop.png")})
 
 main()
 print("\nRESULT", "PASS" if ROWS and all(ROWS) else "FAIL", f"({sum(ROWS)}/{len(ROWS)})")
