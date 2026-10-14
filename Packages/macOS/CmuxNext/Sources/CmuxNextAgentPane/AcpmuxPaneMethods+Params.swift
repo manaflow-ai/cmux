@@ -16,6 +16,7 @@ nonisolated extension AcpmuxPaneMethods {
         "session/cancel": (["sessionId"], []),
         "_acpmux/watch": (["enabled"], []),
         "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "kinds"], []),
+        "_acpmux/attachment": (["sessionId", "id"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
         "_acpmux/attach": (["sessionId", "limit", "kinds", "eventStream", "visible"], []),
         "_acpmux/detach": (["sessionId"], []),
