@@ -472,4 +472,12 @@ struct CloudVMResourcePoolTests {
         #expect(text.contains("cmux_source=\(ProUpgradeSource.vmResourcePoolExceededError.rawValue)"))
         #expect(text.contains("poolMemoryMb: 40960"))
     }
+
+    @Test
+    func runtimeMetadataUsesTheServerPortAndKeepsLegacyFallbackForMissingValues() {
+        #expect(VMClient.decodeRuntimeMetadata(["desktopPort": 7042]) == VMRuntimeMetadata(desktopPort: 7042))
+        #expect(VMClient.decodeRuntimeMetadata(["desktopPort": 0]) == nil)
+        #expect(VMClient.decodeRuntimeMetadata(["desktopPort": 70_000]) == nil)
+        #expect(VMClient.decodeRuntimeMetadata(nil) == nil)
+    }
 }

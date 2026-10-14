@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxCore
+import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -84,8 +85,10 @@ extension CmuxTuiSurfaceProvider {
     func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil,
                           preserveCurrentNavigation: Bool = false, request: URLRequest? = nil) -> Bool {
         let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
-        let fallbackID: SurfaceResourceID = if info.hasDesktop, (CmuxTuiSnapshotParser.desktopPort...6916).contains(requestedPort) {
-            SurfaceResourceID(machine: machine, kind: .display, key: "display:\(requestedPort - 6900)")
+        let desktopPort = info.desktopPort ?? CmuxTuiSnapshotParser.desktopPort
+        let fallbackID: SurfaceResourceID = if info.hasDesktop,
+                                                CmuxTuiSnapshotParser.displayPorts(forDesktopPort: desktopPort).contains(requestedPort) {
+            SurfaceResourceID(machine: machine, kind: .display, key: "display:\(requestedPort - desktopPort + 1)")
         } else {
             SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(requestedPort)")
         }
@@ -97,8 +100,8 @@ extension CmuxTuiSurfaceProvider {
         if let resourceID {
             explicitResource = resourceID
         } else if let retainedResource,
-                  Self.port(for: retainedResource, catalog: catalog) == nil
-                    || Self.port(for: retainedResource, catalog: catalog) == requestedPort {
+                  Self.port(for: retainedResource, catalog: catalog, desktopPort: info.desktopPort) == nil
+                    || Self.port(for: retainedResource, catalog: catalog, desktopPort: info.desktopPort) == requestedPort {
             explicitResource = retainedResource
         } else {
             // A URL that changes the service port must resolve to the requested
@@ -106,7 +109,7 @@ extension CmuxTuiSurfaceProvider {
             explicitResource = nil
         }
         if let explicitResource,
-           let expectedPort = Self.port(for: explicitResource, catalog: catalog),
+           let expectedPort = Self.port(for: explicitResource, catalog: catalog, desktopPort: info.desktopPort),
            expectedPort != requestedPort {
             browser.cloudAccess.showUnavailable(CloudGuestDisplaySnapshot.unavailableMessage)
             return false
@@ -193,21 +196,23 @@ extension CmuxTuiSurfaceProvider {
         if preserveCurrentNavigation {
             browser.prepareCloudBrowserStore(machineID: machineID)
             browser.bindCloudBrowserNavigation()
-            browser.cloudAccess.adoptCommittedRoute(model: model, url: logicalURL, resourceID: resourceID)
+            browser.cloudAccess.adoptCommittedRoute(model: model, url: logicalURL, resourceID: resourceID,
+                                                     desktopPort: info.desktopPort)
             model.connect()
         } else {
-            browser.configureCloudBrowser(model: model, url: logicalURL, resourceID: resourceID, request: request)
+            browser.configureCloudBrowser(model: model, url: logicalURL, resourceID: resourceID,
+                                          desktopPort: info.desktopPort, request: request)
         }
         materializedPanels.insert(browser.id)
         return true
     }
 
-    private static func port(for resource: SurfaceResourceID, catalog: SurfaceCatalog) -> Int? {
+    private static func port(for resource: SurfaceResourceID, catalog: SurfaceCatalog, desktopPort: Int? = nil) -> Int? {
         if resource.kind == .browser, !resource.key.hasPrefix("port:") { return nil }
         if let port = catalog.resources[resource]?.port { return port }
         if resource.kind == .display,
            let number = Int(resource.key.split(separator: ":").last ?? ""), (1...16).contains(number) {
-            return 6900 + number
+            return (desktopPort ?? CmuxTuiSnapshotParser.desktopPort) + number - 1
         }
         if resource.kind == .browser, resource.key.hasPrefix("port:"),
            let port = Int(resource.key.dropFirst("port:".count)) {
@@ -306,7 +311,7 @@ extension CmuxTuiSurfaceProvider {
                 // that timed out (a busy carrier) used to start this repair, a guest
                 // exec of about 12s, on a healthy desktop: display 1 then showed
                 // "Loading Cloud page" for 20s or more.
-                if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
+                if self.providerID == ManagedCloudVMConstants.legacyProviderID, port == (self.info.desktopPort ?? CmuxTuiSnapshotParser.desktopPort),
                    try await CloudBrowserRouting.desktopReachability(endpoint: endpoint, address: address, port: port) == .unreachable {
                     try Task.checkCancellation()
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
@@ -394,11 +399,14 @@ extension CmuxTuiSurfaceProvider {
     /// it did not find is not listening, so that pane stops showing progress.
     func settleRestoredPortPanes(scannedPorts: [Int]) {
         let scanned = Set(scannedPorts)
+        let displayPorts = CmuxTuiSnapshotParser.displayPorts(
+            forDesktopPort: info.desktopPort ?? CmuxTuiSnapshotParser.desktopPort
+        )
         for projection in catalog.pendingRestoredProjections.projections where projection.resource.machine == machine {
             // Scans omit internal and display ports, so their absence proves nothing.
             guard let port = projection.resource.forwardedPort, !scanned.contains(port),
                   !CmuxTuiSnapshotParser.internalPorts.contains(port),
-                  !CmuxTuiSnapshotParser.displayPorts.contains(port),
+                  !displayPorts.contains(port),
                   let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID)
             else { continue }
             browser.cloudAccess.failRestore(String(

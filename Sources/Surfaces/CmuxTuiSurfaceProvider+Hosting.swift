@@ -46,7 +46,8 @@ extension CmuxTuiSurfaceProvider {
             remoteWorkspaces: remoteWorkspaces,
             privateAddress: summary.preferredPrivateAddress,
             portDiscoveryState: portDiscoveryState,
-            cpus: stats?.cpus
+            cpus: stats?.cpus,
+            desktopPort: summary.desktopPort
         )
     }
 
