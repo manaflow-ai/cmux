@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import CmuxScreenKit
 import CoreImage.CIFilterBuiltins
 public import SwiftUI
@@ -58,7 +59,7 @@ public struct MacScreenHomeView: View {
         } message: {
             Text(L.t("macScreen.home.forgetBody", "To show it again, pair it with its link."))
         }
-        // A sheet, not an alert: an alert's text field draws a focus ring.
+        // A sheet, not an alert: an alert's text field draws AppKit's focus ring.
         .sheet(item: $renaming) { mac in
             renameSheet(mac)
         }
@@ -67,11 +68,8 @@ public struct MacScreenHomeView: View {
     private func renameSheet(_ mac: SavedMac) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(L.t("macScreen.home.renameTitle", "Rename Mac")).font(.headline)
-            TextField(L.t("macScreen.home.renameField", "Name"), text: $renameText)
-                .textFieldStyle(.roundedBorder)
-                .focusEffectDisabled()
-                .onSubmit { rename(mac) }
-                .accessibilityIdentifier("macScreen.home.renameField")
+            ThemedField(text: $renameText, placeholder: L.t("macScreen.home.renameField", "Name"), focusOnAppear: true,
+                        identifier: "macScreen.home.renameField", onSubmit: { rename(mac) }, onCancel: { renaming = nil })
             HStack {
                 Spacer()
                 Button(L.t("macScreen.home.cancel", "Cancel"), role: .cancel) { renaming = nil }
@@ -162,13 +160,11 @@ public struct MacScreenHomeView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    TextField(L.t("macScreen.home.linkPlaceholder", "cmux-vnc://pair?…"), text: $linkText)
-                        .textFieldStyle(.roundedBorder)
-                        .focusEffectDisabled()
-                        .onSubmit(pair)
+                    // The theme's field: its box shows focus, never AppKit's ring.
+                    ThemedField(text: $linkText, placeholder: L.t("macScreen.home.linkPlaceholder", "cmux-vnc://pair?…"),
+                                identifier: "macScreen.home.link", onSubmit: pair)
                         // An error describes the link that was tried; editing the field clears it.
                         .onChange(of: linkText) { addError = nil }
-                        .accessibilityIdentifier("macScreen.home.link")
                     Button(L.t("macScreen.home.pair", "Pair and Connect"), action: pair)
                         .keyboardShortcut(.defaultAction)
                         .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

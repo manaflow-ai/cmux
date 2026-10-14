@@ -68,7 +68,7 @@ import PackageDescription
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
-//   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, RemoteView, Browser, CmuxScreenKit (Mac Screen tabs: another Mac's screen as a
+//   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Browser, CmuxScreenKit (Mac Screen tabs: another Mac's screen as a
 //     WebRTC stream, pairing home page, Share This Mac host; CmuxScreenKit links WebRTC.framework)
 //   CmuxVNC (Shared) -> system frameworks and libz only (RFB client; the App adapts it to the pane
 //     as a RemoteViewFrameSource for `via=vnc` records; remote-desktop.md 12)
@@ -500,7 +500,7 @@ let package = Package(
         // Share This Mac. Input capture comes from CmuxNextRemoteView.
         .target(
             name: "CmuxNextMacScreen",
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextRemoteView", "CmuxNextBrowser", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", "CmuxNextBrowser", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
             resources: [
                 .process("Resources"),
             ],
