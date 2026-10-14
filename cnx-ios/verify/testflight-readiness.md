@@ -91,3 +91,17 @@ self-classification report for this kind of item. In App Store Connect: uses
 encryption yes, exempt no, proprietary algorithms no, standard algorithms yes.
 This is the standard reading of Apple's export-compliance guide. It is not legal
 advice; confirm with counsel before the App Store release.
+
+## CI signing (2026-10-13)
+
+`.github/workflows/cnx-ios-testflight.yml` runs `testflight-build.sh` with the
+CI distribution certificate and App Store Connect key. Push runs only archive,
+export and validate; `upload` is a manual input, false by default. Those
+secrets live in the `release` environment, which admits only `main`, `rc/**`
+and `v*` tags. A deliberate guard, `tests/test_ci_signing_secrets_need_release_environment.py`,
+keeps signing secrets away from other branches. The first run, on a push to
+`cnx-ios-testflight`, was rejected at that gate:
+https://github.com/manaflow-ai/cmux/actions/runs/38508730936. To run it, a
+repository admin must either add branch `cnx-ios-testflight` to the `release`
+environment's deployment policy or land the workflow and cnx-ios on an
+admitted ref. This is a signing-trust policy change; it was not made here.
