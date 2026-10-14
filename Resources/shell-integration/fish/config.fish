@@ -576,11 +576,21 @@ if test "$_cmux_integration_enabled" != 0
                 function grok --wraps "$wrapper_path" --inherit-variable wrapper_path
                     "$wrapper_path" $argv
                 end
+            case agy
+                function agy --wraps "$wrapper_path" --inherit-variable wrapper_path
+                    "$wrapper_path" $argv
+                end
+            case muse
+                function muse --wraps "$wrapper_path" --inherit-variable wrapper_path
+                    "$wrapper_path" $argv
+                end
         end
     end
 
     _cmux_install_cli_wrapper claude cmux-claude-wrapper
+    _cmux_install_cli_wrapper agy agy
     _cmux_install_cli_wrapper grok grok
+    _cmux_install_cli_wrapper muse muse
 
     function _cmux_report_tty_once
         test "$_CMUX_TTY_REPORTED" = 1; and return 0
@@ -625,6 +635,17 @@ if test "$_cmux_integration_enabled" != 0
     function _cmux_reset_terminal_keyboard_protocols
         isatty stdout; or test -n "$CMUX_TEST_FORCE_KEYBOARD_RESET$CMUX_TEST_FORCE_KITTY_RESET"; or return 0
         printf '\033[>m\033[<8u'
+    end
+
+    # A TUI killed mid-run leaves its modes on: mouse reporting types reports
+    # like 35;1;13M at the prompt. After the command and before fish's reader
+    # turns bracketed paste back on. ESC 7 keeps the primary screen's cursor
+    # where it is when leaving an alternate screen that is not up; tmux and
+    # screen keep the 1049 cursor apart from ESC 7, so they skip that part.
+    function _cmux_reset_terminal_leftover_modes --on-event fish_postexec
+        isatty stdout; or test -n "$CMUX_TEST_FORCE_KEYBOARD_RESET"; or return 0
+        printf '\033[?9l\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1016l\033[?1004l\033[?2004l\033[?25h'
+        test -n "$TMUX$STY"; or printf '\033\067\033[?1049l'
     end
 
     function _cmux_ports_kick --argument-names reason
