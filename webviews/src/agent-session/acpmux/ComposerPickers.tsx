@@ -472,8 +472,10 @@ export function ComposerPickers({
           measureRoom={measurePickerRoom}
         />
       )}
-      {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
-      {(usage || snapshot.isWorking) && (
+      {/* The context ring stays immediately to the right of the model control; its right-click hides it.
+          It holds its place from the session's start, inert until the first usage report, so a
+          chat's first turn does not slide effort and the permission chip over (hq#1957). */}
+      {(usage || snapshot.isWorking || summary?.sessionId) && (
         <HideableChrome className="acpmux-context-usage-menu" item={chrome.contextUsage}>
           <ContextRing
             used={usage?.used}

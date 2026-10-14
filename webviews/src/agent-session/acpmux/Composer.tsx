@@ -1198,6 +1198,23 @@ export function Composer({
             <Chips snapshot={snapshot} />
             {permissionStatus}
             <span className="acpmux-composer-actions">
+              {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
+                  when typing during a turn turns Stop into Steer and Send (hq#1957). */}
+              {steerable && (
+                <button
+                  key="steer"
+                  type="button"
+                  className="acpmux-steer"
+                  aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                  title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
+                  onClick={() => {
+                    send(false, true);
+                    field.current?.focus();
+                  }}
+                >
+                  {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                </button>
+              )}
               {accessory}
               {stop ? (
                 <button
@@ -1212,40 +1229,23 @@ export function Composer({
                   <StopIcon />
                 </button>
               ) : remote.canSend ? (
-                <>
-                  {steerable && (
-                    <button
-                      key="steer"
-                      type="button"
-                      className="acpmux-steer"
-                      aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
-                      title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
-                      onClick={() => {
-                        send(false, true);
-                        field.current?.focus();
-                      }}
-                    >
-                      {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
-                    </button>
-                  )}
-                  <button
-                    key="send"
-                    ref={sendButton}
-                    type="submit"
-                    disabled={Boolean(blocked) && !shell}
-                    className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
-                    aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                    title={
-                      shell
-                        ? t("composer.shellRun")
-                        : blocked?.reason
-                          ? t(blocked.reason)
-                          : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
-                    }
-                  >
-                    <ArrowUpIcon />
-                  </button>
-                </>
+                <button
+                  key="send"
+                  ref={sendButton}
+                  type="submit"
+                  disabled={Boolean(blocked) && !shell}
+                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                  aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+                  title={
+                    shell
+                      ? t("composer.shellRun")
+                      : blocked?.reason
+                        ? t(blocked.reason)
+                        : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
+                  }
+                >
+                  <ArrowUpIcon />
+                </button>
               ) : null}
             </span>
           </div>
