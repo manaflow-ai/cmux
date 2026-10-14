@@ -163,11 +163,19 @@ try:
         step("terminal", grown and "error" not in (opened or {}), {"run": opened, "live_terminals_before": before,
                                                                    "after": (rpc("debug.surfaces") or {}).get("live_terminals")})
         # Typing: one key-down per character into the focused terminal (debug.key, no system input).
-        typed = [rpc("debug.key", {"key": "space" if ch == " " else ch}) for ch in "echo %s-typed" % TITLE]
+        # The typed command echoes a line and creates a file: the file proves the keys reached the
+        # shell, and the snapshot after it shows the typed line and the echo in the terminal.
+        marker = "/tmp/%s-typed" % TITLE
+        if os.path.exists(marker):
+            os.unlink(marker)
+        command = "echo %s-typed; touch %s" % (TITLE, marker)
+        typed = [rpc("debug.key", {"key": "space" if ch == " " else ch}) for ch in command]
         typed.append(rpc("debug.key", {"key": "return"}))
         typed_errors = [t for t in typed if not isinstance(t, dict) or "error" in t]
+        ran = wait(lambda: os.path.exists(marker), TAB_DEADLINE, alive)
         snap("terminal", "terminal.png")
-        step("typing", grown and not typed_errors, {"keys": len(typed), "errors": typed_errors[:3]})
+        step("typing", grown and not typed_errors and bool(ran), {"keys": len(typed), "command": command,
+                                                                  "shell_ran_it": bool(ran), "errors": typed_errors[:3]})
         newtab = rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
         newtab_state = rpc("debug.new_tab", {"action": "state"})
         snap("newtab", "newtab.png")
