@@ -53,12 +53,18 @@ function row(container: HTMLElement, hidden: Set<Element>): number {
   return children.reduce((sum, child) => sum + wanted(child, hidden), 0) + gap * Math.max(0, children.length - 1);
 }
 
+/** Whether the row shows icons: `icons` is what it shows now, `wanted` the width every label whole takes. */
+export function showsIcons(icons: boolean, wanted: number, room: number): boolean {
+  return wanted > room + 0.5;
+}
+
 /** Whether the row's controls fit with every label shown. */
 export function rowFits(bar: HTMLElement): boolean {
   const style = getComputedStyle(bar);
   const room = bar.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
-  const hidden = new Set(bar.dataset.fit === "icons" ? bar.querySelectorAll(ICON_LABELS) : []);
-  return row(bar, hidden) <= room + 0.5;
+  const icons = bar.dataset.fit === "icons";
+  const hidden = new Set(icons ? bar.querySelectorAll(ICON_LABELS) : []);
+  return !showsIcons(icons, row(bar, hidden), room);
 }
 
 export function useRowFit(bar: RefObject<HTMLElement | null>): void {
