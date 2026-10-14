@@ -965,7 +965,7 @@ public struct VMWebSocketDaemonEndpoint: Sendable {
 /// Attach through the cmux-tui remote daemon in the machine (Phase 1 of the
 /// cmuxd-remote → cmux-tui migration). The route carries the ingress token; the
 /// invitation is present only when this device is not yet enrolled with the daemon.
-public struct VMCmuxRemoteEndpoint: Sendable {
+public struct VMCmuxRemoteEndpoint: Equatable, Sendable {
     public let route: String
     public let token: String
     public let expiresAtUnix: Int64
@@ -977,7 +977,7 @@ public struct VMCmuxRemoteEndpoint: Sendable {
     /// The machine's private addresses, when the provider returned them. Keep
     /// this metadata on the client boundary so agents and diagnostics can see
     /// the same route state the backend used, without reconstructing it.
-    public struct NetworkAddresses: Sendable {
+    public struct NetworkAddresses: Equatable, Sendable {
         public let ipv4: String?
         public let ipv6: String?
 
@@ -992,7 +992,7 @@ public struct VMCmuxRemoteEndpoint: Sendable {
 
     public let networkAddresses: NetworkAddresses?
     /// The machine daemon's build identity, for naming a protocol mismatch.
-    public struct DaemonBuild: Sendable {
+    public struct DaemonBuild: Equatable, Sendable {
         public let commit: String?
         public let remoteProtocol: Int?
         public let version: String?
