@@ -27,23 +27,25 @@ happens at 3 a.m.", and it is the one that carries measurements.
 > "retired" below describe the removed pilot and are kept for their
 > measurements and reasoning. The nightly mini lane was removed separately (#14243).
 
-## TL;DR
+## TL;DR (current guidance, 2026-10-14)
 
-- The Blacksmith macOS-15 pull-request pool is running at **11.2 busy servers
-  of offered load against a 9-13 slot cap**. That is why macOS queue waits
-  reach **p90 64 min, p99 124 min, worst observed 168 min**.
-- **`macOS compile admission` is the lane to move.** It executes on 41% of all
-  CI runs (98% of runs that touch macOS) and is 23% of the pool's minutes. It
-  is also the only macOS lane every macOS-touching PR pays.
-- The mechanism to move it is **already built and has never run**: the
-  producer/consumer pilot behind `vars.CI_PERSISTENT_MAC_COMPILE`, which is
-  unset.
-- **Four minis** hold the compile lane's peak. **One** (issue #13491) is the
-  canary and is worth roughly 1.0-1.3 servers of relief on its own.
-- Owned minis take trusted pull request jobs only through the owned-pool
-  picker (`scripts/ci/pr_runner_pool.py`), when `CI_PR_POOL_OWNED` is 1:
-  same-repository heads on a first attempt, with Blacksmith as overflow
-  (#14237, #14244). Fork pull requests never reach them.
+- This file is an operations record, not the source of truth for routing. Use
+  [`ci-runners.md`](../ci-runners.md), the controller's fleet status, and the
+  current `scripts/ci/pr_runner_pool.py` configuration before changing a lane.
+- Capacity is dynamic. The controller currently reports owned minis plus AWS
+  macOS PR hosts; do not assume the old four-mini or 32-runner model below.
+- Trusted same-repository PR jobs use the owned-pool picker when enabled, with
+  Blacksmith as overflow. Linux, secret-bearing, release, and publish work
+  remains on Blacksmith. Keep macOS jobs minis first.
+- The persistent compile pilot described below is retired. Its workflows,
+  runner group, variables, and commands are historical measurements only and
+  must not be re-enabled from this document.
+
+> **Archive boundary.** Sections 1-7 preserve the retired pilot's measurements
+> and failure analysis. They contain executable examples for that removed
+> design; do not run them. For current enrollment, routing, draining, and
+> capacity, follow `ci-runners.md`, `fleet-enrollment.md`, and live controller
+> receipts instead.
 
 ## 1. Measured demand
 
