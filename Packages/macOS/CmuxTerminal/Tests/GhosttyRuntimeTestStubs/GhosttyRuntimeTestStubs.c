@@ -305,6 +305,11 @@ static GhosttyRuntimeTestTerminationCount* cmux_test_surface_request_process_ter
         empty->surface = surface;
         return empty;
     }
+    if (create) {
+        // A test armed more surfaces than this bounded stub can track. Do not
+        // silently turn a required ordering assertion into a false negative.
+        abort();
+    }
     return NULL;
 }
 
