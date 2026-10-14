@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36'
+IR_SHA256 = '6a4ba878d29c643390f0367714f8f8ba922296f984a8e3a5e763773a3aa7ef0c'
 
 
 @dataclass(frozen=True)
@@ -2593,11 +2593,14 @@ COMMANDS = {
         None,
         {
             'expected_generation': CommandFieldMetadata(7, None),
+            'expected_name_revision': CommandFieldMetadata(12, 'workspace-name-source-v1'),
             'expected_revision': CommandFieldMetadata(7, None),
             'key': CommandFieldMetadata(7, 'workspace-registry-v1'),
             'mutation_id': CommandFieldMetadata(7, None),
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(7, None),
+            'release': CommandFieldMetadata(12, 'workspace-name-source-v1'),
+            'source': CommandFieldMetadata(12, 'workspace-name-source-v1'),
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
