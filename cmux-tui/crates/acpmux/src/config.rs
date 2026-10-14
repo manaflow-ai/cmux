@@ -432,6 +432,10 @@ pub struct Config {
     #[serde(default)]
     #[serde(alias = "agents")]
     pub harnesses: BTreeMap<String, HarnessProfile>,
+    /// Each session's memory and CPU budget, the guard for the harness limits
+    /// acpmux lifts (`hub/budget.rs`); the daemon's comes from its environment.
+    #[serde(skip)]
+    pub session_budget: Option<crate::harness_limits::SessionBudget>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub peers: BTreeMap<String, PeerConfig>,
     #[serde(default, alias = "defaultAgent")]
@@ -698,6 +702,7 @@ impl Config {
             // Never the default: a registry agent runs only when picked.
             cfg.join_discovered(found);
         }
+        cfg.session_budget = crate::harness_limits::SessionBudget::from_env();
         cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
         cfg.profile_sources = sources.clone();
         cfg.path = Some(path);
