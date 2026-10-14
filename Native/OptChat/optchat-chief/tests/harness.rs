@@ -360,6 +360,7 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
         instructions: None,
         tools: Tools::Cli(paths.bin.join("chief").display().to_string()),
         user_env: Default::default(),
+        profile_tool: false,
     };
     optchat_chief::session_dir::write(&paths, &setup).unwrap();
     let agents_md = std::fs::read_to_string(paths.session.join("AGENTS.md")).unwrap();
@@ -694,8 +695,9 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
     for harness in ["claude", "claude-sr"] {
         let turn = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
         // An allowlist of built-ins (checked on Claude Code 2.1.287: the
-        // session's init lists exactly these and the Chief's MCP tools), so
-        // a built-in a later Claude Code adds is not offered to a turn.
+        // session's init lists exactly these built-ins), so a built-in a
+        // later Claude Code adds is not offered to a turn. ToolSearch loads
+        // the cmux MCP tools that wait behind it (cx-l0vf8).
         assert_eq!(
             turn.args,
             [
@@ -703,7 +705,7 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
                 "project",
                 "--disable-slash-commands",
                 "--tools",
-                "Bash,Read,Edit,Write,WebFetch,WebSearch"
+                "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"
             ],
             "{harness}"
         );
@@ -765,6 +767,7 @@ fn the_session_settings_carry_the_users_settings_env() {
         instructions: None,
         tools: Tools::Mcp,
         user_env,
+        profile_tool: false,
     };
     let settings = settings_json(&setup, &paths, &[]);
     assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
@@ -794,6 +797,7 @@ fn the_session_settings_files_are_private_and_the_copy_is_gated() {
         instructions: None,
         tools: Tools::Mcp,
         user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
+        profile_tool: false,
     };
     write(&paths, &setup).unwrap();
     for name in ["settings.json", "settings.local.json"] {

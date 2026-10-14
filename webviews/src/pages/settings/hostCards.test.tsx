@@ -49,6 +49,19 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
   page.unmount();
 });
 
+test("a wallpaper whose id is a file path gets its thumbnail: the id reaches the app as one segment", async () => {
+  const page = await renderPage({ path: "/settings/appearance?focus=appearance.background" });
+  const id = "system:/System/Library/Desktop Pictures/.wallpapers/Sonoma/Sonoma Graphic Light Landscape.mov";
+  const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="Sonoma Graphic"]')!;
+  const src = tile.querySelector("img")!.getAttribute("src")!;
+  // The app's page scheme reads the decoded URL path and splits it on "/" (PageSchemeHandler.route),
+  // then the thumbnail source decodes its one segment (SettingsBackdropThumbnails).
+  const segments = decodeURIComponent(new URL(src, "cmux-page://cmux.settings/").pathname).split("/").filter(Boolean);
+  expect(segments.length).toBe(2);
+  expect(segments[0]).toBe("backdrop");
+  expect(decodeURIComponent(segments[1]!)).toBe(id);
+});
+
 test("Shuffle Daily is a tile that keeps appearance.background daily", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const tile = page.container.querySelector<HTMLButtonElement>('[data-card="backdrop"] [aria-label="Shuffle Daily"]')!;

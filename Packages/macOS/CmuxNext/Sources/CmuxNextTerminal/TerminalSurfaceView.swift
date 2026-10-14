@@ -63,6 +63,9 @@ public final class TerminalSurfaceView: NSView {
     // Keyboard state (see TerminalSurfaceView+Keyboard.swift).
     var markedText = NSMutableAttributedString()
     var keyTextAccumulator: [String]?
+    /// A UTF-16 lead surrogate an input method inserted alone (UnicodeHexInput); the next
+    /// insertText brings its trail (upstream Ghostty #13737).
+    var leadSurrogate: UTF16.CodeUnit?
     var lastPerformKeyEventTimestamp: TimeInterval?
     var previousPressureStage = 0
 
