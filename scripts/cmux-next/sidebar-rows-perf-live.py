@@ -479,6 +479,7 @@ def scroll_mode(pid, window, label, terms):
     counters(reset=True)
     wheel = [timed_rpc("debug.sidebar_wheel", dict(point, window=window, dy=-5, count=1)) for _ in range(40)]
     result["wheel_routes"] = sorted({r for _, reply in wheel for r in (reply or {}).get("routes") or []})
+    time.sleep(1)  # test script: line wheel events scroll with AppKit's smooth-scroll animation; let it end
     wheel_moved = realized_titles(window) != before
     check(wheel_moved, f"scroll {label}: the mouse wheel moved the list in window {window}")
     # The trackpad gesture, measured.
