@@ -273,9 +273,7 @@ export class MockHomeProvider implements PageClient {
           me,
           Date.now(),
           String(params.text ?? ""),
-          thread
-            ? { threadRoot: thread, ...(parent ? { replyTo: { message: parent, partIndex: 0 } } : {}) }
-            : {},
+          thread ? { threadRoot: thread, ...(parent ? { replyTo: { message: parent, partIndex: 0 } } : {}) } : {},
         );
         list.push(message);
         this.data.messages.set(id, list);

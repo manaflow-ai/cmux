@@ -163,18 +163,26 @@ export class HomeChannelsStore {
       const root = link.threadRoot ?? (target ? threadOf(target) : undefined);
       if (target && root) {
         await this.openThread(root);
-        await this.pageTo(() => this.snapshot.threadView?.messages, target, async () => {
-          const view = this.snapshot.threadView;
-          if (!view?.hasMore || view.root !== root) return false;
-          await this.loadThread(root, view.messages.at(-1)?.seq ?? 0);
-          return true;
-        });
+        await this.pageTo(
+          () => this.snapshot.threadView?.messages,
+          target,
+          async () => {
+            const view = this.snapshot.threadView;
+            if (!view?.hasMore || view.root !== root) return false;
+            await this.loadThread(root, view.messages.at(-1)?.seq ?? 0);
+            return true;
+          },
+        );
       } else if (target) {
-        await this.pageTo(() => this.snapshot.messages, target, async () => {
-          if (!this.snapshot.hasOlder || this.snapshot.selected !== link.conversation) return false;
-          await this.loadOlder();
-          return true;
-        });
+        await this.pageTo(
+          () => this.snapshot.messages,
+          target,
+          async () => {
+            if (!this.snapshot.hasOlder || this.snapshot.selected !== link.conversation) return false;
+            await this.loadOlder();
+            return true;
+          },
+        );
       }
       this.set({ highlight: target?.id });
       return true;
