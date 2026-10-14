@@ -27,6 +27,8 @@ public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     public var notes: Notes
     /// The card id its x's menu items are sent with (`noticeAction(card:action:)`).
     public var id: String
+    /// The default ``id`` (UPDATE-CARD-CLOSE).
+    public static let cardID = "update-ready"
     /// The x's tooltip and VoiceOver label; nil shows no x (while installing).
     public var closeLabel: String?
     /// The x's menu (and the card's right-click menu): each item sends
@@ -34,7 +36,7 @@ public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     public var closeMenu: [SidebarNoticeCard.Action]
 
     public init(title: String, detail: String? = nil, seeAllTitle: String? = nil, buttonTitle: String, isEnabled: Bool = true, automaticUpdatesTitle: String,
-                automaticUpdates: Bool, notes: Notes, id: String = "update-ready", closeLabel: String? = nil,
+                automaticUpdates: Bool, notes: Notes, id: String = SidebarUpdateCard.cardID, closeLabel: String? = nil,
                 closeMenu: [SidebarNoticeCard.Action] = []) {
         self.id = id
         self.closeLabel = closeLabel

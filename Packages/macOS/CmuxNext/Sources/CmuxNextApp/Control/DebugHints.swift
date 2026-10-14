@@ -7,8 +7,7 @@ import CmuxNextSettings
 /// each label with its control (role, title, window rect), plus the menu
 /// AppKit tracks now (a Shift label opens a context menu), for
 /// scripts/cmux-next/hint-mode-e2e.py and jump-keys-e2e.py. `dismiss_menu`
-/// closes that menu; `pick_menu: <title>` runs that item's own action (as a
-/// click on it does) and closes the menu.
+/// closes that menu; `pick_menu: <title>` runs that item's action, as a click does.
 @MainActor
 enum DebugHints {
     private static var tracked: NSMenu?
