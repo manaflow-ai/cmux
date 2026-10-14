@@ -12,6 +12,8 @@ public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
     private var warmed = false
+    /// The first send's warm-up, waiting for the first idle after this view's first frame.
+    private var launchWarm: IdleAfterFirstFrame?
 
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
@@ -59,11 +61,19 @@ public final class MessagesLabHomeView: NSView {
     public override func layout() {
         super.layout()
         if controller.host.frame != bounds { controller.host.frame = bounds }
-        if !warmed, window != nil, controller.demo != nil {
+        if !warmed, !ChatController.warmUpDone, window != nil, controller.demo != nil {
             warmed = true
-            // MessagesLab warms the first send's one-time costs at idle after
-            // launch (text system, morph blur); here on first layout.
-            ChatController.warmUp()
+            // MessagesLab 0b58d56 (Host.swift install): the first send's one-time costs (text
+            // system, morph blur) are warmed once, at the first idle of the main run loop after
+            // the window's first frame is on screen, not inside this layout (the frame that shows
+            // the Home view). A view closed before then drops its wait; the next one warms.
+            let warm = IdleAfterFirstFrame(view: self) {
+                guard !ChatController.warmUpDone else { return }
+                ChatController.warmUpDone = true
+                ChatController.warmUp()
+            }
+            launchWarm = warm
+            warm.start()
         }
     }
 

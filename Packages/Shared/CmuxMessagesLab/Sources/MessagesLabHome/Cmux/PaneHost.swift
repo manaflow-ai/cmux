@@ -480,6 +480,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         windowDidChangeScreen()
     }
 
+    /// The warm-up ran (once per process: its costs are the process's first TextKit layout and blur).
+    static var warmUpDone = false
+
     static func warmUp() {
         // MessagesLab 7518134: the menu's glyphs and title icons are made before the first open (only
         // images; no view, window or event), on a later pass than this layout.
