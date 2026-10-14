@@ -3,25 +3,30 @@
 // right end; a thin rim in the theme's colors and no drop shadow. The old card drew the command as
 // a large bold title, wrapped, under its own heading, inside an accent border.
 //
-// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// The whole row shows in the pane's bottom stack: the first build drew a flex fieldset there that
+// WebKit, the app's engine, collapsed to a 15px strip with the command and answers cut off.
+//
+// Real Chromium and WebKit from Playwright; CI fails the file when they cannot launch
+// (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, webkit, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("permission-ask-row-look.test.ts", async () => {
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
+    await (await webkit.launch({ headless: true })).close();
   } catch {
-    console.warn("permission-ask-row-look: skipping (run `bunx playwright install chromium`)");
+    console.warn("permission-ask-row-look: skipping (run `bunx playwright install chromium webkit`)");
     describe.skip("permission ask row look", () => test("chromium", () => {}));
     return;
   }
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-  let browser: Browser | undefined;
+  const browsers: Record<string, Browser> = {};
   beforeAll(async () => {
     vite = await createServer({
       root: webviews,
@@ -30,10 +35,11 @@ await requireBrowserLane("permission-ask-row-look.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    browser = await chromium.launch({ headless: true });
+    browsers.chromium = await chromium.launch({ headless: true });
+    browsers.webkit = await webkit.launch({ headless: true });
   });
   afterAll(async () => {
-    await browser?.close();
+    for (const browser of Object.values(browsers)) await browser.close();
     await vite?.close();
   });
 
@@ -71,62 +77,71 @@ await requireBrowserLane("permission-ask-row-look.test.ts", async () => {
     ],
   };
 
-  test("a long pending command is one regular-weight monospace line with small answers at its end", async () => {
-    const page = await browser!.newPage({ viewport: { width: 640, height: 480 } });
-    const { port } = vite!.httpServer!.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}/test/browser/permission-panel.html`);
-    await page.waitForFunction(() => "__showPermissions" in window);
-    await page.evaluate(
-      (shown) => (window as unknown as { __showPermissions(state: unknown): void }).__showPermissions(shown),
-      state,
-    );
-    await page.locator(".acpmux-permission-panel button").first().waitFor();
-    const seen = await page.evaluate((text) => {
-      const panel = document.querySelector<HTMLElement>(".acpmux-permission-panel")!;
-      // The innermost element that holds the whole command.
-      const holder = [...panel.querySelectorAll<HTMLElement>("*")]
-        .filter((node) => node.textContent?.includes(text))
-        .at(-1)!;
-      const style = getComputedStyle(holder);
-      const card = panel.firstElementChild as HTMLElement;
-      const cardStyle = getComputedStyle(card);
-      const answers = [...panel.querySelectorAll<HTMLButtonElement>("button")].filter(
-        (button) => !button.hasAttribute("aria-expanded"),
+  test.each(["chromium", "webkit"])(
+    "%s: a long pending command is one whole regular-weight monospace line with small answers at its end",
+    async (engine) => {
+      const page = await browsers[engine]!.newPage({ viewport: { width: 640, height: 480 } });
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/permission-panel.html`);
+      await page.waitForFunction(() => "__showPermissions" in window);
+      await page.evaluate(
+        (shown) => (window as unknown as { __showPermissions(state: unknown): void }).__showPermissions(shown),
+        state,
       );
-      const holderBox = holder.getBoundingClientRect();
-      const cardBox = card.getBoundingClientRect();
-      const answerBoxes = answers.map((button) => button.getBoundingClientRect());
-      return {
-        mono: /mono|menlo|courier/i.test(style.fontFamily),
-        weight: Number(style.fontWeight),
-        oneLine: holderBox.height <= parseFloat(style.lineHeight) + 1,
-        cut: style.textOverflow === "ellipsis" && holder.scrollWidth > holder.clientWidth,
-        cardHeight: cardBox.height,
-        rim: Math.max(
-          parseFloat(cardStyle.borderTopWidth),
-          parseFloat(cardStyle.borderLeftWidth),
-          parseFloat(cardStyle.borderRightWidth),
-        ),
-        shadow: cardStyle.boxShadow,
-        answerHeights: answerBoxes.map((box) => box.height),
-        // The answers sit on the command's line, at the card's right end.
-        answersOnRow: answerBoxes.every(
-          (box) => box.top < holderBox.bottom && box.bottom > holderBox.top && box.left > holderBox.right - 1,
-        ),
-        rightGap: cardBox.right - Math.max(...answerBoxes.map((box) => box.right)),
-      };
-    }, command);
-    expect(seen.mono).toBe(true);
-    expect(seen.weight).toBeLessThanOrEqual(400);
-    expect(seen.oneLine).toBe(true);
-    expect(seen.cut).toBe(true);
-    expect(seen.cardHeight).toBeLessThanOrEqual(40);
-    expect(seen.rim).toBeLessThanOrEqual(1);
-    expect(seen.shadow).toBe("none");
-    expect(seen.answerHeights.length).toBe(3);
-    for (const height of seen.answerHeights) expect(height).toBeLessThanOrEqual(24);
-    expect(seen.answersOnRow).toBe(true);
-    expect(seen.rightGap).toBeLessThanOrEqual(12);
-    await page.close();
-  });
+      await page.locator(".acpmux-permission-panel button").first().waitFor();
+      const seen = await page.evaluate((text) => {
+        const panel = document.querySelector<HTMLElement>(".acpmux-permission-panel")!;
+        // The innermost element that holds the whole command.
+        const holder = [...panel.querySelectorAll<HTMLElement>("*")]
+          .filter((node) => node.textContent?.includes(text))
+          .at(-1)!;
+        const style = getComputedStyle(holder);
+        const card = panel.firstElementChild as HTMLElement;
+        const cardStyle = getComputedStyle(card);
+        const answers = [...panel.querySelectorAll<HTMLButtonElement>("button")].filter(
+          (button) => !button.hasAttribute("aria-expanded"),
+        );
+        const holderBox = holder.getBoundingClientRect();
+        const cardBox = card.getBoundingClientRect();
+        const answerBoxes = answers.map((button) => button.getBoundingClientRect());
+        return {
+          mono: /mono|menlo|courier/i.test(style.fontFamily),
+          weight: Number(style.fontWeight),
+          oneLine: holderBox.height <= parseFloat(style.lineHeight) + 1,
+          cut: style.textOverflow === "ellipsis" && holder.scrollWidth > holder.clientWidth,
+          cardHeight: cardBox.height,
+          rim: Math.max(
+            parseFloat(cardStyle.borderTopWidth),
+            parseFloat(cardStyle.borderLeftWidth),
+            parseFloat(cardStyle.borderRightWidth),
+          ),
+          shadow: cardStyle.boxShadow,
+          answerHeights: answerBoxes.map((box) => box.height),
+          // The answers sit on the command's line, at the card's right end.
+          answersOnRow: answerBoxes.every(
+            (box) => box.top < holderBox.bottom && box.bottom > holderBox.top && box.left > holderBox.right - 1,
+          ),
+          rightGap: cardBox.right - Math.max(...answerBoxes.map((box) => box.right)),
+          // Nothing of the row is cut: the panel holds all of it, and the line is its full height.
+          panelScrolls: panel.scrollHeight > panel.clientHeight + 1,
+          holderHeight: holderBox.height,
+        };
+      }, command);
+      expect(seen.mono).toBe(true);
+      expect(seen.weight).toBeLessThanOrEqual(400);
+      expect(seen.oneLine).toBe(true);
+      expect(seen.cut).toBe(true);
+      expect(seen.cardHeight).toBeLessThanOrEqual(40);
+      expect(seen.cardHeight).toBeGreaterThanOrEqual(28);
+      expect(seen.panelScrolls).toBe(false);
+      expect(seen.holderHeight).toBeGreaterThanOrEqual(14);
+      expect(seen.rim).toBeLessThanOrEqual(1);
+      expect(seen.shadow).toBe("none");
+      expect(seen.answerHeights.length).toBe(3);
+      for (const height of seen.answerHeights) expect(height).toBeLessThanOrEqual(24);
+      expect(seen.answersOnRow).toBe(true);
+      expect(seen.rightGap).toBeLessThanOrEqual(12);
+      await page.close();
+    },
+  );
 });
