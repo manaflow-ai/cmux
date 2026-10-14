@@ -414,3 +414,20 @@ Lawrence 2026-10-14: support both. Config shape: the mode is part of the price s
   billed, else the UTC month), and whether the stop applies or stopped the team.
 - Proof: route tests in `backend/apps/api/test/inference-spend-facts.test.ts` ("team included amount
   per seat", "the console's team usage line"), payment service faked at HTTP.
+
+## 14. S5: the console usage view (two designs, Lawrence picks)
+
+- The Team page's "AI usage" section (`backend/apps/dashboard/src/routes/-ai-usage-view.tsx`) for
+  billing.manage readers: the team's usage this period against the included amount and the stop state
+  (`team_usage`), each member's spend next to their limit with an inline edit (set or clear a personal
+  limit), and the team default (change or reset to the cmux default). Members see their own line only.
+  React over HTTP against the Worker ops; no Swift. Copy in en and ja, no vendor names.
+- Two designs: `meter` (a progress line, member rows with thin bars) and `ledger` (three figures and a
+  quiet table). Row actions appear on hover or keyboard focus. The page uses `meter` until Lawrence picks;
+  `?ai_view=ledger` shows the other on the real page.
+- Preview with sample data, both designs in six states (billed per team, billed per seat above the
+  included amount, unbilled near the stop, unbilled above it with the stop off, stopped, plan not known):
+  https://console-staging.cmux.dev/preview/ai-usage (not served on console.cmux.dev).
+- Browser check (`backend/apps/dashboard/test-browser/ai-usage-preview.mjs`, run on a Freestyle VM):
+  actions hidden at rest, shown on hover and on focus, Edit opens a field, Save shows the new limit, no
+  page errors, for both designs.

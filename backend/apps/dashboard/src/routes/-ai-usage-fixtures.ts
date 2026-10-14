@@ -32,6 +32,10 @@ export const AI_USAGE_STATES: Readonly<Record<string, { readonly note: string; r
     note: "Founders (no card): 17.40 of 20 included this month; the stop is near.",
     data: { ...base, team_usage: { billed: false, included_usd: 20, per_seat: false, seats: 1, spent_usd: 17.4, period_start: Date.UTC(2026, 9, 1), period_end: monthEnd, stop_applies: true, stopped: false } }
   },
+  "unbilled-open": {
+    note: "No card, the stop off (development default): 23.10 used against 20 included; nothing pauses.",
+    data: { ...base, team_usage: { billed: false, included_usd: 20, per_seat: false, seats: 1, spent_usd: 23.1, period_start: Date.UTC(2026, 9, 1), period_end: monthEnd, stop_applies: false, stopped: false } }
+  },
   stopped: {
     note: "App Store plan: the included amount is used up; AI is paused until the reset.",
     data: { ...base, team_usage: { billed: false, included_usd: 20, per_seat: false, seats: 1, spent_usd: 20, period_start: Date.UTC(2026, 9, 1), period_end: monthEnd, stop_applies: true, stopped: true }, members: [member("u_1", "Ada Park", "owner", 20, 200)] }

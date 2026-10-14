@@ -20,7 +20,7 @@ export const AI_USAGE_CSS = `
 .aiu-bar { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 10%, transparent); overflow: hidden; }
 .aiu-bar-fill { height: 100%; border-radius: 2px; background: color-mix(in srgb, var(--fg) 55%, transparent); }
 .aiu-bar-fill.aiu-near { background: var(--aiu-warn); } .aiu-bar-fill.aiu-stopped { background: var(--aiu-stop); }
-.aiu-bar-fill.aiu-over { background: var(--fg); }
+.aiu-bar-fill.aiu-over, .aiu-bar-fill.aiu-over_free { background: var(--fg); }
 .aiu-row { display: flex; align-items: center; gap: 16px; min-height: 44px; padding: 8px 12px; border-radius: calc(var(--aiu-r) - 6px); }
 .aiu-row + .aiu-row { border-top: 1px solid var(--line); }
 .aiu-row-hover:hover, .aiu-row-hover:focus-within, .aiu-row-hover:focus-visible { background: color-mix(in srgb, var(--fg) 4%, transparent); outline: none; }

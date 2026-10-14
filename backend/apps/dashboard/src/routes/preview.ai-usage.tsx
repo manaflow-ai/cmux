@@ -8,7 +8,7 @@ import { AI_USAGE_VARIANTS, AiUsageView, type AiUsageData, type AiUsageVariant }
  * The AI usage view's design preview (cx-y79zh.1 S5): both variants in every sample state, with sample
  * data only (no sign-in, no Cloud service calls). Edits change the sample in this page. Not served on
  * the production console.
- *   /preview/ai-usage?variant=meter|ledger&state=billed-team|billed-over|unbilled-near|stopped|no-line
+ *   /preview/ai-usage?variant=meter|ledger&state=billed-team|billed-over|unbilled-near|unbilled-open|stopped|no-line
  * Without `variant`, both variants show side by side.
  */
 export const Route = createFileRoute("/preview/ai-usage")({

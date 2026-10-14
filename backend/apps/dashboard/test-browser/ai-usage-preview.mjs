@@ -10,7 +10,7 @@ const results = []
 const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); console.log(`${ok ? "PASS" : "FAIL"} ${name} ${detail}`) }
 for (const scheme of ["light", "dark"]) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1100 }, colorScheme: scheme })
-  for (const state of ["billed-team", "billed-over", "unbilled-near", "stopped", "no-line"]) {
+  for (const state of ["billed-team", "billed-over", "unbilled-near", "unbilled-open", "stopped", "no-line"]) {
     await page.goto(`${base}/preview/ai-usage?state=${state}`, { waitUntil: "networkidle" })
     await page.waitForSelector(".aiu")
     await page.screenshot({ path: `${out}/ai-usage-${state}-${scheme}.png`, fullPage: true })
@@ -36,6 +36,11 @@ for (const variant of ["meter", "ledger"]) {
   await page.waitForFunction((v) => !document.querySelector(`.aiu input`), variant)
   const text = await row.innerText()
   check(`${variant}: saved limit shows`, /\$75/.test(text) && /Personal limit/.test(text), JSON.stringify(text.slice(0, 120)))
+  // The one-click clear goes back to the team default.
+  await row.hover()
+  await row.getByRole("button", { name: "Use team default" }).click()
+  await page.waitForFunction((el) => !/\$75/.test(el.innerText), await row.elementHandle(), { timeout: 5000 }).catch(() => {})
+  check(`${variant}: clear goes back to the team default`, /Team default/.test(await row.innerText()) && !/\$75/.test(await row.innerText()))
   // Keyboard focus reveals the actions too.
   await page.keyboard.press("Tab")
   const def = page.locator(".aiu-row-hover").first()
