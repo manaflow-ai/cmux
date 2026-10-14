@@ -122,6 +122,20 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        // The daemon's Chief brain supervisor, when it deletes a Chief on
+        // a shared acpmux: that Chief's sessions end, the daemon stays.
+        Some("end-sessions") => {
+            match optchat_chief::agents::end_own_sessions(&optchat_chief::paths::mux_home()) {
+                Ok(names) => {
+                    println!("ended {} session(s)", names.len());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief end-sessions: {e}");
+                    1
+                }
+            }
+        }
         Some("agents") if optchat_chief::agents::retired(&flags.words).is_some() => {
             eprintln!(
                 "{}",
