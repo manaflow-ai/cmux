@@ -66,13 +66,15 @@ nonisolated struct DaemonTrailLocation: Codable, Sendable, Equatable {
 }
 
 extension DaemonHistoryClient {
-    /// Records one step of the location trail (`history.trail.record`, origin user). `replace`: the
-    /// app's trail counted the step as its newest entry again (the same sidebar item, or a quick pass).
-    func recordTrail(window: String, location: HistoryLocation, replace: Bool) async throws {
+    /// Records one step of the location trail (`history.trail.record`, origin user). The daemon runs
+    /// the app's step rules (`steps`, quick passes, `jump`) on its own trail, at the app's `time`.
+    func recordTrail(window: String, location: HistoryLocation, at time: Date, steps: HistoryStepScope,
+                     jump: Bool) async throws {
         var params: [String: JSONValue] = [
-            "window": .string(window), "location": DaemonTrailLocation(location).wire,
+            "window": .string(window), "location": DaemonTrailLocation(location).wire, "at_ms": Self.decimal(time),
+            "steps": .string(steps.rawValue),
         ]
-        if replace { params["replace"] = .bool(true) }
+        if jump { params["jump"] = .bool(true) }
         _ = try await relay.send(operation: "history.trail.record", params: params, idempotencyKey: Self.key())
     }
 
@@ -88,5 +90,17 @@ extension DaemonHistoryEntry {
     var trailLocation: HistoryLocation? {
         guard kind == .location, let location else { return nil }
         return location.historyLocation(window: window ?? "")
+    }
+}
+
+/// A trail step as the daemon lists it: its place and time (the app's clock, in ms). The app knows
+/// its own steps in the daemon's rows by it.
+nonisolated struct TrailStepID: Hashable, Sendable {
+    var key: HistoryLocation.Key
+    var ms: Int64
+
+    init(_ key: HistoryLocation.Key, _ time: Date) {
+        self.key = key
+        ms = Int64((time.timeIntervalSince1970 * 1_000).rounded())
     }
 }

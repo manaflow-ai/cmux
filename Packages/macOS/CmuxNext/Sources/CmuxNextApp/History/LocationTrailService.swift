@@ -118,9 +118,9 @@ final class LocationTrailService {
         let time = now(), scope = stepScope
         if let jump = jumpNotedAt, time.timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
             jumpNotedAt = nil
-            recorded = step { $0.recordJump(location, at: time) }
+            recorded = step(location, at: time, jump: true) { $0.recordJump(location, at: time) }
         } else {
-            recorded = step { $0.record(location, at: time, scope: scope) }
+            recorded = step(location, at: time, steps: scope) { $0.record(location, at: time, scope: scope) }
         }
         if recorded { changed() } else { pageHistoryDidChange() }
     }
@@ -174,12 +174,12 @@ final class LocationTrailService {
         let time = now()
         if let origin, Self.needsOrigin(origin, before: location, current: trail.current?.location) {
             // A jump: neither entry is coalesced away as a quick pass.
-            step { $0.recordJump(origin, at: time) }
-            step { $0.recordJump(location, at: time) }
+            step(origin, at: time, jump: true) { $0.recordJump(origin, at: time) }
+            step(location, at: time, jump: true) { $0.recordJump(location, at: time) }
             changed()
             return
         }
-        if step({ $0.record(location, at: time) }) { changed() }
+        if step(location, at: time, steps: .everything, { $0.record(location, at: time) }) { changed() }
     }
 
     // MARK: Navigation
@@ -325,33 +325,31 @@ final class LocationTrailService {
         notify()
     }
 
-    /// Runs one record on the trail and reports the step to the daemon when it changed the trail:
-    /// a new entry, or the newest entry again (`replace`: the same sidebar item with another tab,
-    /// or a quick pass the trail coalesced away). Returns what the record returned.
+    /// Runs one record on the trail and, when it changed the trail, reports the same step to the
+    /// daemon, which runs the same step rules on its trail (cx-hnmbt.12). Incognito steps stay here.
     @discardableResult
-    private func step(_ record: (inout LocationTrail) -> Bool) -> Bool {
-        let before = trail.current
+    private func step(_ location: HistoryLocation, at time: Date, steps: HistoryStepScope = .workspaces,
+                      jump: Bool = false, _ record: (inout LocationTrail) -> Bool) -> Bool {
         guard record(&trail) else { return false }
-        guard let now = trail.current, !now.location.isIncognito else { return true }
-        let replace: Bool
-        if let before, before.enteredAt == now.enteredAt {
-            replace = before.location.key != now.location.key
-        } else if let before {
-            replace = !trail.entries.contains { $0.enteredAt == before.enteredAt && $0.location.key == before.location.key }
-        } else {
-            replace = false
-        }
-        guard let daemon = services.history.daemonHistory else { return true }
-        let location = now.location
-        reports.yield { try? await daemon.recordTrail(window: location.window, location: location, replace: replace) }
+        if !location.isIncognito { report(location, at: time, steps: steps, jump: jump) }
         return true
     }
 
-    /// Reads the daemon's trail once per launch (on the first connection that serves it); steps
-    /// recorded before the read stay newest.
+    private func report(_ location: HistoryLocation, at time: Date, steps: HistoryStepScope, jump: Bool) {
+        guard let daemon = services.history.daemonHistory else { return }
+        reports.yield {
+            try? await daemon.recordTrail(window: location.window, location: location, at: time, steps: steps, jump: jump)
+        }
+    }
+
+    /// Reads the daemon's trail once per launch (on the first connection that serves it), and
+    /// again when another client changed it (`history-changed` with kind `location`).
     private func loadOnce() {
         guard !loaded, !loading, let daemon = services.history.daemonHistory else { return }
         loading = true
+        services.machines.local.store.sideEvents.subscribe { [weak self] event in
+            if case .historyChanged(_, let kinds) = event, kinds.contains("location") { self?.reread() }
+        }
         // task-owner: one read of the daemon's trail; ends with its reply
         Task { [weak self] in
             let steps = try? await daemon.trail()
@@ -364,10 +362,37 @@ final class LocationTrailService {
 
     private func adopt(_ steps: [(location: HistoryLocation, time: Date)]) {
         loaded = true
+        known = Set(steps.map { TrailStepID($0.location.key, $0.time) })
         var merged = LocationTrail()
         for step in steps { merged.recordJump(step.location, at: step.time) }
-        for entry in trail.entries { merged.record(entry.location, at: entry.enteredAt) }
+        // Steps taken before the daemon answered: the ones it lacks go to it now.
+        for entry in trail.entries where !known.contains(TrailStepID(entry.location.key, entry.enteredAt)) {
+            merged.recordJump(entry.location, at: entry.enteredAt)
+            if !entry.location.isIncognito { report(entry.location, at: entry.enteredAt, steps: .everything, jump: true) }
+        }
         trail = merged
         notify()
+    }
+
+    /// The daemon steps the app last read. A step that left them was removed or cleared by
+    /// another client (the React History page): its entries leave the Back/Forward steps too.
+    /// Steps this app reported but the daemon has not stored yet were never known, so they stay.
+    private var known: Set<TrailStepID> = []
+    private var rereads = 0
+
+    private func reread() {
+        guard loaded, let daemon = services.history.daemonHistory else { return }
+        rereads += 1
+        let generation = rereads
+        // task-owner: one read of the daemon's trail; ends with its reply
+        Task { [weak self] in
+            guard let steps = try? await daemon.trail(), let self, generation == self.rereads else { return }
+            let now = Set(steps.map { TrailStepID($0.location.key, $0.time) })
+            let gone = self.known.subtracting(now)
+            self.known = now
+            guard !gone.isEmpty else { return }
+            self.trail.removeAll { gone.contains(TrailStepID($0.location.key, $0.enteredAt)) }
+            self.notify()
+        }
     }
 }

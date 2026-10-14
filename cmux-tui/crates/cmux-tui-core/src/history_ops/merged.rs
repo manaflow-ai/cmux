@@ -1,6 +1,6 @@
 //! The merged read model and the mutations of the history module.
 //!
-//! Per session: the agent and command folds over the session journal and
+//! Per session: the agent fold over the session journal and
 //! the history revision ([`HistoryHost`], one mutex). Per machine: the page
 //! visit stores (pages.rs) and the location trail (trail.rs). Read from
 //! other owners: closed items from the closed-history store (sources.rs)
@@ -18,8 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_history::{
-    AgentSessionFold, EntryContext, HiddenHistory, HistoryEntry, HistoryKind, TerminalCommandFold,
-    hidden_id,
+    AgentSessionFold, EntryContext, HiddenHistory, HistoryEntry, HistoryKind, hidden_id,
 };
 use serde_json::{Map, Value, json};
 
@@ -43,7 +42,6 @@ pub(crate) struct HistoryHost {
 
 struct HostState {
     agents: AgentSessionFold,
-    commands: TerminalCommandFold,
     cursor: u64,
     revision: u64,
 }
@@ -53,7 +51,6 @@ impl Default for HistoryHost {
         Self {
             state: Mutex::new(HostState {
                 agents: AgentSessionFold::new(LOCAL_MACHINE),
-                commands: TerminalCommandFold::new(LOCAL_MACHINE),
                 cursor: 0,
                 revision: 1,
             }),
@@ -87,15 +84,11 @@ impl HistoryHost {
         let pick = |kind| -> Vec<Value> {
             records.iter().filter(|(of, _)| *of == kind).map(|(_, value)| value.clone()).collect()
         };
-        let (agents, commands) = (pick(HistoryKind::Agent), pick(HistoryKind::Command));
+        let agents = pick(HistoryKind::Agent);
         let mut changed = Vec::new();
         if !agents.is_empty() {
             state.agents.apply(&agents);
             changed.push(HistoryKind::Agent);
-        }
-        if !commands.is_empty() {
-            state.commands.apply(&commands);
-            changed.push(HistoryKind::Command);
         }
         // Closed items live in the closed-history store; a record that
         // changed one only marks the kind (an open History page re-reads).
@@ -163,22 +156,19 @@ pub(super) fn list(
                 .map_err(|error| store_failed(OPERATION, error))?,
         );
     }
-    if wants(HistoryKind::Agent) || wants(HistoryKind::Command) {
-        // The feed also tells an open page that a command finished.
+    if wants(HistoryKind::Agent) {
         journal_feed::start(mux);
         let changed = journal_feed::catch_up(mux).map_err(|error| failed(OPERATION, &error))?;
         if !changed.is_empty() {
             mux.history.changed(mux, &changed);
         }
-    }
-    if wants(HistoryKind::Agent) {
         let (hidden, _) = hidden_doc::load(mux).map_err(|error| failed(OPERATION, &error))?;
         entries.extend(mux.history.agent_entries(&hidden));
     }
     if wants(HistoryKind::Command) {
-        entries.extend(
-            commands::entries(mux, query.limit).map_err(|error| failed(OPERATION, &error))?,
-        );
+        // Every unexpired row up to the store's page (1000): the search and
+        // range filter below run over all of them, not the newest `limit`.
+        entries.extend(commands::entries(mux).map_err(|error| failed(OPERATION, &error))?);
     }
     if wants(HistoryKind::Closed) {
         let items = mux
@@ -279,12 +269,9 @@ fn remove(
     }
     let command_ids = commands::ids(&ids);
     if !command_ids.is_empty() {
-        let removed = commands::delete(mux, commands::Selection::Ids(command_ids))
+        // The command worker announces the deleted rows (history-changed).
+        others += commands::delete(mux, commands::Selection::Ids(command_ids))
             .map_err(|error| failed(OPERATION, &error))?;
-        if removed > 0 {
-            others += removed;
-            changed.push(HistoryKind::Command);
-        }
     }
     let mut value = json!({"removed": 0, "restore_id": null});
     if ids.iter().any(|id| id.starts_with("page:")) {
@@ -377,12 +364,8 @@ fn clear(
         let selection = since.map_or(commands::Selection::All, |since| {
             commands::Selection::StartedSince(u64::try_from(since).unwrap_or(0))
         });
-        let removed =
-            commands::delete(mux, selection).map_err(|error| failed(OPERATION, &error))?;
-        if removed > 0 {
-            others += removed;
-            changed.push(HistoryKind::Command);
-        }
+        // The command worker announces the deleted rows (history-changed).
+        others += commands::delete(mux, selection).map_err(|error| failed(OPERATION, &error))?;
     }
     if others > 0 {
         let before = value["removed"].as_u64().unwrap_or(0);
