@@ -78,6 +78,7 @@
 				opencode-plugin.js,
 				shell-integration,
 				terminfo-overlay,
+				terminfo-overlay/67/ghostty,
 				terminfo-overlay/78/xterm-ghostty,
 			);
 			target = CE7A00000000000000000005 /* cmux-next */;
