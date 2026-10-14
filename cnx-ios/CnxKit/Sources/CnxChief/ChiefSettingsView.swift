@@ -1,7 +1,10 @@
 #if os(iOS)
 import CmuxConversationCore
 import CnxDesign
+import OSLog
 import SwiftUI
+
+private let log = Logger(subsystem: "dev.cmux.cnx", category: "chief-settings")
 
 /// Chief's details: what the Mac's Chief settings sidebar offers its owner
 /// (HomeChiefSidebar: harness, model and effort; the name), Stop for a running
@@ -131,6 +134,10 @@ public struct ChiefSettingsView: View {
             }
             if let engineError {
                 Text(engineError).font(.footnote).foregroundStyle(.red)
+                if report == nil, hasControl, !loading {
+                    Button("Try Again") { Task { await load() } }
+                        .accessibilityIdentifier("chief.settings.retry")
+                }
             }
             if hasControl, session.isTyping || stopping {
                 Button(role: .destructive) {
@@ -231,7 +238,7 @@ public struct ChiefSettingsView: View {
             session.adopt(loaded)
             engineError = nil
         } catch {
-            engineError = String(describing: error)
+            engineError = Self.errorText(error, doing: .load)
         }
     }
 
@@ -259,7 +266,7 @@ public struct ChiefSettingsView: View {
                     engineError = nil
                 } catch {
                     report = before
-                    engineError = String(describing: error)
+                    engineError = Self.errorText(error, doing: .change)
                 }
             }
         }
@@ -272,7 +279,7 @@ public struct ChiefSettingsView: View {
         do {
             stopNote = try await control.stop() ? String(localized: "Chief stopped.") : String(localized: "Chief had nothing running.")
         } catch {
-            stopNote = String(describing: error)
+            stopNote = Self.errorText(error, doing: .stop)
         }
     }
 
@@ -292,15 +299,34 @@ public struct ChiefSettingsView: View {
         current.map { String(localized: "Default (\($0))") } ?? String(localized: "Default")
     }
 
-    /// The model picker's default item names what it resolves to (SPEC 4):
-    /// acpmux's own "default" entry ("Default (GPT-6.1 Sol)"), else the
-    /// engine's resolved model, else plain "Default".
+    /// The model picker's default item names what it resolves to (F1):
+    /// "Default (GPT-6.1 Sol)" from a Mac that resolves it (#20531), plain
+    /// "Default" from an older Mac.
     static func defaultModelLabel(_ report: ChiefEngineReport) -> String {
-        if let entry = report.defaultModel, !entry.name.isEmpty, entry.name.caseInsensitiveCompare("default") != .orderedSame {
-            return entry.name.lowercased().hasPrefix("default") ? entry.name : defaultLabel(entry.name)
+        defaultLabel(report.resolvedDefaultName)
+    }
+
+    enum Action { case load, change, stop }
+
+    /// A sentence for the page (F2); the raw error goes to the log only.
+    /// Refusals the Mac explains (no Chief, not allowed, a bad avatar) keep
+    /// their own sentence; anything else says what did not happen.
+    static func errorText(_ error: any Error, doing action: Action) -> String {
+        log.error("chief settings \(String(describing: action), privacy: .public): \(String(describing: error), privacy: .public)")
+        if let control = error as? ChiefControlError {
+            switch (control.code, control.reason) {
+            case ("origin.forbidden", _), (_, "not_configured"?), (_, "unavailable"?): return control.description
+            case ("invalid_avatar", _), (_, "invalid_avatar"?): return String(localized: "Use an emoji or one or two letters.")
+            case ("unknown_harness", _), (_, "unknown_harness"?): return String(localized: "This Mac can't run Chief on that harness.")
+            default: break
+            }
         }
-        guard let model = report.engine.model, model != "default" else { return defaultLabel(nil) }
-        return defaultLabel(report.modelName(model) ?? model)
+        if let backend = error as? ConversationBackendError, backend.code == -1 { return backend.message }
+        return switch action {
+        case .load: String(localized: "Chief on your Mac didn't answer. Try again.")
+        case .change: String(localized: "Chief on your Mac didn't take the change. Try again.")
+        case .stop: String(localized: "Chief on your Mac didn't stop. Try again.")
+        }
     }
 
     static func harnessName(_ id: String) -> String {
@@ -426,7 +452,7 @@ struct ChiefFieldEditor: View {
             try await save(trimmed)
             dismiss()
         } catch {
-            self.error = (error as? ConversationBackendError)?.message ?? String(describing: error)
+            self.error = ChiefSettingsView.errorText(error, doing: .change)
         }
     }
 }

@@ -1003,6 +1003,8 @@ public final class LiveCoordinator {
                 return
             }
             session.status = nil
+            // Answers to Chief's questions sign with this phone's key after Face ID.
+            session.answerSigner = { [weak self] in self?.chiefAnswerSigner() }
             session.use(ChiefDaemonBackend(client: client))
             chiefLive = true
             chiefStatus = nil

@@ -115,6 +115,63 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         view.addSubview(conversation.view)
         conversation.didMove(toParent: self)
         takeOverHeader()
+        installQuestionBar()
+        // The header redraws only when the title changes; a new avatar from
+        // the Mac (chief-profile-changed) redraws it in place.
+        headerAvatar = chiefInitials
+        conversation.store.addObserver { [weak self] _ in
+            guard let self, self.isViewLoaded, self.chiefInitials != self.headerAvatar else { return }
+            self.headerAvatar = self.chiefInitials
+            if self.view.window != nil { self.conversation.setBackUnreadCount(self.backUnreadCount) }
+        }
+    }
+
+    // MARK: Chief's questions
+
+    /// The bar under the header while Chief asks (``ChiefQuestionBar``).
+    private lazy var questionBar: UIHostingController<ChiefQuestionBar> = {
+        var bar = ChiefQuestionBar(session: session) { [weak self] question in
+            self?.presentQuestion(question.id)
+        }
+        bar.resized = { [weak self] in self?.view.setNeedsLayout() }
+        let host = UIHostingController(rootView: bar)
+        host.view.backgroundColor = .clear
+        host.sizingOptions = .intrinsicContentSize
+        return host
+    }()
+
+    private func installQuestionBar() {
+        addChild(questionBar)
+        view.addSubview(questionBar.view)
+        questionBar.didMove(toParent: self)
+    }
+
+    /// Below the header's name pill, over the top of the transcript.
+    private func layoutQuestionBar() {
+        guard questionBar.parent === self else { return }
+        let name = conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.header.name" }
+        let top = name.map { $0.convert($0.bounds, to: view).maxY + 10 } ?? view.safeAreaInsets.top + 64
+        let size = questionBar.sizeThatFits(in: CGSize(width: view.bounds.width, height: .greatestFiniteMagnitude))
+        questionBar.view.frame = CGRect(x: 0, y: top, width: view.bounds.width, height: size.height)
+    }
+
+    public func presentQuestion(_ id: String) {
+        guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
+        view.endEditing(true)
+        let host = UIHostingController(rootView: ChiefQuestionSheet(session: session, questionID: id))
+        host.modalPresentationStyle = .pageSheet
+        host.sheetPresentationController?.detents = [.medium(), .large()]
+        host.sheetPresentationController?.prefersGrabberVisible = true
+        // At accessibility sizes the card does not fit half a screen.
+        if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
+            host.sheetPresentationController?.selectedDetentIdentifier = .large
+        }
+        present(host, animated: true)
+    }
+
+    private var headerAvatar: String?
+    private var chiefInitials: String? {
+        conversation.store.info?.participants.first { $0.id == session.identity.chiefID }?.initials
     }
 
     // MARK: Chief settings in place of contact details
@@ -237,6 +294,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         super.viewDidLayoutSubviews()
         if view.window != nil { enableEdgePop() }
         labelTrailing()
+        layoutQuestionBar()
     }
 
     /// The back swipe from the left edge, as in Messages. On iOS 26 and later
