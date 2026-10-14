@@ -19,6 +19,7 @@ import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore } from "./store";
 import { DaemonGate, InstanceBar, type DaemonSource, type HostCredential } from "./DaemonGate";
+import { homeLinkClickHandler } from "./homeLinks";
 import { DaemonHomeClient } from "./daemonHome";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
@@ -71,7 +72,13 @@ export function mountDaemonHomeChannelsPage(
 /** One store per daemon connection (a render never makes a second one). */
 function DaemonHome({ daemon, strings }: { daemon: DaemonSocket; strings: Strings }) {
   const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon)));
-  return <HomeChannelsPage store={store} strings={strings} />;
+  // Web links open on the right side of the Home workspace (homeLinks.ts), one handler per connection.
+  const [onLinkClick] = useState(() => homeLinkClickHandler(daemon));
+  return (
+    <div className="hc-links" onClickCapture={(event) => onLinkClick(event.nativeEvent)}>
+      <HomeChannelsPage store={store} strings={strings} />
+    </div>
+  );
 }
 
 /** The daemon endpoint in the query (`?daemon=ws://127.0.0.1:7681`): only ws/wss URLs. */
