@@ -246,8 +246,8 @@ extension AppDelegate {
     }
 
     /// Cloud creation shortcuts and menu rows introduce Cloud while it is off
-    /// or signed out, instead of doing nothing. The welcome card's own next
-    /// step decides between Enable and Upgrade; Enable then resumes `resume`.
+    /// or signed out. Returning users skip the card and take its next step;
+    /// Enable then resumes `resume`.
     private func introduceCloudIfNeeded(
         over window: NSWindow?,
         resume: @escaping @MainActor () -> Void
