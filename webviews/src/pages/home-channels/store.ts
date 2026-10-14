@@ -54,6 +54,12 @@ export interface PendingSend {
   failed: boolean;
 }
 
+/** Pending sends that outlive one store: the page makes a new store on every reconnect, and a
+ * send that failed with the old connection keeps its "Not sent" row and Retry in the new one. */
+export class PendingCarry {
+  entries: readonly PendingSend[] = [];
+}
+
 export interface HomeSnapshot {
   connection: Connection;
   loading: boolean;
@@ -101,8 +107,13 @@ export class HomeChannelsStore {
   /** The read cursor this page last sent per conversation (one read per new seq). */
   private readonly readSeq = new Map<string, number>();
   private readonly drafts = new DraftBook();
+  /** Who types in each conversation (typing events); activity adds the running drafts. */
+  private readonly typingBy = new Map<string, Set<string>>();
 
-  constructor(private readonly client: PageClient | null) {
+  constructor(
+    private readonly client: PageClient | null,
+    private readonly carry: PendingCarry = new PendingCarry(),
+  ) {
     this.snapshot = {
       connection: client ? "connecting" : "offline",
       loading: client !== null,
@@ -113,9 +124,12 @@ export class HomeChannelsStore {
       typing: [],
       threadsSeen: new Set(),
       threadStats: new Map(),
-      pending: [],
+      // A send still in flight on the old connection did not reach the owner as far as this
+      // store knows: it shows as failed, with Retry (the same idempotency key, never twice).
+      pending: carry.entries.map((entry) => ({ ...entry, failed: true })),
       activity: new Map(),
     };
+    carry.entries = this.snapshot.pending;
   }
 
   getSnapshot = (): HomeSnapshot => this.snapshot;
@@ -291,6 +305,7 @@ export class HomeChannelsStore {
       const live = this.drafts.draft(id);
       const reply = live && messages.find((m) => m.clientMessageId === live.turn && m.author === live.participant);
       if (reply) this.drafts.posted(reply);
+      if (reply) this.set({ activity: this.currentActivity() });
       this.set({
         conversations,
         messages,
@@ -419,6 +434,11 @@ export class HomeChannelsStore {
         replyTo: pending.replyTo,
         idempotencyKey: pending.key,
       });
+      // The owner's event may have come first (or a retry was a replay of a message already in
+      // the window): settle from what the page holds now.
+      const held = [...this.snapshot.messages, ...(this.snapshot.threadView?.messages ?? [])];
+      const left = this.settled(held);
+      if (left) this.set({ pending: left });
     } catch (error) {
       if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return;
       this.set({
@@ -611,28 +631,35 @@ export class HomeChannelsStore {
     else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);
   }
 
-  /** Who types or writes a reply in each conversation after this batch (undefined: no change). */
+  /** Who types or writes a reply in each conversation after this batch (undefined: no change).
+   * Rebuilt from the typing map and the live drafts each time, so a draft that ends with no
+   * posted message, or a reply that ends its draft through a page reload, clears it too. */
   private activityAfter(batch: HomeEventBatch): ReadonlyMap<string, ReadonlySet<string>> | undefined {
-    if (batch.connection === "offline" || batch.inboxStale) return new Map();
-    const touched = new Set<string>();
-    for (const entry of batch.typing ?? []) touched.add(entry.conversation);
-    for (const item of batch.drafts ?? []) touched.add(item.conversation);
-    for (const message of batch.messages ?? []) touched.add(message.conversation);
-    if (touched.size === 0) return undefined;
-    const next = new Map(this.snapshot.activity);
-    for (const conversation of touched) {
-      const people = new Set(next.get(conversation) ?? []);
-      for (const entry of batch.typing ?? []) {
-        if (entry.conversation !== conversation) continue;
-        if (entry.on) people.add(entry.participant);
-        else people.delete(entry.participant);
-      }
-      // A posted message ends its author's typing; a running reply keeps its author active.
-      for (const message of batch.messages ?? []) if (message.conversation === conversation) people.delete(message.author);
+    // A reconnect or an inbox refetch ends every indicator (typing is ephemeral).
+    if (batch.connection || batch.inboxStale) this.typingBy.clear();
+    for (const entry of batch.typing ?? []) {
+      const people = this.typingBy.get(entry.conversation) ?? new Set<string>();
+      if (entry.on) people.add(entry.participant);
+      else people.delete(entry.participant);
+      if (people.size > 0) this.typingBy.set(entry.conversation, people);
+      else this.typingBy.delete(entry.conversation);
+    }
+    // A posted message ends its author's typing.
+    for (const message of batch.messages ?? []) this.typingBy.get(message.conversation)?.delete(message.author);
+    const touched =
+      batch.connection || batch.inboxStale || batch.typing?.length || batch.drafts?.length || batch.messages?.length;
+    return touched ? this.currentActivity() : undefined;
+  }
+
+  /** Typing plus the running drafts, by conversation. */
+  private currentActivity(): ReadonlyMap<string, ReadonlySet<string>> {
+    const next = new Map<string, ReadonlySet<string>>();
+    const conversations = new Set([...this.typingBy.keys(), ...this.snapshot.conversations.keys()]);
+    for (const conversation of conversations) {
+      const people = new Set(this.typingBy.get(conversation) ?? []);
       const draft = this.drafts.draft(conversation);
       if (draft) people.add(draft.participant);
       if (people.size > 0) next.set(conversation, people);
-      else next.delete(conversation);
     }
     return next;
   }
@@ -643,6 +670,7 @@ export class HomeChannelsStore {
 
   private set(patch: Partial<HomeSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
+    if (patch.pending) this.carry.entries = patch.pending;
     for (const listener of this.listeners) listener();
   }
 }

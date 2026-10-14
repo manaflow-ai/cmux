@@ -139,12 +139,18 @@ function ListRow({
       data-list-row={row.id}
       className={`lg-row${active ? " active" : ""}${unread ? " unread" : ""}${row.muted ? " muted" : ""}`}
       aria-current={active ? "page" : undefined}
-      aria-label={label}
+      data-name={label}
       onClick={() => onSelect(row.id)}
     >
-      {unread && <span className="lg-unread-dot" aria-label={format("unread.messages", String(row.unread))} />}
+      {unread && <span className="lg-unread-dot" aria-hidden="true" />}
       <span className="lg-row-mark">{channel ? <ChannelMark /> : <Avatar participant={other} size={20} state={state} />}</span>
-      <span className="lg-row-name">{name}</span>
+      <span className="lg-row-name">
+        {channel && <span className="lg-visually-hidden">#</span>}
+        {name}
+        {unread && badge === 0 && (
+          <span className="lg-visually-hidden">, {format("unread.messages", String(row.unread))}</span>
+        )}
+      </span>
       <time className="lg-row-time">{stamp(activityAt(row))}</time>
       <span className="lg-row-preview">
         {state === "working" || state === "waiting" ? (
@@ -155,12 +161,14 @@ function ListRow({
         <span className="lg-row-text">{preview}</span>
       </span>
       {badge > 0 && (
-        <span
-          className="lg-count"
-          aria-label={format(row.mentions > 0 ? "unread.mentions" : "unread.messages", String(badge))}
-        >
-          {badge}
-        </span>
+        <>
+          <span className="lg-count" aria-hidden="true">
+            {badge}
+          </span>
+          <span className="lg-visually-hidden">
+            {format(row.mentions > 0 ? "unread.mentions" : "unread.messages", String(badge))}
+          </span>
+        </>
       )}
     </button>
   );

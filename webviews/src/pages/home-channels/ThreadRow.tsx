@@ -35,6 +35,8 @@ export const ThreadRow = memo(function ThreadRow({
   const owner = thread.owner ? (people.get(thread.owner)?.name ?? thread.owner) : undefined;
   const count = summary.count === 1 ? t("thread.replies.one") : format("thread.replies.many", String(summary.count));
   const status = t(thread.status === "open" ? "thread.status.open" : "thread.status.resolved");
+  // A root with no text (deleted, or only an attachment) still names the row.
+  const title = thread.title || t("thread.title");
   return (
     <div className="lg-thread-line">
       <button
@@ -43,11 +45,11 @@ export const ThreadRow = memo(function ThreadRow({
         data-status={thread.status}
         className={`lg-thread-row${open ? " open" : ""}${focused ? " focused" : ""}${highlighted ? " highlighted" : ""}`}
         aria-current={focused ? "true" : undefined}
-        aria-label={`${thread.title}, ${status}, ${count}`}
+        aria-label={`${title}, ${status}, ${count}`}
         onClick={onOpen}
       >
         <span className={`lg-status ${thread.status}`} title={status} aria-hidden="true" />
-        <span className="lg-thread-title">{thread.title}</span>
+        <span className="lg-thread-title">{title}</span>
         <span className="lg-thread-owner">{owner}</span>
         {summary.unread > 0 && <span className="lg-thread-new">{format("thread.new", String(summary.unread))}</span>}
         <span className="lg-thread-faces" aria-hidden="true">

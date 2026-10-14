@@ -190,6 +190,8 @@ export default componentEntry<Props>({
             (node) => node.textContent?.trim() === "Shipping it.",
           ),
         );
+        // The owner took it: no pending row is left (the optimistic row ends on the owner's event).
+        await ctx.waitFor(() => !ctx.document.querySelector(".hc-msg.pending"));
         // The summary had 3 replies (one inline reply, two thread replies); the new one makes 4.
         await ctx.waitFor(() => ctx.document.querySelector(".lg-main .lg-thread-count")?.textContent?.includes("4"));
       },

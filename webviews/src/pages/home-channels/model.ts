@@ -85,7 +85,8 @@ export function threadTitle(root: HomeMessage): string {
       .find((part) => part.length > 0) ?? "";
   const plain = line
     .replace(/^#+\s+|^[-*>]\s+|^\d+\.\s+/, "")
-    .replace(/[*_`~]/g, "")
+    // Paired emphasis and code marks only: `fix_sidebar_bug` and `~/path` keep their characters.
+    .replace(/(\*\*|__|~~|\*|_|`)(\S(?:.*?\S)?)\1/g, "$2")
     .replace(/[:;,]\s*$/, "");
   return plain.length > TITLE_MAX ? `${plain.slice(0, TITLE_MAX - 1)}…` : plain;
 }
@@ -322,10 +323,15 @@ export function withDraft(rows: TimelineRow[], draft: HomeDraft | undefined): Ti
 }
 
 /** My newest top-level text message in the window that I can still edit (Up in the composer). */
-export function lastEditable(messages: readonly HomeMessage[], me: string | undefined): HomeMessage | undefined {
+export function lastEditable(
+  messages: readonly HomeMessage[],
+  me: string | undefined,
+  /** Thread roots: the timeline shows them as thread rows, so they are edited in the sheet. */
+  roots: ReadonlySet<string> = new Set(),
+): HomeMessage | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
-    if (message.author !== me || message.retracted || threadOf(message)) continue;
+    if (message.author !== me || message.retracted || threadOf(message) || roots.has(message.id)) continue;
     if (message.parts.length > 0 && message.parts.every((part) => part.type === "text")) return message;
   }
   return undefined;

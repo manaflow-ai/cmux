@@ -17,7 +17,7 @@ import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import { HomeChannelsPage } from "./HomeChannelsPage";
 import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";
-import { HomeChannelsStore } from "./store";
+import { HomeChannelsStore, PendingCarry } from "./store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
 import "../shared/pageBase.css";
@@ -55,12 +55,14 @@ export function mountDaemonHomeChannelsPage(
 ): void {
   const strings = createStrings(table);
   document.title = strings.t("page.title");
+  // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
+  const carry = new PendingCarry();
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <DaemonGate source={source} strings={strings}>
         {(daemon) => (
           <div className="hc-daemon">
-            <DaemonHome daemon={daemon} strings={strings} />
+            <DaemonHome daemon={daemon} strings={strings} carry={carry} />
           </div>
         )}
       </DaemonGate>
@@ -69,8 +71,8 @@ export function mountDaemonHomeChannelsPage(
 }
 
 /** One store per daemon connection (a render never makes a second one). */
-function DaemonHome({ daemon, strings }: { daemon: DaemonSocket; strings: Strings }) {
-  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon)));
+function DaemonHome({ daemon, strings, carry }: { daemon: DaemonSocket; strings: Strings; carry: PendingCarry }) {
+  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon), carry));
   // Web links: homeLinks.ts sends them to workspace.open_url, but the daemon takes that operation
   // from a page only with the person's confirmation (page-router gesture list), which this
   // WebSocket cannot present yet. Until the host relays the click with a confirmation

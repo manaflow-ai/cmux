@@ -819,9 +819,10 @@
 }
 
 /* ---------- Palette ---------- */
+/* The shared popup rule: a dimmed page and the solid popup surface, no blur. */
 .lg-scrim {
-  background: color-mix(in srgb, black 28%, transparent);
-  backdrop-filter: blur(2px);
+  z-index: var(--layer-overlay);
+  background: var(--cmux-scrim, rgb(0 0 0 / 0.25));
 }
 .lg-palette.ui-dialog,
 .lg-palette {
@@ -837,9 +838,10 @@
   padding: 0;
   border: 1px solid var(--lg-line);
   border-radius: 12px;
-  background: var(--lg-solid);
-  box-shadow: 0 24px 64px -24px color-mix(in srgb, black 55%, transparent);
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-shadow);
   overflow: hidden;
+  z-index: var(--layer-overlay);
 }
 .lg-palette-root {
   display: flex;
@@ -877,6 +879,13 @@
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--page-text-3);
+}
+/* The row is the shared combobox item; its highlight is drawn on the line, not the heading. */
+.lg-palette-row.ui-combobox-item,
+.lg-palette-row.ui-combobox-item[data-highlighted] {
+  padding: 0;
+  background: none;
+  box-shadow: none;
 }
 .lg-palette-row {
   display: block;
@@ -999,4 +1008,14 @@
 .lg-owner-button:hover {
   background: var(--page-hover);
   color: var(--page-text-2);
+}
+
+/* Read out, not drawn (the row's # and its unread count without a badge). */
+.lg-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -5,7 +5,7 @@
 // participants; replies; people). Then the root, the replies in tree order with depth rails
 // (capped at 4 indents), and a reply composer; Reply on any reply nests under it. Escape closes
 // the sheet (or the title field first).
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../ui/Menu";
 import type { Strings } from "../shared/i18n";
@@ -89,6 +89,8 @@ export function ThreadSheet({
   const { t, format } = strings;
   const [replyTo, setReplyTo] = useState<HomeMessage | undefined>();
   const [renaming, setRenaming] = useState<string | undefined>();
+  /** Enter or Escape ended the edit: the blur that follows (or an unmount) saves nothing. */
+  const closing = useRef(false);
   const [ownerMenu, setOwnerMenu] = useState(false);
   const tree = useMemo(() => threadMessages(messages, root), [messages, root]);
   const count = replyCount(tree.replies, stats);
@@ -112,12 +114,19 @@ export function ThreadSheet({
   }, [tree, root, count]);
   const authors = new Set([...(tree.root ? [tree.root.author] : []), ...tree.replies.map((m) => m.author)]);
   const owner = thread?.owner ? (people.get(thread.owner)?.name ?? thread.owner) : undefined;
+  const startRename = () => {
+    closing.current = false;
+    setRenaming(thread?.title ?? "");
+  };
   const saveTitle = (value: string) => {
+    if (closing.current) return;
+    closing.current = true;
     const next = value.trim();
     // Unchanged (or the derived title kept as it was): nothing to send.
     if (!thread || next === thread.title) return setRenaming(undefined);
     void onRename(next).then((done) => {
       if (done) setRenaming(undefined);
+      else closing.current = false;
     });
   };
   const resolved = thread?.status === "resolved";
@@ -167,6 +176,7 @@ export function ThreadSheet({
               } else if (event.key === "Escape") {
                 event.preventDefault();
                 event.stopPropagation();
+                closing.current = true;
                 setRenaming(undefined);
               }
             }}
@@ -190,7 +200,7 @@ export function ThreadSheet({
               className="lg-sheet-title-button"
               title={t("thread.rename")}
               disabled={!thread}
-              onClick={() => setRenaming(thread?.title ?? "")}
+              onClick={startRename}
             >
               {thread?.title || t("thread.title")}
             </button>

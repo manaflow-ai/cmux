@@ -2,7 +2,7 @@
 // timeline, composer) on the other, with the thread sheet over the timeline. A view over the Home
 // owners (HomeChannelsStore); no business rules live here. View state only: the palette, the
 // create popover, the inline editor, the keyboard's current message and a short notice.
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { AddChannel } from "./AddChannel";
 import { Avatar, ChannelMark } from "./Avatar";
@@ -42,6 +42,10 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const [editing, setEditing] = useState<{ id: string; surface: "main" | "thread" } | undefined>();
   const [focused, setFocused] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
+  const noticeTimer = useRef<number | undefined>(undefined);
+  /** The status each root was last asked to take, until the owner's event shows it (two quick
+   * presses of E resolve, then reopen). */
+  const asked = useRef(new Map<string, "open" | "resolved">());
   const { t, format } = strings;
   const stamp = useStamp(strings.language);
   const me = snap.me?.id;
@@ -120,12 +124,16 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
 
   const say = (text: string) => {
     setNotice(text);
-    window.setTimeout(() => setNotice((current) => (current === text ? undefined : current)), NOTICE_MS);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(undefined), NOTICE_MS);
   };
   const copyLink = (message?: HomeMessage) => {
-    if (!snap.selected) return;
-    void navigator.clipboard?.writeText(messageLink(snap.selected, message?.id));
-    say(t("notice.linkCopied"));
+    if (!snap.selected || !navigator.clipboard) return;
+    // The notice only when the copy happened.
+    navigator.clipboard.writeText(messageLink(snap.selected, message?.id)).then(
+      () => say(t("notice.linkCopied")),
+      () => undefined,
+    );
   };
   const select = (id: string) => {
     setEditing(undefined);
@@ -144,8 +152,13 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const toggleStatus = (rootId: string) => {
     const root = threadSource.find((m) => m.id === rootId) ?? shown.find((m) => m.id === rootId);
     if (!root) return;
-    const status = threadFor(root).status === "resolved" ? "open" : "resolved";
+    const shown = threadFor(root).status;
+    const pendingAsk = asked.current.get(rootId);
+    const current = pendingAsk && pendingAsk !== shown ? pendingAsk : shown;
+    const status = current === "resolved" ? "open" : "resolved";
+    asked.current.set(rootId, status);
     void store.updateThread(root, { status }).then((done) => {
+      if (asked.current.get(rootId) === status) asked.current.delete(rootId);
       if (done) say(t(status === "resolved" ? "notice.resolved" : "notice.reopened"));
     });
   };
@@ -416,7 +429,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                   disabled={!online}
                   people={mentionable}
                   onEditLast={() => {
-                    const last = lastEditable(snap.messages, me);
+                    const last = lastEditable(snap.messages, me, new Set(threads.map((entry) => entry.root.id)));
                     if (last) setEditing({ id: last.id, surface: "main" });
                   }}
                   onSend={(text) => store.send(text)}
