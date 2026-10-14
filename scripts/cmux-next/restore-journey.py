@@ -1317,9 +1317,12 @@ def load_rows(variant, launched):
     if opts.hist_file:
         # Only a report the reopened page sent counts (a pre-quit one would pass falsely).
         fresh = REPORTS.get("hist") if (REPORTS.get("hist") or {}).get("at", 0) > launched else {}
+        # Against the page loaded fresh, as for reads: WebKit's file pages see their own folder
+        # only (0), Chromium's show other local images by default (1); a reopen must not widen that.
         ext = fresh.get("ext")
-        RESULTS.append((f"{variant}: page[hist] cannot show a file outside its folder", ext == 0,
-                        f"probe {ext} (1 shown, 0 refused, -1 no probe)", "browser"))
+        RESULTS.append((f"{variant}: page[hist] shows no more outside its folder than a fresh load",
+                        ext is not None and 0 <= ext <= max(LIVE_READ.get("hist_ext") or 0, 0),
+                        f"probe {ext} after the reopen, {LIVE_READ.get('hist_ext')} on the page loaded fresh (1 shown, 0 refused, -1 no probe)", "browser"))
         read = fresh.get("read")
         RESULTS.append((f"{variant}: page[hist] reads no more outside its folder than a fresh load",
                         read is not None and 0 <= read <= max(LIVE_READ.get("hist") or 0, 0),
@@ -1343,6 +1346,7 @@ def journey(base):
         if opts.hist_file and "hist" in REPORTS and "hist" not in LIVE_READ:
             # The seeded page, loaded fresh by link clicks: what a fresh load may read.
             LIVE_READ["hist"] = REPORTS["hist"].get("read")
+            LIVE_READ["hist_ext"] = REPORTS["hist"].get("ext")
         started = SINCE = time.time()
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))
