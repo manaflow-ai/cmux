@@ -7419,7 +7419,7 @@ struct CMUXCLI {
                 } else if sub == "resume" {
                     print("OK \(vmId) resumed (status=\(status))")
                 } else {
-                    print(String(format: String(localized: "cli.vm.restart.result", defaultValue: "%1$@ restarted (status=%2$@)"), vmId, status))
+                    print("OK " + String(format: String(localized: "cli.vm.restart.result", defaultValue: "%1$@ restarted (status=%2$@)"), vmId, status))
                 }
 
             case "base":

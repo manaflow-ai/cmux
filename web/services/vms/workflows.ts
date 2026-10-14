@@ -131,6 +131,7 @@ import {
   VM_PREVIEW_LEASE_RETENTION_MS,
 } from "./operationTimeouts";
 import { withVmProductAnalytics, type VmDestroySource } from "./productAnalytics";
+import { withVmSyncPublication } from "./presencePublisher";
 import {
   CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
   OBSERVED_DESTROY_CLEANUP_METADATA_KEY,
@@ -201,6 +202,8 @@ export type VmEntry = {
   readonly imageVersion: string | null;
   readonly status: CloudVmStatus;
   readonly createdAt: number;
+  /** The row's `updated_at` (epoch ms): the freshness clock for `vms` sync publication. */
+  readonly updatedAt: number;
   readonly displayName: string | null;
   /** Generated three-word name (services/vms/vmNaming.ts); null on rows older than the column. */
   readonly slug: string | null;
@@ -271,11 +274,13 @@ export type VmModelPlaneRevoker = Pick<VmModelPlaneProvisioner, "revoke">;
 
 /**
  * The Postgres repository wrapped so every usage-ledger write also reaches
- * PostHog as a product event (services/vms/productAnalytics.ts).
+ * PostHog as a product event (services/vms/productAnalytics.ts) and every
+ * list-relevant machine write reaches the presence Worker's `vms` sync
+ * collection (services/vms/presencePublisher.ts).
  */
 export const VmRepositoryWithAnalyticsLive = Layer.succeed(
   VmRepository,
-  withVmProductAnalytics(vmRepositoryLiveShape),
+  withVmProductAnalytics(withVmSyncPublication(vmRepositoryLiveShape)),
 );
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryWithAnalyticsLive, VmProviderGatewayLive, VmBillingGatewayLive);
@@ -6036,6 +6041,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     imageVersion: row.imageVersion,
     status: row.status,
     createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt.getTime(),
     displayName: row.displayName ?? null,
     slug: row.slug ?? null,
     createdByUserId: row.userId,

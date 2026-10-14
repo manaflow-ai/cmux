@@ -13,6 +13,17 @@ use std::time::{Duration, Instant};
 const TERMINAL_ONE: &str = "term_00000000000000000000000000000001";
 const TERMINAL_TWO: &str = "term_00000000000000000000000000000002";
 
+#[cfg(target_os = "linux")]
+struct RouteOwner(std::process::Child);
+
+#[cfg(target_os = "linux")]
+impl Drop for RouteOwner {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 struct Launch {
     root: tempfile::TempDir,
     socket: PathBuf,
@@ -172,6 +183,67 @@ fn codex_wrapper_remote_hooks_keep_each_terminal_under_a_shared_daemon_environme
         }
     }
     assert_eq!(stale.listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn codex_wrapper_resolves_the_attached_tmux_terminal_when_launch_environment_is_missing() {
+    let launch = Launch::new();
+    // This process stands in for a tmux attach client. Its initial environment
+    // is readable through /proc, and the open stdin keeps it alive without a timer.
+    let route_owner = RouteOwner(
+        Command::new("/bin/cat")
+            .env_clear()
+            .env("CMUX_TUI_SOCKET", &launch.socket)
+            .env("CMUX_TUI_TERMINAL_ID", TERMINAL_TWO)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+
+    let tmux_dir = launch.root.path().join("tmux-bin");
+    fs::create_dir(&tmux_dir).unwrap();
+    let tmux = tmux_dir.join("tmux");
+    fs::write(
+        &tmux,
+        format!(
+            "#!/bin/sh\ncase \"$1\" in\ndisplay-message) printf '%b\\n' '$1\\t\\t@1';;\nlist-clients) printf '%b\\n' '{}\\t999\\t$1\\t\\t@1';;\nesac\n",
+            route_owner.0.id()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&tmux, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let mut command = launch.command();
+    command
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .env("TMUX", "fake-server,1,0")
+        .env("TMUX_PANE", "%1")
+        .env(
+            "PATH",
+            format!(
+                "{}:{}:/usr/bin:/bin",
+                tmux_dir.display(),
+                launch.root.path().join("bin").display()
+            ),
+        )
+        .args(["exec", "hello"]);
+    let argv = launch.argv(&mut command);
+    let config = settings(&argv);
+    let hook = hook_command(&config, "SessionStart");
+    run_hook(&hook, None, TERMINAL_TWO);
+    let received = launch.event();
+    assert_eq!(received["payload"]["native_event"], "SessionStart");
+    assert!(
+        received["subjects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|subject| { subject["kind"] == "terminal" && subject["id"] == TERMINAL_TWO })
+    );
 }
 
 #[test]
