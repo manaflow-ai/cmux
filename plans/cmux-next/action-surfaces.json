@@ -11901,7 +11901,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sendCtrlFToTerminal",
-      "main_menu" : null,
+      "main_menu" : "edit",
       "mcp" : "liveInput",
       "palette" : "offered",
       "palette_section" : {
@@ -26996,7 +26996,8 @@
       "cli_name" : "action sidebar-workspace-tabs-toggle",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground"
+        "sidebarBackground",
+        "workspaceRow"
       ],
       "default_aliases" : [
 
@@ -36504,6 +36505,23 @@
                   "id" : "disconnectWorkspace",
                   "kind" : "action",
                   "order" : 16,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "kind" : "separator",
+                  "order" : 17
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "sidebar.workspaceTabs.toggle",
+                  "kind" : "action",
+                  "order" : 18,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
