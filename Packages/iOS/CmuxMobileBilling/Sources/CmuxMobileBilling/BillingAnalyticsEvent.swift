@@ -30,6 +30,12 @@ public struct BillingAnalyticsEvent: Sendable, Equatable, Hashable {
     /// `plan_id`, `billing_period`, `price`, `currency`, `environment`,
     /// `delivery`.
     public static let purchaseSucceeded = BillingAnalyticsEvent(name: "ios_purchase_succeeded")
+    /// The App Store refund request sheet opened from the plans screen.
+    /// Properties: `product_id`.
+    public static let refundRequestOpened = BillingAnalyticsEvent(name: "ios_refund_request_opened")
+    /// The refund request sheet closed. Properties: `product_id`, `result`
+    /// (`success`, `userCancelled`, or `error`).
+    public static let refundRequestResult = BillingAnalyticsEvent(name: "ios_refund_request_result")
     /// The purchase waits for approval (Ask to Buy).
     public static let purchasePending = BillingAnalyticsEvent(name: "ios_purchase_pending")
     /// The user tapped Restore Purchases.

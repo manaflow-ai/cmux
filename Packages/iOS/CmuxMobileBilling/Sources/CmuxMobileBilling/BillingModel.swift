@@ -37,6 +37,9 @@ public final class BillingModel {
     /// It tells Pro Monthly from Pro Yearly, which the server's plan id
     /// cannot.
     public private(set) var currentAppleProductID: String?
+    /// The latest transaction of that subscription, for the App Store refund
+    /// request sheet; nil when unknown.
+    public private(set) var currentAppleTransactionID: UInt64?
     /// The current purchase attempt.
     public private(set) var purchase: BillingPurchasePhase = .idle
     /// The current restore attempt.
@@ -216,6 +219,20 @@ public final class BillingModel {
         }
     }
 
+    /// Records that the App Store refund request sheet opened.
+    /// - Parameter productID: The subscription the refund is for.
+    public func refundRequestOpened(productID: String) {
+        capture(.refundRequestOpened, ["product_id": .string(productID)])
+    }
+
+    /// Records how the App Store refund request sheet ended.
+    /// - Parameters:
+    ///   - productID: The subscription the refund is for.
+    ///   - result: `success`, `userCancelled`, or `error`.
+    public func refundRequestFinished(productID: String, result: String) {
+        capture(.refundRequestResult, ["product_id": .string(productID), "result": .string(result)])
+    }
+
     /// Clears the result banner of the last purchase or restore.
     public func dismissResult() {
         if !purchase.isPurchasing { purchase = .idle }
@@ -231,6 +248,7 @@ public final class BillingModel {
         rejectedTransactions = [:]
         lastProductsEvent = nil
         currentAppleProductID = nil
+        currentAppleTransactionID = nil
         account = .idle
         offers = []
         offersFailure = nil
@@ -361,17 +379,19 @@ public final class BillingModel {
     private func loadCurrentAppleProduct(for account: BillingAccount, generation: Int) async {
         guard account.currentPlan.source == .apple else {
             currentAppleProductID = nil
+            currentAppleTransactionID = nil
             return
         }
         let sold = Set(account.products.filter { $0.planID == account.currentPlan.planID }.map(\.productID))
-        var productID: String?
+        var current: StoreTransaction?
         for entitlement in await store.currentEntitlements() {
             if case .verified(let transaction) = entitlement, sold.contains(transaction.productID) {
-                productID = transaction.productID
+                current = transaction
             }
         }
         guard generation == accountGeneration else { return }
-        currentAppleProductID = productID
+        currentAppleProductID = current?.productID
+        currentAppleTransactionID = current?.id
     }
 
     private func captureProductsFailed(reason: String, generation: Int) async {

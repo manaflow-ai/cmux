@@ -23,6 +23,7 @@ import StoreKit
 public struct MobilePlansView: View {
     @Environment(BillingModel.self) private var billing
     @State private var showingManageSubscriptions = false
+    @State private var showingRefundRequest = false
     /// The Monthly/Yearly choice.
     @State private var period: BillingPeriod
     private let entryPoint: BillingEntryPoint
@@ -59,6 +60,19 @@ public struct MobilePlansView: View {
         }
         .refreshable { await billing.refresh() }
         .manageSubscriptionsSheet(isPresented: $showingManageSubscriptions)
+        .refundRequestSheet(
+            for: billing.currentAppleTransactionID ?? 0,
+            isPresented: $showingRefundRequest
+        ) { result in
+            guard let productID = billing.currentAppleProductID else { return }
+            let outcome: String
+            switch result {
+            case .success(.success): outcome = "success"
+            case .success(.userCancelled): outcome = "userCancelled"
+            default: outcome = "error"
+            }
+            billing.refundRequestFinished(productID: productID, result: outcome)
+        }
         .onDisappear { billing.dismissResult() }
         .accessibilityIdentifier("BillingPlansView")
     }
@@ -218,6 +232,13 @@ public struct MobilePlansView: View {
                         showingManageSubscriptions = true
                     }
                     .accessibilityIdentifier("BillingManage")
+                    if let productID = billing.currentAppleProductID, billing.currentAppleTransactionID != nil {
+                        Button(L10n.string("mobile.billing.refund", defaultValue: "Request a Refund")) {
+                            billing.refundRequestOpened(productID: productID)
+                            showingRefundRequest = true
+                        }
+                        .accessibilityIdentifier("BillingRefund")
+                    }
                 }
             }
         }
