@@ -501,6 +501,7 @@
       "conversation-snapshot",
       "conversation-history",
       "conversation-thread",
+      "conversation-link-resolve",
       "conversation-search",
       "history-search",
       "conversation-op",

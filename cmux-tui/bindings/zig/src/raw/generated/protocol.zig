@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d";
+pub const ir_sha256 = "0bb8289fc1c18eb4288faabad69305a6da9ee31aae6a33896200da80306f4658";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4248,6 +4248,38 @@ pub fn conversationImport(client: anytype, request: ConversationImportRequest) !
             .authority = "local-admin",
             .since = 12,
             .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationLinkResolveRequest = struct {
+    url: []const u8,
+};
+
+pub const ConversationLinkResolveResult = struct {
+    conversation: ConversationSummary,
+    message: ?ConversationMessage = null,
+    path: []const []const u8,
+    thread_root: ?[]const u8 = null,
+    truncated: ?bool = null,
+    url: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "message",
+        "thread_root",
+        "truncated",
+    };
+};
+
+pub fn conversationLinkResolve(client: anytype, request: ConversationLinkResolveRequest) !wire.Decoded(ConversationLinkResolveResult) {
+    return client.callTyped(
+        ConversationLinkResolveResult,
+        .{
+            .name = "conversation-link-resolve",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "conversation-tree-v1",
         },
         request,
     );
@@ -10283,7 +10315,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 256;
+pub const command_count: usize = 257;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10341,6 +10373,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-draft", .authority = "local-admin", .since = 12, .capability = "conversation-draft-v1", .stream = null },
     .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-import", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-link-resolve", .authority = "local-admin", .since = 12, .capability = "conversation-tree-v1", .stream = null },
     .{ .name = "conversation-list", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-op", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-search", .authority = "local-admin", .since = 12, .capability = "conversation-search-v1", .stream = null },
