@@ -243,6 +243,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.profile.delete"
                         | "chief.profile.avatar.set"
                         | "chief.profile.avatar.get"
+                        // `cmux avatar set|get` and the Channels page send these.
+                        | "participant.avatar.set"
+                        | "participant.avatar.get"
                         // Launch credentials: acpmux and owners call these
                         // on the socket; an agent never mints or rotates.
                         | "credential.verify"

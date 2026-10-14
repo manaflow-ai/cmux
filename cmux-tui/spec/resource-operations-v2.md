@@ -12,8 +12,8 @@ broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 86 | Reads state and forbids an idempotency key |
-| `mutation` | 191 | Requires an idempotency key and returns a mutation result |
+| `read` | 87 | Reads state and forbids an idempotency key |
+| `mutation` | 192 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -44,6 +44,7 @@ correlation, and idempotency metadata.
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |
 | `palette_usage` | 5 | `palette_usage.forget`, `palette_usage.get`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record` |
 | `pane` | 14 | `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.get`, `pane.list`, `pane.neighbor.get`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom` |
+| `participant` | 2 | `participant.avatar.get`, `participant.avatar.set` |
 | `request` | 1 | `request.cancel` |
 | `room` | 8 | `room.create`, `room.delete`, `room.follow`, `room.list`, `room.move`, `room.pin`, `room.unpin`, `room.update` |
 | `saved_tab_group` | 4 | `saved_tab_group.delete`, `saved_tab_group.list`, `saved_tab_group.reopen`, `saved_tab_group.save` |

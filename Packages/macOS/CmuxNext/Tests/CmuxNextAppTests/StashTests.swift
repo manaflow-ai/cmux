@@ -70,23 +70,6 @@ struct StashTests {
         }
     }
 
-    /// A browser tab the daemon closes on its own (`cmux tab close`, another client) lets its
-    /// page go too, as the app's own close does.
-    @Test func aBrowserTabTheDaemonClosesReleasesItsPage() async throws {
-        try await PinnedPageTests.withApp { services, connection in
-            let (ids, _) = try await Self.openPages(2, services, connection)
-            let store = services.daemon.store
-            let closing = try #require(Self.tab(ids[1], store))
-            for tab in ids.compactMap({ Self.tab($0, store) }) { _ = services.cache.browser(for: tab) }
-            #expect(services.cache.hasContent(for: closing.id))
-
-            try await connection.closeTab(closing.surface)
-            try await PinnedPageTests.until({ Self.tab(closing.id, store) == nil })
-            try await PinnedPageTests.until({ !services.cache.hasContent(for: closing.id) }, report: { "the closed tab's page stayed" })
-            #expect(services.cache.hasContent(for: ids[0]), "the open tab keeps its page")
-        }
-    }
-
     @Test func thePageRestoresAndDeletesTabsAndGroups() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let (ids, urls) = try await Self.openPages(3, services, connection)

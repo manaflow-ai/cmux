@@ -8,8 +8,8 @@ import CmuxNextDaemon
 ///
 /// As ``AgentTabStore/releaseGoneTabs(in:)`` does for agent pages: a terminal goes once its
 /// tree, connected and loaded, has listed its tab and no longer does. While a daemon is away
-/// its terminals stay. Browser pages are tracked the same way (cx-rws36): a tab the daemon closed
-/// (a stash, `cmux tab close`, another client) kept its page, and a Chromium page its renderer.
+/// its terminals stay. Browser pages are tracked the same way: a tab the daemon closed
+/// (`cmux tab close`, another client) kept its page, and a Chromium page its renderer.
 @MainActor
 final class GoneTabWatch {
     private var stores: [String: DaemonStore] = [:]
@@ -19,6 +19,8 @@ final class GoneTabWatch {
     /// Follows tab `key` in `store`'s tree; `release` lets it go once the tree drops it.
     func track(_ key: String, in store: DaemonStore, release: @escaping @MainActor (String) -> Void) {
         if stores[key] === store { return }
+        // Seen in another tree is not seen in this one: this tree must list it before it can drop it.
+        if stores[key] != nil { seenLive.remove(key) }
         stores[key] = store
         if AgentTabStore.liveTabs(store)?.contains(key) == true { seenLive.insert(key) }
         let id = ObjectIdentifier(store)

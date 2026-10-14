@@ -200,7 +200,7 @@ final class TabContentCache {
     func browser(for tab: TabModel) -> BrowserEntry? {
         let key = tab.id
         claimAgentDriven(surface: tab.surface, key: key)
-        // A close the daemon makes (stash, `cmux tab close`, another client) frees the page too.
+        // A close the daemon makes (`cmux tab close`, another client) frees the page too.
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         if let entry = browsers[key] { return entry }
         if pageRequests.claimCloseOnArrival(tab.surface) {

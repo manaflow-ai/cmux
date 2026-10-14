@@ -63,6 +63,8 @@ pub(super) struct Reopened {
     pub(super) tabs: Vec<String>,
     /// (closed workspace key, reopened workspace key) per reopened workspace.
     placements: Vec<(String, String)>,
+    /// A closed tab's id to the id it reopened as.
+    reopened_as: std::collections::HashMap<String, String>,
 }
 
 impl Reopened {
@@ -70,6 +72,14 @@ impl Reopened {
         if !self.workspaces.contains(&workspace) {
             self.workspaces.push(workspace);
         }
+    }
+
+    /// Note `tab`, reopened from the closed tab `record`.
+    fn note_tab(&mut self, record: &Value, tab: String) {
+        if let Some(closed) = record["tab_id"].as_str() {
+            self.reopened_as.insert(closed.to_string(), tab.clone());
+        }
+        self.tabs.push(tab);
     }
 }
 
@@ -269,16 +279,8 @@ impl Mux {
         let members = record["members"].as_array().cloned().unwrap_or_default();
         let (restore, _) = choose(members, request.members.as_deref())?;
         let mut reopened = Reopened::default();
-        // A closed tab's id to the id it reopened as.
-        let mut reopened_as = std::collections::HashMap::new();
         for member in &restore {
-            let before = reopened.tabs.len();
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
-            if let (Some(closed), Some(tab)) =
-                (member["tab_id"].as_str(), reopened.tabs.get(before))
-            {
-                reopened_as.insert(closed.to_string(), tab.clone());
-            }
         }
         if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
             // A closed group (Close Group) names its closed tabs: it forms
@@ -290,7 +292,7 @@ impl Mux {
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .filter_map(|tab| reopened_as.get(tab.as_str()?).cloned())
+                    .filter_map(|tab| reopened.reopened_as.get(tab.as_str()?).cloned())
                     .collect::<Vec<_>>();
                 group["tab_ids"] = serde_json::json!(tabs);
             }
@@ -664,7 +666,8 @@ impl Mux {
         let (workspace, screen) = self.public_screen_of_pane(pane)?;
         reopened.note_workspace(workspace);
         reopened.screens.push(screen);
-        reopened.tabs.push(self.public_tab_of(surface)?);
+        // The member names the tab (its record does too since cx-gzh.31).
+        reopened.note_tab(record, self.public_tab_of(surface)?);
         Ok(())
     }
 
@@ -730,7 +733,7 @@ impl Mux {
             } else {
                 self.reopen_tab_record(actor, pane, tab, false)?
             };
-            reopened.tabs.push(self.public_tab_of(surface)?);
+            reopened.note_tab(tab, self.public_tab_of(surface)?);
         }
         if reused.is_none() {
             reopened.tabs.push(self.public_tab_of(first)?);

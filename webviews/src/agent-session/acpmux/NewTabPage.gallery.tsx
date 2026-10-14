@@ -65,8 +65,9 @@ function withReceipt(Component: typeof NewTabPage) {
         <Component
           {...props}
           onSubmit={(kind, text, cwd) => {
-            props.onSubmit(kind, text, cwd);
+            const result = props.onSubmit(kind, text, cwd);
             record(`submit:${kind}:${text}${cwd ? `:${cwd}` : ""}`);
+            return result;
           }}
           onJump={(target, id) => {
             props.onJump?.(target, id);
