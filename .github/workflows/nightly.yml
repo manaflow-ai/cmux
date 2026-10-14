@@ -2771,6 +2771,32 @@ jobs:
           ./scripts/smoke-signed-app-cli.sh \
             "$CHANNEL_APP_PATH"
 
+      # When Apple's queue is slow the wait below can hold the feed for hours,
+      # so teammates get the Developer ID-signed app from the run page now.
+      # It is not notarized: open it with right-click > Open, or run
+      # `xattr -dr com.apple.quarantine "<app>"` after unzipping. The
+      # repository is public, so notary tests and paused builds (which may
+      # carry the browser-data import) never upload an app.
+      - name: Zip the signed app before notarization
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_paused != 'true'
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/signed-unnotarized"
+          mkdir -p "$out"
+          ditto -c -k --sequesterRsrc --keepParent "$CHANNEL_APP_PATH" "$out/${CHANNEL_DMG_PREFIX}-${VARIANT}-${NIGHTLY_BUILD}-signed-unnotarized.zip"
+          ls -l "$out"
+
+      - name: Upload the signed app before notarization
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_paused != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-signed-unnotarized-${{ matrix.variant }}
+          path: ${{ runner.temp }}/signed-unnotarized/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Stop before notarization (NIGHTLY_NEXT_NOTARY_PAUSED)
         if: needs.decide.outputs.notary_paused == 'true'
         run: |
