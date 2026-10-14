@@ -933,8 +933,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
     }
+    struct ActiveKeyboardNavigationMode {
+        let mode: KeyboardNavigationMode
+        let windowNumber: Int?
+    }
     var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
+    var activeKeyboardNavigationMode: ActiveKeyboardNavigationMode?
+    var forcedKeyboardNavigationActionForCurrentEvent: KeyboardShortcutSettings.Action?
+    var forcedKeyboardNavigationShortcutForCurrentEvent: StoredShortcut?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     var shortcutEventAlternateScreenCache: ShortcutEventAlternateScreenCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
@@ -14716,6 +14723,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleShortcutDefaultsDidChange() {
         clearConfiguredShortcutChordState()
+        exitKeyboardNavigationMode()
         scheduleReloadConfigurationMenuItemRefresh()
         scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
     }
@@ -15009,7 +15017,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Dispatches configured shortcuts using the event window’s focus and chord state.
-    private func handleCustomShortcut(event: NSEvent) -> Bool {
+    func handleCustomShortcut(
+        event: NSEvent,
+        allowKeyboardNavigationMode: Bool = true
+    ) -> Bool {
         guard event.type == .keyDown else {
             clearConfiguredShortcutChordState()
             return false
@@ -15060,6 +15071,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if WindowHintController.shared.interceptKeyDown(event, in: resolvedShortcutEventWindow(event) ?? NSApp.keyWindow) {
                 return true
             }
+        }
+
+        if allowKeyboardNavigationMode,
+           let modeResult = handleKeyboardNavigationMode(event: event) {
+            return modeResult
         }
 
         if let textBoxShortcutTabManager = terminalTextShortcutBypassTabManagerBeforeContextResolution(
@@ -17936,6 +17952,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
+        if forcedKeyboardNavigationActionForCurrentEvent == action,
+           let forcedShortcut = forcedKeyboardNavigationShortcutForCurrentEvent {
+            return matchConfiguredShortcut(event: event, shortcut: forcedShortcut)
+        }
         if !shortcutWhenClauseAllows(action: action, event: event) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
@@ -17981,6 +18001,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
+        if forcedKeyboardNavigationActionForCurrentEvent == action,
+           let forcedShortcut = forcedKeyboardNavigationShortcutForCurrentEvent {
+            return shortcutMatcher.numberedDigit(event: event, shortcut: forcedShortcut)
+        }
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
@@ -17996,7 +18020,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
-        if let digit = numberedConfiguredShortcutDigit(event: event, action: action), shortcutWhenClauseAllows(action: action, event: event) { return digit }
+        if let digit = numberedConfiguredShortcutDigit(event: event, action: action),
+           (forcedKeyboardNavigationActionForCurrentEvent == action || shortcutWhenClauseAllows(action: action, event: event)) {
+            return digit
+        }
         return nil
     }
 
@@ -18010,6 +18037,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         arrowGlyph: String,
         arrowKeyCode: UInt16
     ) -> Bool {
+        if forcedKeyboardNavigationActionForCurrentEvent == action,
+           let forcedShortcut = forcedKeyboardNavigationShortcutForCurrentEvent {
+            return shortcutMatcher.matchesDirectional(
+                event: event,
+                shortcut: forcedShortcut,
+                arrowGlyph: arrowGlyph,
+                arrowKeyCode: arrowKeyCode
+            )
+        }
         guard shortcutWhenClauseAllows(action: action, event: event) else {
             return false
         }

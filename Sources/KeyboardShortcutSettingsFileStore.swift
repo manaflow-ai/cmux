@@ -62,6 +62,7 @@ final class CmuxSettingsFileStore {
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
     private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
+    private var navigationModesByID: [String: KeyboardNavigationMode] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeLegacyDerivedManagedUserDefaultKeys: Set<String> = []
@@ -167,6 +168,7 @@ final class CmuxSettingsFileStore {
                 shortcuts: shortcutsByAction,
                 managedShortcutActions: managedShortcutActions,
                 whenClauses: whenClausesByAction,
+                navigationModes: navigationModesByID,
                 importedManagedDefaults: importedManagedDefaults,
                 sourcePath: activeSourcePath
             )
@@ -186,6 +188,7 @@ final class CmuxSettingsFileStore {
             shortcutsByAction = resolved.shortcuts
             managedShortcutActions = resolved.managedShortcutActions
             whenClausesByAction = resolved.whenClauses
+            navigationModesByID = resolved.navigationModes
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
             activeLegacyDerivedManagedUserDefaultKeys = resolved.legacyDerivedManagedUserDefaultKeys
@@ -197,6 +200,7 @@ final class CmuxSettingsFileStore {
         if previousState.shortcuts != resolved.shortcuts
             || previousState.managedShortcutActions != resolved.managedShortcutActions
             || previousState.whenClauses != resolved.whenClauses
+            || previousState.navigationModes != resolved.navigationModes
             || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(
                 center: notificationCenter,
@@ -223,6 +227,12 @@ final class CmuxSettingsFileStore {
     /// caller falls back to the action's built-in ``shortcutContext``).
     func whenClause(for action: KeyboardShortcutSettings.Action) -> ShortcutWhenClause? {
         synchronized { whenClausesByAction[action] }
+    }
+
+    /// Returns the currently resolved keyboard navigation modes from the
+    /// global and project-local configuration files.
+    func keyboardNavigationModes() -> [String: KeyboardNavigationMode] {
+        synchronized { navigationModesByID }
     }
 
     func isManagedByFile(_ action: KeyboardShortcutSettings.Action) -> Bool {
@@ -1041,7 +1051,7 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("showModifierHoldHints") {
             logInvalid("shortcuts.showModifierHoldHints", sourcePath: sourcePath)
         }
-        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
+        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" && key != "modes" {
             bindings[key] = rawValue
         }
 
@@ -1059,6 +1069,30 @@ final class CmuxSettingsFileStore {
         }
 
         parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
+        parseKeyboardNavigationModes(section["modes"], sourcePath: sourcePath, snapshot: &snapshot)
+    }
+
+    private func parseKeyboardNavigationModes(
+        _ rawValue: Any?,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let rawValue else { return }
+        guard let modes = rawValue as? [String: Any] else {
+            logInvalid("shortcuts.modes", sourcePath: sourcePath)
+            return
+        }
+        for (rawID, value) in modes {
+            guard let mode = KeyboardNavigationMode.parse(id: rawID, value: value) else {
+                logInvalid("shortcuts.modes.\(rawID)", sourcePath: sourcePath)
+                continue
+            }
+            guard snapshot.navigationModes[mode.id] == nil else {
+                logInvalid("shortcuts.modes.\(mode.id)", sourcePath: sourcePath)
+                continue
+            }
+            snapshot.navigationModes[mode.id] = mode
+        }
     }
 
     /// Parses the optional `shortcuts.when` map — `{ "<actionId>": "<predicate>" }`
@@ -1930,6 +1964,7 @@ struct ResolvedSettingsSnapshot {
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
     /// binding to a focus context (see ``ShortcutWhenClause``).
     var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
+    var navigationModes: [String: KeyboardNavigationMode] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
     /// Managed defaults whose source fields were invalid. They retain their
     /// last-good values while valid sibling settings from the same edit apply.
@@ -1953,6 +1988,9 @@ struct ResolvedSettingsSnapshot {
         }
         for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {
             whenClauses[action] = clause
+        }
+        for (id, mode) in fallback.navigationModes where navigationModes[id] == nil {
+            navigationModes[id] = mode
         }
         for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
             managedUserDefaults[key] = value
