@@ -52,15 +52,12 @@ permissions:
 
 concurrency:
   # One bench at a time: every run uses the same tag, socket and console session. A
-  # golden-only run (a pull request's) has its own tag and a group per ref, where a newer
-  # push supersedes the older run.
+  # golden-only run (a pull request's) has a tag and a group per ref, where a newer push
+  # supersedes the older run and other branches' runs never cancel its build.
   group: ${{ inputs.suites == 'golden' && format('cmux-next-frame-pacing-golden-{0}', inputs.ref) || 'cmux-next-frame-pacing' }}
   cancel-in-progress: ${{ inputs.suites == 'golden' }}
 
 env:
-  # The tagged app's baked tag; its debug socket is /tmp/cmux-debug-<tag>.sock. Keep it in
-  # step with the build job's `tag`.
-  CMUX_TAG: ${{ inputs.suites == 'golden' && 'motion-golden' || 'frame-pacing' }}
   SUITES: ${{ inputs.suites || 'fling,golden' }}
 
 jobs:
@@ -76,7 +73,23 @@ jobs:
     timeout-minutes: 5
     outputs:
       run: ${{ steps.decide.outputs.run }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
+      # The tagged app's baked tag (its debug socket is /tmp/cmux-debug-<tag>.sock). A
+      # golden-only run's is per ref: reload-build.yml cancels an older build of the same tag.
+      - name: Name the build tag
+        id: tag
+        env:
+          SUITES_INPUT: ${{ inputs.suites }}
+          REF_INPUT: ${{ inputs.ref }}
+        run: |
+          tag=frame-pacing
+          if [ "$SUITES_INPUT" = golden ]; then
+            slug="$(printf '%s' "$REF_INPUT" | tr '[:upper:]' '[:lower:]' | sed -E -e 's/[^a-z0-9]+/-/g' | cut -c1-32 | sed -E -e 's/^-+//' -e 's/-+$//')"
+            tag="golden-${slug:-feat}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       # Only this repository's own branch heads may run on an owned Mac
       # (resolve-dispatch-ref.yml's trusted_ref), as for the side lanes.
       - name: Checkout pool helper
@@ -163,7 +176,7 @@ jobs:
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
     uses: ./.github/workflows/reload-build.yml
     with:
-      tag: ${{ inputs.suites == 'golden' && 'motion-golden' || 'frame-pacing' }}
+      tag: ${{ needs.gate.outputs.tag }}
       ref: ${{ needs.resolve-ref.outputs.sha }}
       platform: macos
       runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
@@ -176,6 +189,8 @@ jobs:
     # The gui token wait (15 min) and the bench step (15 min) both fit, so a
     # busy console skips the bench instead of timing the job out.
     timeout-minutes: 45
+    env:
+      CMUX_TAG: ${{ needs.gate.outputs.tag }}
     steps:
       # The bench draws in the console session, which every GUI job on the mini
       # shares: hold glaeda's gui token for the rest of the job, as test-e2e.yml
