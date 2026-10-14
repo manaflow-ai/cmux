@@ -72,6 +72,8 @@ final class SidebarListDrag {
     var probe: SidebarDropProbe?
     /// The dropped item's real views, invisible under the landing card until it is gone.
     var heldViews: [NSView] = []
+    /// The list rows among `heldViews`, suppressed until the card is gone (a reload under the flight does not fade them in).
+    var heldKeys: Set<SidebarRowKey> = []
     init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, head: CGFloat? = nil,
          target: DropTarget?) {
         self.payload = payload

@@ -119,6 +119,8 @@ extension SidebarListView {
             suppressed = drag.hiddenKeys
             // The drop's look is what the drag shows: adopting it moves nothing (the card settles into its slot).
             reload(animated: true, adopt: true)
+            // A settle that ended inside that reload already aimed the card (landSettled): keep its target.
+            if landing === drag { return }
             return land(drag, at: settling == nil ? nil : settleFrame(drag))
         }
         guard let target = drag.target else { return cancelDrag() }
@@ -259,13 +261,14 @@ extension SidebarListView {
         Motion.withoutAnimation {
             drag.lift.removeFromSuperview()
             // The dropped item, held invisible under the flying card (landSettled), shows in the same transaction.
-            for view in drag.heldViews {
+            for view in drag.heldViews where view.isDescendant(of: self) { // a recycled view draws another row now
                 view.layer?.removeAnimation(forKey: "opacity")
                 view.alphaValue = 1
             }
             drag.heldViews = []
-            suppressed.subtract(drag.hiddenKeys)
-            for key in drag.hiddenKeys { rowViews[key]?.alphaValue = 1 }
+            suppressed.subtract(drag.hiddenKeys.union(drag.heldKeys))
+            for key in drag.hiddenKeys.union(drag.heldKeys) { rowViews[key]?.alphaValue = 1 }
+            drag.heldKeys = []
         }
         updateHover()
         if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
@@ -286,6 +289,8 @@ extension SidebarListView {
         guard drag.lift.superview != nil else { return }
         // The model's item is under the card: it stays invisible until the card is gone (no double, no fade-in pop).
         drag.heldViews = droppedViews(drag)
+        drag.heldKeys = Set(rowViews.compactMap { key, view in drag.heldViews.contains { $0 === view } ? key : nil })
+        suppressed.formUnion(drag.heldKeys)
         Motion.withoutAnimation {
             for view in drag.heldViews {
                 view.layer?.removeAnimation(forKey: "opacity")
