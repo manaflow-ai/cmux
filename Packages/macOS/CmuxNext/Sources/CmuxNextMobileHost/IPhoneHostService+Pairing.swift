@@ -16,6 +16,9 @@ import os
 ///   this Mac forgets them all.
 extension IPhoneHostService {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.pairing")
+    /// The pairing dialog: only the user answers it (a phone it admits reaches the
+    /// daemon and acpmux), so `debug.dialog` automation may not press it.
+    public static let pairDialogIdentifier = "cmux.dialog.iphonePair"
     static let allowButton = "allow"
     static let denyButton = "deny"
 
@@ -77,7 +80,7 @@ extension IPhoneHostService {
                                                               pairedAt: Date()).fingerprint)],
             buttons: [CmuxDialogButton(id: Self.denyButton, title: IPhoneHostStrings.pairDeny, role: .cancel),
                       CmuxDialogButton(id: Self.allowButton, title: IPhoneHostStrings.pairAllow, role: .default)],
-            identifier: "cmux.dialog.iphonePair")
+            identifier: Self.pairDialogIdentifier)
         Self.logger.info("asking to pair phone \(request.phoneDeviceID.prefix(8), privacy: .public)")
         CmuxDialogCenter.shared.present(spec, in: .app) { [weak self] answer in
             guard let self else { return }

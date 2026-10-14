@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextMobileHost
 import CmuxNextSettings
 
 #if DEBUG
@@ -18,9 +19,11 @@ enum DebugDialog {
     /// Dialogs only the user answers: a clipboard read (CLIPBOARD-READ-BROKER), the Enable
     /// harness sheet (a folder's program would run with the user's rights) and the Cloud
     /// machine create confirmation (a spend the person approves, cx-t2rz) and a browser pairing
-    /// (it admits a client to the whole daemon, cx-hnmbt.2).
+    /// (it admits a client to the whole daemon, cx-hnmbt.2), and an iPhone pairing (it admits
+    /// a phone to the daemon and to Face ID approvals, cnx-ios verify/phone-approvals.md).
     static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier,
-                                        CloudPresenter.createConfirmIdentifier, DaemonPairingStrings.identifier]
+                                        CloudPresenter.createConfirmIdentifier, DaemonPairingStrings.identifier,
+                                        IPhoneHostService.pairDialogIdentifier]
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let center = CmuxDialogCenter.shared
