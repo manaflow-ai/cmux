@@ -43,5 +43,9 @@ export default componentEntry<Props>({
       note: "acpmux did not answer.",
       props: { failure: { code: "cmux.stats.unavailable", message: "The agent service is not running." } },
     },
+    unreadable: {
+      note: "acpmux answered with an error; the page words it, never acpmux.",
+      props: { failure: { code: "cmux.stats.failed", message: "stats: No such file or directory (os error 2)" } },
+    },
   },
 });

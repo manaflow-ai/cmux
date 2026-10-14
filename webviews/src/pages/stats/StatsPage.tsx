@@ -4,7 +4,7 @@
 import { useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { harnessName } from "./harnessNames";
-import { formatCount, formatDays, formatDuration, heatmap, hourShares } from "./shape";
+import { formatCount, formatDay, formatDays, formatDuration, formatHour, heatmap, hourShares } from "./shape";
 import type { StatsStore } from "./store";
 import { RANGES, type StatsSummary } from "./types";
 
@@ -36,7 +36,7 @@ export function StatsPage({ store, strings }: { store: StatsStore; strings: Stri
         </fieldset>
       </header>
       {snapshot.failed ? (
-        <p className="stats-message">{snapshot.failed}</p>
+        <p className="stats-message">{snapshot.failed.message ?? strings.t("stats.page.failed")}</p>
       ) : !summary ? (
         <p className="stats-message stats-muted">{strings.t("stats.page.loading")}</p>
       ) : (
@@ -87,7 +87,7 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
             <div
               key={cell.day ?? `pad-${index}`}
               className={cell.day ? `stats-heat stats-heat-${cell.level}` : "stats-heat is-padding"}
-              title={cell.day ? `${cell.day} · ${duration(cell.workingMs)}` : undefined}
+              title={cell.day ? `${formatDay(cell.day, language)} · ${duration(cell.workingMs)}` : undefined}
             />
           ))}
         </div>
@@ -96,7 +96,11 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
         <h2 className="stats-section-title">{strings.t("stats.section.hours")}</h2>
         <div className="stats-hours">
           {hourShares(summary.hours).map((share, hour) => (
-            <div key={hour} className="stats-hour" title={`${hour}:00 · ${duration(summary.hours[hour] ?? 0)}`}>
+            <div
+              key={hour}
+              className="stats-hour"
+              title={`${formatHour(hour, language)} · ${duration(summary.hours[hour] ?? 0)}`}
+            >
               <div className="stats-hour-bar" style={{ height: `${Math.round(share * 100)}%` }} />
             </div>
           ))}

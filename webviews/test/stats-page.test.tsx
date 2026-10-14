@@ -6,8 +6,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { formatDuration, heatmap, hourShares } from "../src/pages/stats/shape";
-import type { PageClient } from "../src/pages/shared/pageClient";
+import { formatDay, formatDuration, formatHour, heatmap, hourShares } from "../src/pages/stats/shape";
+import { pageError, type PageClient } from "../src/pages/shared/pageClient";
 import type { StatsSummary } from "../src/pages/stats/types";
 
 const scope = globalThis as Record<string, unknown>;
@@ -65,6 +65,29 @@ test("the heatmap pads to Sunday and scales levels to the busiest day", () => {
   // At UTC-14 the same instant is still 10-11 there.
   expect(heatmap([], NOON, -14 * 60, 7).at(-1)?.day).toBe("2026-10-11");
   expect(hourShares([0, 2, 4]).slice(0, 4)).toEqual([0, 0.5, 1, 0]);
+});
+
+test("a busy partial day before the drawn range does not dim the drawn days", () => {
+  // acpmux's since is an instant, not a local midnight, so the summary can carry one older day.
+  const cells = heatmap(
+    [
+      { day: "2026-10-05", turns: 50, workingMs: 100 },
+      { day: "2026-10-12", turns: 9, workingMs: 4 },
+    ],
+    NOON,
+    0,
+    7,
+  );
+  expect(cells.some((cell) => cell.day === "2026-10-05")).toBe(false);
+  expect(cells.at(-1)?.level).toBe(4);
+});
+
+test("tooltip days and hours read in the person's language", () => {
+  expect(formatDay("2026-10-12", "en")).toBe("Mon, Oct 12");
+  expect(formatDay("2026-10-12", "de")).toBe("Mo., 12. Okt.");
+  expect(formatHour(0, "en")).toBe("12 AM");
+  expect(formatHour(13, "en")).toBe("1 PM");
+  expect(formatHour(13, "de")).toBe("13 Uhr");
 });
 
 test("the page shows the summary, switches range and drops a stale reply", async () => {
@@ -127,6 +150,52 @@ test("the page shows the summary, switches range and drops a stale reply", async
   expect(button("Month").getAttribute("aria-pressed")).toBe("true");
   expect(host.textContent).toContain("No agent turns in this range yet.");
   expect(host.querySelectorAll(".stats-heat:not(.is-padding)").length).toBe(30);
+});
+
+test("a failed read shows the page's own words, never acpmux's error text", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { StatsPage } = await import("../src/pages/stats/StatsPage");
+  const { StatsStore } = await import("../src/pages/stats/store");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/stats/generated/strings.json")).default;
+  const failures = [
+    pageError("cmux.stats.failed", "No such file or directory (os error 2)", true),
+    pageError("cmux.stats.unavailable", "The agent service is not running.", true),
+  ];
+  const client: PageClient = {
+    call: () => Promise.reject(failures.shift()),
+    subscribe: async () => () => {},
+    handle: () => () => {},
+  };
+  const store = new StatsStore(client, () => 0);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<StatsPage store={store} strings={createStrings(table, ["en"])} />));
+  await act(() => store.start());
+  expect(host.textContent).not.toContain("os error");
+  expect(host.textContent).toContain(createStrings(table, ["en"]).t("stats.page.failed"));
+  // The app's own unavailable message is already in the person's language.
+  await act(() => store.refresh());
+  expect(host.textContent).toContain("The agent service is not running.");
+});
+
+test("picking the range that is already loading starts no second scan", async () => {
+  const { StatsStore } = await import("../src/pages/stats/store");
+  let calls = 0;
+  const client: PageClient = {
+    call: () => {
+      calls++;
+      return new Promise(() => {});
+    },
+    subscribe: async () => () => {},
+    handle: () => () => {},
+  };
+  const store = new StatsStore(client, () => 0);
+  void store.start();
+  void store.setRange(store.getSnapshot().range);
+  expect(calls).toBe(1);
+  void store.setRange(7);
+  expect(calls).toBe(2);
 });
 
 test("with no host the page says where stats live", async () => {

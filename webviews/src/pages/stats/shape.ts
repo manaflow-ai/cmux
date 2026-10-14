@@ -24,6 +24,21 @@ export function formatDays(days: number, language: string): string {
   return new Intl.NumberFormat(language, { style: "unit", unit: "day", unitDisplay: "long" }).format(days);
 }
 
+/** `Mon, Oct 12` for a `YYYY-MM-DD` day, in the person's language. */
+export function formatDay(day: string, language: string): string {
+  return new Intl.DateTimeFormat(language, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${day}T00:00:00Z`));
+}
+
+/** `1 PM` or `13 Uhr` for an hour of the day, in the person's language. */
+export function formatHour(hour: number, language: string): string {
+  return new Intl.DateTimeFormat(language, { hour: "numeric", timeZone: "UTC" }).format(Date.UTC(2026, 0, 1, hour));
+}
+
 export interface HeatCell {
   /** `YYYY-MM-DD`; absent for the padding before the first day. */
   day?: string;
@@ -45,7 +60,10 @@ export function heatmap(days: DayStats[], until: number, offsetMinutes: number, 
   const today = localDay(until, offsetMinutes);
   const first = today - rangeDays + 1;
   const byDay = new Map(days.map((entry) => [entry.day, entry]));
-  const max = Math.max(0, ...days.map((entry) => entry.workingMs));
+  // Only drawn days set the scale: acpmux's range starts at an instant, so it can carry the
+  // partial day before the first drawn one.
+  let max = 0;
+  for (let day = first; day <= today; day++) max = Math.max(max, byDay.get(isoDay(day))?.workingMs ?? 0);
   // 1970-01-01 was a Thursday: day 0 sits in row 4.
   const padding = (((first + 4) % 7) + 7) % 7;
   const cells: HeatCell[] = Array.from({ length: padding }, () => ({ workingMs: 0, turns: 0, level: 0 }));
