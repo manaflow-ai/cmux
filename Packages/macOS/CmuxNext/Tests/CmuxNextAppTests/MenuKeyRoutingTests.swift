@@ -147,9 +147,11 @@ import Testing
         registry.unbind("toggleSidebar")
         registry.bind("toggleSidebar") { actions.runs.append("toggleSidebar") }
         let menu = Self.menuBar(["quit", "toggleSidebar"].compactMap { registry.makeMenuItem(for: $0) })
-        try Self.withMenu(menu, harness) {
-            #expect(try Self.press("q", keyCode: 12, in: harness))
-            #expect(try Self.press("b", keyCode: 11, in: harness))
+        try Self.withMenu(menu, harness) { () throws in
+            let took1 = try Self.press("q", keyCode: 12, in: harness)
+            #expect(took1)
+            let took2 = try Self.press("b", keyCode: 11, in: harness)
+            #expect(took2)
         }
         await Self.wait(within: .seconds(5)) { harness.written.contains("c11q") && harness.written.contains("c11b") }
         #expect(actions.count("quit") == 0, "Quit took the Cmd-Q the user's Ghostty config binds")
@@ -179,14 +181,18 @@ import Testing
             item("Redo", #selector(Probe.redo(_:)), "z", [.command, .shift]),
             item("Select All", #selector(Probe.selectAll(_:)), "a", [.command]),
         ] + [registry.makeMenuItem(for: "quit")].compactMap { $0 })
-        try Self.withMenu(menu, harness) {
-            #expect(try Self.press("z", keyCode: 6, in: harness))
+        try Self.withMenu(menu, harness) { () throws in
+            let took3 = try Self.press("z", keyCode: 6, in: harness)
+            #expect(took3)
             #expect(probe.runs == ["undo"], "Cmd-Z in a terminal did not run Edit > Undo")
-            #expect(try Self.press("Z", keyCode: 6, shift: true, in: harness))
+            let took4 = try Self.press("Z", keyCode: 6, shift: true, in: harness)
+            #expect(took4)
             #expect(probe.runs == ["undo", "redo"], "Cmd-Shift-Z in a terminal did not run Edit > Redo")
-            #expect(try Self.press("a", keyCode: 0, in: harness))
+            let took5 = try Self.press("a", keyCode: 0, in: harness)
+            #expect(took5)
             #expect(probe.runs == ["undo", "redo", "selectAll"], "Cmd-A in a terminal did not run Edit > Select All")
-            #expect(try Self.press("q", keyCode: 12, in: harness))
+            let took6 = try Self.press("q", keyCode: 12, in: harness)
+            #expect(took6)
             #expect(actions.count("quit") == 1, "Cmd-Q in a terminal did not quit")
         }
         try? await Task.sleep(for: .milliseconds(200))
