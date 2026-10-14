@@ -28,9 +28,16 @@
     color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 35%, white),
     color-mix(in srgb, var(--agent-text) 7%, var(--cmux-surface-solid, var(--acpmux-base)))
   );
+  /* The composer's shadow (cg-design-judge, 10-14): the shared --elevation-1 in a light theme;
+     none in a dark one, where a drop shadow on a dark page shows nothing. */
+  --acpmux-composer-shadow: var(--elevation-1);
   /* One step past hover, for the press. */
   --acpmux-composer-press: color-mix(in srgb, var(--agent-text) 20%, var(--agent-page-bg, var(--acpmux-base)));
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
+}
+
+:root[data-theme="dark"] .acpmux-shell {
+  --acpmux-composer-shadow: 0 0 transparent;
 }
 
 /* Composer chips: Plan, the mode, model and effort pickers, and +. */

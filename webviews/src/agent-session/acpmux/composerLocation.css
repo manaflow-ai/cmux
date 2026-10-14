@@ -382,7 +382,7 @@
   --acpmux-composer-rim: color-mix(in srgb, var(--agent-text) 16%, transparent);
   background: var(--acpmux-composer-surface);
   box-shadow:
-    var(--elevation-2),
+    var(--acpmux-composer-shadow, var(--elevation-1)),
     inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-rim);
 }
 :root[data-borders="none"] .acpmux-composer-box {
@@ -390,7 +390,7 @@
 }
 .acpmux-composer-box:focus-within {
   box-shadow:
-    var(--elevation-2),
+    var(--acpmux-composer-shadow, var(--elevation-1)),
     inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--agent-accent, var(--agent-text)) 38%, transparent);
 }
 .acpmux-composer-context,
