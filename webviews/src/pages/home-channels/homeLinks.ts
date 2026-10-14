@@ -4,7 +4,8 @@
 // (`workspace.open_url`: reuse a browser tab on the right, never the docked chat; with no
 // workspace named, the session's Home workspace), so every host (the app, a plain browser,
 // Chromium, GPUI) gets the same result. A daemon without the operation, or one that cannot open a
-// browser, leaves the click to the host as before.
+// browser engine gets the click as before: the page only takes a click when the daemon names the
+// operation's capability (`workspace-open-url-v1` in `identify`).
 import type { DaemonSocket } from "../shared/daemonSocket";
 
 /** An http(s) link the click landed on, when it is the person's own plain click. */
@@ -29,16 +30,26 @@ export async function openOnHomeRight(daemon: DaemonSocket, url: string): Promis
   }
 }
 
-/** The capture-phase click handler of the Home page root: a web link goes to the Home
- *  workspace's right side; when the daemon cannot, the page opens it as a new window, which the
- *  host handles like any outside link. */
+/** The capability that names `workspace.open_url` (cmux-tui spec, resource-operations-v2.json). */
+export const OPEN_URL_CAPABILITY = "workspace-open-url-v1";
+
+/** The capture-phase click handler of the Home page root: a web link goes to the Home workspace's
+ *  right side once the daemon says it has the operation; until then, and on an older daemon, the
+ *  click is left to the host. A second click of a double click is the same open, so it is dropped. */
 export function homeLinkClickHandler(daemon: DaemonSocket): (event: MouseEvent) => void {
+  let supported = false;
+  void daemon
+    .request<{ capabilities?: unknown }>("identify")
+    .then((identity) => {
+      supported = Array.isArray(identity.capabilities) && identity.capabilities.includes(OPEN_URL_CAPABILITY);
+    })
+    .catch(() => {});
   return (event) => {
+    if (!supported) return;
     const url = clickedWebLink(event);
     if (!url) return;
     event.preventDefault();
-    void openOnHomeRight(daemon, url).then((opened) => {
-      if (!opened) window.open(url, "_blank", "noopener,noreferrer");
-    });
+    if (event.detail > 1) return;
+    void openOnHomeRight(daemon, url);
   };
 }

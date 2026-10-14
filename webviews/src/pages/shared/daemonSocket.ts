@@ -19,6 +19,8 @@ type Pending = { resolve(data: unknown): void; reject(error: unknown): void };
 
 /** The resource API's envelope (spec resource-api-v2.md), on the same connection as raw commands. */
 const OPERATION_PROTOCOL = "cmux.protocol/2";
+/** The longest a page waits for one operation's answer. */
+const OPERATION_TIMEOUT_MS = 20_000;
 
 function daemonError(code: string, message: string): DaemonError {
   const error = new Error(message) as DaemonError;
@@ -146,7 +148,18 @@ export class DaemonSocket {
       return Promise.reject(daemonError("disconnected", "not connected"));
     const id = `op-${this.nextId++}`;
     return new Promise<T>((resolve, reject) => {
-      this.operations.set(id, { resolve: (data) => resolve(data as T), reject });
+      // An operation the daemon never answers ends here instead of hanging its caller.
+      const timer = setTimeout(() => {
+        if (this.operations.delete(id)) reject(daemonError("timeout", `${operation} got no answer`));
+      }, OPERATION_TIMEOUT_MS);
+      const settle = (done: () => void) => {
+        clearTimeout(timer);
+        done();
+      };
+      this.operations.set(id, {
+        resolve: (data) => settle(() => resolve(data as T)),
+        reject: (error) => settle(() => reject(error)),
+      });
       socket.send(
         JSON.stringify({
           protocol: OPERATION_PROTOCOL,
