@@ -877,7 +877,7 @@
      "settings": {
       "wake_policy": "auto",
       "agent_budget": {
-       "turns": 4,
+       "turns": 6,
        "gap_ms": 2000
       },
       "history_visible": "all"
@@ -969,7 +969,7 @@
      "settings": {
       "wake_policy": "auto",
       "agent_budget": {
-       "turns": 4,
+       "turns": 6,
        "gap_ms": 2000
       },
       "history_visible": "all"
@@ -1230,7 +1230,7 @@
      "settings": {
       "wake_policy": "auto",
       "agent_budget": {
-       "turns": 4,
+       "turns": 6,
        "gap_ms": 2000
       },
       "history_visible": "all"
@@ -1320,7 +1320,7 @@
      "settings": {
       "wake_policy": "auto",
       "agent_budget": {
-       "turns": 4,
+       "turns": 6,
        "gap_ms": 2000
       },
       "history_visible": "all"
@@ -1388,7 +1388,7 @@
       "settings": {
        "wake_policy": "auto",
        "agent_budget": {
-        "turns": 4,
+        "turns": 6,
         "gap_ms": 2000
        },
        "history_visible": "all"
@@ -1488,7 +1488,7 @@
      "settings": {
       "wake_policy": "auto",
       "agent_budget": {
-       "turns": 4,
+       "turns": 6,
        "gap_ms": 2000
       },
       "history_visible": "all"
@@ -1652,7 +1652,7 @@
      "settings": {
       "wake_policy": "auto",
       "agent_budget": {
-       "turns": 4,
+       "turns": 6,
        "gap_ms": 2000
       },
       "history_visible": "all"

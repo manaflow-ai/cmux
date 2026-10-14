@@ -332,7 +332,9 @@ impl ChiefTools {
     }
 
     fn read(&self) -> std::sync::RwLockReadGuard<'_, Loaded> {
-        self.state.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.state
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Whether the record is still to be read (a default Chief whose daemon
@@ -364,11 +366,16 @@ impl ChiefTools {
                 }
             }
             Err(e) => {
-                log(format!("chief record: still not read ({e}); zoom and date only"));
+                log(format!(
+                    "chief record: still not read ({e}); zoom and date only"
+                ));
                 return;
             }
         };
-        *self.state.write().unwrap_or_else(std::sync::PoisonError::into_inner) = next;
+        *self
+            .state
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = next;
         self.log_record(log);
         log("chief record: the profile text reaches the prompt at the brain's next start".into());
     }
