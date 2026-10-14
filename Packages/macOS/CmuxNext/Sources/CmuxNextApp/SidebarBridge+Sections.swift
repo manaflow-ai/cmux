@@ -27,8 +27,7 @@ extension SidebarBridge {
         .newBrowser: "openBrowser",
         .newAgentChat: "palette.newAgentChat",
         .customize: "appearance.customize",
-        .searchChats: "agentPane.searchChats",
-        .stashed: "stash.show",
+        .searchChats: "agentPane.searchChats", .stashed: "stash.show",
     ]
 
     /// Runs item `id` as a click does: a top-section item that stands for a
