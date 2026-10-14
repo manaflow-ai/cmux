@@ -4,8 +4,8 @@ import CnxDesign
 import SwiftUI
 import UIKit
 
-/// An image opened full screen from the transcript: pinch or double-tap to zoom, swipe
-/// down or Done to close, Share.
+/// An image opened full screen from the transcript: pinch or double-tap to zoom (to the
+/// tapped point), pan while zoomed, swipe down at the fitted size or Close to close, Share.
 public struct ImageViewerItem: Identifiable, Hashable {
     public let id: String
     public let name: String
@@ -26,21 +26,24 @@ struct FullScreenImageViewer: View {
     var body: some View {
         let image = UIImage(data: item.data)
         NavigationStack {
-            ZoomableImage(image: image)
+            // Pinch, double-tap to the tapped point and pan come from the UIScrollView zoom
+            // host; the downward swipe to close is reported only at the fitted size.
+            ZoomableImage(image: image, label: "Image, \(item.name)", onDismissDrag: { translation, ended in
+                if ended {
+                    if translation > 120 { dismiss() } else { withAnimation(.cnxSnap) { drag = 0 } }
+                } else {
+                    drag = translation
+                }
+            })
                 .offset(y: drag)
                 .ignoresSafeArea(edges: .bottom)
-                .gesture(DragGesture(minimumDistance: 20)
-                    .onChanged { value in if value.translation.height > 0 { drag = value.translation.height } }
-                    .onEnded { value in
-                        if value.translation.height > 120 { dismiss() } else { withAnimation(.cnxSnap) { drag = 0 } }
-                    })
                 .background(Color.black.opacity(1 - min(drag / 400, 0.6)).ignoresSafeArea())
                 .navigationTitle(item.name)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("Done", systemImage: "xmark") { dismiss() }
+                        Button("Close", systemImage: "xmark") { dismiss() }
                     }
                     if let image {
                         ToolbarItem(placement: .topBarTrailing) {
@@ -52,6 +55,8 @@ struct FullScreenImageViewer: View {
                     }
                 }
         }
+        // VoiceOver stays inside the viewer while it is open.
+        .accessibilityAddTraits(.isModal)
         .preferredColorScheme(.dark)
     }
 }
