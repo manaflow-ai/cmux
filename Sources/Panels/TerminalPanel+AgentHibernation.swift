@@ -145,6 +145,8 @@ extension TerminalPanel {
         guard case .hibernated(let state) = agentHibernationPhase else {
             return .unavailable
         }
+        // A session moving to Cloud must not wake here as a second writer.
+        guard !SessionMoveToCloudAction.holdsAgentResume(panelId: id) else { return .unavailable }
         let resumeStartupInput = state.agent.resumeStartupInput()
         guard surface.prepareAgentHibernationResume(initialInput: resumeStartupInput) else {
             return .unavailable

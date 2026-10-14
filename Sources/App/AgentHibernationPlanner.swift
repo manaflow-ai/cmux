@@ -21,6 +21,11 @@ enum AgentHibernationReclaimTrigger: Equatable, Sendable {
             true
         }
     }
+
+    /// Only a session move may stop an agent that is on screen.
+    var allowsVisiblePanel: Bool {
+        self == .sessionMove
+    }
 }
 
 enum AgentHibernationPlanner {

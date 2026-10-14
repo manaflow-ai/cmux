@@ -270,6 +270,8 @@ final class CloudVMActionLauncher {
         allowDuringAuthTransition: Bool = false,
         failurePresentation: FailurePresentation? = nil,
         environmentOverrides: [String: String] = [:],
+        /// The child's cwd; `cmux session move --to cloud` picks its machine from it.
+        workingDirectory: URL? = nil,
         onCancellationReady: (@MainActor (CancellationHandle) -> Void)? = nil,
         onOutput: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((Completion) -> Void)? = nil
@@ -312,6 +314,7 @@ final class CloudVMActionLauncher {
         let process = Process()
         process.executableURL = cliURL
         process.arguments = ["--socket", socketPath, "--id-format", "uuids"] + arguments
+        if let workingDirectory { process.currentDirectoryURL = workingDirectory }
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
