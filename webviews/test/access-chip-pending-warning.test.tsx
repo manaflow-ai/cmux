@@ -153,10 +153,12 @@ async function render(summary: Summary) {
 /// The access chip: its label and whether it has the warning treatment.
 const access = () => {
   const chip = host.querySelector<HTMLElement>(".acpmux-mode");
-  return chip && {
-    label: (chip.querySelector(".acpmux-mode-text")?.textContent ?? "").trim(),
-    warning: chip.classList.contains("acpmux-unrestricted"),
-  };
+  return (
+    chip && {
+      label: (chip.querySelector(".acpmux-mode-text")?.textContent ?? "").trim(),
+      warning: chip.classList.contains("acpmux-unrestricted"),
+    }
+  );
 };
 
 async function fresh() {
