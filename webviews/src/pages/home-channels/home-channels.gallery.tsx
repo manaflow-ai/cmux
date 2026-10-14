@@ -411,7 +411,13 @@ export default componentEntry<Props>({
     "new-message": {
       note: "The list header's compose button opens #/new/message: pick people and Chiefs, name it to make a channel.",
       props: { select: "c-chief" },
-      checks: { longFrameFailMs: openFrame },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "A picked person moves to the top of the picker, so the rows above their old place move down.",
+        },
+      },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-list-header .hc-icon-button"));
         await ctx.click({ selector: ".lg-list-header .hc-icon-button" });
@@ -458,7 +464,13 @@ export default componentEntry<Props>({
     "new-chief-defaults": {
       note: "Create with the grant left as it is: the sheet names no tools or harnesses, so the owner applies its defaults.",
       props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
-      checks: { longFrameFailMs: openFrame },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Create adds the new Chief's direct message to the list and opens it; the rows below move down.",
+        },
+      },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
         await ctx.type("Docs Chief", { selector: ".lg-form .lg-chief-identity input" });
@@ -488,7 +500,8 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.find({ role: "button", name: "Add people" }));
         await ctx.click({ role: "button", name: "Add people" });
-        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-row"));
+        // Everyone the sample Home knows is in #release already: the picker says so.
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-none"));
       },
     },
     "archive-chief": {
