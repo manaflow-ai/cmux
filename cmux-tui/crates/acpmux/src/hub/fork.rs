@@ -113,6 +113,8 @@ impl Hub {
             last_seq: 0,
             parent_id: Some(session.id.clone()),
             fork_seq: Some(fork_seq),
+            // A fork of a child chat stays under the same parent.
+            spawned_by: parent_meta.spawned_by.clone(),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             modes: res.get("modes").cloned().filter(|v| !v.is_null()).or(parent_meta.modes.clone()),

@@ -170,6 +170,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         last_seq: 0,
         parent_id: None,
         fork_seq: None,
+        spawned_by: None,
         agent_info: None,
         agent_capabilities: None,
         modes: None,

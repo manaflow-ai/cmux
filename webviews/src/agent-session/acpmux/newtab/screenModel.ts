@@ -325,7 +325,7 @@ export function recentChatCards(
   );
   const fill = [...device]
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .filter((chat) => !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
+    .filter((chat) => !chat.parent && !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
     .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
     .slice(0, Math.max(0, count - live.length))
     .map((chat): ChatCard => ({

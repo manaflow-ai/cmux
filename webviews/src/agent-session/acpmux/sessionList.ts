@@ -39,6 +39,8 @@ export type AcpmuxSessionEntry = {
   preview?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
   parentId?: string;
+  /** Started by another session's agent (acpmux `spawnedBy`): it folds under that chat, off every list. */
+  spawnedBy?: string;
   forkSeq?: number;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
@@ -80,7 +82,7 @@ export const SIDE_TAG = "side";
 const ASIDE_TAG = "aside";
 
 /** Whether a session belongs in the sidebar, Home and recents: neither archived nor a side chat. */
-export const listed = (session: AcpmuxSessionEntry) => !session.archived && !session.side;
+export const listed = (session: AcpmuxSessionEntry) => !session.archived && !session.side && !session.spawnedBy;
 
 /** Whether acpmux's tags (an object of key to value; a list in older fixtures) hold `tag`. */
 function tagged(tags: unknown, tag: string): boolean {
@@ -127,6 +129,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     pullRequest: pullRequest(session.pullRequest),
     preview: text(session.preview),
     parentId: text(session.parentId),
+    spawnedBy: text(session.spawnedBy),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
     worked: session.lastTurn?.status === "completed",

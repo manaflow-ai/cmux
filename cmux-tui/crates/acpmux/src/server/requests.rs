@@ -280,6 +280,8 @@ async fn dispatch_request(
                 env: crate::session_env::parse(meta)?,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
+                // A remote client names no local session as its parent.
+                spawned_by: if conn.origin.web_class() { None } else { pick("spawnedBy") },
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {

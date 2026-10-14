@@ -22,6 +22,7 @@ impl Hub {
             adopt,
             remote,
             env: session_env,
+            spawned_by,
         } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
@@ -114,6 +115,7 @@ impl Hub {
         });
         (meta.session_env, meta.chat_store, meta.adopted_cwd) =
             (session_env, chat_store, adopted_cwd);
+        meta.spawned_by = spawned_by.filter(|parent| self.sessions.lock().unwrap().contains_key(parent));
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
@@ -1010,6 +1012,8 @@ pub struct NewRequest {
     pub adopt: Option<crate::adopt::AdoptRequest>,
     /// Per-session env (`session_env.rs`), already checked by the caller.
     pub env: std::collections::BTreeMap<String, String>,
+    /// The session whose agent asked for this one; kept only when it exists here.
+    pub spawned_by: Option<String>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

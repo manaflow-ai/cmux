@@ -130,7 +130,10 @@ impl Client {
         Some(rx)
     }
 
-    pub async fn request(&self, m: &str, params: Value) -> Result<Value> {
+    pub async fn request(&self, m: &str, mut params: Value) -> Result<Value> {
+        if m == method::SESSION_NEW {
+            spawned_by_caller(&mut params);
+        }
         let context = format!("sending {m}");
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let key = Value::from(id).to_string();
@@ -213,4 +216,17 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
         "daemon connection closed while {context}: {why}.{build} The next acpmux command starts a daemon; its log is {}",
         home.join("daemon.log").display()
     )
+}
+
+/// A `session/new` sent from inside an acpmux session (its agent runs `acpmux new`, `acpmux run`):
+/// names that session as the new one's parent (`_meta.acpmux.spawnedBy`), unless the caller did.
+fn spawned_by_caller(params: &mut Value) {
+    let Some(parent) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty()) else { return };
+    let Some(object) = params.as_object_mut() else { return };
+    let meta = object.entry("_meta").or_insert_with(|| json!({}));
+    let Some(meta) = meta.as_object_mut() else { return };
+    let acpmux = meta.entry("acpmux").or_insert_with(|| json!({}));
+    if let Some(acpmux) = acpmux.as_object_mut() {
+        acpmux.entry("spawnedBy").or_insert(Value::String(parent));
+    }
 }
