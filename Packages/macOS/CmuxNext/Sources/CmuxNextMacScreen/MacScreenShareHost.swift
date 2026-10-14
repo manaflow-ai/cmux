@@ -121,8 +121,11 @@ public final class MacScreenShareHost {
         let logger = logger
         let log: @Sendable (String) -> Void = { line in logger.info("\(line, privacy: .public)") }
         let host = ScreenStreamHost(pairing: pairing, backend: { ScreenCaptureBackend(log: log) }, log: log)
-        host.onEvent = { [weak self] event in
-            Task { @MainActor [weak self] in self?.handle(event, from: host) }
+        host.onEvent = { [weak self, weak host] event in
+            Task { @MainActor [weak self] in
+                guard let host else { return }
+                self?.handle(event, from: host)
+            }
         }
         self.host = host
         task = Task.detached { await host.run() }
