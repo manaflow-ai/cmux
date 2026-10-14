@@ -700,9 +700,9 @@ async fn serve_connection_from(
                     ev = rx.recv() => ev,
                     note = harnesses.recv() => {
                         match note {
-                            Ok(note) if conn.watch_all.load(Ordering::SeqCst) => conn.send(
-                                &Message::notification(method::MUX_HARNESSES_CHANGED, note),
-                            ),
+                            Ok(note) if conn.watch_all.load(Ordering::SeqCst) => {
+                                harness_admin::watch_note(&conn, note)
+                            }
                             // Lagged: a newer change follows with the full list.
                             Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                             Err(broadcast::error::RecvError::Closed) => break,
