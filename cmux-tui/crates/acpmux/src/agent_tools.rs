@@ -449,7 +449,7 @@ fn is_executable(path: &Path) -> bool {
 /// the agent instead of the server vanishing.
 fn mcp_disabled(text: &str) -> bool {
     crate::user_settings::document(text)
-        .and_then(|doc| crate::user_settings::value(&doc, "mcp.enabled"))
+        .and_then(|doc| doc.pointer("/mcp/enabled").cloned())
         .is_some_and(|v| !v.is_null() && v != Value::Bool(true))
 }
 

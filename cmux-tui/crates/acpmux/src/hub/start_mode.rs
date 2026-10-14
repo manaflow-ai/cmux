@@ -65,17 +65,37 @@ impl DefaultMode {
     }
 
     /// acpmux config.json's `defaultPermissionMode` when it names one, else
-    /// the setting as the settings file holds it now; a missing file, key or
-    /// unknown value is full access (Lawrence's default).
+    /// the setting as the settings file holds it now. No file or no key is
+    /// full access (Lawrence's default). A file that does not parse, or a
+    /// value this build does not know, is `Standard`: a person's opt-out
+    /// that acpmux cannot read never becomes full access.
     pub(crate) fn resolve(configured: Option<&str>) -> Self {
-        if let Some(access) = configured.and_then(Self::parse) {
-            return access;
+        if let Some(value) = configured {
+            return Self::parse(value).unwrap_or_else(|| {
+                tracing::warn!(value, "config.json defaultPermissionMode: unknown value; new chats keep the harness's own mode");
+                Self::Standard
+            });
         }
-        crate::user_settings::text()
-            .and_then(|text| crate::user_settings::document(&text))
-            .and_then(|doc| crate::user_settings::value(&doc, SETTING))
-            .and_then(|v| v.as_str().and_then(Self::parse))
-            .unwrap_or(Self::FullAccess)
+        match crate::user_settings::read() {
+            crate::user_settings::Settings::Missing => Self::FullAccess,
+            crate::user_settings::Settings::Unreadable(why) => {
+                tracing::warn!(
+                    "{SETTING}: the settings file cannot be read ({why}); new chats keep the harness's own mode"
+                );
+                Self::Standard
+            }
+            crate::user_settings::Settings::Parsed(doc) => {
+                match crate::user_settings::value(&doc, SETTING) {
+                    None | Some(Value::Null) => Self::FullAccess,
+                    Some(v) => v.as_str().and_then(Self::parse).unwrap_or_else(|| {
+                        tracing::warn!(
+                            "{SETTING}: unknown value {v}; new chats keep the harness's own mode"
+                        );
+                        Self::Standard
+                    }),
+                }
+            }
+        }
     }
 }
 
@@ -191,9 +211,10 @@ impl Hub {
     }
 
     /// Saves a mode pick on `session` as its harness profile's start mode
-    /// (config.json `defaults.<profile>.mode`). Not for a preset's or a
-    /// folder profile's chat, a remote-origin chat, a toggle such as Plan,
-    /// or a profile that pins its mode. A pick equal to what the setting
+    /// (config.json `defaults.<profile>.mode`). Not for a preset's chat, a
+    /// remote-origin chat, a toggle such as Plan, a profile that pins its
+    /// mode, or a name that is no profile in config.json (a folder
+    /// profile's chat: its file decides). A pick equal to what the setting
     /// gives removes the saved mode instead, so the setting decides again.
     pub(super) async fn note_mode_pick(&self, session: &Session, mode: &str) {
         let meta = session.meta();
@@ -207,12 +228,13 @@ impl Hub {
             return;
         }
         let offered = available(&meta);
-        let mut cfg = self.config.write().await;
+        let configured = self.config.read().await.default_permission_mode.clone();
         let from_setting = mode_for(
-            DefaultMode::resolve(cfg.default_permission_mode.as_deref()),
+            DefaultMode::resolve(configured.as_deref()),
             &crate::web_modes::family_of(&meta),
             &offered,
         );
+        let mut cfg = self.config.write().await;
         let Some(profile) = cfg.harnesses.get(&meta.harness) else { return };
         if profile_sets_mode(profile) {
             return;

@@ -22,6 +22,7 @@ impl Hub {
             adopt,
             remote,
             env: session_env,
+            keep_harness_mode,
         } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
@@ -49,7 +50,10 @@ impl Hub {
         let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
         // The start mode also skips a remote-origin session (the remote
         // guard settles its mode) and a profile that pins its mode.
-        let mode_eligible = eligible && !remote && !super::start_mode::profile_sets_mode(&profile);
+        let mode_eligible = eligible
+            && !remote
+            && !keep_harness_mode
+            && !super::start_mode::profile_sets_mode(&profile);
         // A harness that takes its model at spawn (Claude Code's `--model`)
         // gets the start model there (`model_request` below).
         let model_pinned = model.is_some()
@@ -452,6 +456,13 @@ impl Hub {
                 .and_then(Value::as_str)
                 .unwrap_or("default")
                 .to_owned();
+            // A remote chain never runs in full access (remote_sandbox.rs),
+            // even when a transfer moved a full-access chat here.
+            let mode = if meta.remote_origin && mode == "bypassPermissions" {
+                "default".to_owned()
+            } else {
+                mode
+            };
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -1022,6 +1033,9 @@ pub struct NewRequest {
     pub adopt: Option<crate::adopt::AdoptRequest>,
     /// Per-session env (`session_env.rs`), already checked by the caller.
     pub env: std::collections::BTreeMap<String, String>,
+    /// Keep the harness's own start mode (`start_mode.rs`): a handoff target
+    /// of a source that is not in full access is never wider than it.
+    pub keep_harness_mode: bool,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

@@ -244,7 +244,12 @@ pub fn spawn_plan(
     if bypass {
         args.push(ALLOW_BYPASS_FLAG.into());
     }
-    let mode = if mode == "bypassPermissions" && !bypass { "default" } else { mode };
+    // A profile that passes a skip flag itself takes the mode as it is.
+    let own_skip = profile
+        .argv
+        .iter()
+        .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
+    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { "default" } else { mode };
     if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
         args.push("--permission-mode".into());
         args.push(mode.into());

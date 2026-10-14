@@ -11,33 +11,56 @@ use std::path::PathBuf;
 /// The override the app and tests set.
 pub const CONFIG_OVERRIDE: &str = "CMUX_NEXT_CONFIG_FILE";
 
-/// The settings file's text, or `None` when there is none to read.
-pub fn text() -> Option<String> {
+/// What the settings file holds now.
+pub enum Settings {
+    /// No settings file: every key has its default.
+    Missing,
+    /// The file, parsed.
+    Parsed(Value),
+    /// A file that exists but cannot be read or parsed: a key whose default
+    /// widens what runs without asking must not take that default.
+    Unreadable(String),
+}
+
+/// The settings file as it is now.
+pub fn read() -> Settings {
     let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());
     let home = || var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    let read_one = |path: &std::path::Path| match std::fs::read_to_string(path) {
+        Ok(text) => Some(match document(&text) {
+            Some(doc) => Settings::Parsed(doc),
+            None => Settings::Unreadable(format!("{}: not valid JSONC", path.display())),
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => Some(Settings::Unreadable(format!("{}: {e}", path.display()))),
+    };
     if let Some(path) = var(CONFIG_OVERRIDE) {
         let path = PathBuf::from(path);
         let path = match path.strip_prefix("~") {
             Ok(rest) => home().join(rest),
             Err(_) => path,
         };
-        return std::fs::read_to_string(path).ok();
+        return read_one(&path).unwrap_or(Settings::Missing);
     }
     let home = home();
-    std::fs::read_to_string(home.join(".config/cmux/cmux-next.json"))
-        .or_else(|_| std::fs::read_to_string(home.join(".config/cmux/cmux.json")))
-        .ok()
+    read_one(&home.join(".config/cmux/cmux-next.json"))
+        .or_else(|| read_one(&home.join(".config/cmux/cmux.json")))
+        .unwrap_or(Settings::Missing)
 }
 
-/// The settings document (JSONC: whole-line `//` comments allowed), or
-/// `None` when it does not parse.
+/// The settings file's text, or `None` when there is none to read.
+pub fn text() -> Option<String> {
+    match read() {
+        Settings::Parsed(doc) => Some(doc.to_string()),
+        Settings::Missing | Settings::Unreadable(_) => None,
+    }
+}
+
+/// The settings document (JSONC: `//` and `/* */` comments and trailing
+/// commas, as the app's settings owner reads it), or `None` when it does
+/// not parse.
 pub fn document(text: &str) -> Option<Value> {
-    let plain: String = text
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("//"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    serde_json::from_str::<Value>(&plain).ok()
+    serde_json::from_str::<Value>(&strip_jsonc(text)).ok()
 }
 
 /// The value at a dotted settings key (`agents.defaultPermissionMode`), in
@@ -48,4 +71,94 @@ pub fn value(doc: &Value, key: &str) -> Option<Value> {
     }
     let pointer = format!("/{}", key.replace('.', "/"));
     doc.pointer(&pointer).cloned()
+}
+
+/// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
+/// outside strings. A copy of cmux-tui-util's `strip_jsonc` (the dialect the
+/// app's JSONC parser reads), kept here so acpmux takes no new dependency.
+pub fn strip_jsonc(text: &str) -> String {
+    drop_trailing_commas(&drop_comments(text))
+}
+
+/// The text without comments; strings are copied unchanged.
+fn drop_comments(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut output = String::with_capacity(text.len());
+    let (mut index, mut start, mut in_string) = (0, 0, false);
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_string {
+            match byte {
+                b'\\' => index += 2,
+                b'"' => {
+                    in_string = false;
+                    index += 1;
+                }
+                _ => index += 1,
+            }
+            continue;
+        }
+        match (byte, bytes.get(index + 1)) {
+            (b'"', _) => {
+                in_string = true;
+                index += 1;
+            }
+            (b'/', Some(b'/')) => {
+                output.push_str(&text[start..index]);
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+                start = index;
+            }
+            (b'/', Some(b'*')) => {
+                output.push_str(&text[start..index]);
+                index += 2;
+                while index < bytes.len()
+                    && !(bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/'))
+                {
+                    index += 1;
+                }
+                index = (index + 2).min(bytes.len());
+                start = index;
+            }
+            _ => index += 1,
+        }
+    }
+    output.push_str(&text[start.min(bytes.len())..]);
+    output
+}
+
+/// Removes a comma whose next non-space byte closes an object or array.
+fn drop_trailing_commas(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut output = String::with_capacity(text.len());
+    let (mut index, mut start, mut in_string) = (0, 0, false);
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_string {
+            match byte {
+                b'\\' => index += 2,
+                b'"' => {
+                    in_string = false;
+                    index += 1;
+                }
+                _ => index += 1,
+            }
+            continue;
+        }
+        if byte == b'"' {
+            in_string = true;
+        } else if byte == b','
+            && matches!(
+                bytes[index + 1..].iter().find(|byte| !byte.is_ascii_whitespace()),
+                Some(b'}' | b']')
+            )
+        {
+            output.push_str(&text[start..index]);
+            start = index + 1;
+        }
+        index += 1;
+    }
+    output.push_str(&text[start.min(bytes.len())..]);
+    output
 }

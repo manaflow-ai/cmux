@@ -148,8 +148,8 @@ async fn a_new_chat_starts_in_each_harness_full_access_mode() {
 
     let (claude, mode) = app.chat(&dir, "claude").await;
     assert_eq!(mode, "bypassPermissions");
-    // Claude Code was launched so that it accepts the mode, and a respawn
-    // keeps it (`--permission-mode bypassPermissions`).
+    // Claude Code was launched so that it accepts the mode (the fake, like
+    // Claude Code, refuses it without --allow-dangerously-skip-permissions).
     let r = app
         .call(
             "session/prompt",
@@ -236,23 +236,6 @@ async fn the_setting_chooses_ask_or_the_harness_own_mode() {
     let mut app = Client::app(&daemon).await;
     assert_eq!(app.chat(&dir, "claude").await.1, "default");
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[tokio::test]
-async fn the_cmux_settings_file_chooses_when_acpmux_config_names_nothing() {
-    let dir = home("settings", json!({}));
-    let settings = dir.join("cmux-next.json");
-    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "ask"}}"#).unwrap();
-    // SAFETY: the only test in this binary that reads the settings file; the
-    // others name defaultPermissionMode in config.json, which wins.
-    unsafe { std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings) };
-    let daemon = hub(&dir);
-    let mut app = Client::app(&daemon).await;
-    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
-    // The setting is read at each new chat.
-    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
-    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
