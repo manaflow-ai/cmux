@@ -45,20 +45,24 @@ async fn a_claude_subagent_asking_after_the_turn_ended_reaches_the_person() {
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     hub.set_policy(&hub.resolve(&id).unwrap(), PermissionPolicy::Ask).await;
+    // Subscribed before the prompt, so no log line after it is missed.
+    let mut events = hub.subscribe();
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "late-agent-ask"}]});
     c.request(method::SESSION_PROMPT, prompt).await.unwrap();
-    // The ask came in while the prompt's own response was on its way, so it
-    // is read from the session's log; the chat waits on the person after its
-    // turn ended, not ready.
+    // The fake agent sends its late ask only after the turn's result, so the
+    // prompt's response can come before the ask is in the session's log: the
+    // test waits for the log line. The chat then waits on the person after
+    // its turn ended, not ready.
     let session = hub.resolve(&id).unwrap();
-    let asked = hub
-        .events(&id, 0, 10_000)
-        .unwrap()
-        .into_iter()
-        .rfind(|e| e.kind == "permission_request")
-        .unwrap_or_else(|| panic!("the late ask never reached the person"));
+    let last =
+        |kind: &str| hub.events(&id, 0, 10_000).unwrap().into_iter().rfind(|e| e.kind == kind);
+    let status = || hub.session_summary(&session)["status"].clone();
+    wait_for(&mut events, "the late ask never reached the person", || {
+        last("permission_request").is_some() && status() == "waiting"
+    })
+    .await;
+    let asked = last("permission_request").unwrap();
     let pid = asked.msg["permissionId"].as_str().unwrap().to_owned();
-    assert_eq!(hub.session_summary(&session)["status"], "waiting");
     // This client is not the person, so it rejects (an allow needs the app's
     // decision proof): the person's answer, not a cancel, reaches the subagent.
     c.request(
@@ -67,12 +71,8 @@ async fn a_claude_subagent_asking_after_the_turn_ended_reaches_the_person() {
     )
     .await
     .unwrap();
-    let decision = hub
-        .events(&id, 0, 10_000)
-        .unwrap()
-        .into_iter()
-        .rfind(|e| e.kind == "permission_decision")
-        .expect("a decision");
+    wait_for(&mut events, "no decision", || last("permission_decision").is_some()).await;
+    let decision = last("permission_decision").unwrap();
     assert_eq!(decision.msg["outcome"]["outcome"], "selected", "{}", decision.msg);
     assert_eq!(decision.msg["outcome"]["optionId"], "reject_once");
     let said = super::super::transcript_events::late_chunk(&hub, &id, |m| {
@@ -80,6 +80,25 @@ async fn a_claude_subagent_asking_after_the_turn_ended_reaches_the_person() {
     })
     .await;
     assert_eq!(said["params"]["update"]["content"]["text"], "late deny", "{said}");
-    assert_eq!(hub.session_summary(&session)["status"], "ready");
+    wait_for(&mut events, "the chat is not ready after the answer", || status() == "ready").await;
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// Waits until `done` holds: checked now and again after each log line the
+/// hub broadcasts (no polling); panics with `what` after 10 s.
+async fn wait_for(
+    events: &mut tokio::sync::broadcast::Receiver<acpmux::hub::HubEvent>,
+    what: &str,
+    mut done: impl FnMut() -> bool,
+) {
+    use tokio::sync::broadcast::error::RecvError;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !done() {
+        match tokio::time::timeout_at(deadline, events.recv()).await {
+            Err(_) => panic!("{what}"),
+            Ok(Err(RecvError::Closed)) => panic!("{what}: the hub stopped"),
+            // A new line, or lines lost to lag: check again.
+            Ok(Ok(_) | Err(RecvError::Lagged(_))) => {}
+        }
+    }
 }
