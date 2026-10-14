@@ -100,6 +100,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sideChat(String)
     /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.
     case chatTab(String)
+    /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
+    case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
