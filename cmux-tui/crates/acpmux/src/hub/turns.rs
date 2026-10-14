@@ -295,7 +295,7 @@ impl Hub {
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
-        self.append(session, "mux", "user_message", msg);
+        self.append_prompt(session, msg, &blocks);
         if !waiting {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),

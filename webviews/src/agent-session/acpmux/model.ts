@@ -22,6 +22,9 @@ export type AcpmuxBackgroundTask = {
   reason?: string;
 };
 
+/// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
+export type PromptImage = { id: string; mimeType: string; name?: string };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -44,6 +47,8 @@ export type AcpmuxRow = {
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
+  /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
+  images?: PromptImage[];
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   retryAttachments?: ComposerAttachment[];
