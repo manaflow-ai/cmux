@@ -149,10 +149,13 @@ def tab_order():
     return [(t.get("id"), t.get("title"), t.get("kind") or t.get("type")) for t in pane.get("tabs", [])]
 
 
-def set_config(values):
-    """Rewrites the scratch cmux.json (the app reloads it) and waits for the reload."""
+def set_config(values, settings):
+    """Rewrites the scratch cmux.json (the app reloads it), waits for the reload, then sets the
+    configuration's motion switches again: the reload applies the file's (default) kinds."""
     open(CONFIG, "w").write(json.dumps(values))
     time.sleep(1.5)  # test harness wait: the config watcher's reload
+    for change in RESET + settings:
+        rpc("debug.motion", change)
 
 
 def strip(name, folder, key_name, modifiers, content="focused", gesture=None):
@@ -215,10 +218,13 @@ def run_config(name, settings):
     # After current (tabs.newTabPosition afterCurrent): Cmd-T on tab 1 of three shows the page in
     # slot 2 from its first frame; submitting it (`!ls`, Return) puts the terminal in that slot.
     if not opts.base:
-        set_config({"tabs": {"newTabPosition": "afterCurrent"}})
+        set_config({"tabs": {"newTabPosition": "afterCurrent"}}, settings)
         terminal_tab()
         terminal_tab()
-        key("1", ["command"])
+        # A terminal tab with tabs after it (Cmd-T on the window's first tab, a New Tab page, only focuses it).
+        order = tab_order()
+        anchor = next((i for i, t in enumerate(order[:-1]) if "terminal" in str(t[2]).lower() and i < 8), 1)
+        key(str(anchor + 1), ["command"])
         time.sleep(0.6)  # test harness wait
         before = tab_order()
         results["gestures"].append(strip("after-current", os.path.join(out, "after-current"), "t", ["command"]))
@@ -230,15 +236,16 @@ def run_config(name, settings):
         results["gestures"].append(strip("page-submit", os.path.join(out, "page-submit"), "return", []))
         time.sleep(1.5)  # test harness wait: NewTabSlot's move lands
         after = tab_order()
-        results["slots"] = {"before": before, "page": page_order, "after": after,
-                            "page_in_slot_2": len(page_order) > 1 and page_order[1][0] not in [t[0] for t in before],
-                            "submit_in_slot_2": len(after) > 1 and after[1][0] not in [t[0] for t in page_order]
-                            and "terminal" in str(after[1][2]).lower()}
+        slot = anchor + 1
+        results["slots"] = {"before": before, "page": page_order, "after": after, "anchor": anchor,
+                            "page_after_anchor": len(page_order) > slot and page_order[slot][0] not in [t[0] for t in before],
+                            "submit_after_anchor": len(after) > slot and after[slot][0] not in [t[0] for t in page_order]
+                            and "terminal" in str(after[slot][2]).lower()}
         print("slots", json.dumps(results["slots"])[:400], flush=True)
         for _ in range(len(after) - 1):
             key("w", ["command"])
             time.sleep(0.4)  # test harness wait
-        set_config({})
+        set_config({}, settings)
     # Cmd-N: a new workspace row; Cmd-W closes its only tab (and the workspace).
     before = workspace_count()
     results["gestures"].append(strip("cmd-n", os.path.join(out, "cmd-n"), "n", ["command"]))
