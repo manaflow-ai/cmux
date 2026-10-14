@@ -80,8 +80,7 @@ test("the minimap's turn preview waits the hover delay, then follows the pointer
     );
     const rail = dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
     expect(rail).not.toBeNull();
-    const tick = (index: number) =>
-      dom.window.document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")[index]!;
+    const tick = (index: number) => dom.window.document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")[index]!;
     const popover = () => dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__card");
     const visible = () => popover() !== null && !popover()!.hidden;
     // The rail's rows take the pointer (their pointerenter and pointerleave, which React draws

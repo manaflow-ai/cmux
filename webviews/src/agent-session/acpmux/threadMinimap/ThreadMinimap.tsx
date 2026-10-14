@@ -1,6 +1,6 @@
 // The thread minimap, as the Codex desktop app's prompt rail: one 10 px row per user prompt, 16 px in
 // from the transcript's left edge and centered on it. Hovering magnifies the rows near the pointer
-// like the Dock and, after CARD_OPEN_DELAY_MS, opens a preview card (the prompt, its bookmark and
+// like the Dock and, after the app's hover delay (ui/hoverIntent.ts), opens a preview card (the prompt, its bookmark and
 // the start of the reply) beside the hovered row. A click scrolls the transcript so the prompt
 // lands near the top and flashes its bubble; dragging scrubs; Tab walks the rows. Bookmarks show
 // as a dot past the tick, and clicking the dot's spot toggles one. Geometry comes from the
@@ -12,7 +12,7 @@ import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../mo
 import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { usePromptMarks } from "./promptMarks";
-import { CardTiming } from "./cardTiming";
+import { useHoverIntent } from "../../../ui/hoverIntent";
 import { animateScroll, highlightBubble, reducedMotion, stopScroll } from "./scrollMotion";
 import { BookmarkIcon } from "./BookmarkIcon";
 import {
@@ -52,6 +52,10 @@ function mountedRow(scroller: HTMLElement, id: string): HTMLElement | undefined 
   return undefined;
 }
 
+/// Whether the pointer went to `to` inside `element` (a leave's `relatedTarget` may be no node: the window, or null).
+const within = (element: Element | null, to: EventTarget | null) =>
+  !!element && !!to && "nodeType" in to && element.contains(to as Node);
+
 const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElement>(".cv-user__bubble");
 
 export function ThreadMinimap({
@@ -85,12 +89,18 @@ export function ThreadMinimap({
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
   const [cardRow, setCardRow] = useState<number | undefined>(undefined);
-  const [cardOpen, setCardOpen] = useState(false);
-  const [timing] = useState(() => new CardTiming(setCardOpen));
+  // The card's hover intent (ui/hoverIntent.ts), as every hover card's: the first waits the hover
+  // delay, then the card follows the pointer from row to row at once, and the rail cools a moment
+  // after it goes. Keyboard focus shows it at once.
+  const preview = useHoverIntent<"rail">();
+  const cardOpen = preview.shown !== null;
+  const intend = preview.hover;
+  const dismiss = preview.dismiss;
   const [scrubbing, setScrubbing] = useState(false);
   const [reduce, setReduce] = useState(false);
   const [listTop, setListTop] = useState(0);
   const [cardHeight, setCardHeight] = useState(0);
+  const rail = useRef<HTMLElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
@@ -109,7 +119,6 @@ export function ThreadMinimap({
   useLayoutEffect(() => {
     live.current = { turns, tops: layout.tops, total: layout.totalHeight, marks };
   });
-  useEffect(() => () => timing.cancel(), [timing]);
 
   /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
   /// at once when it is not (or under Reduce Motion, or while scrubbing). A click or a bookmark jump
@@ -216,20 +225,20 @@ export function ThreadMinimap({
         setReduce(reducedMotion());
         setHovered(index);
         setCardRow(index);
-        timing.enter();
+        intend("rail");
       },
       focus(index) {
         if (pressing.current) return;
         setReduce(reducedMotion());
         setFocused(index);
         setCardRow(index);
-        timing.now();
+        intend("rail", 0);
       },
       blur(index) {
         setFocused((current) => (current === index ? undefined : current));
       },
       escape() {
-        timing.close();
+        dismiss();
       },
       click(index, target) {
         if (swallowClick.current) {
@@ -256,7 +265,7 @@ export function ThreadMinimap({
         jump(index, "click");
       },
     }),
-    [timing, jump],
+    [intend, dismiss, jump],
   );
 
   if (!shown) return null;
@@ -288,21 +297,23 @@ export function ThreadMinimap({
   return (
     <div className="acpmux-minimap">
       <nav
+        ref={rail}
         className="acpmux-minimap__rail"
         aria-label={t("minimap.label")}
         style={{ left: RAIL_LEFT, top: railTop, width: ROW_WIDTH, height }}
         data-hovering={hovered !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
-        onPointerLeave={() => {
+        onPointerLeave={(event) => {
           if (scrub.current?.moved) return;
           setHovered(undefined);
-          timing.leave();
+          // Into the card keeps it; anywhere else it goes on this frame.
+          if (!within(card.current, event.relatedTarget)) intend(null);
         }}
         onBlur={(event) => {
           const next = event.relatedTarget as Node | null;
           if (event.currentTarget.contains(next) || card.current?.contains(next)) return;
-          if (hovered === undefined) timing.close();
+          if (hovered === undefined) intend(null);
         }}
       >
         <div
@@ -362,8 +373,10 @@ export function ThreadMinimap({
           id={cardId}
           className="acpmux-minimap__card"
           style={{ transform: `translate3d(${RAIL_LEFT + ROW_WIDTH}px, ${cardTop}px, 0)` }}
-          onPointerEnter={() => timing.enter()}
-          onPointerLeave={() => timing.leave()}
+          onPointerLeave={(event) => {
+            // Back onto the rail keeps it (its row takes over); anywhere else it goes.
+            if (!within(rail.current, event.relatedTarget)) intend(null);
+          }}
         >
           <div className="acpmux-minimap__title">
             <span className="acpmux-minimap__prompt">{cardTurn.prompt}</span>

@@ -36,11 +36,6 @@ export const RAIL_MAX_ROWS = 64;
 export const RAIL_MAX_SHARE = 0.7;
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
-/// The preview card: it opens this long after the pointer reaches the rail, at once when one closed
-/// less than CARD_WARM_MS before, and closes this long after the pointer leaves rail and card.
-export const CARD_OPEN_DELAY_MS = 250;
-export const CARD_WARM_MS = 300;
-export const CARD_CLOSE_DELAY_MS = 100;
 /// Space kept free above and below the card inside the transcript's viewport.
 export const EDGE_MARGIN = 8;
 /// A jump lands the prompt's bubble this far below the top of the transcript's viewport.
