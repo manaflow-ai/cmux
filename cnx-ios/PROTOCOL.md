@@ -276,6 +276,12 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   with `unknown_service` speaks link protocol 1 (keepalive pings queued
   behind data, a reader that stalls on one full channel); the phone keeps
   the link and says "Update cmux on this Mac".
+  Added 2026-10-14: `"capabilities": [...]`, what the host does that a
+  phone may rely on. `removal-v1` (the Mac host of manaflow-ai/cmux#20414):
+  after its owner removes it (signaling 4002 `removed`) the host stays off
+  until the person allows iPhone connections again on the Mac, so the
+  phone's removal copy can say so. Absent (older hosts): the Mac may add
+  itself back.
 
 A service that ends normally closes its channel with `{code:"eof"}`; a
 refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or

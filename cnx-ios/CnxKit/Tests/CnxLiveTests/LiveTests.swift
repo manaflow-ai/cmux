@@ -515,7 +515,7 @@ final class Counter: @unchecked Sendable {
         let request = try #require(store.pendingPermission?.request)
         store.respond(to: request, option: request.options[0])
         for _ in 0..<500 where store.clientError == nil { await Task.yield() }
-        #expect(store.clientError?.contains("Approve this on your Mac") == true)
+        #expect(store.clientError?.contains("approve on the Mac") == true)
         #expect(store.pendingPermission != nil)
 
         // A deny reaches the Mac; the decision record resolves the card.
@@ -541,7 +541,7 @@ final class Counter: @unchecked Sendable {
         feedStore.respond(item.id, option: permission.options[0])
         for _ in 0..<500 where feedStore.items.first?.error == nil { await Task.yield() }
         #expect(feedStore.items.first?.needsYou == true)
-        #expect(feedStore.items.first?.error?.contains("Approve this on your Mac") == true)
+        #expect(feedStore.items.first?.error?.contains("approve on the Mac") == true)
         feedStore.respond(item.id, option: permission.options[1])
         for _ in 0..<100 { await Task.yield() }
         #expect(feedStore.items.first?.resolution == "Denied")

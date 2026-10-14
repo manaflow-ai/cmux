@@ -133,6 +133,8 @@ public struct RootView: View {
             }
         }
         .animation(theme.motion.gentle.animation, value: destination)
+        // Settings → Require Face ID (audit B11).
+        .cnxAppLock(enabled: settings.requireFaceID)
         .task(id: auth.isResolved) {
             guard auth.isResolved, !launchFinished else { return }
             syncTeams()
@@ -226,7 +228,16 @@ public struct RootView: View {
     /// service binds them to their first user), and Welcome crossfades in,
     /// already settled (its intro plays once per cold launch).
     private func signedOut() {
-        live?.stop()
+        // The phone asks the linked Mac to forget it, then deletes its keys
+        // (verify/phone-approvals.md); live data stops after that try.
+        if let ending = live {
+            Task { @MainActor in
+                await ending.unpair()
+                ending.stop()
+            }
+        } else if !auth.isMock {
+            PhoneKeys().reset()
+        }
         live = nil
         setupPlan = nil
         asksNotifications = nil
@@ -268,15 +279,21 @@ public struct RootView: View {
             deviceName: UIDevice.current.name,
             transport: settings.transport.link,
             relayOnly: DeveloperOptions.relayOnly,
-            dialer: FFIMacLinkDialer()
+            dialer: FFIMacLinkDialer(),
+            keys: PhoneKeys()
         )
         coordinator.onFollow = { [auth] teamID in
             guard !teamID.hasPrefix("personal-") else { return }
             Task { await auth.selectTeam(teamID) }
         }
         live = coordinator
-        // Stop pushes to this phone before the session ends.
-        auth.willSignOut = { await PushRegistration.shared.unregister() }
+        // Before the session ends (the link closes with it): stop pushes to this phone,
+        // and ask the linked Mac to forget it (verify/phone-approvals.md).
+        auth.willSignOut = { [weak coordinator] in
+            async let push: Void = PushRegistration.shared.unregister()
+            async let unpair: Void = coordinator?.unpair() ?? ()
+            _ = await (push, unpair)
+        }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
     }

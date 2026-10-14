@@ -28,6 +28,9 @@ public final class LiveCoordinator {
     public private(set) var registeredTeamID: String?
     public private(set) var presenceConnected = false
     public private(set) var chiefStatus: String?
+    /// Pairing with the linked Mac (verify/phone-approvals.md): the Mac asks the
+    /// user the first time; Allow then signs with Face ID.
+    public private(set) var pairingState: LinkPairing.State = .idle
     /// The last time the phone moved to another team because one of the
     /// account's Macs is there (the shell shows a toast).
     public private(set) var followed: Followed?
@@ -62,6 +65,8 @@ public final class LiveCoordinator {
     @ObservationIgnored let identity: DeviceIdentity
     @ObservationIgnored let userID: String
     @ObservationIgnored let deviceName: String
+    /// The phone's keys; nil (tests, mock) skips pairing.
+    @ObservationIgnored let pairing: LinkPairing?
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var teamTask: Task<Void, Never>?
@@ -70,8 +75,12 @@ public final class LiveCoordinator {
     @ObservationIgnored private var tree: DaemonTree?
     /// The acpmux session each cached chat store was built for (nil: unbound).
     @ObservationIgnored private var sourcedSessions: [String: String?] = [:]
-    /// The link to the targeted Mac, for terminal tabs (each attaches on its own channel).
+    /// The link to the targeted Mac (identity: a newer link replaces it).
     @ObservationIgnored private var currentLink: (any MacLink)?
+    /// `currentLink` once its `auth` channel opened (at once without pairing keys): what
+    /// terminal tabs, files, uploads and browser tabs open their channels on, so none of
+    /// them reaches the Mac ahead of `auth` (hostd refuses those `unpaired`).
+    @ObservationIgnored private var servedLink: (any MacLink)?
     /// Terminal tabs handed out, reattached on every new link.
     @ObservationIgnored private var terminals: [WeakTerminal] = []
     private struct WeakTerminal { weak var session: DaemonTerminalSession? }
@@ -121,6 +130,7 @@ public final class LiveCoordinator {
         relayOnly: Bool = false,
         dialer: any MacLinkDialer,
         feedStore: FeedStore = .shared,
+        keys: PhoneKeys? = nil,
         snapshots: LiveSnapshotStore = .standard,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
@@ -131,6 +141,7 @@ public final class LiveCoordinator {
         self.identity = identity
         self.userID = userID
         self.deviceName = deviceName
+        pairing = keys.map { LinkPairing(keys: $0, phoneID: identity.link, name: deviceName) }
         self.clock = clock
         workspaces = WorkspaceSync(deviceID: identity.link, deviceName: deviceName)
         let apiForLink = api
@@ -588,8 +599,10 @@ public final class LiveCoordinator {
     // MARK: Link
 
     private func linkChanged(_ link: (any MacLink)?) {
-        acpmux.macLink = link
+        acpmux.macLink = nil
         currentLink = link
+        servedLink = nil
+        acpmux.approver = nil
         guard let link, let macID = self.link.target?.macID else {
             Task {
                 await workspaces.bind(nil, macID: "")
@@ -603,12 +616,28 @@ public final class LiveCoordinator {
             }
             return
         }
-        // Workspaces first, and the chats and Feed alongside: each channel
-        // opens without waiting for the other (an open costs no round trip).
-        bindWorkspaces(link, macID: macID)
-        Task { [weak self] in await self?.checkVersion(link, macID: macID) }
         Task { [weak self] in
             guard let self else { return }
+            // Pairing first: a Mac that pairs serves a channel only after `auth`, and holds the
+            // ones opened behind it until it passes. Workspaces, the chats and the Feed open
+            // right behind it, without waiting for each other (an open costs no round trip).
+            let auth = await self.openPairing(link)
+            guard self.currentLink === link else {
+                if case .success(let opened)? = auth { await opened.close() }
+                return
+            }
+            self.servedLink = link
+            self.acpmux.macLink = link
+            self.bindWorkspaces(link, macID: macID)
+            Task { [weak self] in await self?.checkVersion(link, macID: macID) }
+            guard await self.pair(link, macID: macID, auth: auth) else { return }
+            // Terminal tabs attach lazily (`terminalSession(tabID:)`), each on its
+            // own `daemon` channel of this link; open ones reattach now. Input-lane
+            // channels may ride another stream, so they wait for pairing here.
+            self.terminals.removeAll { $0.session == nil }
+            for terminal in self.terminals { terminal.session?.reconnect() }
+            // Streamed browser tabs that dropped open again on this link.
+            StreamedBrowserDirectory.shared.linkChanged()
             do {
                 let channel = try await link.openChannel(service: "acpmux", args: [:])
                 await self.acpmux.bind(channel)
@@ -621,17 +650,11 @@ public final class LiveCoordinator {
             self.phaseChanged()
             await self.startChief(link)
         }
-        // Terminal tabs attach lazily (`terminalSession(tabID:)`), each on its
-        // own `daemon` channel of this link; open ones reattach now.
-        terminals.removeAll { $0.session == nil }
-        for terminal in terminals { terminal.session?.reconnect() }
-        // Streamed browser tabs that dropped open again on this link.
-        StreamedBrowserDirectory.shared.linkChanged()
     }
 
     /// The current link, for streamed browser tabs (`browser` service).
     public func browserLink() async -> (any BrowserStreamOpening)? {
-        currentLink as? any BrowserStreamOpening
+        servedLink as? any BrowserStreamOpening
     }
 
     /// Opens the `daemon` channel and loads the workspaces; a failure or a
@@ -641,6 +664,9 @@ public final class LiveCoordinator {
         workspacesTimeout = Task { [weak self, clock] in
             do { try await clock.sleep(for: Self.workspacesDeadline) } catch { return }
             guard let self, self.link.target?.macID == macID, self.store.macData[macID]?.source != .live else { return }
+            // The Mac holds the daemon channel while its person answers "Allow … to connect?";
+            // a refusal or timeout fails the channel itself.
+            if case .waiting = self.pairingState { return }
             log.error("workspaces did not arrive in time")
             self.store.handleMacData(.failed("the Mac didn't send its workspaces"), macID: macID)
         }
@@ -670,9 +696,9 @@ public final class LiveCoordinator {
             select(macID: macID)
             return
         }
-        if link.phase.isConnected, let currentLink, store.macData[macID]?.source != .live {
+        if link.phase.isConnected, let servedLink, store.macData[macID]?.source != .live {
             store.handleMacData(.connecting, macID: macID)
-            bindWorkspaces(currentLink, macID: macID)
+            bindWorkspaces(servedLink, macID: macID)
         } else {
             foreground()
         }
@@ -685,6 +711,9 @@ public final class LiveCoordinator {
         guard let channel = try? await link.openChannel(service: "version", args: [:]) else { return }
         let reply = try? await channel.receive()
         await channel.close(code: "eof", reason: "")
+        // Only a host without the service is old; another refusal (`unpaired` while pairing
+        // fails) says nothing about its protocol.
+        if reply == nil, let closed = channel.closedBy, closed.code != "unknown_service" { return }
         let object = reply.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         let protocolVersion = object?["link"] as? Int ?? 1
         log.info("Mac host: \(object?["hostd"] as? String ?? "before 0.2", privacy: .public), link protocol \(protocolVersion, privacy: .public)")
@@ -692,6 +721,47 @@ public final class LiveCoordinator {
         guard outdated != outdatedMacs.contains(macID) else { return }
         if outdated { outdatedMacs.insert(macID) } else { outdatedMacs.remove(macID) }
         phaseChanged()
+    }
+
+    /// Opens `auth` on `link` (no round trip); nil without pairing keys.
+    private func openPairing(_ link: any MacLink) async -> Result<LinkPairing.Opened, LinkError>? {
+        guard let pairing else { return nil }
+        return await pairing.open(link: link)
+    }
+
+    /// Proves this phone's keys on the `auth` channel `auth`; false when the Mac refused it.
+    private func pair(_ link: any MacLink, macID: String, auth: Result<LinkPairing.Opened, LinkError>?) async -> Bool {
+        guard let pairing, let auth else { return true }
+        let name = self.link.target?.name ?? "your Mac"
+        let outcome = await pairing.finish(auth, macID: macID) { [weak self] in
+            self?.pairingState = .waiting(mac: name)
+        }
+        guard currentLink === link else { return false }
+        switch outcome {
+        case .paired(let macDevice):
+            pairingState = .paired
+            let keys = pairing.keys
+            acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { message, reason in
+                try await keys.signApproval(message, reason: reason)
+            }
+            return true
+        case .legacy:
+            pairingState = .idle
+            return true
+        case .refused(let error):
+            log.error("pairing refused: \(error.code, privacy: .public) \(error.message, privacy: .public)")
+            pairingState = error.code == "denied" ? .denied(mac: name) : .failed(error.message)
+            return false
+        }
+    }
+
+    /// Sign-out: asks the linked Mac to forget this phone, then deletes its keys.
+    public func unpair() async {
+        guard let pairing else { return }
+        if let link = currentLink, let macID = self.link.target?.macID {
+            await pairing.unpair(link: link, macID: macID)
+        }
+        pairing.keys.reset()
     }
 
     /// A live session for a terminal tab of the Mac (`s<surface>`), or nil
@@ -703,12 +773,12 @@ public final class LiveCoordinator {
         // The daemon titles a shell tab with its folder; the composer says "Send to <program>".
         let program = programName.hasPrefix("/") || programName.hasPrefix("~") || programName.isEmpty ? "terminal" : programName
         let session = DaemonTerminalSession(surface: surface, programName: program, open: { [weak self] in
-            guard let link = await self?.currentLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            guard let link = await self?.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
         }, openInput: { [weak self] in
             // Keystrokes ride the link's input lane (PROTOCOL.md "Lanes").
-            guard let link = await self?.currentLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            guard let link = await self?.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let channel = try await link.openInputChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
         })
@@ -723,7 +793,7 @@ public final class LiveCoordinator {
     /// directory.
     public func terminalArtifactSource(tabID: String) -> any ArtifactSource {
         LinkFileArtifactSource(macName: link.target?.name ?? "your Mac", baseDirectory: workspaces.tree?.directories[tabID]) { [weak self] in
-            await self?.currentLink
+            await self?.servedLink
         }
     }
 
@@ -732,7 +802,7 @@ public final class LiveCoordinator {
     /// uploads folder when the tab has none; returns the file's path there.
     public func terminalUploader(tabID: String) -> @MainActor (Data, String) async throws -> String {
         { [weak self] data, name in
-            guard let self, let link = self.currentLink else {
+            guard let self, let link = self.servedLink else {
                 throw LinkUpload.Failure(code: "offline", message: "the Mac isn't connected")
             }
             let cwd = LinkUpload.folder(self.workspaces.tree?.directories[tabID])

@@ -145,6 +145,9 @@ final class FFIBrowserStream: BrowserStreamConnection, @unchecked Sendable {
 final class FFIChannel: LinkChannel, @unchecked Sendable {
     private let handle: ChannelHandle
     let id: UInt32
+    private let closeLock = NSLock()
+    private var closeInfo: LinkError?
+    var closedBy: LinkError? { closeLock.withLock { closeInfo } }
 
     init(handle: ChannelHandle) {
         self.handle = handle
@@ -157,8 +160,10 @@ final class FFIChannel: LinkChannel, @unchecked Sendable {
 
     func receive() async throws -> Data? {
         switch await handle.recv() {
-        case .data(let bytes): bytes
-        case .closed: nil
+        case .data(let bytes): return bytes
+        case .closed(let code, let reason):
+            closeLock.withLock { closeInfo = LinkError(code: code, message: reason) }
+            return nil
         }
     }
 

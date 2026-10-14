@@ -9,6 +9,12 @@
 //! - `{"type":"acpmux","url":"ws://127.0.0.1:<port>/","token":"<bearer>"}`:
 //!   the app's acpmux WebSocket, sent at start and on `need_acpmux` (it moves
 //!   when acpmux restarts).
+//! - `{"type":"devices","devices":[{"id","identity_key","approval_key"}],
+//!   "denied":[{"id","identity_key"}]}`: the phones the user approved, and those whose request
+//!   the user refused (`pairing.rs`). Sent at start and on every change.
+//!
+//! - `{"type":"drop_phone","phone_device_id":"<uuid>"}`: the owner removed this
+//!   phone (Settings > Mobile > Remove): hostd closes its live links now.
 //!
 //! End of stdin means the app is gone: the process exits.
 //!
@@ -20,12 +26,18 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 /// The acpmux WebSocket the app reported: URL and bearer token.
 pub type AcpmuxEndpoint = Option<(String, Option<String>)>;
 
 static ENABLED: OnceLock<bool> = OnceLock::new();
+static DROPS: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+
+/// Phone device ids the app removed, as they arrive (lowercased).
+pub fn drops() -> broadcast::Receiver<String> {
+    DROPS.get_or_init(|| broadcast::channel(16).0).subscribe()
+}
 
 /// Whether this process runs supervised (`CNX_CONTROL=stdio`).
 pub fn enabled() -> bool {
@@ -59,6 +71,10 @@ pub enum Inbound {
     BrowserGone {
         tab: String,
     },
+    Devices(crate::pairing::DeviceTrust),
+    DropPhone {
+        phone_device_id: String,
+    },
 }
 
 impl Inbound {
@@ -82,12 +98,20 @@ pub enum Event {
     NeedToken,
     /// The acpmux endpoint is missing or refused a connection (acpmux restarted).
     NeedAcpmux,
+    /// The owner removed this Mac from the account's devices (signaling closed with
+    /// 4002 `removed`). hostd exits after this line and must not be restarted until
+    /// the person allows iPhone connections again (a new device id then).
+    Removed,
     /// A phone's link is up.
     PhoneUp { session_id: String, phone_device_id: String, transport: String, path: String },
     /// A phone's link moved to another path.
     PhonePath { session_id: String, path: String },
     /// A phone's link ended.
     PhoneDown { session_id: String, reason: String },
+    /// A phone proved keys the Mac has not approved: ask the user.
+    PairRequest { phone_device_id: String, name: String, identity_key: String, approval_key: String },
+    /// A paired phone signed out and asks the Mac to forget it.
+    Unpaired { phone_device_id: String },
     /// A phone opened browser tab `tab`: start the app's browser host on
     /// `url` and answer with `browser` (or `browser_failed`) for `request`.
     NeedBrowser { request: u64, tab: String, url: String },
@@ -111,6 +135,7 @@ pub fn emit(event: &Event) {
 pub struct Supplied {
     pub token: watch::Receiver<Option<String>>,
     pub acpmux: watch::Receiver<AcpmuxEndpoint>,
+    pub devices: watch::Receiver<Option<crate::pairing::DeviceTrust>>,
     /// Browser hosts the app starts for the `browser` service.
     pub browser: std::sync::Arc<crate::browser::BrowserBroker>,
 }
@@ -119,6 +144,7 @@ pub struct Supplied {
 pub fn spawn_stdin_reader() -> Supplied {
     let (token_tx, token) = watch::channel(None);
     let (acpmux_tx, acpmux) = watch::channel(None);
+    let (devices_tx, devices) = watch::channel(None);
     let browser = std::sync::Arc::new(crate::browser::BrowserBroker::new(std::sync::Arc::new(emit)));
     let broker = std::sync::Arc::clone(&browser);
     tokio::spawn(async move {
@@ -131,6 +157,13 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::Acpmux { url, token }) => {
                     acpmux_tx.send_replace(Some((url, token)));
                 }
+                Some(Inbound::Devices(trust)) => {
+                    devices_tx.send_replace(Some(trust));
+                }
+                Some(Inbound::DropPhone { phone_device_id }) => {
+                    let _ =
+                        DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
+                }
                 Some(Inbound::Browser { request, addr, secret }) => {
                     broker.answer(request, Ok((addr, secret)));
                 }
@@ -142,7 +175,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         tracing::info!("control input ended; exiting");
         std::process::exit(0);
     });
-    Supplied { token, acpmux, browser }
+    Supplied { token, acpmux, devices, browser }
 }
 
 /// The wire name of a transport.
@@ -177,6 +210,23 @@ mod tests {
             Some(Inbound::Acpmux { url: "ws://127.0.0.1:1/".into(), token: Some("t".into()) })
         );
         assert_eq!(
+            Inbound::parse(
+                r#"{"type":"devices","devices":[{"id":"p","identity_key":"04","approval_key":"04"}],"denied":[{"id":"q","identity_key":"04"}]}"#
+            ),
+            Some(Inbound::Devices(crate::pairing::DeviceTrust {
+                devices: vec![crate::pairing::TrustedDevice {
+                    id: "p".into(),
+                    identity_key: "04".into(),
+                    approval_key: "04".into()
+                }],
+                denied: vec![crate::pairing::DeniedDevice { id: "q".into(), identity_key: "04".into() }],
+            }))
+        );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"drop_phone","phone_device_id":"P"}"#),
+            Some(Inbound::DropPhone { phone_device_id: "P".into() })
+        );
+        assert_eq!(
             Inbound::parse(r#"{"type":"browser","request":3,"addr":"127.0.0.1:5","secret":"s"}"#),
             Some(Inbound::Browser { request: 3, addr: "127.0.0.1:5".into(), secret: "s".into() })
         );
@@ -202,6 +252,7 @@ mod tests {
             r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"relay"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
+        assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {
                 request: 1,

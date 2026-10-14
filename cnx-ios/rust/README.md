@@ -205,9 +205,13 @@ The app keeps the Stack session; hostd never sees a refresh token.
   UUID kept in its Application Support folder, `CNX_DEVICE_NAME` to the
   computer name, `CNX_TEAM_ID` to the selected team or `personal-<userId>`,
   `CNX_FILE_ROOTS` to the chat roots, and `CNX_AGENT_TAB_HOST` to its agent
-  tab host (`install:<id>`). The service is the dev Worker
-  (`CMUX_NEXT_CNX_API_URL` overrides it in a Debug build), for production
-sign-in too.
+  tab host (`install:<id>`). The service is the production Worker
+  `https://cnx-ios-api.cmux.dev` for production sign-in and the dev Worker for
+  development sign-in (`CMUX_NEXT_CNX_API_URL` overrides it in a Debug build).
+- A Mac its owner removes (signaling closes with 4002 `removed`) prints
+  `{"type":"removed"}` and exits instead of registering again; the app keeps
+  it stopped and forgets its device id until the person allows iPhone
+  connections again.
 
 Startup: refresh the access token, `POST /v1/devices {kind:"mac"}`, open the
 signaling socket, answer. On any failure it reconnects with backoff (1 s to

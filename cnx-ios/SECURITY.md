@@ -4,7 +4,8 @@ This is the analysis that the repository's "Remote CLI relay" rule asks for
 (`skills/cmux-socket-policy/references/remote-relay-authorization.md`). It
 covers every path by which a phone reaches this Mac through `cnx-hostd`. Each
 path goes through one link service: `daemon`, `chief`, `acpmux`, `file`,
-`upload`, or `echo`.
+`upload`, or `echo`, and, when the app supervises hostd, only after the
+`auth` pairing service (below) accepted the phone.
 Any other service is refused with `unknown_service`.
 
 The daemon allowlist lives in one place:
@@ -32,8 +33,11 @@ policy (see `chief` below).
 - **Revoking.**
   - Turning off Settings > Mobile > Allow iPhone Connections stops hostd, so
     no link can start.
-  - Remove (Settings > Mobile, or `DELETE /v1/devices/:id`) forgets a phone
-    and closes its signaling socket.
+  - Remove in Settings > Mobile forgets the phone on the service
+    (`DELETE /v1/devices/:id`, which closes its signaling socket). It also
+    tells hostd (`drop_phone`), which closes that phone's live links at once.
+  - Remove also forgets the phone's paired keys on this Mac; its next link
+    asks the person again ("Allow … to connect to this Mac?").
   - A phone that is still signed in registers again. To keep a lost phone out,
     sign that session out of the account.
 
@@ -45,9 +49,9 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
 
 | Rule 2 question | Answer |
 | --- | --- |
-| Executes commands or opens content on local objects? | Yes, by design, and only in these bounded forms. `send` and `send-key` type into a terminal the person already sees in their own workspaces: the phone is a remote keyboard for the owner. `create-terminal`, `new-tab`, `new-pane`, `split`, `new-screen` and `new-workspace` start the person's default shell. Their parameters are limited to size and placement fields (`creation_fields`), so `argv`, `command`, `cwd`, `env` and any other field are refused. There is no `run`, `respawn-*`, `eval`, open-URL, or browser automation command. |
+| Executes commands or opens content on local objects? | Yes, by design, and only in these bounded forms. `send` and `send-key` type into a terminal the person already sees in their own workspaces: the phone is a remote keyboard for the owner. `create-terminal`, `new-tab`, `new-pane`, `split`, `new-screen` and `new-workspace` start the person's default shell. Their parameters are limited to size and placement fields (`creation_fields`), so `argv`, `command`, `cwd`, `env` and any other field are refused. The browser commands (`new-browser-tab`, `browser-navigate`, `browser-key`, `browser-insert-text`, `browser-mouse`, ...) drive the Mac's cmux browser tabs. A URL the phone opens must be `http(s)://` or `about:blank` (test `browser_tabs_open_web_pages_only`), so `file:`, `javascript:` and app schemes are refused. This narrowing is in the Rust policy only; the Swift mirror keeps the same command list. There is no `run`, `respawn-*` or `eval` command. |
 | Mutates or destroys objects the session does not own? | The phone's session is the owner's whole daemon, the same set of workspaces the person sees on the Mac, so close, rename, move and select act on the person's own objects. There is no per-object scoping beyond that, and none is needed while admission is same-user only. Frontend projections are the exception: reads and writes are limited to `scope: personal`, `subject_key: ios-device:<phone deviceId>`, so a phone cannot overwrite the Mac's own projection or another phone's. |
-| Reads local state the remote should not see? | It reads what the owner's Mac shows: terminal screens and scrollback, process info, listening ports, machine usage. All of that is the owner's own data on the owner's own device. Settings, credentials, keychain, the control socket and other users' sessions cannot be reached. |
+| Reads local state the remote should not see? | It reads what the owner's Mac shows: terminal screens and scrollback, process info, listening ports, machine usage. All of that is the owner's own data on the owner's own device. Settings, credentials, keychain, the control socket and other users' sessions cannot be reached. When the app supervises hostd, a phone that names a session gets only the app's own one (`forbidden` otherwise), so it never reaches another channel's or tag's daemon in the same socket folder. |
 
 - **Rule 3 (command-bearing parameters):** refused on every creation command
   through the per-command field allowlist (test
@@ -88,7 +92,8 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
   - The path is canonicalized (symlinks resolved) before the open.
   - After the open, the descriptor's real path (`F_GETPATH`) is checked again,
     so a component swapped for a symlink in between cannot escape.
-- **What it serves.** Regular files only, up to 64 MiB. It never writes, lists
+- **What it serves.** Regular files only (opened non-blocking, so a FIFO
+  cannot hold the open), up to 64 MiB. It never writes, lists
   directories, or executes anything.
 
 ## `chief`: a splice to the Mac's Chief conversation owner
@@ -240,9 +245,29 @@ sent as an ACP `resource_link` to that path.
   cleaned up. Both are bounded only by the per-file cap and the person's
   disk.
 
+## `auth`: pairing a phone with this Mac
+
+When the app supervises hostd, every link starts with `auth`. A channel the
+phone opens after `auth` waits for its outcome (at most the signature and
+approval waits) and is refused with `unpaired` unless it pairs; a channel with
+no `auth` before it (`echo` included) is refused at once. The design is in
+`verify/phone-approvals.md`.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. Its arguments are two P-256 public keys, a display name and `pair` or `unpair`. It runs nothing and reads no file. |
+| Mutates or destroys objects the session does not own? | It can only ask the person to approve this link's own device id (stamped by the backend, never taken from the arguments), or, with `unpair` and a signature by the approved identity key, ask the app to forget that same device. |
+| Reads local state the remote should not see? | It answers only a fresh 32-byte challenge and the Mac's own device id. The paired list stays in the app (a 0600 file per signed-in user). |
+
+- **Rule 6 (tests):** `pairing::tests` and the pairing cases in
+  `tests/host.rs` (a token alone reaches no service, a forged signature asks
+  nobody, approval opens the link, a new approval key asks again, unpair
+  reaches the app, a refused key is closed `denied`, and channels opened
+  behind `auth` wait for it).
+
 ## Decisions for the person
 
-- Phone-signed approvals or relayed Mac approvals for agent permission
-  questions.
-- The production Worker (`cnx-ios-api-prod`) deployment. Production builds use
-  the dev Worker today.
+- Phone pairing and Face ID signed approvals (`verify/phone-approvals.md`),
+  a trust-policy change recommended on issue #13742.
+- None for the service: production builds use the production Worker
+  (`https://cnx-ios-api.cmux.dev`), and development builds use the dev Worker.

@@ -54,6 +54,12 @@ public protocol LinkChannel: AnyObject, Sendable {
     /// The next message, or nil once the channel is closed.
     func receive() async throws -> Data?
     func close(code: String, reason: String) async
+    /// Why the Mac closed the channel, once `receive()` returned nil (nil: unknown).
+    var closedBy: LinkError? { get }
+}
+
+public extension LinkChannel {
+    var closedBy: LinkError? { nil }
 }
 
 public struct LinkError: Error, Equatable, Sendable {

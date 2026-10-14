@@ -28,10 +28,17 @@ pub struct Peer {
     pub session_id: String,
 }
 
-/// Serve one incoming channel to completion.
-pub async fn serve(config: Arc<ServiceConfig>, peer: Peer, incoming: IncomingChannel) {
+/// Serve one incoming channel to completion. With pairing on, only `auth`
+/// is served until the link's phone proved keys the Mac approved; a channel
+/// opened after `auth` waits for it.
+pub async fn serve(
+    config: Arc<ServiceConfig>,
+    peer: Peer,
+    link: Arc<crate::pairing::LinkAuth>,
+    incoming: IncomingChannel,
+) {
     let IncomingChannel { service, args, lane, channel } = incoming;
-    let (sender, receiver) = channel.split();
+    let (sender, mut receiver) = channel.split();
     tracing::info!(
         service,
         channel = sender.id(),
@@ -40,7 +47,19 @@ pub async fn serve(config: Arc<ServiceConfig>, peer: Peer, incoming: IncomingCha
         peer = peer.device_id,
         "channel opened"
     );
+    let paired = config.pairing.is_none() || service == "auth" || link.paired().await;
     let result = match service.as_str() {
+        "auth" => crate::pairing::serve(
+            config.pairing.as_ref(),
+            &peer.device_id,
+            &link,
+            &args,
+            &sender,
+            &mut receiver,
+        )
+        .await
+        .map_err(|(code, reason)| Refusal::new(code, reason)),
+        _ if !paired => Err(Refusal::new("unpaired", "pair this iPhone with the Mac first (auth)")),
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &sender, receiver).await,
@@ -81,12 +100,18 @@ impl Refusal {
 /// hostd refuses this service with `unknown_service`) and say so.
 pub const LINK_PROTOCOL: u32 = 2;
 
+/// The `version` service's `capabilities` (PROTOCOL.md "Services").
+pub const CAPABILITIES: [&str; 1] = ["removal-v1"];
+
 async fn version(sender: &ChannelSender) -> Result<(), Refusal> {
     let reply = serde_json::json!({
         "hostd": env!("CARGO_PKG_VERSION"),
         // 2: control frames ahead of data, any frame counts as life, the
         // reader never stalls on one full channel, the `version` service.
         "link": LINK_PROTOCOL,
+        // What this host does that a phone may rely on. `removal-v1`: once its owner
+        // removes this Mac (4002 `removed`) it stays off until allowed again on the Mac.
+        "capabilities": CAPABILITIES,
     });
     let _ = sender.send(Bytes::from(reply.to_string())).await;
     Ok(())
@@ -166,6 +191,10 @@ async fn daemon(
     // volume is case-insensitive, hence the lowercase test and the path check).
     if !valid_session_name(session) || session.to_ascii_lowercase().starts_with("cmux-chief-") {
         return Err(Refusal::new("bad_request", "invalid session name"));
+    }
+    // Supervised by the app: only the app's own daemon, never another channel's or tag's.
+    if config.default_socket.is_some() && named.is_some_and(|name| name != config.default_session) {
+        return Err(Refusal::new("forbidden", "only this app's session is shared"));
     }
     let path = match (named, &config.default_socket) {
         (None, Some(socket)) => socket.clone(),
@@ -477,6 +506,35 @@ pub fn confine(roots: &[PathBuf], requested: &Path) -> Result<PathBuf, Refusal> 
     Ok(resolved)
 }
 
+/// Largest file the `file` service streams (artifact previews, not transfers).
+pub const MAXIMUM_FILE_BYTES: u64 = 64 << 20;
+
+/// The open file's real path (`F_GETPATH`) must still be inside a root.
+#[cfg(target_vendor = "apple")]
+fn confine_open(roots: &[PathBuf], file: &tokio::fs::File) -> Result<(), Refusal> {
+    use std::os::fd::AsRawFd;
+    let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+    // SAFETY: the descriptor is open for the duration of the call and the buffer
+    // holds PATH_MAX bytes, as F_GETPATH requires.
+    let ok = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } != -1;
+    if !ok {
+        return Err(Refusal::new("forbidden", "cannot check the opened file"));
+    }
+    let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
+    let opened = PathBuf::from(String::from_utf8_lossy(&buffer[..end]).into_owned());
+    let inside = roots
+        .iter()
+        .filter_map(|root| std::fs::canonicalize(root).ok())
+        .any(|root| opened.starts_with(&root));
+    if inside { Ok(()) } else { Err(Refusal::new("forbidden", "path is outside the workspace roots")) }
+}
+
+/// Elsewhere hostd does not run (it serves Macs); the path check before the open stands alone.
+#[cfg(not(target_vendor = "apple"))]
+fn confine_open(_roots: &[PathBuf], _file: &tokio::fs::File) -> Result<(), Refusal> {
+    Ok(())
+}
+
 /// `file`: stream one regular file inside a workspace root, then close
 /// with `eof`.
 async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
@@ -485,11 +543,23 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
         .and_then(Value::as_str)
         .ok_or_else(|| Refusal::new("bad_request", "missing path"))?;
     let resolved = confine(&config.file_roots, Path::new(requested))?;
-    let mut file =
-        tokio::fs::File::open(&resolved).await.map_err(|_| Refusal::new("not_found", "cannot open"))?;
+    // Non-blocking, so a FIFO inside a root cannot hold the open; the checks below
+    // refuse anything that is not a regular file.
+    let mut file = tokio::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&resolved)
+        .await
+        .map_err(|_| Refusal::new("not_found", "cannot open"))?;
+    // A path component swapped for a symlink between the check and the open would
+    // escape the roots: check again where the open descriptor really points.
+    confine_open(&config.file_roots, &file)?;
     let metadata = file.metadata().await.map_err(|_| Refusal::new("not_found", "cannot stat"))?;
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
+    }
+    if metadata.len() > MAXIMUM_FILE_BYTES {
+        return Err(Refusal::new("too_large", "file is larger than 64 MiB"));
     }
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
@@ -784,6 +854,24 @@ mod tests {
         assert!(!valid_session_name("../x"));
         assert!(!valid_session_name(".hidden"));
         assert!(!valid_session_name(""));
+    }
+
+    #[tokio::test]
+    async fn a_fifo_inside_a_root_is_refused_without_blocking() {
+        let root = tempfile::tempdir().unwrap();
+        let fifo = root.path().join("pipe");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        // SAFETY: a valid NUL-terminated path and mode.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let resolved = confine(&[root.path().to_path_buf()], &fifo).unwrap();
+        let mut options = tokio::fs::OpenOptions::new();
+        options.read(true).custom_flags(libc::O_NONBLOCK);
+        let open = options.open(&resolved);
+        let file = tokio::time::timeout(std::time::Duration::from_secs(2), open)
+            .await
+            .expect("open blocked")
+            .unwrap();
+        assert!(!file.metadata().await.unwrap().is_file());
     }
 
     #[test]
