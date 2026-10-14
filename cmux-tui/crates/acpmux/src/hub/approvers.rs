@@ -48,11 +48,10 @@ pub struct ApproverSet {
 impl ApproverSet {
     /// Replaces the set (`_acpmux/approvers_set`, the person only).
     pub fn set(&self, params: &Value) -> Result<Value, RpcError> {
-        let mac = params
-            .get("macDevice")
-            .and_then(Value::as_str)
-            .filter(|m| valid_id(m))
-            .ok_or_else(|| RpcError::invalid_params("macDevice must be 1 to 128 of [A-Za-z0-9_.:-]"))?;
+        let mac =
+            params.get("macDevice").and_then(Value::as_str).filter(|m| valid_id(m)).ok_or_else(
+                || RpcError::invalid_params("macDevice must be 1 to 128 of [A-Za-z0-9_.:-]"),
+            )?;
         let list = params
             .get("approvers")
             .and_then(Value::as_array)
@@ -62,18 +61,18 @@ impl ApproverSet {
         }
         let mut approvers = Vec::with_capacity(list.len());
         for entry in list {
-            let id = entry
-                .get("id")
-                .and_then(Value::as_str)
-                .filter(|i| valid_id(i))
-                .ok_or_else(|| RpcError::invalid_params("approver id must be 1 to 128 of [A-Za-z0-9_.:-]"))?;
+            let id = entry.get("id").and_then(Value::as_str).filter(|i| valid_id(i)).ok_or_else(
+                || RpcError::invalid_params("approver id must be 1 to 128 of [A-Za-z0-9_.:-]"),
+            )?;
             let public_key = entry
                 .get("publicKey")
                 .and_then(Value::as_str)
                 .and_then(unhex)
                 .filter(|k| k.len() == 65 && k[0] == 4)
                 .ok_or_else(|| {
-                    RpcError::invalid_params("publicKey must be a 65-byte uncompressed P-256 point as hex")
+                    RpcError::invalid_params(
+                        "publicKey must be a 65-byte uncompressed P-256 point as hex",
+                    )
                 })?;
             let name: String = entry
                 .get("name")
@@ -89,7 +88,8 @@ impl ApproverSet {
             approvers.push(Approver { id: id.to_owned(), public_key, name });
         }
         let count = approvers.len();
-        *self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (mac.to_owned(), approvers);
+        *self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            (mac.to_owned(), approvers);
         Ok(json!({"count": count}))
     }
 
@@ -167,9 +167,17 @@ pub struct Parts<'a> {
 pub fn message(p: &Parts<'_>) -> Vec<u8> {
     let expires = p.expires_at.to_string();
     let mut out = DOMAIN.as_bytes().to_vec();
-    for part in
-        [p.instance, p.mac, p.approver, p.session, p.permission, p.option, p.nonce, &expires, p.answers]
-    {
+    for part in [
+        p.instance,
+        p.mac,
+        p.approver,
+        p.session,
+        p.permission,
+        p.option,
+        p.nonce,
+        &expires,
+        p.answers,
+    ] {
         out.push(0);
         out.extend_from_slice(part.as_bytes());
     }
@@ -259,7 +267,9 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn unhex(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+    if !s.len().is_multiple_of(2)
+        || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
         return None;
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
@@ -307,11 +317,17 @@ mod tests {
         let set = ApproverSet::default();
         set.set(&json!({"macDevice": "mac-1", "approvers": [
             {"id": "phone-1", "publicKey": hex(k.public_key().as_ref()), "name": "iPhone"}]}))
-        .unwrap();
+            .unwrap();
         set
     }
 
-    fn check(set: &ApproverSet, sig: &str, expires: u64, answers: Option<&Value>, now: u64) -> bool {
+    fn check(
+        set: &ApproverSet,
+        sig: &str,
+        expires: u64,
+        answers: Option<&Value>,
+        now: u64,
+    ) -> bool {
         let decision = json!({"approver": "phone-1", "expiresAt": expires, "signature": sig});
         set.verifies("inst", "s1", "p1", "allow", "n1", answers, &decision, now)
     }
@@ -321,7 +337,8 @@ mod tests {
         // The same vector is in the phone's ApprovalPayloadTests.
         use sha2::Digest;
         let nonce = "ab".repeat(32);
-        let answers = json!({"Which?": "B", "a\"b": ["x\ny", "\u{1}"], "codex": {"answers": ["é"]}});
+        let answers =
+            json!({"Which?": "B", "a\"b": ["x\ny", "\u{1}"], "codex": {"answers": ["é"]}});
         let mut text = String::new();
         canonical_json(&answers, &mut text);
         assert_eq!(text, r#"{"Which?":"B","a\"b":["x\ny","\u0001"],"codex":{"answers":["é"]}}"#);
@@ -389,7 +406,7 @@ mod tests {
         // A signature for another Mac never counts here.
         set.set(&json!({"macDevice": "mac-2", "approvers": [
             {"id": "phone-1", "publicKey": hex(k.public_key().as_ref()), "name": "iPhone"}]}))
-        .unwrap();
+            .unwrap();
         assert!(!check(&set, &good, 200, None, 100));
     }
 

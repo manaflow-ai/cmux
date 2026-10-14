@@ -299,7 +299,13 @@ fn json_frame(event: Option<ChannelEvent>) -> serde_json::Value {
 
 /// Opens `auth`, signs the challenge with `signer`, and returns the channel
 /// after the signature went out.
-async fn auth(link: &cnx_link::Link, fixture: &Fixture, keys: &PhoneKeys, signer: &ring::signature::EcdsaKeyPair, action: &str) -> Channel {
+async fn auth(
+    link: &cnx_link::Link,
+    fixture: &Fixture,
+    keys: &PhoneKeys,
+    signer: &ring::signature::EcdsaKeyPair,
+    action: &str,
+) -> Channel {
     let mut channel = link
         .open(
             "auth",
@@ -372,8 +378,15 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
     let connected = connect(&fixture, TransportKind::WebRtc).await.expect("dial");
     let mut channel = auth(&connected.link, &fixture, &keys, &keys.identity, "pair").await;
     assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
-    let rotated = PhoneKeys { approval_hex: hex(ring::signature::KeyPair::public_key(&p256()).as_ref()), ..phone_keys() };
-    let rotated = PhoneKeys { identity: keys.identity, identity_hex: keys.identity_hex.clone(), approval_hex: rotated.approval_hex };
+    let rotated = PhoneKeys {
+        approval_hex: hex(ring::signature::KeyPair::public_key(&p256()).as_ref()),
+        ..phone_keys()
+    };
+    let rotated = PhoneKeys {
+        identity: keys.identity,
+        identity_hex: keys.identity_hex.clone(),
+        approval_hex: rotated.approval_hex,
+    };
     let mut channel = auth(&connected.link, &fixture, &rotated, &rotated.identity, "pair").await;
     assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
     assert!(matches!(
@@ -382,7 +395,8 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
     ));
 
     // Unpair by the paired identity key: the app hears it.
-    let mut channel = auth(&connected.link, &fixture, &keys_like(&rotated), &rotated.identity, "unpair").await;
+    let mut channel =
+        auth(&connected.link, &fixture, &keys_like(&rotated), &rotated.identity, "unpair").await;
     assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
     assert_eq!(
         fixture.events.as_ref().unwrap().lock().await.recv().await,
@@ -391,7 +405,11 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
 }
 
 fn keys_like(keys: &PhoneKeys) -> PhoneKeys {
-    PhoneKeys { identity: p256(), identity_hex: keys.identity_hex.clone(), approval_hex: keys.approval_hex.clone() }
+    PhoneKeys {
+        identity: p256(),
+        identity_hex: keys.identity_hex.clone(),
+        approval_hex: keys.approval_hex.clone(),
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

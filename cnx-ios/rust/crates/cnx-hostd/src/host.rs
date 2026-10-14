@@ -215,7 +215,12 @@ async fn answer_session(
     });
     let auth = Arc::new(crate::pairing::LinkAuth::default());
     while let Some(incoming) = connected.link.accept().await {
-        tokio::spawn(services::serve(Arc::clone(&context.services), peer.clone(), Arc::clone(&auth), incoming));
+        tokio::spawn(services::serve(
+            Arc::clone(&context.services),
+            peer.clone(),
+            Arc::clone(&auth),
+            incoming,
+        ));
     }
     let reason = connected.link.closed().await;
     path_watch.abort();

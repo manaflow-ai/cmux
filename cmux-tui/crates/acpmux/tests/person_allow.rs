@@ -1178,16 +1178,32 @@ fn approver_signature(
 ) -> String {
     let expires = expires.to_string();
     let mut message = b"acpmux-approver-decision-v1".to_vec();
-    for part in
-        [instance, mac, approver, session, permission, option, nonce, expires.as_str(), answers_digest]
-    {
+    for part in [
+        instance,
+        mac,
+        approver,
+        session,
+        permission,
+        option,
+        nonce,
+        expires.as_str(),
+        answers_digest,
+    ] {
         message.push(0);
         message.extend_from_slice(part.as_bytes());
     }
     hex_of(key.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref())
 }
 
-fn signed(session: &str, permission: &str, option: &str, nonce: &str, approver: &str, expires: u64, sig: &str) -> Value {
+fn signed(
+    session: &str,
+    permission: &str,
+    option: &str,
+    nonce: &str,
+    approver: &str,
+    expires: u64,
+    sig: &str,
+) -> Value {
     json!({"sessionId": session, "permissionId": permission, "optionId": option,
            "_meta": {"acpmux": {"decisionNonce": nonce,
                "approverDecision": {"approver": approver, "expiresAt": expires, "signature": sig}}}})
@@ -1235,13 +1251,23 @@ async fn a_phones_signed_allow_counts_once_and_stops_when_revoked() {
     let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
     let instance = pending["personInstance"].as_str().unwrap().to_owned();
     let exp = unix_now() + 120;
-    let sign = |k: &ring::signature::EcdsaKeyPair, inst: &str, mac: &str, option: &str, n: &str, e: u64| {
+    let sign = |k: &ring::signature::EcdsaKeyPair,
+                inst: &str,
+                mac: &str,
+                option: &str,
+                n: &str,
+                e: u64| {
         approver_signature(k, inst, mac, "phone-1", &id, &pid, option, n, e, "")
     };
 
     // Unsigned, another option, Mac, daemon run or key, expired, or too far
     // ahead: refused, and the prompt stays pending.
-    let r = phone.call("_acpmux/permission_respond", json!({"sessionId": id, "permissionId": pid, "optionId": "yes"})).await;
+    let r = phone
+        .call(
+            "_acpmux/permission_respond",
+            json!({"sessionId": id, "permissionId": pid, "optionId": "yes"}),
+        )
+        .await;
     assert_eq!(reason(&r), REASON, "{r}");
     for (sig, e) in [
         (sign(&key, &instance, "mac-1", "no", &nonce, exp), exp),
@@ -1251,14 +1277,21 @@ async fn a_phones_signed_allow_counts_once_and_stops_when_revoked() {
         (sign(&key, &instance, "mac-1", "yes", &nonce, unix_now() - 5), unix_now() - 5),
         (sign(&key, &instance, "mac-1", "yes", &nonce, unix_now() + 900), unix_now() + 900),
     ] {
-        let r = phone.call("_acpmux/permission_respond", signed(&id, &pid, "yes", &nonce, "phone-1", e, &sig)).await;
+        let r = phone
+            .call(
+                "_acpmux/permission_respond",
+                signed(&id, &pid, "yes", &nonce, "phone-1", e, &sig),
+            )
+            .await;
         assert_eq!(reason(&r), REASON, "{r}");
     }
     assert_eq!(pending_ids(&mut phone, &id).await, vec![pid.clone()]);
 
     // The phone's signature: the allow counts.
     let good = sign(&key, &instance, "mac-1", "yes", &nonce, exp);
-    phone.ok("_acpmux/permission_respond", signed(&id, &pid, "yes", &nonce, "phone-1", exp, &good)).await;
+    phone
+        .ok("_acpmux/permission_respond", signed(&id, &pid, "yes", &nonce, "phone-1", exp, &good))
+        .await;
     assert_eq!(turn_said(&mut phone, rid).await, "chose yes");
 
     // Replayed on the next prompt (spent nonce, other permission): refused.
@@ -1266,15 +1299,32 @@ async fn a_phones_signed_allow_counts_once_and_stops_when_revoked() {
     let next = phone.note("_acpmux/permission_pending", |p| p["permissionId"] != json!(pid)).await;
     let pid2 = next["permissionId"].as_str().unwrap().to_owned();
     let nonce2 = next["decisionNonce"].as_str().unwrap().to_owned();
-    let r = phone.call("_acpmux/permission_respond", signed(&id, &pid2, "yes", &nonce, "phone-1", exp, &good)).await;
+    let r = phone
+        .call(
+            "_acpmux/permission_respond",
+            signed(&id, &pid2, "yes", &nonce, "phone-1", exp, &good),
+        )
+        .await;
     assert_eq!(reason(&r), REASON, "{r}");
 
     // Revoked: a fresh, valid signature counts nothing; a deny still does.
     app.ok("_acpmux/approvers_set", json!({"macDevice": "mac-1", "approvers": []})).await;
-    let fresh = approver_signature(&key, &instance, "mac-1", "phone-1", &id, &pid2, "yes", &nonce2, exp, "");
-    let r = phone.call("_acpmux/permission_respond", signed(&id, &pid2, "yes", &nonce2, "phone-1", exp, &fresh)).await;
+    let fresh = approver_signature(
+        &key, &instance, "mac-1", "phone-1", &id, &pid2, "yes", &nonce2, exp, "",
+    );
+    let r = phone
+        .call(
+            "_acpmux/permission_respond",
+            signed(&id, &pid2, "yes", &nonce2, "phone-1", exp, &fresh),
+        )
+        .await;
     assert_eq!(reason(&r), REASON, "{r}");
-    phone.ok("_acpmux/permission_respond", json!({"sessionId": id, "permissionId": pid2, "optionId": "no"})).await;
+    phone
+        .ok(
+            "_acpmux/permission_respond",
+            json!({"sessionId": id, "permissionId": pid2, "optionId": "no"}),
+        )
+        .await;
     assert_eq!(turn_said(&mut phone, rid).await, "chose no");
 }
 
@@ -1297,7 +1347,18 @@ async fn a_phones_signed_answer_covers_exactly_its_answers() {
     // sha256 of the canonical answers JSON `{"Which one?":"B"}`.
     use sha2::Digest;
     let digest = hex_of(&sha2::Sha256::digest(br#"{"Which one?":"B"}"#));
-    let sig = approver_signature(&key, &instance, "mac-1", "phone-1", &id, &pid, "allow_once", &nonce, exp, &digest);
+    let sig = approver_signature(
+        &key,
+        &instance,
+        "mac-1",
+        "phone-1",
+        &id,
+        &pid,
+        "allow_once",
+        &nonce,
+        exp,
+        &digest,
+    );
     let mut swapped = signed(&id, &pid, "allow_once", &nonce, "phone-1", exp, &sig);
     swapped["answers"] = json!({"Which one?": "A"});
     let r = phone.call("_acpmux/permission_respond", swapped).await;

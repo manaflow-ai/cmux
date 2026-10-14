@@ -155,7 +155,9 @@ mod tests {
             Some(Inbound::Acpmux { url: "ws://127.0.0.1:1/".into(), token: Some("t".into()) })
         );
         assert_eq!(
-            Inbound::parse(r#"{"type":"devices","devices":[{"id":"p","identity_key":"04","approval_key":"04"}],"denied":["q"]}"#),
+            Inbound::parse(
+                r#"{"type":"devices","devices":[{"id":"p","identity_key":"04","approval_key":"04"}],"denied":["q"]}"#
+            ),
             Some(Inbound::Devices(crate::pairing::DeviceTrust {
                 devices: vec![crate::pairing::TrustedDevice {
                     id: "p".into(),

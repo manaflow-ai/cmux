@@ -135,11 +135,13 @@ pub fn challenge_message(
 pub type Refused = (&'static str, String);
 
 fn is_point(hex: &str) -> bool {
-    hex.len() == 130 && hex.starts_with("04") && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    hex.len() == 130
+        && hex.starts_with("04")
+        && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn unhex(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return None;
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
@@ -148,7 +150,9 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 fn new_nonce() -> Result<String, Refused> {
     use ring::rand::SecureRandom;
     let mut bytes = [0u8; 32];
-    ring::rand::SystemRandom::new().fill(&mut bytes).map_err(|_| ("unavailable", "no randomness".to_owned()))?;
+    ring::rand::SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| ("unavailable", "no randomness".to_owned()))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
@@ -198,7 +202,8 @@ pub async fn serve(
             .ok_or(("bad_request", "expected {signature}".to_owned()))?,
         _ => return Err(("timeout", "no signature".into())),
     };
-    let message = challenge_message(&pairing.mac_device_id, phone, &nonce, identity_key, approval_key, action);
+    let message =
+        challenge_message(&pairing.mac_device_id, phone, &nonce, identity_key, approval_key, action);
     if !verify(identity_key, &message, &signature) {
         return Err(("unpaired", "the signature does not match the identity key".into()));
     }
@@ -220,7 +225,9 @@ pub async fn serve(
         loop {
             match standing(&trust.borrow_and_update()) {
                 Standing::Trusted => return Ok(()),
-                Standing::Denied if asked => return Err(("denied", "the Mac did not allow this iPhone".into())),
+                Standing::Denied if asked => {
+                    return Err(("denied", "the Mac did not allow this iPhone".into()));
+                }
                 _ => {}
             }
             if !asked {
@@ -271,7 +278,11 @@ mod tests {
     #[test]
     fn standing_needs_the_same_id_and_both_keys() {
         let trust = DeviceTrust {
-            devices: vec![TrustedDevice { id: "p".into(), identity_key: "i".into(), approval_key: "a".into() }],
+            devices: vec![TrustedDevice {
+                id: "p".into(),
+                identity_key: "i".into(),
+                approval_key: "a".into(),
+            }],
             denied: vec!["q".into()],
         };
         assert_eq!(trust.standing("p", "i", "a"), Standing::Trusted);

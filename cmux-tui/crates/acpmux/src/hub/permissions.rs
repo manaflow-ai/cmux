@@ -663,7 +663,9 @@ impl Hub {
                     let spent = (proved
                         && answerer.decision.is_some_and(|(n, _)| self.person.spend_decision(n)))
                         || (signed
-                            && answerer.approver.is_some_and(|(n, _)| self.person.spend_decision(n)));
+                            && answerer
+                                .approver
+                                .is_some_and(|(n, _)| self.person.spend_decision(n)));
                     if !spent {
                         return Err(super::person::person_required("allowing a permission"));
                     }
