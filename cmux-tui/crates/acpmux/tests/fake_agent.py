@@ -628,12 +628,15 @@ def main():
         # process group (setsid), as a harness that daemonizes a helper does, and
         # write its pid to <path>.<this harness pid>. Every harness with the env
         # does it (the daemon's model probe too), so one file per harness: a test
-        # reads the file of the exact harness it checks.
+        # reads the file of the exact harness it checks. session/new answers only
+        # once the helper has left the group: until then the group signal still
+        # reaches it (cx-n3uid).
         if m == "session/new" and os.environ.get("FAKE_SETSID_CHILD"):
             import subprocess
             helper = subprocess.Popen(
-                [sys.executable, "-c", "import os, time; os.setsid(); time.sleep(600)"],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                [sys.executable, "-c", "import os, sys, time; os.setsid(); sys.stdout.write('1'); sys.stdout.flush(); time.sleep(600)"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            helper.stdout.read(1)
             out = f"{os.environ['FAKE_SETSID_CHILD']}.{os.getpid()}"
             with open(f"{out}.tmp", "w") as f:
                 f.write(str(helper.pid))
