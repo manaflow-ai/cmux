@@ -20,6 +20,10 @@ mod agent_chat_notices;
 mod agent_home_reopen;
 
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
+/// The app's install key, so one connection can prove itself the verified
+/// cmux app (it mints a page relay's gesture tickets).
+const KEY_HEX: &str = "7e0d1c2b3a4958677665544332211000ffeeddccbbaa99887766554433221101";
+const INSTALL_ID: &str = "inst_agent_trust";
 
 struct Daemon {
     dir: PathBuf,
@@ -56,7 +60,17 @@ impl Daemon {
         }
         let daemon =
             Self { socket: dir.join("mux.sock"), session: format!("asx-{name}"), dir, host_kind };
-        let output = daemon.server("ensure").output().unwrap();
+        let mut child = daemon
+            .server("ensure")
+            .arg("--install-key-stdin")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let key = format!("cmuxik1 {INSTALL_ID} {KEY_HEX}\n");
+        child.stdin.take().unwrap().write_all(key.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
         assert!(
             output.status.success(),
             "ensure failed: {}",
@@ -81,6 +95,27 @@ impl Daemon {
             command.env("CMUX_AGENT_START_HOST", kind);
         }
         command
+    }
+
+    /// A connection that stays open (hello state lives on it).
+    fn client(&self) -> Conn {
+        let stream = UnixStream::connect(&self.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        Conn { reader: BufReader::new(stream), next: 100 }
+    }
+
+    /// The verified cmux app connection (install-key hello).
+    fn verified_app(&self) -> Conn {
+        use cmux_tui_core::server::frontend_proof::{NONCE_LEN, hello_proof, unhex};
+        let mut app = self.client();
+        let challenge =
+            app.rpc(json!({"cmd": "client-hello", "role": "main", "install_id": INSTALL_ID}));
+        let nonce = unhex::<NONCE_LEN>(challenge["data"]["nonce"].as_str().unwrap()).unwrap();
+        let proof = hello_proof(&unhex::<32>(KEY_HEX).unwrap(), INSTALL_ID, &nonce);
+        let proved =
+            app.rpc(json!({"cmd": "client-hello", "install_id": INSTALL_ID, "proof": proof}));
+        assert_eq!(proved["data"]["verified"], true, "{proved}");
+        app
     }
 
     fn rpc(&self, request: Value) -> Value {
@@ -157,6 +192,43 @@ impl Daemon {
                 let result = &message["result"];
                 let sessions = result.get("sessions").unwrap_or(result);
                 return sessions.as_array().map_or(0, Vec::len);
+            }
+        }
+    }
+}
+
+struct Conn {
+    reader: BufReader<UnixStream>,
+    next: u64,
+}
+
+impl Conn {
+    /// Sends `request` with a fresh id and returns the reply with that id.
+    fn rpc(&mut self, mut request: Value) -> Value {
+        self.next += 1;
+        request["id"] = json!(self.next);
+        self.send(&request, json!(self.next))
+    }
+
+    /// A `cmux.protocol/2` request with selectors `current`.
+    fn v2(&mut self, operation: &str, mut params: Value) -> Value {
+        self.next += 1;
+        let id = format!("v2-{}", self.next);
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        let request = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+                             "operation": operation, "params": params});
+        self.send(&request, json!(id))
+    }
+
+    fn send(&mut self, request: &Value, id: Value) -> Value {
+        writeln!(self.reader.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            if reply["id"] == id {
+                return reply;
             }
         }
     }
@@ -343,4 +415,61 @@ fn agent_session_trust_records_the_persons_answer_and_the_start_runs() {
     let started = daemon.start_chat_with(surface, "sample");
     assert_eq!(started["ok"], true, "{started}");
     assert_eq!(daemon.acpmux_sessions(), 1, "{started}");
+}
+
+/// hq-6d: a page relay's Trust answer carries the person's gesture ticket
+/// (the verified app mints it for exactly that request), and the DAEMON
+/// checks it: without one, or with one already spent, the answer is refused
+/// (`origin.gesture_required`); reading the trust needs none. A plain unix
+/// client keeps acpmux's own rule (the test above).
+#[test]
+fn a_page_relays_trust_answer_needs_the_persons_ticket() {
+    use sha2::Digest;
+    let config = json!({
+        "harnesses": {"sample": {"argv": ["env", "FAKE_ASK_MODE=1", "python3", FAKE_AGENT],
+                                 "family": "sample"}},
+        "defaultHarness": "sample",
+        "webAskingModes": {"sample": ["ask"]},
+    });
+    let daemon = Daemon::start_with("ticket", None, Some(config));
+    let surface = daemon.own_agent_tab();
+    let work = daemon.dir.join("work");
+    let cwd = work.to_str().unwrap().to_owned();
+    let mut relay = daemon.client();
+    let hello = relay.rpc(json!({"cmd": "client-hello", "role": "page_relay"}));
+    let relay_id = hello["data"]["connection_id"].as_str().unwrap().to_owned();
+    let read = relay.rpc(json!({"cmd": "agent-session-trust", "surface": surface, "cwd": cwd}));
+    assert_eq!(read["ok"], true, "{read}");
+    let set = json!({"surface": surface, "cwd": cwd, "level": "trusted"});
+    let with = |extra: Value| {
+        let mut request = set.clone();
+        request["cmd"] = json!("agent-session-trust");
+        request.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        request
+    };
+    let bare = relay.rpc(with(json!({})));
+    assert_eq!(bare["error_code"], "origin.gesture_required", "{bare}");
+    let forged = relay.rpc(with(json!({"confirmation": "not-a-ticket"})));
+    assert_eq!(forged["error_code"], "origin.gesture_required", "{forged}");
+    // The person's gesture: the verified app mints a ticket for exactly this
+    // request on this relay (canonical params: sorted keys).
+    let sorted: std::collections::BTreeMap<String, Value> =
+        set.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let digest = sha2::Sha256::digest(serde_json::to_string(&sorted).unwrap().as_bytes());
+    let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    let mut app = daemon.verified_app();
+    let issued = app.v2(
+        "origin.confirmation.issue",
+        json!({"operation": "agent-session-trust", "params_sha256": digest,
+               "relay_connection_id": relay_id}),
+    );
+    assert_eq!(issued["ok"], true, "{issued}");
+    let token = issued["result"]["token"].as_str().unwrap().to_owned();
+    let answered = relay.rpc(with(json!({"confirmation": token})));
+    assert_eq!(answered["ok"], true, "{answered}");
+    assert_eq!(answered["data"]["level"], "trusted", "{answered}");
+    let replayed = relay.rpc(with(json!({"confirmation": token})));
+    assert_eq!(replayed["error_code"], "origin.gesture_required", "{replayed}");
+    let other = relay.rpc(json!({"cmd": "agent-session-trust", "surface": 999_999, "cwd": cwd}));
+    assert_eq!(other["error_code"], "agent_session.unknown_tab", "{other}");
 }
