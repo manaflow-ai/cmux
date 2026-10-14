@@ -159,7 +159,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   /// The page runs as on a loaded CI runner: rows draw a frame or more after the reply grows, so the
   /// view must follow what is drawn, not an estimate a later frame takes back (cx-next-ghostty-config).
-  const LOADED = 4;
+  const LOADED = 6;
 
   async function open(chat: Chat, width: number, height = 700, loaded = false): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
@@ -437,7 +437,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // their drawn heights at the new width before it paints. That is the resize, not growth, so
     // nothing slides: the last line sits where it rests in every painted frame.
     const chat = newChat();
-    const page = await open(chat, 760);
+    const page = await open(chat, 760, 700, true);
     const atRest = await restingLastLine(page);
     await watch(page);
     for (const widths of [
