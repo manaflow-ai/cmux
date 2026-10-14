@@ -143,35 +143,6 @@ impl App {
         Some((area.pane, len))
     }
 
-    /// The drop slot at the pointer, and whether the pointer is under the
-    /// row above the slot. A workspace draws a name row, a second row and a
-    /// gap under the rail's one-row top pad: the name row (upper half) is
-    /// the slot before it; the second row (lower half) and the gap are the
-    /// slot after it, on that row's side. On the border of two sidebar
-    /// sections the flag picks the section the pointer is in.
-    pub(super) fn workspace_drop_slot_at(&self, x: u16, y: u16) -> Option<(usize, bool)> {
-        let area = self.workspace_sidebar_area(self.content_area.height.saturating_add(1))?;
-        if area.width < 3 || x < area.x || x >= area.x + area.width.saturating_sub(1) || y < area.y
-        {
-            return None;
-        }
-        let len = self.tree.workspaces().len();
-        let body = area.y + 1;
-        if y < body {
-            return Some((0, false));
-        }
-        let offset = usize::from(y - body);
-        let (index, row) = (offset / 3, offset % 3);
-        if index >= len {
-            return Some((len, len > 0));
-        }
-        Some(if row == 0 { (index, false) } else { (index + 1, true) })
-    }
-
-    pub(super) fn workspace_drop_target_at(&self, x: u16, y: u16) -> Option<usize> {
-        self.workspace_drop_slot_at(x, y).map(|(insertion, _)| insertion)
-    }
-
     pub(super) fn tab_location(&self, surface: SurfaceId) -> Option<(PaneId, usize)> {
         self.tree
             .workspaces()

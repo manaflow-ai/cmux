@@ -4,12 +4,114 @@
 //! document's order, so a drop slot's neighbors are the drawn ones. Without
 //! the document a drop keeps the old `move-workspace` and there is no pin.
 
-use cmux_tui_core::WorkspaceId;
+use cmux_tui_core::{Rect, WorkspaceId};
 
 use crate::app::{App, MenuAction};
 use crate::session::SidebarDropAnchors;
 
+/// The workspace rows as the rail last drew them: its area, the visible
+/// body, the body's scroll offset in rows, and the row metrics. Drop slots
+/// come from this, so a drop lands under the pointer at any scroll, row gap
+/// or action placement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WorkspaceDropGeometry {
+    pub area: Rect,
+    pub body: Rect,
+    pub body_offset: usize,
+    pub stride: usize,
+    pub height: usize,
+    pub len: usize,
+}
+
+/// Where a dragged workspace would land.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WorkspaceDropSlot {
+    /// The insertion index in the drawn list (it counts the dragged row).
+    pub index: usize,
+    /// The pointer is on the lower half of the row above the slot or the
+    /// gap under it, not on the upper half of the row below.
+    pub below_row: bool,
+    /// On a border of two sidebar sections: `Some(true)` joins the section
+    /// above, `Some(false)` the one below. `None` inside one section.
+    pub border: Option<bool>,
+}
+
 impl App {
+    /// The drop slot under the pointer, from the drawn rows. A row's upper
+    /// half is the slot before it; its lower half and the gap under it are
+    /// the slot after it. Above the visible body (top pad, actions at the
+    /// top) is the first visible row; below it, the row after the last.
+    pub(super) fn workspace_drop_slot_at(
+        &self,
+        workspace: WorkspaceId,
+        x: u16,
+        y: u16,
+    ) -> Option<WorkspaceDropSlot> {
+        let geometry = self.workspace_drop_geometry?;
+        let area = geometry.area;
+        if self.workspace_sidebar_area(self.content_area.height.saturating_add(1)) != Some(area)
+            || area.width < 3
+            || geometry.stride == 0
+            || x < area.x
+            || x >= area.x + area.width.saturating_sub(1)
+            || y < area.y
+            || y >= area.y.saturating_add(area.height)
+        {
+            return None;
+        }
+        let body = geometry.body;
+        let visible = usize::from(y.clamp(body.y, body.y.saturating_add(body.height)) - body.y);
+        let logical = geometry.body_offset + visible;
+        let (row, within) = (logical / geometry.stride, logical % geometry.stride);
+        let (index, below_row) = if row >= geometry.len {
+            (geometry.len, geometry.len > 0)
+        } else if within < geometry.height.div_ceil(2) {
+            (row, false)
+        } else {
+            (row + 1, true)
+        };
+        let border = self.workspace_slot_neighbors(workspace, index).and_then(|(after, before)| {
+            let above = self.session.sidebar_workspace_container(&after)?;
+            let below = self.session.sidebar_workspace_container(&before)?;
+            (above != below).then_some(below_row)
+        });
+        Some(WorkspaceDropSlot { index, below_row, border })
+    }
+
+    /// The public ids of the drawn rows on either side of slot `insertion`,
+    /// without the dragged row.
+    fn workspace_slot_neighbors(
+        &self,
+        workspace: WorkspaceId,
+        insertion: usize,
+    ) -> Option<(String, String)> {
+        let anchors = self.workspace_drop_anchors(workspace, insertion, false);
+        Some((anchors.after?, anchors.before?))
+    }
+
+    fn workspace_drop_anchors(
+        &self,
+        workspace: WorkspaceId,
+        insertion: usize,
+        below_row: bool,
+    ) -> SidebarDropAnchors {
+        let workspaces = self.tree.workspaces();
+        let insertion = insertion.min(workspaces.len());
+        let public = |index: usize| {
+            workspaces[index].resource_id.as_ref().map(|resource| resource.as_str().to_string())
+        };
+        SidebarDropAnchors {
+            before: (insertion..workspaces.len())
+                .find(|index| workspaces[*index].id != workspace)
+                .and_then(public),
+            after: (0..insertion)
+                .rev()
+                .find(|index| workspaces[*index].id != workspace)
+                .and_then(public),
+            prefer_after: below_row,
+        }
+    }
+
     fn workspace_public_id(&self, id: WorkspaceId) -> Option<String> {
         self.tree
             .workspaces()
@@ -55,19 +157,7 @@ impl App {
         {
             return;
         }
-        let public = |index: usize| {
-            workspaces[index].resource_id.as_ref().map(|resource| resource.as_str().to_string())
-        };
-        let anchors = SidebarDropAnchors {
-            before: (insertion..workspaces.len())
-                .find(|index| workspaces[*index].id != workspace)
-                .and_then(public),
-            after: (0..insertion)
-                .rev()
-                .find(|index| workspaces[*index].id != workspace)
-                .and_then(public),
-            prefer_after: below_row,
-        };
+        let anchors = self.workspace_drop_anchors(workspace, insertion, below_row);
         let resource = self.workspace_public_id(workspace);
         self.session.move_workspace_to_slot(workspace, insertion, resource, anchors);
     }

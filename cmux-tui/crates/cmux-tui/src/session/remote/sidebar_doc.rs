@@ -297,6 +297,19 @@ impl RemoteSession {
         model.workspace_item(workspace).map(|item| item.section == PINNED_SECTION_ID)
     }
 
+    /// The section and group that hold `workspace` (`None` without a
+    /// document or an item).
+    pub(crate) fn sidebar_workspace_container(
+        &self,
+        workspace: &str,
+    ) -> Option<(String, Option<String>)> {
+        if !self.sidebar_doc_active() {
+            return None;
+        }
+        let model = self.sidebar_doc.model();
+        model.workspace_item(workspace).map(|item| (item.section.clone(), item.parent.clone()))
+    }
+
     /// `sidebar.pin` or `sidebar.unpin` the item of `workspace`.
     pub(crate) fn sidebar_set_workspace_pinned(
         &self,

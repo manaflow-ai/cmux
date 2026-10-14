@@ -462,6 +462,60 @@ def main() -> int:
                    "doc": doc_order(daemon.ok("sidebar.get"), names_by_id), "tui": tui.order(),
                    "screen": tui.screen()[:30]})
 
+        # The border marker: while a machine row is dragged over the border
+        # of Pinned and the machine list, the marker's corner points at the
+        # section the drop joins. Released on its own row: no change.
+        doc = daemon.ok("sidebar.get")
+        order = doc_order(doc, names_by_id)
+        pinned_names = [n for n in order if ws_item(doc, ids[n])["section"] == PINNED]
+        machine_names = [n for n in order if ws_item(doc, ids[n])["section"] == machine]
+        mover = machine_names[-1]
+        revision = doc["revision"]
+        column, mover_row = tui.row_of(mover)
+        _, last_pinned_row = tui.row_of(pinned_names[-1])
+        _, first_machine_row = tui.row_of(machine_names[0])
+        tui.mouse(0, column, mover_row)
+        tui.mouse(32, column, mover_row - 1)
+        tui.mouse(32, column, last_pinned_row + 1)
+        up = wait_for("corner up", lambda: any("┘" in line[:RAIL_COLUMNS] for line in tui.screen()), timeout=5)
+        tui.mouse(32, column, first_machine_row)
+        down = wait_for("corner down", lambda: any("┐" in line[:RAIL_COLUMNS] for line in tui.screen()), timeout=5)
+        tui.mouse(32, column, mover_row)
+        tui.mouse(0, column, mover_row, release=True)
+        check("the marker points up on the lower half of the last pinned row (joins Pinned)", bool(up), tui.screen()[:24])
+        check("the marker points down on the first machine row's name row (joins the machine list)", bool(down),
+              tui.screen()[:24])
+        time.sleep(1.0)
+        check("released on its own row: no change", daemon.ok("sidebar.get")["revision"] == revision,
+              doc_order(daemon.ok("sidebar.get"), names_by_id))
+
+        # A scrolled rail: a short window, the rail scrolled to its end with
+        # the wheel; a drop on a visible row's name row lands before that row.
+        tui.tmux("resize-window", "-t", "tui", "-y", "14")
+        time.sleep(0.5)
+        column, _ = tui.row_of(tui.order()[0])
+        for _ in range(12):
+            tui.mouse(65, column, 5)
+        full = doc_order(daemon.ok("sidebar.get"), names_by_id)
+        scrolled = wait_for("scrolled", lambda: tui.order() and tui.order()[0] != full[0] and tui.order(), timeout=5)
+        check("the rail is scrolled", bool(scrolled), {"visible": tui.order(), "all": full})
+        doc = daemon.ok("sidebar.get")
+        visible_machine = [n for n in tui.order() if ws_item(doc, ids[n])["section"] == machine]
+        if len(visible_machine) >= 2:
+            target, mover = visible_machine[0], visible_machine[-1]
+            _, target_row = tui.row_of(target)
+            tui.drag(mover, target_row)
+            landed = wait_for("scrolled drop", lambda: (lambda o: o.index(mover) == o.index(target) - 1)(
+                doc_order(daemon.ok("sidebar.get"), names_by_id)), timeout=15)
+            check("scrolled rail: the drop lands before the row under the pointer", bool(landed),
+                  {"target": target, "mover": mover, "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
+        else:
+            check("scrolled rail shows two machine rows", False, tui.order())
+        tui.tmux("resize-window", "-t", "tui", "-y", "50")
+        for _ in range(12):
+            tui.mouse(64, column, 5)
+        wait_for("unscrolled", lambda: len(tui.order()) == len(NAMES), timeout=5)
+
         # Stream ends past the restart limit: the proxy ends the TUI's event
         # stream now and every stream it opens from here on.
         log = Path(daemon.env["CMUX_TUI_LOG_FILE"])

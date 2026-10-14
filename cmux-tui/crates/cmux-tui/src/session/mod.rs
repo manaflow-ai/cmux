@@ -2189,6 +2189,18 @@ impl Session {
         }
     }
 
+    /// The section and group that hold `workspace` in the daemon's sidebar
+    /// document (`None` without one).
+    pub(crate) fn sidebar_workspace_container(
+        &self,
+        workspace: &str,
+    ) -> Option<(String, Option<String>)> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.sidebar_workspace_container(workspace),
+        }
+    }
+
     /// The app loop tick: the sidebar document's fallback read.
     pub(crate) fn tick_sidebar_doc(&self) {
         if let Session::Remote(remote) = self {

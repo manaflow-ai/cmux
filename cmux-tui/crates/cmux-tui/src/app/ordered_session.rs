@@ -158,6 +158,13 @@ impl OrderedSession {
         self.inner.sidebar_workspace_pinned(workspace)
     }
 
+    pub(super) fn sidebar_workspace_container(
+        &self,
+        workspace: &str,
+    ) -> Option<(String, Option<String>)> {
+        self.inner.sidebar_workspace_container(workspace)
+    }
+
     pub(super) fn tick_sidebar_doc(&self) {
         self.inner.tick_sidebar_doc();
     }
