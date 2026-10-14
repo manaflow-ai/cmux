@@ -15,9 +15,12 @@ runs htop (no report), and reads the sidebar's status glyphs (`debug.sidebar_row
                      and still (no animation);
   working:           the glyph is the arc and it spins; its box is as tall as the badge and on the
                      title's line;
+  synced:            three working rows, one started later, are at the same rotation phase
+                     (Lawrence 2026-10-14: "all spinners need to be synced");
   htop:              its row shows no status glyph (a full-screen program is not agent work);
   minimized:         with the window minimized the working arc stops (no CPU for a hidden spinner),
-                     and spins again once the window shows.
+                     and spins again once the window shows (`showMainWindow` brings the tagged
+                     app's window to the front: run it on a GUI lane host only).
 
 With --pid it also reports the app's CPU share over 15 s windows: no row working, one row working
 (visible), and the window minimized. With --frames it writes window snapshots of the spinning row
@@ -146,22 +149,28 @@ def report(terminal, state, tail=""):
 
 
 def find_glyphs(name):
-    """Every status glyph on the row titled `name` now."""
+    """Every status glyph on the row titled `name` now, with the id of the window it is in."""
     windows = (rpc("debug.sidebar_rows") or {}).get("windows") or []
-    return [g for w in windows for g in w.get("status_glyphs") or [] if (g.get("title") or {}).get("text") == name]
+    return [dict(g, window=w.get("window")) for w in windows for g in w.get("status_glyphs") or []
+            if (g.get("title") or {}).get("text") == name]
 
 
-def animation_on(name, wanted):
-    """The animation of `name`'s glyph once it equals `wanted` (a few seconds at most)."""
+def animation_on(name, window, wanted):
+    """The animation of `name`'s glyph in `window` once it equals `wanted` (a few seconds at most)."""
     deadline = time.monotonic() + 8
     current = None
     while time.monotonic() < deadline:  # bounded wait for the occlusion change to reach the row
-        found = find_glyphs(name)
+        found = [g for g in find_glyphs(name) if g.get("window") == window]
         current = found[0].get("animation") if found else "no glyph"
         if current == wanted:
             break
         time.sleep(0.25)
     return current
+
+
+def action(name):
+    reply = rpc("action.run", {"action": name, "origin": "script"})
+    check(not (isinstance(reply, dict) and "error" in reply), f"action {name} runs ({json.dumps(reply)[:160]})")
 
 
 def check_spinner(glyph, label):
@@ -216,8 +225,11 @@ def main():
     done = new_workspace("glyph-done")
     blocked = new_workspace("glyph-needs-input")
     top = new_workspace("glyph-htop")
-    working = new_workspace("glyph-working")
-    check(None not in (done, blocked, top, working), "four workspaces with a terminal each")
+    # htop runs from here on: by its check it has run through every other step.
+    written = cli("terminal", top or "", "write", "--text", "htop || top\n")
+    check(written.returncode == 0, f"htop: started ({written.stderr.strip()[-120:]})")
+    working = [new_workspace(name) for name in ("glyph-working", "glyph-working-2", "glyph-working-late")]
+    check(None not in (done, blocked, top, *working), "six workspaces with a terminal each")
     # A working or blocked record lasts while its program runs; done stays until it is seen.
     for terminal, state, shown, name in ((done, "done", "success", "glyph-done"),
                                          (blocked, "blocked:kind=permission", "waiting", "glyph-needs-input")):
@@ -229,32 +241,46 @@ def main():
             check_glyph(glyph, state)
             check(glyph.get("glyph") == "mark", f"{state}: a status mark, not the spinner (got {glyph.get('glyph')})")
             check(glyph.get("animation") is None, f"{state}: the mark is still (animation {glyph.get('animation')})")
-    written = cli("terminal", top or "", "write", "--text", "htop || top\n")
-    check(written.returncode == 0, f"htop: started ({written.stderr.strip()[-120:]})")
-    written = report(working or "", "working", "; sleep 120")
-    check(written.returncode == 0, f"working: the program reports it ({written.stderr.strip()[-120:]})")
+    for terminal in working[:2]:
+        written = report(terminal or "", "working", "; sleep 120")
+        check(written.returncode == 0, f"working: the program reports it ({written.stderr.strip()[-120:]})")
     found = glyphs("working", "glyph-working")
     check(bool(found), "working: the glyph-working row shows the working glyph")
     for glyph in found[:1]:
         check_spinner(glyph, "working")
+    window = found[0].get("window") if found else None
+    # The third spinner starts part of a turn later; synced, it shows the others' phase.
+    glyphs("working", "glyph-working-2")
+    time.sleep(0.37)  # test script: a start offset that is not a whole number of turns
+    written = report(working[2] or "", "working", "; sleep 120")
+    check(written.returncode == 0, f"working late: the program reports it ({written.stderr.strip()[-120:]})")
+    glyphs("working", "glyph-working-late")
+    windows = (rpc("debug.sidebar_rows") or {}).get("windows") or []
+    spinning = {(g.get("title") or {}).get("text"): g for w in windows if w.get("window") == window
+                for g in w.get("status_glyphs") or [] if g.get("glyph") == "arc"}
+    phases = {name: (spinning.get(name) or {}).get("phase") for name in ("glyph-working", "glyph-working-2", "glyph-working-late")}
+    print(f"phases: {json.dumps(phases)}", flush=True)
+    known = [p for p in phases.values() if p is not None]
+    spread = max(min(abs(a - b), 1 - abs(a - b)) for a in known for b in known) if len(known) == 3 else None
+    check(spread is not None and spread <= 0.02, f"synced: three spinners, one started later, share one phase (spread {spread})")
+    time.sleep(3)  # test script: htop has run at least this long before its check
     htop_glyphs = find_glyphs("glyph-htop")
     check(not htop_glyphs, f"htop: its row shows no status glyph ({json.dumps(htop_glyphs)[:200]})")
     snapshots("glyph-working")
-    cpu("one row working, window shown")
-    rpc("action.run", {"action": "minimizeWindow", "origin": "script"})
-    stopped = animation_on("glyph-working", None)
+    cpu("three rows working, window shown")
+    action("minimizeWindow")
+    stopped = animation_on("glyph-working", window, None)
     check(stopped is None, f"minimized: the spinner stops (animation {stopped})")
-    cpu("one row working, window minimized")
-    rpc("action.run", {"action": "showMainWindow", "origin": "script"})
-    resumed = animation_on("glyph-working", "spin")
+    cpu("three rows working, window minimized")
+    action("showMainWindow")
+    resumed = animation_on("glyph-working", window, "spin")
     check(resumed == "spin", f"shown again: the spinner spins (animation {resumed})")
-    for terminal in (blocked, working):
+    for terminal in (blocked, *working):
         cli("terminal", terminal or "", "write", "--text", "\x03")  # ends the sleep
     cli("terminal", top or "", "write", "--text", "q")  # ends htop
-    for terminal in (done, blocked, working):
+    for terminal in (done, blocked, *working):
         report(terminal or "", "idle")
     print(f"{len(failures)} failure(s)", flush=True)
     sys.exit(1 if failures else 0)
-
 
 main()

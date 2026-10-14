@@ -62,7 +62,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .rings: "Outlined rings with !, ?, key inside; empty ring for plain blocked; filled disc for done."
         case .badges: "Filled discs with !, ?, key, check, x cut out; a spinner for work."
         case .bars: "Three waving bars for work; bare !, ?, key, dot, check, x."
-        case .pips: "Small pips: filled for permission, hollow for question, a diamond for auth."
+        case .pips: "Small pips: filled for permission, hollow for question, a diamond for auth; a spinner for work."
         case .signs: "Warning triangles with !, ?, key; outlined for plain blocked; an x octagon for error."
         case .letters: "P, Q, A and ! cut out of rounded squares; check and x squares."
         case .symbols: "SF Symbols, filled: hand.raised, questionmark.bubble, key, exclamationmark.circle, checkmark.circle, xmark.octagon; a spinner for work."

@@ -79,6 +79,7 @@ enum DebugSidebarRows {
             "soft_1x": g.soft1x.map(JSONValue.number) ?? .null, "soft_2x": g.soft2x.map(JSONValue.number) ?? .null,
             "title": g.title.map { .object(["text": .string($0), "cap_center_y": num(g.titleCapCenterY)]) } ?? .null,
             "glyph": .string(g.glyph), "animation": g.animation.map(JSONValue.string) ?? .null,
+            "phase": g.phase.map(JSONValue.number) ?? .null,
         ])
     }
 
