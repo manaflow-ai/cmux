@@ -286,24 +286,37 @@ extension View {
     /// Shows `state` as a banner under the top safe area, entering from
     /// y - 12. It takes its own room: the content below (a list) is inset
     /// by the banner's height at every text size, so it covers nothing (R2-4).
+    /// A swipe up or sideways, or a tap, hides it until the state changes.
     public func cnxBanner(_ state: ConnectionBannerState?) -> some View {
-        safeAreaInset(edge: .top, spacing: 0) {
-            ZStack {
-                if let state {
-                    ConnectionBanner(state)
-                        .padding(.top, 8)
-                        .padding(.bottom, 8)
-                        .transition(.opacity.combined(with: .offset(y: -12)))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .animation(theme.motion.snappy.animation, value: state)
-        }
+        safeAreaInset(edge: .top, spacing: 0) { BannerHost(state: state) }
     }
 
     /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
     public func cnxToast(_ toast: Binding<CnxToast?>) -> some View {
         overlay(alignment: .top) { ToastHost(toast: toast) }
+    }
+}
+
+/// The connection banner's slot: dismissible like every toast (`cnxDismissibleToast`); a
+/// dismissed state stays hidden until the state changes.
+private struct BannerHost: View {
+    let state: ConnectionBannerState?
+    @State private var dismissed: ConnectionBannerState?
+
+    var body: some View {
+        ZStack {
+            if let state, state != dismissed {
+                ConnectionBanner(state)
+                    .cnxDismissibleToast(entry: .top, announcement: state.text) {
+                        withAnimation(theme.motion.snappy.animation) { dismissed = state }
+                    }
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+                    .transition(.opacity.combined(with: .offset(y: -12)))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .animation(theme.motion.snappy.animation, value: state)
     }
 }
 
@@ -336,9 +349,10 @@ private struct ToastHost: View {
                     try? await Task.sleep(for: .seconds(3))
                     if toast?.id == value.id { toast = nil }
                 }
-                .gesture(DragGesture(minimumDistance: 8).onEnded { drag in
-                    if drag.translation.height < 0 { toast = nil }
-                })
+                // Swipe up or sideways (it came from the top), or tap; VoiceOver: Dismiss.
+                .cnxDismissibleToast(entry: .top, announcement: value.text) {
+                    if toast?.id == value.id { toast = nil }
+                }
             }
         }
         .animation(theme.motion.snappy.animation, value: toast)

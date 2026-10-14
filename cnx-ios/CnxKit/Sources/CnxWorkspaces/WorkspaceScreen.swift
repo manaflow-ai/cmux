@@ -58,6 +58,11 @@ public struct WorkspaceScreen: View {
                     gridHeader.transition(.opacity.animation(.easeOut(duration: 0.2)))
                 }
             }
+            // The workspace's own toast (TabsKit's is never fed: it covers the title and
+            // Back), placed by `ToastPlacement`: on a page at the top, under the status bar,
+            // where a page has no controls and the keyboard never reaches; in the grid just
+            // above its bottom controls.
+            .overlay { toast }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
@@ -65,6 +70,9 @@ public struct WorkspaceScreen: View {
             .onAppear {
                 source.exit = { dismiss() }
                 source.opened()
+                #if DEBUG
+                if CommandLine.arguments.contains("-cnx-toast-demo") { source.showDemoToast() }
+                #endif
             }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
@@ -80,6 +88,37 @@ public struct WorkspaceScreen: View {
             } message: {
                 Text(source.pendingClose?.message ?? "")
             }
+    }
+
+    private var toast: some View {
+        let placement = ToastPlacement(screen: showsGrid ? .grid : .page)
+        return ZStack(alignment: showsGrid ? .bottom : .top) {
+            if let text = source.toastText {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "exclamationmark.circle")
+                    Text(text).fixedSize(horizontal: false, vertical: true)
+                }
+                .font(theme.type.meta.weight(.semibold))
+                .foregroundStyle(theme.colors.label.color)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(minHeight: 40)
+                .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+                .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+                .accessibilityElement(children: .combine)
+                .cnxDismissibleToast(entry: placement.entry, announcement: text) {
+                    withAnimation(theme.motion.snappy.animation) { source.clearNotice() }
+                }
+                .padding(.horizontal, 20)
+                .padding(showsGrid ? .bottom : .top, placement.inset)
+                .transition(.opacity.combined(with: .offset(y: showsGrid ? 12 : -12)))
+                .id(text)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: showsGrid ? .bottom : .top)
+        .animation(theme.motion.snappy.animation, value: source.toastText)
+        .animation(theme.motion.snappy.animation, value: showsGrid)
     }
 
     /// The grid's top row: back to the workspace list, and which workspace
