@@ -1463,7 +1463,10 @@ fn archived_non_output_after(
          ORDER BY start_sequence ASC",
     )?;
     let rows = statement
-        .query_map(params![i64::try_from(sequence)?, i64::try_from(through)?], journal_segment_metadata)?
+        .query_map(
+            params![i64::try_from(sequence)?, i64::try_from(through)?],
+            journal_segment_metadata,
+        )?
         .collect::<Result<Vec<_>, _>>()?;
     let archive_end: i64 = connection.query_row(
         "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
@@ -1505,7 +1508,9 @@ fn archived_non_output_after(
             [segment_id.as_str()],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        if !has_kinds { return Ok(None); }
+        if !has_kinds {
+            return Ok(None);
+        }
         let end = u64::try_from(row.2)?.min(through);
         if !has_non_output {
             reached = reached.max(end);
