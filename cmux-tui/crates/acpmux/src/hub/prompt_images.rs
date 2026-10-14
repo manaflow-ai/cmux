@@ -4,7 +4,7 @@
 //! images after it is sent, after a restart, and in a fork (which copies the log).
 //! `_acpmux/attachment` reads one back for a session whose log names it.
 
-use super::{EventFilter, Hub};
+use super::{EventFilter, Hub, Session};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -16,15 +16,6 @@ fn dir() -> PathBuf {
 /// A kept image's name: 64 lowercase hex digits, never a path.
 fn valid_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
-/// `msg`, a `user_message`, with the images of its prompt `blocks` named (`images`), if any.
-pub(super) fn with_images(mut msg: Value, blocks: &[Value]) -> Value {
-    let images = keep(blocks);
-    if !images.is_empty() {
-        msg["images"] = Value::Array(images);
-    }
-    msg
 }
 
 /// Keeps the bytes of each `image` block in `blocks` and returns what `user_message` records of
@@ -64,6 +55,15 @@ fn keep(blocks: &[Value]) -> Vec<Value> {
 }
 
 impl Hub {
+    /// Records prompt `msg` as the session's `user_message`, naming the images of its `blocks`.
+    pub(super) fn append_prompt(&self, session: &Session, mut msg: Value, blocks: &[Value]) {
+        let images = keep(blocks);
+        if !images.is_empty() {
+            msg["images"] = Value::Array(images);
+        }
+        self.append(session, "mux", "user_message", msg);
+    }
+
     /// `_acpmux/attachment`: the image `id` one of session `session`'s prompts sent, as
     /// `{mimeType, data}` (base64). Only an image the session's own log names is read.
     pub fn prompt_image(&self, session: &str, id: &str) -> Result<Value, RpcError> {

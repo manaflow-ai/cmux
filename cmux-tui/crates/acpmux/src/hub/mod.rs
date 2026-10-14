@@ -27,8 +27,8 @@ pub use model_options::{current_model, current_option, resolve_config_id, web_ur
 mod model_hint;
 mod models_view;
 mod paging;
-mod prompt_images;
 mod pool;
+mod prompt_images;
 mod queue;
 mod queue_edit;
 pub use queue::QueuedPrompt;
