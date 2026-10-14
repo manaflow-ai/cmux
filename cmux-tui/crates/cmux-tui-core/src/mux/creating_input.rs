@@ -6,8 +6,9 @@
 //! order across connections, up to [`CREATING_INPUT_LIMIT`] bytes. When the creation committed
 //! and its terminal is live, the queue is written to it in order. Until that flush ended, input
 //! to the id still joins the queue, and every other input path to the new terminal (`send
-//! {surface}`, `send-key`, the `terminal.input.*` effects, image paste) waits for it
-//! ([`Mux::wait_for_creating_input_flush`]), so queued bytes always precede later input. No
+//! {surface}`, `send-key`, the `terminal.input.*` effects) waits for it, or starts it when the
+//! commit's flush has not ([`Mux::wait_for_creating_input_flush`]), so queued bytes precede
+//! later input. Image paste and the clear-history fallback key do not wait yet. No
 //! daemon-wide lock is held while bytes go to a host. A creation that fails, a closed
 //! connection, or no commit within the expiry (from the first queued byte) writes nothing;
 //! each sending connection gets its own bytes back in one `terminal-input-unclaimed` notice, so
@@ -166,9 +167,12 @@ impl Mux {
         terminals.contains_key(terminal_id) || self.live_surface_for_terminal(terminal_id).is_some()
     }
 
-    /// Wait until no queue of `surface`'s terminal is pending or being written, so input sent by
-    /// another path follows the queued bytes. Bounded by the expiry; returns at once when no
-    /// terminal is creating. The caller holds no mux lock.
+    /// Make sure no queue of live `surface`'s terminal is pending or being written, so input sent
+    /// by another path follows the queued bytes. A queue that is not being written yet (the
+    /// commit made the surface live but its flush has not started, or a creation that never
+    /// ended left it) is written now, on this thread: the surface is live, so its creation
+    /// committed. A queue being written is waited for, bounded by the expiry. Returns at once
+    /// when no terminal is creating. The caller holds no mux lock.
     pub(crate) fn wait_for_creating_input_flush(&self, surface: &Surface) {
         let inputs = &self.creating_inputs;
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
@@ -177,10 +181,17 @@ impl Mux {
         }
         let Some(identity) = surface.terminal_host_identity() else { return };
         let deadline = Instant::now() + CREATING_INPUT_EXPIRY;
-        while terminals.contains_key(&identity.terminal_id) {
+        while let Some(creating) = terminals.get(&identity.terminal_id) {
             let now = Instant::now();
             if now >= deadline {
                 return;
+            }
+            if !creating.flushing {
+                let generation = creating.generation;
+                drop(terminals);
+                self.finish_creating_input(&identity.terminal_id, generation, None);
+                terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+                continue;
             }
             terminals = inputs
                 .ended
