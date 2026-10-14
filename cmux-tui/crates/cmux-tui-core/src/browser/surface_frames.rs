@@ -21,7 +21,68 @@ impl BrowserSurface {
         if !self.is_dead() {
             state.taps.push(BrowserFrameTap { slot: slot.clone(), notify: tx });
         }
-        (snapshot, BrowserFrameStream { slot, notify: rx })
+        drop(state);
+        let viewer = FrameViewer {
+            viewers: self.frame_viewers.clone(),
+            command_tx: self.command_tx.clone(),
+            command_order: self.command_order.clone(),
+        };
+        if self.frame_viewers.fetch_add(1, Ordering::AcqRel) == 0 {
+            viewer.wake_worker();
+        }
+        (snapshot, BrowserFrameStream { slot, notify: rx, _viewer: viewer })
+    }
+
+    /// At least one frame viewer is attached.
+    pub(super) fn has_frame_viewers(&self) -> bool {
+        self.frame_viewers.load(Ordering::Acquire) > 0
+    }
+
+    pub(super) fn set_screencast_paused(&self, paused: bool) {
+        let mut state = self.state.lock().unwrap();
+        state.screencast_paused = paused;
+        if !paused {
+            // Frames are due from now on, not since the page went live.
+            state.live_since = state.live_since.map(|_| Instant::now());
+            state.last_frame_at = None;
+            state.stall_nudged = false;
+        }
+    }
+
+    pub(super) fn screencast_paused(&self) -> bool {
+        self.state.lock().unwrap().screencast_paused
+    }
+
+    /// Worker side of frame demand for a natively hosted page: screencast
+    /// while a frame viewer is attached, nothing otherwise. Daemon-hosted
+    /// pages always screencast and are left alone. A failed start or stop is
+    /// retried on the worker's next wake.
+    pub(super) fn reconcile_frame_demand(&self) {
+        if self.is_dead() {
+            return;
+        }
+        let session = match self.session.lock().unwrap().as_ref() {
+            Some(session) if session.runtime.native_hosted() => session.clone(),
+            _ => return,
+        };
+        let wanted = self.has_frame_viewers();
+        if wanted != self.screencast_paused() {
+            return;
+        }
+        let (width, height) = self.pixel_size();
+        let client = &session.runtime.client;
+        let result = if wanted {
+            client.start_screencast(&session.session_id, width, height)
+        } else {
+            client.stop_screencast(&session.session_id)
+        };
+        if result.is_err() {
+            return;
+        }
+        let current = self.session.lock().unwrap();
+        if current.as_ref().is_some_and(|live| live.session_id == session.session_id) {
+            self.set_screencast_paused(!wanted);
+        }
     }
 
     #[cfg(test)]

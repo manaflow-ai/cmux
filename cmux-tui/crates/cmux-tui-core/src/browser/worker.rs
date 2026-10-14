@@ -273,6 +273,9 @@ pub(super) fn service_due_browser_lifecycles(
     failures: &mut BrowserWorkerErrorState,
 ) {
     release_due_pointer_presses(surface, mux, id, failures);
+    if let Some(browser) = surface.as_browser() {
+        browser.reconcile_frame_demand();
+    }
     if let Some(message) =
         surface.as_browser().and_then(|browser| browser.expire_navigation_authority(Instant::now()))
     {
