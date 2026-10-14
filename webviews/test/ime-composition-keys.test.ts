@@ -67,7 +67,14 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
     return page.evaluate(
       ({ key, isComposing }) => {
         const target = document.activeElement ?? document.body;
-        const event = new KeyboardEvent("keydown", { key, code: key, keyCode: 229, isComposing, bubbles: true, cancelable: true });
+        const event = new KeyboardEvent("keydown", {
+          key,
+          code: key,
+          keyCode: 229,
+          isComposing,
+          bubbles: true,
+          cancelable: true,
+        });
         // Some engines ignore keyCode in the init dictionary.
         if (event.keyCode !== 229) Object.defineProperty(event, "keyCode", { get: () => 229 });
         target.dispatchEvent(event);
@@ -78,7 +85,9 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
   }
 
   const selectedRow = (page: Page) =>
-    page.evaluate(() => document.querySelector(".history-row[aria-selected='true'] .history-row-title")?.textContent ?? null);
+    page.evaluate(
+      () => document.querySelector(".history-row[aria-selected='true'] .history-row-title")?.textContent ?? null,
+    );
 
   for (const [name, engine] of installed) {
     describe(`IME composition keys (${name})`, () => {
@@ -100,7 +109,9 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
       test("Escape that cancels a composition keeps the search text; a plain Escape clears it", async () => {
         await page.focus(".history-search");
         await page.keyboard.type("re");
-        await page.waitForFunction(() => (document.querySelector(".history-search") as HTMLInputElement).value === "re");
+        await page.waitForFunction(
+          () => (document.querySelector(".history-search") as HTMLInputElement).value === "re",
+        );
 
         // Chromium and WebKit during composition.
         expect(await imeKey(page, "Escape", true)).toBe(false);
@@ -123,7 +134,8 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
 
         await page.keyboard.press("ArrowDown");
         await page.waitForFunction((was) => {
-          const now = document.querySelector(".history-row[aria-selected='true'] .history-row-title")?.textContent ?? null;
+          const now =
+            document.querySelector(".history-row[aria-selected='true'] .history-row-title")?.textContent ?? null;
           return now !== was;
         }, before);
       });

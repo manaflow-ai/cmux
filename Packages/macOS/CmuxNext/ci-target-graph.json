@@ -138,6 +138,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextAccounts",
         "CmuxNextActions",
         "CmuxNextAgentActivity",
