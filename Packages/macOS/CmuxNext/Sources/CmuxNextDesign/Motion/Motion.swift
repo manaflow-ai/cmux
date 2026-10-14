@@ -36,7 +36,7 @@ public struct Motion {
 
     public static var speed: MotionSpeed { DesignSettings.shared.animationSpeed }
 
-    public static var policy: MotionPolicy { MotionPolicy(speed: speed, reduceMotion: reduceMotion) }
+    public static var policy: MotionPolicy { MotionPolicy(speed: speed, reduceMotion: reduceMotion, liveResize: isLiveResizing) }
 
     /// Position, size, scale and scroll animate. When false, snap.
     public static var animatesMovement: Bool { policy.animatesMovement }

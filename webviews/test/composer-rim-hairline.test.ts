@@ -109,14 +109,17 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
         await page.focus(`#${field}`);
         const ring = await insets(page, id);
         expect(ring.length, `${id} draws a focus ring`).toBeGreaterThan(0);
-        if (id === "composer") expect(ring[0]?.alpha, "composer focus ring alpha").toBeCloseTo(0.38, 2);
+        if (id === "composer") expect(ring[0]?.alpha, "composer focus rim alpha").toBeCloseTo(0.23, 2);
         for (const { spread } of ring) {
           const pixels = devicePixels(spread, scale);
           expect(Number.isInteger(pixels) && pixels >= 1, `${id} focus ring at ${scale}x is ${pixels} device px`).toBe(
             true,
           );
           // The ring keeps its 1px look: one CSS pixel wherever a CSS pixel is whole device pixels.
-          if (Number.isInteger(scale)) expect(spread, `${id} focus ring at ${scale}x`).toBe(1);
+          // The New Tab box and the chat composer keep their one-device-pixel rim on focus
+          // (newtab-quiet-focus.test.ts); the shell's mode ring stays one CSS pixel.
+          if (id !== "shell") expect(pixels, `${id} focus rim at ${scale}x`).toBe(1);
+          else if (Number.isInteger(scale)) expect(spread, `${id} focus ring at ${scale}x`).toBe(1);
         }
       }
       await page.close();

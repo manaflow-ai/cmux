@@ -324,6 +324,37 @@ pub(super) fn set_page(mux: &Mux, client: u64, page: String) {
     }
 }
 
+/// The page id of `client` (a page WebSocket's handshake Origin, or a page
+/// relay's hello), or `None` (also for a client with no record). For the
+/// audit actor only: an access decision reads [`websocket_admission`].
+pub(super) fn connection_page(mux: &Mux, client: u64) -> Option<String> {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.clients.get(&client).and_then(|record| record.origin.page.clone())
+}
+
+/// How a WebSocket connection was admitted, for the Chief registry
+/// (`chief-profile-ws-v1`): `None` for a client with no record or a poisoned
+/// registry lock (fail closed).
+pub(super) struct WebSocketAdmission {
+    /// A pairing-store credential (an approved pairing, or the verified app's
+    /// person page credential).
+    pub(super) person: bool,
+    /// The page of the handshake Origin.
+    pub(super) page: Option<String>,
+    /// Admitted with a credential bound to that page (`page-credential {page}`).
+    pub(super) scoped_page: bool,
+}
+
+pub(super) fn websocket_admission(mux: &Mux, client: u64) -> Option<WebSocketAdmission> {
+    let state = mux.control_clients.state.lock().ok()?;
+    let record = state.clients.get(&client)?;
+    matches!(record.transport, ClientTransport::WebSocket).then(|| WebSocketAdmission {
+        person: record.person,
+        page: record.origin.page.clone(),
+        scoped_page: record.origin.scoped_page,
+    })
+}
+
 /// Step 2 passed (prover B): `client`, a role-main connection, is the
 /// verified app. Its `peer_key` stays the audit-token key, so its page
 /// relay (same process, same token) still matches it. False when the client
@@ -501,3 +532,7 @@ mod page_access_tests;
 #[cfg(all(test, unix))]
 #[path = "pairing_gate_tests.rs"]
 mod pairing_gate_tests;
+
+#[cfg(all(test, unix))]
+#[path = "chief_profile_ws_tests.rs"]
+mod chief_profile_ws_tests;

@@ -8,11 +8,15 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
+import { HOVER_INTENT } from "./hoverIntent";
 
-/** A page's tooltips show at once, with no hover delay (POLISH), and close at once. */
+/**
+ * A page's tooltips wait the hover delay before the first shows, then show at once while the group
+ * is warm (`timeout`), as AppKit's do (ui/hoverIntent.ts), and close at once.
+ */
 export function TooltipProvider({ children }: { children: ReactNode }) {
   return (
-    <BaseTooltip.Provider delay={0} closeDelay={0}>
+    <BaseTooltip.Provider delay={HOVER_INTENT.tooltipDelay} closeDelay={0} timeout={HOVER_INTENT.tooltipWarm}>
       {children}
     </BaseTooltip.Provider>
   );
@@ -52,9 +56,13 @@ export function Tooltip({ label, children, side = "bottom", shortcut }: TooltipP
 export interface AnchoredCardProps {
   /** Shown when set; the element (or rect) it sits under. */
   anchor: UiAnchor;
+  /** Whether it shows (default: while `anchor` is set); false keeps it placed while it fades out. */
+  open?: boolean;
   className?: string;
   /** `data-state` on the card, for styling. */
   state?: string;
+  /** Shows at once, with no fade in (a warm tooltip group's hint). */
+  instant?: boolean;
   children: ReactNode;
 }
 
@@ -62,10 +70,10 @@ export interface AnchoredCardProps {
  * A hover card for content the page does not render with React (a link inside the editor): a
  * tooltip anchored to that element, opened and closed by the caller. It never takes focus.
  */
-export function AnchoredCard({ anchor, className, state, children }: AnchoredCardProps) {
+export function AnchoredCard({ anchor, open, className, state, instant, children }: AnchoredCardProps) {
   const container = usePortalContainer();
   return (
-    <BaseTooltip.Root open={anchor !== null}>
+    <BaseTooltip.Root open={open ?? anchor !== null}>
       <BaseTooltip.Portal container={container}>
         <BaseTooltip.Positioner
           className="ui-positioner"
@@ -74,7 +82,12 @@ export function AnchoredCard({ anchor, className, state, children }: AnchoredCar
           align="start"
           sideOffset={6}
         >
-          <BaseTooltip.Popup className={cx("ui-tooltip ui-card", className)} data-state={state} role="tooltip">
+          <BaseTooltip.Popup
+            className={cx("ui-tooltip ui-card", className)}
+            data-state={state}
+            data-instant={instant ? "" : undefined}
+            role="tooltip"
+          >
             {children}
           </BaseTooltip.Popup>
         </BaseTooltip.Positioner>

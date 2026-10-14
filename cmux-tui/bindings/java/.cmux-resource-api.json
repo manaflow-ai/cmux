@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "3ec5fb7e00b188de54913f75080c53a6a0ccfe053b8d9df2124b55fcdc774dc3",
+  "catalog_sha256": "a52742f6d68228f4a3e3ffb57fc60d621cfe5d0ba188efb1e22f67e5b7108c32",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -589,6 +589,9 @@
     "sidebar.item.remove": {
       "class": "mutation"
     },
+    "sidebar.item.remove_ref": {
+      "class": "mutation"
+    },
     "sidebar.item.update": {
       "class": "mutation"
     },
@@ -596,6 +599,9 @@
       "class": "mutation"
     },
     "sidebar.pin": {
+      "class": "mutation"
+    },
+    "sidebar.reset": {
       "class": "mutation"
     },
     "sidebar.section.add": {
