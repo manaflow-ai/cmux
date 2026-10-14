@@ -175,7 +175,8 @@ final class SidebarBridge {
             for await selected in ObservationStream({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
                                                                                 creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
                                                                                 layout: layout.document, room: state.profileID.rawValue,
-                                                                                refs: WorkspaceLayoutRefs(machines: machines)) }) {
+                                                                                refs: WorkspaceLayoutRefs(machines: machines),
+                                                                                home: services.home.dockedHomeID) }) {
                 self?.selectionHold.offer(selected) // a new workspace's waits for its row (cx-8g3sn)
             }
         }

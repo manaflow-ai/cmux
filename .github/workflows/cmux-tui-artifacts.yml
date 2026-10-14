@@ -798,9 +798,12 @@ jobs:
       # glaeda-aws pools have no runners); Blacksmith macOS queued these
       # legs for up to 128 min (run 37567938722, 2026-10-07). Workflow text
       # never names an owned pool label (tests/test_ci_self_hosted_guard.sh).
-      # A rerun goes back to the PR pool through macos_retry_runner.
-      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
-      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+      # A rerun (cmux-tui-artifacts-retry re-runs a failed run) goes to
+      # Blacksmith macOS 15 through macos_retry_runner, never
+      # vars.MACOS_RUNNER_PR: that names the 12 vCPU macOS 26 label the
+      # nightly app build needs (tests/test_ci_tui_routes_avoid_nightly_label.py).
+      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
       checkout_ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
       # MACOS-CROSS-COMPILE-ON-LINUX switch: the committed file
       # scripts/ci/cmux-tui-darwin-builder (mac or linux), a tree-key input, so
@@ -925,15 +928,20 @@ jobs:
       # preflight skips duplicate work after the first complete run.
       cancel-in-progress: false
     name: cmux_next_ daemon tests (macOS)
-    # The build legs' route: the owned side lane on attempt 1, the PR pool on a
-    # rerun. Every same-repo branch push runs this job, so naming the PR pool
-    # here queued them on Blacksmith at its cap while the minis had room.
+    # The owned side lane on every attempt, a cmux-tui-pin-* push included.
+    # Every same-repo branch push runs this job, so naming the PR pool here
+    # queued them on Blacksmith at its cap while the minis had room, and a
+    # rerun (cmux-tui-artifacts-retry re-runs a failed run, no owned-pool
+    # rescue watches this workflow) fell through to vars.MACOS_RUNNER_PR, the
+    # 12 vCPU macOS 26 label the nightly app build needs. Blacksmith macOS 15
+    # only when the owned pools are off or the event is not trusted
+    # (tests/test_ci_tui_routes_avoid_nightly_label.py).
     # Attempt 1 of a feat-cmux-next push takes vars.CI_NEXT_PROMOTE_POOL, the
     # reserved promote runners that also run cmux-next.yml's Release compile:
     # these tests gate the nightly-next promotion, so they never wait for the
     # shared side pool. Clearing the variable rolls it back. The fork gate
     # stays first (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS

@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-pub use crate::sidebar_layout::{ArrangementLayout, Look, Region};
+pub use crate::sidebar_layout::{Alignment, ArrangementLayout, Look, Region};
 
 pub type SectionId = String;
 pub type ItemId = String;
@@ -24,6 +24,9 @@ pub const MAX_ORDER_KEY_CHARS: usize = 32;
 pub const MAX_TITLE_CHARS: usize = 80;
 pub const MAX_SECTIONS: usize = 64;
 pub const MAX_ITEMS: usize = 20_000;
+/// The space between a section's rows or tiles, in points (as the old
+/// layout's `arrangement.gap`).
+pub const GAP_RANGE: std::ops::RangeInclusive<i64> = 0..=32;
 
 /// The id of `session_id`'s machine section.
 pub fn machine_section_id(session_id: &str) -> SectionId {
@@ -115,6 +118,17 @@ fn list_layout() -> ArrangementLayout {
     ArrangementLayout::List
 }
 
+fn leading() -> Alignment {
+    Alignment::Leading
+}
+
+/// An `align` that may be null: leading (as the old layout reads it).
+fn align_or_leading<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Alignment, D::Error> {
+    Ok(Option::<Alignment>::deserialize(deserializer)?.unwrap_or(Alignment::Leading))
+}
+
 /// Whether a section stays visible (`fixed`: in the fixed stack at the top,
 /// or at the bottom for the bottom region) or scrolls with the main list
 /// (`flow`). DESIGN.md "Scrolling model".
@@ -145,6 +159,10 @@ impl Scroll {
 /// that does not send it gets [`Scroll::default_for`] its kind and region.
 /// `max_rows`: the section grows with its content up to this many rows (or
 /// tile lines), then scrolls inside itself; absent grows without limit.
+/// `align` (always on the wire, default `leading`) places an inline or grid
+/// section's rows or tiles on their line; `gap` (0 to 32 points, absent =
+/// the look's default spacing) is the space between them. Both are the old
+/// layout's `arrangement.align` and `arrangement.gap`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "SectionWire")]
 pub struct Section {
@@ -160,6 +178,10 @@ pub struct Section {
     pub look: Look,
     #[serde(default = "list_layout")]
     pub arrangement: ArrangementLayout,
+    #[serde(default = "leading")]
+    pub align: Alignment,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gap: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub columns: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -190,6 +212,10 @@ struct SectionWire {
     look: Look,
     #[serde(default = "list_layout")]
     arrangement: ArrangementLayout,
+    #[serde(default = "leading", deserialize_with = "align_or_leading")]
+    align: Alignment,
+    #[serde(default)]
+    gap: Option<i64>,
     #[serde(default)]
     columns: Option<i64>,
     #[serde(default)]
@@ -217,6 +243,8 @@ impl From<SectionWire> for Section {
             region: wire.region,
             look: wire.look,
             arrangement: wire.arrangement,
+            align: wire.align,
+            gap: wire.gap,
             columns: wire.columns,
             max_rows: wire.max_rows,
             scroll,
@@ -243,6 +271,8 @@ impl Section {
             region,
             look: Look::List,
             arrangement: ArrangementLayout::List,
+            align: Alignment::Leading,
+            gap: None,
             columns: None,
             max_rows: None,
             scroll,
@@ -501,6 +531,11 @@ pub struct SectionPatch {
     pub look: Option<Look>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arrangement: Option<ArrangementLayout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<Alignment>,
+    /// 0 to 32 points; null returns to the look's default spacing.
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub gap: Patch<i64>,
     #[serde(default, skip_serializing_if = "Patch::is_keep")]
     pub columns: Patch<i64>,
     #[serde(default, skip_serializing_if = "Patch::is_keep")]
@@ -544,6 +579,13 @@ pub struct GroupPatch {
     pub profile: Patch<String>,
 }
 
+/// An item's ref as the old layout names it (`{kind, value}`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LayoutRef {
+    pub kind: String,
+    pub value: String,
+}
+
 /// A new item: its id (minted by the daemon when absent), body and fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewItem {
@@ -577,6 +619,16 @@ pub enum Op {
     ItemRemove { id: ItemId },
     #[serde(rename = "item.update")]
     ItemUpdate { id: ItemId, patch: ItemPatch },
+    /// Remove every item that shows `ref` (the old layout's "Remove from
+    /// Sidebar", `item.remove_ref`): kind and value as the old layout ref
+    /// names them (`workspace` `<session>:<workspace id>`, `url` the url,
+    /// `app`, `built_in`, `tab`, `room`, `saved_group`, or an unknown kind).
+    /// A group has no ref. `unknown_item` when no item shows it.
+    #[serde(rename = "item.remove_ref")]
+    ItemRemoveRef {
+        #[serde(rename = "ref")]
+        reference: LayoutRef,
+    },
     #[serde(rename = "section.add")]
     SectionAdd {
         section: Section,
@@ -627,6 +679,17 @@ pub enum Op {
     /// reopened on click).
     #[serde(rename = "close")]
     Close { refs: Vec<WorkspaceRef> },
+    /// The default sections again (the old layout's `layout.reset`): Home
+    /// and App Store on top (`sec_top`), an empty Pinned, every machine
+    /// section with its default look (its title, the machine name, stays),
+    /// the recent agent chats and the account band at the bottom. Every
+    /// other section goes. A workspace or a group outside its machine
+    /// section moves to the end of it (a group with its items; an empty
+    /// group to the first machine section); the workspaces and groups
+    /// already in a machine section stay where they are; other items in the
+    /// removed sections and in Pinned go.
+    #[serde(rename = "reset")]
+    Reset,
     #[serde(rename = "item.put")]
     ItemPut { item: Item },
     #[serde(rename = "item.delete")]
