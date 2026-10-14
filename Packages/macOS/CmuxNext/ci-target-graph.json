@@ -6,6 +6,7 @@
     "CmuxAgentBrands": "Packages/Shared/CmuxAgentBrands",
     "CmuxAgentCursor": "Packages/Shared/CmuxAgentCursor",
     "CmuxAgentQuestion": "Packages/Shared/CmuxAgentQuestion",
+    "CmuxAppAttest": "Packages/Shared/CmuxAppAttest",
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
     "CmuxFeedPushCore": "Packages/Shared/CmuxFeedPushCore",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
@@ -100,7 +101,9 @@
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxAppAttest"
+      ]
     },
     "CmuxNextAgentPaneTests": {
       "kind": "test",
@@ -135,6 +138,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextAccounts",
         "CmuxNextActions",
         "CmuxNextAgentActivity",
@@ -195,6 +199,7 @@
         "CmuxAgentBrands",
         "CmuxAgentCursor",
         "CmuxAgentQuestion",
+        "CmuxAppAttest",
         "CmuxFeedPushCore",
         "CmuxHomeCore",
         "CmuxHomeRender"
