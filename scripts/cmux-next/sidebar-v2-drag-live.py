@@ -308,13 +308,12 @@ try:
     else:
         record("pinned tile into the list at the drop index", False, f"pinned={pinned} loose={[r.get('title') for r in loose]}")
 
-    # 5. A link item (url body with a favicon) into the main list. The app's sidebar.item.add takes no links, so the
-    # link goes in through the daemon (sidebar.apply item.add), as another client would add it.
+    # 5. A link item (url body with a favicon) into the main list. No app action adds a link yet, so the link goes in
+    # through the app's document store (debug.sidebar_apply: mirror, then the daemon's sidebar.apply, one undo step).
     link_op = {"op": "item.add", "to": {"section": "sec_pinned"},
                "item": {"body": {"type": "url", "url": "https://github.com", "title": "GitHub",
                                  "icon_url": "https://github.com/favicon.ico"}}}
-    added = cli("raw", "operation", "sidebar.apply", "--mutation", "--params-json",
-                json.dumps({"ops": [link_op], "idempotency_key": f"live-link-{int(time.time() * 1000)}"}))
+    added = json.dumps(rpc("debug.sidebar_apply", {"ops": [link_op], "title": "Add Link"}))
     print("link add:", added[:400], flush=True)
     link = wait(lambda: next((i for i in section_items("sec_pinned") if i.get("ref_kind") == "url"), None), 10)
     alpha = by_title("Alpha")
@@ -335,7 +334,7 @@ try:
             record("link row in the list opens its page", bool(opened), "debug.surfaces names github.com" if opened else "no github.com surface")
             undo("link item into the list", lambda: any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")))
     else:
-        record("link item into the list", False, f"no url item in Pinned after sidebar.apply item.add (cli: {added[:300]}; link={link})")
+        record("link item into the list", False, f"no url item in Pinned after debug.sidebar_apply item.add ({added[:300]}; link={link})")
 
     # 6. Cross-machine drop: needs a second machine section.
     machines = [r for r in window().get("rows", []) if str(r.get("key", "")).startswith("section")]
@@ -399,7 +398,7 @@ try:
     def marked():
         return [i for i in section_items("sec_pinned") if str(i.get("ref")) == "bookmarks"]
 
-    toast(perform="sidebar.item.add", arguments={"item": "bookmarks", "section": "Pinned"})
+    toast(perform="sidebar.item.add", arguments={"item": "bookmarks", "section": "sec_pinned"})
     added = wait(lambda: next(iter(marked()), None), 5)
     if added:
         toast(perform="sidebar.item.removeEverywhere", target_kind="sidebar-item", target_id=added["id"])
@@ -411,7 +410,7 @@ try:
 
     # Reset: the default sections again (the bookmarks item in Pinned, the "Work" section and Pinned's alignment and
     # spacing from the steps above go); Cmd-Z brings them back. The undo helper redid the removal, so the item goes in again first.
-    toast(perform="sidebar.item.add", arguments={"item": "bookmarks", "section": "Pinned"})
+    toast(perform="sidebar.item.add", arguments={"item": "bookmarks", "section": "sec_pinned"})
     wait(lambda: bool(marked()), 5)
     before_reset = [s.get("id") for s in window().get("layout_sections", [])]
 
