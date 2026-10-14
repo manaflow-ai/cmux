@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 import Foundation
 
@@ -31,15 +32,11 @@ enum AgentChatIdentifierHandlers {
         tab.agentSession?.session.flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    /// The chat a workspace row's summary line shows (SidebarMapping.lastMessage): the front
-    /// tab's, else the first started chat's.
+    /// The chat a workspace row's summary line shows (SidebarMapping), by the active window's
+    /// tab selection as the sidebar reads it.
     private static func rowChat(_ workspace: WorkspaceModel, services: AppServices) -> String? {
-        let panes = workspace.screens.flatMap(\.panes).filter { !$0.tabs.isEmpty }
-        if let pane = panes.max(by: { $0.focusedAt < $1.focusedAt }), let id = services.paneController(for: pane)?.selectedTab?.id,
-           let front = pane.tabs.first(where: { $0.id == id }), let session = started(front) {
-            return session
-        }
-        return panes.lazy.flatMap(\.tabs).compactMap(started).first
+        let selection = services.windows.active?.state.selection
+        return SidebarMapping.shared.rowChat(workspace, selectedTab: { selection?.selection(in: $0.id) }).flatMap(started)
     }
 }
 
