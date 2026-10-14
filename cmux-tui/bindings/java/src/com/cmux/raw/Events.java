@@ -34,6 +34,7 @@ public final class Events {
     public static final EventMetadata CONFIG_RELOAD_REQUESTED = new EventMetadata("config-reload-requested", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_CHANGED = new EventMetadata("conversation-changed", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_DRAFT = new EventMetadata("conversation-draft", 12, "conversation-draft-events-v1", List.of("subscribe"), true);
+    public static final EventMetadata CONVERSATION_INBOX_CHANGED = new EventMetadata("conversation-inbox-changed", 12, "conversation-inbox-state-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_RUN_CHANGED = new EventMetadata("conversation-run-changed", 12, "conversation-runs-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_TYPING = new EventMetadata("conversation-typing", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
@@ -116,6 +117,7 @@ public final class Events {
         values.put("config-reload-requested", CONFIG_RELOAD_REQUESTED);
         values.put("conversation-changed", CONVERSATION_CHANGED);
         values.put("conversation-draft", CONVERSATION_DRAFT);
+        values.put("conversation-inbox-changed", CONVERSATION_INBOX_CHANGED);
         values.put("conversation-run-changed", CONVERSATION_RUN_CHANGED);
         values.put("conversation-typing", CONVERSATION_TYPING);
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);

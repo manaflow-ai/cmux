@@ -86,6 +86,11 @@ pub(crate) fn page_from_origin(origin: &str) -> Option<String> {
     valid_page_id(page).then(|| page.to_owned())
 }
 
+/// Whether `page` is a page of the table (`page-credential {page}`).
+pub(crate) fn known_page(page: &str) -> bool {
+    table().pages.contains_key(page)
+}
+
 /// What `page` may do with `operation` (its wire name).
 pub(crate) fn grant(page: &str, operation: &str) -> PageGrant {
     let Some(entry) = table().pages.get(page) else { return PageGrant::None };
