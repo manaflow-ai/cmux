@@ -283,3 +283,52 @@ fn browser_profile_commands_create_move_open_and_delete_through_a_real_daemon() 
         "{after_delete}"
     );
 }
+
+/// cx-d0d.89: deleting a profile through the daemon alone (the CLI, a Linux or Windows
+/// app) moves the browser tabs that named it to the default profile, and each such tab
+/// announces it (`tab-changed`), so no record names a deleted profile.
+#[test]
+fn deleting_a_browser_profile_moves_its_tabs_to_the_default_profile() {
+    let server = HeadlessServer::start("browser-profile-delete-tabs");
+    let created = ok(&server, &["browser", "profile", "create", "--name", "Work"]);
+    let profile_id = created["browser_profile"]["id"].as_str().expect("profile id").to_owned();
+    let url = "https://example.com/work";
+    ok(&server, &["browser", "profile", "open", url, "--engine", "webkit", "--profile", "Work"]);
+    let tab = frontend_browser_tab(&profile_tree(&server)).clone();
+    assert_eq!(tab["browser_profile_id"], profile_id, "{tab}");
+
+    let stream = transport::connect(&server.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let (tx, deltas) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stream).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    writeln!(writer, r#"{{"id":1,"cmd":"subscribe","tree_events":"deltas"}}"#).unwrap();
+    writer.flush().unwrap();
+
+    ok(&server, &["browser", "profile", "delete", "--profile", "Work"]);
+    let after = frontend_browser_tab(&profile_tree(&server)).clone();
+    assert!(
+        after["browser_profile_id"].is_null(),
+        "the tab still names the deleted profile: {after}"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut seen = Vec::new();
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        let Ok(line) = deltas.recv_timeout(remaining) else { break };
+        let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if message["event"] == "tab-changed"
+            && message["entity"]["surface"] == tab["surface"]
+            && message["entity"]["browser_profile_id"].is_null()
+        {
+            return;
+        }
+        seen.push(line);
+    }
+    panic!("no tab-changed for the moved tab {}; lines={seen:?}", tab["surface"]);
+}
