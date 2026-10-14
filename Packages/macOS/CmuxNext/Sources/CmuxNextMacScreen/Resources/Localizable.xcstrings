@@ -2889,127 +2889,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هذا ليس رابط شاشة Mac. يبدأ الرابط بـ cmux-vnc://pair."
+            "value": "هذا ليس رابط Mac Screen كاملًا. انسخه مرة أخرى من «مشاركة جهاز Mac هذا» على جهاز Mac الآخر."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "To nije link za Ekran Maca. Počinje sa cmux-vnc://pair."
+            "value": "To nije potpun Mac Screen link. Ponovo ga kopirajte iz opcije Dijeli ovaj Mac na drugom Macu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Det er ikke et Mac-skærm-link. Det starter med cmux-vnc://pair."
+            "value": "Det er ikke et fuldstændigt Mac Screen-link. Kopiér det igen fra Del denne Mac på den anden Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das ist kein Mac-Bildschirm-Link. Er beginnt mit cmux-vnc://pair."
+            "value": "Das ist kein vollständiger Mac Screen-Link. Kopiere ihn erneut über „Diesen Mac teilen“ auf dem anderen Mac."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "That is not a Mac Screen link. It starts with cmux-vnc://pair."
+            "value": "That isn’t a complete Mac Screen link. Copy it again from Share This Mac on the other Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ese no es un enlace de Pantalla del Mac. Empieza por cmux-vnc://pair."
+            "value": "Ese no es un enlace completo de Mac Screen. Vuelve a copiarlo desde Compartir este Mac en el otro Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ce n’est pas un lien Écran Mac. Il commence par cmux-vnc://pair."
+            "value": "Ce n’est pas un lien Mac Screen complet. Copiez-le de nouveau depuis Partager ce Mac sur l’autre Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questo non è un link di Schermo Mac. Inizia con cmux-vnc://pair."
+            "value": "Questo non è un link Mac Screen completo. Copialo di nuovo da Condividi questo Mac sull’altro Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "これは「Macの画面」のリンクではありません。リンクはcmux-vnc://pairで始まります。"
+            "value": "完全な Mac Screen リンクではありません。もう一方のMacの「このMacを共有」からもう一度コピーしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "នោះមិនមែនជាតំណ អេក្រង់ Mac ទេ។ វាចាប់ផ្ដើមដោយ cmux-vnc://pair។"
+            "value": "នោះមិនមែនជាតំណ Mac Screen ពេញលេញទេ។ សូមចម្លងវាម្តងទៀតពី ចែករំលែក Mac នេះ នៅលើ Mac មួយទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 화면 링크가 아닙니다. 링크는 cmux-vnc://pair로 시작합니다."
+            "value": "완전한 Mac Screen 링크가 아닙니다. 다른 Mac의 이 Mac 공유에서 다시 복사하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Det er ikke en Mac-skjerm-lenke. Den starter med cmux-vnc://pair."
+            "value": "Det er ikke en fullstendig Mac Screen-lenke. Kopier den på nytt fra Del denne Macen på den andre Macen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "To nie jest łącze Ekranu Maca. Zaczyna się od cmux-vnc://pair."
+            "value": "To nie jest pełne łącze Mac Screen. Skopiuj je ponownie z opcji Udostępnij ten Mac na drugim Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este não é um link da Tela do Mac. Ele começa com cmux-vnc://pair."
+            "value": "Este não é um link completo do Mac Screen. Copie-o novamente em Compartilhar Este Mac no outro Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Это не ссылка «Экрана Mac». Такая ссылка начинается с cmux-vnc://pair."
+            "value": "Это неполная ссылка Mac Screen. Скопируйте ее снова в разделе «Поделиться этим Mac» на другом Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "นี่ไม่ใช่ลิงก์หน้าจอ Mac ลิงก์จะขึ้นต้นด้วย cmux-vnc://pair"
+            "value": "นี่ไม่ใช่ลิงก์ Mac Screen ที่สมบูรณ์ คัดลอกอีกครั้งจาก แชร์ Mac เครื่องนี้ บน Mac อีกเครื่อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu bir Mac Ekranı bağlantısı değil. Bağlantı cmux-vnc://pair ile başlar."
+            "value": "Bu tam bir Mac Screen bağlantısı değil. Diğer Mac’teki Bu Mac’i Paylaş bölümünden yeniden kopyalayın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Це не посилання «Екрана Mac». Таке посилання починається з cmux-vnc://pair."
+            "value": "Це неповне посилання Mac Screen. Скопіюйте його знову в розділі «Поширити цей Mac» на іншому Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đó không phải là liên kết Màn hình Mac. Liên kết bắt đầu bằng cmux-vnc://pair."
+            "value": "Đó không phải là liên kết Mac Screen đầy đủ. Hãy sao chép lại từ Chia sẻ máy Mac này trên máy Mac kia."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "这不是“Mac 屏幕”链接。此类链接以 cmux-vnc://pair 开头。"
+            "value": "这不是完整的 Mac Screen 链接。请在另一台 Mac 的“共享这台 Mac”中再次拷贝。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "這不是「Mac 螢幕」連結。此類連結以 cmux-vnc://pair 開頭。"
+            "value": "這不是完整的 Mac Screen 連結。請在另一部 Mac 的「分享這部 Mac」中再次拷貝。"
           }
         }
       }

@@ -143,6 +143,8 @@ public struct MacScreenHomeView: View {
                     TextField(L.t("macScreen.home.linkPlaceholder", "cmux-vnc://pair?…"), text: $linkText)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(pair)
+                        // An error describes the link that was tried; editing the field clears it.
+                        .onChange(of: linkText) { addError = nil }
                         .accessibilityIdentifier("macScreen.home.link")
                     Button(L.t("macScreen.home.pair", "Pair and Connect"), action: pair)
                         .keyboardShortcut(.defaultAction)
@@ -172,7 +174,7 @@ public struct MacScreenHomeView: View {
 
     private func message(_ error: MacScreenStore.AddError) -> String {
         switch error {
-        case .notALink: L.t("macScreen.home.error.notALink", "That is not a Mac Screen link. It starts with cmux-vnc://pair.")
+        case .notALink: L.t("macScreen.home.error.notALink", "That isn’t a complete Mac Screen link. Copy it again from Share This Mac on the other Mac.")
         case .notAScreenStream: L.t("macScreen.home.error.notAStream", "This link is for a VNC relay, not a screen stream. Share the Mac from cmux or with cmux-vnc-host --capture.")
         case .ownLink: L.t("macScreen.home.error.ownLink", "That is this Mac’s own link. Paste it on the other Mac.")
         case .secretNotSaved: L.t("macScreen.home.error.secretNotSaved", "The Keychain did not save this Mac’s pairing. Unlock your login Keychain and paste the link again.")
