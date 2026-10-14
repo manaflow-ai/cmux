@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -27,6 +28,28 @@ struct NewTabPrewarmStallTests {
             pool.prewarm()
             let held = ContinuousClock.now - start
             #expect(held < .milliseconds(100), "prewarm held the main thread for \(held) (made \(made))")
+        }
+    }
+
+    /// sandboxd never answers: the pool makes no spare this run and the main thread stays free.
+    @Test func aWedgedWebKitSetupGetsNoSpare() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-prewarm-wedged")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let pool = NewTabSparePool(services: services)
+            var made = 0
+            pool.makeSpare = { _ in
+                made += 1
+                return nil
+            }
+            pool.webKit.request = { Thread.sleep(forTimeInterval: 600) } // a wedged sandboxd
+            pool.prewarm()
+            pool.start()
+            #expect(pool.webKit.state == .probing)
+            // The main actor keeps turning while the probe hangs: this wait runs on it.
+            try await Task.sleep(for: WebKitSetupGate.timeout + .milliseconds(500))
+            #expect(pool.webKit.state == .slow)
+            #expect(made == 0)
         }
     }
 }
