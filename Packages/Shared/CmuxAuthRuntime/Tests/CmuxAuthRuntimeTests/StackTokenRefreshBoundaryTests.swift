@@ -109,6 +109,8 @@ struct StackTokenRefreshBoundaryTests {
         // The SDK reports refresh 429s to the process-wide instance. End any
         // limited period an earlier test left, then record from here.
         let telemetry = StackRateLimitTelemetry.shared
+        // Drain anything buffered by earlier tests, then end their period.
+        telemetry.setSink { _ in }
         telemetry.succeeded(.tokenRefresh)
         let recorded = OSAllocatedUnfairLock(initialState: [StackRateLimitTelemetryEvent]())
         telemetry.setSink { event in

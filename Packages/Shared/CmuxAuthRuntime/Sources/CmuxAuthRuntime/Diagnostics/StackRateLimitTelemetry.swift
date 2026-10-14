@@ -52,6 +52,11 @@ public final class StackRateLimitTelemetry: Sendable {
     static let unscopedWindow: Duration = .seconds(60)
     /// Events kept while no sink is attached.
     static let pendingLimit = 32
+    /// A limited period with no 429 for this long past its window is over
+    /// without a success (the flow gave up, signed out, or lost its session).
+    /// It ends silently, so a later success is not reported as a recovery and
+    /// a later 429 starts a new period.
+    static let staleAfter: Duration = .seconds(30 * 60)
 
     private struct PhaseState {
         var limitedSince: ContinuousClock.Instant
@@ -116,7 +121,9 @@ public final class StackRateLimitTelemetry: Sendable {
     public func succeeded(_ phase: StackAuthRateLimitPhase) {
         let instant = now()
         let event = state.withLock { state -> StackRateLimitTelemetryEvent? in
-            guard let limited = state.phases.removeValue(forKey: phase) else { return nil }
+            guard let limited = state.phases.removeValue(forKey: phase),
+                  instant < limited.quietUntil + Self.staleAfter
+            else { return nil }
             let seconds = Self.wholeSeconds(instant - limited.limitedSince)
             return StackRateLimitTelemetryEvent(phase: phase, kind: .recovered(limitedForSeconds: seconds), date: date())
         }
@@ -134,6 +141,7 @@ public final class StackRateLimitTelemetry: Sendable {
         let instant = now()
         let event = state.withLock { state -> StackRateLimitTelemetryEvent? in
             var phaseState = state.phases[phase]
+                .flatMap { instant < $0.quietUntil + Self.staleAfter ? $0 : nil }
                 ?? PhaseState(limitedSince: instant, quietUntil: instant, observed: 0)
             phaseState.observed += 1
             defer { state.phases[phase] = phaseState }

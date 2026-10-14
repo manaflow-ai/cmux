@@ -56,7 +56,9 @@ public protocol StackAuthRateLimitObserver: Sendable {
 /// Process-wide routing of SDK rate-limit signals to one observer.
 public enum StackAuthRateLimitReporting {
     /// Set by an app flow that reports the 429s of its own calls with its
-    /// own backoff, so the SDK does not report them a second time.
+    /// own backoff, so the SDK does not report them a second time. Tasks
+    /// created inside the scope inherit it, so keep the scope to the calls
+    /// the flow reports; refresh-exchange 429s are reported regardless.
     @TaskLocal public static var callerReports = false
 
     private static let lock = NSLock()
@@ -99,16 +101,17 @@ public enum StackAuthRateLimitReporting {
         return String(joined.prefix(200))
     }
 
+    /// Keeps only segments shaped like route words (`users`, `sign-in`,
+    /// `v1`); anything else, including ids, tokens and addresses, is an id.
     private static func isIdentifierLike(_ segment: String) -> Bool {
-        guard !segment.isEmpty else { return false }
-        if segment.contains("@") || segment.contains("%") { return true }
-        if UUID(uuidString: segment) != nil { return true }
-        if segment.allSatisfy(\.isNumber) { return true }
-        if segment.count >= 16, segment.allSatisfy(\.isHexDigit) { return true }
-        // Opaque ids and tokens: long, and mixing digits into letters.
-        if segment.count >= 20, segment.contains(where: \.isNumber) { return true }
-        // Only plain path words survive.
-        return !segment.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".") }
+        guard let first = segment.first else { return false }
+        let isVersion = first == "v" && (2...3).contains(segment.count)
+            && segment.dropFirst().allSatisfy { $0.isASCII && $0.isNumber }
+        if isVersion { return false }
+        let isRouteWord = segment.count <= 24
+            && first.isASCII && first.isLowercase
+            && segment.allSatisfy { ($0.isASCII && $0.isLowercase) || $0 == "-" || $0 == "_" }
+        return !isRouteWord
     }
 }
 

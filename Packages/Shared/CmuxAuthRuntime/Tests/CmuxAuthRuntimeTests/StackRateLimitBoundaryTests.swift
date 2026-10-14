@@ -117,9 +117,9 @@ struct StackRateLimitBoundaryTests {
         #expect(harness.flow.isRetryingAfterRateLimit == false)
         #expect(server.requestCount("GET", "/api/v1/users/me") == AuthRateLimit.maximumRetries + 1)
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
-        // Seven 429s within one coalescing window are one record, so
+        // Seven 429s about 1 s apart give one record per 10 s window, so
         // telemetry does not grow with the retries.
-        #expect(harness.telemetry.events.count == 1)
+        #expect((1...2).contains(harness.telemetry.events.count))
         #expect(harness.telemetry.events.first?.phase == .signInCompletion)
     }
 

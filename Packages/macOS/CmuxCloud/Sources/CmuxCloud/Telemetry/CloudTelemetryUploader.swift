@@ -112,6 +112,12 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
         schedule()
     }
 
+    /// Starts a drain for spans persisted by an earlier launch.
+    public func resumePending() {
+        loadIfNeeded()
+        if !entries.isEmpty { schedule() }
+    }
+
     private func trimToCapacity() {
         while entries.count > 2000 {
             let index = entries.firstIndex { $0.span.outcome == .success } ?? 0
@@ -147,7 +153,13 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
         defer { if generation == currentGeneration { uploadTask = nil } }
         var failures = 0
         while !Task.isCancelled, generation == currentGeneration, !entries.isEmpty {
-            guard let identity = await auth.authenticatedSessionIdentity else { return }
+            guard let identity = await auth.authenticatedSessionIdentity else {
+                // Install-scoped records wait for a session: check again
+                // later instead of waiting for the next span to schedule a drain.
+                guard entries.contains(where: { $0.accountKey == nil }) else { return }
+                try? await Task.sleep(for: .seconds(60))
+                continue
+            }
             let key = Self.accountKey(identity.accountID)
             entries.removeAll { !$0.uploadable(by: key) || $0.span.endedAtMs < Self.nowMs - 86_400_000 }
             guard let first = entries.first else { persist(); return }
