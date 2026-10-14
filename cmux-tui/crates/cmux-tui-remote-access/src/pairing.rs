@@ -101,22 +101,32 @@ struct PairingState {
     scoped_page_credentials: VecDeque<Credential>,
 }
 
+/// The broker's clock (an injected one in tests, so expiry needs no sleep).
+type Clock = Box<dyn Fn() -> Instant + Send + Sync>;
+
 pub struct PairingBroker {
     state: Mutex<PairingState>,
+    clock: Clock,
 }
 
 impl PairingBroker {
     // Move-only crate split: `new` became pub for core; a Default impl would be a new API.
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self { state: Mutex::new(PairingState::default()) }
+        Self { state: Mutex::new(PairingState::default()), clock: Box::new(Instant::now) }
+    }
+
+    /// A broker on an injected clock (tests of expiry without sleeps).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_clock(clock: impl Fn() -> Instant + Send + Sync + 'static) -> Self {
+        Self { state: Mutex::new(PairingState::default()), clock: Box::new(clock) }
     }
 
     pub fn begin(
         &self,
         peer: IpAddr,
     ) -> Result<(PairingChallenge, Receiver<PairingDecision>), PairingError> {
-        let now = Instant::now();
+        let now = (self.clock)();
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
         if state.pending.values().any(|request| request.peer == peer) {
@@ -181,7 +191,7 @@ impl PairingBroker {
         approve: bool,
         commit: impl FnOnce(&PairingChallenge) -> anyhow::Result<R>,
     ) -> anyhow::Result<Option<R>> {
-        let now = Instant::now();
+        let now = (self.clock)();
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
         let Some(challenge) = state.pending.get(&id).map(|request| request.challenge.clone())
@@ -237,7 +247,7 @@ impl PairingBroker {
     }
 
     fn issue_page_credential(&self, page: Option<String>) -> Result<(String, u64), PairingError> {
-        let now = Instant::now();
+        let now = (self.clock)();
         let value = random_credential()?;
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         Self::prune(&mut state, now);
@@ -273,7 +283,7 @@ impl PairingBroker {
         provided: &str,
         handshake_page: Option<&str>,
     ) -> CredentialMatch {
-        let now = Instant::now();
+        let now = (self.clock)();
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
         if state
@@ -301,7 +311,7 @@ impl PairingBroker {
     }
 
     pub fn pending(&self) -> Vec<PairingChallenge> {
-        let now = Instant::now();
+        let now = (self.clock)();
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
         state.pending.values().map(|request| request.challenge.clone()).collect()
@@ -390,5 +400,24 @@ mod tests {
             assert!(broker.cancel(challenge.id));
         }
         assert!(matches!(broker.begin(peer), Err(PairingError::RateLimited)));
+    }
+
+    #[test]
+    fn a_page_bound_credential_expires_after_two_minutes() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let start = Instant::now();
+        let elapsed = Arc::new(AtomicU64::new(0));
+        let clock = elapsed.clone();
+        let broker = PairingBroker::with_clock(move || {
+            start + Duration::from_secs(clock.load(Ordering::SeqCst))
+        });
+        let (fresh, ttl) = broker.issue_for_page("home-channels").unwrap();
+        assert_eq!(ttl, 120);
+        let (stale, _) = broker.issue_for_page("home-channels").unwrap();
+        elapsed.store(119, Ordering::SeqCst);
+        assert_eq!(broker.authenticate_for(&fresh, Some("home-channels")), CredentialMatch::Page);
+        elapsed.store(121, Ordering::SeqCst);
+        assert_eq!(broker.authenticate_for(&stale, Some("home-channels")), CredentialMatch::None);
     }
 }

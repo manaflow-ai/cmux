@@ -262,9 +262,22 @@ fn a_page_bound_credential_admits_only_its_page_and_never_the_person() {
     page.until_event("conversation-changed");
     let names: Vec<&str> = page.events.iter().filter_map(|event| event["event"].as_str()).collect();
     assert!(names.iter().all(|name| name.starts_with("conversation-")), "{names:?}");
-    // It is never the person: no Cloud command.
-    let cloud = page.rpc(json!({"cmd": "cloud-session-status"}));
-    assert_eq!(cloud["ok"], false, "{cloud}");
+    // It is never the person: no Cloud command at all.
+    for request in [
+        json!({"cmd": "cloud-session-status"}),
+        json!({"cmd": "cloud-inbox-list"}),
+        json!({"cmd": "cloud-inbox-subscribe"}),
+        json!({"cmd": "cloud-conversation-snapshot", "conversation": "conv_0123456789ABCDEFGHJKMNPQRS"}),
+        json!({"cmd": "cloud-conversation-op", "conversation": "conv_0123456789ABCDEFGHJKMNPQRS",
+               "idempotency_key": "spc-cloud", "origin": "user",
+               "op": {"kind": "message.send", "client_msg_id": "spc-cloud",
+                      "parts": [{"type": "text", "text": "hi"}]}}),
+        json!({"cmd": "cloud-session-set", "api_base_url": "https://cloud-api-staging.cmux.dev",
+               "access_token": "e30.e30.sig", "expires_at": 4_102_444_800_000_u64}),
+    ] {
+        let refused = page.rpc(request.clone());
+        assert_eq!(refused["ok"], false, "{request}: {refused}");
+    }
     // A WebSocket connection never mints a credential.
     assert_eq!(page.rpc(json!({"cmd": "page-credential", "page": "home-channels"}))["ok"], false);
 
