@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use ghostty_vt::{
-    Callbacks, Cell, ColorSpec, CursorShape, Dirty, RenderState, Rgb, Terminal,
+    Callbacks, Cell, ColorSpec, CursorShape, Dirty, Error, RenderState, Rgb, Terminal,
     TerminalColorOverrides,
 };
 
