@@ -1867,9 +1867,10 @@ export function VirtualTranscript({
         role="feed"
         aria-label={t("transcript.label")}
         onScroll={onScroll}
-        // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more lies below.
-        data-fade-top={scroll.top > 0.5 || undefined}
-        data-fade-bottom={layout.totalHeight - scroll.top - height > 0.5 || undefined}
+        // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
+        // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        data-fade-top={renderScroll.top > 0.5 || undefined}
+        data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
       >
         <ThreadMinimap
           rows={rows}

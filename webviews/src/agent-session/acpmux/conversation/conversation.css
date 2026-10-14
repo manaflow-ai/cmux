@@ -2025,6 +2025,10 @@ pre.cv-math-source {
 .acpmux-scroll[data-fade-bottom] {
   --acpmux-fade-bottom: 18px;
 }
+/* Find in Chat's bar sits in the top band: it keeps full ink, and rows pass under it. */
+.acpmux-scroll[data-fade-top]:has(> .acpmux-find) {
+  --acpmux-fade-top: 0px;
+}
 .acpmux-scroll[data-fade-top],
 .acpmux-scroll[data-fade-bottom] {
   -webkit-mask-image: linear-gradient(

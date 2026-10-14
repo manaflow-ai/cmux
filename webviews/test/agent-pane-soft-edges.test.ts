@@ -173,7 +173,10 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
         "agent_message_chunk",
         update({
           sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: `Paragraph ${chunk}: a client that fails waits longer before each retry.\n\n` },
+          content: {
+            type: "text",
+            text: `Paragraph ${chunk}: a client that fails waits longer before each retry.\n\n`,
+          },
         }),
       );
       await Bun.sleep(40);
