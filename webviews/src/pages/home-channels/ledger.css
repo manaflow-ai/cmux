@@ -1530,3 +1530,6 @@
   padding: 6px 8px;
   text-align: start;
 }
+.hc-lightbox-body {
+  display: contents;
+}
