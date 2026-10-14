@@ -65,6 +65,10 @@ impl World {
     }
 
     fn run(&self, app_socket: &Path, args: &[&str]) -> Output {
+        self.run_in(app_socket, "C", args)
+    }
+
+    fn run_in(&self, app_socket: &Path, locale: &str, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .arg("--app-socket")
             .arg(app_socket)
@@ -72,7 +76,7 @@ impl World {
             .current_dir(&self.work)
             .env("HOME", &self.home)
             .env("PATH", &self.bin)
-            .env("LC_ALL", "C")
+            .env("LC_ALL", locale)
             .env_remove("LANG")
             .env_remove("LC_MESSAGES")
             .env_remove("CLAUDE_CONFIG_DIR")
@@ -184,6 +188,49 @@ fn assert_row_schema(report: &Value) {
         let mut keys: Vec<&str> = row.as_object().unwrap().keys().map(String::as_str).collect();
         keys.sort_unstable();
         assert_eq!(keys, ["detail", "fix", "fix_url", "id", "reason", "status"], "{row}");
+    }
+}
+
+/// Every command a `fix` names in backticks works as written: a `cmux`
+/// command runs and exits 0 here (a CLI-exempt or unknown action would be
+/// refused), and an `open` opens exactly the row's `fix_url`. A row with a
+/// `fix_url` names that `open` command.
+#[track_caller]
+fn assert_fixes_runnable(world: &World, app_socket: &Path, report: &Value) {
+    for row in report["checks"].as_array().unwrap() {
+        let Some(fix) = row["fix"].as_str() else {
+            assert_eq!(row["fix_url"], Value::Null, "fix_url without a fix: {row}");
+            continue;
+        };
+        if let Some(url) = row["fix_url"].as_str() {
+            assert!(
+                fix.contains(&format!("`open '{url}'`")),
+                "fix does not open its fix_url: {row}"
+            );
+        }
+        for command in fix.split('`').skip(1).step_by(2) {
+            if let Some(target) = command.strip_prefix("open ") {
+                assert_eq!(
+                    Some(target),
+                    row["fix_url"].as_str().map(|url| format!("'{url}'")).as_deref(),
+                    "{row}"
+                );
+                continue;
+            }
+            let args: Vec<&str> = command
+                .strip_prefix("cmux ")
+                .unwrap_or_else(|| panic!("fix command is neither cmux nor open: {row}"))
+                .split_whitespace()
+                .collect();
+            let output = world.run(app_socket, &args);
+            assert!(
+                output.status.success(),
+                "fix command `{command}` exited {:?}: {}{} in {row}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 }
 
@@ -343,4 +390,46 @@ fn agents_doctor_reports_configured_wiring_and_app_grants() {
         assert_eq!(accessibility["status"], "not_applicable", "{report}");
         assert_eq!(screen_recording["status"], "not_applicable", "{report}");
     }
+}
+
+/// Every fix the doctor can print, for every app answer and both languages,
+/// is a command an agent can run as written.
+#[test]
+fn agents_doctor_fix_commands_are_runnable() {
+    let world = World::new("fixes");
+    world.harness("claude");
+    std::fs::write(
+        world.work.join(".mcp.json"),
+        r#"{"mcpServers":{"cmux-cua":{"command":"cmux-cua"}}}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(world.home.join(".codex")).unwrap();
+    std::fs::write(world.home.join(".codex/config.toml"), "[mcp_servers\n").unwrap();
+
+    let statuses = [
+        json!({"phase": "ready", "accessibility": false, "screen_recording": false}),
+        json!({"phase": "ready"}),
+        json!({"phase": "off"}),
+        json!({"phase": "disabled_by_policy"}),
+        json!({"phase": "unavailable"}),
+        json!({"phase": "starting"}),
+        json!({"phase": "version_mismatch"}),
+        json!({"phase": "from_a_newer_app"}),
+    ];
+    for locale in ["C", "ja_JP.UTF-8"] {
+        let no_app = world.dir.join("no-app.sock");
+        let doctor = report(&world.run_in(&no_app, locale, &["--json", "agents", "doctor"]));
+        assert_row_schema(&doctor);
+        assert_fixes_runnable(&world, &no_app, &doctor);
+        for status in &statuses {
+            let app = FakeApp::start(&world.dir, status.clone());
+            let doctor =
+                report(&world.run_in(&app.socket, locale, &["--json", "agents", "doctor"]));
+            assert_row_schema(&doctor);
+            assert_fixes_runnable(&world, &app.socket, &doctor);
+            app.stop();
+            std::fs::remove_file(world.dir.join("app.sock")).unwrap();
+        }
+    }
+    assert!(!world.marker("claude").exists(), "doctor ran the claude it found");
 }
