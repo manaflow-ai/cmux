@@ -50,8 +50,9 @@ enum WorkspaceBulkClose {
             closing = id == "palette.closeOtherWorkspaces" ? order.filter { $0 != target.id }
                 : id == "palette.closeWorkspacesBelow" ? Array(order[(index + 1)...]) : Array(order[..<index])
         }
-        // A workspace with no key cannot close (WorkspaceClose); it neither counts nor leaves.
-        let members = closing.compactMap { context.services.machines.workspace(id: $0) }.filter { $0.0.key != nil }
+        // The store's home workspace never closes (`home_not_closable`, HomeRules), and a
+        // workspace with no key cannot (WorkspaceClose): they neither count nor leave.
+        let members = closing.compactMap { context.services.machines.workspace(id: $0) }.filter { $0.0.key != nil && !HomeRules.isHome($0.0) }
         return (members, survivor(closing: members.map(\.0.id), context))
     }
 

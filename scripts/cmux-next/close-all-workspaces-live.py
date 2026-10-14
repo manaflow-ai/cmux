@@ -7,17 +7,17 @@ home; it never opens Home or the Chief pane) on a GUI host, then drives every su
 actions through the real product boundaries:
 
   palette   palette.query lists Close All Workspaces and Close All Workspaces in All Windows; the
-            palette opens with the query (debug.palette.capture), and Return runs the top row: with
-            one window and four workspaces no window stays open to undo, so the close asks
-            ("Close 4 workspaces?"); Cancel keeps all four.
+            palette opens with the query (debug.palette.capture), and Return runs the top row: a
+            terminal in the window runs `sleep`, so the close asks ("Still running: sleep");
+            Cancel keeps all four workspaces.
   script    action.run without confirm is refused ("is destructive").
   cli       `cmux workspace close-all` without --confirm is refused; `close-other --confirm` and
             `close-all-in-all-windows --confirm` close.
   mcp       `cmux mcp serve` lists app_workspace_close_all and app_workspace_close_all_in_all_windows,
-            and tools/call app_workspace_close_all (confirm) closes a window's workspaces.
-  undo      a person's Close All Workspaces of window 1 while window 2 stays open runs at once (no
-            question), closes window 1, shows "Closed 4 workspaces" in window 2, and Undo reopens all
-            four.
+            and tools/call app_workspace_close_all (confirm) closes the active window's workspaces.
+  undo      a person's Close All Workspaces of window 1, confirmed, closes its four workspaces and
+            shows "Closed 4 workspaces" with Undo in a window that stays open; Undo reopens all four.
+The store's hidden home workspace never closes (home_not_closable), so the window that owns it stays.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   close-all-workspaces-live.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/proof"
@@ -130,14 +130,18 @@ def shot(name):
 
 
 def make_workspaces(names):
-    """Names the current workspace names[0], then adds one workspace per remaining name."""
+    """Names the current workspace names[0], then creates one workspace per remaining name.
+    Returns {name: terminal id} for the created ones."""
     cli("workspace", "current", "rename", names[0])
+    terminals = {}
     for name in names[1:]:
-        count = len(workspace_titles())
-        action("workspace.newAtBottom")
-        wait(lambda: len(workspace_titles()) > count, 30)
-        cli("workspace", "current", "rename", name)
-    return wait(lambda: all(n in workspace_titles() for n in names), 15)
+        done = cli("workspace", "create", "--name", name, "--json")
+        try:
+            terminals[name] = (json.loads(done.stdout).get("value") or {}).get("terminal_id")
+        except ValueError:
+            terminals[name] = None
+    wait(lambda: all(n in workspace_titles() for n in names), 15)
+    return terminals
 
 
 def mcp(requests):
@@ -174,13 +178,17 @@ try:
     print("launched pid", app.pid, flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and workspace_titles(), 180):
         sys.exit("the tagged app did not come up")
-    check(bool(make_workspaces(["alpha", "beta", "gamma", "delta"])), "window 1 lists four workspaces", workspace_titles())
+    terminals = make_workspaces(["alpha", "beta", "gamma", "delta"])
+    check(all(n in workspace_titles() for n in ["alpha", "beta", "gamma", "delta"]), "window 1 lists four workspaces", workspace_titles())
+    if terminals.get("delta"):
+        cli("terminal", str(terminals["delta"]), "write", "--text", "sleep 600\n")
+        time.sleep(1.5)  # test harness: the shell starts sleep before the close asks process-info
 
     # palette ---------------------------------------------------------------------------------
     reply = rpc("palette.query", {"scope": "root", "query": "close all workspaces", "limit": 8}) or {}
     ids = [item.get("id") for item in reply.get("items") or []]
     json.dump(reply, open(os.path.join(opts.out, "palette-query.json"), "w"), indent=1)
-    check(any("workspace.closeAll" == i or str(i).endswith(":workspace.closeAll") for i in ids), "the palette lists Close All Workspaces", ids)
+    check(any(str(i).endswith("workspace.closeAll") for i in ids), "the palette lists Close All Workspaces", ids)
     check(any(str(i).endswith("workspace.closeAllInAllWindows") for i in ids), "the palette lists Close All Workspaces in All Windows", ids)
     rpc("action.run", {"action": "palette.open", "args": {"query": "Close All Workspaces"}, "focus": True}, timeout=20)
     time.sleep(1.5)  # test harness: the palette ranks and paints its rows
@@ -188,14 +196,14 @@ try:
     check("error" not in (capture or {"error": 1}), "the palette shows the query", capture)
     shot("palette-window")
     rpc("debug.key", {"key": "return"}, timeout=10)
-    asked = wait(lambda: next((d for d in dialogs() if "4" in json.dumps(d)), None), 10)
-    check(bool(asked), "Return in the palette runs Close All Workspaces, which asks (no window stays to undo)", dialogs())
+    asked = wait(lambda: next((d for d in dialogs() if "sleep" in json.dumps(d)), None), 10)
+    check(bool(asked), "Return in the palette runs Close All Workspaces, which asks (sleep runs)", dialogs())
     shot("confirm-dialog")
     json.dump(dialogs(), open(os.path.join(opts.out, "dialogs.json"), "w"), indent=1)
     rpc("debug.dialog", {"press": "cancel"})
     wait(lambda: not dialogs(), 5)
     time.sleep(1)  # test harness: a cancelled close must change nothing
-    check(len(workspace_titles()) == 4, "Cancel keeps all four workspaces", workspace_titles())
+    check(all(n in workspace_titles() for n in ["alpha", "beta", "gamma", "delta"]), "Cancel keeps all four workspaces", workspace_titles())
 
     # script and cli refusals ---------------------------------------------------------------------
     reply = action("workspace.closeAll")
@@ -221,10 +229,12 @@ try:
     wait(lambda: len(workspace_titles()) >= 5, 20)
     reply = rpc("debug.toast", {"perform": "workspace.closeAll", "target_kind": "window", "target_id": first})
     print("perform closeAll:", json.dumps(reply)[:300], flush=True)
-    check(not wait(lambda: dialogs(), 2), "with a window left to undo it, no question", dialogs())
-    check(bool(wait(lambda: first not in window_ids(), 15)), "window 1 closes with its last workspace", window_ids())
+    check(bool(wait(lambda: next((d for d in dialogs() if "sleep" in json.dumps(d)), None), 10)), "the close of window 1 asks again (sleep runs)", dialogs())
+    rpc("debug.dialog", {"press": "confirm"})
+    check(bool(wait(lambda: not any(n in workspace_titles() for n in ["alpha", "beta", "gamma", "delta"]), 15)),
+          "Close confirmed: window 1's four workspaces close", workspace_titles())
     toast = wait(lambda: next((t for t in toasts() if t.get("id") == "workspaces-closed"), None), 10)
-    check(bool(toast) and "4" in json.dumps(toast), "window 2 shows “Closed 4 workspaces”", toasts())
+    check(bool(toast) and "4" in json.dumps(toast), "a window that stays shows “Closed 4 workspaces”", toasts())
     shot("undo-toast")
     reply = rpc("debug.toast", {"undo": True})
     check(bool((reply or {}).get("undone")), "Undo runs", reply)
@@ -245,11 +255,12 @@ try:
                     "params": {"name": "app_workspace_close_all", "arguments": {"confirm": True}}}])
     print("mcp call:", json.dumps(replies.get(3))[:300], flush=True)
     check(not ((replies.get(3) or {}).get("result") or {}).get("isError", True), "MCP app_workspace_close_all runs", replies.get(3))
-    check(bool(made) and bool(wait(lambda: made not in window_ids() and window_ids(), 15)),
-          "MCP close-all closes the active window only", (made, window_ids()))
+    check(bool(made) and bool(wait(lambda: made not in window_ids(), 15)), "MCP close-all closes the active window's workspaces (and the window)",
+          (made, window_ids()))
     done = cli("workspace", "close-all-in-all-windows", "--confirm")
-    check(done.returncode == 0 and bool(wait(lambda: not window_ids(), 15)), "`cmux workspace close-all-in-all-windows --confirm` closes every window",
-          window_ids())
+    check(done.returncode == 0 and bool(wait(lambda: not workspace_titles(), 15)),
+          "`cmux workspace close-all-in-all-windows --confirm` closes every listed workspace", workspace_titles())
+    print("windows left (the home workspace's window stays):", window_ids(), flush=True)
 finally:
     if app is not None:
         print("the job's NX_APP_STOP stops the app (pid %d)" % app.pid, flush=True)
