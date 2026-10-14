@@ -110,18 +110,19 @@ pub fn decide(summary: &mut Value) {
 /// The summary's `lastMessage`, one sidebar line: the last line of words in
 /// the agent's reply, or the prompt while the turn has not answered yet.
 /// Null before the first prompt.
-fn last_message(m: &SessionMeta) -> Value {
+fn last_message(m: &SessionMeta) -> Option<crate::protocol::session::LastMessage> {
+    use crate::protocol::session::{LastMessage, MessageRole};
     let reply = m
         .preview
         .as_deref()
         .and_then(|p| p.lines().rev().find(|l| l.chars().any(char::is_alphanumeric)));
     if let Some(line) = reply {
-        return json!({"role": "agent", "text": short_text(line, 160)});
+        return Some(LastMessage { role: MessageRole::Agent, text: short_text(line, 160) });
     }
-    match m.last_prompt.as_deref().filter(|p| !p.trim().is_empty()) {
-        Some(prompt) => json!({"role": "user", "text": short_text(prompt, 160)}),
-        None => Value::Null,
-    }
+    m.last_prompt
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+        .map(|prompt| LastMessage { role: MessageRole::User, text: short_text(prompt, 160) })
 }
 
 /// What limits a session's agent as far as acpmux can tell. `policy` is
@@ -159,57 +160,86 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
+        use crate::protocol::session::{QueuedPromptSummary, SessionSummary, TurnSummary};
         let m = session.meta();
         let turn = session.turn();
-        let mut summary = json!({
-            "sessionId": m.id,
-            "name": m.name,
-            "harness": m.harness,
-            "family": m.family,
-            "cwd": m.cwd,
-            "status": m.status.to_string(),
-            "agentSessionId": m.agent_session_id,
-            "createdAt": m.created_at,
-            "updatedAt": m.updated_at,
-            "lastSeq": m.last_seq,
-            "eventCount": m.event_count,
-            "turnCount": m.turn_count,
-            "parentId": m.parent_id,
+        let summary = SessionSummary {
+            session_id: m.id.clone(),
+            name: m.name.clone(),
+            harness: m.harness.clone(),
+            family: m.family.clone(),
+            cwd: m.cwd.to_string_lossy().into_owned(),
+            status: m.status.to_string(),
+            agent_session_id: m.agent_session_id.clone(),
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+            last_seq: m.last_seq,
+            event_count: m.event_count,
+            turn_count: m.turn_count,
+            parent_id: m.parent_id.clone(),
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
-            "forkSeq": m.fork_seq,
-            "title": m.title,
-            "lastPrompt": m.last_prompt,
-            "preview": m.preview.as_deref().map(|p| short_text(p, 160)),
-            "lastMessage": last_message(&m),
-            "queued": session.queued(),
+            fork_seq: m.fork_seq,
+            title: m.title.clone(),
+            last_prompt: m.last_prompt.clone(),
+            preview: m.preview.as_deref().map(|p| short_text(p, 160)),
+            last_message: last_message(&m),
+            queued: session.queued(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
-            "queuePaused": session.queue_paused(),
+            queue_paused: session.queue_paused(),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
-            "moving": session.moving().is_some(),
+            moving: session.moving().is_some(),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
-            "steering": session.steering.load(Ordering::SeqCst),
-            "turn": turn.map(|t| json!({"startedAt": t.started_at, "client": t.client, "prompt": t.prompt_preview, "turnId": t.turn_id, "promptId": t.prompt_id, "turnSeq": t.turn_seq})),
-            "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at, "held": q.held})).collect::<Vec<_>>(),
-            "pendingPermissions": session.pending_permissions().len(),
+            steering: session.steering.load(Ordering::SeqCst),
+            turn: turn.map(|t| TurnSummary {
+                started_at: t.started_at,
+                client: t.client,
+                prompt: t.prompt_preview,
+                turn_id: t.turn_id,
+                prompt_id: t.prompt_id,
+                turn_seq: t.turn_seq,
+            }),
+            queue: session
+                .queue()
+                .into_iter()
+                .map(|q| QueuedPromptSummary {
+                    prompt_id: q.prompt_id,
+                    turn_id: q.turn_id,
+                    client: q.client,
+                    prompt: q.preview,
+                    queued_at: q.queued_at,
+                    held: q.held,
+                })
+                .collect(),
+            pending_permissions: session.pending_permissions().len() as u64,
             // Since when it waits on the person (`lane`); null while it does not.
-            "inputSince": match session.input_since.load(Ordering::SeqCst) {
-                0 => Value::Null,
-                since => json!(since),
+            input_since: match session.input_since.load(Ordering::SeqCst) {
+                0 => None,
+                since => Some(since),
             },
-            "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
-            "model": current_model(&m),
-            "policy": m.permission_policy,
-            "enforcement": self.session_enforcement(&m),
-            "rules": m.permission_rules.is_some(),
-            "tags": live_tags(&m),
-            "stateSeq": session.state_seq.load(Ordering::SeqCst),
-            "unread": m.unread,
-            "lastTurn": m.last_turn,
-            "attached": session.attached.load(Ordering::SeqCst),
+            current_mode_id: m
+                .modes
+                .as_ref()
+                .and_then(|x| x.get("currentModeId"))
+                .cloned()
+                .unwrap_or(Value::Null),
+            model: current_model(&m),
+            policy: m.permission_policy.clone(),
+            enforcement: self.session_enforcement(&m),
+            rules: m.permission_rules.is_some(),
+            tags: live_tags(&m),
+            state_seq: session.state_seq.load(Ordering::SeqCst),
+            unread: m.unread,
+            last_turn: m.last_turn.clone(),
+            attached: session.attached.load(Ordering::SeqCst) as u64,
             // Some attached client shows the chat (`hub/seen.rs`).
-            "shown": self.shown(session),
-        });
+            shown: self.shown(session),
+            // Set from the summary's own fields by `decide`.
+            indicator: None,
+            lane: None,
+            peer: None,
+        };
+        let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
         decide(&mut summary);
         summary
     }
