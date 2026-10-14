@@ -80,6 +80,7 @@ ${tooltips}
 <div class="md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
 <div class="lg-palette" id="lg-palette">Search conversations</div>
+<div class="lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     surfaces: [
       "menu",
@@ -91,6 +92,7 @@ ${tooltips}
       "md-link-popover",
       "hc-msg-toolbar",
       "lg-palette",
+      "lg-form",
       "editor-widget",
     ],
   };
