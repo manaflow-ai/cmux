@@ -61,8 +61,9 @@ public enum CnxHostEvent: Sendable, Equatable {
             self = .phoneDown(sessionID: session, reason: wire.reason ?? "")
         case "pair_request":
             guard let phone = wire.phoneDeviceId, let identity = wire.identityKey, let approval = wire.approvalKey else { return nil }
-            self = .pairRequest(CnxPairRequest(phoneDeviceID: phone, name: wire.name ?? "",
-                                               identityKey: identity, approvalKey: approval))
+            let registered = wire.registeredAtMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+            self = .pairRequest(CnxPairRequest(phoneDeviceID: phone, name: wire.name ?? "", identityKey: identity,
+                                               approvalKey: approval, registeredAt: registered))
         case "unpaired":
             guard let phone = wire.phoneDeviceId else { return nil }
             self = .unpaired(phoneDeviceID: phone)
@@ -93,6 +94,7 @@ public enum CnxHostEvent: Sendable, Equatable {
         var name: String?
         var identityKey: String?
         var approvalKey: String?
+        var registeredAtMs: Int64?
         var request: UInt64?
         var tab: String?
         var url: String?

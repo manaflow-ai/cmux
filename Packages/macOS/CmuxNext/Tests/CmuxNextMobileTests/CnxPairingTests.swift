@@ -16,6 +16,60 @@ import Testing
         #expect(CnxHostEvent(line: #"{"type":"pair_request","phone_device_id":"p1"}"#) == nil)
     }
 
+    @Test func readsTheRegistrationDate() {
+        let line = #"{"type":"pair_request","phone_device_id":"p1","name":"Aziz's iPhone","identity_key":"\#(Self.identity)","approval_key":"\#(Self.approval)","registered_at_ms":1800000000500}"#
+        guard case .pairRequest(let request)? = CnxHostEvent(line: line) else {
+            Issue.record("not a pair request")
+            return
+        }
+        #expect(request.registeredAt == Date(timeIntervalSince1970: 1_800_000_000.5))
+        #expect(request.sameKeys(as: Self.request))
+    }
+
+    /// Anti-flood (audit M4): one waiting request per phone, a few phones at most, and a quiet
+    /// period after Don't Allow in which new requests are only counted.
+    @Test func promptsCollapseRepeatsAndQuietAfterADeny() {
+        var prompts = CnxPairPrompts()
+        let start = Date(timeIntervalSince1970: 1_000)
+        #expect(prompts.receive(Self.request, at: start) == .ask)
+        #expect(prompts.receive(Self.request, at: start) == .repeated)
+        // New keys from the waiting phone replace its request, without a new prompt.
+        var rotated = Self.request
+        rotated.approvalKey = "04" + String(repeating: "dd", count: 64)
+        #expect(prompts.receive(rotated, at: start) == .repeated)
+        #expect(prompts.pending == [rotated])
+        for index in 2...CnxPairPrompts.limit {
+            #expect(prompts.receive(Self.phone("p\(index)"), at: start) == .ask)
+        }
+        #expect(prompts.receive(Self.phone("flood"), at: start) == .blocked)
+        #expect(prompts.pending.count == CnxPairPrompts.limit && prompts.blocked == 1)
+        #expect(prompts.answer(id: "p2", allowed: true, at: start)?.phoneDeviceID == "p2")
+        #expect(!prompts.isQuiet(at: start))
+        #expect(prompts.answer(id: "p1", allowed: false, at: start) == rotated)
+        #expect(prompts.answer(id: "p1", allowed: false, at: start) == nil)
+        #expect(prompts.isQuiet(at: start.addingTimeInterval(CnxPairPrompts.quietPeriod - 1)))
+        #expect(prompts.receive(Self.phone("new"), at: start.addingTimeInterval(60)) == .blocked)
+        #expect(prompts.blocked == 2)
+        // Still waiting requests stay answerable; the quiet period ends on its own.
+        #expect(prompts.request(id: "p3") != nil)
+        let later = start.addingTimeInterval(CnxPairPrompts.quietPeriod)
+        #expect(!prompts.isQuiet(at: later))
+        #expect(prompts.receive(Self.phone("new"), at: later) == .ask)
+        prompts.forget(id: "new")
+        #expect(prompts.request(id: "new") == nil)
+    }
+
+    @Test func keysAreHex() {
+        #expect(CnxPairedDevices.bytes(hex: "0aFF") == Data([0x0A, 0xFF]))
+        #expect(CnxPairedDevices.bytes(hex: "abc") == nil)
+        #expect(CnxPairedDevices.bytes(hex: "zz") == nil)
+        #expect(CnxPairedDevices.fingerprint("00") == "6e340b9cffb37a98")
+    }
+
+    static func phone(_ id: String) -> CnxPairRequest {
+        CnxPairRequest(phoneDeviceID: id, name: id, identityKey: identity, approvalKey: approval)
+    }
+
     @Test func decisionsNeedTheSameKeys() {
         var devices = CnxPairedDevices(userID: "u")
         #expect(devices.decision(for: Self.request) == .ask)

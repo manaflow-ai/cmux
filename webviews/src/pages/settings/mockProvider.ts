@@ -141,6 +141,15 @@ export class MockSettingsProvider {
         if (iphone) this.setHost({ ...this.host, iphone: { ...iphone, phase: "connecting" } });
         return {};
       },
+      "cmux.settings.mobile.answer_pair": (params) => {
+        const iphone = this.host.iphone;
+        if (iphone)
+          this.setHost({
+            ...this.host,
+            iphone: { ...iphone, pending: (iphone.pending ?? []).filter((p) => p.id !== params.id) },
+          });
+        return {};
+      },
       "cmux.settings.mobile.remove_phone": (params) => {
         const iphone = this.host.iphone;
         if (iphone)

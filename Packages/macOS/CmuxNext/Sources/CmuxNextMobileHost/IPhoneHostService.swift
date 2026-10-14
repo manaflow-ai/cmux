@@ -76,8 +76,14 @@ public final class IPhoneHostService {
     @ObservationIgnored var dependencies: Dependencies?
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored let supervisor = CnxHostSupervisor()
-    /// Phones whose "Allow … to connect?" dialog is open.
-    @ObservationIgnored var asking: Set<String> = []
+    /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
+    internal(set) var prompts = CnxPairPrompts()
+    /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
+    @ObservationIgnored var pairDialog: (id: Int, request: CnxPairRequest)?
+    /// The banner and Dock bounce that tell the person about a request while cmux is not in front.
+    @ObservationIgnored public var pairNotices: IPhonePairNotices?
+    /// The Dock bounce of the waiting requests, cancelled once they are answered.
+    @ObservationIgnored var attentionRequest: Int?
     @ObservationIgnored var approverSync: CnxApproverSync?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// The one reconcile in flight; each waits for the previous one.
@@ -226,6 +232,8 @@ public final class IPhoneHostService {
         // Turning the setting on again is the person allowing connections again.
         if allowed, removed { clearRemoval() }
         self.allowed = allowed
+        // Turning connections off withdraws the waiting pairing requests and their prompt.
+        if !allowed { resetPrompts() }
         reconcile()
         refreshPhones()
     }
@@ -238,6 +246,7 @@ public final class IPhoneHostService {
         applying?.cancel()
         pairingWatch?.cancel()
         approverSync?.stop()
+        quietAttention()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent
         Task { await supervisor.stop() }

@@ -154,6 +154,14 @@ export type IPhoneHostState = {
   remove_help: string;
   /** With phase `removed` (the owner removed this Mac): the button that allows connections again. */
   allow_again_title?: string;
+  /** Phones asking to pair, oldest first; Allow and Don't Allow are the person's own gesture. */
+  pending_title?: string;
+  pending?: Array<{ id: string; title: string; subtitle: string }>;
+  pair_allow_title?: string;
+  pair_deny_title?: string;
+  /** "Blocked requests: N" after a Don't Allow quieted prompts (or too many asked); null when none. */
+  blocked?: string | null;
+  blocked_help?: string;
 };
 
 /** `ComputerUseSetup.Phase` in the app. */
@@ -337,6 +345,8 @@ export type SettingsOps = {
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
+  /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
+  "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */

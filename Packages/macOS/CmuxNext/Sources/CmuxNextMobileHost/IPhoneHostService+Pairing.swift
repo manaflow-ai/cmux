@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextDesign
 import CmuxNextMobile
 import Foundation
@@ -32,6 +33,7 @@ extension IPhoneHostService {
         if signedOut, let previous = paired {
             try? file.save(CnxPairedDevices(userID: previous.userID))
         }
+        if paired?.userID != account?.userID { resetPrompts() }
         paired = account.map { file.load(userID: $0.userID) }
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
             approverSync = CnxApproverSync(environment: environment)
@@ -42,6 +44,9 @@ extension IPhoneHostService {
     /// Settings > Mobile: forget a phone. Its live links end now, its next link asks
     /// again, and its Face ID approvals stop counting at once.
     public func revokePhone(id: String) {
+        prompts.forget(id: id)
+        showPairDialog()
+        if prompts.pending.isEmpty { quietAttention() }
         guard var list = paired else { return }
         list.remove(id)
         savePaired(list)
@@ -72,33 +77,88 @@ extension IPhoneHostService {
         case .ask:
             break
         }
-        guard asking.insert(request.phoneDeviceID).inserted else { return }
-        let name = request.name.isEmpty ? IPhoneHostStrings.unnamedPhone : request.name
+        let outcome = prompts.receive(request, at: Date())
+        Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) asks to pair: \(String(describing: outcome), privacy: .public)")
+        if outcome == .ask { announce(request) }
+        showPairDialog()
+    }
+
+    /// Settings > Mobile's Allow or Don't Allow on a waiting request (the person's own gesture,
+    /// ``MobilePageProvider``). False when phone `id` has no waiting request.
+    @discardableResult
+    public func answerPairRequest(id: String, allow: Bool) -> Bool {
+        guard let request = prompts.request(id: id) else { return false }
+        decide(request, allow: allow)
+        return true
+    }
+
+    /// The prompt shows the oldest waiting request, one at a time, unless a Don't Allow quiets
+    /// them; a request answered in Settings (or replaced) closes its prompt.
+    func showPairDialog() {
+        if let open = pairDialog, prompts.request(id: open.request.phoneDeviceID) != open.request {
+            pairDialog = nil
+            CmuxDialogCenter.shared.dismiss(open.id)
+        }
+        guard pairDialog == nil, !prompts.isQuiet(at: Date()), let request = prompts.pending.first else { return }
+        let name = Self.displayName(request)
+        var lines = [IPhoneHostStrings.pairBody(account?.email ?? account?.userID ?? "")]
+        if let registered = request.registeredAt { lines.append(IPhoneHostStrings.deviceRegistered(registered)) }
+        lines.append(IPhoneHostStrings.pairKey(CnxPairedDevices.fingerprint(request.approvalKey)))
         let spec = CmuxDialogSpec(
-            title: IPhoneHostStrings.pairTitle(name),
-            lines: [IPhoneHostStrings.pairBody(account?.email ?? account?.userID ?? ""),
-                    IPhoneHostStrings.pairKey(CnxPairedDevice(id: request.phoneDeviceID, name: name,
-                                                              identityKey: request.identityKey,
-                                                              approvalKey: request.approvalKey,
-                                                              pairedAt: Date()).fingerprint)],
+            title: IPhoneHostStrings.pairTitle(name), lines: lines,
             buttons: [CmuxDialogButton(id: Self.denyButton, title: IPhoneHostStrings.pairDeny, role: .cancel),
                       CmuxDialogButton(id: Self.allowButton, title: IPhoneHostStrings.pairAllow, role: .default)],
             identifier: Self.pairDialogIdentifier)
-        Self.logger.info("asking to pair phone \(request.phoneDeviceID.prefix(8), privacy: .public)")
-        CmuxDialogCenter.shared.present(spec, in: .app) { [weak self] answer in
-            guard let self else { return }
-            asking.remove(request.phoneDeviceID)
-            // A dismissal (the app quit, the dialog withdrawn) decides nothing:
-            // the phone asks again on its next link.
-            guard !answer.isDismissal, var list = paired, list.userID == account?.userID else { return }
-            if answer.button == Self.allowButton {
-                list.approve(request, at: Date())
-            } else {
-                list.deny(request)
-            }
-            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) \(answer.button, privacy: .public)")
+        var dialogID = 0
+        dialogID = CmuxDialogCenter.shared.present(spec, in: .app) { [weak self] answer in
+            // A prompt this service closed (answered in Settings, replaced, signed out) decides nothing.
+            guard let self, pairDialog?.id == dialogID else { return }
+            pairDialog = nil
+            // A dismissal (the app quit) decides nothing: the request stays in Settings.
+            guard !answer.isDismissal else { return }
+            decide(request, allow: answer.button == Self.allowButton)
+        }
+        pairDialog = (dialogID, request)
+    }
+
+    private func decide(_ request: CnxPairRequest, allow: Bool) {
+        prompts.answer(id: request.phoneDeviceID, allowed: allow, at: Date())
+        if prompts.pending.isEmpty { quietAttention() }
+        Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) \(allow ? "allowed" : "denied", privacy: .public)")
+        if var list = paired, list.userID == account?.userID {
+            if allow { list.approve(request, at: Date()) } else { list.deny(request) }
             savePaired(list)
         }
+        showPairDialog()
+    }
+
+    static func displayName(_ request: CnxPairRequest) -> String {
+        request.name.isEmpty ? IPhoneHostStrings.unnamedPhone : request.name
+    }
+
+    /// A new request: a banner with Review (Settings > Mobile) and a Dock bounce while cmux is
+    /// not in front. The banner only points the person here; it answers nothing.
+    private func announce(_ request: CnxPairRequest) {
+        var body = [account?.email ?? account?.userID ?? ""].filter { !$0.isEmpty }.map(IPhoneHostStrings.signedInAs)
+        if let registered = request.registeredAt { body.append(IPhoneHostStrings.deviceRegistered(registered)) }
+        pairNotices?.post(IPhoneHostStrings.noticeTitle(Self.displayName(request)), body.joined(separator: " · "))
+        if attentionRequest == nil, let app = NSApp, !app.isActive, !WindowDrawPolicy.isAutomationLaunch(ProcessInfo.processInfo.environment) {
+            attentionRequest = app.requestUserAttention(.criticalRequest)
+        }
+    }
+
+    /// Nothing waits any more: the banner and the Dock bounce go.
+    func quietAttention() {
+        pairNotices?.withdraw()
+        if let attentionRequest { NSApp?.cancelUserAttentionRequest(attentionRequest) }
+        attentionRequest = nil
+    }
+
+    /// The account changed: its waiting requests, quiet period and blocked count go with it.
+    func resetPrompts() {
+        prompts = CnxPairPrompts()
+        quietAttention()
+        showPairDialog()
     }
 
     private func savePaired(_ list: CnxPairedDevices) {

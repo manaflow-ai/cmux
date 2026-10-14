@@ -40,6 +40,9 @@ extension AppServices {
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
                     agentTabHost: { [weak self] in self?.agentTabs.localHost }, settings: { [weak self] in self?.settings },
                     bundleID: environment.launch.bundleID, computerName: { await MacName.computerName() })
+        iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
+            body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
+            withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: String?

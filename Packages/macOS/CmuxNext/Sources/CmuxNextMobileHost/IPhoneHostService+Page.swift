@@ -27,7 +27,27 @@ extension IPhoneHostService {
             "remove_help": .string(IPhoneHostStrings.removeHelp),
             // Shown with phase "removed": the person's way to let iPhones connect again.
             "allow_again_title": .string(IPhoneHostStrings.allowAgain),
+            // Phones asking to pair (cnx-ios verify/phone-approvals.md): Allow and Don't Allow
+            // here are the person's own gesture, as in the prompt.
+            "pending_title": .string(IPhoneHostStrings.pendingTitle),
+            "pending": .array(pendingRows),
+            "pair_allow_title": .string(IPhoneHostStrings.pairAllow),
+            "pair_deny_title": .string(IPhoneHostStrings.pairDeny),
+            "blocked": allowed && prompts.blocked > 0 ? .string(IPhoneHostStrings.blocked(prompts.blocked)) : .null,
+            "blocked_help": .string(IPhoneHostStrings.blockedHelp),
         ]
+    }
+
+    /// The waiting pairing requests, oldest first: who asks, as which account, since when.
+    private var pendingRows: [JSONValue] {
+        guard allowed else { return [] }
+        return prompts.pending.map { request in
+            var facts = [IPhoneHostStrings.signedInAs(account?.email ?? account?.userID ?? "")]
+            if let registered = request.registeredAt { facts.append(IPhoneHostStrings.deviceRegistered(registered)) }
+            facts.append(IPhoneHostStrings.pairKey(CnxPairedDevices.fingerprint(request.approvalKey)))
+            return ["id": .string(request.phoneDeviceID), "title": .string(IPhoneHostStrings.noticeTitle(Self.displayName(request))),
+                    "subtitle": .string(facts.joined(separator: " · "))]
+        }
     }
 
     /// The account's phones (known to the service) with their live link if one is up, then any

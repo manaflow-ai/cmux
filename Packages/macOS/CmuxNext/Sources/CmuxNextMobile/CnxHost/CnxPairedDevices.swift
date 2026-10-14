@@ -12,12 +12,21 @@ public struct CnxPairRequest: Sendable, Equatable, Hashable {
     public var name: String
     public var identityKey: String
     public var approvalKey: String
+    /// When the backend registered the phone's device (hostd's `registered_at_ms`), shown in
+    /// the prompt so a device made minutes ago stands out; nil from an older hostd.
+    public var registeredAt: Date?
 
-    public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String) {
+    public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil) {
         self.phoneDeviceID = phoneDeviceID
         self.name = name
         self.identityKey = identityKey
         self.approvalKey = approvalKey
+        self.registeredAt = registeredAt
+    }
+
+    /// The same device asking with the same keys (a retry, whatever its registration date).
+    public func sameKeys(as other: CnxPairRequest) -> Bool {
+        phoneDeviceID == other.phoneDeviceID && identityKey == other.identityKey && approvalKey == other.approvalKey
     }
 }
 
@@ -107,19 +116,31 @@ public struct CnxPairedDevices: Sendable, Equatable, Codable {
 
     /// Lowercase or uppercase hex; nil for anything else.
     static func bytes(hex: String) -> Data? {
-        let digits = Array(hex.utf8)
-        guard digits.count % 2 == 0 else { return nil }
-        var out = Data(capacity: digits.count / 2)
-        var index = 0
-        while index < digits.count {
-            guard let byte = UInt8(String(decoding: digits[index..<index + 2], as: UTF8.self), radix: 16) else { return nil }
-            out.append(byte)
-            index += 2
+        var out = Data(capacity: hex.utf8.count / 2)
+        var high: UInt8?
+        for character in hex.utf8 {
+            guard let nibble = nibble(character) else { return nil }
+            if let first = high {
+                out.append(first << 4 | nibble)
+                high = nil
+            } else {
+                high = nibble
+            }
         }
-        return out
+        return high == nil ? out : nil
     }
 
-    static func fingerprint(_ keyHex: String) -> String {
+    private static func nibble(_ character: UInt8) -> UInt8? {
+        switch character {
+        case UInt8(ascii: "0")...UInt8(ascii: "9"): character - UInt8(ascii: "0")
+        case UInt8(ascii: "a")...UInt8(ascii: "f"): character - UInt8(ascii: "a") + 10
+        case UInt8(ascii: "A")...UInt8(ascii: "F"): character - UInt8(ascii: "A") + 10
+        default: nil
+        }
+    }
+
+    /// The first 8 bytes of a key's SHA-256 as hex (``CnxPairedDevice/fingerprint``).
+    public static func fingerprint(_ keyHex: String) -> String {
         return SHA256.hash(data: bytes(hex: keyHex) ?? Data()).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 }

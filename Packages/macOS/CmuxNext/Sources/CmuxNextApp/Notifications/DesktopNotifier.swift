@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextMobileHost
 import os
 import UserNotifications
 
@@ -54,7 +55,7 @@ final class DesktopNotifier: NSObject {
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
     func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
-              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false) {
+              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, category: String? = nil) {
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
@@ -74,7 +75,7 @@ final class DesktopNotifier: NSObject {
         content.sound = defaultSound ? .default : nil
         content.interruptionLevel = .active
         if let workspace { content.threadIdentifier = workspace }
-        if reply { content.categoryIdentifier = Self.replyCategory }
+        if let category = category ?? (reply ? Self.replyCategory : nil) { content.categoryIdentifier = category }
         var info: [String: Any] = ["notification": id]
         if let surface { info["surface"] = NSNumber(value: surface) }
         content.userInfo = info
@@ -135,7 +136,7 @@ final class DesktopNotifier: NSObject {
         }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        center.setNotificationCategories([Self.replyBannerCategory()])
+        center.setNotificationCategories([Self.replyBannerCategory(), IPhonePairNotices.notificationCategory()])
         self.center = center
         if !requestedAuthorization {
             requestedAuthorization = true
@@ -172,7 +173,7 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         let id = info["notification"] as? String ?? response.notification.request.identifier
         let surface = (info["surface"] as? NSNumber)?.uint64Value
-        let isDefault = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+        let isDefault = [UNNotificationDefaultActionIdentifier, IPhonePairNotices.reviewAction].contains(response.actionIdentifier)
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         Task { @MainActor [weak self] in
             if isDefault { self?.open(id: id, surface: surface) }
