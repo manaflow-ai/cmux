@@ -1629,6 +1629,12 @@ export function VirtualTranscript({
         : undefined,
     [drawnId, drawnCard, findQuery],
   );
+  // Find's scroll is the reader's: it stops following now, not when the browser reports the
+  // scroll a frame later, or a re-measure before then puts the view back at the latest row.
+  const findMoved = (node: HTMLDivElement) => {
+    scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    follow(scrolledTo.current.atLatest);
+  };
   // The current match's reveal window: 0 until it starts, then the window's own number.
   const revealWindow = useRef(0);
   const revealWindows = useRef(0);
@@ -1641,6 +1647,7 @@ export function VirtualTranscript({
     const bottom = top + layout.heights[findIndex];
     if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight) return;
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
+    findMoved(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
   }, [targetKey]);
   useLayoutEffect(() => {
@@ -1674,7 +1681,9 @@ export function VirtualTranscript({
     for (let box = current.startContainer.parentElement; box && box !== node; box = box.parentElement)
       if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
         scrollRangeIn(box, current);
+    const before = node.scrollTop;
     scrollRangeIn(node, current);
+    if (node.scrollTop !== before) findMoved(node);
   });
   useEffect(() => clearFindHighlights, []);
   // Where the view rests, once a scroll settles; the latest message is null.

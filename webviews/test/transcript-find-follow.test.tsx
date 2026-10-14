@@ -102,9 +102,7 @@ test("a Find jump stays on its match when the transcript measures again before t
     focusRequest: 1,
   };
   const render = (shown: AcpmuxRow[], withFind?: ChatFind) =>
-    root.render(
-      <VirtualTranscript rows={shown} onToggleActivity={noop} expanded={new Set()} find={withFind} />,
-    );
+    root.render(<VirtualTranscript rows={shown} onToggleActivity={noop} expanded={new Set()} find={withFind} />);
   try {
     await act(async () => render(rows));
     expect(scroller().scrollTop).toBe(latest());
