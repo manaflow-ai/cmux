@@ -1,7 +1,10 @@
 //! `_acpmux/harness/add|remove|restore|doctor` and `_acpmux/registry`
 //! (BRING-YOUR-OWN-HARNESS H2): the app's Settings, palette and MCP tools add
 //! and check a user's own harness through the daemon. The work is
-//! `crate::harness_admin`, shared with the CLI.
+//! `crate::harness_admin`, shared with the CLI. Also Update Everything's
+//! `_acpmux/harness/update` and `_acpmux/sessions/restart_harness`
+//! (cx-1mbnu), which the machine's cmux-tui daemon calls: like `add` and
+//! `doctor` they run programs, so only the unix socket may.
 //!
 //! Who may call them (coordinator decision 2026-10-08): `add` writes a
 //! profile that runs a program and `doctor` starts a harness, so only the
@@ -53,6 +56,8 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_HARNESS_DOCTOR,
     method::MUX_REGISTRY,
     method::MUX_HARNESS_HEALTH,
+    method::MUX_HARNESS_UPDATE,
+    method::MUX_SESSIONS_RESTART_HARNESS,
 ];
 
 pub(super) async fn handle(
@@ -61,10 +66,16 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    let spawns = matches!(m, method::MUX_HARNESS_ADD | method::MUX_HARNESS_DOCTOR);
+    let spawns = matches!(
+        m,
+        method::MUX_HARNESS_ADD
+            | method::MUX_HARNESS_DOCTOR
+            | method::MUX_HARNESS_UPDATE
+            | method::MUX_SESSIONS_RESTART_HARNESS
+    );
     if spawns && origin != Origin::Local {
         return Err(RpcError::invalid_params(
-            "adding or checking a harness runs a program: only the unix socket may ask for it",
+            "adding, checking or updating a harness runs a program: only the unix socket may ask for it",
         ));
     }
     // A plain browser page on the listener (Web, never a peer) may read the
@@ -168,7 +179,38 @@ pub(super) async fn handle(
             admin::registry_value(&reg, &crate::config::which)
         }
         method::MUX_HARNESS_HEALTH => return hub.harness_health(params).await,
+        method::MUX_HARNESS_UPDATE => return hub.update_harnesses(params).await,
+        method::MUX_SESSIONS_RESTART_HARNESS => {
+            let harnesses = id_set(params, "harnesses", "harnesses must be harness ids")?;
+            let sessions = id_set(params, "sessions", "sessions must be session ids")?;
+            let done = hub.restart_harnesses(harnesses.as_ref(), sessions.as_ref()).await;
+            let errors: Vec<Value> = done
+                .failed
+                .iter()
+                .map(|(session, error)| json!({"session": session, "error": error}))
+                .collect();
+            json!({"restarted": done.now, "after_turn": done.after_turn,
+                   "failed": errors.len(), "errors": errors})
+        }
         other => return Err(RpcError::method_not_found(other)),
     };
     Ok(reply)
+}
+
+/// An optional list of ids in `params[key]` (`restart_harness`'s filters): None when absent.
+fn id_set(
+    params: &Value,
+    key: &str,
+    error: &str,
+) -> Result<Option<std::collections::BTreeSet<String>>, RpcError> {
+    match params.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(list)) => list
+            .iter()
+            .map(|v| v.as_str().map(str::to_owned))
+            .collect::<Option<std::collections::BTreeSet<String>>>()
+            .map(Some)
+            .ok_or_else(|| RpcError::invalid_params(error)),
+        Some(_) => Err(RpcError::invalid_params(error)),
+    }
 }

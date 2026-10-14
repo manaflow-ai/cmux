@@ -302,7 +302,7 @@ public final class AgentPaneModel {
             }
             return AgentPaneReply.success()
         case .gitWrite(let write): return await AgentPaneGitWriteReply.reply(to: write, in: self)
-        case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose:
+        case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose, .harnessUpdate, .harnessRestart:
             return await AgentPaneTransportReply.reply(to: request, in: self)
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
         case .invalidTurnUndo: return await AgentPaneTurnUndo.reply(to: nil, in: self)
