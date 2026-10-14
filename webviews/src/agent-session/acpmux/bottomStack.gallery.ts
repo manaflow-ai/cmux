@@ -119,9 +119,11 @@ const checkPrQueue: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-queued" });
   geometry(ctx);
   const scope = ctx.find({ selector: ".acpmux-composer-context" });
+  const composer = ctx.find({ selector: ".acpmux-composer-box" });
   const style = ctx.document.defaultView!.getComputedStyle(scope);
+  const composerStyle = ctx.document.defaultView!.getComputedStyle(composer);
   if (
-    style.backgroundColor !== "rgba(0, 0, 0, 0)" ||
+    style.backgroundColor !== composerStyle.backgroundColor ||
     style.boxShadow !== "none" ||
     parseFloat(style.borderTopWidth) !== 0
   )
