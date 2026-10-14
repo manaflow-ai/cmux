@@ -734,6 +734,41 @@ import Testing
         #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "antigravity:\(conversationID)")
     }
 
+    @Test func antigravityAliasRestoreUsesWrapperShimAndCapturedExecutable() throws {
+        let executable = "/opt/antigravity preview/bin/antigravity"
+        let conversationID = "antigravity-conversation-alias-123"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "antigravity",
+            checkpointID: conversationID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                executablePath: executable,
+                arguments: [executable, "--sandbox", "danger-full-access"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { $0 == "/shim/agy" }
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_AGY_WRAPPER_SHIM": "/shim/agy",
+            ]
+        ))
+
+        #expect(invocation.arguments == [
+            "/shim/agy", "--conversation", conversationID,
+            "--sandbox", "danger-full-access",
+        ])
+        #expect(invocation.environment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] == executable)
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "antigravity:\(conversationID)")
+    }
+
     @Test func preparedArgumentsOverrideSynthesisForAnEmptyCapture() throws {
         let preparedArguments = [
             "/opt/custom-gemini",
