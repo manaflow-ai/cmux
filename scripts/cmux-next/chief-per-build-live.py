@@ -28,7 +28,8 @@ pid, same socket inode) running.
 The app daemon and control socket, per build (S3, cx-is1kf.4): A (a reload.sh
 DEV build) keeps cmux-app-<tag> and /tmp/cmux-debug-<tag>.sock; B, the untagged
 DEV build, has names of its build key (cmux-app--650e93e3,
-/tmp/cmux-debug--650e93e3.sock), never release's cmux-app or /tmp/cmux-debug.sock.
+/tmp/cmux-debug--650e93e3.sock, a link to ~/.local/state/cmux since hq#1870), never
+release's cmux-app or cmux-debug.sock.
 Each app's bundled `cmux` CLI, run outside any app terminal, reaches its own
 app's owner daemon (the bundle decides, as in the app). B's start and quit
 leave A's owner daemon (same pid) and control socket running. The daemon names
@@ -263,8 +264,13 @@ def copy_as_b(src):
 
 # This test never resolves a real build's names (hq-6d, 2026-10-14).
 REAL = ("cmux-app", "cmux-app-nightly", "cmux-app-cmux-next")
-for name in (f"cmux-app-{TAG}", B_SESSION, f"/tmp/cmux-debug-{TAG}.sock", B_SOCKET):
-    if name in REAL or name.startswith("/tmp/cmux-nightly") or name == "/tmp/cmux-debug.sock":
+STATE_SOCKETS = os.path.expanduser("~/.local/state/cmux")
+for name in (f"cmux-app-{TAG}", B_SESSION, f"/tmp/cmux-debug-{TAG}.sock", B_SOCKET,
+             os.path.join(STATE_SOCKETS, f"cmux-debug-{TAG}.sock"), os.path.join(STATE_SOCKETS, os.path.basename(B_SOCKET))):
+    file = os.path.basename(name)
+    in_socket_dir = name.startswith("/tmp/") or name.startswith(STATE_SOCKETS + "/")
+    if name in REAL or (in_socket_dir and (file.startswith("cmux-nightly")
+                                           or file in ("cmux-rc.sock", "cmux-staging.sock", "cmux-debug.sock", "cmux.sock"))):
         sys.exit(f"refusing to run: {name} is a real build's name")
 a = App("A", opts.app, TAG)
 b = None

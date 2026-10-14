@@ -97,19 +97,26 @@ fn is_real_build(bundle_id: &str) -> bool {
             .contains(&bundle_id)
 }
 
-/// Refuses a socket path or session name of a real build.
+/// Refuses a socket path or session name of a real build, in `/tmp` and in
+/// the state folder sockets moved to (`~/.local/state/cmux`, hq#1870).
 fn refuse_real_name(name: &str) {
-    let real = [
-        "/tmp/cmux-nightly",
-        "/tmp/cmux-rc.sock",
-        "/tmp/cmux-staging.sock",
-        "/tmp/cmux-debug.sock",
-    ];
+    let file = name.rsplit('/').next().unwrap_or(name);
+    let real_files = ["cmux-rc.sock", "cmux-staging.sock", "cmux-debug.sock", "cmux.sock"];
+    let real_socket = (name.starts_with("/tmp/") || name.contains("/.local/state/cmux/"))
+        && (file.starts_with("cmux-nightly") || real_files.contains(&file));
     assert!(
-        !real.iter().any(|prefix| name.contains(prefix))
-            && !["cmux-app", "cmux-app-nightly", "cmux-app-cmux-next"].contains(&name),
+        !real_socket && !["cmux-app", "cmux-app-nightly", "cmux-app-cmux-next"].contains(&name),
         "this test refuses to resolve a real build's name: {name}"
     );
+}
+
+/// Refuses CLI output that names a real build's socket in either folder.
+fn refuse_real_names_in(text: &str) {
+    for word in text.split(|c: char| c.is_whitespace() || c == '"') {
+        if word.contains(".sock") {
+            refuse_real_name(word.trim_end_matches(['.', ',']));
+        }
+    }
 }
 
 /// Whether `text` names the socket `want` (a vectors path, its pre-move name):
@@ -126,8 +133,10 @@ fn names_socket(text: &str, want: &Path, user_home: &Path) -> bool {
 /// `cmux --json identify` (an app command) by `cli`: no app runs, so it
 /// fails and names the control socket it tried.
 fn tried_socket(output: &Output) -> String {
-    assert!(!output.status.success(), "an app answered: {}", text_of(output));
-    text_of(output)
+    let text = text_of(output);
+    refuse_real_names_in(&text);
+    assert!(!output.status.success(), "an app answered: {text}");
+    text
 }
 
 /// Every test build of the shared vectors (every DEV, unknown and tagged RC
