@@ -261,9 +261,10 @@ public final class SidebarModel {
 
     /// Row content of workspaces already listed (status, title, unread,
     /// progress, icon), written in place without a structural change, then
-    /// told to `onRowsPatched`. Returns false and writes nothing when one of
-    /// them is not listed or the change moves rows (filter, folder buckets,
-    /// listed tabs, row state); the caller then sets the sections.
+    /// told to `onRowsPatched`. A row this window does not list (another
+    /// window's workspace, a top-region tile) is skipped. Returns false and
+    /// writes nothing when the change moves rows (filter, folder buckets,
+    /// listed tabs); the caller then sets the sections.
     public func patchWorkspaces(_ rows: [SidebarWorkspace]) -> Bool {
         guard !rows.isEmpty else { return true }
         guard filterText.isEmpty else { return false }
@@ -272,7 +273,7 @@ public final class SidebarModel {
         var patched: [SidebarWorkspace] = []
         var writes: [(SidebarRowIndex.Path, SidebarWorkspace)] = []
         for var row in rows {
-            guard let path = index.path(of: row.id) else { return false }
+            guard let path = index.path(of: row.id) else { continue }
             let old = SidebarRowIndex.workspace(at: path, in: storedSections)
             row.rowState = old.rowState
             row.machineID = old.machineID
