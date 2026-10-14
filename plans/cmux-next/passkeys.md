@@ -252,3 +252,40 @@ cx-d0d.46, YubiKey, conditional UI on github.com, Google re-auth, agent refusal 
 K10), K16 visibility (cx-d0d.47), and every WebKit row that needs an authenticator.
 Harness note: `debug.cef.devtools` replies arrive after the socket's 2 s deadline; the calls still
 run (`not_run: false`), and the script clears authenticators with `WebAuthn.disable`.
+
+## 11. Roaming keys and hybrid on a real RP, 2026-10-14 (cx-d0d.97)
+
+Lawrence 2026-10-14: "ensure we support passkey sign in with bluetooth and security key like
+yubikey". `scripts/cmux-next/passkeys-roaming-e2e.py` runs in a cmux-next DEV app's CEF pane on
+https://webauthn.io (Register with Authenticator Attachment "Cross-Platform", then Authenticate with
+the username filled, so an allow list; a pass ends on webauthn.io's `/profile`). Run as a fleet-built
+GUI proof: `nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA` on cmux-lawrence-2.
+
+| Check (job 1013-203840-2d7cbf, DEV tag pkhw1, ref 78a4260e) | Result |
+| --- | --- |
+| Virtual USB key, CTAP 2.1, discoverable + UV (a YubiKey 5 with PIN) | pass |
+| Virtual USB key, U2F only (older keys) | pass |
+| Virtual NFC key | pass (Chromium runs it; desktop Chromium has no real NFC transport on macOS) |
+| Virtual BLE key | pass |
+| Virtual hybrid (`cable`, the phone after the QR scan) | pass |
+| No virtual authenticator, Cross-Platform register | Chromium's sheet opens as its own window (448x356 pt) centered over the pane, top edge on the pane; it went to the real YubiKey on the host, which has no PIN, so the sheet asked "PIN required: Set up a new PIN for your security key" with the caret in the PIN field. No Chrome or Google promo. |
+
+Findings:
+- No fork or app change is needed for USB/NFC/BLE keys or hybrid: Chromium's stack runs in the
+  browser process (the app), and the tab-modal sheet has its host (CEF Chrome style gives each tab a
+  Browser with a `WebContentsModalDialogManager`). Without that manager Chromium shows no sheet and
+  still sends the request to the key, which then times out (cmux-browser's symptom, 2026-10-14).
+- The sheet keeps Chromium's look (decision D2 (a)): dark surface, blue buttons.
+- Entitlements: USB and Bluetooth need none (the app is not sandboxed); `NSBluetoothAlwaysUsageDescription`
+  is in the DEV and the signed cmux NEXT Info.plist. The signed cmux NEXT (build 3849738712201) has no
+  `web-browser.public-key-credential` and no profile (cx-urd.62); the NIGHTLY-identity copy (cx-x7hwx,
+  `scripts/ci/nightly-next-legacy-identity.sh`) signs with `cmux.nightly.entitlements` and the NIGHTLY
+  profile, which grant it. Apple has no App ID for cmux NEXT (nightly-next probe: "App ID
+  com.cmuxterm.app.next: missing").
+- Harness: CEF's in-process DevTools loses the reply of `WebAuthn.addVirtualAuthenticator` (timedOut
+  after 5 s) while the call runs, so the script does not need the id. `debug.cef.devtools` now has a
+  15 s control deadline. The capture helper's `--with-popups` composite came back blank white on this
+  host; the single-window pictures (`*.front.png`) and the window lists are the evidence.
+- UNVERIFIED (needs a person): PIN typed into the sheet and a real touch (YubiKey run on
+  cmux-lawrence-2, `--real`), a phone over BLE, Touch ID in the signed NIGHTLY identity. Steps:
+  `.cmux-scratch/passkeys/checklist.md` in hq.
