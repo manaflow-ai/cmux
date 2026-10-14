@@ -105,7 +105,7 @@ extension SidebarSection {
             let unread = state == .idle ? count : count - 1
             var row = SidebarWorkspace(
                 id: WorkspaceID("row-badge-preview-\(count)"), machineID: machine, title: count == 1 ? "1 item" : "\(count) items",
-                kind: .terminal, unread: unread > 0 ? .count(unread) : .none, activity: state, rowState: .placeholder)
+                kind: .terminal, unread: unread > 0 ? .count(unread) : .none, activity: state, rowState: .placeholder, isClosable: false)
             // Agent work shows only on a row whose agent is working (`WorkspaceRowContent.activity`).
             row.agentWorking = state == .working
             return SidebarNode.workspace(row)

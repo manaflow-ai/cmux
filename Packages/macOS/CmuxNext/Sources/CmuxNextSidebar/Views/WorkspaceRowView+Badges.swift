@@ -21,23 +21,24 @@ extension WorkspaceRowView {
         }
         badge.configure(.none)
         activity.configure(.idle)
-        if timeText == nil, let last = ws.lastActivity {
-            timeText = WorkspaceRowContent.ageText(last, now: Date())
-            timeLabel.stringValue = timeText ?? ""
+        if timeText == nil, let time = shown.badgeTime {
+            timeText = time
+            timeLabel.stringValue = time
         }
         let corner = style == .corner
         rowBadge.configure(corner ? badges.first.map { [$0] } ?? [] : badges.stacked, look: corner ? .corner : .stack)
-        rowBadge.toolTip = Self.badgeSummary(badges)
+        rowBadge.themedToolTip = Self.badgeSummary(badges, stacked: !corner)
     }
 
-    /// What the badges say, for the tooltip: the count, then each state, then what the stack left out.
-    static func badgeSummary(_ badges: WorkspaceRowBadges) -> String? {
+    /// What the badges say, for the tooltip: the count, then each state, then what the stack left out
+    /// (`stacked`; the corner badge shows one glyph and lists every state).
+    static func badgeSummary(_ badges: WorkspaceRowBadges, stacked: Bool) -> String? {
         var parts: [String] = []
         if badges.unreadCount > 0 { parts.append(Strings.unreadCount(badges.unreadCount)) }
         for state in badges.items where state != .success {
             if let text = Strings.activity(state), !parts.contains(text) { parts.append(text) }
         }
-        if badges.overflow > 0 { parts.append(Strings.statusMore(badges.overflow)) }
+        if stacked, badges.overflow > 0 { parts.append(Strings.statusMore(badges.overflow)) }
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 

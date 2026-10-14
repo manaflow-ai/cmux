@@ -11,9 +11,9 @@ import Testing
 @MainActor @Suite(.serialized) struct SidebarRowBadgeStackCapTests {
     private static let busy = WorkspaceID("ws-busy")
 
-    private static func sidebar(_ sections: [SidebarSection]) -> SidebarView {
+    private static func sidebar(_ sections: [SidebarSection], style: SidebarRowBadgeStyle = .stack) -> SidebarView {
         let model = SidebarModel(sections: sections)
-        model.rowBadgeStyle = .stack
+        model.rowBadgeStyle = style
         let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
@@ -23,10 +23,10 @@ import Testing
     }
 
     /// A row with seven pending items: a failure and six unread.
-    private static func sevenItems() -> SidebarView {
+    private static func sevenItems(style: SidebarRowBadgeStyle = .stack) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let row = SidebarWorkspace(id: busy, title: "api", kind: .terminal, unread: .count(6), activity: .error)
-        return sidebar([SidebarSection(kind: .machine(machine), nodes: [.workspace(row)])])
+        return sidebar([SidebarSection(kind: .machine(machine), nodes: [.workspace(row)])], style: style)
     }
 
     private static func stack(_ sidebar: SidebarView, _ id: WorkspaceID) throws -> RowBadgeView {
@@ -54,7 +54,16 @@ import Testing
             let stack = try Self.stack(Self.sevenItems(), Self.busy)
             #expect(stack.states.count == 5)
             #expect(stack.states.first == .error, "the most urgent first")
-            #expect(stack.toolTip?.contains(Strings.statusMore(2)) == true)
+            #expect(stack.themedToolTip?.contains(Strings.statusMore(2)) == true)
+        }
+    }
+
+    @Test func theCornerBadgeTooltipListsEveryStateWithoutAMoreCount() throws {
+        try Self.withCap(.three) {
+            let corner = try Self.stack(Self.sevenItems(style: .corner), Self.busy)
+            #expect(corner.states.count == 1)
+            #expect(corner.themedToolTip?.contains(Strings.unreadCount(6)) == true)
+            #expect(corner.themedToolTip?.contains(Strings.statusMore(4)) == false)
         }
     }
 
@@ -64,7 +73,7 @@ import Testing
             let stack = try Self.stack(Self.sevenItems(), Self.busy)
             #expect(stack.states.count == shown)
             let more = 7 - shown
-            #expect((stack.toolTip?.contains(Strings.statusMore(more)) == true) == (more > 0))
+            #expect((stack.themedToolTip?.contains(Strings.statusMore(more)) == true) == (more > 0))
         }
     }
 
@@ -78,6 +87,7 @@ import Testing
                 let shown = try Self.stack(sidebar, row.id).states.count
                 #expect(shown == index + 1, "row \(index + 1)")
                 #expect(sidebar.list.model.isPlaceholder(row.id), "a preview row is never selected or opened")
+                #expect(!row.isClosable, "a preview row has no close button")
             }
         }
     }
