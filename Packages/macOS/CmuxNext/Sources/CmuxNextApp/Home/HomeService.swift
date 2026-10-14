@@ -149,7 +149,7 @@ final class HomeService {
                 reloadList(connection)
                 // Home opened before the owner answered, or the owner came back
                 // after a stop: start the host now if it does not run.
-                if homeWasOpened { homeDidOpen() }
+                if homeWasOpened { homeDidOpen(asked: false) }
                 // The Chief tab may wait on this owner (a local Chief with history
                 // takes it back from a placed chief): check it again now.
                 if let local = services.machines.local.connection,
@@ -174,15 +174,15 @@ final class HomeService {
         if cloudChief != chief { cloudChief = chief }
     }
 
-    /// Home opened in a window (or its owner reconnected): start the Chief
-    /// home's brain host when none runs (ChiefBrainKeeper).
-    func homeDidOpen() {
+    /// Home opened in a window (or its owner reconnected, not `asked`): start
+    /// the Chief home's brain host when none runs (ChiefBrainKeeper).
+    func homeDidOpen(asked: Bool) {
         if !homeWasOpened {
             homeWasOpened = true
             publishAppLinks()
             observeActivation()
         }
-        brain.ensure()
+        brain.ensure(asked: asked)
     }
 
     /// The open session for `conversation`, loaded on first use.

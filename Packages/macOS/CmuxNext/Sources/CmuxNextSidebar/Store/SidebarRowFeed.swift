@@ -20,7 +20,7 @@ fileprivate final class SidebarRowWatchCancel {
 /// observation. A known row is already current: anything it read would have
 /// marked it dirty. Only when the pass's by-value inputs change (`beginPass`)
 /// is every row mapped and observed again. A change a row read marks it
-/// dirty; one flush per main-actor turn maps the dirty rows again (each
+/// dirty; one flush (per display frame in the app) maps the dirty rows again (each
 /// observation fires once and is armed again, so none piles up) and hands
 /// the changed ones to `onChange`.
 ///
@@ -63,10 +63,20 @@ public final class SidebarRowFeed {
     private var inputsChanged = false
     /// Rows mapped again since the last structural pass (the next `fill` maps only new rows).
     private var named: [WorkspaceID] = []
-    /// Changed rows, at most once per main-actor turn.
+    /// Changed rows, at most once per flush.
     public var onChange: (([SidebarWorkspace]) -> Void)?
+    /// Runs one flush later. The app hands the display frame (`FrameBatcher`): the row patches of
+    /// a frame then land in that frame's display-link callback, beside the scroll's own update, so
+    /// the frame has one commit (a main-actor task ran them between frames, a second commit that
+    /// delayed the next frame's scroll update: scroll hitches with ticking rows, perf round 2).
+    public typealias Schedule = (@escaping @MainActor @Sendable () -> Void) -> Void
+    private let schedule: Schedule
 
-    public init() {}
+    /// `schedule` defaults to the next main-actor turn.
+    public init(schedule: Schedule? = nil) {
+        // task-owner: the feed; one flush per main-actor turn after the store's batch applies
+        self.schedule = schedule ?? { work in Task { @MainActor in work() } }
+    }
 
     /// Starts a structural pass (call first in the pass's tracked closure).
     /// `inputs` are the values the pass hands every row's mapping by value
@@ -165,8 +175,7 @@ public final class SidebarRowFeed {
         dirty.insert(id)
         guard !flushScheduled else { return }
         flushScheduled = true
-        // task-owner: the feed; one flush per main-actor turn after the store's batch applies
-        Task { @MainActor [weak self] in self?.flush() }
+        schedule { [weak self] in self?.flush() }
     }
 
     private func flush() {
