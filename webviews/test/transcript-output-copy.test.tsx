@@ -131,10 +131,10 @@ test("an opened call's output copies whole, without colour codes", async () => {
   (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "hover-actions": "all" };
   try {
     await openRow("fetch", lines.join("\n"));
+    await click(button("Copy"));
   } finally {
     delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
   }
-  await click(button("Copy"));
   expect(clipboard).toEqual([Array.from({ length: count }, (_, index) => `row ${index}`).join("\n")]);
 });
 

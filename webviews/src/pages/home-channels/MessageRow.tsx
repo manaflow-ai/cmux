@@ -115,22 +115,20 @@ export const MessageRow = memo(function MessageRow({
       className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}`}
       aria-label={`${author?.name ?? message.author}, ${time}`}
     >
-      {!message.retracted && !editing ? (
-        <MessageActions
-          strings={strings}
-          canEdit={canEdit}
-          canDelete={own && onRetract !== undefined}
-          onReact={(value) => onReact(message, value)}
-          onReply={onOpenThread ? () => onOpenThread(message.id) : undefined}
-          onEdit={() => onEditStart?.(message)}
-          onDelete={() => setConfirmDelete(true)}
-          onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
-        >
-          {body}
-        </MessageActions>
-      ) : (
-        body
-      )}
+      {/* One wrapper whether or not the actions show, so editing never remounts the body. */}
+      <MessageActions
+        active={!message.retracted && !editing}
+        strings={strings}
+        canEdit={canEdit}
+        canDelete={own && onRetract !== undefined}
+        onReact={(value) => onReact(message, value)}
+        onReply={onOpenThread ? () => onOpenThread(message.id) : undefined}
+        onEdit={() => onEditStart?.(message)}
+        onDelete={() => setConfirmDelete(true)}
+        onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
+      >
+        {body}
+      </MessageActions>
     </article>
   );
 });

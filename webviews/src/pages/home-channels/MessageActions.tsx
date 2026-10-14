@@ -18,6 +18,8 @@ import { HomeIcon } from "./icons";
 const QUICK_REACTIONS = ["✅", "👀", "🙌"];
 
 export interface MessageActionsProps {
+  /** False while the message is retracted or edited: no card, and a right-click keeps the page's. */
+  active: boolean;
   strings: Strings;
   canEdit: boolean;
   canDelete: boolean;
@@ -31,6 +33,7 @@ export interface MessageActionsProps {
 }
 
 export function MessageActions({
+  active,
   strings,
   canEdit,
   canDelete,
@@ -94,48 +97,51 @@ export function MessageActions({
   );
   return (
     <>
-      <ContextMenu className="hc-msg-menu-host" items={items} targets="own">
+      {/* A link keeps the page's own menu (Copy Link, Open Link). */}
+      <ContextMenu className="hc-msg-menu-host" items={active ? items : []} targets="own" ignore="a[href]">
         {children}
       </ContextMenu>
-      <div ref={box} className={`hc-msg-actions${picker || menu ? " pinned" : ""}`}>
-        {one ? (
-          moreMenu
-        ) : (
-          <Toolbar label={t("message.actions")} className="hc-msg-toolbar">
-            {QUICK_REACTIONS.map((value) => (
-              <ToolbarButton
-                key={value}
-                label={format("action.reactWith", value)}
-                className="hc-tool hc-quick"
-                onPress={() => onReact(value)}
-              >
-                <span aria-hidden="true">{value}</span>
+      {active && (
+        <div ref={box} className={`hc-msg-actions${picker || menu ? " pinned" : ""}`}>
+          {one ? (
+            moreMenu
+          ) : (
+            <Toolbar label={t("message.actions")} className="hc-msg-toolbar">
+              {QUICK_REACTIONS.map((value) => (
+                <ToolbarButton
+                  key={value}
+                  label={format("action.reactWith", value)}
+                  className="hc-tool hc-quick"
+                  onPress={() => onReact(value)}
+                >
+                  <span aria-hidden="true">{value}</span>
+                </ToolbarButton>
+              ))}
+              <ToolbarButton label={t("action.react")} className="hc-tool" onPress={openPicker}>
+                <HomeIcon name="addReaction" />
               </ToolbarButton>
-            ))}
-            <ToolbarButton label={t("action.react")} className="hc-tool" onPress={openPicker}>
-              <HomeIcon name="addReaction" />
-            </ToolbarButton>
-            {onReply && (
-              <ToolbarButton label={t("action.reply")} className="hc-tool" onPress={onReply}>
-                <HomeIcon name="reply" />
-              </ToolbarButton>
-            )}
-            {moreMenu}
-          </Toolbar>
-        )}
-        {picker && (
-          <EmojiPicker
-            anchor={picker}
-            emoji={emoji}
-            strings={strings}
-            onPick={(value) => {
-              setPicker(null);
-              onReact(value);
-            }}
-            onClose={() => setPicker(null)}
-          />
-        )}
-      </div>
+              {onReply && (
+                <ToolbarButton label={t("action.reply")} className="hc-tool" onPress={onReply}>
+                  <HomeIcon name="reply" />
+                </ToolbarButton>
+              )}
+              {moreMenu}
+            </Toolbar>
+          )}
+          {picker && (
+            <EmojiPicker
+              anchor={picker}
+              emoji={emoji}
+              strings={strings}
+              onPick={(value) => {
+                setPicker(null);
+                onReact(value);
+              }}
+              onClose={() => setPicker(null)}
+            />
+          )}
+        </div>
+      )}
     </>
   );
 }
