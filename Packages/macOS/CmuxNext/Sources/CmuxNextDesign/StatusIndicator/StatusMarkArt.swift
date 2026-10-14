@@ -45,6 +45,10 @@ enum StatusMarkArt {
             context.setBlendMode(.normal)
         case .symbol(let name):
             drawSymbol(name, in: context, rect: rect)
+        case .vector(let glyph):
+            // Its own pixel grid: no antialiasing where the 1x pixel art's edges fall on pixels.
+            context.addPath(glyph.path(in: rect))
+            context.fillPath(using: .evenOdd)
         }
     }
 

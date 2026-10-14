@@ -32,6 +32,10 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     case symbols
     /// Outlined SF Symbols of the same names, with a sparkle for work.
     case symbolsOutline
+    /// The static glyphs (`StaticStatusGlyph`, Leo 2026-10-14): one still shape per state, drawn for
+    /// the Static status mode (Reduce Motion): a half-filled ring for work, an empty bubble, a shield,
+    /// a check disc, a ! diamond.
+    case still
 
     /// The Debug Settings switch (the Debug menu writes the same value).
     public static let tunable = Tunable<StatusIconSet>.choice(
@@ -51,6 +55,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .letters: String(localized: "statusIconSet.letters", defaultValue: "Letters", bundle: .module)
         case .symbols: String(localized: "statusIconSet.symbols", defaultValue: "Symbols", bundle: .module)
         case .symbolsOutline: String(localized: "statusIconSet.symbolsOutline", defaultValue: "Outlined Symbols", bundle: .module)
+        case .still: String(localized: "statusIconSet.still", defaultValue: "Static", bundle: .module)
         }
     }
 
@@ -67,6 +72,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .letters: "P, Q, A and ! cut out of rounded squares; check and x squares."
         case .symbols: "SF Symbols, filled: hand.raised, questionmark.bubble, key, exclamationmark.circle, checkmark.circle, xmark.octagon."
         case .symbolsOutline: "SF Symbols, outlined, and a pulsing sparkle for work."
+        case .still: "Static glyphs, never animated: half-filled ring, empty bubble, shield, check disc, ! diamond."
         }
     }
 
@@ -74,6 +80,8 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     /// the set keeps the default drawing (`current`, loading, known progress).
     func plan(for state: StatusIndicatorState) -> StatusIndicatorPlan? {
         guard self != .current else { return nil }
+        // Idle draws nothing in every set; the idle glyph is for hosts that show a still idle mark.
+        if self == .still { return state == .idle ? nil : StaticStatusGlyph(state)?.plan }
         switch state {
         case .working where state.progress == nil:
             if self == .bars { return StatusIndicatorPlan(glyph: .bars, animation: .wave, tint: .accent) }
@@ -101,6 +109,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .letters: .outline(.roundedSquare, .dot)
         case .symbols: .symbol("ellipsis.circle.fill")
         case .symbolsOutline: .symbol("sparkle")
+        case .still: .vector(.working)
         }
     }
 
@@ -144,6 +153,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             case .auth?: .symbol("key")
             case nil: .symbol("exclamationmark.circle")
             }
+        case .still: .vector(kind == .permission || kind == .auth ? .permission : .waiting)
         }
     }
 
@@ -166,6 +176,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .letters: .badge(.roundedSquare, .check)
         case .symbols: .symbol("checkmark.circle.fill")
         case .symbolsOutline: .symbol("checkmark.circle")
+        case .still: .vector(.done)
         }
     }
 
@@ -179,6 +190,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .letters: .badge(.roundedSquare, .cross)
         case .symbols: .symbol("xmark.octagon.fill")
         case .symbolsOutline: .symbol("xmark.octagon")
+        case .still: .vector(.error)
         }
     }
 }
