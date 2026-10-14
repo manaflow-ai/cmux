@@ -154,6 +154,8 @@ def main():
     app_path = os.path.join(CNX, f"build/dd/Build/Products/{a.config}-iphonesimulator/CnxApp.app") if a.no_build else build_ios(log, a.config)
     rig = os.path.expanduser(f"~/cnx-ios-e2e/{os.path.basename(mac_app)[len('cmux DEV '):-4]}")
     mac = Mac(rig, mac_app).prepare()
+    # The rig's simulator pairs without the Mac's person-only prompt (DEBUG seed).
+    mac.seed_pairing(names=[sim_name])
     log(f"Mac app {os.path.basename(mac_app)} ({mac.bundle_id}), rig {rig}, settings {mac.config}")
     udid = ensure_sim(sim_name, RUNTIMES[a.ios], log)
     sim = Sim(udid, os.path.join(out, "shots"))
