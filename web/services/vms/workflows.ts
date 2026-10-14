@@ -64,6 +64,7 @@ import {
   vmResourceResizePendingFromMetadata,
   vmResourceResizeUnconfirmedFromMetadata,
   vmProviderResourceSize,
+  vmDiskMb,
   type VmComputeResources,
   type VmResourceReservation,
   type VmResourceResizePending,
@@ -1120,14 +1121,17 @@ function requirePlanBudget(
       if (usage.remainingComputeSeconds <= 0) return yield* Effect.fail(computeBudgetExceeded(usage));
     }
     if (!disk) return;
+    // A legacy restore or fork reserves the provider's disk ceiling until it
+    // is measured; the plan's per-machine maximum is the most it can hold.
+    const addedDiskMb = Math.min(disk.addedDiskMb, maxDiskMbForPlan(usage.planId));
     const kept = usage.retainedStorageMb - (disk.replacesVmId ? usage.retainedDiskMb.get(disk.replacesVmId) ?? 0 : 0);
-    if (kept + disk.addedDiskMb > usage.storageBudgetMb) {
+    if (kept + addedDiskMb > usage.storageBudgetMb) {
       return yield* Effect.fail(new VmPlanBudgetExceededError({
         planId: usage.planId,
         resource: "storage",
         included: Math.round(usage.storageBudgetMb / MB_PER_GB),
         used: Math.ceil(kept / MB_PER_GB),
-        requested: Math.ceil(disk.addedDiskMb / MB_PER_GB),
+        requested: Math.ceil(addedDiskMb / MB_PER_GB),
         resetsAt: usage.periodEnd,
       }));
     }
@@ -2792,6 +2796,11 @@ export function forkVm(input: {
       : undefined;
 
     if (nativeFork) {
+      // The snapshot path checks the allowance in createVm; the native fork
+      // allocates its row here.
+      yield* requirePlanBudget(input.billingPlanId, input.userId, {
+        addedDiskMb: nativeForkReservation?.diskMb ?? vmDiskMb(),
+      });
       const sourceReservation = nativeForkReservation ?? DEFAULT_VM_RESOURCE_RESERVATION;
       const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
         userId: input.userId,
@@ -3924,7 +3933,13 @@ function withResumeOnSuspendedAfterFailure<A>(
         const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms, callerPlanId);
         yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
-          Effect.catchAll(() => Effect.fail(originalError)),
+          // An allowance refusal is the answer the caller needs; any other
+          // resume failure reports the operation's own error.
+          Effect.catchAll((resumeError) => Effect.fail(
+            resumeError._tag === "VmPlanBudgetExceededError" || resumeError._tag === "VmUsageLimitExceededError"
+              ? resumeError
+              : originalError,
+          )),
         );
         yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),

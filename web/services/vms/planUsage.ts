@@ -7,7 +7,10 @@
 // vCPU, or per 2 GB of memory when its memory is larger, every second. Pro and
 // Max also cap the total disk of their saved machines, because a paused
 // machine keeps its disk. Founder's Edition, operator grants, and Team are not
-// recurring personal subscriptions and have no allowance here.
+// recurring personal subscriptions and have no allowance here; an operator
+// grant to a user who also holds a Pro or Max subscription is metered by that
+// subscription. A machine is metered at its current recorded shape, so a
+// resize also re-rates the period's earlier runtime of that machine.
 
 import { and, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 
@@ -16,6 +19,7 @@ import { cloudVmRuntimeIntervals, cloudVms, stripeSubscriptions } from "../../db
 import { activeAppleEntitlementForUser } from "../billing/apple/entitlement";
 import type { PersonalPlanId } from "../billing/pro";
 import { planItem } from "../billing/subscriptionItems";
+import { maxDiskMbForPlan } from "./entitlements";
 import {
   PLAN_MACHINE_MEMORY_MB,
   VM_DISK_MB_DEFAULT,
@@ -144,7 +148,14 @@ export async function personalBillingPeriod(
     stripePersonalPeriod(userId, options.stripeStatuses ?? STRIPE_PLAN_STATUSES, now),
     applePersonalPeriod(userId, now),
   ]);
-  if (stripe && apple) return PLAN_RANK[apple.planId] > PLAN_RANK[stripe.planId] ? apple : stripe;
+  if (stripe && apple) {
+    if (PLAN_RANK[apple.planId] !== PLAN_RANK[stripe.planId]) {
+      return PLAN_RANK[apple.planId] > PLAN_RANK[stripe.planId] ? apple : stripe;
+    }
+    // Same plan from both stores: the one with a usable period meters it,
+    // like the database guard, which falls back to the App Store.
+    return stripe.period || !apple.period ? stripe : apple;
+  }
   return stripe ?? apple;
 }
 
@@ -236,9 +247,12 @@ export async function getPlanBudgetUsage(userId: string, now = new Date()): Prom
   const usedComputeSeconds = intervals.reduce((sum, interval) =>
     sum + runtimeSecondsWithinPeriod([interval], periodStart, periodEnd, now) *
       computeUnitsForReservation(recordedReservation(interval.metadata)), 0);
+  // A legacy machine reserves the provider's disk ceiling until it is
+  // measured; the plan's per-machine maximum is the most it can hold.
+  const machineDiskCeilingMb = maxDiskMbForPlan(billing.planId);
   const retainedDiskMb = new Map(retained.map((vm) => [
     vm.id,
-    recordedReservation(vm.metadata)?.diskMb ?? VM_DISK_MB_DEFAULT,
+    Math.min(recordedReservation(vm.metadata)?.diskMb ?? VM_DISK_MB_DEFAULT, machineDiskCeilingMb),
   ]));
   const budget = PLAN_BUDGETS[billing.planId];
   const includedComputeSeconds = budget.computeHours * 3600;

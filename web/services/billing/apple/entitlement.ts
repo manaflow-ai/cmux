@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { cloudDb } from "../../../db/client";
 import { appleSubscriptions, type AppleSubscriptionStatus } from "../../../db/schema";
 import type { PersonalPlanId } from "../pro";
-import { appleEnvironmentGrantsEntitlement, appleSandboxGrantNeedsAccountEmail } from "./config";
+import { APP_STORE_BUNDLE_ID, appleEnvironmentGrantsEntitlement, appleSandboxGrantNeedsAccountEmail } from "./config";
 
 type Env = Record<string, string | undefined>;
 
@@ -88,15 +88,16 @@ export async function appleSubscriptionRowsForUser(userId: string): Promise<Appl
 }
 
 /**
- * The account's primary email, read only when a production Sandbox row needs
- * the allowlist. Stack is the source of truth; a failed read throws so a
+ * The account's verified primary email, read only when a production Sandbox
+ * row needs the allowlist. An unverified address could be anyone's, so it
+ * never matches. Stack is the source of truth; a failed read throws so a
  * transient outage never downgrades an allowlisted tester's plan mirror.
  */
 async function stackPrimaryEmail(userId: string): Promise<string | null> {
   const { getStackServerApp, isStackConfigured } = await import("../../../app/lib/stack");
   if (!isStackConfigured()) return null;
   const user = await getStackServerApp().getUser(userId);
-  return user?.primaryEmail ?? null;
+  return user?.primaryEmailVerified ? user.primaryEmail ?? null : null;
 }
 
 export type AppleEntitlementLookupOptions = {
@@ -126,7 +127,8 @@ export async function activeAppleEntitlementForUser(
   // Lightweight database doubles in older tests may return non-array values.
   if (!Array.isArray(rows)) return null;
   const needsEmail = appleSandboxGrantNeedsAccountEmail(env) &&
-    rows.some((row) => row.environment === "Sandbox" && appleSubscriptionGrantsAccess(row, now, {}));
+    rows.some((row) => row.environment === "Sandbox" && row.bundleId === APP_STORE_BUNDLE_ID &&
+      appleSubscriptionGrantsAccess(row, now, {}));
   const email = needsEmail ? await accountEmail(userId) : null;
   return bestAppleEntitlement(rows, now, env, email);
 }

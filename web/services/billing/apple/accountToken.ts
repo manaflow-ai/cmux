@@ -41,8 +41,9 @@ export type AppleAccountTokenResponse = {
 
 export type AppleAccountUser = ProReconcileUser & BillingTeamUserLike & {
   readonly id: string;
-  /** The signed-in account's primary email; production Sandbox purchases need it on the allowlist. */
+  /** The signed-in account's primary email; production Sandbox purchases need it verified and on the allowlist. */
   readonly primaryEmail?: string | null;
+  readonly primaryEmailVerified?: boolean;
 };
 
 export type AppleAccountTokenDependencies = {
@@ -128,7 +129,7 @@ export async function appleAccountTokenResponse(
   const reason = ineligibleReason({
     stripeActive,
     teamBilled,
-    purchasesGrant: purchasesGrant(app, user.primaryEmail, deps.env ?? process.env),
+    purchasesGrant: purchasesGrant(app, user.primaryEmailVerified ? user.primaryEmail : null, deps.env ?? process.env),
   });
   const plans: PersonalPlanId[] = goEnabled ? ["go", "pro", "max"] : ["pro", "max"];
   const { bundleId } = app;
