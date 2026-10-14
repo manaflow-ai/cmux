@@ -54,6 +54,56 @@ fn mine(list: Vec<SessionSummary>) -> Vec<SessionSummary> {
     list.into_iter().filter(|s| is_mine(s, &parent)).collect()
 }
 
+/// Whether `s` is one of the sessions of the Chief whose `MUX_HOME` is
+/// `home`: its turns and compactor (`cmux.chief` = its home id) or its
+/// children (`mux.parent` = its parent tag).
+pub fn owned_by(s: &SessionSummary, home: &std::path::Path) -> bool {
+    s.tags.get(crate::acpmux::CHIEF_TAG).map(String::as_str)
+        == Some(crate::paths::home_id(home).as_str())
+        || is_mine(s, &parent_tag(home))
+}
+
+/// Stops (`_acpmux/kill`, records kept, so each stays resumable) every
+/// session of the Chief of `home` on this host's acpmux, and no other: on
+/// a Chief home's shared acpmux (`acpmux_daemon::shared`), what `acpmux
+/// daemon shutdown` did for a Chief's own daemon. The daemon keeps
+/// running. Returns the names it stopped.
+pub fn end_own_sessions(home: &std::path::Path) -> Result<Vec<String>, String> {
+    let (client, _) = connect()?;
+    // All kills at once, bounded together: a host stops within the
+    // supervisor's grace (5 s before SIGKILL), whatever one session does.
+    let started: Vec<_> = sessions(&client)?
+        .into_iter()
+        .filter(|s| owned_by(s, home) && s.status != cmux_chief::acp::SessionStatus::Closed)
+        .map(|s| {
+            let answer = client.start(
+                "_acpmux/kill",
+                json!({"sessionId": s.session_id, "purge": false}),
+            );
+            (s.name, answer)
+        })
+        .collect();
+    let deadline = std::time::Instant::now() + END_SESSIONS_LIMIT;
+    let mut ended = Vec::new();
+    let mut failed = Vec::new();
+    for (name, answer) in started {
+        match answer.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(Ok(_)) => ended.push(name),
+            Ok(Err(e)) => failed.push(format!("{name}: {e}")),
+            Err(_) => failed.push(format!("{name}: no answer")),
+        }
+    }
+    client.close();
+    if failed.is_empty() {
+        Ok(ended)
+    } else {
+        Err(format!("stopping {}", failed.join("; ")))
+    }
+}
+
+/// How long [`end_own_sessions`] waits for all its kills.
+const END_SESSIONS_LIMIT: Duration = Duration::from_secs(3);
+
 /// Which session `spawn --name` uses: a child of this Chief with that name
 /// (left by a failed earlier start) is reused; a session of that name that
 /// is not this Chief's (the user's, mux/host's, another home's) is refused,

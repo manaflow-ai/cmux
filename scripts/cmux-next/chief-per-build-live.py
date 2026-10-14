@@ -379,7 +379,7 @@ try:
     say(f"step 1: NIGHTLY acpmux (pid, socket inode) {a_acpmux} in {A_ACPMUX}")
     shown_m0 = wait(lambda: any(t == m0 for _, t in chief_texts(NIGHTLY_HOME)), 60)
     count = memory_count(NIGHTLY_HOME, m0)
-    others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY))
+    others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY) and not n.startswith("."))
     a_owner = wait(a.owner, 60)
     say(f"step 1: NIGHTLY brain {a_brain} on default; the owner's Chief DM holds M0: {bool(shown_m0)}; memory has M0 {count}x; other homes {others}")
     say(f"step 1: A owner daemon (session, pid) {a_owner}; control socket {a.socket}; daemon status said {a.owner_said}")
