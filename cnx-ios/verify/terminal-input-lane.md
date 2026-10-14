@@ -99,6 +99,15 @@ still parsing an earlier flood, so its ^C times were 11 to 22 s, set by the
 Mac and not the link. The rerun waited for the daemon to be idle before each
 case.
 
+After the merge of `origin/feat-cnx-ios` with fastconn (`73bcfad84f1a`,
+fleet job `8405a224218ceb19d87ac9b0`), one recheck ran with the same flood.
+Values are median / p90 in ms.
+
+| Transport | Echo in B | `send` ack | ^C |
+| --- | --- | --- | --- |
+| WebRTC direct | 2.0 / 2.9 | 0.5 / 0.8 | 28.5 |
+| WireGuard direct | 2.3 / 2.5 | 0.6 / 0.8 | 28.7 |
+
 ### Findings outside this change
 
 - **cmux-tui loses the PTY under an unthrottled flood.** This is reproduced
@@ -132,7 +141,8 @@ case.
     wire format;
   - `loopback.rs` for the lane over WebRTC and WireGuard, and fallback with
     an older Mac.
-- `swift test` passes all 159 tests in CnxKit. `nx-remote` could not reach
+- `swift test` passes all 211 tests in CnxKit after the fastconn merge,
+  BrowserStreamTests included. `nx-remote` could not reach
   `cmux-lawrence-2` (REPAIR.md row 114), so the tests ran on the mini.
 - The iOS simulator Debug and Production builds compile.
 
