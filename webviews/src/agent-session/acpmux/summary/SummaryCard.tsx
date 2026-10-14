@@ -47,8 +47,9 @@ export function SummaryCard({
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
-  /// New terminal and New browser beside the chat; none where the pane opens no split.
-  actions?: { terminal?: () => void; browser?: () => void };
+  /// New terminal and New browser beside the chat (none where the pane opens no split), and
+  /// `attach`, Sources' + (Attach files or folders), for a chat on this computer.
+  actions?: { terminal?: () => void; browser?: () => void; attach?: () => void };
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -159,6 +160,7 @@ export function SummaryCard({
               onOpenChanges={onOpenChanges}
               subagents={agents.length > 0 ? <></> : undefined}
               onOpenOutput={onOpenOutput}
+              onAttach={actions?.attach}
             />
           </div>
         )}
