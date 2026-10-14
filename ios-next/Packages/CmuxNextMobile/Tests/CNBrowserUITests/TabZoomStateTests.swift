@@ -27,13 +27,37 @@ struct TabZoomStateTests {
     @Test func repeatedNewTabAndBackNeverLeavesTheGridBlocked() {
         var s = TabZoomState(overview: true)
         for i in 0..<20 {
-            s.start(from: 1, toOverview: false)  // (+)
+            s.openNewTab()  // (+)
             run(&s, seconds: Double(i % 3) * 0.1)  // sometimes interrupted early
             s.go(toOverview: true)  // tabs button
             run(&s, seconds: 1.2)
             #expect(s.phase == .overview, "iteration \(i)")
             #expect(s.gridInteractive, "iteration \(i)")
         }
+    }
+
+    /// (+) starts on the first frame and covers 50% / 85% / 99% of the way
+    /// within one 60 Hz frame of Safari's 66 / 157 / 300 ms (vid/newtab.mp4).
+    @Test func newTabMatchesSafarisTiming() {
+        var s = TabZoomState(overview: true)
+        s.openNewTab()
+        #expect(s.phase == .animating && s.spring == .newTab)
+        var t = 0.0
+        var marks: [Double] = []
+        for level in [0.5, 0.15, 0.01] {
+            while s.progress > level, t < 1 {
+                s.step(1.0 / 600)
+                t += 1.0 / 600
+            }
+            marks.append(t * 1000)
+        }
+        for (got, safari) in zip(marks, [66.0, 157, 300]) {
+            #expect(abs(got - safari) <= 1000.0 / 60, "\(got) ms vs Safari \(safari) ms")
+        }
+        // An existing tab opens on the slower toPage spring.
+        var o = TabZoomState(overview: true)
+        o.go(toOverview: false)
+        #expect(o.spring == .toPage)
     }
 
     /// Safari (browser-springs-verify.md): a one-frame jump toward the new

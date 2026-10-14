@@ -345,8 +345,8 @@ final class TabsModel {
     @discardableResult
     /// Nil when the host refused: the selection is unchanged and a notice
     /// says why (never another tab in its place).
-    func newBrowserTab(onCreated: ((String) -> Void)? = nil) async -> String? {
-        let id = await browser.newTab(onCreated: { id in
+    func newBrowserTab(attach: Bool = true, onCreated: ((String) -> Void)? = nil) async -> String? {
+        let id = await browser.newTab(attach: attach, onCreated: { id in
             self.activeTerminalKey = nil
             self.syncOrder()
             onCreated?(id)

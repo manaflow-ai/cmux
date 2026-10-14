@@ -33,7 +33,7 @@ final class TabZoomDriver {
     /// Card-width travel (points) for the reversal jump; set by the screen.
     @ObservationIgnored var span: Double = 244
     func go(toOverview: Bool) { mutate { [span] in $0.go(toOverview: toOverview, span: span) } }
-    func start(from progress: Double, toOverview: Bool) { mutate { $0.start(from: progress, toOverview: toOverview) } }
+    func openNewTab() { mutate { $0.openNewTab() } }
     func beginInteraction() { mutate { $0.beginInteraction() } }
     func updateInteraction(progress: Double, velocity: Double) { mutate { $0.updateInteraction(progress: progress, velocity: velocity) } }
     func updateInteraction(progress: Double, offset: CGVector, velocity: Double, offsetVelocity: CGVector) {

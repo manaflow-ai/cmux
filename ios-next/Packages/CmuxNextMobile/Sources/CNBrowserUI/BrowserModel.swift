@@ -404,7 +404,9 @@ final class BrowserModel {
 
     /// Opens a new tab showing the start page; returns its id.
     @discardableResult
-    func newTab(url: String? = nil, onCreated: ((String) -> Void)? = nil) async -> String? {
+    /// `attach: false` leaves the stream to the caller (the (+) zoom attaches
+    /// once it settles, so the attach does not cost frames mid-zoom).
+    func newTab(url: String? = nil, attach attachNow: Bool = true, onCreated: ((String) -> Void)? = nil) async -> String? {
         guard let client = connection.client else {
             notice = "Couldn't open a new tab: not connected to your Mac."
             return nil
@@ -415,7 +417,7 @@ final class BrowserModel {
             onCreated?(tab.id)
             if url == nil { startPageTabs.insert(tab.id) }
             activeTabId = tab.id
-            await attach(tab.id)
+            if attachNow { await attach(tab.id) }
             return tab.id
         } catch {
             // A toast, not the full-screen error: the current tab (or the
