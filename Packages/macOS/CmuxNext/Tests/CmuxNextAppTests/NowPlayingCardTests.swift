@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextNowPlaying
@@ -23,6 +24,41 @@ import Testing
         var on: Bool
         init(_ on: Bool) { self.on = on }
     }
+
+    nonisolated(unsafe) static var npOriginals: [UInt32: (AEEventHandlerUPP, SRefCon?)] = [:]
+    nonisolated(unsafe) static var npDepth = 1
+    nonisolated static func npSay(_ s: String) { FileHandle.standardError.write(Data(("NPDIAG \(DispatchTime.now().uptimeNanoseconds / 1_000_000) " + s + "\n").utf8)) }
+    static let npDiag: Void = {
+        npSay("install")
+        let wrapper: AEEventHandlerProcPtr = { event, reply, refcon in
+            var id: OSType = 0
+            var type: DescType = 0
+            var size = 0
+            AEGetAttributePtr(event, keyEventIDAttr, typeType, &type, &id, MemoryLayout<OSType>.size, &size)
+            let text = String(bytes: withUnsafeBytes(of: id.bigEndian) { Array($0) }, encoding: .ascii) ?? "\(id)"
+            NowPlayingCardTests.npSay("AE \(text) begins\n" + Thread.callStackSymbols.prefix(10).joined(separator: "\n"))
+            var result: OSErr = OSErr(errAEEventNotHandled)
+            if let original = NowPlayingCardTests.npOriginals[id] { result = original.0(event, reply, original.1) }
+            NowPlayingCardTests.npSay("AE \(text) ends \(result)")
+            return result
+        }
+        for id in [kAEOpenApplication, kAEReopenApplication, kAEQuitApplication, kAEOpenDocuments, kAEPrintDocuments, kAEShowPreferences].map({ AEEventID($0) }) {
+            var handler: AEEventHandlerUPP?
+            var refcon: SRefCon?
+            let found = AEGetEventHandler(AEEventClass(kCoreEventClass), id, &handler, &refcon, false)
+            npSay("AE handler \(id) found=\(found) has=\(handler != nil)")
+            if found == noErr, let handler { npOriginals[id] = (handler, refcon) }
+            AEInstallEventHandler(AEEventClass(kCoreEventClass), id, wrapper, nil, false)
+        }
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.entry.rawValue | CFRunLoopActivity.exit.rawValue, true, -1_000_000) { _, activity in
+            if activity == .entry { NowPlayingCardTests.npDepth += 1; return }
+            NowPlayingCardTests.npDepth -= 1
+            if NowPlayingCardTests.npDepth <= 0 { NowPlayingCardTests.npSay("outer runloop exit") }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        atexit { NowPlayingCardTests.npSay("atexit") }
+    }()
+    init() { _ = Self.npDiag; Self.npSay("test init") }
 
     static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
 
