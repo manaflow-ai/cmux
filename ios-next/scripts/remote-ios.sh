@@ -8,7 +8,7 @@
 #   ios-next/scripts/remote-ios.sh shot   [--slot S] --out local.png
 #   ios-next/scripts/remote-ios.sh video  [--slot S] --seconds N --out local.mp4
 #   ios-next/scripts/remote-ios.sh openurl [--slot S] --url <url>
-#   ios-next/scripts/remote-ios.sh device [--slot S] [--scheme Drawer|Tabs] --out local.zip
+#   ios-next/scripts/remote-ios.sh device [--slot S] [--scheme Drawer|Tabs] [--config Debug|Release] --out local.zip
 #       unsigned iphoneos build of committed HEAD (not the working tree); sign and
 #       install it on this Mac with ios-next/scripts/install-device.sh
 #   ios-next/scripts/remote-ios.sh test   [--slot S]            (swift test of CmuxNextMobile on macOS)
@@ -23,11 +23,12 @@ set -euo pipefail
 HOST="${CMUX_NEXT_IOS_HOST:-aziz-other-macbook}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"   # worktree root
 cmd="${1:?command}"; shift
-slot="main"; scheme="Drawer"; out=""; seconds=8; url=""; envs=(); raw=()
+slot="main"; scheme="Drawer"; config="Debug"; out=""; seconds=8; url=""; envs=(); raw=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --slot) slot="$2"; shift 2 ;;
     --scheme) scheme="$2"; shift 2 ;;
+    --config) config="$2"; shift 2 ;;
     --out) out="$2"; shift 2 ;;
     --seconds) seconds="$2"; shift 2 ;;
     --url) url="$2"; shift 2 ;;
@@ -141,12 +142,12 @@ case "$cmd" in
     remote "
       set -eo pipefail
       cd ~/$R/head/ios-next/App
-      xcodebuild -project CmuxNextMobile.xcodeproj -scheme $scheme -configuration Debug \
+      xcodebuild -project CmuxNextMobile.xcodeproj -scheme $scheme -configuration $config \
         -sdk iphoneos -destination 'generic/platform=iOS' \
         -derivedDataPath ~/$R/dd-device -skipPackagePluginValidation \
         CODE_SIGNING_ALLOWED=NO build 2>&1 | tee ~/$R/device.log | grep -E 'error:|BUILD (SUCCEEDED|FAILED)' | head -40
       grep -q 'BUILD SUCCEEDED' ~/$R/device.log
-      cd ~/$R/dd-device/Build/Products/Debug-iphoneos && rm -f ~/$R/device.zip && ditto -c -k --keepParent $product.app ~/$R/device.zip
+      cd ~/$R/dd-device/Build/Products/$config-iphoneos && rm -f ~/$R/device.zip && ditto -c -k --keepParent $product.app ~/$R/device.zip
     "
     scp -q "$HOST:$R/device.zip" "$out"; echo "$out"
     ;;
