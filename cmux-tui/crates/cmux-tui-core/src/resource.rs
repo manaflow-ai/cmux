@@ -452,6 +452,8 @@ pub enum ResourceOperation {
     ProjectRemove,
     #[serde(rename = "project.sync")]
     ProjectSync,
+    #[serde(rename = "project.source.update")]
+    ProjectSourceUpdate,
     #[serde(rename = "browser.devices.list")]
     BrowserDevicesList,
     #[serde(rename = "browser.devices.add_custom")]

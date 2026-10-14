@@ -58,6 +58,7 @@ final class SidebarNoticeCardView: NSView {
         bar.cornerRadius = 1.5
         content.layer?.addSublayer(track)
         content.layer?.addSublayer(bar)
+        closeButton.takesKeyFocus = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
         [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton].forEach(content.addSubview)
         setAccessibilityElement(false)
