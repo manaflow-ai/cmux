@@ -13,6 +13,9 @@ mod autostart;
 mod brains;
 #[path = "chief_build_homes.rs"]
 mod build_homes;
+#[cfg(unix)]
+#[path = "chief_chat_kind.rs"]
+mod chat_kind;
 #[path = "conversation_link_preview.rs"]
 mod link_preview;
 #[path = "participant_avatars.rs"]
