@@ -503,7 +503,7 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     // Keys live in memory for one router run. macOS keeps the install secret in
     // the Keychain; elsewhere a fresh random secret per run is equivalent.
     #[cfg(target_os = "macos")]
-    let store: Arc<dyn InstallSecretStore> = Arc::new(KeychainInstallSecretStore::new("default"));
+    let store = macos_install_secret_store()?;
     #[cfg(not(target_os = "macos"))]
     let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
     let keys = Arc::new(tokio::sync::RwLock::new(KeyRing::new(store)?));
@@ -519,6 +519,26 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     }
     drop(lock);
     Ok(())
+}
+
+/// The Keychain store when the Keychain answers at start, else a random
+/// in-memory secret for this run (a Mac with no default keychain: a fleet
+/// worker, a session without a login keychain). Keys never outlive one router
+/// run, so the random secret is as strong; without it every mint failed and
+/// the admin socket closed with no reply. Decided once: the key digest reads
+/// the store on every check, so it must never switch during a run.
+#[cfg(target_os = "macos")]
+fn macos_install_secret_store() -> anyhow::Result<Arc<dyn InstallSecretStore>> {
+    let keychain = KeychainInstallSecretStore::new("default");
+    match keychain.load() {
+        Ok(_) => Ok(Arc::new(keychain)),
+        Err(e) => {
+            tracing::warn!(
+                "the Keychain install secret is unavailable ({e:#}); this router run uses a random in-memory secret"
+            );
+            Ok(Arc::new(RandomInstallSecretStore::new("default")?))
+        }
+    }
 }
 
 /// Start the real loopback data plane for integration tests and composition.
