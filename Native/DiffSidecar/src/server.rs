@@ -2135,6 +2135,9 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
     stdout.flush().await.map_err(|error| error.to_string())
 }
 
+#[cfg(all(test, unix))]
+mod hostile_repository_tests;
+
 #[cfg(test)]
 mod tests {
     use std::process::Command;
