@@ -341,8 +341,9 @@ impl ChiefTools {
         self.read().pending
     }
 
-    /// The daemon link is up: a pending record is read now. A record that is
-    /// still not readable stays pending until the next link up.
+    /// The daemon link is up (or a conversation changed): a pending record
+    /// is read now. A record that is still not readable stays pending until
+    /// the next link event.
     pub fn read_when_up(&self, log: &dyn Fn(String)) {
         if !self.pending() {
             return;
@@ -414,14 +415,20 @@ impl ChiefTools {
 }
 
 /// The daemon link's event sink, wrapped so a pending record is read each
-/// time the link comes up (connected and bound), before the brain hears it.
+/// time the link comes up (connected and bound) and on each conversation
+/// change while it is still pending (a person's message reaches the brain
+/// only after the read), before the brain hears the event.
 pub fn read_record_on_up(
     tools: std::sync::Arc<ChiefTools>,
     sink: std::sync::Arc<dyn Fn(crate::daemon::DaemonEvent) + Send + Sync>,
     log: std::sync::Arc<dyn Fn(&str) + Send + Sync>,
 ) -> std::sync::Arc<dyn Fn(crate::daemon::DaemonEvent) + Send + Sync> {
     std::sync::Arc::new(move |event| {
-        if matches!(event, crate::daemon::DaemonEvent::Up { .. }) {
+        let link_event = matches!(
+            event,
+            crate::daemon::DaemonEvent::Up { .. } | crate::daemon::DaemonEvent::Changed { .. }
+        );
+        if link_event && tools.pending() {
             tools.read_when_up(&|line: String| log(&line));
         }
         sink(event)
