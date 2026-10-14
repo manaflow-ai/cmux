@@ -1,27 +1,44 @@
 import CoreGraphics
 
-/// Swipe a grid card left to close it, as Safari does (measured on the
-/// iPhone 17 Pro simulator, real frame timestamps; the cmux-next iOS app's validation/browser.md,
-/// round 14):
+/// Swipe a grid card left to close it, as Safari does. Device reference:
+/// iPhone 17 Pro Max Safari (`swipe-close-device.mp4`, real frame times,
+/// the cmux-next iOS app's validation/browser.md round 16); thresholds from simulator Safari trials
+/// (round 14):
 ///
-/// - Horizontal drags only (a mostly vertical drag scrolls the grid). Left
-///   follows the finger 1:1; right is rubber-banded and always springs back.
-/// - No fade or scale while dragging.
+/// - Horizontal drags only (a mostly vertical drag scrolls the grid). The card
+///   lifts (scale 1.09) as soon as it is dragged. Left follows the finger 1:1;
+///   right is rubber-banded (at most ≈ 58 pt seen on device) and always
+///   springs back.
+/// - No fade while dragging.
 /// - Release closes when the card is at least 72% of its width to the left,
 ///   or when the finger leaves leftward faster than 225 pt/s; otherwise the
-///   card springs back (response 0.56, damping 0.92).
-/// - Closing: the card flies off to the left and fades within 2-3 frames,
-///   then the grid reflows with the close button's reflow spring (once the
-///   host confirmed the close; a refused close brings the card back).
+///   card springs back to its slot (0.66 / 0.86) and settles to scale 1
+///   (0.57 / 0.94).
+/// - Closing: the card keeps going left at the finger's speed (≥ 1000 pt/s),
+///   lifted and opaque, then the grid reflows once the host confirmed (a
+///   refused close brings the card back). When one tab is left, Safari opens
+///   it.
 struct CardSwipe: Equatable, Sendable {
     static let commitFraction: CGFloat = 0.72
     static let flingVelocity: CGFloat = 225
     /// Rightward rubber band: `d * (1 - 1 / (x * c / d + 1))`.
     static let rubberDimension: CGFloat = 120
     static let rubberConstant: CGFloat = 0.55
-    static let snapBack = ZoomSpring(response: 0.56, damping: 0.92)
-    /// Safari's fly-off: the card is gone in 2-3 frames, then the reflow.
-    static let flyOffDuration = 0.04
+    /// Spring back to the slot (device: centre x fit 0.66 / 0.86, rms 0.6 pt).
+    static let snapBack = ZoomSpring(response: 0.66, damping: 0.86)
+    /// The card lifts while it is dragged (device: 1.0 -> 1.09 within ~60 ms
+    /// of the drag starting, about its centre) and settles back on release
+    /// (scale fit 0.57 / 0.94).
+    static let liftScale: CGFloat = 1.09
+    static let lift = ZoomSpring(response: 0.08, damping: 1)
+    static let settle = ZoomSpring(response: 0.57, damping: 0.94)
+    /// A closing card keeps going left at the finger's speed (device ≈ 1000
+    /// pt/s, still lifted and opaque) until it is off screen.
+    static let flyOffMinSpeed: CGFloat = 1000
+    /// Fly-off time for `distance` points at the release speed.
+    static func flyOffDuration(distance: CGFloat, velocity: CGFloat) -> Double {
+        Double(abs(distance) / max(abs(velocity), flyOffMinSpeed))
+    }
     /// Reduce Motion: no movement after release, a crossfade instead.
     static let reduceMotionFade = 0.18
 

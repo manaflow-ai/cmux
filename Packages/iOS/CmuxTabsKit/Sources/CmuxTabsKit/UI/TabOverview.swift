@@ -171,15 +171,21 @@ struct TabOverview<Source: TabsDataSource>: View {
                         // Swipe left to close (CardSwipe).
                         .gesture(CardSwipeGesture { phase in
                             switch phase {
-                            case .changed(let dx): swipes.track(tab.id, translation: dx)
+                            case .changed(let dx): swipes.track(tab.id, translation: dx, reduceMotion: UIAccessibility.isReduceMotionEnabled)
                             case .ended(_, let v):
                                 swipes.release(tab.id, velocity: v, card: r, reduceMotion: UIAccessibility.isReduceMotionEnabled) {
-                                    await onClose(tab.id)
+                                    let closed = await onClose(tab.id)
+                                    // Safari opens the last tab when a swipe leaves only one.
+                                    if closed, source.tabs.count == 1, let last = source.tabs.first { onSelect(last.id) }
+                                    return closed
                                 }
                             case .cancelled: swipes.cancel(tab.id, reduceMotion: UIAccessibility.isReduceMotionEnabled)
                             }
                         })
                         .opacity(swipes.opacity(tab.id))
+                        // Lifted about the card's centre while dragged.
+                        .scaleEffect(swipes.scale(tab.id), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
+                        .zIndex(swipes.scale(tab.id) > 1 ? 1 : 0)
                         .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
                         .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
                     }
