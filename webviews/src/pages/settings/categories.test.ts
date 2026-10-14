@@ -87,6 +87,7 @@ test("the page renders the exported layout", () => {
       })),
     })),
   ).toEqual(
-    (page!.categories as Array<Record<string, unknown>>).map(({ aliases: _aliases, ...category }) => category) as never,
+    // dev_only is the Category's devOnly (checked by the DEV-only test above).
+    (page!.categories as Array<Record<string, unknown>>).map(({ aliases: _aliases, dev_only: _devOnly, ...category }) => category) as never,
   );
 });

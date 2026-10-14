@@ -1545,6 +1545,12 @@
       "title" : "Split for Browsers Too",
       "type" : "boolean"
     },
+    "macScreen.debug.relayOnly" : {
+      "default" : false,
+      "description" : "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect.",
+      "title" : "Relay Only",
+      "type" : "boolean"
+    },
     "ManagedTeam" : {
       "description" : "Team id (team_...) that manages this device.",
       "title" : "ManagedTeam",
