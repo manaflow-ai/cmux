@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
+import CmuxNextDesign
 public import Foundation
 import os
 
@@ -21,8 +22,9 @@ import os
 public final class HomeDock {
     /// The page the dock shows (hq-ec's page contract, COORD.md; a rename is announced there first).
     public static let page = "home-channels"
-    /// Classic Home for one release: the top page, with the Chief tab in the hidden home workspace.
-    public static var classic: Bool { false }
+    /// Classic Home for one release (`labs.classicHome`): the top page, with the Chief tab in the
+    /// hidden home workspace.
+    public static var classic: Bool { DesignSettings.shared.classicHome }
     public var isClassic: Bool { Self.classic }
     /// The origin of the page tab's creation key.
     static let origin = "cmux-next-home-dock"
@@ -35,6 +37,9 @@ public final class HomeDock {
     /// One pending creation key, shared by overlapping connects; a closed page tab gets a new one.
     private let key = HomeChiefTabKey { "home-dock-page-\(UUID().uuidString.lowercased())" }
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
+    /// A dock move was sent and the tree does not show its dock yet: a connect meanwhile (launch
+    /// runs this twice, a placed Chief again) must not send a second move.
+    private var moveInFlight = false
 
     public init() {}
 
@@ -61,9 +66,9 @@ public final class HomeDock {
     /// (logged), so the Chief conversation's own setup still runs. Reads the home from the live
     /// tree each time (it changes while this waits).
     public func ensure(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, dock: Dock) async -> String {
-        guard store.supports(DaemonCapabilities.shared.pageTabs), store.supports(DaemonCapabilities.shared.dockColumnRole) else {
-            return "no home dock: the daemon lacks page tabs or dock roles"
-        }
+        let needs = [DaemonCapabilities.shared.pageTabs, DaemonCapabilities.shared.dockColumnRole, DaemonCapabilities.shared.tabColumnRespawn]
+        guard needs.allSatisfy({ store.supports($0) }) else { return "no home dock: the daemon lacks page tabs, dock roles or column respawn" }
+        guard !moveInFlight else { return "home dock move in flight" }
         do {
             return try await ensureDock(connection, store: store, home: home, dock: dock)
         } catch {
@@ -96,10 +101,15 @@ public final class HomeDock {
         if !chiefs.isEmpty, stays || !docked { try await connection.closeTabs(Array(chiefs), endTerminals: false) }
         if docked { return "home dock present" }
         let respawn: SplitRespawn? = stays ? nil : .terminal(SpawnOptions(workspace: workspace()?.key))
+        moveInFlight = true
+        defer { moveInFlight = false }
         let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             dock(placed.tab, placed.pane, respawn) { done.resume(returning: $0) }
         }
-        return moved ? "home dock made" : "home dock move failed (see the app log)"
+        guard moved else { return "home dock move failed (see the app log)" }
+        // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
+        _ = await shown { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }
+        return "home dock made"
     }
 
     /// A Chief conversation tab: a conversation tab whose source is a conversation (not a page or

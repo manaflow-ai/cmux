@@ -58,8 +58,9 @@ final class HomeService {
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
-    /// The chief tab creation's idempotency key (one per creation); the Home dock (its page tab, cx-ebm.59.5).
-    @ObservationIgnored let chiefTabKey = HomeChiefTabKey(), dock = HomeDock()
+    /// The chief tab creation's idempotency key (one per creation).
+    @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
+    @ObservationIgnored let dock = HomeDock() // the Home dock's page tab and links (cx-ebm.59.5, cx-ebm.59.6)
     /// The signed-in user's chief placed on a paired server (G6), as last
     /// read on a connect or sign-in; its main conversation is the Chief tab.
     private(set) var cloudChief: CloudChief?

@@ -37,13 +37,12 @@ extension AppActions {
         services.pages.register(DebugHomeNativeFixture())
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
-        // Home is the store's home workspace with its left dock (cx-ebm.59.5): the active window shows it,
-        // or the window that has it comes forward; with no window it opens one. Classic Home is a top page.
+        // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it.
         registry.bind("home.show") {
             let classic = services.home.dock.isClassic
             if classic, TopPages.show(.home, services: services) != nil { return }
-            guard !classic || services.windows.active == nil, let home = services.home.homeWorkspace else {
-                services.registry.refuse(RefusalStrings.homeNotReady)
+            guard !classic || services.windows.active == nil, classic || ActionRunScope.viewChangeAllowed(), let home = services.home.homeWorkspace else {
+                services.registry.refuse(classic || ActionRunScope.viewChangeAllowed() ? RefusalStrings.homeNotReady : RefusalStrings.homeNeedsFocus)
                 return
             }
             if !classic, let active = services.windows.active { return services.windows.show(workspaceID: home.id, in: active.state) }
