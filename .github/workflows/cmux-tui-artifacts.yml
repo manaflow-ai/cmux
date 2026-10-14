@@ -560,7 +560,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     outputs:
-      takeover: ${{ steps.wait.outputs.takeover }}
+      # A deferring run's re-check can still take the key over (below).
+      takeover: ${{ steps.recheck.outputs.takeover == 'true' && 'true' || steps.wait.outputs.takeover }}
       unmarked: ${{ steps.wait.outputs.unmarked }}
     permissions:
       actions: read
@@ -735,6 +736,7 @@ jobs:
           fi
           {
             echo "deferred=$deferred"
+            echo "owner=$OWNER_RUN_ID"
             echo "feat_builder=${feat_builder:-false}"
             echo "takeover=$takeover"
             echo "unmarked=${unmarked:-false}"
@@ -772,6 +774,75 @@ jobs:
           path: ${{ runner.temp }}/deferred-key
           retention-days: 1
           overwrite: true
+
+      # The owner's hand-off (notify-unpublished-tree) re-runs only the runs
+      # whose deferred marker exists when it looks. A run that saw its owner
+      # live, then left its marker after that look, ended green with the key
+      # unpublished and nobody to build it (2026-10-14: owners cancelled while
+      # newer feat-cmux-next tips of the key deferred to them). So, with the
+      # marker in place, look once more. An owner that ended unpublished is
+      # taken over through the claim, as in the wait step. An owner whose
+      # hand-off already started may have missed the marker: wait (bounded)
+      # for it to end, then decide. Any other live owner sees the marker.
+      - name: Re-check the owner after leaving the marker
+        id: recheck
+        if: steps.wait.outputs.deferred == 'true'
+        continue-on-error: true
+        env:
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          OWNER_RUN_ID: ${{ steps.wait.outputs.owner }}
+          API_URL: ${{ github.api_url }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          takeover=false
+          api() {
+            curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              -u "x-access-token:$GH_TOKEN" -H 'Accept: application/vnd.github+json' "$API_URL/repos/$REPOSITORY/$1" 2>/dev/null
+          }
+          owner_state() {
+            api "actions/runs/$OWNER_RUN_ID" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", "unknown"))' 2>/dev/null || echo unknown
+          }
+          published() {
+            curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              "https://files.cmux.com/cmux-tui/tree/$KEY/completion.json?owner-recheck=$GITHUB_RUN_ID" \
+              -o "$RUNNER_TEMP/cmux-tui-recheck-completion.json" 2>/dev/null &&
+              python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("key") == sys.argv[2] else 1)' \
+                "$RUNNER_TEMP/cmux-tui-recheck-completion.json" "$KEY" 2>/dev/null
+          }
+          state="$(owner_state)"
+          if [[ "$state" != completed ]] &&
+              api "actions/runs/$OWNER_RUN_ID/jobs?per_page=100" | python3 -c 'import json,sys; sys.exit(0 if any(j.get("name") == "report an unpublished cmux-tui tree to cmux-next" and j.get("status") in ("in_progress", "completed") for j in json.load(sys.stdin).get("jobs", [])) else 1)' 2>/dev/null; then
+            echo "Owner run $OWNER_RUN_ID is handing tree $KEY off; waiting for it to end."
+            for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              sleep 15
+              state="$(owner_state)"
+              [[ "$state" == completed ]] && break
+            done
+          fi
+          if published; then
+            echo "Tree $KEY is published; nothing to build."
+          elif [[ "$state" != completed ]]; then
+            echo "Owner run $OWNER_RUN_ID ($state) is live; its hand-off re-runs this run if it ends unpublished."
+          elif claim="$(scripts/ci/cmux-tui-tree-claim.sh "$KEY")"; then
+            next_owner="${claim#owner=}"; next_owner="${next_owner%% *}"
+            if [[ "$claim" != *"granted=true" && "$next_owner" == "$OWNER_RUN_ID" ]]; then
+              sleep 20
+              claim="$(scripts/ci/cmux-tui-tree-claim.sh "$KEY")" || claim="owner=$OWNER_RUN_ID granted=false"
+              next_owner="${claim#owner=}"; next_owner="${next_owner%% *}"
+            fi
+            if [[ "$claim" == *"granted=true" || "$next_owner" == "$OWNER_RUN_ID" ]]; then
+              takeover=true
+              echo "Owner run $OWNER_RUN_ID ended without publishing tree $KEY after this run deferred; this run takes over."
+            else
+              echo "Run $next_owner now owns tree $KEY; this run builds nothing."
+            fi
+          else
+            takeover=true
+            echo "Owner run $OWNER_RUN_ID ended without publishing tree $KEY, and the claim authority could not be asked; taking over."
+          fi
+          echo "takeover=$takeover" >> "$GITHUB_OUTPUT"
 
   build:
     if: >-
@@ -2064,7 +2135,7 @@ jobs:
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.ref == 'refs/heads/feat-cmux-next' || needs.tree-preflight.outputs.daemon_tests != 'true' || (needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key)) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.ref == 'refs/heads/feat-cmux-next' || needs.tree-preflight.outputs.daemon_tests != 'true') && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     # On feat-cmux-next, independent of the daemon tests (chief 2026-10-13,
     # hq-11): their macOS runner queues up to ~1 h, and every dev build waited
     # for the tree. There a published tree does not mean the daemon tests
@@ -2072,9 +2143,14 @@ jobs:
     # do, and nightly-next promotion (request-nightly-next.sh) requires it. A
     # lane-branch push (tree-preflight's daemon-policy) publishes without them
     # and writes no marker; a testing run that finds the key unmarked runs
-    # them. Any other ref publishes only after its daemon tests pass, and
-    # writes the marker first (chief 2026-10-14).
-    needs: [tree-preflight, build-ok, publish, cmux-next-daemon-tests]
+    # them. Any other ref that runs them publishes from
+    # publish-tree-daemon-tested instead, after they pass (chief 2026-10-14).
+    # This job must not need cmux-next-daemon-tests: a job starts only after
+    # every job it needs ends, whatever its `if` says. With that need, no
+    # feat-cmux-next tip of 2026-10-14 published a tree while 12 daemon-test
+    # jobs queued for the one promote runner
+    # (tests/test_cmux_tui_feat_publish_order.py).
+    needs: [tree-preflight, build-ok, publish]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Ownership is elected before expensive work; publication stays per run
@@ -2088,7 +2164,7 @@ jobs:
       actions: write
       contents: read
       pull-requests: read
-    steps:
+    steps: &publish-tree-steps
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -2345,14 +2421,40 @@ jobs:
           KEY: ${{ needs.tree-preflight.outputs.key }}
         run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
 
+  # publish-tree for every ref but feat-cmux-next that runs the daemon tests
+  # (pins, next-batch/*, main, opted-in lane pushes, dispatches): the same
+  # steps (the YAML alias), after the tests pass, with the daemon-tests marker
+  # written first (cx-kfbom): branch run 38511998456 published tree
+  # c77d397b3a9f unmarked, and a feat-cmux-next push that finds the key
+  # published does not test it. Exactly one of the two jobs runs.
+  publish-tree-daemon-tested:
+    environment: artifacts
+    name: publish tree-addressed cmux-tui
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && github.ref != 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.daemon_tests == 'true' && needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [tree-preflight, build-ok, publish, cmux-next-daemon-tests]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    # Ownership is elected before expensive work; publication stays per run
+    # and the write-once uploader makes a rare election race safe.
+    concurrency:
+      group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
+      cancel-in-progress: false
+    permissions:
+      # actions: write dispatches cmux-next's same-tree mode and removes the
+      # wait markers; pull-requests: read checks a waiting pull request's head.
+      actions: write
+      contents: read
+      pull-requests: read
+    steps: *publish-tree-steps
+
   # The daemon tests passed for this tree (chief 2026-10-13): one write-once
   # marker per key, after publish-tree. request-nightly-next.sh promotes a tree
   # whose source.json says daemonTests "separate" only when the marker exists.
   publish-tree-tested:
     environment: artifacts
     name: mark the published tree as daemon-tested
-    needs: [tree-preflight, tree-owner-wait, publish-tree, publish-pr-tree, cmux-next-daemon-tests]
-    if: ${{ !cancelled() && (needs.publish-tree.result == 'success' || needs.publish-pr-tree.result == 'success' || needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.unmarked == 'true') && needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [tree-preflight, tree-owner-wait, publish-tree, publish-tree-daemon-tested, publish-pr-tree, cmux-next-daemon-tests]
+    if: ${{ !cancelled() && (needs.publish-tree.result == 'success' || needs.publish-tree-daemon-tested.result == 'success' || needs.publish-pr-tree.result == 'success' || needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.unmarked == 'true') && needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
@@ -2602,8 +2704,8 @@ jobs:
     name: report an unpublished cmux-tui tree to cmux-next
     # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
     # job, so a run re-run below finds this owner ended (cx-urd.26).
-    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree, macos-cross-shadow, macos-cross-runtime-x86_64]
-    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-tree-daemon-tested, publish-pr-tree, macos-cross-shadow, macos-cross-runtime-x86_64]
+    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-tree-daemon-tested.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
