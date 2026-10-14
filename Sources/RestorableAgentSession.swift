@@ -3153,11 +3153,7 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     static func encodeClaudeProjectDir(_ path: String) -> String {
-        // Claude derives a project directory name by replacing both "/" and "." with "-"
-        // (e.g. "/Users/x/repo/.claude" -> "-Users-x-repo--claude"). Missing the "." case
-        // sent dotted paths to the wrong project directory.
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        ClaudeProjectSlug().slug(forWorkingDirectory: path)
     }
 
     private static func claudeProjectDirName(containingTranscriptPath path: String, configRoots: [String]) -> String? {
