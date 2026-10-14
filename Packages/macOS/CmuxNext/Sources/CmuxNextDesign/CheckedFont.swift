@@ -33,30 +33,38 @@ enum CheckedFont {
     /// The last font AppKit returned non-null; the end of the fallback chain.
     private static var lastGood: NSFont?
     /// Every font ``system(_:size:weight:)`` made, kept alive for the
-    /// process. Sizes come from clamped settings (interface scale, interface
-    /// size, density), so the set stays small; past the cap a new font is
-    /// still checked but not kept. No eviction: releasing a font is what
-    /// lets the next request for it come back nil.
+    /// process. Sizes come from clamped settings (interface scale 0.85 to
+    /// 1.5, interface size 10 to 16, density); each setting a user steps
+    /// through adds about 15 keys, so the cap leaves room for well over 100
+    /// of them in one session. Past the cap a new font is still checked but
+    /// not kept. No eviction: releasing a font is what lets the next request
+    /// for it come back nil.
     private static var retained: [Key: NSFont] = [:]
-    private static let retainedLimit = 256
+    private static let retainedLimit = 2048
 
     /// The system font of `design` at `size` (rounded to 1/100 pt) and
     /// `weight`: the retained one when this process made it before, else a
     /// new checked one that is kept. Main actor only (the module default).
     static func system(_ design: Typography.Design, size requested: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        let size = requested.isFinite ? (requested * 100).rounded() / 100 : requested
+        // A non-finite size never equals itself as a key: check it, never keep it.
+        guard requested.isFinite else {
+            return checked(size: requested) { fresh(design, size: NSFont.systemFontSize, weight: weight) }.font
+        }
+        let size = (requested * 100).rounded() / 100
         let key = Key(design: design, size: size, weight: weight.rawValue)
         if let font = retained[key] { return font }
-        let (font, isFallback) = checked(size: size) {
-            switch design {
-            case .default: .systemFont(ofSize: size, weight: weight)
-            case .monospaced: .monospacedSystemFont(ofSize: size, weight: weight)
-            case .monospacedDigit: .monospacedDigitSystemFont(ofSize: size, weight: weight)
-            }
-        }
+        let (font, isFallback) = checked(size: size) { fresh(design, size: size, weight: weight) }
         // A fallback is not kept: the next call asks AppKit again.
         if !isFallback, retained.count < retainedLimit { retained[key] = font }
         return font
+    }
+
+    private static func fresh(_ design: Typography.Design, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        switch design {
+        case .default: .systemFont(ofSize: size, weight: weight)
+        case .monospaced: .monospacedSystemFont(ofSize: size, weight: weight)
+        case .monospacedDigit: .monospacedDigitSystemFont(ofSize: size, weight: weight)
+        }
     }
 
     /// `font` as an optional, so a null reference from a non-optional
