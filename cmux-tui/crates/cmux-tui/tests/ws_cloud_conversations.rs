@@ -569,3 +569,7 @@ fn the_persons_page_pins_a_cloud_conversation_through_the_daemon() {
     assert_eq!(foreign["ok"], false, "{foreign}");
     assert_eq!(cloud.requests().len(), 2, "{:?}", cloud.requests());
 }
+
+/// Cloud conversations' attachments through the daemon (`cloud-attachments-v1`).
+#[path = "ws_cloud_conversations/attachments.rs"]
+mod attachments;

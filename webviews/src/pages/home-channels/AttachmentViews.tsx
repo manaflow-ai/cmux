@@ -180,6 +180,7 @@ function VideoPlayer({
   };
   return (
     <figure className="hc-att-video" style={{ width: size.width }}>
+      {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- a user's attached file; it has no caption track. */}
       <video
         src={src}
         poster={posterSrc}
@@ -404,6 +405,7 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
       {state === "uploading" && (
         <span
           className="hc-tray-bar"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
