@@ -927,5 +927,63 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "_acpmux/bookmark_get every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/bookmark_get",
+   "params": {
+    "sessionId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/bookmark_set every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/bookmark_set",
+   "params": {
+    "sessionId": 1,
+    "seq": 1,
+    "bookmarked": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/bookmark_set with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/bookmark_set",
+   "params": {
+    "sessionId": 1,
+    "seq": 1,
+    "bookmarked": 1,
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/bookmark_get with another param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/bookmark_get",
+   "params": {
+    "sessionId": 1,
+    "cwd": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  }
 ]
