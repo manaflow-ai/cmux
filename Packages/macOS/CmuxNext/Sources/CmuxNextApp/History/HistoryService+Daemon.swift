@@ -26,7 +26,7 @@ extension HistoryService {
         var all: [HistoryEntry] = []
         if !kinds.isEmpty {
             let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit)) ?? []
-            all = rows.compactMap { $0.historyEntry() }.map { entry in entry.reachable { self.services.locationTrail.isAvailable($0) } }
+            all = rows.compactMap { $0.historyEntry(untitled: Strings.untitledTerminal) }.map { reachable($0) }
         }
         if wantsCommands {
             await commands.refresh()
@@ -46,7 +46,12 @@ extension HistoryService {
         }
         guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
         let rows = (try? await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000)) ?? []
-        return rows.first { $0.id == id }?.historyEntry().map { entry in entry.reachable { self.services.locationTrail.isAvailable($0) } }
+        return rows.first { $0.id == id }?.historyEntry(untitled: Strings.untitledTerminal).map { reachable($0) }
+    }
+
+    /// A location row greyed while its tab is not reachable (the daemon cannot know).
+    private func reachable(_ entry: HistoryEntry) -> HistoryEntry {
+        entry.reachable { services.locationTrail.isAvailable($0) }
     }
 
     /// Runs a daemon mutation off the caller, then tells open pages (they also hear history-changed).

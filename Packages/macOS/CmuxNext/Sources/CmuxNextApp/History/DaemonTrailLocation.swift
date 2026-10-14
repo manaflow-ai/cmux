@@ -22,11 +22,3 @@ extension DaemonHistoryClient {
         return rows.reversed().compactMap { row in row.trailLocation.map { ($0, row.time) } }
     }
 }
-
-extension DaemonHistoryEntry {
-    /// A location row's place as the app's location.
-    var trailLocation: HistoryLocation? {
-        guard kind == .location, let location else { return nil }
-        return location.historyLocation(window: window ?? "")
-    }
-}
