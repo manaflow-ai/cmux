@@ -25,7 +25,7 @@ struct ZoomSpring: Equatable, Sendable {
     /// The fresh start page after the last tab closed: Safari scales it
     /// from about 0.84 to 1, at rest about 275 ms after its first frame
     /// (re-measured from the audit's `saf-last.mp4`, tabs-parity-reaudit D2).
-    static let afterLastClose = ZoomSpring(response: 0.26, damping: 1)
+    static let afterLastClose = ZoomSpring(response: 0.245, damping: 1)
     /// After a reversal Safari follows the destination's spring from about
     /// rest (toward the page 0.308–0.331 / 1.03–1.04, toward the grid
     /// 0.346–0.369 / 0.84–0.875).
