@@ -13,6 +13,7 @@ frames with timestamps, suitable for a before/after video. No model is simulated
 from __future__ import annotations
 
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -56,7 +57,8 @@ class InsertionDriver(Driver):
         before = self.checked("debug.motion", {"action": "read"})
         self.save("motion_before", before)
         try:
-            self.checked("debug.motion", {"action": "speed", "value": "fast"})
+            if before.get("speed") == "off":
+                raise RuntimeError("motion is disabled in the tagged app config")
             self.checked("debug.motion", {"action": "reduce", "value": False})
             for count in COUNTS:
                 for kind in ("cold", "warm"):
@@ -97,19 +99,32 @@ def judge_trace(trace: dict, count: int, kind: str) -> dict:
         rows = [{tab[0]: tab for tab in sample.get("tabs", [])} for sample in samples]
         for row in rows:
             for tab in row.values():
-                float(tab[1]), float(tab[2]), float(tab[3])
+                if not all(math.isfinite(float(value)) for value in tab[1:4]):
+                    raise ValueError("nonfinite geometry")
     except (AttributeError, IndexError, TypeError, ValueError):
         return {"ok": False, "problems": ["not measured: malformed tab frames"]}
     if len(rows) < 12 or len(rows[0]) != count or len(rows[-1]) != count + 1:
         return {"ok": False, "problems": [f"not measured: {trace.get('error', 'missing frames or wrong tab count')}"]}
     old = set(rows[0])
+    times = [sample.get("t") for sample in samples]
+    if any(not isinstance(t, (int, float)) or not math.isfinite(t) for t in times):
+        problems.append("missing or invalid frame times")
+    elif any(b <= a for a, b in zip(times, times[1:])):
+        problems.append("frame times do not increase")
+    if any(row != rows[-1] for row in rows[-4:]):
+        problems.append("final tab frames have not settled")
     if not old.issubset(rows[-1]):
         problems.append("an existing tab disappeared")
     widths = [sum(float(tab[2]) for id_, tab in row.items() if id_ not in old) for row in rows]
     final = widths[-1]
     if final <= EPS:
         problems.append("no new tab width")
-    if any(b < a - EPS for a, b in zip(widths, widths[1:])):
+    peak = 0.0
+    reverses = False
+    for width in widths:
+        reverses |= width < peak - EPS
+        peak = max(peak, width)
+    if reverses:
         problems.append("new tab width reverses")
     if max(widths) > final + EPS:
         problems.append(f"new tab overshoots {max(widths) - final:.2f} pt")
@@ -138,7 +153,12 @@ def judge_trace(trace: dict, count: int, kind: str) -> dict:
             continue
         neighbor = [float(row[id_][2]) for row in rows]
         if neighbor[-1] < neighbor[0] - EPS:
-            if any(b > a + EPS for a, b in zip(neighbor, neighbor[1:])):
+            low = neighbor[0]
+            reverses = False
+            for width in neighbor:
+                reverses |= width > low + EPS
+                low = min(low, width)
+            if reverses:
                 problems.append("neighbor width reverses")
             # The same interpolation progress must shrink neighbors while the
             # inserted tab grows. Allow one rendered pixel in each cell.
