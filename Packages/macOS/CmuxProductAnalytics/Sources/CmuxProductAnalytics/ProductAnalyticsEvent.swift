@@ -53,8 +53,9 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
     /// A Cloud enable attempt settled.
     case cloudEnableCompleted(result: CloudEnableResult)
     case cloudDisabled
-    /// The New Machine sheet submitted a create.
-    case cloudMachineCreateStarted(memoryGB: Int)
+    /// The New Machine sheet submitted a create. `memoryGB` is nil when the
+    /// request sends no size (Base setup, forks).
+    case cloudMachineCreateStarted(memoryGB: Int?)
     case cloudMachineCreateSucceeded(duration: DurationBucket)
     /// `consecutiveFailures` counts create failures since the last success.
     case cloudMachineCreateFailed(errorClass: CloudErrorClass, errorCode: String, consecutiveFailures: Int)
@@ -152,7 +153,7 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
         case let .cloudEnableCompleted(result):
             return ["result": .string(result.rawValue)]
         case let .cloudMachineCreateStarted(memoryGB):
-            return ["memory_gb": .int(memoryGB)]
+            return memoryGB.map { ["memory_gb": .int($0)] } ?? [:]
         case let .cloudMachineCreateSucceeded(duration):
             return ["duration": .string(duration.rawValue)]
         case let .cloudMachineCreateFailed(errorClass, errorCode, consecutiveFailures):

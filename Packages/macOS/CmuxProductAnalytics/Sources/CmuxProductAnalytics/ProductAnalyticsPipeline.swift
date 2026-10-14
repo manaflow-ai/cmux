@@ -9,7 +9,7 @@ actor ProductAnalyticsPipeline {
     static let upgradeAttributionWindow: TimeInterval = 7 * 24 * 60 * 60
     static let maximumTrackedAgentSessions = 1_024
 
-    private let sink: any ProductAnalyticsSink
+    private let sink: any AnalyticsEmitting
     private var ledger: ProductAnalyticsLedger
     private var context: ProductAnalyticsContext
     private let isPreexistingInstall: Bool
@@ -20,11 +20,10 @@ actor ProductAnalyticsPipeline {
     /// Session ids in first-seen order, for oldest-first eviction.
     private var agentSessionOrder: [String] = []
     private var identifiedUserID: String?
-    private var groupedTeamID: String?
     private var consecutiveCreateFailures = 0
 
     init(
-        sink: any ProductAnalyticsSink,
+        sink: any AnalyticsEmitting,
         ledger: ProductAnalyticsLedger,
         context: ProductAnalyticsContext,
         isPreexistingInstall: Bool,
@@ -56,8 +55,8 @@ actor ProductAnalyticsPipeline {
             track(.featureUsed(feature: feature))
         case let .context(change):
             apply(change)
-        case let .identify(userID, teamID):
-            identify(userID: userID, teamID: teamID)
+        case let .identify(userID):
+            identify(userID: userID)
         case .signOut:
             signOut()
         case let .plan(accountID, isPaid):
@@ -154,17 +153,12 @@ actor ProductAnalyticsPipeline {
 
     // MARK: - Identity
 
-    private func identify(userID: String, teamID: String?) {
+    private func identify(userID: String) {
         if identifiedUserID != userID {
             identifiedUserID = userID
-            groupedTeamID = nil
             sink.identify(userId: userID, alias: nil, properties: ["stack_user_id": .string(userID)])
         }
         apply(.signedIn(true))
-        if let teamID, groupedTeamID != teamID {
-            groupedTeamID = teamID
-            sink.group(type: "stack_team", key: teamID)
-        }
     }
 
     private func signOut() {
@@ -172,7 +166,6 @@ actor ProductAnalyticsPipeline {
         // Captured before the reset so the sign-out joins the signed-in person.
         track(.signedOut)
         identifiedUserID = nil
-        groupedTeamID = nil
         context.isSignedIn = false
         context.plan = .unknown
         sink.identify(userId: nil, alias: nil, properties: [:])

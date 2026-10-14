@@ -8569,7 +8569,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // is the built-in action picked by name, which must not run the
         // configured one in its place.
         let staysLocal = skipConfiguredAction || localOnly
-        ProductAnalytics.app.reach(.firstWorkspace)
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
         let manager = context?.tabManager ?? preferredTabManager
@@ -8583,7 +8582,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // operation must never fall through and create a local workspace.
             return performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: vmID)
         }
-        return performNewWorkspaceCreationAction(
+        let created = performNewWorkspaceCreationAction(
             initialSurface: .terminal,
             preferredTabManager: preferredTabManager,
             event: event,
@@ -8596,6 +8595,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ? manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
                 : nil
         )
+        // Only a workspace that was actually created counts toward activation.
+        if created { ProductAnalytics.app.reach(.firstWorkspace) }
+        return created
     }
 
     /// Creates a local workspace on this Mac, independent of the selected

@@ -1,18 +1,16 @@
 import CmuxProductAnalytics
 
-/// Turns account observations into analytics actions: identify on sign-in or
-/// team change, a success or failure for each sign-in the user started, and
-/// sign-out. Pure, so the transitions are unit tested without auth.
+/// Turns account observations into analytics actions: identify on sign-in,
+/// a success or failure for each sign-in the user started, and sign-out. Pure, so the transitions are unit tested without auth.
 struct AccountAnalyticsState: Equatable {
     enum Action: Equatable {
-        case identify(userID: String, teamID: String?)
+        case identify(userID: String)
         case signInSucceeded
         case signInFailed(SignInFailureReason)
         case signedOut
     }
 
     private(set) var userID: String?
-    private(set) var teamID: String?
     /// A user-started sign-in has no result yet. Session restore never sets it.
     private(set) var isSignInPending = false
     private var reportedFailure: SignInFailureReason?
@@ -24,30 +22,26 @@ struct AccountAnalyticsState: Equatable {
 
     /// - Parameters:
     ///   - userID: The signed-in Stack user id, or nil.
-    ///   - teamID: The confirmed team.
     ///   - isSettling: A restore or sign-in is still running, so nil is not yet signed out.
     ///   - failure: The browser sign-in's latest failure.
     mutating func observe(
         userID newUserID: String?,
-        teamID newTeamID: String?,
         isSettling: Bool,
         failure: SignInFailureReason?
     ) -> [Action] {
         var actions: [Action] = []
         if let newUserID {
-            if newUserID != userID || newTeamID != teamID {
-                actions.append(.identify(userID: newUserID, teamID: newTeamID))
+            if newUserID != userID {
+                actions.append(.identify(userID: newUserID))
             }
             if userID != newUserID, isSignInPending {
                 actions.append(.signInSucceeded)
                 isSignInPending = false
             }
             userID = newUserID
-            teamID = newTeamID
         } else if !isSettling, userID != nil {
             actions.append(.signedOut)
             userID = nil
-            teamID = nil
         }
         if isSignInPending, let failure, failure != reportedFailure {
             actions.append(.signInFailed(failure))

@@ -1,14 +1,12 @@
 import CMUXMobileCore
-import CmuxProductAnalytics
 import Foundation
 import os
 
 /// Records every sink call in order.
-final class RecordingProductAnalyticsSink: ProductAnalyticsSink {
+final class RecordingAnalyticsSink: AnalyticsEmitting {
     enum Call: Equatable {
         case capture(String, [String: AnalyticsValue])
         case identify(String?)
-        case group(String, String)
         case superProperties([String: AnalyticsValue])
     }
 
@@ -39,8 +37,4 @@ final class RecordingProductAnalyticsSink: ProductAnalyticsSink {
     }
 
     func flush() async {}
-
-    func group(type: String, key: String) {
-        state.withLock { $0.append(.group(type, key)) }
-    }
 }

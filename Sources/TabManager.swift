@@ -1,3 +1,4 @@
+import CmuxProductAnalytics
 import AppKit
 import CmuxAgentChat
 import CmuxCloudMachines
@@ -279,6 +280,10 @@ class TabManager: ObservableObject {
     func workspaceTabsWillChange(to newValue: [Workspace]) {
         objectWillChange.send()
         tabsPublisher.send(newValue)
+        if newValue.count != tabs.count, ProductAnalytics.app.isEnabled {
+            // After the commit, so the count reads the new list. Reorders skip this.
+            Task { @MainActor in AppDelegate.shared?.refreshProductAnalyticsActivityContext() }
+        }
     }
 
     /// Legacy `@Published workspaceGroups` willSet.

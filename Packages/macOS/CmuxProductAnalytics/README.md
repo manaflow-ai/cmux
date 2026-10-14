@@ -3,11 +3,11 @@
 The macOS product analytics catalog and emitter. Every product event the Mac
 app sends is a case of `ProductAnalyticsEvent`; `ProductAnalytics` queues it
 off the calling thread, deduplicates, derives funnel events, merges the shared
-context and hands it to a `ProductAnalyticsSink`. The app's sink forwards to
+context and hands it to an `AnalyticsEmitting` sink. The app's sink forwards to
 the PostHog SDK it already embeds, which owns batching and the offline queue.
 
-The sink protocol extends `AnalyticsEmitting` from `CMUXMobileCore`, the seam
-the iOS emitter uses, so both apps share one analytics vocabulary.
+The sink is `AnalyticsEmitting` from `CMUXMobileCore`, the seam the iOS
+emitter uses, so both apps share one analytics vocabulary.
 
 The event catalog, the questions each event answers and the insights built on
 them are documented in [docs/posthog/mac-product-analytics.md](../../../docs/posthog/mac-product-analytics.md).
@@ -15,7 +15,7 @@ them are documented in [docs/posthog/mac-product-analytics.md](../../../docs/pos
 ## Testing
 
 ```swift
-let sink = RecordingProductAnalyticsSink()
+let sink = RecordingAnalyticsSink()
 let analytics = ProductAnalytics(
     isEnabled: true,
     sink: sink,

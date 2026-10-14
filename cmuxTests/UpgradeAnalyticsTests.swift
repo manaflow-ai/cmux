@@ -13,7 +13,7 @@ import Testing
 #endif
 
 /// Records the events a ``ProductAnalytics`` sends, for app-level analytics tests.
-private final class RecordingSink: ProductAnalyticsSink {
+private final class RecordingSink: AnalyticsEmitting {
     // Written by the pipeline actor, read by the test after `drain()`.
     private let state = OSAllocatedUnfairLock<[(String, [String: AnalyticsValue])]>(initialState: [])
     var events: [(name: String, properties: [String: AnalyticsValue])] { state.withLock { $0.map { (name: $0.0, properties: $0.1) } } }
@@ -23,27 +23,28 @@ private final class RecordingSink: ProductAnalyticsSink {
     func identify(userId: String?, alias: String?, properties: [String: AnalyticsValue]) {}
     func setSuperProperties(_ properties: [String: AnalyticsValue]) {}
     func flush() async {}
-    func group(type: String, key: String) {}
 }
 
 private enum TestAnalytics {
-    /// One reused suite, cleared per emitter: these tests never read the
-    /// ledger back, and a fixed name leaves no plist per run.
-    static let suiteName = "UpgradeAnalyticsTests.ledger"
     static let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
 
-    static func make(enabled: Bool = true) -> (ProductAnalytics, RecordingSink) {
-    let sink = RecordingSink()
-    let defaults = UserDefaults(suiteName: suiteName)!
-    defaults.removePersistentDomain(forName: suiteName)
-    let analytics = ProductAnalytics(
-        isEnabled: enabled,
-        sink: sink,
-        ledger: ProductAnalyticsLedger(defaults: defaults),
-        context: ProductAnalyticsContext(appVersion: "0.66.0", appBuild: "1", channel: "dev", osVersion: "15.5"),
-        isPreexistingInstall: true
-    )
-    return (analytics, sink)
+    /// An emitter with its own ledger suite. Remove the suite with
+    /// ``remove(_:)`` once the test has drained the emitter.
+    static func make(enabled: Bool = true) -> (ProductAnalytics, RecordingSink, String) {
+        let sink = RecordingSink()
+        let suiteName = "UpgradeAnalyticsTests.\(UUID().uuidString)"
+        let analytics = ProductAnalytics(
+            isEnabled: enabled,
+            sink: sink,
+            ledger: ProductAnalyticsLedger(defaults: UserDefaults(suiteName: suiteName)!),
+            context: ProductAnalyticsContext(appVersion: "0.66.0", appBuild: "1", channel: "dev", osVersion: "15.5"),
+            isPreexistingInstall: true
+        )
+        return (analytics, sink, suiteName)
+    }
+
+    static func remove(_ suiteName: String) {
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
     }
 }
 
@@ -52,7 +53,8 @@ private enum TestAnalytics {
 struct UpgradeAnalyticsTests {
     @Test("the sidebar Upgrade badge records its impression, click and dismiss with its source")
     func sidebarBadge() async {
-        let (analytics, sink) = TestAnalytics.make()
+        let (analytics, sink, ledgerSuite) = TestAnalytics.make()
+        defer { TestAnalytics.remove(ledgerSuite) }
         var opened: [ProUpgradeSource] = []
         let actions = ProBadgeActions(analytics: analytics, openPricing: { opened.append($0) })
         actions.appeared()
@@ -76,7 +78,8 @@ struct UpgradeAnalyticsTests {
     @Test("the welcome card's Upgrade records shown, click, close and the checkout source",
           arguments: [CloudWelcomeTrigger.launchAnnouncement, .newCloudWorkspace, .newCloudMachine])
     func welcomeUpgrade(trigger: CloudWelcomeTrigger) async throws {
-        let (analytics, sink) = TestAnalytics.make()
+        let (analytics, sink, ledgerSuite) = TestAnalytics.make()
+        defer { TestAnalytics.remove(ledgerSuite) }
         let suite = "UpgradeAnalyticsTests.welcome.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -126,7 +129,8 @@ struct UpgradeAnalyticsTests {
             (.upgrade, "notNow", "not_now", "not_now"),
             (.upgrade, "close", nil, "window_closed"),
         ] as [(CloudWelcomeNextStep, String, String?, String)] {
-            let (analytics, sink) = TestAnalytics.make()
+            let (analytics, sink, ledgerSuite) = TestAnalytics.make()
+            defer { TestAnalytics.remove(ledgerSuite) }
             let suite = "UpgradeAnalyticsTests.outcome.\(UUID().uuidString)"
             let defaults = try #require(UserDefaults(suiteName: suite))
             defer { defaults.removePersistentDomain(forName: suite) }
@@ -158,7 +162,8 @@ struct UpgradeAnalyticsTests {
 
     @Test("with telemetry off, no upgrade surface records anything")
     func optOut() async throws {
-        let (analytics, sink) = TestAnalytics.make(enabled: false)
+        let (analytics, sink, ledgerSuite) = TestAnalytics.make(enabled: false)
+        defer { TestAnalytics.remove(ledgerSuite) }
         let actions = ProBadgeActions(analytics: analytics, openPricing: { _ in })
         actions.appeared()
         actions.upgrade()
@@ -185,28 +190,28 @@ struct AccountAnalyticsStateTests {
     @Test("restore identifies without a sign-in success; a started sign-in succeeds once")
     func signInLifecycle() {
         var state = AccountAnalyticsState()
-        let restoring = state.observe(userID: nil, teamID: nil, isSettling: true, failure: nil)
-        let restored = state.observe(userID: "u1", teamID: "t1", isSettling: false, failure: nil)
-        let signedOut = state.observe(userID: nil, teamID: nil, isSettling: false, failure: nil)
+        let restoring = state.observe(userID: nil, isSettling: true, failure: nil)
+        let restored = state.observe(userID: "u1", isSettling: false, failure: nil)
+        let signedOut = state.observe(userID: nil, isSettling: false, failure: nil)
         state.signInStarted()
-        let waiting = state.observe(userID: nil, teamID: nil, isSettling: true, failure: nil)
-        let signedIn = state.observe(userID: "u2", teamID: nil, isSettling: false, failure: nil)
-        let teamChanged = state.observe(userID: "u2", teamID: "t9", isSettling: false, failure: nil)
+        let waiting = state.observe(userID: nil, isSettling: true, failure: nil)
+        let signedIn = state.observe(userID: "u2", isSettling: false, failure: nil)
+        let unchanged = state.observe(userID: "u2", isSettling: false, failure: nil)
         #expect(restoring.isEmpty)
-        #expect(restored == [.identify(userID: "u1", teamID: "t1")])
+        #expect(restored == [.identify(userID: "u1")])
         #expect(signedOut == [.signedOut])
         #expect(waiting.isEmpty)
-        #expect(signedIn == [.identify(userID: "u2", teamID: nil), .signInSucceeded])
-        #expect(teamChanged == [.identify(userID: "u2", teamID: "t9")])
+        #expect(signedIn == [.identify(userID: "u2"), .signInSucceeded])
+        #expect(unchanged.isEmpty)
     }
 
     @Test("a failure is reported once per started sign-in")
     func signInFailure() {
         var state = AccountAnalyticsState()
-        let unstarted = state.observe(userID: nil, teamID: nil, isSettling: false, failure: .timedOut)
+        let unstarted = state.observe(userID: nil, isSettling: false, failure: .timedOut)
         state.signInStarted()
-        let failed = state.observe(userID: nil, teamID: nil, isSettling: false, failure: .timedOut)
-        let repeated = state.observe(userID: nil, teamID: nil, isSettling: false, failure: .timedOut)
+        let failed = state.observe(userID: nil, isSettling: false, failure: .timedOut)
+        let repeated = state.observe(userID: nil, isSettling: false, failure: .timedOut)
         #expect(unstarted.isEmpty)
         #expect(failed == [.signInFailed(.timedOut)])
         #expect(repeated.isEmpty)
@@ -220,7 +225,8 @@ struct AccountAnalyticsStateTests {
 struct MachineCreateAnalyticsTests {
     @Test("a refused create reports its plan limit, and the retry that succeeds reports one create")
     func refusalThenRetry() async throws {
-        let (analytics, sink) = TestAnalytics.make()
+        let (analytics, sink, ledgerSuite) = TestAnalytics.make()
+        defer { TestAnalytics.remove(ledgerSuite) }
         let launches = MachineCreateCoordinatorTests.LaunchRecorder()
         let coordinator = MachineCreateCoordinator(
             notifier: { _ in },

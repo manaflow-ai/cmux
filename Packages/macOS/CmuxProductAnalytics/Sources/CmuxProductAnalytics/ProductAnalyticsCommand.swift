@@ -7,7 +7,7 @@ enum ProductAnalyticsCommand: Sendable {
     case milestone(ActivationMilestone)
     case feature(ProductFeature)
     case context(ProductAnalyticsContextChange)
-    case identify(userID: String, teamID: String?)
+    case identify(userID: String)
     case signOut
     case plan(accountID: String, isPaid: Bool)
     case agentHook(source: String, sessionID: String, phase: AgentHookPhase)

@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// The macOS product analytics emitter.
@@ -12,7 +13,7 @@ public import Foundation
 /// Tests build their own with a recording sink and a suite `UserDefaults`:
 ///
 /// ```swift
-/// let sink = RecordingProductAnalyticsSink()
+/// let sink = RecordingAnalyticsSink()
 /// let analytics = ProductAnalytics(
 ///     isEnabled: true,
 ///     sink: sink,
@@ -49,7 +50,7 @@ public final class ProductAnalytics: Sendable {
     ///   - now: The clock. Defaults to the system clock.
     public init(
         isEnabled: Bool,
-        sink: any ProductAnalyticsSink,
+        sink: any AnalyticsEmitting,
         ledger: ProductAnalyticsLedger,
         context: ProductAnalyticsContext,
         isPreexistingInstall: Bool = false,
@@ -99,17 +100,15 @@ public final class ProductAnalytics: Sendable {
         continuation?.yield(.context(change))
     }
 
-    /// Marks later events signed in, tells the sink the account once per
-    /// change, and groups events by team when there is one. A sink may own
-    /// the person identity or, like the Mac app's, leave it to the host's
-    /// sign-in identity observer.
+    /// Marks later events signed in and tells the sink the account once per
+    /// change. The sink may own the person identity or, like the Mac app's,
+    /// leave identity and team groups to the host's sign-in identity
+    /// observer, the only place that also resets them on sign-out.
     ///
-    /// - Parameters:
-    ///   - userID: The account's Stack user id, the same distinct id the
-    ///     server's billing events use.
-    ///   - teamID: The selected team, for `stack_team` group analytics.
-    public func identify(userID: String, teamID: String?) {
-        continuation?.yield(.identify(userID: userID, teamID: teamID))
+    /// - Parameter userID: The account's Stack user id, the same distinct id
+    ///   the server's billing events use.
+    public func identify(userID: String) {
+        continuation?.yield(.identify(userID: userID))
     }
 
     /// Records `cmux_signed_out` once and tells the sink the account is gone.

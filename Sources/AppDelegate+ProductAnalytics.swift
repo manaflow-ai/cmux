@@ -22,8 +22,9 @@ extension AppDelegate {
         }
     }
 
-    /// Refreshes the open-workspace count carried by later events, including
-    /// the daily active event that follows activation.
+    /// Refreshes the open-workspace count carried by later events. Runs on
+    /// activation (before the daily active event) and whenever a window's
+    /// workspace count changes.
     func refreshProductAnalyticsActivityContext() {
         let analytics = ProductAnalytics.app
         guard analytics.isEnabled else { return }

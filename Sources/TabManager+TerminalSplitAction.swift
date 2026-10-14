@@ -36,6 +36,7 @@ extension TabManager {
                 shellCommand: nil,
                 workingDirectory: nil
             )
+            if accepted { ProductAnalytics.app.featureUsed(.split) }
             return accepted ? .routedToRemote : .failed
         }
         guard workspace.panels[surfaceId] != nil else { return .failed }
@@ -50,6 +51,8 @@ extension TabManager {
         )
         if let panel = outcome.panel {
             workspace.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+            ProductAnalytics.app.featureUsed(.split)
+        } else if case .routedToRemote = outcome {
             ProductAnalytics.app.featureUsed(.split)
         } else if case .noSpace = outcome {
             // Shortcut, menu, palette and Ghostty split actions all land here:

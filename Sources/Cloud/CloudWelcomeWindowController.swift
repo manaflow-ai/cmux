@@ -222,7 +222,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         self.onEnabled = onEnabled
         analyticsSession = CloudWelcomeAnalyticsSession(
             trigger: trigger,
-            step: nextStep(),
+            currentStep: nextStep,
             analytics: analytics,
             now: now
         )
@@ -253,6 +253,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .newCloudMachine)
         let rootView = CloudWelcomeAccountView(
             accountFlow: AppDelegate.shared?.auth?.accountFlow,
+            resolveStep: nextStep,
             sliderShowsFeatureList: sliderShowsFeatureList,
             sliderListUsesDots: sliderListUsesDots,
             posterHeadline: posterHeadline,
@@ -412,6 +413,9 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 /// the plan once on show, so the view itself stays free of app objects.
 private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
+    /// The controller's resolver, the one owner of the offered step; reading
+    /// the account inside it during `body` keeps the view observing it.
+    let resolveStep: @MainActor () -> CloudWelcomeNextStep
     let sliderShowsFeatureList: Bool
     let sliderListUsesDots: Bool
     let posterHeadline: String?
@@ -425,14 +429,7 @@ private struct CloudWelcomeAccountView: View {
 
     var body: some View {
         CloudWelcomeView(
-            nextStep: CloudWelcomeNextStep.resolve(
-                isAuthenticated: accountFlow?.isAuthenticated == true,
-                isPlanKnown: accountFlow?.hasLoadedBillingPlan == true,
-                isPro: accountFlow?.isProActive == true,
-                hasCloudTeamAccess: CloudWelcomeNextStep.hasSharedTeamAccess(
-                    availableTeamCount: accountFlow?.availableTeams.count ?? 0
-                )
-            ),
+            nextStep: resolveStep(),
             onNotNow: onNotNow,
             onNext: onNext,
             hasCloudTeamAccess: CloudWelcomeNextStep.hasSharedTeamAccess(

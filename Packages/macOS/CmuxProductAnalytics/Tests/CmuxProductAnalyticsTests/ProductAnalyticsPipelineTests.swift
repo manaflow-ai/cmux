@@ -16,7 +16,7 @@ final class TestClock: Sendable {
 struct ProductAnalyticsPipelineTests {
     /// A class so the suite it created is removed when the test drops it.
     final class Harness {
-        let sink: RecordingProductAnalyticsSink
+        let sink: RecordingAnalyticsSink
         let clock: TestClock
         let defaults: UserDefaults
         let analytics: ProductAnalytics
@@ -31,7 +31,7 @@ struct ProductAnalyticsPipelineTests {
             let suiteName = defaults == nil ? "product-analytics-\(UUID().uuidString)" : nil
             let defaults = defaults ?? UserDefaults(suiteName: suiteName)!
             ownedSuiteName = suiteName
-            let sink = RecordingProductAnalyticsSink()
+            let sink = RecordingAnalyticsSink()
             let clock = TestClock()
             self.defaults = defaults
             self.sink = sink
@@ -64,7 +64,7 @@ struct ProductAnalyticsPipelineTests {
         harness.analytics.track(.signInStarted)
         harness.analytics.track(.upgradeEntrypointOpened(source: "mac_sidebar_badge", plan: "pro", destination: .pricingPage))
         harness.analytics.featureUsed(.commandPalette)
-        harness.analytics.identify(userID: "user-1", teamID: "team-1")
+        harness.analytics.identify(userID: "user-1")
         harness.analytics.notePlan(accountID: "user-1", isPaid: true)
         harness.analytics.noteAgentHook(source: "codex", sessionID: "s", phase: .sessionStart)
         harness.analytics.signedOut()
@@ -139,7 +139,7 @@ struct ProductAnalyticsPipelineTests {
     @Test("a paid plan after an upgrade click is attributed to that click's source")
     func planActivationAttribution() async throws {
         let harness = Harness()
-        harness.analytics.identify(userID: "user-1", teamID: nil)
+        harness.analytics.identify(userID: "user-1")
         harness.analytics.notePlan(accountID: "user-1", isPaid: false)
         harness.analytics.track(.upgradeEntrypointOpened(source: "mac_cloud_welcome", plan: "pro", destination: .pricingPage))
         await harness.analytics.drain()
@@ -163,18 +163,18 @@ struct ProductAnalyticsPipelineTests {
     @Test("a click attributes one activation, and only for the account that clicked")
     func attributionIsPerAccountAndSingleUse() async {
         let harness = Harness()
-        harness.analytics.identify(userID: "user-a", teamID: nil)
+        harness.analytics.identify(userID: "user-a")
         harness.analytics.notePlan(accountID: "user-a", isPaid: false)
         harness.analytics.track(.upgradeEntrypointOpened(source: "mac_sidebar_badge", plan: "pro", destination: .pricingPage))
         // Switching to an already-paid account is not an activation from A's click.
         harness.analytics.signedOut()
-        harness.analytics.identify(userID: "user-b", teamID: nil)
+        harness.analytics.identify(userID: "user-b")
         harness.analytics.notePlan(accountID: "user-b", isPaid: true)
         await harness.analytics.drain()
         #expect(!harness.sink.eventNames.contains("cmux_plan_activated"))
 
         harness.analytics.signedOut()
-        harness.analytics.identify(userID: "user-a", teamID: nil)
+        harness.analytics.identify(userID: "user-a")
         harness.analytics.notePlan(accountID: "user-a", isPaid: true)
         harness.analytics.notePlan(accountID: "user-a", isPaid: false)
         harness.analytics.notePlan(accountID: "user-a", isPaid: true)
@@ -191,30 +191,22 @@ struct ProductAnalyticsPipelineTests {
         #expect(!harness.sink.eventNames.contains("cmux_plan_activated"))
     }
 
-    @Test("identify once per user, group by team, reset on sign-out after the event")
+    @Test("identify once per user, and sign out after the event")
     func identityLifecycle() async {
         let harness = Harness()
-        harness.analytics.identify(userID: "user-1", teamID: "team-1")
-        harness.analytics.identify(userID: "user-1", teamID: "team-1")
-        harness.analytics.identify(userID: "user-1", teamID: "team-2")
+        harness.analytics.identify(userID: "user-1")
+        harness.analytics.identify(userID: "user-1")
         harness.analytics.signedOut()
         harness.analytics.signedOut()
         await harness.analytics.drain()
         let identity: [String] = harness.sink.calls.compactMap {
             switch $0 {
             case let .identify(user): return "identify:\(user ?? "nil")"
-            case let .group(type, key): return "group:\(type):\(key)"
             case let .capture(name, _): return name == "cmux_signed_out" ? name : nil
             case .superProperties: return nil
             }
         }
-        #expect(identity == [
-            "identify:user-1",
-            "group:stack_team:team-1",
-            "group:stack_team:team-2",
-            "cmux_signed_out",
-            "identify:nil",
-        ])
+        #expect(identity == ["identify:user-1", "cmux_signed_out", "identify:nil"])
         let signedOut = harness.sink.events.first { $0.name == "cmux_signed_out" }
         #expect(signedOut?.properties["is_signed_in"] == .bool(true))
     }

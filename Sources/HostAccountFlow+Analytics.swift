@@ -6,14 +6,13 @@ extension HostAccountFlow {
     func syncAnalytics() {
         let actions = analyticsState.observe(
             userID: coordinator.currentUser?.id,
-            teamID: confirmedTeamID,
             isSettling: isWorkingOnAuth,
             failure: AccountAnalyticsState.reason(lastSignInFailure)
         )
         for action in actions {
             switch action {
-            case let .identify(userID, teamID):
-                analytics.identify(userID: userID, teamID: teamID)
+            case let .identify(userID):
+                analytics.identify(userID: userID)
             case .signInSucceeded:
                 analytics.track(.signInSucceeded)
             case let .signInFailed(reason):
@@ -29,7 +28,7 @@ extension HostAccountFlow {
     /// no-op sign-out), later events get the signed-in context back.
     func restoreAnalyticsIfStillSignedIn() {
         guard let userID = coordinator.currentUser?.id else { return }
-        analytics.identify(userID: userID, teamID: confirmedTeamID)
+        analytics.identify(userID: userID)
     }
 
     func noteSignInStarted() {

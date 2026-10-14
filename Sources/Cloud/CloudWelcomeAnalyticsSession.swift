@@ -9,41 +9,45 @@ final class CloudWelcomeAnalyticsSession {
     let trigger: CloudWelcomeTrigger
     private let analytics: ProductAnalytics
     private let now: @MainActor () -> Date
+    /// The controller's step resolver, which the card also renders from.
+    private let currentStep: @MainActor () -> CloudWelcomeNextStep
     private let shownAt: Date
-    private var step: CloudWelcomeStep
     private(set) var isClosed = false
 
     init(
         trigger: CloudWelcomeTrigger,
-        step: CloudWelcomeNextStep,
+        currentStep: @escaping @MainActor () -> CloudWelcomeNextStep,
         analytics: ProductAnalytics,
         now: @escaping @MainActor () -> Date
     ) {
         self.trigger = trigger
         self.analytics = analytics
         self.now = now
+        self.currentStep = currentStep
         self.shownAt = now()
-        self.step = Self.step(step)
-        analytics.track(.cloudWelcomeShown(trigger: trigger, step: self.step))
+        let step = currentStep()
+        analytics.track(.cloudWelcomeShown(trigger: trigger, step: Self.step(step)))
         if step == .upgrade {
             analytics.track(.upgradeShown(.cloudWelcome))
         }
     }
 
-    /// A button closed the card; `step` is the step the card offered when clicked.
+    /// A button closed the card. `step` is the step its primary button
+    /// offered; Not Now passes nil and records the step on screen now.
     func clicked(_ button: CloudWelcomeButton, step: CloudWelcomeNextStep?) {
         guard !isClosed else { return }
-        if let step { self.step = Self.step(step) }
-        analytics.track(.cloudWelcomeButtonClicked(trigger: trigger, step: self.step, button: button))
-        close(.init(button: button))
+        let offered = Self.step(step ?? currentStep())
+        analytics.track(.cloudWelcomeButtonClicked(trigger: trigger, step: offered, button: button))
+        close(.init(button: button), step: offered)
     }
 
     /// The window closed with no button.
     func windowClosed() {
-        close(.windowClosed)
+        guard !isClosed else { return }
+        close(.windowClosed, step: Self.step(currentStep()))
     }
 
-    private func close(_ outcome: CloudWelcomeOutcome) {
+    private func close(_ outcome: CloudWelcomeOutcome, step: CloudWelcomeStep) {
         guard !isClosed else { return }
         isClosed = true
         analytics.track(.cloudWelcomeClosed(

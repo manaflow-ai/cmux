@@ -162,7 +162,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
     /// allowing socket callers to await a bounded result.
     func signIn(timeout: TimeInterval) async -> Bool {
-        await browserSignIn.signIn(timeout: timeout)
+        noteSignInStarted()
+        return await browserSignIn.signIn(timeout: timeout)
     }
 
     /// Issues the manual hosted Stack sign-in URL through the same callback

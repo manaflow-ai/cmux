@@ -28,6 +28,7 @@ struct ProductAnalyticsEventCatalogTests {
         (.cloudEnableCompleted(result: .success), "cmux_cloud_enable_completed", ["result"]),
         (.cloudDisabled, "cmux_cloud_disabled", []),
         (.cloudMachineCreateStarted(memoryGB: 8), "cmux_cloud_machine_create_started", ["memory_gb"]),
+        (.cloudMachineCreateStarted(memoryGB: nil), "cmux_cloud_machine_create_started", []),
         (.cloudMachineCreateSucceeded(duration: .from10to30s), "cmux_cloud_machine_create_succeeded", ["duration"]),
         (.cloudMachineCreateFailed(errorClass: .server, errorCode: "http_500", consecutiveFailures: 2),
          "cmux_cloud_machine_create_failed", ["error_class", "error_code", "consecutive_failures"]),
@@ -56,8 +57,7 @@ struct ProductAnalyticsEventCatalogTests {
 
     @Test("names are unique, snake_case and cmux_ prefixed")
     func namingConvention() {
-        let names = Self.catalog.map(\.1)
-        #expect(Set(names).count == names.count)
+        let names = Set(Self.catalog.map(\.1))
         #expect(names.count == 26)
         for name in names {
             #expect(name.hasPrefix("cmux_"))

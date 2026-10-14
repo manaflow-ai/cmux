@@ -52,7 +52,7 @@ properties, so `cmux_daily_active`, `cmux_hourly_active` and
 | `account_plan` | `free`, `paid`, `unknown` (signed out or not loaded) |
 | `is_signed_in` | bool |
 | `cloud_enabled` | bool |
-| `workspaces_open` | `0`, `1`, `2_3`, `4_7`, `8_15`, `16_plus` (refreshed on app activation) |
+| `workspaces_open` | `0`, `1`, `2_3`, `4_7`, `8_15`, `16_plus` (refreshed on app activation and when a workspace opens or closes) |
 | `platform` | `cmuxterm` (existing super property) |
 
 Duration buckets: `lt_1s`, `1s_3s`, `3s_10s`, `10s_30s`, `30s_60s`, `1m_3m`,
@@ -97,7 +97,7 @@ Enable's result is `cmux_cloud_enable_completed`. Upgrade continues as
 | --- | --- | --- |
 | `cmux_cloud_enable_completed` | An Enable attempt settles | `result` (`success`, `requires_paid_plan`, `sign_in_required`, `service_unavailable`, `unavailable`, `cancelled`) |
 | `cmux_cloud_disabled` | Cloud turned off | none |
-| `cmux_cloud_machine_create_started` | The New Machine sheet submits | `memory_gb` |
+| `cmux_cloud_machine_create_started` | The New Machine sheet submits | `memory_gb` (absent for Base setup and forks, which send no size) |
 | `cmux_cloud_machine_create_succeeded` | A create finishes, from any launcher | `duration` |
 | `cmux_cloud_machine_create_failed` | A create fails | `error_class` (`plan_limit`, `auth`, `network`, `server`, `client`, `cancelled`), `error_code` (server token or `unknown`), `consecutive_failures` |
 | `cmux_cloud_machine_deleted` | A machine delete request succeeds | none |
@@ -146,9 +146,10 @@ Existing events that are unchanged: `cmux_hourly_active`,
    - `cmux_billing_checkout_completed`
    - `cmux_plan_activated`
 
-   Break down by `source`, or by `checkout_source` for the server steps. The
-   client and server steps join on the Stack user id once the app is signed
-   in.
+   Break down by `source` on the client steps, `checkout_source` on the
+   server steps and `upgrade_source` on `cmux_plan_activated`; all three carry
+   the same `ProUpgradeSource` token. The client and server steps join on the
+   Stack user id once the app is signed in.
 3. **Welcome card outcomes.** Count `cmux_cloud_welcome_closed` broken down by
    `trigger` × `outcome`, plus the funnel `cmux_cloud_welcome_shown`, then
    `cmux_cloud_welcome_button_clicked` (`button = upgrade`), then
