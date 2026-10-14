@@ -40,7 +40,6 @@ All notable changes to cmux are documented here.
 - cmux Cloud (beta): Cloud machine create and resize options follow your plan's limits, and the Cloud sidebar gets hover, copy, refresh, empty-row, and tab-switch polish ([#18481](https://github.com/manaflow-ai/cmux/pull/18481), [#18303](https://github.com/manaflow-ai/cmux/pull/18303), [#18693](https://github.com/manaflow-ai/cmux/pull/18693), [#19085](https://github.com/manaflow-ai/cmux/pull/19085)) -- thanks @lucasr1b, @azooz2003-bit!
 
 ### Fixed
-- Cmd-N no longer adds an ordinary workspace to a delegation group just because that group is selected.
 - Fixes a startup exception crash in CmuxMain ([#18452](https://github.com/manaflow-ai/cmux/pull/18452))
 - Fixes a crash from a stack overflow while the Settings window is built ([#18457](https://github.com/manaflow-ai/cmux/pull/18457))
 - Fixes a crash on Edit > Undo after a text editor was closed ([#18467](https://github.com/manaflow-ai/cmux/pull/18467))

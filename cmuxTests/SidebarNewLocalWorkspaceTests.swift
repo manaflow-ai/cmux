@@ -142,7 +142,19 @@ struct SidebarNewLocalWorkspaceTests {
 
         let created = try #require(fixture.manager.selectedWorkspace)
         #expect(fixture.manager.workspaceGroups.contains { $0.id == groupID })
-        #expect(created.groupId == nil, "Cmd-N creates an independent workspace; the group + action is the explicit delegation path")
+        #expect(created.groupId == nil, "Cmd-N creates an independent workspace; folder membership does not grant a delegation")
+
+        fixture.manager.selectedTabId = selected.id
+        #expect(fixture.app.performNewWorkspaceAction(
+            tabManager: fixture.manager,
+            debugSource: "test.delegation.realCommandN",
+            skipConfiguredAction: true
+        ))
+        let commandNWorkspace = try #require(fixture.manager.selectedWorkspace)
+        #expect(commandNWorkspace.id != created.id)
+        #expect(commandNWorkspace.groupId == nil, "The real Cmd-N entry point also creates an independent workspace")
+        #expect(selected.groupId == groupID)
+        #expect(fixture.manager.workspaceGroups.contains { $0.id == groupID })
     }
 
     @Test func commandNWithoutExplicitContextDoesNotInheritCloudDirectory() throws {
