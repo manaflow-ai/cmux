@@ -81,7 +81,7 @@ fn agents_move_tabs_between_profiles_and_read_the_profile_through_a_real_daemon(
             "Work",
         ],
     );
-    let tab = text(find(&opened, "tab_resource_id"));
+    let tab = text(find(&opened, "tab_id"));
     assert!(tab.starts_with("tab_"), "{opened}");
     assert_eq!(profile_of(&server, &tab), work);
 

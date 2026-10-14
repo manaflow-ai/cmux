@@ -81,7 +81,7 @@ pub struct BrowserProfileDeletion {
     pub cleared_browsers: Vec<String>,
 }
 
-pub(super) fn read_browser_profiles(
+pub(crate) fn read_browser_profiles(
     connection: &Connection,
 ) -> anyhow::Result<Vec<PersonalBrowserProfile>> {
     let exists = connection
