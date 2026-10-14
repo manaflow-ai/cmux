@@ -5,8 +5,8 @@
 # reviewed at S7: ask the build's resolver, or review and mark it keep. Lower a
 # count as sites go away; delete the row at 0.
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment.swift	1	keep	resolver: AcpmuxEnvironment
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectCopy.swift	1	move	unreviewed at S7 (cx-is1kf.8)
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectFiles.swift	1	move	unreviewed at S7 (cx-is1kf.8)
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectCopy.swift	1	keep	project-local .cmux/context folder, not a state root
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectFiles.swift	1	keep	project-local .cmux/context folder, not a state root
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/LocalServerSource.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift	1	move	unreviewed at S7 (cx-is1kf.8)
@@ -23,13 +23,13 @@ Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper/ServerFixPriorStore.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedStatusReport.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/chats/sources.rs	3	move	unreviewed at S7 (cx-is1kf.8)
-cmux-tui/crates/acpmux/src/cli/hosts.rs	5	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/acpmux/src/cli/hosts.rs	5	keep	~/.acpmux on a remote SSH host
 cmux-tui/crates/acpmux/src/config.rs	1	keep	resolver: acpmux default home
 cmux-tui/crates/acpmux/src/config/folder_profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/config/profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/daemon.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/hub/turns.rs	1	move	unreviewed at S7 (cx-is1kf.8)
-cmux-tui/crates/acpmux/src/peer.rs	2	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/acpmux/src/peer.rs	2	keep	~/.acpmux on a remote SSH host
 cmux-tui/crates/acpmux/src/tui/actions.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/tui/session_ops.rs	2	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/tui/skills.rs	2	move	unreviewed at S7 (cx-is1kf.8)

@@ -32,6 +32,7 @@ on:
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
+      - scripts/cmux-next/state-roots-baseline.tsv
       # Local packages CmuxNext depends on and files its tests read
       # (ci-target-graph.json `packages` and `reads`).
       - Packages/Shared/**

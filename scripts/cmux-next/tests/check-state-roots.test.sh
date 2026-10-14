@@ -48,10 +48,18 @@ pass "$RS" "a baselined site" '    home.join(".acpmux")' "$RS\t1\tkeep\tresolver
 fail "$RS" "a second site past the baseline" '    home.join(".acpmux")
     home.join(".cmux/chief")' "$RS\t1\tkeep\tresolver\n"
 fail "$RS" "a removed site with a stale baseline" '    let x = 1;' "$RS\t1\tmove\tcx-test\n"
+fail "$RS" "fewer sites than the baseline" '    home.join(".acpmux")' "$RS\t2\tkeep\tresolver\n"
+fail "$RS" "a tags folder without a slash" '    support.join("cmux/tags")'
+fail "$RS" "a dereference is code, not a comment" '    *path = home.join(".acpmux");'
+fail "cmux-tui/crates/fix ture/src/lib.rs" "a path with a space" '    home.join(".acpmux")'
+pass "$RS" "a baseline without a trailing newline" '    home.join(".acpmux")' "$RS\t1\tkeep\tresolver"
+code=0; check "$RS" '    home.join(".acpmux")' "$RS\t1\tkeep\tresolver\n$RS\t1\tkeep\tresolver\n" || code=$?
+[[ $code -eq 2 ]] || { echo "FAIL: a duplicate baseline row must exit 2 (got $code)" >&2; exit 1; }
 code=0; check "$RS" '    home.join(".acpmux")' "$RS\t1\tmaybe\tcx-test\n" || code=$?
 [[ $code -eq 2 ]] || { echo "FAIL: a bad baseline class must exit 2 (got $code)" >&2; exit 1; }
 # Test files are not product code.
 pass cmux-tui/crates/fixture/tests/it.rs "an integration test" '    home.join(".acpmux")'
 pass cmux-tui/crates/fixture/src/server_tests.rs "a Rust unit test file" '    home.join(".acpmux")'
 pass Packages/macOS/CmuxNext/Tests/FixtureTests/FixtureTests.swift "a Swift test" '        home + "/.acpmux"'
+pass Packages/macOS/OtherPackage/Sources/Other/Other.swift "a package outside the lint's scope" '        home + "/.acpmux"'
 echo "check-state-roots.test: ok"
