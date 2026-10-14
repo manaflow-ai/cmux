@@ -155,7 +155,8 @@ try:
     # 3. The store loads: merge, then sync.
     app.launch()
     app.open_chromium("about:blank")
-    fork_api = int(((result(app.call("debug.cef")).get("windows") or {}).get("fork_api")) or 0)
+    # Chromium starts with its first tab; its fork API is known once it runs.
+    fork_api = int(wait(lambda: ((result(app.call("debug.cef")).get("windows") or {}).get("fork_api")), 60) or 0)
     print(f"fork API {fork_api}", flush=True)
     if fork_api < BRIDGE_API:
         print(f"this engine has no bookmarks bridge (needs fork API {BRIDGE_API}); nothing to check", flush=True)

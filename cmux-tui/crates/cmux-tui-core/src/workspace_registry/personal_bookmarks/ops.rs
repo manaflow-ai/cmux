@@ -408,7 +408,7 @@ fn apply_op(tx: &Transaction<'_>, op: BookmarkOp) -> anyhow::Result<(Value, Opti
         }
         BookmarkOp::Merge(merge) => {
             let profile = merge.browser_profile_id.clone();
-            let (result, changed) = super::merge::merge_in(tx, merge)?;
+            let (result, changed) = merge::merge_in(tx, merge)?;
             (result, changed.then_some(profile))
         }
     })
