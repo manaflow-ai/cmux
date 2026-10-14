@@ -4,7 +4,7 @@
 // subscription's own billing period from either store. Gated like the other
 // *-db-behavior tests; every test uses its own user ids.
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
 import { randomUUID } from "node:crypto";
 
@@ -48,12 +48,12 @@ function newUser(label: string): string {
   return id;
 }
 
-async function appleSubscription(userId: string, planId: string, purchaseDate: Date, expiresAt: Date) {
+async function appleSubscription(userId: string, planId: string, purchaseDate: Date, expiresAt: Date, period = "monthly") {
   await db()`insert into apple_subscriptions (
     original_transaction_id, user_id, bundle_id, environment, product_id, plan_id, status,
     purchase_date, original_purchase_date, expires_at, state_signed_at
   ) values (
-    ${`otx-${userId}`}, ${userId}, 'com.cmux.app', 'Production', ${`com.cmux.app.${planId}.monthly`}, ${planId}, 'active',
+    ${`otx-${userId}`}, ${userId}, 'com.cmux.app', 'Production', ${`com.cmux.app.${planId}.${period}`}, ${planId}, 'active',
     ${purchaseDate}, ${purchaseDate}, ${expiresAt}, ${purchaseDate}
   )`;
 }
@@ -108,12 +108,22 @@ describe("Go hours for App Store subscribers", () => {
 });
 
 describe("Pro and Max allowances", () => {
+  const budgetSwitch = process.env.CMUX_VM_PLAN_BUDGETS;
+  afterEach(() => {
+    if (budgetSwitch === undefined) delete process.env.CMUX_VM_PLAN_BUDGETS;
+    else process.env.CMUX_VM_PLAN_BUDGETS = budgetSwitch;
+  });
+
   dbTest("Pro meters compute units and saved disk on the web subscription's period", async () => {
     const now = new Date();
     const userId = newUser("stripe-pro");
     const periodStart = new Date(now.getTime() - 2 * DAY);
     const periodEnd = new Date(now.getTime() + 28 * DAY);
     await stripeSubscription(userId, "pro", periodStart, periodEnd);
+    // Off by default: the pricing page promises no hour limits.
+    delete process.env.CMUX_VM_PLAN_BUDGETS;
+    expect(await getPlanBudgetUsage(userId, now)).toBeNull();
+    process.env.CMUX_VM_PLAN_BUDGETS = "on";
     // 10 hours of an 8 vCPU / 16 GB machine is 80 compute-hours; 4 hours of a
     // legacy machine without a recorded shape counts as the default 4 units.
     await machine({
@@ -141,6 +151,7 @@ describe("Pro and Max allowances", () => {
 
   dbTest("an App Store Max subscription outranks a web Pro one; Founder's Edition has no allowance", async () => {
     const now = new Date();
+    process.env.CMUX_VM_PLAN_BUDGETS = "on";
     const maxUser = newUser("apple-max");
     await stripeSubscription(maxUser, "pro", new Date(now.getTime() - DAY), new Date(now.getTime() + 29 * DAY));
     const purchased = new Date(now.getTime() - 5 * DAY);
@@ -148,6 +159,17 @@ describe("Pro and Max allowances", () => {
     const usage = await getPlanBudgetUsage(maxUser, now);
     expect(usage?.planId).toBe("max");
     expect(usage?.periodStart.getTime()).toBe(purchased.getTime());
+
+    // A yearly App Store subscription resets the allowance every month.
+    const yearly = newUser("apple-pro-yearly");
+    const bought = new Date(now.getTime() - 40 * DAY);
+    await appleSubscription(yearly, "pro", bought, new Date(bought.getTime() + 365 * DAY), "yearly");
+    const window = await getPlanBudgetUsage(yearly, now);
+    const oneMonth = new Date(bought); oneMonth.setUTCMonth(bought.getUTCMonth() + 1);
+    const twoMonths = new Date(bought); twoMonths.setUTCMonth(bought.getUTCMonth() + 2);
+    expect(window?.planId).toBe("pro");
+    expect(window?.periodStart.getTime()).toBe(oneMonth.getTime());
+    expect(window?.periodEnd.getTime()).toBe(twoMonths.getTime());
 
     const founder = newUser("founder");
     await stripeSubscription(founder, "pro", new Date(now.getTime() - DAY), new Date(now.getTime() + 365 * DAY), `founders_${founder}`);

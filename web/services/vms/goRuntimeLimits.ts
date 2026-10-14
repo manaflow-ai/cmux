@@ -5,7 +5,7 @@ import { cloudVms } from "../../db/schema";
 import { getGoVmUsage } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseBudgetVm, pauseGoVm } from "./goPause";
 import { VmDatabaseError } from "./errors";
-import { getPlanBudgetUsage, type PlanBudgetUsage } from "./planUsage";
+import { getPlanBudgetUsage, planBudgetsEnforced, type PlanBudgetUsage } from "./planUsage";
 import { VmProviderGateway } from "./providerGateway";
 import { VmRepository, type CloudVmRow } from "./repository";
 
@@ -20,7 +20,7 @@ export function enforceGoRuntimeLimits() {
     const providers = yield* VmProviderGateway;
     const rows = yield* Effect.tryPromise({
       try: () => cloudDb().select().from(cloudVms).where(and(
-        inArray(cloudVms.billingPlanId, ["go", "pro", "max"]),
+        inArray(cloudVms.billingPlanId, planBudgetsEnforced() ? ["go", "pro", "max"] : ["go"]),
         or(eq(cloudVms.status, "running"), sql`${cloudVms.providerMetadata}->'cmuxGoPauseIntent' is not null and ${cloudVms.providerMetadata}->'cmuxGoPauseIntent' <> 'null'::jsonb`),
       )).orderBy(asc(cloudVms.updatedAt)),
       catch: (cause) => new VmDatabaseError({ operation: "go_runtime_candidates", cause }),

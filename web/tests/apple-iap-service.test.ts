@@ -225,7 +225,7 @@ describe("App Store Server Notifications", () => {
       event: "subscription_started",
       distinctId: "user-a",
       properties: {
-        source: "apple", plan_id: "pro", product_id: `${BUNDLE}.pro.monthly`, storefront: "USA", currency: "USD",
+        source: "apple", plan_id: "pro", product_id: `${BUNDLE}.pro.monthly`, billing_period: "monthly", storefront: "USA", currency: "USD",
         price: 74.99, price_usd_estimate: 74.99, net_usd_estimate: 52.49, environment: "Production",
         original_transaction_id: ORIGINAL,
       },

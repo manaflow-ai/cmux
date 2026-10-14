@@ -55,9 +55,29 @@ export const PLAN_BUDGETS: Readonly<Record<BudgetPlanId, { readonly computeHours
   max: { computeHours: 1500, storageMb: 640 * 1024 },
 };
 
-/** `CMUX_VM_PLAN_BUDGETS=off` turns the Pro and Max allowances off (incident switch). */
+/**
+ * The Pro and Max allowances are off unless `CMUX_VM_PLAN_BUDGETS=on`. The
+ * pricing page promises no hour limits, so by default no Pro or Max user gets
+ * a compute-hour or disk limit and the 402 refusal never fires. Go's hours are
+ * always enforced.
+ */
 export function planBudgetsEnforced(env: Record<string, string | undefined> = process.env): boolean {
-  return env.CMUX_VM_PLAN_BUDGETS?.trim().toLowerCase() !== "off";
+  return env.CMUX_VM_PLAN_BUDGETS?.trim().toLowerCase() === "on";
+}
+
+/**
+ * The monthly window of a billing period that contains `now`: a yearly
+ * subscription resets its allowance every month from its start date.
+ */
+export function monthlyAllowanceWindow(start: Date, end: Date, now: Date): { start: Date; end: Date } {
+  let windowStart = start;
+  for (let month = 1; ; month += 1) {
+    const next = new Date(start);
+    next.setUTCMonth(start.getUTCMonth() + month);
+    if (next >= end) return { start: windowStart, end };
+    if (next > now) return { start: windowStart, end: next };
+    windowStart = next;
+  }
 }
 
 export function isBudgetPlanId(planId: string | null | undefined): planId is BudgetPlanId {
@@ -223,7 +243,7 @@ export async function getPlanBudgetUsage(userId: string, now = new Date()): Prom
     console.warn("[VM] plan allowance skipped: billing period unavailable", { userId, source: billing.source });
     return null;
   }
-  const { start: periodStart, end: periodEnd } = billing.period;
+  const { start: periodStart, end: periodEnd } = monthlyAllowanceWindow(billing.period.start, billing.period.end, now);
   const db = cloudDb();
   const [intervals, retained] = await Promise.all([
     db.select({

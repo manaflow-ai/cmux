@@ -11,7 +11,7 @@ import type {
 } from "@apple/app-store-server-library";
 
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
-import { isSignedAppleEnvironment } from "./config";
+import { appleBillingPeriodForProduct, isSignedAppleEnvironment } from "./config";
 import { activeAppleEntitlementForUser, type AppleEntitlementRow } from "./entitlement";
 import { appleServerApi, type AppleServerApi } from "./serverApi";
 import {
@@ -438,6 +438,7 @@ async function captureEntitlementGranted(
         source: "apple",
         plan_id: written.planId,
         product_id: written.productId,
+        billing_period: appleBillingPeriodForProduct(written.productId, written.bundleId),
         environment: written.environment,
         original_transaction_id: written.originalTransactionId,
         transaction_id: written.lastTransactionId,
@@ -472,6 +473,7 @@ async function captureLifecycleEvent(
       source: "apple",
       plan_id: state.planId,
       product_id: state.productId,
+      billing_period: appleBillingPeriodForProduct(state.productId, state.bundleId),
       storefront: state.storefront,
       currency: state.currency,
       price: revenue.price,

@@ -12,7 +12,9 @@ import {
   APP_STORE_BUNDLE_ID,
   appleBundleIds,
   appleEnvironmentGrantsEntitlement,
+  APPLE_PLAN_BILLING_PERIODS,
   appleProductId,
+  type AppleBillingPeriod,
   isAcceptedAppleBundleId,
   isSignedAppleEnvironment,
   type SignedAppleEnvironment,
@@ -25,6 +27,11 @@ export type AppleIneligibleReason = "stripe_subscription_active" | "team_billing
 export type AppleAccountTokenApp = {
   readonly bundleId: string | null;
   readonly storeKitEnvironment: SignedAppleEnvironment | null;
+  /**
+   * Periods the app can show (`x-cmux-billing-periods`). Older apps list
+   * every product in one plan list, so they get monthly products only.
+   */
+  readonly billingPeriods?: readonly AppleBillingPeriod[];
 };
 
 export type AppleAccountTokenResponse = {
@@ -36,7 +43,11 @@ export type AppleAccountTokenResponse = {
     readonly source: PersonalBillingSource;
     readonly manageUrl?: string;
   };
-  readonly products: readonly { readonly productId: string; readonly planId: PersonalPlanId }[];
+  readonly products: readonly {
+    readonly productId: string;
+    readonly planId: PersonalPlanId;
+    readonly billingPeriod: AppleBillingPeriod;
+  }[];
 };
 
 export type AppleAccountUser = ProReconcileUser & BillingTeamUserLike & {
@@ -86,6 +97,12 @@ export function requestedAppleBundleId(header: string | null): string | null {
   const value = header?.trim();
   if (!value) return appleBundleIds()[0] ?? null;
   return isAcceptedAppleBundleId(value) ? value : null;
+}
+
+/** `x-cmux-billing-periods: monthly,yearly`: the periods this app can show; monthly always. */
+export function requestedBillingPeriods(header: string | null): readonly AppleBillingPeriod[] {
+  const values = new Set((header ?? "").split(",").map((value) => value.trim().toLowerCase()));
+  return values.has("yearly") ? ["monthly", "yearly"] : ["monthly"];
 }
 
 /** `x-cmux-storekit-environment`: `Sandbox` or `Production`, else unknown. */
@@ -143,7 +160,9 @@ export async function appleAccountTokenResponse(
       ...(status.manageUrl ? { manageUrl: status.manageUrl } : {}),
     },
     products: bundleId && reason !== "purchases_unavailable"
-      ? plans.map((planId) => ({ productId: appleProductId(bundleId, planId), planId }))
+      ? plans.flatMap((planId) => APPLE_PLAN_BILLING_PERIODS[planId]
+        .filter((billingPeriod) => (app.billingPeriods ?? ["monthly"]).includes(billingPeriod))
+        .map((billingPeriod) => ({ productId: appleProductId(bundleId, planId, billingPeriod), planId, billingPeriod })))
       : [],
   };
 }

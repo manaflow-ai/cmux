@@ -30,10 +30,22 @@ describe("account token eligibility", () => {
     const response = await appleAccountTokenResponse(user, app("com.cmux.app"), deps());
     expect(response).toMatchObject({ eligible: true, reason: null, currentPlan: { planId: "free", source: "none" } });
     expect(response.products).toEqual([
-      { productId: "com.cmux.app.go.monthly", planId: "go" },
-      { productId: "com.cmux.app.pro.monthly", planId: "pro" },
-      { productId: "com.cmux.app.max.monthly", planId: "max" },
+      { productId: "com.cmux.app.go.monthly", planId: "go", billingPeriod: "monthly" },
+      { productId: "com.cmux.app.pro.monthly", planId: "pro", billingPeriod: "monthly" },
+      { productId: "com.cmux.app.max.monthly", planId: "max", billingPeriod: "monthly" },
     ]);
+    // An app that sends `x-cmux-billing-periods: monthly,yearly` also gets the
+    // yearly Pro and Max products; Go stays monthly like the web.
+    const periods = accountToken.requestedBillingPeriods("monthly,yearly");
+    const both = await appleAccountTokenResponse(user, { ...app("com.cmux.app"), billingPeriods: periods }, deps());
+    expect(both.products).toEqual([
+      { productId: "com.cmux.app.go.monthly", planId: "go", billingPeriod: "monthly" },
+      { productId: "com.cmux.app.pro.monthly", planId: "pro", billingPeriod: "monthly" },
+      { productId: "com.cmux.app.pro.yearly", planId: "pro", billingPeriod: "yearly" },
+      { productId: "com.cmux.app.max.monthly", planId: "max", billingPeriod: "monthly" },
+      { productId: "com.cmux.app.max.yearly", planId: "max", billingPeriod: "yearly" },
+    ]);
+    expect(accountToken.requestedBillingPeriods(null)).toEqual(["monthly"]);
     const noGo = await appleAccountTokenResponse(user, app("dev.cmux.app.beta"), deps({ goPlanEnabled: async () => false }));
     expect(noGo.products.map((product) => product.productId)).toEqual(["dev.cmux.app.beta.pro.monthly", "dev.cmux.app.beta.max.monthly"]);
   });
