@@ -17,7 +17,8 @@
               "window.titlebar",
               "window.titlebarButtons",
               "app.globalHotKey",
-              "app.startAgentGlobalHotKey"
+              "app.startAgentGlobalHotKey",
+              "app.hideDockIconWithoutWindows"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -1534,6 +1535,57 @@
       "title" : {
         "key" : "settings.app.startAgentGlobalHotKey",
         "text" : "Start Agent from Any App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.hideDockIconWithoutWindows.help",
+        "text" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.hideDockIconWithoutWindows",
+      "keywords" : [
+        "dock",
+        "icon",
+        "menu bar",
+        "background",
+        "app switcher",
+        "command tab",
+        "accessory",
+        "windows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "hideDockIconWithoutWindows"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.hideDockIconWithoutWindows",
+        "text" : "Hide Dock Icon When No Windows Are Open"
       },
       "validation" : "portable"
     },
@@ -23532,7 +23584,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "500801fb8cd18e1a7b6cfd27819cf8052f8352c46c0ec241deb629be208146c1",
+  "schema_hash" : "d253f187d3c652ae83f4960cd95701fcfcece723c3b6ba21924329a80069a5c3",
   "sections" : [
     {
       "id" : "general",
