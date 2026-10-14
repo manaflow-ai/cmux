@@ -133,6 +133,8 @@ async function probeControl(
   if (stateResponse.status === 404) return { outcome: "gone", latencyMs: elapsed() };
   if (!stateResponse.ok) return { outcome: "error", latencyMs: elapsed(), detail: `state read: ${await errorDetail(stateResponse)}` };
   const state = await stateResponse.json().then((body: unknown) => (body as { state?: unknown })?.state).catch(() => undefined);
+  // Only a known state skips the probe; an unreadable body says nothing about the VM.
+  if (typeof state !== "string") return { outcome: "error", latencyMs: elapsed(), detail: "state read: unreadable body" };
   if (state !== "running") return { outcome: "not_running", latencyMs: elapsed() };
   let response: Response;
   try {

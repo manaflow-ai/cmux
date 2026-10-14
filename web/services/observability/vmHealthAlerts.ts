@@ -81,6 +81,7 @@ export async function deliverVmHealthAlert(
     if (!leaseId) return "suppressed";
     const result = await (options.send ?? ((input) => sendAlert(input)))(alert);
     if (result.sent) await store.acknowledge(VM_HEALTH_ALERT_KEY, leaseId, now);
+    else await store.release?.(VM_HEALTH_ALERT_KEY, leaseId, now);
     if (result.configured === false) return "unconfigured";
     return result.sent ? "sent" : "failed";
   } catch (error) {
