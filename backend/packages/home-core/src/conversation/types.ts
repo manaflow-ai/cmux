@@ -143,8 +143,10 @@ export interface Message {
   readonly author: string
   readonly parts: ReadonlyArray<Part>
   readonly reply_to?: PartRef
-  /** The root of the thread this message replies in; a root has none (one level). */
+  /** The top root of the thread this message replies in (any depth; the parent is `reply_to`); a root has none. */
   readonly thread_root?: string
+  /** The thread object a root carries (`thread.update`, conversation-thread-objects-v1); absent when empty. */
+  readonly thread?: ThreadState
   readonly created_at: string
   readonly edited_at?: string
   readonly retracted_at?: string
@@ -152,6 +154,29 @@ export interface Message {
   /** Set by a local owner for a message a paired install sent. */
   readonly origin?: Origin
 }
+
+export type ThreadStatus = "open" | "resolved"
+
+/** Who resolved a thread, when, and the conversation's last seq then. */
+export interface ThreadResolution {
+  readonly by: string
+  readonly at: string
+  readonly seq: number
+}
+
+/**
+ * The thread object of a root message (Rust `ThreadState`). The thread reads as resolved only
+ * while no live reply has a seq above `resolved.seq`: a new reply reopens it.
+ */
+export interface ThreadState {
+  readonly title?: string
+  readonly owner?: string
+  readonly resolved?: ThreadResolution
+}
+
+/** The status readers show, given the seq of the thread's newest live reply (Rust `ThreadState::status`). */
+export const threadStatus = (thread: ThreadState | undefined, lastReplySeq: number | null | undefined): ThreadStatus =>
+  thread?.resolved !== undefined && (lastReplySeq === null || lastReplySeq === undefined || lastReplySeq <= thread.resolved.seq) ? "resolved" : "open"
 
 export type InviteChannel = "email" | "sms"
 /**
@@ -290,6 +315,8 @@ export type LocalOp =
   | { readonly kind: "title.set"; readonly title: string }
   /** A person answers the question part at `part_index`; only `answer.selections` is read. */
   | { readonly kind: "question.answer"; readonly message_id: string; readonly part_index: number; readonly answer: QuestionAnswer }
+  /** Sets the thread object of root `root`; an empty title or owner clears it (conversation-thread-objects-v1). */
+  | { readonly kind: "thread.update"; readonly root: string; readonly title?: string; readonly status?: ThreadStatus; readonly owner?: string }
 
 export interface InviteCreateParams {
   readonly kind: "invite.create"

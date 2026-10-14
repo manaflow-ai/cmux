@@ -3,7 +3,8 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import worker from "../src/index.ts"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { chat, inDO, loopback, paidPerson, post, testEnv } from "./setup/inference-person.ts"
-import { stackTeamIdFor } from "../src/domains/user.ts"
+import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "../src/domains/user.ts"
+import { fakeBoundaries, fakeStripe, nowS, sync, SYNC_KEY } from "./setup/fake-stripe.ts"
 
 /**
  * cx-y79zh S1 (plans/cmux-next/usage-billing.md): one model router call is one fact, and the member's
@@ -158,83 +159,6 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
  * (api.stripe.com) and the model provider faked as above.
  */
 
-const SYNC_KEY = "test-billing-levels-key-0123456789abcdef"
-const USAGE_PRICES: Record<string, string> = { "cmux-ai-usage-go-incl5-v1": "price_u_go", "cmux-ai-usage-pro-incl20-v1": "price_u_pro", "cmux-ai-usage-max-incl100-v1": "price_u_max", "cmux-ai-usage-team-incl20-v1": "price_u_team", "cmux-ai-usage-pro-incl1-e2e": "price_e2e_pro", "cmux-ai-usage-team-seat1-e2e": "price_e2e_team_seat" }
-
-type Call = { method: string; path: string; form: Record<string, string>; idempotency: string | null; version: string | null }
-type FakeSub = { id: string; status: string; customer: string; metadata: Record<string, string>; items: { data: Array<any> } }
-
-/** An in-memory payment service: prices by lookup key, subscriptions, subscription items, meter events. */
-const fakeStripe = (period: { start: number; end: number }) => {
-  const calls: Call[] = []
-  const events: Array<Record<string, string>> = []
-  const subs: FakeSub[] = []
-  const seen = new Map<string, unknown>()
-  const addSub = (id: string, customer: string, metadata: Record<string, string>, planLookup: string, extra: Array<any> = []) => {
-    const sub: FakeSub = { id, status: "active", customer, metadata: { app: "cmux", ...metadata }, items: { data: [{ id: `si_plan_${id}`, quantity: 1, price: { id: `price_plan_${id}`, product: "prod_plan", lookup_key: planLookup, recurring: { interval: "month" } } }, ...extra] } }
-    subs.push(sub)
-    return sub
-  }
-  const withPeriod = (sub: FakeSub) => ({ ...structuredClone(sub), items: { data: sub.items.data.map((i) => ({ ...structuredClone(i), current_period_start: period.start, current_period_end: period.end })) } })
-  const handle = async (url: URL, init: RequestInit): Promise<Response> => {
-    const method = (init.method ?? "GET").toUpperCase()
-    const form = Object.fromEntries(new URLSearchParams(typeof init.body === "string" ? init.body : ""))
-    const headers = new Headers(init.headers)
-    const idempotency = headers.get("idempotency-key")
-    calls.push({ method, path: url.pathname, form, idempotency, version: headers.get("stripe-version") })
-    if (idempotency && seen.has(idempotency)) return Response.json(seen.get(idempotency))
-    const ok = (body: unknown) => {
-      if (idempotency) seen.set(idempotency, body)
-      return Response.json(body)
-    }
-    if (method === "GET" && url.pathname === "/v1/prices") return ok({ data: url.searchParams.getAll("lookup_keys[]").filter((k) => USAGE_PRICES[k]).map((k) => ({ id: USAGE_PRICES[k], lookup_key: k })) })
-    if (method === "GET" && url.pathname === "/v1/subscriptions") return ok({ data: subs.filter((x) => x.status === url.searchParams.get("status") && (!url.searchParams.get("customer") || x.customer === url.searchParams.get("customer"))).map(withPeriod), has_more: false })
-    const one = url.pathname.match(/^\/v1\/subscriptions\/(sub_[A-Za-z0-9_]+)$/)
-    if (method === "GET" && one) {
-      const sub = subs.find((x) => x.id === one[1])
-      return sub ? ok(withPeriod(sub)) : Response.json({ error: { code: "resource_missing", message: "no such subscription" } }, { status: 404 })
-    }
-    if (method === "POST" && url.pathname === "/v1/subscription_items") {
-      const item = { id: `si_usage_${form.subscription}`, price: { id: form.price, product: "cmux_ai_usage", recurring: { interval: "month" } } }
-      subs.find((x) => x.id === form.subscription)!.items.data.push(item)
-      return ok({ ...item, current_period_start: period.start, current_period_end: period.end })
-    }
-    const moved = url.pathname.match(/^\/v1\/subscription_items\/(.+)$/)
-    if (method === "POST" && moved) {
-      const item = subs.flatMap((x) => x.items.data).find((i) => i.id === moved[1])
-      item.price = { ...item.price, id: form.price }
-      return ok({ ...structuredClone(item), current_period_start: period.start, current_period_end: period.end })
-    }
-    if (method === "POST" && url.pathname === "/v1/billing/meter_events") {
-      events.push(form)
-      return ok({ object: "billing.meter_event", identifier: form.identifier })
-    }
-    return Response.json({ error: { code: "resource_missing", message: `no fake for ${method} ${url.pathname}` } }, { status: 404 })
-  }
-  return { calls, events, subs, addSub, period, handle }
-}
-
-/** Fakes both boundaries: the model provider answers `cost`, the payment service is `stripe`. */
-const fakeBoundaries = (stripe: ReturnType<typeof fakeStripe>, cost: number) => {
-  const real = globalThis.fetch
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(input instanceof Request ? input.url : String(input))
-    if (url.hostname === "api.stripe.com") return stripe.handle(url, init ?? {})
-    if (url.hostname === "openrouter.ai") return Response.json({ id: "x", choices: [{ index: 0, message: { role: "assistant", content: "ok" } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost } })
-    return real(input, init)
-  })
-}
-
-/** One usage sync run through the Worker's fetch handler (POST /v1/internal/billing/sync). */
-const sync = async (runEnv: unknown = env, body = "{}") => {
-  const ctx = createExecutionContext()
-  const res = await worker.fetch!(new Request("https://api.test/v1/internal/billing/sync", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SYNC_KEY}` }, body }) as any, runEnv as any, ctx)
-  const out = (await res.json()) as any
-  await waitOnExecutionContext(ctx)
-  return { status: res.status, body: out }
-}
-
-const nowS = () => Math.floor(Date.now() / 1000)
 /** No call of the run wrote a plan item or named a plan price. */
 const planItemsUntouched = (stripe: ReturnType<typeof fakeStripe>) => stripe.calls.every((c) => !c.path.includes("si_plan") && !Object.values(c.form).some((v) => v.startsWith("price_plan")))
 
@@ -369,62 +293,150 @@ describe("the included-amount stop (cx-y79zh S5)", () => {
 })
 
 /**
- * cx-y79zh S5 included modes (Lawrence 2026-10-14: per team and per seat). Per seat: the sync sends the level
- * above included x seats to the per-seat meter for a flat price; per team (above): the whole level for a
- * graduated price. Driven at POST /v1/internal/billing/sync with the payment service faked at HTTP.
+ * cx-y79zh.1 included modes (Lawrence 2026-10-14): a Team customer's mode is an operator setting per team
+ * (POST /v1/internal/billing/team-mode); new teams are per team; a change applies from the next period
+ * start. Per seat: the sync sends the level above included x seats (the most seats of the period) to the
+ * per-seat meter; per team: the whole level to the graduated price's meter. Payment service faked at HTTP.
  */
-describe("team included amount per seat (cx-y79zh S5)", () => {
+const MODE_KEY = SYNC_KEY
+const teamMode = async (body: unknown, key = MODE_KEY) => {
+  const res = await loopback.fetch("https://api.test/v1/internal/billing/team-mode", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${key}` }, body: JSON.stringify(body) })
+  return { status: res.status, body: (await res.json()) as any }
+}
+/** Places the team's settings before every period of the fake (as if the operator set it last month). */
+const settingBeforePeriods = (team: string) =>
+  inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => {
+    m.ctx.storage.sql.exec(`UPDATE usage_mode_setting SET set_at = 0`)
+  })
+const spendOn = (team: string, usd: number) =>
+  (testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any).record(team, [{ key: `mode:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: usd, source: "coderouter", observed_at: Date.now() }])
+
+describe("team included mode per team or per seat (cx-y79zh.1)", () => {
   const e2eEnv = { ...(env as object), ENVIRONMENT: "development", BILLING_USAGE_PRICE_SET: "e2e" }
-  it("sends the level above included x seats to the per-seat meter, keeps the most seats of the period, and never touches the plan item", async () => {
-    const stackTeam = "5f0c2a7e-9b1d-4c3e-8a6f-2d4b7e9c1a30"
-    const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, stackTeam)
-    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
-    const sub = stripe.addSub("sub_seat1", "cus_seat1", { plan: "team", stackTeamId: stackTeam.toUpperCase() }, "cmux-team-monthly-20")
-    sub.items.data[0].quantity = 2
-    fakeBoundaries(stripe, 0)
-    const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
-    await meter.record(team, [{ key: `seat:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 2.5, source: "coderouter", observed_at: Date.now() }])
-    expect((await sync(e2eEnv)).body).toMatchObject({ items_added: 1, pushed: 1, failed: 0 })
-    expect(stripe.calls.filter((c) => c.path === "/v1/subscription_items").map((c) => c.form.price)).toEqual(["price_e2e_team_seat"])
-    // 2.5 USD used, 2 seats x 1 USD included: 0.5 USD above it, on the per-seat meter.
-    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[stripe_customer_id]": "cus_seat1", "payload[value]": "0.500000" })])
-    // A third seat: 3 USD included, nothing above it; a new event says so.
-    sub.items.data[0].quantity = 3
-    await sync(e2eEnv)
-    expect(stripe.events.at(-1)).toMatchObject({ event_name: "cmux_ai_usage_above_included", "payload[value]": "0.000000" })
-    // The seat leaves again in the same period: the period keeps its most seats, so nothing new is sent.
-    sub.items.data[0].quantity = 2
-    expect((await sync(e2eEnv)).body).toMatchObject({ pushed: 0, unchanged: 1 })
-    expect(stripe.events).toHaveLength(2)
-    // More usage: 3.75 USD against 3 seats = 0.75 USD above.
-    await meter.record(team, [{ key: `seat:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 1.25, source: "coderouter", observed_at: Date.now() }])
-    await sync(e2eEnv)
-    expect(stripe.events.at(-1)).toMatchObject({ "payload[value]": "0.750000" })
-    expect(stripe.events.every((e) => e.event_name === "cmux_ai_usage_above_included")).toBe(true)
-    expect(planItemsUntouched(stripe)).toBe(true)
+
+  it("the operator route needs the key and an actor, records every change and says it applies from the next period", async () => {
+    const stackTeam = "1d2c3b4a-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    expect((await teamMode({ stack_team: stackTeam, mode: "per_seat", actor: "ops" }, "wrong-key-0123456789abcdef0123456789")).status).toBe(401)
+    expect((await teamMode({ stack_team: stackTeam, mode: "per_seat" })).status).toBe(400)
+    expect((await teamMode({ stack_team: stackTeam, mode: "per_head", actor: "ops" })).status).toBe(400)
+    const before = await teamMode({ stack_team: stackTeam, actor: "ops" })
+    expect(before.body).toMatchObject({ requested: "per_team", in_force_now: "per_team", changes: [] })
+    const set = await teamMode({ stack_team: stackTeam.toUpperCase(), mode: "per_seat", actor: "ops", reason: "contract" })
+    expect(set.body).toMatchObject({ team: stackTeamIdFor(testEnv.STACK_PROJECT_ID, stackTeam), before: "per_team", mode: "per_seat", changed: true, applies: "next_period_start", requested: "per_seat", in_force_now: "per_team" })
+    expect(set.body.changes[0]).toMatchObject({ mode: "per_seat", actor: "ops", reason: "contract" })
+    expect((await teamMode({ stack_team: stackTeam, mode: "per_seat", actor: "ops" })).body).toMatchObject({ changed: false })
   })
 
-  it("the closed period's final push keeps its own seats after a renewal", async () => {
-    const stackTeam = "7a3e1c5b-2d4f-4e6a-9b8c-0f1e2d3c4b5a"
+  it("a mode change in a running period applies from the next period start, and the closed period keeps its mode", async () => {
+    const stackTeam = "2e3d4c5b-6f7a-4b8c-9d0e-1f2a3b4c5d6e"
     const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, stackTeam)
     const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 120 })
-    const sub = stripe.addSub("sub_seat2", "cus_seat2", { plan: "team", stackTeamId: stackTeam }, "cmux-team-monthly-20")
+    const sub = stripe.addSub("sub_mode1", "cus_mode1", { plan: "team", stackTeamId: stackTeam }, "cmux-team-monthly-20")
     sub.items.data[0].quantity = 2
     fakeBoundaries(stripe, 0)
-    const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
-    await meter.record(team, [{ key: `seat:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 3, source: "coderouter", observed_at: Date.now() }])
-    await sync(e2eEnv)
-    expect(stripe.events.at(-1)).toMatchObject({ "payload[value]": "1.000000" })
-    // Late usage in the closed period, then the renewal with one seat fewer.
-    await meter.record(team, [{ key: `seat:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 0.4, source: "coderouter", observed_at: Date.now() }])
+    await spendOn(team, 2.5)
+    // New team: per team. The operator asks for per seat in the middle of the period.
+    expect((await teamMode({ stack_team: stackTeam, mode: "per_seat", actor: "ops" })).body).toMatchObject({ changed: true, in_force_now: "per_team" })
+    await sync()
+    expect(stripe.calls.filter((c) => c.path === "/v1/subscription_items").map((c) => c.form.price)).toEqual(["price_u_team"])
+    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage", "payload[value]": "2.500000" })])
+    // More usage in the same period, and another run: still per team, the item does not move.
+    await spendOn(team, 0.5)
+    await sync()
+    expect(stripe.events.at(-1)).toMatchObject({ event_name: "cmux_ai_usage", "payload[value]": "3.000000" })
+    expect(stripe.calls.filter((c) => /^\/v1\/subscription_items\/.+/.test(c.path))).toHaveLength(0)
+    // The renewal: the new period starts after the change, so it is per seat; the item moves once, at its first run.
     const closedEnd = stripe.period.end
     stripe.period.start = closedEnd
     stripe.period.end = closedEnd + 30 * 86_400
-    sub.items.data[0].quantity = 1
+    await sync()
+    expect(stripe.calls.filter((c) => /^\/v1\/subscription_items\/.+/.test(c.path)).map((c) => c.form.price)).toEqual(["price_u_team_seat"])
+    // The closed period's final level stays on its own (per-team) meter; the new period has no usage yet.
+    expect(stripe.events.every((e) => e.event_name === "cmux_ai_usage")).toBe(true)
+    expect((await teamMode({ stack_team: stackTeam, actor: "ops" })).body).toMatchObject({ in_force_now: "per_seat" })
+    expect(planItemsUntouched(stripe)).toBe(true)
+  })
+
+  it("syncs a per-team team and a per-seat team side by side, each on its own meter, with the most seats of the period", async () => {
+    // As the e2e: a Pro personal team (per team) beside a Team-plan team set per seat.
+    const person = "usage-side-person"
+    const perSeat = "4a5f6e7d-8b9c-4d0e-9f1a-3b4c5d6e7f80"
+    const teamA = personalTeamIdFor(userIdFor(testEnv.STACK_PROJECT_ID, person))
+    const teamB = stackTeamIdFor(testEnv.STACK_PROJECT_ID, perSeat)
+    await teamMode({ stack_team: perSeat, mode: "per_seat", actor: "ops" })
+    await settingBeforePeriods(teamB)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    const a = stripe.addSub("sub_side_a", "cus_side_a", { plan: "pro", stackUserId: person }, "cmux-pro-monthly-50")
+    const b = stripe.addSub("sub_side_b", "cus_side_b", { plan: "team", stackTeamId: perSeat }, "cmux-team-monthly-20")
+    a.items.data[0].quantity = 2
+    b.items.data[0].quantity = 2
+    fakeBoundaries(stripe, 0)
+    await spendOn(teamA, 2.5)
+    await spendOn(teamB, 2.5)
+    expect((await sync(e2eEnv)).body).toMatchObject({ checked: 2, items_added: 2, pushed: 2, failed: 0 })
+    const added = Object.fromEntries(stripe.calls.filter((c) => c.path === "/v1/subscription_items").map((c) => [c.form.subscription, c.form.price]))
+    expect(added).toEqual({ sub_side_a: "price_e2e_pro", sub_side_b: "price_e2e_team_seat" })
+    const byCustomer = (cus: string) => stripe.events.filter((e) => e["payload[stripe_customer_id]"] === cus)
+    // Per team: the whole level, whatever the seats. Per seat: 2.5 - 2 x 0.5 = 1.5.
+    expect(byCustomer("cus_side_a")).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage", "payload[value]": "2.500000" })])
+    expect(byCustomer("cus_side_b")).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "1.500000" })])
+    // A third seat for both: per team nothing changes; per seat 2.5 - 3 x 0.5 = 1.0, and leaving again keeps 3 seats.
+    a.items.data[0].quantity = 3
+    b.items.data[0].quantity = 3
     await sync(e2eEnv)
-    // The closed period: 3.4 USD against its 2 seats, dated inside it.
-    expect(stripe.events.at(-1)).toMatchObject({ "payload[value]": "1.400000" })
-    expect(Number(stripe.events.at(-1)!.timestamp)).toBeLessThan(closedEnd)
+    expect(byCustomer("cus_side_a")).toHaveLength(1)
+    expect(byCustomer("cus_side_b").at(-1)).toMatchObject({ "payload[value]": "1.000000" })
+    b.items.data[0].quantity = 2
+    await sync(e2eEnv)
+    expect(byCustomer("cus_side_b")).toHaveLength(2)
+    expect(planItemsUntouched(stripe)).toBe(true)
+  })
+})
+
+describe("a retried level is the same request (cx-y79zh.1 e2e finding)", () => {
+  it("after a failed send, the next run sends the identical meter event, so the idempotency key matches", async () => {
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    stripe.addSub("sub_retry1", "cus_retry1", { plan: "pro", stackUserId: "usage-retry-person" }, "cmux-pro-monthly-50")
+    fakeBoundaries(stripe, 0)
+    const team = personalTeamIdFor(userIdFor(testEnv.STACK_PROJECT_ID, "usage-retry-person"))
+    await spendOn(team, 1.25)
+    stripe.control.failMeterEvents = 1
+    expect((await sync()).body).toMatchObject({ failed: 1, pushed: 0 })
+    // Time passes between runs; the retry must not change the request (the timestamp is the level's last fact).
+    await new Promise((r) => setTimeout(r, 1100))
+    expect((await sync()).body).toMatchObject({ failed: 0, pushed: 1 })
+    expect(stripe.attempts).toHaveLength(2)
+    expect(stripe.attempts[1]).toEqual(stripe.attempts[0])
+    expect(stripe.events).toEqual([expect.objectContaining({ "payload[value]": "1.250000" })])
+  })
+})
+
+describe("the included-amount stop of a per-seat team (cx-y79zh.1)", () => {
+  it("a per-seat team that is not billable stops at the amount x its last billable seats, and a lapsed subscription's seats stop counting", async () => {
+    // Go (5 USD): 3 seats stay under the test pool's team usage cap (25 USD).
+    const { t, team } = await paidPerson("included-stop-per-seat", "go")
+    const stopOn = { ...(env as object), USAGE_HARD_STOP_UNBILLED: "1" }
+    fakeBoundaries(fakeStripe({ start: 1, end: 2 }), 0.000001)
+    const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
+    // The operator's per-seat setting (in force before this month), and a subscription with 3 seats whose mark expired.
+    await meter.setIncludedMode(team, "per_seat", "ops", null)
+    await inDO(meter, async (m) => {
+      m.ctx.storage.sql.exec(`UPDATE usage_mode_setting SET set_at = 0`)
+      m.ctx.storage.sql.exec(`INSERT INTO usage_billable (subscription, period_end, seen_at, period_start, mode, seats, included_usd) VALUES ('sub_lapsed', ?, ?, ?, 'per_seat', 3, 5)`, Math.floor((Date.now() - 3 * 3600_000) / 1000), Date.now() - 3 * 3600_000, Math.floor((Date.now() - 30 * 86_400_000) / 1000))
+    })
+    await spendOn(team, 12)
+    // 12 of 3 x 5 = 15: the call passes (a per-team team would stop at 5).
+    const passed = await chat(t, stopOn)
+    expect({ status: passed.status, text: passed.status === 200 ? "" : passed.text }).toEqual({ status: 200, text: "" })
+    await spendOn(team, 3)
+    const stopped = await chat(t, stopOn)
+    expect(stopped.status).toBe(402)
+    expect(JSON.parse(stopped.text).error).toMatchObject({ code: "usage.included_reached", details: { included_usd: 15 } })
+    // The subscription's period ended more than 35 days ago: its seats no longer count, the stop is at 1 x 5.
+    await inDO(meter, async (m) => {
+      m.ctx.storage.sql.exec(`UPDATE usage_billable SET period_end = ?`, Math.floor((Date.now() - 40 * 86_400_000) / 1000))
+    })
+    expect(JSON.parse((await chat(t, stopOn)).text).error).toMatchObject({ code: "usage.included_reached", details: { included_usd: 5 } })
   })
 })
 

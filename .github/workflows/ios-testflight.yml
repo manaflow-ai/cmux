@@ -628,7 +628,7 @@ jobs:
           set -euo pipefail
           # ghostty has no nested submodules; its pinned commit is fetchable
           # at depth 1.
-          git submodule update --init --depth 1 ghostty
+          bash scripts/ci/init-submodule.sh ghostty
           ./scripts/install-zig-ci.sh
 
       - name: Build fallback GhosttyKit

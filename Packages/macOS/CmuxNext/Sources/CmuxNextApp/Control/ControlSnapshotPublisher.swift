@@ -87,8 +87,10 @@ final class ControlSnapshotPublisher {
             snapshot.tabSearch = tabSearch
         }
         let elapsed = ContinuousClock.now - started
+        let tabs = topology.tabCount
+        DebugTimings.controlPublished(tabs: tabs, elapsed)
         if elapsed > .milliseconds(2) {
-            logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(topology.tabCount) tabs")
+            logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(tabs) tabs")
         }
     }
 
@@ -96,7 +98,7 @@ final class ControlSnapshotPublisher {
     /// what Search Tabs lists in the palette).
     static func topology(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTopology {
         let windows: WindowManager = services.windows
-        var topology = ControlTopologyMapper.topology(store: services.daemon.store, selectedTab: { [services] pane in
+        var topology = ControlTopology(store: services.daemon.store, selectedTab: { [services] pane in
             services.paneController(for: pane)?.selectedTab?.id
         }, pages: services.controlPageFacts, cache: cache)
         if case .unavailable(let error) = services.daemon.startup { topology.daemonFailure = error.description }
@@ -110,7 +112,7 @@ final class ControlSnapshotPublisher {
             let session = ControlSessions.key(daemon)
             topology.sessionSequences[session] = daemon.store.appliedSequence
             topology.workspaces += daemon.store.workspaces.map { model in
-                var info = ControlTopologyMapper.cachedWorkspace(from: model, cache: cache, selectedTab: { [services] pane in
+                var info = ControlWorkspaceInfo(model, cache: cache, selectedTab: { [services] pane in
                     services.paneController(for: pane)?.selectedTab?.id
                 }, pages: services.controlPageFacts)
                 info.sessionID = session
