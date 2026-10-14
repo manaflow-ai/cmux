@@ -6,29 +6,123 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// A main-menu key equivalent takes a key only where the key router lets it (hq#2015 C11).
-/// - In a terminal, a chord the dispatcher already gave to the terminal (the user's Ghostty
-///   keybind won it) runs that keybind: the main menu never takes it first, whether its item
-///   would run (Quit, a system action) or is refused (Toggle Sidebar).
-/// - A panel or sheet over a cmux window has the keyboard: a navigation item on the same chord
-///   (Cmd-B, Toggle Sidebar) does not act on the window behind it.
+/// Which of a terminal's Command chords the main menu takes before Ghostty (hq#2015 C11), through
+/// the real path: the key router decides the key-down (`interceptKeyDown`), then the terminal
+/// view gets it as a key equivalent.
+/// - A chord the user's Ghostty config binds (cmux has a default on it: Quit on Cmd-Q, Toggle
+///   Sidebar on Cmd-B) runs that keybind; no menu item takes it first.
+/// - With the default config nothing changes: Cmd-Z and Cmd-Shift-Z are Edit > Undo and Redo,
+///   Cmd-A is Select All (the menu takes them, not Ghostty), and Cmd-Q is Quit.
 @MainActor @Suite(.serialized) struct MenuKeyRoutingTests {
-    @MainActor private final class Probe {
-        var runs = 0
+    @MainActor private final class Probe: NSObject {
+        var runs: [String] = []
+        @objc func undo(_ sender: Any?) { runs.append("undo") }
+        @objc func redo(_ sender: Any?) { runs.append("redo") }
+        @objc func selectAll(_ sender: Any?) { runs.append("selectAll") }
+        func count(_ name: String) -> Int { runs.filter { $0 == name }.count }
     }
 
-    private static func key(_ characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags, at timestamp: TimeInterval) throws -> NSEvent {
-        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: timestamp, windowNumber: 0,
-                                      context: nil, characters: characters, charactersIgnoringModifiers: characters,
-                                      isARepeat: false, keyCode: keyCode))
+    /// The app on a cmux window whose focused pane is a terminal tab, the Ghostty config made of
+    /// `userConfig` loaded into the router's binding table, and a live terminal surface with that
+    /// config, first responder of its window.
+    private struct Harness {
+        let services: AppServices
+        let shell: NSWindow
+        let session: TerminalSession
+        let io: ScriptedTerminalIO
+        let terminalWindow: NSWindow
+
+        var written: String { String(decoding: io.writes.reduce(Data(), +), as: UTF8.self) }
+
+        func close() {
+            io.finish()
+            terminalWindow.close()
+            for controller in services.windows.controllers { controller.window?.close() }
+        }
     }
 
-    /// A menu bar holding the registry's items for `ids`, as `MainMenu` builds them.
-    private static func menu(_ registry: ActionRegistry, items ids: [ActionID]) -> NSMenu {
-        let bar = NSMenu()
-        let holder = NSMenuItem(title: "Test", action: nil, keyEquivalent: "")
-        let submenu = NSMenu(title: "Test")
-        for id in ids { if let item = registry.makeMenuItem(for: id) { submenu.addItem(item) } }
+    private static func harness(userConfig: String) throws -> Harness {
+        _ = NSApplication.shared
+        _ = GhosttyRuntime.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        let controller = try #require(services.windows.openWindow(workspaces: ["c11-workspace"]))
+        let shell = try #require(controller.window)
+        controller.focus.send(.topology(FocusTopology(workspace: "c11-workspace", panes: [
+            .init(id: "c11-pane", tabs: [.init(id: "c11-tab", kind: .terminal)], selected: "c11-tab"),
+        ])))
+        controller.focus.send(.focusPane("c11-pane", source: .keyboard))
+        try #require(controller.focus.state.resolved == .terminal(pane: "c11-pane", tab: "c11-tab"),
+                     "the window's focus is \(controller.focus.state.resolved), not its terminal")
+
+        // The Ghostty config as the app loads it: cmux's keybind defaults, then the user's lines.
+        let user = try #require(ghostty_config_new())
+        GhosttyRuntime.loadKeybindDefaults(into: user)
+        userConfig.withCString { ghostty_config_load_string(user, $0, UInt(userConfig.utf8.count), "cmux-next-test") }
+        ghostty_config_finalize(user)
+        let defaults = try #require(GhosttyKeyClaims.defaultsConfig())
+        defer { ghostty_config_free(defaults) }
+        // The keys cmux has defaults on that the user's lines claim (`GhosttyKeybindSync`).
+        let keyNames = KeyCodeLayout.currentKeyNames()
+        let probes = GhosttyKeyBindingLayer.defaultKeys(RegistryKeyBindings(services.registry).table).compactMap { key in
+            GhosttyKeyBindingLayer.probe(for: key, keyNames: keyNames).map { (key, $0) }
+        }
+        let claimed = GhosttyKeyClaims.claimed(probes.map(\.1), user: user, texts: [userConfig])
+        let claims = zip(probes, claimed).compactMap { probe, isClaimed in isClaimed ? probe.0 : nil }
+        services.keyRouter.loadGhosttyKeybinds(GhosttyHostKeybind.read(from: user), defaults: GhosttyHostKeybind.read(from: defaults),
+                                               claims: claims, keyNames: keyNames)
+
+        let io = ScriptedTerminalIO()
+        let session = TerminalSession(io: io)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        // The theme config owns `user` (and frees it).
+        session.setTheme(GhosttyThemeConfig(config: user, themeName: "cmux-next-test", colors: nil))
+        let terminalWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.borderless],
+                                      backing: .buffered, defer: false)
+        terminalWindow.isReleasedWhenClosed = false
+        terminalWindow.contentView = session.view
+        session.view.layoutSubtreeIfNeeded()
+        try #require(terminalWindow.makeFirstResponder(session.surfaceView), "the terminal never took the keyboard")
+        return Harness(services: services, shell: shell, session: session, io: io, terminalWindow: terminalWindow)
+    }
+
+    private static var timestamp: TimeInterval = 1000
+
+    /// A Command key-down as AppKit delivers it: the router decides it in `sendEvent`; a key it
+    /// did not consume reaches the terminal view as a key equivalent. Whether something took it.
+    private static func press(_ characters: String, keyCode: UInt16, shift: Bool = false, in harness: Harness) throws -> Bool {
+        timestamp += 1
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? [.command, .shift] : [.command],
+                                                  timestamp: timestamp, windowNumber: harness.shell.windowNumber, context: nil,
+                                                  characters: characters, charactersIgnoringModifiers: characters,
+                                                  isARepeat: false, keyCode: keyCode))
+        let router = harness.services.keyRouter
+        return router.dispatchingSynthetic(event) {
+            router.interceptKeyDown(event, in: harness.shell) || harness.session.surfaceView.performKeyEquivalent(with: event)
+        }
+    }
+
+    /// The menu bar, the app's terminal hooks and the registry's key-down reading swapped in for
+    /// `body` (no suspension inside), then restored.
+    private static func withMenu(_ menu: NSMenu, _ harness: Harness, _ body: () throws -> Void) rethrows {
+        let registry = harness.services.registry
+        let previousMenu = NSApp.mainMenu, previousDispatching = registry.isDispatchingKeyDown
+        let previousClaim = TerminalKeyEquivalent.menuMayClaim, previousAppAction = GhosttyRuntime.shared.appActionHandler
+        NSApp.mainMenu = menu
+        registry.isDispatchingKeyDown = { true }
+        TerminalHooks(services: harness.services).install()
+        defer {
+            NSApp.mainMenu = previousMenu
+            registry.isDispatchingKeyDown = previousDispatching
+            TerminalKeyEquivalent.menuMayClaim = previousClaim
+            GhosttyRuntime.shared.appActionHandler = previousAppAction
+        }
+        try body()
+    }
+
+    private static func menuBar(_ items: [NSMenuItem]) -> NSMenu {
+        let bar = NSMenu(), holder = NSMenuItem(title: "Test", action: nil, keyEquivalent: ""), submenu = NSMenu(title: "Test")
+        for item in items { submenu.addItem(item) }
         holder.submenu = submenu
         bar.addItem(holder)
         return bar
@@ -41,113 +135,61 @@ import Testing
         }
     }
 
-    /// The user's Ghostty config binds Cmd-Q and Cmd-B to text; cmux has Quit (system tier) and
-    /// Toggle Sidebar (navigation tier) on those chords. The dispatcher delivered both keys to the
-    /// terminal, so the Ghostty keybinds run and neither menu item does.
-    @Test func aGhosttyKeybindTheDispatcherDeliveredWinsOverTheMenuItemOnItsChord() async throws {
-        _ = NSApplication.shared
-        _ = GhosttyRuntime.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let registry = services.registry
-        let quit = Probe(), sidebar = Probe()
+    /// The user's Ghostty config binds Cmd-Q and Cmd-B to text; cmux's defaults there are Quit
+    /// (system tier) and Toggle Sidebar (navigation tier). Both keys run the user's keybinds.
+    @Test func theUsersGhosttyKeybindWinsOverTheMenuItemOnItsChord() async throws {
+        let harness = try Self.harness(userConfig: "keybind = cmd+q=text:c11q\nkeybind = cmd+b=text:c11b\n")
+        defer { harness.close() }
+        let registry = harness.services.registry
+        let actions = Probe()
         registry.unbind("quit")
-        registry.bind("quit") { quit.runs += 1 }
+        registry.bind("quit") { actions.runs.append("quit") }
         registry.unbind("toggleSidebar")
-        registry.bind("toggleSidebar") { sidebar.runs += 1 }
-        let previousDispatching = registry.isDispatchingKeyDown
-        registry.isDispatchingKeyDown = { true }
-        let previousClaim = TerminalKeyEquivalent.menuMayClaim
-        // As `TerminalHooks` installs it at launch.
-        TerminalKeyEquivalent.menuMayClaim = { [weak services] in services?.keyRouter.menuMayClaim($0) ?? true }
-        let previousMenu = NSApp.mainMenu
-        NSApp.mainMenu = Self.menu(registry, items: ["quit", "toggleSidebar"])
-
-        let text = "keybind = cmd+q=text:c11q\nkeybind = cmd+b=text:c11b\n"
-        let config = try #require(ghostty_config_new())
-        text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "cmux-next-test") }
-        ghostty_config_finalize(config)
-        let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io)
-        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
-        session.setTheme(GhosttyThemeConfig(config: config, themeName: "cmux-next-test", colors: nil))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer {
-            NSApp.mainMenu = previousMenu
-            TerminalKeyEquivalent.menuMayClaim = previousClaim
-            registry.isDispatchingKeyDown = previousDispatching
-            io.finish()
-            window.close()
+        registry.bind("toggleSidebar") { actions.runs.append("toggleSidebar") }
+        let menu = Self.menuBar(["quit", "toggleSidebar"].compactMap { registry.makeMenuItem(for: $0) })
+        try Self.withMenu(menu, harness) {
+            #expect(try Self.press("q", keyCode: 12, in: harness))
+            #expect(try Self.press("b", keyCode: 11, in: harness))
         }
-        window.contentView = session.view
-        session.view.layoutSubtreeIfNeeded()
-        try #require(window.makeFirstResponder(session.surfaceView), "the terminal never took the keyboard")
-        func written() -> String { String(decoding: io.writes.reduce(Data(), +), as: UTF8.self) }
-
-        // The menu items are live: a Cmd-Q the dispatcher never saw (a synthetic key) is Quit's.
-        let synthetic = try Self.key("q", keyCode: 12, flags: [.command], at: 100)
-        #expect(services.keyRouter.dispatchingSynthetic(synthetic) { session.surfaceView.performKeyEquivalent(with: synthetic) })
-        #expect(quit.runs == 1, "the menu's Quit did not take an undecided Cmd-Q")
-
-        // Cmd-Q, Quit is a system item the menu gate would allow: the Ghostty keybind runs.
-        let quitKey = try Self.key("q", keyCode: 12, flags: [.command], at: 200)
-        services.keyRouter.decided.add(quitKey) // the dispatcher delivered it to the terminal
-        #expect(services.keyRouter.dispatchingSynthetic(quitKey) { session.surfaceView.performKeyEquivalent(with: quitKey) })
-        await Self.wait(within: .seconds(5)) { written().contains("c11q") }
-        #expect(quit.runs == 1, "the menu's Quit took a Cmd-Q the user's Ghostty keybind won")
-        #expect(written().contains("c11q"), "the Ghostty keybind on Cmd-Q never ran (wrote \(written().debugDescription))")
-
-        // Cmd-B, Toggle Sidebar is refused after the dispatcher decided the key: the refused
-        // item does not consume it, the Ghostty keybind runs.
-        let sidebarKey = try Self.key("b", keyCode: 11, flags: [.command], at: 300)
-        services.keyRouter.decided.add(sidebarKey)
-        #expect(services.keyRouter.dispatchingSynthetic(sidebarKey) { session.surfaceView.performKeyEquivalent(with: sidebarKey) })
-        await Self.wait(within: .seconds(5)) { written().contains("c11b") }
-        #expect(sidebar.runs == 0, "Toggle Sidebar took a Cmd-B the user's Ghostty keybind won")
-        #expect(written().contains("c11b"), "the Ghostty keybind on Cmd-B never ran (wrote \(written().debugDescription))")
+        await Self.wait(within: .seconds(5)) { harness.written.contains("c11q") && harness.written.contains("c11b") }
+        #expect(actions.count("quit") == 0, "Quit took the Cmd-Q the user's Ghostty config binds")
+        #expect(actions.count("toggleSidebar") == 0, "Toggle Sidebar took the Cmd-B the user's Ghostty config binds")
+        #expect(harness.written.contains("c11q"), "the Ghostty keybind on Cmd-Q never ran (wrote \(harness.written.debugDescription))")
+        #expect(harness.written.contains("c11b"), "the Ghostty keybind on Cmd-B never ran (wrote \(harness.written.debugDescription))")
     }
 
-    /// A panel over a cmux window is key (as the palette or a sheet is): Cmd-B reaches the main
-    /// menu after the panel, and Toggle Sidebar (navigation tier) does not act on the window
-    /// behind it. With the window itself key, the same chord toggles its sidebar.
-    @Test func aNavigationMenuItemDoesNotActOnTheWindowBehindAKeyPanel() throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        services.windows.ordersWindowsIn = false
-        let registry = services.registry
-        let sidebar = Probe()
-        registry.unbind("toggleSidebar")
-        registry.bind("toggleSidebar") { sidebar.runs += 1 }
-        try #require(registry.keyTier(for: "toggleSidebar") == .navigation)
-        let previousDispatching = registry.isDispatchingKeyDown
-        registry.isDispatchingKeyDown = { true }
-        let menu = Self.menu(registry, items: ["toggleSidebar"])
-        let controller = try #require(services.windows.openWindow(workspaces: ["c11-panel-workspace"]))
-        let shell = try #require(controller.window)
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: true)
-        panel.isReleasedWhenClosed = false
-        shell.addChildWindow(panel, ordered: .above)
-        let previousKey = services.keyWindowSource
-        defer {
-            services.keyWindowSource = previousKey
-            registry.isDispatchingKeyDown = previousDispatching
-            shell.removeChildWindow(panel)
-            panel.close()
-            for controller in services.windows.controllers { controller.window?.close() }
+    /// With the default Ghostty config, Edit's Undo, Redo and Select All take Cmd-Z, Cmd-Shift-Z and
+    /// Cmd-A from the terminal before Ghostty (its undo, redo and select_all defaults), and Cmd-Q
+    /// is Quit.
+    @Test func theDefaultConfigKeepsEditAndQuitOnTheirChords() async throws {
+        let harness = try Self.harness(userConfig: "")
+        defer { harness.close() }
+        let registry = harness.services.registry
+        let probe = Probe(), actions = Probe()
+        registry.unbind("quit")
+        registry.bind("quit") { actions.runs.append("quit") }
+        func item(_ title: String, _ action: Selector, _ key: String, _ modifiers: NSEvent.ModifierFlags) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            item.target = probe
+            return item
         }
-
-        // The cmux window is key: Cmd-B is Toggle Sidebar.
-        services.keyWindowSource = { shell }
-        let inWindow = try Self.key("b", keyCode: 11, flags: [.command], at: 400)
-        _ = services.keyRouter.dispatchingSynthetic(inWindow) { menu.performKeyEquivalent(with: inWindow) }
-        #expect(sidebar.runs == 1, "Cmd-B in the window did not toggle its sidebar")
-
-        // The panel over it is key: the window's sidebar stays.
-        services.keyWindowSource = { panel }
-        let inPanel = try Self.key("b", keyCode: 11, flags: [.command], at: 500)
-        _ = services.keyRouter.dispatchingSynthetic(inPanel) { menu.performKeyEquivalent(with: inPanel) }
-        #expect(sidebar.runs == 1, "Cmd-B in a panel over the window toggled the window's sidebar")
+        let menu = Self.menuBar([
+            item("Undo", #selector(Probe.undo(_:)), "z", [.command]),
+            item("Redo", #selector(Probe.redo(_:)), "z", [.command, .shift]),
+            item("Select All", #selector(Probe.selectAll(_:)), "a", [.command]),
+        ] + [registry.makeMenuItem(for: "quit")].compactMap { $0 })
+        try Self.withMenu(menu, harness) {
+            #expect(try Self.press("z", keyCode: 6, in: harness))
+            #expect(probe.runs == ["undo"], "Cmd-Z in a terminal did not run Edit > Undo")
+            #expect(try Self.press("Z", keyCode: 6, shift: true, in: harness))
+            #expect(probe.runs == ["undo", "redo"], "Cmd-Shift-Z in a terminal did not run Edit > Redo")
+            #expect(try Self.press("a", keyCode: 0, in: harness))
+            #expect(probe.runs == ["undo", "redo", "selectAll"], "Cmd-A in a terminal did not run Edit > Select All")
+            #expect(try Self.press("q", keyCode: 12, in: harness))
+            #expect(actions.count("quit") == 1, "Cmd-Q in a terminal did not quit")
+        }
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(harness.written.isEmpty, "the terminal got \(harness.written.debugDescription) for a menu chord")
     }
 }
