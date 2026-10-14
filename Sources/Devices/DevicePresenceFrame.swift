@@ -121,6 +121,9 @@ enum DevicePresenceFrame: Equatable, Sendable {
     case vmsSnapshot(records: [VMSyncRecord], complete: Bool, backfilled: Bool, snapshotRev: Int, epoch: Int)
     /// Changed `vms` records; `rev` is the head this frame brings the cursor to.
     case vmsDelta(records: [VMSyncRecord], rev: Int)
+    /// A `vms` snapshot frame that failed validation (no `records` array, or a
+    /// live record the list parser rejects). It must not replace the fleet.
+    case vmsMalformed
     case ignored
 
     static let devicesCollection = "devices"

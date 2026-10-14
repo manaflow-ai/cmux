@@ -196,8 +196,6 @@ struct DevicePresenceWireTests {
             "records": [
                 vmRecord("vm-a", extra: ["displayName": "dev box"]),
                 ["id": "vm-gone", "rev": 9, "updatedAt": 1, "deleted": true, "schemaVersion": 1, "payload": ["sourceUpdatedAtMs": 1]],
-                ["id": "vm-broken", "rev": 10, "updatedAt": 1, "deleted": false, "schemaVersion": 1, "payload": ["id": "vm-broken", "status": "running"]],
-                ["id": "vm-mismatch", "deleted": false, "payload": ["id": "other", "provider": "freestyle", "image": "x", "status": "running"]],
             ],
         ])
         guard case .vmsSnapshot(let records, let complete, let backfilled, let snapshotRev, let epoch) = parsed else {
@@ -208,7 +206,7 @@ struct DevicePresenceWireTests {
         #expect(backfilled)
         #expect(snapshotRev == 12)
         #expect(epoch == 2)
-        #expect(records.map(\.id) == ["vm-a", "vm-gone"], "a live record the list parser rejects is dropped, never turned into a tombstone")
+        #expect(records.map(\.id) == ["vm-a", "vm-gone"])
         let summary = try #require(records[0].summary)
         #expect(!records[0].deleted)
         #expect(summary.id == "vm-a")
@@ -241,6 +239,27 @@ struct DevicePresenceWireTests {
         #expect(unbackfilled == .vmsSnapshot(records: [], complete: true, backfilled: false, snapshotRev: 0, epoch: 0))
         let negative = try frame(["type": "sync.snapshot", "collection": "vms", "complete": true, "snapshotRev": -4, "epoch": "x", "records": []])
         #expect(negative == .vmsSnapshot(records: [], complete: true, backfilled: false, snapshotRev: 0, epoch: 0))
+    }
+
+    @Test("A vms snapshot is accepted only when it carries a records array and every record decodes")
+    func vmsSnapshotMalformed() throws {
+        // A complete, backfilled snapshot replaces the fleet, so one that lost
+        // its records or a machine must never read as an empty or shorter list.
+        let missing = try frame(["type": "sync.snapshot", "collection": "vms", "complete": true, "backfilled": true, "snapshotRev": 5])
+        #expect(missing == .vmsMalformed)
+        let notArray = try frame(["type": "sync.snapshot", "collection": "vms", "complete": true, "backfilled": true, "records": ["x": 1]])
+        #expect(notArray == .vmsMalformed)
+        for broken: [String: Any] in [
+            ["id": "vm-broken", "deleted": false, "payload": ["id": "vm-broken", "status": "running"]],
+            ["id": "vm-mismatch", "deleted": false, "payload": ["id": "other", "provider": "freestyle", "image": "x", "status": "running"]],
+            ["deleted": false],
+        ] {
+            let parsed = try frame([
+                "type": "sync.snapshot", "collection": "vms", "complete": true, "backfilled": true,
+                "records": [vmRecord("vm-a"), broken],
+            ])
+            #expect(parsed == .vmsMalformed, "a live record the list parser rejects poisons the snapshot instead of deleting that machine")
+        }
     }
 
     @Test("A vms delta carries upserts and tombstones with the head revision")

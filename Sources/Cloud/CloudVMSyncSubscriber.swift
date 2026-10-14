@@ -222,7 +222,7 @@ final class CloudVMSyncSubscriber {
         case .vmsDelta(let records, let rev):
             cursor = max(cursor, rev)
             onEvent(.delta(records: records))
-        case .snapshot, .online, .offline, .seen, .routes, .syncSnapshot, .syncDelta, .ignored:
+        case .snapshot, .online, .offline, .seen, .routes, .syncSnapshot, .syncDelta, .vmsMalformed, .ignored:
             return
         }
     }
