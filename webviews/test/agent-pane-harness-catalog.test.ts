@@ -191,9 +191,9 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     });
     await page.goto(url());
     await page.getByText("Hi there.").waitFor();
-    // The model picker's + opens the page in place.
+    // The model picker's last row, Add harness…, opens the page in place.
     await page.locator(".acpmux-model .acpmux-picker-button").click();
-    await page.locator(".acpmux-mp-add-agent").click();
+    await page.locator(".acpmux-mp-add-harness").click();
     const claude = page.locator("[data-harness-row]").filter({ hasText: "Claude Code" });
     await claude.waitFor();
     expect(await claude.getAttribute("data-harness-status")).toBe("ready");
