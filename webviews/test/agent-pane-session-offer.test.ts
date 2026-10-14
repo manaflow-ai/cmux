@@ -145,10 +145,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
   async function openChat(experiment: "on" | "off"): Promise<Page> {
     calls = [];
     seq = 0;
-    history = [
-      record("user_message", { text: "Add the upload endpoint" }),
-      record("session_offer", offer),
-    ];
+    history = [record("user_message", { text: "Add the upload endpoint" }), record("session_offer", offer)];
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.addInitScript(
       (arm) => localStorage.setItem("cmux.experiments", JSON.stringify({ "session-offer": arm })),

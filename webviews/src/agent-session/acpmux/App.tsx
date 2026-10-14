@@ -220,6 +220,8 @@ import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
+import { OfferChip } from "./offer/OfferChip";
+import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
@@ -688,6 +690,24 @@ const EditedFilesRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
 );
 
+/// An agent's offer of a parallel chat (offer/OfferChip.tsx); the reducer draws it only while
+/// the session-offer experiment is on.
+const SessionOfferRow = memo(
+  function SessionOfferRow({ row }: RowProps) {
+    if (!row.offer) return null;
+    const offerId = row.offer.offerId;
+    return (
+      <OfferChip
+        offer={row.offer}
+        onStart={() => callNative("chat.offer.start", { offerId })}
+        onDismiss={() => callNative("chat.offer.dismiss", { offerId })}
+        onOpen={(sessionId) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined)}
+      />
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
   assistant: MessageRow,
@@ -703,6 +723,7 @@ const defaultRegistry: NativeRegistry = {
   notice: NoticeRow,
   plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
+  sessionOffer: SessionOfferRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
@@ -3629,6 +3650,26 @@ function AcpmuxPane() {
             // acpmux marks it the chat's side chat; the app only opens it beside the chat.
             await client.markSide(sessionId, chat);
             await postNative("chat.sideChat", { sessionId });
+          },
+          // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
+          "chat.offer.start": async ({ offerId }) => {
+            const chat = client.selectedSession;
+            const offer = client.offer(String(offerId));
+            if (!chat || !offer) throw new Error(translate("offer.failed"));
+            const cwd = offer.worktree ? await offerWorktree(callNative, offer.cwd) : offer.cwd;
+            return client.startOffer(chat, offer, cwd);
+          },
+          "chat.offer.dismiss": async ({ offerId }) => {
+            const chat = client.selectedSession;
+            if (chat) await client.dismissOffer(chat, String(offerId));
+          },
+          // Open on a started offer: beside this chat, as a side chat opens; else here.
+          "chat.offer.open": async ({ sessionId }) => {
+            try {
+              await postNative("chat.sideChat", { sessionId: String(sessionId) });
+            } catch {
+              await persistSession(await client.select(String(sessionId)));
+            }
           },
           "chat.handoff.prepare": async ({ harness }) => {
             harnessSwitch.cancel();
