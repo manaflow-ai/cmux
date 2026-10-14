@@ -41,7 +41,8 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
     ///
     /// Directory-namespaced agents prefer the launch working directory: it is captured once at launch,
     /// matches the session store's namespace, and does not drift when the agent `cd`s into a
-    /// subdirectory (e.g. a worktree) mid-session. Id-keyed agents keep the runtime cwd so they reopen
+    /// subdirectory (e.g. a worktree) mid-session. Claude first selects a candidate whose project
+    /// slug matches the transcript's directory, when available. Id-keyed agents keep the runtime cwd so they reopen
     /// where the agent was working. Inputs are trimmed and empty values are treated as absent.
     ///
     /// - Parameters:
@@ -81,7 +82,7 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
         let components = (rawPath as NSString).expandingTildeInPath
             .split(separator: "/", omittingEmptySubsequences: true)
             .map(String.init)
-        guard let projectsIndex = components.firstIndex(of: "projects"),
+        guard let projectsIndex = components.lastIndex(of: "projects"),
               projectsIndex + 1 < components.count else {
             return nil
         }
@@ -89,8 +90,7 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
     }
 
     private func encodedProjectDirectoryName(forPath path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        ClaudeProjectSlug().slug(forWorkingDirectory: path)
     }
 
     private func normalized(_ value: String?) -> String? {

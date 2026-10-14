@@ -3649,42 +3649,35 @@ struct RestorableAgentSessionIndex: Sendable {
         validator: CachedAgentProcessIdentityValidator,
         hermesSessionValidation: CachedAgentProcessIdentityValidator.HermesSessionValidation = .cachedSnapshot
     ) -> RestorableAgentProcessMatch {
-        if let recordedProcessIdentity {
-            guard Int(recordedProcessIdentity.pid) == processID else {
-                return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
-            }
-            guard let currentProcessIdentity,
-                  Int(currentProcessIdentity.pid) == processID else {
-                return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
-            }
-            guard currentProcessIdentity == recordedProcessIdentity else {
-                return .mismatches
-            }
-        } else if currentProcessIdentity == nil {
-            // A legacy record has no generation to compare. Without a current
-            // generation, only an absent PID is definitive.
-            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
+        let processPresence: RestorableAgentProcessPresence = switch processPresenceProvider(processID) {
+        case .present: .present
+        case .absent: .absent
+        case .unknown: .unknown
         }
         guard let process = processArgumentsProvider(processID) else {
-            // A present process may be temporarily uninspectable. Only ESRCH-grade
-            // absence proves that the recorded generation exited.
-            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
+            return RestorableAgentProcessMatcher().match(.init(
+                processID: processID,
+                recordedIdentity: recordedProcessIdentity,
+                currentIdentity: currentProcessIdentity,
+                presence: processPresence,
+                scopeMatches: nil,
+                expectedProcessMatches: nil
+            ))
         }
-        guard process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
-            return .mismatches
-        }
+        let scopeMatches = process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId)
         let matchesExpectedProcess = validator.currentProcess(
             process,
             matches: snapshot,
             hermesSessionValidation: hermesSessionValidation
         )
-        // A legacy record can reject a reused PID when its executable or
-        // session identity contradicts the snapshot, but a matching process
-        // still lacks a historical generation and cannot authenticate itself.
-        if recordedProcessIdentity == nil {
-            return matchesExpectedProcess ? .unknown : .mismatches
-        }
-        return matchesExpectedProcess ? .matches : .mismatches
+        return RestorableAgentProcessMatcher().match(.init(
+            processID: processID,
+            recordedIdentity: recordedProcessIdentity,
+            currentIdentity: currentProcessIdentity,
+            presence: processPresence,
+            scopeMatches: scopeMatches,
+            expectedProcessMatches: matchesExpectedProcess
+        ))
     }
 
     private static func normalizedNonEmptyValue(_ value: String?) -> String? {
