@@ -194,6 +194,7 @@ public nonisolated struct HomeBrainHost: Sendable {
             shell.standardError = FileHandle.nullDevice
             try shell.run()
             // The shell exits right after the background start; its one line is the pid.
+            // concurrency-allow: one pid line from a shell that exits at once, off the main actor in @concurrent `launch`
             let printed = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             let pid = pid_t(printed.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0 > 1 ? $0 : nil }
             logger.info("mux host started for \(muxHome.path, privacy: .public) pid \(pid.map(String.init) ?? "?", privacy: .public)")

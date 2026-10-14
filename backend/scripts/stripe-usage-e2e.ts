@@ -1,6 +1,9 @@
 // cx-y79zh end-to-end run, Stripe TEST MODE only, against the development Worker
 // (BILLING_USAGE_PRICE_SET=e2e: 1 USD included). Run on a Freestyle VM, one phase per call, in order:
 // PHASE=a, PHASE=more (repeat until the level passes 1 USD), PHASE=b, PHASE=c, PHASE=cleanup.
+// MODE=team (default): the per-team mode, a Pro plan item, the graduated price (1 USD included).
+// MODE=seat: the per-seat mode (cx-y79zh S5), a Max plan item with 2 seats, the flat price on the
+// per-seat meter; the sync sends the level above 2 x 0.5 USD (billing-catalog.ts e2e set).
 // The secrets file is written and shredded by the VM exec helper; nothing here prints a secret.
 // /root/.wt/secrets.json: { stripe, levels, project, publishable, email, password }. Prints ids and amounts only.
 import { readFileSync } from "node:fs"
@@ -8,7 +11,13 @@ const sec = JSON.parse(readFileSync("/root/.wt/secrets.json", "utf8"))
 if (!/^(sk|rk)_test_/.test(sec.stripe)) throw new Error("test key only")
 if (sec.project !== "454ecd03-1db2-4050-845e-4ce5b0cd9895") throw new Error("dev sign-in project only")
 const ORIGIN = "https://cmux-api-development.debussy.workers.dev"
-const METER = "mtr_test_61VZNivVpiXTtlinB41LbtiW1udY8LPk"
+const MODE = process.env.MODE === "seat" ? "seat" : "team"
+const SEATS = MODE === "seat" ? 2 : 1
+/** The included amount of the run's plan in the e2e set, per seat in MODE=seat. */
+const INCLUDED_USD = MODE === "seat" ? 0.5 : 1
+const PLAN = MODE === "seat" ? "max" : "pro"
+const PLAN_LOOKUP = process.env.E2E_PLAN_LOOKUP ?? (MODE === "seat" ? "cmux-max-monthly-200" : "cmux-pro-monthly-50")
+const METER_EVENT = MODE === "seat" ? "cmux_ai_usage_above_included" : "cmux_ai_usage"
 const V = "2026-06-24.dahlia"
 const log = (k: string, v: unknown) => console.log(JSON.stringify({ [k]: v }))
 const stripe = async (method: string, path: string, form?: Record<string, string>) => {
@@ -21,7 +30,10 @@ const clockReady = async (id: string) => {
   for (let i = 0; i < 150; i++) {
     const c = await stripe("GET", `/v1/test_helpers/test_clocks/${id}`)
     if (c.status === "ready") return c
-    await new Promise((r) => setTimeout(r, 2000)) // bounded wait on Stripe's own clock state (no product sync)
+    // Bounded wait (why, cx-y79zh S5 review): a test clock advance is asynchronous, and its only push signal is the
+    // test_helpers.test_clock.ready webhook, which this script (no public endpoint) cannot receive. It reads the
+    // clock's own status instead, every 2 s, at most 5 min.
+    await new Promise((r) => setTimeout(r, 2000))
   }
   throw new Error("clock not ready")
 }
@@ -45,12 +57,25 @@ const chat = async (token: string, big: boolean) => {
 }
 
 import { writeFileSync, existsSync } from "node:fs"
-const STATE = "/root/e2e-state.json"
+const STATE = MODE === "seat" ? "/root/e2e-state-seat.json" : "/root/e2e-state.json"
 const phase = process.env.PHASE ?? "a"
 const st: any = existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : {}
 const save = () => writeFileSync(STATE, JSON.stringify(st))
 const { token, stackUser } = await signIn()
-/** Stripe aggregates meter events asynchronously: wait (bounded) until its summary shows the level the sync sent. */
+const meterId = async (): Promise<string> => {
+  const page = await stripe("GET", "/v1/billing/meters?status=active&limit=100")
+  const m = page.data.find((x: any) => x.event_name === METER_EVENT)
+  if (!m) throw new Error(`no test meter ${METER_EVENT} (run stripe-usage-catalog.ts --set=e2e)`)
+  return m.id
+}
+const METER = await meterId()
+/** What the meter should show for a level: the whole level per team, the level above included x seats per seat. */
+const meterValue = (usd: number) => (MODE === "seat" ? Math.max(0, Math.round((usd - SEATS * INCLUDED_USD) * 1e6) / 1e6) : usd)
+/**
+ * Stripe aggregates meter events asynchronously (45-50 s in the 2026-10-13 runs) and has no event or expand that
+ * says an aggregation is done: wait (bounded, 5 s steps, at most 7.5 min) until its own summary shows the level the
+ * sync sent. Without it, a finalization right after a push misses the newest level (run 1).
+ */
 const settledSummary = async (cus: string, start: number, end: number, usd: number) => {
   for (let i = 0; i < 90; i++) {
     const s = await stripe("GET", `/v1/billing/meters/${METER}/event_summaries?customer=${cus}&start_time=${start}&end_time=${end}`)
@@ -64,16 +89,16 @@ const levelNow = async (stackUser: string) => (await internal("/v1/internal/bill
 const internalSync = () => internal("/v1/internal/billing/sync", { subscription: st.sub })
 if (phase === "a") {
   log("agent", { stack_user: stackUser })
-  const plan = (await stripe("GET", "/v1/prices?lookup_keys[]=cmux-pro-monthly-50&active=true")).data[0]
-  if (!plan) throw new Error("no test pro price (cmux-pro-monthly-50)")
+  const plan = (await stripe("GET", `/v1/prices?lookup_keys[]=${PLAN_LOOKUP}&active=true`)).data[0]
+  if (!plan) throw new Error(`no test plan price (${PLAN_LOOKUP})`)
   const now = Math.floor(Date.now() / 1000)
-  const clock = await stripe("POST", "/v1/test_helpers/test_clocks", { frozen_time: String(now), name: "cx-y79zh usage e2e" })
+  const clock = await stripe("POST", "/v1/test_helpers/test_clocks", { frozen_time: String(now), name: `cx-y79zh usage e2e ${MODE}` })
   st.clock = clock.id; save()
   log("clock", clock.id)
   const cus = await stripe("POST", "/v1/customers", { test_clock: clock.id, email: "usage-e2e@example.com", payment_method: "pm_card_visa", "invoice_settings[default_payment_method]": "pm_card_visa", "metadata[purpose]": "cx-y79zh e2e" })
-  const sub = await stripe("POST", "/v1/subscriptions", { customer: cus.id, "items[0][price]": plan.id, "metadata[app]": "cmux", "metadata[plan]": "pro", "metadata[stackUserId]": stackUser })
+  const sub = await stripe("POST", "/v1/subscriptions", { customer: cus.id, "items[0][price]": plan.id, "items[0][quantity]": String(SEATS), "metadata[app]": "cmux", "metadata[plan]": PLAN, "metadata[stackUserId]": stackUser })
   Object.assign(st, { sub: sub.id, cus: cus.id, start: sub.items.data[0].current_period_start, end: sub.items.data[0].current_period_end, plan_amount: plan.unit_amount }); save()
-  log("subscription", { id: sub.id, customer: cus.id, start: st.start, end: st.end })
+  log("subscription", { id: sub.id, customer: cus.id, mode: MODE, seats: SEATS, start: st.start, end: st.end })
   for (let i = 0; i < Number(process.env.E2E_BIG_CALLS ?? "3"); i++) log("chat", await chat(token, true))
   log("sync1", await internalSync())
   log("sync1-again", await internalSync())
@@ -85,20 +110,20 @@ if (phase === "more") {
   log("level", st.level)
 }
 if (phase === "b") {
-  log("summary_settled_before_end", await settledSummary(st.cus, st.start, st.end, st.level.micros / 1e6))
+  log("summary_settled_before_end", await settledSummary(st.cus, st.start, st.end, meterValue(st.level.micros / 1e6)))
   // The last 15 minutes of the period: the clock stands 10 minutes before the end; usage arrives; the sync runs.
   await advance(st.clock, st.end - 600)
   log("chat-last-15-min", await chat(token, true))
   log("sync2", await internalSync())
   st.level = await levelNow(stackUser); save()
-  log("summary_settled_last_15_min", await settledSummary(st.cus, st.start, st.end, st.level.micros / 1e6))
+  log("summary_settled_last_15_min", await settledSummary(st.cus, st.start, st.end, meterValue(st.level.micros / 1e6)))
   // The period ends: Stripe renews and makes the draft invoice; one more call lands before finalization.
   await advance(st.clock, st.end + 60)
   log("chat-after-renewal", await chat(token, true))
   log("sync3", await internalSync())
   st.level = await levelNow(stackUser); save()
   log("level_closed_period", st.level)
-  log("summary_settled_after_renewal", await settledSummary(st.cus, st.start, st.end, st.level.micros / 1e6))
+  log("summary_settled_after_renewal", await settledSummary(st.cus, st.start, st.end, meterValue(st.level.micros / 1e6)))
   const drafts = (await stripe("GET", `/v1/invoices?subscription=${st.sub}&limit=5`)).data
   log("invoices_before_finalize", drafts.map((i: any) => ({ id: i.id, status: i.status, billing_reason: i.billing_reason })))
 }
@@ -109,12 +134,12 @@ if (phase === "c") {
   const summary = await stripe("GET", `/v1/billing/meters/${METER}/event_summaries?customer=${st.cus}&start_time=${st.start}&end_time=${st.end}`)
   log("meter_summary", summary.data.map((x: any) => x.aggregated_value))
   const renewal = invs.find((i: any) => i.billing_reason === "subscription_cycle")
-  // The usage lines (one per graduated tier) together bill the level above the included 1 USD.
+  // The usage lines (per team: one per graduated tier; per seat: one flat line) together bill the level above the included amount.
   const usageLines = (renewal?.lines.data ?? []).filter((l: any) => /AI usage/i.test(l.description ?? ""))
   const usageCents = usageLines.reduce((n: number, l: any) => n + l.amount, 0)
   const usd = st.level.micros / 1_000_000
-  const expectCents = Math.round(Math.max(0, usd - 1) * 100)
-  log("check", { level_usd: usd, expected_usage_cents: expectCents, invoice_usage_cents: usageCents, invoice_total: renewal?.total ?? null, invoice_status: renewal?.status ?? null, pass: usageLines.length > 0 && usageCents === expectCents && renewal?.total === st.plan_amount + expectCents })
+  const expectCents = Math.round(Math.max(0, usd - SEATS * INCLUDED_USD) * 100)
+  log("check", { mode: MODE, seats: SEATS, included_usd: SEATS * INCLUDED_USD, level_usd: usd, expected_usage_cents: expectCents, invoice_usage_cents: usageCents, invoice_total: renewal?.total ?? null, invoice_status: renewal?.status ?? null, pass: usageLines.length > 0 && usageCents === expectCents && renewal?.total === st.plan_amount * SEATS + expectCents })
 }
 if (phase === "cleanup") {
   if (st.sub) await stripe("DELETE", `/v1/subscriptions/${st.sub}`).then(() => log("cleanup", "subscription canceled")).catch((e) => log("cleanup_error", String(e)))

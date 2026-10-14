@@ -363,6 +363,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // through every width from 628 to 445, and at height - 70 in a corner drag).
         // Scrolled up, the first visible row keeps its place.
         let anchor = visibleAnchor()
+        var ranWidthPass = false
         layoutFrames()
         compose.layoutIfNeeded()
         // per view (several Home tabs): rows follow this view's width (`rowsWidth`),
@@ -380,6 +381,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 widthPassPending = true
             } else {
                 passStart = CACurrentMediaTime()
+                ranWidthPass = true
                 widthPass(changed: widthChanged)
                 if widthChanged, !captureMode, let schedule = widthFrameScheduler {
                     if !widthPassInFrame {
@@ -393,13 +395,31 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         layout.bottomPad = bounds.height - anchorY
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
-        restore(anchor)
+        restore(anchor, widthPass: ranWidthPass)
         RowCell.flushReflow()
         // The frame's pass cost: the pass and the layout, restore and bitmap reflow it caused.
         if let t0 = passStart { if widthPassInFrame { widthPassCostInFrame += CACurrentMediaTime() - t0 }; passStart = nil }
         // The fills follow the new height (cells made later get it in decorate).
         let span = fillSpan
         for case let cell as RowCell in collection.visibleCells { cell.fillSpan = span }
+    }
+
+    /// A live window resize (appkit-native HostView viewWillStartLiveResize / viewDidEndLiveResize, cx-3cb
+    /// resize-drops2): while it is on, a visible row whose new width draws the same pixels keeps its bitmap
+    /// (RowCell.liveResizing, RowDraw.samePixels). When it ends, those rows get their own bitmaps, drawn
+    /// together in one pass and installed in one commit, so nothing kept stays at rest.
+    func setLiveResizing(_ on: Bool) {
+        guard RowCell.liveResizing != on else { return }
+        RowCell.liveResizing = on
+        guard !on else { return }
+        let cells = collection.visibleCells.compactMap { $0 as? RowCell }.filter(\.liveKept)
+        guard !cells.isEmpty else { return }
+        let outer = RowCell.reflow != nil
+        if !outer { RowCell.beginReflow() }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for c in cells { c.redrawKept() }
+        if !outer { RowCell.flushReflow() }
+        CATransaction.commit()
     }
 
     /// the width this view's rows were derived for.
@@ -420,7 +440,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         layout.bottomPad = bounds.height - anchorY
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
-        restore(anchor)
+        restore(anchor, widthPass: true)
         RowCell.flushReflow()
         widthPassCostInFrame = CACurrentMediaTime() - t0
         onWidthPass()
@@ -558,7 +578,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         guard let key = model.rows[checked: i]?.spec.key else { return nil } // checked
         return (key, windowY(contentY: layout.contentTop(i)))
     }
-    private func restore(_ a: (key: String, y: CGFloat)?) {
+    /// `widthPass`: the caller's width pass reloaded the rows (cx-3cb resize-drops2). When the list's
+    /// layout below then configures every visible cell (RowRecycler.fullPasses), decorating them all
+    /// a second time is skipped: the same rows at the same offset (live resize: twice per width).
+    private func restore(_ a: (key: String, y: CGFloat)?, widthPass: Bool = false) {
         collection.contentInset.top = -minOffset
         if let a, let i = model.index[a.key] {
             // The anchored row keeps its place, within the scrollable range: when the content
@@ -567,7 +590,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         } else {
             setOffset(pinnedOffset)
         }
+        let full = widthPass ? (collection as? RowRecycler)?.fullPasses : nil
         collection.setNeedsLayout(); collection.layoutIfNeeded()
+        if let full, let r = collection as? RowRecycler, r.fullPasses != full {
+            maxLiveCells = max(maxLiveCells, r.visibleCells.count)
+            return
+        }
         refreshVisibleCells()
     }
 
