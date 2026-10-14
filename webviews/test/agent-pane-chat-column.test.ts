@@ -223,22 +223,25 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// can still be in that slide when the frames stop. Only running, finite animations count: a
   /// looping one (a streaming mark) never ends, and a finished one held by its fill stays listed.
   const restingLastLine = async (page: Page): Promise<number> => {
-    const gliding = () =>
-      document
+    // Passed as a function, never as source text: the page's CSP forbids eval.
+    const gliding = (names: boolean) => {
+      const running = document
         .querySelector(".acpmux-scroll")!
         .getAnimations({ subtree: true })
         .filter(
           (animation) => animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
-        )
-        .map((animation) => {
-          const target = (animation.effect as KeyframeEffect | null)?.target;
-          return `${target?.className ?? "?"} ${animation.constructor.name} ${String(animation.effect?.getTiming().duration)}`;
-        });
-    await page
-      .waitForFunction(`(${gliding.toString()})().length === 0`, null, { timeout: 5_000 })
-      .catch(async (error) => {
-        throw new Error(`still gliding after 5 s: ${JSON.stringify(await page.evaluate(gliding))}`, { cause: error });
+        );
+      if (!names) return running.length === 0;
+      return running.map((animation) => {
+        const target = (animation.effect as KeyframeEffect | null)?.target;
+        return `${target?.className ?? "?"} ${animation.constructor.name} ${String(animation.effect?.getTiming().duration)}`;
       });
+    };
+    await page.waitForFunction(gliding, false, { timeout: 5_000 }).catch(async (error: unknown) => {
+      throw new Error(`still gliding after 5 s: ${JSON.stringify(await page.evaluate(gliding, true))}`, {
+        cause: error,
+      });
+    });
     return page.evaluate(
       () =>
         new Promise<number>((done) =>

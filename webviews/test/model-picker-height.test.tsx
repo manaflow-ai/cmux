@@ -20,7 +20,7 @@ const keys = [
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
-let menuHeight = 148;
+let menuHeight = 300;
 let originalRect: typeof HTMLElement.prototype.getBoundingClientRect;
 
 beforeAll(() => {
@@ -84,6 +84,9 @@ afterAll(() => {
   }
 });
 
+// The height a menu opened at is its floor while it stays open, so a narrowing search never
+// shrinks it; and no menu is shorter than MODEL_PICKER_MIN_HEIGHT, so one that opened before its
+// models arrived never stays at its search field's height (d9ce210e4506, Lawrence 2026-10-13).
 test("the model picker keeps its measured height while filtering in one opening", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
@@ -118,7 +121,7 @@ test("the model picker keeps its measured height while filtering in one opening"
     host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
   });
   const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
-  expect(menu.style.height).toBe("148px");
+  expect(menu.style.minHeight).toBe("300px");
 
   menuHeight = 224;
   const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
@@ -126,16 +129,26 @@ test("the model picker keeps its measured height while filtering in one opening"
     search.value = "Sonnet";
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  expect(menu.style.height).toBe("148px");
+  expect(menu.style.minHeight).toBe("300px");
 
   await act(async () => {
     host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
   });
   expect(host.querySelector(".acpmux-mp")).toBeNull();
 
-  menuHeight = 212;
+  menuHeight = 260;
   await act(async () => {
     host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
   });
-  expect(host.querySelector<HTMLElement>(".acpmux-mp")!.style.height).toBe("212px");
+  expect(host.querySelector<HTMLElement>(".acpmux-mp")!.style.minHeight).toBe("260px");
+
+  // Opened at its search field's height (148 px, no models yet): it still gets the floor.
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  menuHeight = 148;
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  expect(host.querySelector<HTMLElement>(".acpmux-mp")!.style.minHeight).toBe("220px");
 });
