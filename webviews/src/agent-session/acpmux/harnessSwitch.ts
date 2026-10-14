@@ -714,7 +714,10 @@ export function applySwitch(
   const profile = profiles.get(intent.harness);
   const config = intent.config;
   const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles, intent.cwd);
-  const modes = live?.modes ?? profile?.modes;
+  // Before the session reports, the mode acpmux will start it in, not the mode the harness's last
+  // chat ran (harnessProfiles.ts `startMode`); none when the pane cannot know.
+  const modes =
+    live?.modes ?? (profile?.modes && { ...profile.modes, currentModeId: profiles.startMode(intent.harness) });
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),
     harness: intent.harness,
