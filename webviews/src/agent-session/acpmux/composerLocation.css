@@ -358,11 +358,12 @@
   visibility: hidden;
   pointer-events: none;
 }
-/* Past effort's and the model's min widths the row still overflows below about 330px (280px pane:
-   220px of room, 268px of controls). The model, which gave way last, goes to its icon (its name
-   stays in aria-label and title), the chevrons go, the rhythm tightens and the card reaches 10px
-   from the pane's edges. The turn's own controls (+, mic, Stop, Send) never shrink. */
-@container composer (max-width: 330px) {
+/* Past effort's and the model's min widths the row still overflows: its controls take 268px and
+   the bar's padding 24px, so a composer under 292px wide (a pane under about 328px; the composer
+   pads itself 18px a side) cannot hold them. The model, which gave way last, goes to its icon (its
+   name stays in aria-label and title), the chevrons go, the rhythm tightens and the card reaches
+   10px from the pane's edges. The turn's own controls (+, mic, Stop, Send) never shrink. */
+@container composer (max-width: 291.98px) {
   .acpmux-composer-bar .acpmux-chips > .acpmux-model { min-width: 32px; }
   .acpmux-composer-bar .acpmux-model .acpmux-picker-button {
     width: 32px;
