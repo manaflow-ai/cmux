@@ -5171,6 +5171,12 @@ impl Surface {
             anyhow::bail!("cannot discard unreplayable replay on a hosted terminal");
         }
         let mut terminal = pty.term.lock().unwrap();
+        // The reader releases this lock before journaling its parsed frame.
+        // Do not let synthetic CAN overtake that frame in journal ingress.
+        anyhow::ensure!(
+            pty.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0,
+            "terminal journal ingress is unsettled during replay capture"
+        );
         let Some(output) = terminal.discard_unreplayable_replay() else {
             return Ok(None);
         };

@@ -42,6 +42,19 @@ pub(crate) struct CapturedCheckpoint {
 }
 
 pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
+    for _ in 0..MAX_CHECKPOINT_CAPTURE_ATTEMPTS {
+        if let Some(captured) = capture_attempt(mux)? {
+            return Ok(captured);
+        }
+        #[cfg(test)]
+        if let Some(hook) = tests::AFTER_RECOVERY_HOOK.with_borrow_mut(Option::take) {
+            hook();
+        }
+    }
+    anyhow::bail!("terminal replay recovery did not settle during checkpoint capture")
+}
+
+fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
     // Drain every output frame that reached ingress before the capture fence.
     // Per-terminal epochs below reject a parser snapshot taken while its
     // corresponding journal frame is still being enqueued.
@@ -50,7 +63,7 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     // a single registry + state lock hold. A journal record committed before
     // the cut is covered by the snapshot; the fence below only has to reject
     // writes that land after it, while terminal content is being captured.
-    let (mut snapshot, mut head_before) =
+    let (snapshot, head_before) =
         crate::resource_api::public_session_snapshot_with_journal_head(mux)
             .map_err(|error| anyhow::anyhow!("capture public session snapshot: {error:?}"))?;
     let producers = mux.journal_producer_manifests()?;
@@ -76,29 +89,13 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         "checkpoint contains more than {MAX_CHECKPOINT_TERMINALS} terminals"
     );
 
-    let mut recovery_passes = 0;
-    let blobs = loop {
-        let (blobs, recovered) = capture_terminal_blobs(mux, &terminal_ids)?;
-        mux.flush_terminal_journal()?;
-        if !recovered {
-            break blobs;
-        }
-        recovery_passes += 1;
-        anyhow::ensure!(
-            recovery_passes < MAX_CHECKPOINT_CAPTURE_ATTEMPTS,
-            "terminal replay recovery did not settle during checkpoint capture"
-        );
-        #[cfg(test)]
-        if let Some(hook) = tests::AFTER_RECOVERY_HOOK.with_borrow_mut(Option::take) {
-            hook();
-        }
-        // Recovery appends synthetic CAN to the terminal output stream. Move
-        // the consistency cut past that intentional journal record, then
-        // recapture every terminal so no blob predates the new cut.
-        (snapshot, head_before) =
-            crate::resource_api::public_session_snapshot_with_journal_head(mux)
-                .map_err(|error| anyhow::anyhow!("recapture public session snapshot: {error:?}"))?;
-    };
+    let (blobs, recovered) = capture_terminal_blobs(mux, &terminal_ids)?;
+    mux.flush_terminal_journal()?;
+    if recovered {
+        // CAN advances the journal. Start a complete new attempt so terminal
+        // IDs and extension manifests come from the new consistency cut too.
+        return Ok(None);
+    }
 
     // Verify against one cut as well, so a write landing between two separate
     // head and cursor reads cannot fail a capture that was in fact stable.
@@ -110,7 +107,7 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         head_before == head_after && snapshot["cursor"] == cursor_after,
         "session changed during checkpoint capture"
     );
-    Ok(CapturedCheckpoint {
+    Ok(Some(CapturedCheckpoint {
         source_sequence: head_after,
         state: json!({
             "session_snapshot":snapshot,
@@ -120,7 +117,7 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
             },
         }),
         blobs,
-    })
+    }))
 }
 
 fn capture_terminal_blobs(
