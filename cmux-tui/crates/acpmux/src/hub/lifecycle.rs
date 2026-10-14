@@ -339,8 +339,7 @@ impl Hub {
 
         self.record_launch_roots(session, profile).await;
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
-        *session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Default::default();
+        super::start_gate::fresh_applied(session);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {

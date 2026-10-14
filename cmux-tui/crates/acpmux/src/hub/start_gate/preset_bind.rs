@@ -103,6 +103,18 @@ impl Hub {
     }
 }
 
+/// A fresh agent for `s` (`Hub::ensure_child`): nothing acpmux set on the last
+/// one is assumed, but the preset digests stay, since `spawn_profile` noted
+/// them for this spawn's contents just before.
+pub(in crate::hub) fn fresh_applied(s: &Session) {
+    let mut a = s.applied.lock().unwrap_or_else(|e| e.into_inner());
+    *a = crate::hub::session::Applied {
+        preset_resolved: a.preset_resolved.take(),
+        preset_spawned: a.preset_spawned.take(),
+        ..Default::default()
+    };
+}
+
 /// Forget a session's saved mode (its ACP mode and its `mode` option), so a
 /// spawn starts in the harness's own and replays none.
 fn forget_mode(m: &mut crate::store::SessionMeta) {
