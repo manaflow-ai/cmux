@@ -98,6 +98,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
+    "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "ui/HideableChrome.tsx#HideableChrome",
@@ -557,6 +558,21 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Projects" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-all-group"));
+      },
+    },
+    "style-switch": {
+      note: "The New Tab style switch (Leo 2026-10-13): the five style names in one quiet row under the page, the current one on a small fill that slides to a pick. A pick shows in place and is saved as tabs.newTabTemplate.",
+      ready: newTab({ template: "default" }),
+      snapshot: noChat(manySessions(4)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=default]:checked"));
+        await ctx.click({ role: "radio", name: "Threads" });
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some(
+            (call) => call.method === "newTab.setTemplate" && call.params?.template === "threads",
+          ),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=threads]:checked"));
       },
     },
     "no-template-dots": {

@@ -4,7 +4,7 @@ cmux-next deploys to macOS 26. The legacy app deployed to macOS 14. Sparkle only
 
 ## How the floor gets into the feed
 
-1. `Resources/Info.plist` sets `LSMinimumSystemVersion` to `$(MACOSX_DEPLOYMENT_TARGET)`: 26.0 in the `cmux-next` target, 14.0 in the legacy target.
+1. `Resources/Info.plist` sets `LSMinimumSystemVersion` to `$(MACOSX_DEPLOYMENT_TARGET)`: 14.0 in the `cmux-next` target since 2026-10-13 (26.0 before), 14.0 in the legacy target.
 2. `scripts/ci/appcast_minimum_system_version.py floor <app>` reads that value from the built bundle and fails when it is missing or lower than the main executable's `LC_BUILD_VERSION minos`.
 3. `scripts/sparkle_generate_appcast.sh` requires `SPARKLE_MINIMUM_SYSTEM_VERSION` (the value from step 2). After `generate_appcast` it runs `enforce`: the item for the new DMG must carry that `sparkle:minimumSystemVersion`. A missing element is inserted and a different value fails the release.
 4. `nightly.yml`, `release.yml` and `scripts/build-sign-upload.sh` pass the floor from the app they built. `release.yml` also greps the final `appcast.xml` for it.

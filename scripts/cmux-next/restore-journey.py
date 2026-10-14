@@ -452,7 +452,7 @@ def restore_acpmux_config():
 # ---- the local web server: pages that report their own path and scroll ---------------------
 
 REPORTS = {}  # page name -> latest {path, scrollY, at}
-SINCE = 0.0  # when the last quit started: reports older than this are stale
+SINCE = 0.0  # when the last quit ended: reports older than this are stale
 SERVED = set()
 REPORT_LOG = []  # (page name, time) of every report: when each page first reported after a relaunch
 PAGE_LOADS = []  # (page name, time) of every page the server sent: a reopened page loads once
@@ -1188,7 +1188,9 @@ def journey(base):
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))
             return
-        launched = time.time()
+        # Reports count from here: the old app's pages keep reporting until its process ends, and
+        # one of those would pass for a reopened page that has not reported yet (cx-p1xs5).
+        launched = SINCE = time.time()
         if not APP.relaunch({"CMUX_NEXT_DEBUG_SLOW_ATTACH": SLOW_ATTACH} if variant == "slow" else None):
             RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
             return

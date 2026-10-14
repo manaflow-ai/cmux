@@ -42,7 +42,7 @@ oracle)
   while IFS= read -r f; do files+=( "$src/catalyst/Sources/$f" ); done \
     < <(sed -n 's|.*path: \.\./catalyst/Sources/\([A-Za-z0-9_]*\.swift\).*|\1|p' "$src/appkit-native/project.yml")
   files+=( "$src"/appkit-port/Sources/Shim/{UIKitNames,RoundedRect,LayerViews}.swift "$src"/tools/diff-harness/{Harness,LiveProbes}.swift )
-  xcrun swiftc -swift-version 5 -Onone -D APPKIT_NATIVE -target arm64-apple-macos26.0 -lsqlite3 \
+  xcrun swiftc -swift-version 5 -Onone -D APPKIT_NATIVE -target arm64-apple-macos14.0 -lsqlite3 \
     -module-name MessagesLabAppKitNative -o "$app/Contents/MacOS/MessagesLabAppKitNative" "${files[@]}"
   cp "$src/catalyst/springs.json" "$src/shared/conversation.json" "$app/Contents/Resources/"
   cp -R "$src/shared/assets" "$app/Contents/Resources/assets"

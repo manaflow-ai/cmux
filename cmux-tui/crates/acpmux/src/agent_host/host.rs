@@ -224,6 +224,25 @@ struct State {
     /// The connection of the last controller that said `Hello`, also when
     /// a failed send already dropped it as the controller.
     last_owner: Option<u64>,
+    /// Never answer `Hello` (debug builds' test seam, [`claim_hello_stall`]).
+    stall_hello: bool,
+}
+
+/// Debug builds only: `ACPMUX_TEST_HOST_HELLO_STALL_DIR` names a directory of
+/// `stall-*` marker files. A host that removes one never answers `Hello`, as
+/// a wedged host does, so the daemon's integration tests can drive that
+/// path; each marker stalls one host. Release builds have no seam.
+fn claim_hello_stall() -> bool {
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os("ACPMUX_TEST_HOST_HELLO_STALL_DIR")
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        return entries.flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with("stall-")
+                && std::fs::remove_file(e.path()).is_ok()
+        });
+    }
+    false
 }
 
 impl Started {
@@ -337,9 +356,8 @@ impl Started {
             }
             tr
         });
-        let codex = (spec.translator.is_none()
-            && crate::codex_app_server::is_launch(&spec.program, &spec.args))
-        .then(crate::codex_app_server::translator);
+        let codex = (spec.translator.is_none() && spec.codex_bridge)
+            .then(crate::codex_app_server::translator);
         let mut state = State {
             record,
             spec,
@@ -363,6 +381,7 @@ impl Started {
             unadoptable: false,
             under: Vec::new(),
             last_owner: None,
+            stall_hello: claim_hello_stall(),
         };
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = state.codex.clone() {
@@ -772,6 +791,9 @@ impl State {
             return;
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
+            if self.stall_hello {
+                return;
+            }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {
                 return;
             };
