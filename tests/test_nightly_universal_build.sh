@@ -991,6 +991,38 @@ legacy_resolve "false false" "a submission still in Apple's queue must be kept a
   --action new --pending true --notarize success --published false --answered false
 legacy_resolve "false true" "a failed new attempt must count" \
   --action new --pending false --notarize failure --published false --answered true
+# A pending metadata artifact is retired only when its run confirms the bundle
+# is gone; an API error (rate limit, 5xx, timeout) keeps it.
+fake_gh_dir="$legacy_dir/fakegh"
+mkdir -p "$fake_gh_dir"
+cat > "$fake_gh_dir/gh" <<'GH'
+#!/usr/bin/env bash
+case "$*" in
+  *"-X DELETE"*) echo "DELETE $*" >> "$FAKE_GH_LOG"; exit 0 ;;
+  *pending-bundle*)
+    case "$FAKE_GH_BUNDLES" in error) echo "HTTP 502: Bad Gateway" >&2; exit 1 ;; *) echo "$FAKE_GH_BUNDLES"; exit 0 ;; esac ;;
+  *pending-meta*) echo 4242; exit 0 ;;
+esac
+exit 1
+GH
+chmod +x "$fake_gh_dir/gh"
+orphan() {  # <bundles: error|0|1> -> prints the script's verdict
+  : > "$legacy_dir/gh.log"
+  PATH="$fake_gh_dir:$PATH" FAKE_GH_LOG="$legacy_dir/gh.log" FAKE_GH_BUNDLES="$1" \
+    bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-orphan-meta.sh" manaflow-ai/cmux 38566549515
+}
+if [ "$(orphan error | cut -c1-5)" != kept: ] || [ -s "$legacy_dir/gh.log" ]; then
+  echo "FAIL: an API error while checking the bundle must keep the pending metadata"
+  exit 1
+fi
+if [ "$(orphan 1 | cut -c1-5)" != kept: ] || [ -s "$legacy_dir/gh.log" ]; then
+  echo "FAIL: a pending metadata artifact whose bundle exists must be kept"
+  exit 1
+fi
+if [ "$(orphan 0)" != retired ] || ! grep -q 'artifacts/4242' "$legacy_dir/gh.log"; then
+  echo "FAIL: a pending metadata artifact whose bundle is confirmed gone must be retired"
+  exit 1
+fi
 # Wiring: the macOS job takes its build and mode from legacy-identity-target,
 # not from this run's publish-nightly; a pending submission is stored and
 # continued, never counted as a failure.
@@ -1014,6 +1046,7 @@ for expected in \
   "if: failure() && steps.resolve.outputs.real != 'false'" \
   ".github/workflows/nightly.yml push nightly-next \$GITHUB_REPOSITORY" \
   "scripts/ci/nightly-next-legacy-resolve.py" \
+  "./scripts/ci/nightly-next-legacy-orphan-meta.sh" \
   'xcrun stapler validate "legacy-app/cmux NIGHTLY.app"'; do
   if ! grep -Fq -- "$expected" <<<"$legacy_job"; then
     echo "FAIL: publish-nightly-identity-legacy must contain: $expected"
