@@ -43,6 +43,9 @@ public struct LinkPairing: Sendable {
         let channel: any LinkChannel
         let identity: String
         let approval: String
+
+        /// Abandons it (the link moved on before the challenge was answered).
+        public func close() async { await channel.close(code: "eof", reason: "") }
     }
 
     /// Opens `auth` on `link`. It costs no round trip, and the Mac holds the

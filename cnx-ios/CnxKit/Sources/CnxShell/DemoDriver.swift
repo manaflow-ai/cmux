@@ -421,6 +421,11 @@ struct DemoDriver {
                 step("feed \(allow ? "allow" : "deny") \(item.id)")
                 feed.respond(item.id, option: option)
             case .question(let question):
+                if !allow {
+                    step("feed decline \(item.id)")
+                    feed.decline(item.id)
+                    break
+                }
                 guard let first = question.items.first, let option = first.options.first else { continue }
                 step("feed answer \(item.id)")
                 feed.answer(item.id, answer: AgentQuestionAnswer(selections: [first.id: .init(optionIDs: [option.id])]))

@@ -39,12 +39,15 @@ extension IPhoneHostService {
         pushPaired()
     }
 
-    /// Settings > Mobile: forget a phone. Its links stop at the next pairing check
-    /// and its Face ID approvals stop counting at once.
+    /// Settings > Mobile: forget a phone. Its live links end now, its next link asks
+    /// again, and its Face ID approvals stop counting at once.
     public func revokePhone(id: String) {
         guard var list = paired else { return }
         list.remove(id)
         savePaired(list)
+        let supervisor = supervisor
+        // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
+        Task { await supervisor.drop(phoneDeviceIDs: [id]) }
     }
 
     func pairingEvent(_ event: CnxHostEvent) {

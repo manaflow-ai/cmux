@@ -112,14 +112,12 @@ impl std::fmt::Debug for Pairing {
 /// Where a link's `auth` stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AuthState {
-    /// No `auth` channel yet.
-    None,
-    /// An `auth` channel is open and has not finished.
-    Running,
-    /// The phone proved keys the Mac approved.
+    /// No `auth` channel is running, and none passed.
+    Idle,
+    /// This many `auth` channels are running and none passed yet.
+    Running(usize),
+    /// The phone proved keys the Mac approved (for the life of the link).
     Paired,
-    /// The last `auth` ended without pairing.
-    Failed,
 }
 
 /// Whether this link's phone proved an approved key.
@@ -130,7 +128,7 @@ pub struct LinkAuth {
 
 impl Default for LinkAuth {
     fn default() -> Self {
-        Self { state: watch::channel(AuthState::None).0 }
+        Self { state: watch::channel(AuthState::Idle).0 }
     }
 }
 
@@ -139,25 +137,28 @@ impl LinkAuth {
         *self.state.borrow() == AuthState::Paired
     }
 
-    /// The link's accept loop saw an `auth` channel open: channels opened
-    /// after it wait for its outcome ([`LinkAuth::paired`]).
+    /// An `auth` channel opened (called by the link's accept loop, in open
+    /// order): channels opened after it wait for the outcome ([`LinkAuth::paired`]).
+    /// Every `begin` is matched by one [`LinkAuth::end`].
     pub fn begin(&self) {
-        self.state.send_if_modified(|state| {
-            if *state == AuthState::Paired {
-                return false;
+        self.state.send_modify(|state| {
+            *state = match *state {
+                AuthState::Paired => AuthState::Paired,
+                AuthState::Idle => AuthState::Running(1),
+                AuthState::Running(n) => AuthState::Running(n + 1),
             }
-            *state = AuthState::Running;
-            true
         });
     }
 
-    fn finish(&self, paired: bool) {
-        self.state.send_if_modified(|state| {
-            if *state == AuthState::Paired {
-                return false;
+    /// An `auth` channel finished; `paired` when it proved approved keys.
+    /// Waiters are refused only when no other `auth` on the link is still running.
+    pub fn end(&self, paired: bool) {
+        self.state.send_modify(|state| {
+            *state = match (*state, paired) {
+                (AuthState::Paired, _) | (_, true) => AuthState::Paired,
+                (AuthState::Running(n), false) if n > 1 => AuthState::Running(n - 1),
+                _ => AuthState::Idle,
             }
-            *state = if paired { AuthState::Paired } else { AuthState::Failed };
-            true
         });
     }
 
@@ -169,8 +170,8 @@ impl LinkAuth {
             loop {
                 match *state.borrow_and_update() {
                     AuthState::Paired => return true,
-                    AuthState::None | AuthState::Failed => return false,
-                    AuthState::Running => {}
+                    AuthState::Idle => return false,
+                    AuthState::Running(_) => {}
                 }
                 if state.changed().await.is_err() {
                     return false;
@@ -234,6 +235,8 @@ pub fn verify(key_hex: &str, message: &[u8], signature: &str) -> bool {
 
 /// The `auth` service: prove the identity key, then pass if the Mac approved
 /// this device's keys, else ask the app and wait for the user.
+///
+/// The caller marks the channel's open with [`LinkAuth::begin`] first.
 pub async fn serve(
     pairing: Option<&Pairing>,
     phone: &str,
@@ -242,17 +245,19 @@ pub async fn serve(
     sender: &ChannelSender,
     receiver: &mut ChannelReceiver,
 ) -> Result<(), Refused> {
-    // Started here too, for a caller that did not mark the channel's open.
-    link.begin();
-    let result = authenticate(pairing, phone, link, args, sender, receiver).await;
-    link.finish(link.is_authenticated());
+    // The accept loop counted this channel when it opened (`begin`).
+    let result = authenticate(pairing, phone, args, sender, receiver).await;
+    link.end(result.is_ok() && action_is_pair(args));
     result
+}
+
+fn action_is_pair(args: &Value) -> bool {
+    matches!(args.get("action").and_then(Value::as_str), None | Some("" | "pair"))
 }
 
 async fn authenticate(
     pairing: Option<&Pairing>,
     phone: &str,
-    link: &LinkAuth,
     args: &Value,
     sender: &ChannelSender,
     receiver: &mut ChannelReceiver,
@@ -271,7 +276,6 @@ async fn authenticate(
     let name: String = text("name").chars().filter(|c| !c.is_control()).take(64).collect();
     let Some(pairing) = pairing else {
         // Unsupervised: no app to approve; every link is served as before.
-        link.finish(true);
         send(sender, json!({"ok": true})).await;
         return Ok(());
     };
@@ -330,7 +334,6 @@ async fn authenticate(
     .await;
     match result {
         Ok(Ok(())) => {
-            link.finish(true);
             send(sender, json!({"ok": true})).await;
             Ok(())
         }
@@ -355,6 +358,35 @@ mod tests {
         assert_eq!(&m[..17], b"cnx-link-auth-v1\0");
         let hex: String = digest(&SHA256, &m).as_ref().iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(hex, "237c38ed09257b49bfb2a2e105506741f1dbadbc3d63414ff65c40af9faf9084");
+    }
+
+    #[tokio::test]
+    async fn waiters_follow_every_running_auth() {
+        // No auth yet: refused at once.
+        let link = LinkAuth::default();
+        assert!(!link.paired().await);
+        // Two auths running; the first fails, the second passes: the waiter is served.
+        link.begin();
+        link.begin();
+        let waiter = {
+            let link = std::sync::Arc::new(link);
+            let held = std::sync::Arc::clone(&link);
+            (tokio::spawn(async move { held.paired().await }), link)
+        };
+        waiter.1.end(false);
+        tokio::task::yield_now().await;
+        assert!(!waiter.0.is_finished());
+        waiter.1.end(true);
+        assert!(waiter.0.await.unwrap());
+        // Paired holds for the link: a later failed auth (an unpair) changes nothing.
+        waiter.1.begin();
+        waiter.1.end(false);
+        assert!(waiter.1.is_authenticated());
+        // The last running auth failing refuses the waiters.
+        let other = LinkAuth::default();
+        other.begin();
+        other.end(false);
+        assert!(!other.paired().await);
     }
 
     #[test]
