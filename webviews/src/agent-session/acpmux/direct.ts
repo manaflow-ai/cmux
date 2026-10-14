@@ -145,6 +145,26 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
     title: raw.toolCall?.title,
+    command:
+      typeof raw.toolCall?.command === "string"
+        ? raw.toolCall.command
+        : typeof raw.toolCall?.rawInput?.command === "string"
+          ? raw.toolCall.rawInput.command
+          : typeof raw.command === "string"
+            ? raw.command
+            : undefined,
+    description:
+      typeof raw.toolCall?.description === "string"
+        ? raw.toolCall.description
+        : typeof raw.description === "string"
+          ? raw.description
+          : undefined,
+    rule:
+      typeof raw.toolCall?.rule === "string"
+        ? raw.toolCall.rule
+        : typeof raw.rule === "string"
+          ? raw.rule
+          : undefined,
     kind: raw.toolCall?.kind,
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
@@ -152,6 +172,13 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
       name: String(option.name ?? option.optionId),
       allow: String(option.kind ?? "").startsWith("allow"),
       kind: typeof option.kind === "string" ? option.kind : undefined,
+      description: typeof option.description === "string" ? option.description : undefined,
+      rule:
+        typeof option.rule === "string"
+          ? option.rule
+          : typeof option.suggestion === "string"
+            ? option.suggestion
+            : undefined,
     })),
   };
 }

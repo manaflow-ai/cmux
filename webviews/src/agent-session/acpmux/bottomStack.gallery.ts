@@ -7,11 +7,19 @@ import type { AcpmuxPermission } from "./model";
 const permission: AcpmuxPermission = {
   permissionId: "stack-permission",
   title: "Run the checks",
+  command: "git grep -- ':!vendor' -- cmux-tui",
+  description: "Search the cmux-tui sources before the agent continues.",
   pending: true,
   options: [
-    { id: "allow_once", name: "Allow", kind: "allow_once", allow: true },
-    { id: "allow_chat", name: "Allow for this session", kind: "allow_chat", allow: true },
-    { id: "deny", name: "Reject", kind: "deny", allow: false },
+    { id: "allow_once", name: "Yes", kind: "allow_once", allow: true },
+    {
+      id: "allow_always",
+      name: "Yes, and don't ask again",
+      kind: "allow_always",
+      rule: "Always allow git grep in cmux-tui",
+      allow: true,
+    },
+    { id: "reject_once", name: "No", kind: "reject_once", allow: false },
   ],
 };
 const queue = [{ id: "correction", prompt: "Correction from the coordinator: keep the bottom stack in one column." }];
@@ -108,11 +116,17 @@ const trustThenPermission: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   if (ctx.document.querySelectorAll(".acpmux-permission-card").length !== 1)
     throw new Error("More than one tool permission card");
-  if (!ctx.document.querySelector(".acpmux-permission-card .acpmux-permission-card-heading"))
-    throw new Error("Permission card is missing its unified heading surface");
-  ctx.find({ role: "button", name: "Allow for this chat" });
-  ctx.find({ role: "button", name: "Allow once" });
-  ctx.find({ role: "button", name: "Allow for this chat" });
+  if (
+    !ctx.document.querySelector(
+      ".acpmux-permission-card .acpmux-permission-card-heading, .acpmux-permission-card .acpmux-permission-request-label",
+    )
+  )
+    throw new Error("Permission card is missing its unified request surface");
+  const individual = Boolean(ctx.document.querySelector(".acpmux-permission-ask"));
+  const allowOnce = individual ? "Yes" : "Allow once";
+  const allowAlways = individual ? "Yes, and don't ask again" : "Allow for this chat";
+  ctx.find({ role: "button", name: allowAlways });
+  ctx.find({ role: "button", name: allowOnce });
   geometry(ctx);
   await ctx.click({ selector: '[data-menu="permission-status"]' });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
@@ -123,7 +137,7 @@ const trusted: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
   await ctx.click({ role: "button", name: "Trust" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
-  ctx.find({ role: "button", name: "Allow for this chat" });
+  ctx.find({ role: "button", name: Boolean(ctx.document.querySelector(".acpmux-permission-ask")) ? "Yes, and don't ask again" : "Allow for this chat" });
   if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
   geometry(ctx);
 };

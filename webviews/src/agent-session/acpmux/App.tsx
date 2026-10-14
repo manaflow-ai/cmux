@@ -1892,11 +1892,24 @@ const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) =>
   void callNative("chat.secret", { secretId: ask.secretId, ...(value ? { value } : {}) }).catch(() => undefined);
 
 /// A permission ask: a question card when the request asks a question, else its option buttons.
-function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
+function PermissionAsk({
+  permission,
+  harness,
+  focusComposer,
+}: {
+  permission: AcpmuxPermission;
+  harness?: string;
+  focusComposer?: () => void;
+}) {
   return permission.question ? (
     <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
   ) : (
-    <PermissionCard permission={permission} onAnswer={answerPermission(permission)} />
+    <PermissionCard
+      permission={permission}
+      harness={harness}
+      focusComposer={focusComposer}
+      onAnswer={answerPermission(permission)}
+    />
   );
 }
 
@@ -4356,7 +4369,13 @@ function AcpmuxPane() {
               ).catch(() => undefined)
             }
           />
-          {individualPermission && <PermissionAsk permission={individualPermission} />}
+          {individualPermission && (
+            <PermissionAsk
+              permission={individualPermission}
+              harness={snapshot.summary?.harness}
+              focusComposer={() => composerHandle.current?.focus()}
+            />
+          )}
           {snapshot.secret && (
             <SecretCard
               key={snapshot.secret.secretId}
