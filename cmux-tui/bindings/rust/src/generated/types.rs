@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d.
+// cmux-tui mux protocol 12, IR 8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -58,7 +58,13 @@ pub enum AgentPresenceActivity {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentRecord {
+    /// Adapter identity (\`claude\`, \`codex\`, ...) when a hook claimed the terminal; null for socket-only reports.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent: Optional<String>,
     pub session: Nullable<String>,
+    /// When the agent entered \`state\` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use \`updated_at_ms\`.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub since_ms: Option<u64>,
     pub source: AgentSource,
     pub state: AgentState,
     pub surface: Id,

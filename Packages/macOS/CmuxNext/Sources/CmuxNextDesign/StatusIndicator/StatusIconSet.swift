@@ -14,7 +14,7 @@ public import Foundation
 public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableChoice {
     /// Today's marks: working dots, a still attention dot, a danger dot, a check.
     case current
-    /// Pictures: a sparkle, a raised hand, a speech bubble with ?, a key, a check, x in a circle.
+    /// Pictures: a raised hand, a speech bubble with ?, a key, a check, x in a circle.
     case shapes
     /// Outlined rings with a small mark inside; done is a filled disc.
     case rings
@@ -30,7 +30,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     case letters
     /// Filled SF Symbols: hand.raised, questionmark.bubble, key, checkmark.circle, xmark.octagon.
     case symbols
-    /// Outlined SF Symbols of the same names, with a sparkle for work.
+    /// Outlined SF Symbols of the same names.
     case symbolsOutline
 
     /// The Debug Settings switch (the Debug menu writes the same value).
@@ -58,15 +58,15 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     public var summary: String {
         switch self {
         case .current: "Working dots, still attention dot for every blocked kind, danger dot, check."
-        case .shapes: "Sparkle, raised hand, ? bubble, key, ! for plain blocked, check, x in a ring."
+        case .shapes: "Raised hand, ? bubble, key, ! for plain blocked, check, x in a ring; a spinner for work."
         case .rings: "Outlined rings with !, ?, key inside; empty ring for plain blocked; filled disc for done."
-        case .badges: "Filled discs with !, ?, key, check, x cut out; a pulsing sparkle disc for work."
+        case .badges: "Filled discs with !, ?, key, check, x cut out; a spinner for work."
         case .bars: "Three waving bars for work; bare !, ?, key, dot, check, x."
-        case .pips: "Small pips: filled for permission, hollow for question, a diamond for auth."
+        case .pips: "Small pips: filled for permission, hollow for question, a diamond for auth; a spinner for work."
         case .signs: "Warning triangles with !, ?, key; outlined for plain blocked; an x octagon for error."
         case .letters: "P, Q, A and ! cut out of rounded squares; check and x squares."
-        case .symbols: "SF Symbols, filled: hand.raised, questionmark.bubble, key, exclamationmark.circle, checkmark.circle, xmark.octagon."
-        case .symbolsOutline: "SF Symbols, outlined, and a pulsing sparkle for work."
+        case .symbols: "SF Symbols, filled: hand.raised, questionmark.bubble, key, exclamationmark.circle, checkmark.circle, xmark.octagon; a spinner for work."
+        case .symbolsOutline: "SF Symbols, outlined, and a spinner for work."
         }
     }
 
@@ -78,7 +78,10 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .working where state.progress == nil:
             if self == .bars { return StatusIndicatorPlan(glyph: .bars, animation: .wave, tint: .accent) }
             if self == .signs { return StatusIndicatorPlan(glyph: .dots, animation: .wave, tint: .accent) }
-            return StatusIndicatorPlan(glyph: .mark(workingMark), animation: .pulse, tint: .accent)
+            // A small rotating arc in the muted loading color, not a pulsing mark (Lawrence
+            // 2026-10-14: "left sidebar needs to be a spinner instead of flash", cx-qtgj2).
+            // Still under Reduce Motion, occlusion or loops off (`StatusIndicatorPlan.make`).
+            return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .loading)
         case .waiting(let kind):
             if self == .bars, kind == nil { return StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .attention) }
             return StatusIndicatorPlan(glyph: .mark(blockedMark(kind)), animation: nil, tint: .attention)
@@ -89,18 +92,6 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             return StatusIndicatorPlan(glyph: .mark(errorMark), animation: nil, tint: .danger)
         case .idle, .busy, .paused, .working:
             return nil
-        }
-    }
-
-    private var workingMark: StatusMark {
-        switch self {
-        case .current, .bars, .signs, .shapes: .glyph(.sparkle)
-        case .rings: .outline(.circle, .dot)
-        case .badges: .badge(.circle, .sparkle)
-        case .pips: .glyph(.pip)
-        case .letters: .outline(.roundedSquare, .dot)
-        case .symbols: .symbol("ellipsis.circle.fill")
-        case .symbolsOutline: .symbol("sparkle")
         }
     }
 

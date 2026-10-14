@@ -3148,133 +3148,264 @@
         }
       }
     },
+    "home.engine.error.localStarting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's Chief was not running. It is starting now; try again in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の Chief は動いていませんでした。いま開始しています。少し待ってからもう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يكن الـ Chief على هذا الـ Mac يعمل. يجري تشغيله الآن؛ حاول مرة أخرى بعد لحظات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief na ovom Macu nije radio. Sada se pokreće; pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macs Chief kørte ikke. Den starter nu; prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chief dieses Macs lief nicht. Er startet jetzt; versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El Chief de este Mac no se estaba ejecutando. Se está iniciando ahora; inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le Chief de ce Mac ne fonctionnait pas. Il démarre maintenant ; réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il Chief di questo Mac non era in esecuzione. Si sta avviando ora; riprova tra un momento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief នៅលើ Mac នេះមិនបានដំណើរការទេ។ វាកំពុងចាប់ផ្ដើមឥឡូវនេះ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 Chief가 실행 중이 아니었습니다. 지금 시작하는 중이니 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief på denne Macen kjørte ikke. Den starter nå; prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief na tym Macu nie działał. Uruchamia się teraz; spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chief deste Mac não estava em execução. Ele está iniciando agora; tente de novo em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief на этом Mac не был запущен. Сейчас он запускается; повторите попытку через минуту."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ของ Mac เครื่องนี้ไม่ได้ทำงานอยู่ กำลังเริ่มต้นตอนนี้ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'in Chief'i çalışmıyordu. Şimdi başlatılıyor; birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief на цьому Mac не був запущений. Зараз він запускається; спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief của máy Mac này không chạy. Nó đang khởi động; hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 的 Chief 未在运行。现在正在启动，请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 的 Chief 未在執行。現在正在啟動，請稍後再試。"
+          }
+        }
+      }
+    },
     "home.engine.error.localUnreachable": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac's Chief is not running. Open Home to start it."
+            "value": "This Mac's Chief is not running."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac の Chief が動いていません。Home を開くと開始します。"
+            "value": "この Mac の Chief が動いていません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الـ Chief على هذا الـ Mac لا يعمل. افتح Home لتشغيله."
+            "value": "الـ Chief على هذا الـ Mac لا يعمل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief na ovom Macu ne radi. Otvorite Home da ga pokrenete."
+            "value": "Chief na ovom Macu ne radi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne Macs Chief kører ikke. Åbn Home for at starte den."
+            "value": "Denne Macs Chief kører ikke."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Chief dieses Macs läuft nicht. Öffne Home, um ihn zu starten."
+            "value": "Der Chief dieses Macs läuft nicht."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El Chief de este Mac no se está ejecutando. Abre Home para iniciarlo."
+            "value": "El Chief de este Mac no se está ejecutando."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le Chief de ce Mac ne fonctionne pas. Ouvrez Home pour le démarrer."
+            "value": "Le Chief de ce Mac ne fonctionne pas."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il Chief di questo Mac non è in esecuzione. Apri Home per avviarlo."
+            "value": "Il Chief di questo Mac non è in esecuzione."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief នៅលើ Mac នេះមិនកំពុងដំណើរការទេ។ បើក Home ដើម្បីចាប់ផ្ដើមវា។"
+            "value": "Chief នៅលើ Mac នេះមិនកំពុងដំណើរការទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 Mac의 Chief가 실행 중이 아닙니다. Home을 열면 시작됩니다."
+            "value": "이 Mac의 Chief가 실행 중이 아닙니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief på denne Macen kjører ikke. Åpne Home for å starte den."
+            "value": "Chief på denne Macen kjører ikke."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief na tym Macu nie działa. Otwórz Home, aby go uruchomić."
+            "value": "Chief na tym Macu nie działa."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Chief deste Mac não está em execução. Abra o Home para iniciá-lo."
+            "value": "O Chief deste Mac não está em execução."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief на этом Mac не запущен. Откройте Home, чтобы запустить его."
+            "value": "Chief на этом Mac не запущен."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief ของ Mac เครื่องนี้ไม่ได้ทำงานอยู่ เปิด Home เพื่อเริ่มต้น"
+            "value": "Chief ของ Mac เครื่องนี้ไม่ได้ทำงานอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu Mac'in Chief'i çalışmıyor. Başlatmak için Home'u açın."
+            "value": "Bu Mac'in Chief'i çalışmıyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief на цьому Mac не запущено. Відкрийте Home, щоб запустити його."
+            "value": "Chief на цьому Mac не запущено."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief của máy Mac này không chạy. Mở Home để khởi động."
+            "value": "Chief của máy Mac này không chạy."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 Mac 的 Chief 未在运行。打开 Home 即可启动。"
+            "value": "此 Mac 的 Chief 未在运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 Mac 的 Chief 未在執行。打開 Home 即可啟動。"
+            "value": "此 Mac 的 Chief 未在執行。"
           }
         }
       }
