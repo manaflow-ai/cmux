@@ -35,7 +35,8 @@ impl Rpc {
         self.next += 1;
         let id = self.next;
         let params = json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
-        let line = json!({"jsonrpc": "2.0", "id": id, "method": "session/prompt", "params": params});
+        let line =
+            json!({"jsonrpc": "2.0", "id": id, "method": "session/prompt", "params": params});
         self.wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
         let mut got = String::new();
         loop {

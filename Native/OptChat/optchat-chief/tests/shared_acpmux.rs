@@ -316,13 +316,15 @@ fn the_default_chiefs_host_starts_the_chief_homes_acpmux_without_its_credential(
     let acpmux_home = chief_home.join("acpmux");
     let fake = host_stops(dir.path(), &chief_home, &acpmux_home, None);
     let _guard = Leftovers(vec![fake]);
-    let identity: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(acpmux_home.join("identity.json")).unwrap(),
-    )
-    .unwrap();
+    let identity: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(acpmux_home.join("identity.json")).unwrap())
+            .unwrap();
     assert!(
         identity.get("MUX_AGENT_TOKEN_FILE").is_none(),
         "the Chief home's acpmux got the default Chief's token file: {identity}"
     );
-    assert!(identity.get("OPTCHAT_CHIEF_PARTICIPANT").is_none(), "{identity}");
+    assert!(
+        identity.get("OPTCHAT_CHIEF_PARTICIPANT").is_none(),
+        "{identity}"
+    );
 }
