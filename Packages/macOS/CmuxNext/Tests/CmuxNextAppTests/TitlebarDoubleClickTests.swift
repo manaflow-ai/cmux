@@ -63,13 +63,15 @@ import Testing
             return view
         }
         let handle = try #require(views.first { String(describing: type(of: $0)) == "SidebarResizeHandle" }, "the shown sidebar has a resize handle")
+        // The main pane's card covers part of the handle: only the points a click reaches it at.
         let frame = handle.convert(handle.bounds, to: nil)
         let band = TitlebarDragPolicy.bandRect(in: window)
-        let point = CGPoint(x: frame.midX, y: band.midY)
         let frameView = try #require(window.contentView?.superview)
-        try #require(frameView.hitTest(frameView.convert(point, from: nil)) === handle, "the handle is under the top-row point")
+        let points = stride(from: frame.minX + 0.25, to: frame.maxX, by: 0.5).map { CGPoint(x: $0, y: band.midY) }
+            .filter { frameView.hitTest(frameView.convert($0, from: nil)) === handle }
+        try #require(!points.isEmpty, "a top-row click reaches the handle")
 
-        #expect(TitlebarDragPolicy.decide(at: point, in: window) == .staysPut)
+        #expect(points.allSatisfy { TitlebarDragPolicy.decide(at: $0, in: window) == .staysPut })
     }
 
     @Test(.enabled(if: NSScreen.main != nil)) func aDoubleClickOnTheSidebarHeaderZoomsTheWindowOnce() throws {
