@@ -165,7 +165,12 @@ extension CMUXCLI {
             environment: nil
         ) ?? "claude --resume \(sessionID)"
 
-        let client = try connectClient(socketPath: socketPath, explicitPassword: explicitPassword, launchIfNeeded: false)
+        let client: SocketClient
+        do {
+            client = try connectClient(socketPath: socketPath, explicitPassword: explicitPassword, launchIfNeeded: false)
+        } catch {
+            throw sessionMoveCloudUnfinished(error, machine: destinationCloudMachine, sessionID: sessionID, workingDirectory: outcome.destinationWorkingDirectory)
+        }
         defer { client.close() }
         // The session left this Mac: its old surface must not auto-resume a second writer.
         if source.isLocal, let hookRecord {
@@ -179,15 +184,19 @@ extension CMUXCLI {
 
         let name = options.name ?? String(sessionID.prefix(8))
         if let destinationCloudMachine {
-            _ = try openSessionMoveCloudTerminal(
-                machine: destinationCloudMachine,
-                sessionID: sessionID,
-                workingDirectory: outcome.destinationWorkingDirectory,
-                permissionMode: hookRecord?.lastPermissionMode,
-                name: name,
-                focus: !options.noFocus,
-                client: client
-            )
+            do {
+                _ = try openSessionMoveCloudTerminal(
+                    machine: destinationCloudMachine,
+                    sessionID: sessionID,
+                    workingDirectory: outcome.destinationWorkingDirectory,
+                    permissionMode: hookRecord?.lastPermissionMode,
+                    name: name,
+                    focus: !options.noFocus,
+                    client: client
+                )
+            } catch {
+                throw sessionMoveCloudUnfinished(error, machine: destinationCloudMachine, sessionID: sessionID, workingDirectory: outcome.destinationWorkingDirectory)
+            }
             for line in sessionMoveSummary(outcome: outcome, source: source, destination: destination) {
                 print(line)
             }

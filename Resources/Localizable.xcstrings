@@ -654529,6 +654529,65 @@
           }
         }
       }
+    },
+    "cli.session.move.error.cloudTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: the conversation moved to Cloud machine %@, but its terminal did not open (%@). Open a terminal on that machine and run `claude --resume %@` in %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: نُقلت المحادثة إلى جهاز Cloud ‏%@، لكن الطرفية الخاصة بها لم تُفتح (%@). افتح طرفية على ذلك الجهاز وشغّل `claude --resume %@` في %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Die Unterhaltung wurde auf die Cloud-Maschine %@ verschoben, aber ihr Terminal wurde nicht geöffnet (%@). Öffne ein Terminal auf dieser Maschine und führe `claude --resume %@` in %@ aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: la conversación se movió a la máquina de Cloud %@, pero su terminal no se abrió (%@). Abre una terminal en esa máquina y ejecuta `claude --resume %@` en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : la conversation a été déplacée vers la machine Cloud %@, mais son terminal ne s’est pas ouvert (%@). Ouvrez un terminal sur cette machine et exécutez `claude --resume %@` dans %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 会話は Cloud マシン %1$@ に移動しましたが、ターミナルが開きませんでした（%2$@）。そのマシンでターミナルを開き、%4$@ で `claude --resume %3$@` を実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 대화가 Cloud 머신 %1$@(으)로 이동했지만 터미널이 열리지 않았습니다(%2$@). 해당 머신에서 터미널을 열고 %4$@에서 `claude --resume %3$@`을(를) 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：对话已移至 Cloud 机器 %1$@，但其终端未打开（%2$@）。请在该机器上打开终端，并在 %4$@ 中运行 `claude --resume %3$@`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：對話已移至 Cloud 機器 %1$@，但其終端機未開啟（%2$@）。請在該機器上開啟終端機，並在 %4$@ 中執行 `claude --resume %3$@`。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
