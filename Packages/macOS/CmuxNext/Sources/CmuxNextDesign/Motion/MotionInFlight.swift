@@ -25,6 +25,10 @@ enum MotionInFlight {
 
     private static var entries: [Entry] = []
 
+    /// Seconds past its expected end before an entry stops being replayed.
+    /// Tests shorten it to expire entries at once.
+    static var expirySlack: TimeInterval = 2
+
     /// Records a change about to animate for `seconds`, and returns the
     /// completion to hand AppKit in place of `completion`.
     static func track(_ changes: @escaping () -> Void, seconds: TimeInterval,
@@ -35,7 +39,7 @@ enum MotionInFlight {
         // A change whose completion AppKit never delivered (a superseded group) is not
         // replayed once it should long have ended; a spring settles within its slack.
         entries.removeAll { $0.deadline < now }
-        let entry = Entry(changes: changes, completion: completion, deadline: now + seconds + 2)
+        let entry = Entry(changes: changes, completion: completion, deadline: now + seconds + expirySlack)
         entries.append(entry)
         return {
             guard let index = entries.firstIndex(where: { $0 === entry }) else { return }
