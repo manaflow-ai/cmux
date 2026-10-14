@@ -11,7 +11,7 @@ import {
   HomeOps,
   type HomeCapabilities,
   type HomeChief,
-  type HomeChiefGrant,
+  type HomeChiefGrantChange,
   type HomeChiefProfile,
   type HomeParticipant,
 } from "./types";
@@ -41,10 +41,11 @@ export interface SheetsHost {
 const NONE: HomeCapabilities = { start: false, invite: false, chiefs: false };
 const SELECTORS = { machine: "current", session: "current" };
 
-/** A grant as the record's fields (sorted, as the owner keeps them). */
-const grantFields = (grant: HomeChiefGrant) => ({
-  tools: [...grant.tools].sort(),
-  harnesses: [...grant.harnesses].sort(),
+/** The changed grant fields as the record's fields (sorted, as the owner keeps them); a field the
+ * person did not change is not sent, so the owner applies its own default (as `cmux chief new`). */
+const grantFields = (grant: HomeChiefGrantChange) => ({
+  ...(grant.tools ? { tools: [...grant.tools].sort() } : {}),
+  ...(grant.harnesses ? { harnesses: [...grant.harnesses].sort() } : {}),
 });
 
 const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
@@ -251,7 +252,7 @@ export class HomeSheets {
    * message from the page. Resolves the Chief, or undefined when it was refused. */
   async createChief(
     profile: HomeChiefProfile,
-    grant: HomeChiefGrant | undefined,
+    grant: HomeChiefGrantChange | undefined,
     picture: { mediaType: string; data: string } | undefined,
   ): Promise<HomeChief | undefined> {
     if (!this.client || !this.host || !this.snapshot.chiefGrants) return undefined;
@@ -292,7 +293,7 @@ export class HomeSheets {
   async updateChief(
     before: HomeChief,
     profile: HomeChiefProfile,
-    grant: HomeChiefGrant | undefined,
+    grant: HomeChiefGrantChange | undefined,
     picture: { mediaType: string; data: string } | undefined,
   ): Promise<boolean> {
     if (!this.client) return false;
