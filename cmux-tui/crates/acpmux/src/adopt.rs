@@ -21,6 +21,9 @@ pub struct AdoptRequest {
     pub agent_session_id: String,
     /// What to do when the session is live in another process (`adopt_live`).
     pub if_live: IfLive,
+    /// `adopt.cwdMap` (`FROM=TO`): where another machine's folders are here,
+    /// for a chat whose recorded folder is gone (`hub/adoption.rs`).
+    pub cwd_map: Vec<(PathBuf, PathBuf)>,
 }
 
 /// `adopt.ifLive`: a chat live in another process is refused (the
@@ -34,8 +37,8 @@ pub enum IfLive {
 }
 
 impl AdoptRequest {
-    /// Reads `{harness, agentSessionId, ifLive?}`; `None` when absent, an
-    /// error when malformed.
+    /// Reads `{harness, agentSessionId, ifLive?, cwdMap?}`; `None` when
+    /// absent, an error when malformed.
     pub fn from_meta(meta: Option<&Value>) -> Result<Option<Self>, String> {
         let Some(adopt) = meta.and_then(|m| m.get("adopt")) else { return Ok(None) };
         let id = adopt
@@ -51,8 +54,27 @@ impl AdoptRequest {
                 return Err(format!("adopt ifLive {other:?} is not refuse, fork or open"));
             }
         };
-        Ok(Some(Self { harness, agent_session_id: id.to_owned(), if_live }))
+        let cwd_map = match adopt.get("cwdMap") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(items)) => items
+                .iter()
+                .map(|item| {
+                    item.as_str().and_then(parse_cwd_map).ok_or_else(|| {
+                        format!("adopt cwdMap entry {item} is not FROM=TO with absolute folders")
+                    })
+                })
+                .collect::<Result<_, _>>()?,
+            Some(other) => return Err(format!("adopt cwdMap {other} is not a list of FROM=TO")),
+        };
+        Ok(Some(Self { harness, agent_session_id: id.to_owned(), if_live, cwd_map }))
     }
+}
+
+/// One `FROM=TO` cwd map entry; both folders absolute.
+pub fn parse_cwd_map(text: &str) -> Option<(PathBuf, PathBuf)> {
+    let (from, to) = text.split_once('=')?;
+    let (from, to) = (PathBuf::from(from), PathBuf::from(to));
+    (from.is_absolute() && to.is_absolute()).then_some((from, to))
 }
 
 /// Where the harnesses keep their sessions: `CLAUDE_CONFIG_DIR` (else

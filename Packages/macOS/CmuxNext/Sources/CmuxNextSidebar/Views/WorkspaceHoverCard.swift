@@ -30,6 +30,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
     private var body: WorkspaceHoverCardView?
     private var bodyID: HoverTargetID?
+    /// Ticks the shown card's running times once a second (one-shot, re-armed by each tick);
+    /// idle while no live card shows, so a quiet sidebar wakes nothing.
+    private let ticker = DemandTimer(owner: "sidebar.hover-card.elapsed")
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
         self.coordinator = coordinator
@@ -73,6 +76,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body.configure(WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date()))
         body.setResources(resources.report)
         bodyID = id
+        updateTicker()
         return HoverCardBody(view: body, placement: .beside, themeAnchor: list) { [weak body] in body?.applyColors() }
     }
 
@@ -88,6 +92,23 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func hoverCardDeactivated(_ id: HoverTargetID) {
         resources.close()
         bodyID = nil
+        updateTicker()
+    }
+
+    /// Arms the next one-second tick while a card with a running time shows, stops it otherwise.
+    private func updateTicker() {
+        guard bodyID != nil, let body, let delay = body.nextTickDelay else {
+            ticker.cancel()
+            return
+        }
+        guard !ticker.isScheduled else { return }
+        ticker.schedule(after: delay) { @MainActor [weak self] in self?.tickShownCard() }
+    }
+
+    private func tickShownCard() {
+        guard let id = bodyID, let body else { return }
+        if body.tick(now: Date()) { coordinator.contentChanged(id) }
+        updateTicker()
     }
 
     /// Design tokens changed: the next card rebuilds at the new sizes.
@@ -107,6 +128,17 @@ final class WorkspaceHoverCardView: NSView {
     static var cardWidth: CGFloat { 280 }
     static var minCardWidth: CGFloat { 180 }
     private static var iconSize: CGFloat { 13 }
+    /// The body font with digits of one width, for lines whose running time ticks.
+    private static var liveFont: NSFont { NSFont.monospacedDigitSystemFont(ofSize: Typography.body.pointSize, weight: .regular) }
+
+    /// When the card's running times next change their text: every second under an hour, then
+    /// every minute ("1h 3m"); nil when nothing runs.
+    var nextTickDelay: Duration? {
+        guard isLive, let content else { return nil }
+        let starts = ([content.activitySince] + content.facts.map(\.since)).compactMap { $0 }
+        guard let newest = starts.max() else { return nil }
+        return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
+    }
 
     private let titleLabel = NSTextField(labelWithString: "")
     /// The kind or host icon, leading the name on the card's icon column.
@@ -120,6 +152,10 @@ final class WorkspaceHoverCardView: NSView {
     private let factsStack = NSStackView()
     private let resourceLabel = NSTextField(labelWithString: "")
     private var factViews: [(icon: NSImageView, label: NSTextField)] = []
+    /// The shown content, for the live elapsed times (`tick`).
+    private var content: WorkspaceHoverCardContent?
+    /// The shown status word, before its elapsed time.
+    private var activityWord: String?
 
     init() {
         super.init(frame: .zero)
@@ -137,7 +173,8 @@ final class WorkspaceHoverCardView: NSView {
         kindIcon.setContentHuggingPriority(.required, for: .horizontal)
         kindIcon.line = titleLabel
         kindIcon.side = Self.iconSize
-        activityLabel.font = Typography.body
+        // Digits of one width: a running time that ticks keeps its width ("1m 11s", "1m 18s").
+        activityLabel.font = Self.liveFont
         activityLabel.lineBreakMode = .byTruncatingTail
         resourceLabel.font = Typography.caption
         resourceLabel.lineBreakMode = .byTruncatingTail
@@ -201,14 +238,41 @@ final class WorkspaceHoverCardView: NSView {
         return lines
     }
 
-    func configure(_ content: WorkspaceHoverCardContent) {
+    /// The card shows a running time (the status's or a command's): the controller ticks it.
+    var isLive: Bool {
+        guard let content else { return false }
+        return (activityWord != nil && content.activitySince != nil) || content.facts.contains { $0.since != nil }
+    }
+
+    /// Rewrites the running times for `now` (once a second while the card shows). True when a
+    /// text got longer or shorter, so the panel measures the card again.
+    @discardableResult
+    func tick(now: Date) -> Bool {
+        guard let content else { return false }
+        var resized = false
+        func set(_ label: NSTextField, _ text: String) {
+            resized = resized || label.stringValue.count != text.count
+            label.stringValue = text
+        }
+        if let word = activityWord {
+            set(activityLabel, WorkspaceHoverCardContent.withElapsed(word, since: content.activitySince, now: now))
+        }
+        for (index, fact) in content.facts.enumerated() where fact.since != nil && index < factViews.count {
+            set(factViews[index].label, WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now))
+        }
+        return resized
+    }
+
+    func configure(_ content: WorkspaceHoverCardContent, now: Date = Date()) {
+        self.content = content
         titleLabel.stringValue = content.title
         kindIcon.image = NSImage.icon(content.icon, size: Self.iconSize)
         ageLabel.stringValue = content.age ?? ""
         ageLabel.isHidden = content.age == nil
         activity.configure(content.activity, style: content.activityStyle)
         let word = Strings.activity(content.activity)
-        activityLabel.stringValue = word ?? ""
+        activityWord = word
+        activityLabel.stringValue = word.map { WorkspaceHoverCardContent.withElapsed($0, since: content.activitySince, now: now) } ?? ""
         activityRow.isHidden = word == nil
         // The width the title wraps at (the panel sizes the card in one
         // pass): the row less its icon and the age.
@@ -221,7 +285,12 @@ final class WorkspaceHoverCardView: NSView {
             row.label.isHidden = fact == nil
             guard let fact else { continue }
             row.icon.image = Self.ownImage(fact) ?? NSImage.icon(fact.icon, size: Self.iconSize)
-            row.label.stringValue = fact.text
+            row.label.stringValue = WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now)
+            row.label.font = fact.since == nil ? Typography.body : Self.liveFont
+            row.label.maximumNumberOfLines = fact.lines
+            row.label.cell?.truncatesLastVisibleLine = true
+            row.label.lineBreakMode = fact.lines > 1 ? .byWordWrapping : .byTruncatingMiddle
+            row.label.preferredMaxLayoutWidth = fact.lines > 1 ? Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 : 0
         }
         factsStack.isHidden = content.facts.isEmpty
         applyColors()
@@ -266,6 +335,10 @@ final class WorkspaceHoverCardView: NSView {
         row.widthAnchor.constraint(equalTo: factsStack.widthAnchor).isActive = true
         factViews.append((icon, label))
     }
+}
+
+extension WorkspaceHoverCardView: HoverCardTextReporting {
+    var reportedLines: [String] { lines }
 }
 
 extension WorkspaceHoverCardView {
