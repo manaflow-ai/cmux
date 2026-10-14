@@ -38,7 +38,18 @@ fn scratch(tag: &str) -> PathBuf {
 
 /// A daemon with direct agents (no agent hosts); `probe`: the
 /// `ACPMUX_PROBE_HARNESSES` list (None: every harness is probed).
-fn start_daemon(home: &Path, probe: Option<&str>) -> Child {
+/// The daemon, ended (and its home removed) however the test ends.
+struct Daemon(Child, PathBuf);
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+        let _ = std::fs::remove_dir_all(&self.1);
+    }
+}
+
+fn start_daemon(home: &Path, probe: Option<&str>) -> Daemon {
     let mut command = Command::new(env!("CARGO_BIN_EXE_acpmux"));
     command
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
@@ -66,7 +77,7 @@ fn start_daemon(home: &Path, probe: Option<&str>) -> Child {
         let _ = child.wait();
         panic!("daemon not ready: {ready}");
     }
-    child
+    Daemon(child, home.to_owned())
 }
 
 fn alive(pid: i64) -> bool {
@@ -152,16 +163,12 @@ impl Rpc {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_model_probe_ends_the_helper_its_harness_moved_out_of_its_group() {
     let home = scratch("probe");
-    let mut daemon = start_daemon(&home, None);
+    let _daemon = start_daemon(&home, None);
     let mut rpc = Rpc::connect(&home).await;
     rpc.call("_acpmux/models", json!({"refresh": true})).await;
     let found = helpers(&home);
     assert!(!found.is_empty(), "no model probe started the fake harness");
     assert_all_gone(&found, "a model probe ended its harness");
-    drop(rpc);
-    let _ = daemon.kill();
-    let _ = daemon.wait();
-    let _ = std::fs::remove_dir_all(&home);
 }
 
 /// A session's direct agent (agent hosts off) that acpmux stops takes its
@@ -170,17 +177,18 @@ async fn a_model_probe_ends_the_helper_its_harness_moved_out_of_its_group() {
 async fn stopping_a_direct_agent_ends_the_helper_its_harness_moved_out_of_its_group() {
     let home = scratch("kill");
     // No model probe: the only harness is the session's.
-    let mut daemon = start_daemon(&home, Some("none"));
+    let _daemon = start_daemon(&home, Some("none"));
     let mut rpc = Rpc::connect(&home).await;
     let created = rpc.call("session/new", json!({"cwd": home, "mcpServers": []})).await;
     let session = created["sessionId"].as_str().expect("session id").to_owned();
     let found = helpers(&home);
-    assert_eq!(found.len(), 1, "the session's harness reports one helper: {found:?}");
-    assert!(alive(found[0].1), "the helper runs while the agent runs");
+    if found.len() != 1 || !alive(found[0].1) {
+        for (_, pid) in &found {
+            // SAFETY: the exact helper pid a fake harness of this test reported.
+            unsafe { libc::kill(*pid as i32, libc::SIGKILL) };
+        }
+        panic!("the session's harness reports one running helper: {found:?}");
+    }
     rpc.call("_acpmux/kill", json!({"sessionId": session})).await;
     assert_all_gone(&found, "acpmux stopped the session's agent");
-    drop(rpc);
-    let _ = daemon.kill();
-    let _ = daemon.wait();
-    let _ = std::fs::remove_dir_all(&home);
 }

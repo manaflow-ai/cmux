@@ -663,7 +663,8 @@ impl ChildAgent {
             return;
         }
         let pgid = self.pid.map(|p| p as i32);
-        // Busy: the exit watcher reaps the agent, which is gone then.
+        // Busy: the exit watcher holds it while it reaps the agent (its
+        // stdout closed); a helper then is not taken here.
         #[cfg(unix)]
         let under = match self.child.try_lock() {
             Ok(g) => under_unreaped(g.as_ref()).await,
@@ -1152,7 +1153,8 @@ impl ChildAgent {
 /// (setsid, Node's `detached: true`) is out of reach of the group signal
 /// and runs on with parent pid 1 once the harness is gone (cx-n3uid). The
 /// pid is read only while the agent is not reaped (`Child::id` is Some), so
-/// it cannot name a reused pid.
+/// it cannot name a reused pid. Not reached, as in `terminate_unadoptable`:
+/// a helper that already has ppid 1 (a double fork) or starts after this.
 #[cfg(unix)]
 async fn under_unreaped(child: Option<&Child>) -> Vec<crate::agent_host::tree::Started> {
     let Some(pid) = child.and_then(Child::id) else { return Vec::new() };
@@ -1168,6 +1170,7 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
     if procs.is_empty() {
         return;
     }
-    let _ = tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
-        .await;
+    let _ =
+        tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
+            .await;
 }
