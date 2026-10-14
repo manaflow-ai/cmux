@@ -13,6 +13,9 @@
 // The engines come from `playwright install chromium webkit`. Where they are not installed (the
 // Linux CI image), the browser cases are skipped and say so. EDITOR_SCREENSHOTS=<dir> saves
 // screenshots there (editor-*.png).
+//
+// 24 browser tests in two engines take about 115 s on the CI runner (run-webviews-tests.sh):
+// cmux-web-test-timeout: 240
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
