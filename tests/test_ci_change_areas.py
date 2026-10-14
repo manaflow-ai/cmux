@@ -4998,7 +4998,7 @@ def test_determinism_workflow_runs_self_test_before_strict_scan() -> None:
 def test_guard_bun_setup_runs_only_for_owned_groups() -> None:
     block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
     setup = block.index("      - name: Set up Bun for guard tests")
-    next_step = block.index("      - name: Run agent-chat unit tests", setup)
+    next_step = block.index("      - name: Run agent-chat tests", setup)
     setup_block = block[setup:next_step]
     assert "if: ${{ matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios' }}" in setup_block
     assert block.count("setup-bun@") == 1

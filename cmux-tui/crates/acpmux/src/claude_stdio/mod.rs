@@ -25,13 +25,48 @@ use tokio::sync::Mutex;
 pub const AGENT_NAME: &str = "claude-stdio";
 
 /// Claude mode ids, offered as ACP session modes.
-/// Claude's own modes. Its permission modes (acceptEdits, bypassPermissions)
-/// are not offered: acpmux's policy answers permission prompts itself, so
-/// `perms approve-edits` and `perms approve-all` cover them for every
-/// harness, and bypassPermissions would also need the process launched with
-/// --dangerously-skip-permissions. Plan and auto change what Claude does,
-/// so they stay.
-const MODES: [(&str, &str); 3] = [("default", "Normal"), ("plan", "Plan"), ("auto", "Auto")];
+/// Claude's own modes. acceptEdits is not offered: acpmux's policy answers
+/// permission prompts itself, so `perms approve-edits` covers it for every
+/// harness. Plan and auto change what Claude does, so they stay.
+/// bypassPermissions ("Full access") is the mode a new chat starts in
+/// (`hub/start_mode.rs`, cx-wx93i): Claude Code itself skips every
+/// permission check, so nothing asks. Claude Code accepts it only from a
+/// process launched with `--allow-dangerously-skip-permissions`
+/// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
+/// the chat keeps its mode.
+const MODES: [(&str, &str); 4] = [
+    ("default", "Normal"),
+    ("plan", "Plan"),
+    ("auto", "Auto"),
+    ("bypassPermissions", "Full access"),
+];
+
+/// The launch flag that lets a running Claude Code switch to
+/// bypassPermissions (it does not turn the mode on by itself).
+pub const ALLOW_BYPASS_FLAG: &str = "--allow-dangerously-skip-permissions";
+
+/// Whether Claude Code accepts `ALLOW_BYPASS_FLAG` for `profile`: it exits
+/// at start when the flag comes as root, unless `IS_SANDBOX=1` or
+/// `CLAUDE_CODE_BUBBLEWRAP` is set (Claude Code 2.1.296), and the profile
+/// must not pass a skip flag of its own.
+pub fn bypass_allowed(profile: &HarnessProfile) -> bool {
+    let own = profile
+        .argv
+        .iter()
+        .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
+    if own {
+        return false;
+    }
+    let env = |k: &str| profile.env.get(k).cloned().or_else(|| std::env::var(k).ok());
+    let sandboxed = env("IS_SANDBOX").as_deref() == Some("1")
+        || env("CLAUDE_CODE_BUBBLEWRAP").is_some_and(|v| !v.is_empty());
+    #[cfg(unix)]
+    // SAFETY: geteuid has no preconditions.
+    let root = unsafe { libc::geteuid() } == 0;
+    #[cfg(not(unix))]
+    let root = false;
+    !root || sandboxed
+}
 
 /// Claude Code's own model aliases (`set_model` and `--model`). Only Claude
 /// Code says what an alias runs; the `[1m]` suffix asks for the 1M context
@@ -206,6 +241,18 @@ pub fn spawn_plan(
         args.push("--model".into());
         args.push(m.into());
     }
+    // Lets the chat switch to bypassPermissions ("Full access") later; a
+    // process that cannot take it is never given bypassPermissions at spawn.
+    let bypass = bypass_allowed(profile);
+    if bypass {
+        args.push(ALLOW_BYPASS_FLAG.into());
+    }
+    // A profile that passes a skip flag itself takes the mode as it is.
+    let own_skip = profile
+        .argv
+        .iter()
+        .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
+    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { "default" } else { mode };
     if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
         args.push("--permission-mode".into());
         args.push(mode.into());

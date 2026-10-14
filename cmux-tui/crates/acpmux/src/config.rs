@@ -177,6 +177,13 @@ pub struct SessionDefaults {
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PermissionPolicy>,
+    /// The harness permission mode a new chat starts in (a mode id of the
+    /// harness, e.g. Claude's `default` or Codex's `agent`): the person's
+    /// last mode pick in a chat of this profile (`hub/start_mode.rs`).
+    /// Absent: the cmux setting `agents.defaultPermissionMode`, else full
+    /// access. Written only by a pick, never by `_acpmux/defaults`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Profiles to use, in order, when a session asks for this family:
     /// `["claude-cr", "claude"]` sends `-m claude` to the CodeRouter route
     /// first. Absent: the family's only profile, else the profile named
@@ -199,6 +206,9 @@ impl SessionDefaults {
         }
         if top.policy.is_some() {
             self.policy = top.policy;
+        }
+        if top.mode.is_some() {
+            self.mode = top.mode.clone();
         }
         if !top.prefer.is_empty() {
             self.prefer = top.prefer.clone();
@@ -443,6 +453,13 @@ pub struct Config {
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
+    /// `defaultPermissionMode`: the permission mode a new chat starts in when
+    /// the person has not picked one for its harness (`hub/start_mode.rs`):
+    /// `fullAccess`, `standard` or `ask`. Absent: the cmux setting
+    /// `agents.defaultPermissionMode`, else `fullAccess`. For acpmux without
+    /// the cmux app, and for hermetic tests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_permission_mode: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -622,6 +639,7 @@ impl Config {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
+                mode: None,
                 prefer: vec![],
                 env: BTreeMap::new(),
             });
@@ -822,10 +840,21 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
     }
-    // Windows port: owner-only is an ACL there (a later landing); the file
-    // keeps the folder's ACL (a user profile folder is private by default).
-    #[cfg(not(unix))]
-    std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
+    // Windows: created with an owner-only access list (`owner_only.rs`).
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+        // A file a crashed process left under a reused pid is stale.
+        let mut f = match crate::owner_only::create_new(&tmp) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::fs::remove_file(&tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::owner_only::create_new(&tmp)
+            }
+            other => other,
+        }
+        .with_context(|| format!("write {}", tmp.display()))?;
+        f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+    }
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     Ok(())
 }
