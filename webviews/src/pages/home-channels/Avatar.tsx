@@ -37,7 +37,11 @@ export function Avatar({
       aria-hidden="true"
     >
       {/* A small tile has room for one letter only. */}
-      {picture ? <img className="hc-avatar-img" src={picture} alt="" /> : initials(participant?.name ?? "?").slice(0, size >= 24 ? 2 : 1)}
+      {picture ? (
+        <img className="hc-avatar-img" src={picture} alt="" />
+      ) : (
+        initials(participant?.name ?? "?").slice(0, size >= 24 ? 2 : 1)
+      )}
       {state && state !== "idle" && <span className={`lg-state-mark ${state}`} />}
     </span>
   );

@@ -49,8 +49,7 @@ export async function readPicture(
   if (file.size > 1024 * 1024) return { error: "size" };
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
-  for (let at = 0; at < bytes.length; at += 0x8000)
-    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
   return { mediaType: file.type, data: btoa(binary) };
 }
 
@@ -85,9 +84,7 @@ export class HomeSheets {
   /** Reads what this connection may do, then the Chiefs. */
   async start(): Promise<void> {
     if (!this.client) return this.set({ ready: true });
-    const capabilities = await this.client
-      .call<HomeCapabilities>(HomeOps.capabilities, {})
-      .catch(() => NONE);
+    const capabilities = await this.client.call<HomeCapabilities>(HomeOps.capabilities, {}).catch(() => NONE);
     this.set({ capabilities });
     if (capabilities.chiefs) await this.loadChiefs();
     this.set({ ready: true });
@@ -146,10 +143,7 @@ export class HomeSheets {
         .sort()
         .join();
     try {
-      const listed = await this.host.call<{ chiefs?: Record<string, unknown>[] }>(
-        "cmux.chief.profile.list",
-        SELECTORS,
-      );
+      const listed = await this.host.call<{ chiefs?: Record<string, unknown>[] }>("cmux.chief.profile.list", SELECTORS);
       const theirs = (listed.chiefs ?? []).map((raw) => ({
         id: String(raw.id),
         rev: Number(raw.rev) || 0,

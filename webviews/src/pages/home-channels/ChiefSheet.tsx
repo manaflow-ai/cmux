@@ -189,9 +189,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
             </label>
           ))}
         </span>
-        <span className="lg-form-note">
-          {grants ? t("chief.harnesses.none") : t("chief.grants.appOnly")}
-        </span>
+        <span className="lg-form-note">{grants ? t("chief.harnesses.none") : t("chief.grants.appOnly")}</span>
       </fieldset>
     </FormDialog>
   );

@@ -722,13 +722,16 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.directory:
         return { people: await this.people.directory(participant) };
       case HomeOps.startConversation: {
-        const ids = Array.isArray(params.participants) ? params.participants.filter((id) => typeof id === "string") : [];
+        const ids = Array.isArray(params.participants)
+          ? params.participants.filter((id) => typeof id === "string")
+          : [];
         const title = typeof params.title === "string" ? params.title.slice(0, 200) : "";
         return { conversation: await this.people.start(ids as string[], title, this.key(params, options)) };
       }
       case HomeOps.invite: {
         const id = str(params, "conversation");
-        if (this.cloud.owns(id)) throw pageError("cmux.page.unavailable", "invites to cloud conversations are not here yet");
+        if (this.cloud.owns(id))
+          throw pageError("cmux.page.unavailable", "invites to cloud conversations are not here yet");
         const ids = Array.isArray(params.participants) ? params.participants.filter((p) => typeof p === "string") : [];
         await this.people.invite(id, ids as string[], this.key(params, options));
         return { conversation: id };
@@ -739,7 +742,11 @@ export class DaemonHomeClient implements PageClient {
         return { chief: await this.people.createChief(chiefProfile(params), this.key(params, options)) };
       case HomeOps.chiefUpdate:
         return {
-          chief: await this.people.updateChief(str(params, "chief", 64), chiefProfile(params), this.key(params, options)),
+          chief: await this.people.updateChief(
+            str(params, "chief", 64),
+            chiefProfile(params),
+            this.key(params, options),
+          ),
         };
       case HomeOps.chiefAvatarSet:
         return {

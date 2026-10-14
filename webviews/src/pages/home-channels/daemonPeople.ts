@@ -20,7 +20,8 @@ const str = (value: unknown): string => (typeof value === "string" ? value : "")
 
 /** A Chief record as the page shows it. */
 export function chief(raw: Json): HomeChief {
-  const list = (value: unknown) => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []);
+  const list = (value: unknown) =>
+    Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
   const avatar = raw.avatar as Json | null | undefined;
   const result: HomeChief = {
     id: str(raw.id),

@@ -617,7 +617,13 @@ export class MockHomeProvider implements PageClient {
         const people = this.directory().filter((p) => ids.includes(p.id));
         const id = `c-${this.data.conversations.length + 1}`;
         const name = title || people.map((p) => p.name).join(", ");
-        const created = conversation(id, name, people.length === 1 ? (people[0]!.chief ? "chief" : "direct") : "group", people, []);
+        const created = conversation(
+          id,
+          name,
+          people.length === 1 ? (people[0]!.chief ? "chief" : "direct") : "group",
+          people,
+          [],
+        );
         this.data.conversations.push(created);
         this.data.messages.set(created.id, []);
         this.emit({ conversations: [created] });
@@ -627,7 +633,9 @@ export class MockHomeProvider implements PageClient {
         const found = this.data.conversations.find((c) => c.id === id);
         if (!found) throw pageError("cmux.home.not_found", id);
         const ids = (params.participants as string[] | undefined) ?? [];
-        const added = this.directory().filter((p) => ids.includes(p.id) && !found.participants.some((q) => q.id === p.id));
+        const added = this.directory().filter(
+          (p) => ids.includes(p.id) && !found.participants.some((q) => q.id === p.id),
+        );
         const updated = { ...found, participants: [...found.participants, ...added] };
         this.data.conversations = this.data.conversations.map((c) => (c.id === id ? updated : c));
         this.emit({ conversations: [updated] });

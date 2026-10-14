@@ -455,8 +455,7 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.find({ role: "button", name: "Edit Chief" }));
         await ctx.click({ role: "button", name: "Edit Chief" });
         await ctx.waitFor(
-          () =>
-            ctx.document.querySelector<HTMLInputElement>(".lg-form .lg-chief-identity input")?.value === "Chief",
+          () => ctx.document.querySelector<HTMLInputElement>(".lg-form .lg-chief-identity input")?.value === "Chief",
         );
       },
     },
@@ -472,7 +471,12 @@ export default componentEntry<Props>({
     },
     "archive-chief": {
       note: "#/chief/<agent>/archive asks once: the Chief stops and its memory is kept for 30 days.",
-      props: { select: "c-chief", route: { kind: "archiveChief", chief: "agent_new1" }, hostGrants: true, extraChief: true },
+      props: {
+        select: "c-chief",
+        route: { kind: "archiveChief", chief: "agent_new1" },
+        hostGrants: true,
+        extraChief: true,
+      },
       checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-form .hc-text-button.danger"));
