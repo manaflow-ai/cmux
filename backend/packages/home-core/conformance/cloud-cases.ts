@@ -33,6 +33,10 @@ export const cloudCases = (c: Corpus): void => {
   c.op(host, "participants.remove: unknown participant", ALICE, "r2", { kind: "participants.remove", participant: "user_nobody" }, "unknown_participant")
   c.op(host, "participants.remove: the chief's owner removes the chief", ALICE, "r3", { kind: "participants.remove", participant: CHIEF }, "commit")
   c.op(host, "send: a departed chief", CHIEF, "m2", send("m2", "still here?"), "not_participant")
+  // A thread's owner is a current participant: a departed one is refused.
+  const firstMessage = host.messages[0]!.id
+  c.op(host, "thread.update: a departed owner", BOB, "o1", { kind: "thread.update", root: firstMessage, owner: CHIEF }, "invalid_thread_owner")
+  c.op(host, "thread.update: a member titles and owns a thread", BOB, "o1", { kind: "thread.update", root: firstMessage, title: "Hello", owner: CAROL }, "commit")
   c.op(host, "participants.add: a member re-adds another user's chief", BOB, "p3", { kind: "participants.add", participant: agent(CHIEF, BOB) }, "forbidden")
   c.op(host, "participants.add: the actor's own new agent (the Domain stamps owner_user from its policy)", BOB, "p4", { kind: "participants.add", participant: agent("agent_bobchief", BOB) }, "commit")
   c.op(host, "participants.add: someone else's new chief", CAROL, "p5", { kind: "participants.add", participant: agent("agent_x", ALICE) }, "forbidden")

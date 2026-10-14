@@ -8,6 +8,7 @@ import { conversationChanged, upsertParticipant, type ApplyResult, type Commit, 
 import {
   MAX_PARTICIPANTS,
   SYSTEM_ACTOR,
+  type ThreadResolution,
   type ConversationHead,
   type Message,
   type Op,
@@ -22,6 +23,7 @@ import {
   validateParticipant,
   validateParts,
   validateReaction,
+  validateThreadTitle,
   validateTitle
 } from "./validate.ts"
 
@@ -29,7 +31,9 @@ import {
 export const targetMessageId = (op: Op): string | undefined =>
   op.kind === "message.edit" || op.kind === "message.retract" || op.kind === "reaction.add" || op.kind === "reaction.remove" || op.kind === "question.answer"
     ? op.message_id
-    : undefined
+    : op.kind === "thread.update"
+      ? op.root
+      : undefined
 
 export const isSend = (op: Op): boolean => op.kind === "message.send"
 
@@ -196,6 +200,35 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       next.participants = upsertParticipant(head.participants, stamped)
       next.updated_at = now
       return conversationChanged(next, request)
+    }
+    // A thread object lives on its root (conversation-thread-objects-v1). Like an edit it changes
+    // a message, not the list order, so `updated_at` stays; any participant may set it, a Chief too.
+    case "thread.update": {
+      const message = target(head, request, op.root)
+      if (message.thread_root !== undefined) fail("invalid_thread_root")
+      // A null field is absent, as serde reads it in Rust.
+      const title = op.title ?? undefined
+      const status = op.status ?? undefined
+      const owner = op.owner ?? undefined
+      if (title === undefined && status === undefined && owner === undefined) fail("invalid_thread_update")
+      const state: { title?: string; owner?: string; resolved?: ThreadResolution } = { ...message.thread }
+      if (title !== undefined) {
+        // An empty title clears it (readers show the root's first line).
+        validateThreadTitle(title)
+        if (title === "") delete state.title
+        else state.title = title
+      }
+      if (owner !== undefined) {
+        if (typeof owner !== "string" || (owner !== "" && !currentParticipant(head, owner))) fail("invalid_thread_owner")
+        if (owner === "") delete state.owner
+        else state.owner = owner
+      }
+      if (status === "resolved") state.resolved = { by: request.actor, at: now, seq: head.last_seq }
+      else if (status === "open") delete state.resolved
+      else if (status !== undefined) fail("invalid_thread_update")
+      const { thread: _old, ...rest } = message
+      const empty = state.title === undefined && state.owner === undefined && state.resolved === undefined
+      return updated(next, empty ? rest : { ...rest, thread: state })
     }
     case "title.set": {
       if (head.kind === "dm" || head.kind === "chief") fail("kind_forbids")
