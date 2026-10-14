@@ -2,8 +2,8 @@ import CmuxHomeCore
 import CmuxNextDaemon
 import CmuxNextSettings
 
-/// `debug.home`: the local conversation projection
-/// (plans/cmux-next/home.md), for automation on a never-key test window.
+/// `debug.home`: the local conversation projection (plans/cmux-next/home.md) and whether Home is
+/// classic (`classic`, the MessagesLab GUI checks need it), for automation on a never-key test window.
 @MainActor
 enum DebugHome {
     static func report(services: AppServices) -> CmuxNextSettings.JSONValue {
@@ -64,7 +64,7 @@ enum DebugHome {
             "cache": home.homeStore.cache.map { .string($0.url.path) } ?? .null,
         ])
         return .object(["available": .bool(home.isAvailable), "chief_owner": owner, "home_workspace": setup,
-                        "conversations": .array(conversations), "page": page(services: services),
+                        "conversations": .array(conversations), "page": page(services: services), "classic": .bool(home.dock.isClassic),
                         "migration_notice": home.migrationNotice.map { .string($0) } ?? .null])
     }
 }
