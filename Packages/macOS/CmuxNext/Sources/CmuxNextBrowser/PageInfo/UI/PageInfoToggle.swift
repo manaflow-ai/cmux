@@ -23,9 +23,9 @@ final class PageInfoToggle: NSView {
         wantsLayer = true
         layer?.addSublayer(track)
         layer?.addSublayer(knob)
-        knob.shadowOpacity = 0.18
-        knob.shadowRadius = 1
-        knob.shadowOffset = CGSize(width: 0, height: -0.5)
+        knob.shadowOpacity = Float(PopupStyle.elevation1.alpha)
+        knob.shadowRadius = PopupStyle.elevation1.layerRadius
+        knob.shadowOffset = PopupStyle.elevation1.layerOffset()
         setAccessibilityElement(true)
         setAccessibilityRole(.checkBox)
         setAccessibilitySubrole(.switch)
