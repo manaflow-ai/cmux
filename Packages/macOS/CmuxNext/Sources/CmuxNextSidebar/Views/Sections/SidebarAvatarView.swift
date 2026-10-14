@@ -57,12 +57,21 @@ final class SidebarAvatarView: NSView {
 }
 
 extension SidebarAvatar {
-    /// The avatar at `diameter`, as a menu row's image (the profile menu's current profile).
+    /// The avatar at `diameter`, as a menu row's image (the profile menu's current profile),
+    /// drawn now at 2x in the current appearance (the menu is built each time it opens).
     @MainActor public func image(diameter: CGFloat) -> NSImage {
-        let avatar = self
-        return NSImage(size: NSSize(width: diameter, height: diameter), flipped: true) { rect in
-            MainActor.assumeIsolated { SidebarAvatarView.draw(avatar, in: rect, strong: true) }
-            return true
-        }
+        let size = NSSize(width: diameter, height: diameter)
+        let image = NSImage(size: size)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(diameter * 2), pixelsHigh: Int(diameter * 2),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: rep) else { return image }
+        rep.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        SidebarAvatarView.draw(self, in: NSRect(origin: .zero, size: size), strong: true)
+        NSGraphicsContext.restoreGraphicsState()
+        image.addRepresentation(rep)
+        return image
     }
 }
