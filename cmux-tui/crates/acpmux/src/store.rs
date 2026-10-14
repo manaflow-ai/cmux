@@ -187,15 +187,20 @@ pub struct SessionMeta {
 pub struct ToolInventory {
     #[serde(default)]
     pub rows: Vec<ToolRow>,
-    /// The harness turns tools on or off mid-session (Claude Code's
-    /// `mcp_toggle`); ACP harnesses take their tools at session start only.
+    /// The chat can turn MCP servers off (Claude Code, through
+    /// `--disallowedTools` at each start); ACP harnesses take their tools at
+    /// session start only.
     #[serde(default)]
     pub mutable: bool,
+    /// The rows (`mcp:<server>`) this chat turned off. Every start of its
+    /// Claude Code disallows their tools; a fork keeps them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub off: Vec<String>,
 }
 
 impl ToolInventory {
     pub fn is_empty(&self) -> bool {
-        self.rows.is_empty() && !self.mutable
+        self.rows.is_empty() && !self.mutable && self.off.is_empty()
     }
 }
 

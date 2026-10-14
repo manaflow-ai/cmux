@@ -360,8 +360,6 @@ impl Translator {
                                 Setting::Model => *self.model.lock().await = value,
                                 Setting::Effort => *self.effort.lock().await = value,
                                 Setting::Fast => *self.fast.lock().await = value == "on",
-                                // Claude Code keeps it; the hub records the row.
-                                Setting::McpServer => {}
                             }
                         }
                         let mode = self.mode.lock().await.clone();

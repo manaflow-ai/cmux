@@ -4,26 +4,33 @@
 //! the MCP servers, plugins and skills Claude Code's system/init reports.
 //! The user's own harness config files are never read here.
 //!
-//! `_acpmux/set_tools` turns one MCP server on or off where the harness can
-//! do that mid-session: only Claude Code (`mcp_toggle` on its control
-//! channel). Anything else is refused, never a silent no-op.
+//! `_acpmux/set_tools` turns one MCP server off or on again for one chat.
+//! Only Claude Code can: the chat's choice is kept in its meta
+//! (`ToolInventory::off`) and every start of its Claude Code gets
+//! `--disallowedTools mcp__<server>` for each server that is off
+//! (`spawn.rs`). An idle chat restarts now and resumes; a running turn keeps
+//! its process, and the choice applies at the next start. Claude Code's own
+//! `mcp_toggle` is never sent: it writes `disabledMcpServers` into the
+//! folder's entry of `~/.claude.json`, which turns the server off for every
+//! Claude session in that folder and outlives the chat. Anything else is
+//! refused, never a silent no-op.
 
 use super::*;
 
-use crate::store::ToolRow;
+use crate::store::{ToolInventory, ToolRow};
 
 /// `data.reason` of a set on a chat whose harness takes its tools at
 /// session start only (every ACP harness).
 pub const TOOLS_IMMUTABLE: &str = "tools.immutable";
-/// `data.reason` of a set on a row that cannot change mid-session (a skill
-/// or a plugin).
+/// `data.reason` of a set on a row that cannot change here (a skill, a
+/// plugin, or a server the user's own Claude config turned off).
 pub const TOOL_FIXED: &str = "tools.fixed";
 
 impl Hub {
     /// What `ensure_child` records before it starts an agent: its launch
-    /// roots (`launch_roots.rs`) and cmux's tools as this spawn gives them.
-    /// A new agent starts with every server on; what Claude Code reported for
-    /// the last one stays until its next system/init.
+    /// roots (`launch_roots.rs`) and cmux's tools as this spawn gives them,
+    /// with the chat's choices. What Claude Code reported for the last
+    /// process stays until its next system/init.
     pub(super) async fn record_spawn_inputs(&self, session: &Session, profile: &HarnessProfile) {
         self.record_launch_roots(session, profile).await;
         let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -31,28 +38,39 @@ impl Hub {
         // harness gets them in `mcpServers` whatever its args.
         let args: &[String] = if claude { &profile.argv } else { &[] };
         let remote = session.meta().remote_origin;
-        let cmux = if crate::agent_tools::left_out(remote, &profile.env, args) {
+        let mut cmux = if crate::agent_tools::left_out(remote, &profile.env, args) {
             Vec::new()
         } else {
             crate::agent_tools::current().tool_rows(claude, claude)
         };
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        for row in &mut cmux {
+            row.enabled = !m.tools.off.contains(&row.id);
+        }
         let reported = m.tools.rows.iter().filter(|r| r.source != "cmux").cloned();
-        let rows = cmux.into_iter().chain(reported).collect();
-        m.tools = crate::store::ToolInventory { rows, mutable: claude };
+        m.tools.rows = cmux.into_iter().chain(reported).collect();
+        m.tools.mutable = claude;
     }
 
     /// Claude Code's system/init (`_meta.claude` of its session_info_update):
     /// the rows it reports replace the last ones; cmux's own rows stay, on or
-    /// off as Claude Code reports them.
+    /// off as Claude Code reports them. A server the chat turned off stays
+    /// off; one Claude Code reports `disabled` (the user's own config) cannot
+    /// be turned on here.
     pub(super) fn absorb_reported_tools(&self, session: &Session, claude: &Value) {
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         let mut rows: Vec<ToolRow> =
             m.tools.rows.iter().filter(|r| r.source == "cmux").cloned().collect();
-        for row in reported_rows(claude, m.tools.mutable) {
+        for mut row in reported_rows(claude) {
+            let off = m.tools.off.contains(&row.id);
+            let toggles = m.tools.mutable && row.kind == "mcp" && (row.enabled || off);
+            row.enabled &= !off;
             match rows.iter_mut().find(|own| own.id == row.id) {
-                Some(own) => own.enabled = row.enabled,
-                None => rows.push(row),
+                Some(own) => {
+                    own.enabled = row.enabled;
+                    own.can_toggle &= toggles;
+                }
+                None => rows.push(ToolRow { can_toggle: toggles, ..row }),
             }
         }
         if rows == m.tools.rows {
@@ -64,8 +82,9 @@ impl Hub {
         self.save_meta(session);
     }
 
-    /// `_acpmux/set_tools`: turn the chat's tool `id` on or off. Claude Code
-    /// gets `mcp_toggle` for an MCP server; the row changes once it accepted.
+    /// `_acpmux/set_tools`: record the chat's choice for tool `id`, then
+    /// restart an idle chat's Claude Code on it (`applied: now`); during a
+    /// turn, or with no process, it applies at the next start (`nextStart`).
     pub async fn set_tools(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -79,36 +98,40 @@ impl Hub {
             .get("enabled")
             .and_then(Value::as_bool)
             .ok_or_else(|| RpcError::invalid_params("enabled is required (true or false)"))?;
-        // A started agent has recorded its tools and whether they change.
-        self.child_for(session).await?;
-        let tools = session.meta().tools;
-        if !tools.mutable {
+        // From the harness alone: an idle chat is not started to be refused.
+        let meta = session.meta();
+        let kind = {
+            let cfg = self.config.read().await;
+            super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                .map_err(RpcError::invalid_params)?
+                .kind
+        };
+        if kind != crate::config::HarnessKind::ClaudeStdio {
             return Err(RpcError::new(
                 -32000,
                 "this chat's harness takes its tools when the chat starts and cannot turn one on or off",
             )
             .with_data(json!({"reason": TOOLS_IMMUTABLE})));
         }
-        let row = tools
+        let row = meta
+            .tools
             .rows
             .iter()
             .find(|r| r.id == id)
             .ok_or_else(|| RpcError::not_found(format!("this chat has no tool {id:?}")))?;
-        let server = id.strip_prefix("mcp:").filter(|_| row.can_toggle).ok_or_else(|| {
-            RpcError::new(
+        if !row.can_toggle || !id.starts_with("mcp:") {
+            return Err(RpcError::new(
                 -32000,
-                format!("{} cannot be turned on or off in a running chat", row.name),
+                format!("{} cannot be turned on or off in this chat", row.name),
             )
-            .with_data(json!({"reason": TOOL_FIXED}))
-        })?;
-        self.forward(
-            session,
-            method::MUX_SET_TOOLS,
-            json!({"serverName": server, "enabled": enabled}),
-        )
-        .await?;
+            .with_data(json!({"reason": TOOL_FIXED})));
+        }
         {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            m.tools.off.retain(|off| off != id);
+            if !enabled {
+                m.tools.off.push(id.to_owned());
+            }
             if let Some(row) = m.tools.rows.iter_mut().find(|r| r.id == id) {
                 row.enabled = enabled;
             }
@@ -116,37 +139,67 @@ impl Hub {
         // Watchers hear it as `_acpmux/session_changed` kind `tools`.
         self.append(session, "mux", "tools", json!({"id": id, "enabled": enabled}));
         self.save_meta(session);
+        // The route switch's restart: the process ends, and a new one resumes
+        // the same conversation now (`route_switch.rs`).
+        let live = session.child.lock().await.is_some();
+        let applied = if live && session.turn().is_none() {
+            self.restart_on_route(session).await?;
+            "now"
+        } else {
+            "nextStart"
+        };
         let tools = session.meta().tools;
-        Ok(json!({"sessionId": session.id, "tools": tools.rows, "toolsMutable": tools.mutable}))
+        Ok(json!({
+            "sessionId": session.id,
+            "tools": tools.rows,
+            "toolsMutable": tools.mutable,
+            "applied": applied,
+        }))
     }
 }
 
+/// `--disallowedTools mcp__<server>` for each server the chat turned off, in
+/// Claude Code's spelling of a server name (other than `[A-Za-z0-9_-]`
+/// becomes `_`).
+pub(super) fn disallowed_args(tools: &ToolInventory) -> Vec<String> {
+    let mut args = Vec::new();
+    for server in tools.off.iter().filter_map(|id| id.strip_prefix("mcp:")) {
+        let name: String = server
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .collect();
+        args.push("--disallowedTools".to_owned());
+        args.push(format!("mcp__{name}"));
+    }
+    args
+}
+
 /// The rows of Claude Code's system/init: its MCP servers (`{name, status}`,
-/// off when `disabled`), which `toggles` says it turns on or off, then its
-/// plugins and skills (a name, or `{name}`). cmux's own plugin is listed by
-/// its skills only. The `tools` names are not rows: an MCP tool belongs to
-/// its server, a built-in tool to Claude Code.
-fn reported_rows(claude: &Value, toggles: bool) -> Vec<ToolRow> {
+/// off when `disabled`), then its plugins and skills (a name, or `{name}`).
+/// None can toggle until `absorb_reported_tools` decides. cmux's own plugin
+/// is listed by its skills only. The `tools` names are not rows: an MCP
+/// tool belongs to its server, a built-in tool to Claude Code.
+fn reported_rows(claude: &Value) -> Vec<ToolRow> {
     let list = |key: &str| claude.get(key).and_then(Value::as_array).into_iter().flatten();
     let name =
         |v: &Value| v.as_str().or_else(|| v.get("name").and_then(Value::as_str)).map(str::to_owned);
-    let row = |kind: &str, name: String, enabled: bool, can_toggle: bool| ToolRow {
+    let row = |kind: &str, name: String, enabled: bool| ToolRow {
         id: format!("{kind}:{name}"),
         name,
         kind: kind.to_owned(),
         source: "claude".to_owned(),
         enabled,
-        can_toggle,
+        can_toggle: false,
     };
     let mut rows = Vec::new();
     for server in list("mcp_servers") {
         if let Some(n) = name(server) {
             let on = server.get("status").and_then(Value::as_str) != Some("disabled");
-            rows.push(row("mcp", n, on, toggles));
+            rows.push(row("mcp", n, on));
         }
     }
     let plugins = list("plugins").filter_map(name).filter(|n| n != crate::agent_tools::PLUGIN_NAME);
-    rows.extend(plugins.map(|n| row("plugin", n, true, false)));
-    rows.extend(list("skills").filter_map(name).map(|n| row("skill", n, true, false)));
+    rows.extend(plugins.map(|n| row("plugin", n, true)));
+    rows.extend(list("skills").filter_map(name).map(|n| row("skill", n, true)));
     rows
 }
