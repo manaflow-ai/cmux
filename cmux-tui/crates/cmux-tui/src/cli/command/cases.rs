@@ -627,7 +627,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "--body",
                 "tests passed",
                 "--level",
-                "success",
+                "info",
                 "--terminal",
                 TERMINAL,
             ],
