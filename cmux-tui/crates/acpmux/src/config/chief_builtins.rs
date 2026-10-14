@@ -129,8 +129,9 @@ impl Context {
         }
     }
 
-    /// The home of the Chief with `home_id`: the Chief home itself (the
-    /// default Chief, and a daemon of one Chief) or one of its `c/<id tail>`
+    /// The home of the Chief with `home_id`: the Chief home itself when the
+    /// id is its own (the default Chief, and a daemon of one Chief, whose
+    /// host hashes the same path string) or one of its `c/<id tail>`
     /// directories whose path has that id (the Chiefs the daemon's
     /// supervisor starts on the Chief home's shared acpmux, hq-6d
     /// 2026-10-14; the same path string the supervisor gives the Chief as
