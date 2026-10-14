@@ -302,11 +302,7 @@ export function ThemeStudio() {
                   <div className="row-title" id={ids.app}>
                     {text(row.title)}
                   </div>
-                  {appRow.summary && (
-                    <div className="row-help" title={text(appRow.summary)}>
-                      {text(appRow.summary)}
-                    </div>
-                  )}
+                  {appRow.summary && <div className="row-help">{text(appRow.summary)}</div>}
                   {appManaged && (
                     <div className="row-managed" data-managed-reason="">
                       <Icon name="lock" />

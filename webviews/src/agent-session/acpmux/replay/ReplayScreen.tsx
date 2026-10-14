@@ -222,20 +222,13 @@ export function ReplayScreen({
                 />
               ))}
             </div>
-            <button
-              type="button"
-              className="acpmux-replay-speed"
-              aria-label={t("replay.speed")}
-              title={t("replay.speed")}
-              onClick={nextSpeed}
-            >
+            <button type="button" className="acpmux-replay-speed" aria-label={t("replay.speed")} onClick={nextSpeed}>
               {speed}×
             </button>
             {onContinue && (
               <button
                 type="button"
                 className="acpmux-replay-continue"
-                title={t("replay.continueHint")}
                 disabled={forkSeq === undefined}
                 onClick={() => forkSeq !== undefined && onContinue(forkSeq)}
               >

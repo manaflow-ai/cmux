@@ -177,6 +177,19 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
     expect(await page.locator(".acpmux-pr-dock__bar").first().getAttribute("href")).toBe(
       "https://github.com/acme/uploader/pull/43",
     );
+    // Each one a chip as wide as its text, its dismiss button inside, and no tooltip (Leo, 2026-10-13).
+    const chip = await page.evaluate(() => {
+      const dock = document.querySelector(".acpmux-pr-dock")!.getBoundingClientRect();
+      const chip = document.querySelector(".acpmux-pr-dock__chip")!;
+      const box = chip.getBoundingClientRect();
+      const x = chip.querySelector(".acpmux-pr-dock__dismiss")!.getBoundingClientRect();
+      return {
+        narrower: box.width < dock.width / 2,
+        inside: x.left >= box.left && x.right <= box.right && x.top >= box.top && x.bottom <= box.bottom,
+        titles: chip.querySelectorAll("[title], [data-tooltip]").length + (chip.hasAttribute("title") ? 1 : 0),
+      };
+    });
+    expect(chip).toEqual({ narrower: true, inside: true, titles: 0 });
 
     await page.getByRole("button", { name: "Show 1 more" }).click();
     expect((await bars(page)).at(-1)).toEqual(["#41", "uploader", "Add retry to the uploader", "merged"]);
