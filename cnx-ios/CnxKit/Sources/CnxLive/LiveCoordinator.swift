@@ -233,13 +233,25 @@ public final class LiveCoordinator {
     /// one of the account's Macs is in it. Starts Mac discovery.
     public func applyAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?) {
         var list = teams.isEmpty ? [personal] : teams
-        if !teams.isEmpty, store.teams.contains(where: { $0.id == personal.id && !$0.macs.isEmpty }) { list.append(personal) }
+        let keepsPersonal = store.activeTeamID == personal.id || store.teams.contains(where: { $0.id == personal.id && !$0.macs.isEmpty })
+        if !teams.isEmpty, keepsPersonal { list.append(personal) }
         // A team the phone already shows (picked, or followed to a Mac) stays active.
         let keep = list.contains { $0.id == store.activeTeamID } ? store.activeTeamID : selectedID
         store.applyLiveTeams(list, selectedID: keep)
         activeTeamChanged()
         for team in list { loadPrefs(team.id) }
         if discoveryTask == nil { startDiscovery() }
+    }
+
+    /// The user chose their personal space (setup's "Choose a space"): it
+    /// joins the list if it wasn't there and becomes the active space.
+    public func selectPersonal() {
+        if !store.teams.contains(where: { $0.id == personal.id }) {
+            let list = store.teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) } + [personal]
+            store.applyLiveTeams(list, selectedID: personal.id)
+        }
+        store.selectTeam(personal.id)
+        activeTeamChanged(byUser: true)
     }
 
     /// Call after `store.selectTeam`: re-registers, reloads Macs, re-targets

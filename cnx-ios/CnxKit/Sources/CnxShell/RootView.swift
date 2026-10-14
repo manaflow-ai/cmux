@@ -58,6 +58,9 @@ public struct RootView: View {
     /// Setup's steps, fixed once the team list has loaded so a Mac appearing
     /// mid-setup does not swap the page under the user.
     @State private var setupPlan: [SetupFlow.Step]?
+    /// Whether setup asks for notifications (a push build the system has not
+    /// asked yet); nil until known.
+    @State private var asksNotifications: Bool?
     /// Set right after the launch handoff: later Welcome insertions (sign-out)
     /// crossfade instead of replaying the launch intro.
     @State private var handoffDone = false
@@ -97,6 +100,7 @@ public struct RootView: View {
                             steps: setupSteps, auth: auth, store: store,
                             signOut: { Task { await auth.signOut() } },
                             teamPicked: { _ in live?.activeTeamChanged() },
+                            personalPicked: { live?.selectPersonal() },
                             teamCreated: teamCreated
                         ) {
                             setupComplete = true
@@ -108,9 +112,16 @@ public struct RootView: View {
                 }
                 .transition(.opacity.animation(theme.motion.gentle.animation))
             } else {
+                // Welcome redraws this mark on its first frame and animates it
+                // from there, so on that path the swap is a true cut: an
+                // animated removal would leave a second, fading chevron behind
+                // the welcome (an animation attached to a transition runs even
+                // in a `disablesAnimations` transaction).
                 LaunchMarkView()
                     .ignoresSafeArea()
-                    .transition(.opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation))
+                    .transition(destination == .welcome
+                        ? .identity
+                        : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation))
             }
         }
         .animation(theme.motion.gentle.animation, value: destination)
@@ -138,6 +149,11 @@ public struct RootView: View {
         .onChange(of: launchFinished) { _, finished in handoffDone = finished }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
+        .onChange(of: asksNotifications) { _, _ in planSetup() }
+        .task(id: auth.isSignedIn) {
+            guard auth.isSignedIn else { return }
+            asksNotifications = await SetupFlow.asksForNotifications()
+        }
         .onChange(of: auth.isSignedIn) { _, signedIn in
             if signedIn { theme.haptics.success() } else { signedOut() }
         }
@@ -148,19 +164,22 @@ public struct RootView: View {
 
     private var setupSteps: [SetupFlow.Step] {
         if options.setupPairDemo { return [.pairMac, .notifications] }
-        // Until the team list loads, the team step shows its loading state.
-        return setupPlan ?? [.team, .pairMac, .notifications]
+        // Until the team list loads, the team step shows its loading state
+        // (and a failed list still lets the user choose Personal).
+        return setupPlan ?? [.team, .pairMac] + (asksNotifications == true ? [.notifications] : [])
     }
 
     /// Fixes setup's steps once the account's teams are known.
     private func planSetup() {
-        guard auth.teamList.isLoaded, setupPlan == nil else { return }
+        guard auth.teamList.isLoaded, setupPlan == nil, let asksNotifications else { return }
         var steps: [SetupFlow.Step] = []
         let count = auth.isMock ? store.teams.count : auth.teamList.teams.count
         if count != 1 { steps.append(.team) }
         if !(store.activeTeam?.macs.contains(where: \.isOnline) ?? false) { steps.append(.pairMac) }
-        steps.append(.notifications)
+        if asksNotifications { steps.append(.notifications) }
         setupPlan = steps
+        // Nothing to set up (one team, a Mac online, notifications decided).
+        if steps.isEmpty, destination == .setup { setupComplete = true }
     }
 
     private func syncTeams() {
@@ -194,11 +213,13 @@ public struct RootView: View {
     /// Every sign-out path (setup's footer, Settings → Log out, a session the
     /// service ended) lands here: live data stops, the account's teams, Macs,
     /// workspaces and stored preferences go, the device ids are replaced (the
-    /// service binds them to their first user), and Welcome replays its intro.
+    /// service binds them to their first user), and Welcome crossfades in,
+    /// already settled (its intro plays once per cold launch).
     private func signedOut() {
         live?.stop()
         live = nil
         setupPlan = nil
+        asksNotifications = nil
         store.resetForSignOut()
         if !auth.isMock {
             DeviceIdentity.reset()
