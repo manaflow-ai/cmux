@@ -85,6 +85,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     #if DEBUG
     var presentLog: [String] = []
     private var presentDebug = ""
+    /// Flood benchmark: raw bytes of each feed not yet processed.
+    private var benchFeeds: [Int] = []
     #endif
     /// Viewports requested before the current one (frames for them may still arrive).
     private var recentTops: [Int] = []
@@ -432,6 +434,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         model.ingest(event)
         switch event {
         case .output(let data):
+            #if DEBUG
+            if TerminalBenchProbe.shared != nil { benchFeeds.append(data.count) }
+            #endif
             if let remote = model.session.remoteRows {
                 let offset = max(0, surface.grid.rows - remote)
                 surface.feed(rowShift.filter(data, offset: offset, remoteRows: remote))
@@ -465,6 +470,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .bell:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .outputProcessed:
+            #if DEBUG
+            if let probe = TerminalBenchProbe.shared, !benchFeeds.isEmpty { probe.outputProcessed(benchFeeds.removeFirst()) }
+            #endif
             outputSinceProbe = true
             #if DEBUG
             if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm processed %@", debugState) }
@@ -623,6 +631,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// against the previous frame's rows for the candidate shifts (none, the
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
+        #if DEBUG
+        TerminalBenchProbe.shared?.presented()
+        #endif
         guard !model.isTUI, cell.height > 0 else { return }
         let scale = view.window?.screen.scale ?? 3
         let rowPixels = Int((cell.height * scale).rounded())
