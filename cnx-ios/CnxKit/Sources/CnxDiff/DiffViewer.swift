@@ -105,6 +105,8 @@ public struct DiffCounts: View {
             Text("−\(deletions)").foregroundStyle(Color.cnxDiffDelText)
         }
         .font(.footnote.monospacedDigit().weight(.medium))
+        .lineLimit(1)
+        .fixedSize()
         .accessibilityElement()
         .accessibilityLabel(Text("\(additions) additions, \(deletions) deletions"))
     }
