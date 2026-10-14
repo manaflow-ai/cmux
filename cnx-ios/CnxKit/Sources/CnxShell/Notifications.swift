@@ -1,6 +1,7 @@
 #if os(iOS)
 import CnxAgentChat
 import CnxLive
+import CnxModel
 import CnxSettings
 import Foundation
 import Observation
@@ -55,7 +56,7 @@ public final class CnxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifi
         UNUserNotificationCenter.current().delegate = self
         Task {
             let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            if [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
+            if BuildCapabilities.current.push, [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
         }
         return true
     }

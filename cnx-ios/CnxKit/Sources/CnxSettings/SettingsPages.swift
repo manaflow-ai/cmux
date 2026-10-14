@@ -286,7 +286,7 @@ struct NotificationsPage: View {
                     if status == .notDetermined {
                         Task {
                             let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-                            if granted { UIApplication.shared.registerForRemoteNotifications() }
+                            if granted, BuildCapabilities.current.push { UIApplication.shared.registerForRemoteNotifications() }
                             await refresh()
                         }
                     } else if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
@@ -300,18 +300,29 @@ struct NotificationsPage: View {
                     }
                 }
             }
-            Section {
-                Toggle(isOn: $settings.notifyQuestions) { SettingsLabel("Questions and permissions", symbol: "questionmark.bubble") }
-                Toggle(isOn: $settings.notifyFinished) { SettingsLabel("Finished tasks", symbol: "checkmark.circle") }
-                Toggle(isOn: $settings.notifyErrors) { SettingsLabel("Errors", symbol: "exclamationmark.triangle") }
-            } header: {
-                Text("Notify me about")
-            } footer: {
-                Text("Your Macs send these through the cmux service. A notification names the agent and workspace only, never what the agent wrote.")
+            if BuildCapabilities.current.push {
+                kindsSection(settings: $settings)
+            } else {
+                Section {
+                } footer: {
+                    Text("This build can't receive notifications from your Macs. The TestFlight build can.")
+                }
             }
         }
         .settingsPage("Notifications")
         .task { await refresh() }
+    }
+
+    private func kindsSection(settings: Bindable<SettingsStore>) -> some View {
+        Section {
+            Toggle(isOn: settings.notifyQuestions) { SettingsLabel("Questions and permissions", symbol: "questionmark.bubble") }
+            Toggle(isOn: settings.notifyFinished) { SettingsLabel("Finished tasks", symbol: "checkmark.circle") }
+            Toggle(isOn: settings.notifyErrors) { SettingsLabel("Errors", symbol: "exclamationmark.triangle") }
+        } header: {
+            Text("Notify me about")
+        } footer: {
+            Text("Your Macs send these through the cmux service. A notification names the agent and workspace only, never what the agent wrote.")
+        }
     }
 
     private var statusText: String {
