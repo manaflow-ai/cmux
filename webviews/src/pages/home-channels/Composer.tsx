@@ -345,6 +345,7 @@ export function Composer({
             type="file"
             multiple
             hidden
+            aria-label={t("attach.add")}
             onChange={(event) => {
               if (event.target.files) addFiles(event.target.files);
               event.target.value = "";
