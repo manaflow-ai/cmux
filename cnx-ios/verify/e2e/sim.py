@@ -288,6 +288,11 @@ class Sim:
                 buf += chunk
                 if "Recording started" in buf:
                     break
+        if "Recording started" not in buf:
+            # e.g. "Host recording is already in progress" after a killed recorder:
+            # a metric without video would report n=0 silently.
+            self.record_stop()
+            raise RuntimeError(f"screen recording did not start: {buf.strip()[-200:]}")
         return time.time()
 
     def record_stop(self):

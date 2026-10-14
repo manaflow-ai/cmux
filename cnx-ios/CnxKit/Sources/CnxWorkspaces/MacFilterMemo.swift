@@ -1,0 +1,76 @@
+import CnxModel
+import Foundation
+
+/// The Workspaces toolbar's per-Mac text, computed once per change instead of
+/// on every body pass. The list's body reads the Mac names' disambiguation
+/// (`MacNameDisambiguation`) for every row, subtitle and menu entry, and the
+/// Filter menu formats every Mac's presence; with the account's 20-odd Macs
+/// both were among the largest app frames of the first screens' main-thread
+/// time (verify/perf-latency.md). Not observable: it only caches what the
+/// body already read from the store.
+@MainActor
+public final class MacFilterMemo {
+    /// One Filter menu row: the Mac's name and its subtitle.
+    public struct Entry: Equatable, Sendable, Identifiable {
+        public let id: String
+        public let title: String
+        public let detail: String
+    }
+
+    /// Everything a Filter row's text depends on. `minute` makes offline
+    /// Macs' "Last seen 4m ago" move on.
+    public struct Input: Equatable {
+        public var macs: [MacDevice]
+        public var connection: [String: MacConnection]
+        public var linkStatus: [String: String]
+        public var live: Bool
+        public var minute: Int
+
+        public init(macs: [MacDevice], connection: [String: MacConnection], linkStatus: [String: String], live: Bool,
+                    now: Date = Date()) {
+            self.macs = macs
+            self.connection = connection
+            self.linkStatus = linkStatus
+            self.live = live
+            minute = Int(now.timeIntervalSince1970 / 60)
+        }
+    }
+
+    private var namesKey: [MacDevice]?
+    private var cachedNames = MacNameDisambiguation([MacDevice]())
+    private var entriesKey: Input?
+    private var cachedEntries: [Entry] = []
+    /// How many times each was computed (tests).
+    public private(set) var nameComputations = 0
+    public private(set) var entryComputations = 0
+
+    public init() {}
+
+    /// The disambiguation for `macs`, recomputed only when an id or a name changed.
+    public func names(_ macs: [MacDevice]) -> MacNameDisambiguation {
+        if let namesKey, namesKey.count == macs.count,
+           zip(namesKey, macs).allSatisfy({ $0.id == $1.id && $0.name == $1.name }) {
+            return cachedNames
+        }
+        namesKey = macs
+        cachedNames = MacNameDisambiguation(macs)
+        nameComputations += 1
+        return cachedNames
+    }
+
+    /// The Filter menu's Mac rows (online first), recomputed only when `input` changed.
+    public func entries(_ input: Input) -> [Entry] {
+        if entriesKey == input { return cachedEntries }
+        let names = names(input.macs)
+        let stamp = RelativeStamp(now: Date(timeIntervalSince1970: TimeInterval(input.minute) * 60))
+        cachedEntries = MacScope.menuOrder(input.macs).map { mac in
+            let presence = stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+            let status = MacStatusLine.make(mac: mac, connection: input.connection[mac.id], live: input.live, presence: presence).text
+            let detail = [status, names.detail(for: mac.id), input.linkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
+            return Entry(id: mac.id, title: mac.name, detail: detail)
+        }
+        entriesKey = input
+        entryComputations += 1
+        return cachedEntries
+    }
+}

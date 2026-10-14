@@ -130,6 +130,7 @@ def main():
     ap.add_argument("--skip", default="", help="comma list of journey step ids to skip")
     ap.add_argument("--latency", default="all", help="'all', 'none' or a comma list of metrics")
     ap.add_argument("--samples", type=int, default=20)
+    ap.add_argument("--max-load", type=float, help="load gate: before each latency sample, wait (up to 5 min) for this Mac's 1-minute load average to be at or under this")
     ap.add_argument("--keep", action="store_true", help="leave the Mac app running and the simulator booted")
     ap.add_argument("--out")
     a = ap.parse_args()
@@ -176,7 +177,7 @@ def main():
         if a.latency != "none":
             log("latency")
             which = None if a.latency == "all" else set(a.latency.split(","))
-            metrics = Latency(j, os.path.join(out, "latency"), log, a.samples).run(which)
+            metrics = Latency(j, os.path.join(out, "latency"), log, a.samples, a.max_load).run(which)
         j.run(only=set(a.steps.split(",")) if a.steps else None, skip=set(filter(None, a.skip.split(","))), last=True)
     finally:
         if j:

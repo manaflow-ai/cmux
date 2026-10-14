@@ -39,9 +39,16 @@ public protocol MacLink: AnyObject, Sendable {
     func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel
     func ping() async throws -> UInt32
     func close() async
+    /// The path of a link that is already up when the dial returns (nil:
+    /// unknown until its first `states` element). The controller then adopts
+    /// it as connected at once instead of waiting a main-actor turn for the
+    /// state stream (verify/perf-latency.md).
+    var connectedPath: LinkPathKind? { get }
 }
 
 extension MacLink {
+    public var connectedPath: LinkPathKind? { nil }
+
     public func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
         try await openChannel(service: service, args: args)
     }

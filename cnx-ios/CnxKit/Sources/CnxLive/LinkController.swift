@@ -37,6 +37,20 @@ public final class LinkController {
     nonisolated static let foregroundProbeTimeout: Duration = .milliseconds(2000)
     @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
+    /// Runs right after a dial, in the same detached step (no main actor):
+    /// the coordinator opens the channels it needs first (`auth`, `daemon`)
+    /// and sends its setup batch, so the live list needs no main-actor turn
+    /// per channel. Its result is held for the link (`takePrepared(for:)`).
+    @ObservationIgnored public var prepare: (@Sendable (any MacLink, _ macID: String) async -> (any Sendable)?)?
+    /// What `prepare` returned for the adopted link.
+    @ObservationIgnored private var prepared: (link: ObjectIdentifier, value: any Sendable)?
+
+    /// What `prepare` made for `link`, once (nil for another link, or taken).
+    public func takePrepared(for link: any MacLink) -> (any Sendable)? {
+        guard let prepared, prepared.link == ObjectIdentifier(link) else { return nil }
+        self.prepared = nil
+        return prepared.value
+    }
 
     public init(
         transport: TransportKind,
@@ -114,6 +128,7 @@ public final class LinkController {
             watchTask?.cancel()
             heartbeatTask?.cancel()
             retryTask?.cancel()
+            prepared = nil
             if let link {
                 self.link = nil
                 onLink?(nil)
@@ -133,15 +148,20 @@ public final class LinkController {
             let forceRefresh = refreshTokenNextDial
             refreshTokenNextDial = false
             ConnectTimeline.shared.mark("dial_start", detail: transport.rawValue)
-            // The token and the dial start now, off the main actor; this task
-            // (main actor) only waits for the link and adopts it.
-            let work = Task.detached {
-                try await Self.connect(dialer: dialer, endpoint: endpoint, transport: transport,
-                                       forceRefresh: forceRefresh, accessToken: accessToken)
+            // The token, the dial and the coordinator's first channels start
+            // now, off the main actor; this task (main actor) only waits for
+            // the link and adopts it.
+            let prepare = prepare
+            let macDeviceID = endpoint.macDeviceID
+            let work = Task.detached { () async throws -> (link: any MacLink, prepared: (any Sendable)?) in
+                let link = try await Self.connect(dialer: dialer, endpoint: endpoint, transport: transport,
+                                                  forceRefresh: forceRefresh, accessToken: accessToken)
+                guard let prepare, !Task.isCancelled else { return (link, nil) }
+                return (link, await prepare(link, macDeviceID))
             }
             dialTask = Task { [weak self] in
                 do {
-                    let link = try await withTaskCancellationHandler {
+                    let (link, prepared) = try await withTaskCancellationHandler {
                         try await work.value
                     } onCancel: {
                         work.cancel()
@@ -150,6 +170,7 @@ public final class LinkController {
                         await link.close()
                         return
                     }
+                    self.prepared = prepared.map { (ObjectIdentifier(link), $0) }
                     self.adopt(link, generation: generation)
                 } catch {
                     log.error("dial failed: \(String(describing: error), privacy: .public)")
@@ -214,6 +235,12 @@ public final class LinkController {
         // Measure RTT once up front so the status line has a number quickly,
         // then keep probing so a silent Mac is noticed.
         send(.foreground)
+        // A link that knows it is up is connected now: the state stream's first
+        // element would only say so a main-actor turn later.
+        if let path = link.connectedPath, case .connecting = machine.phase {
+            send(.dialSucceeded(generation: generation, path: path))
+            onLink?(link)
+        }
         heartbeatTask?.cancel()
         let clock = clock
         heartbeatTask = Task { [weak self] in

@@ -832,11 +832,19 @@ class Journey:
         if not f:
             return ""
         self.sim.press(*f[0].center, hold=0.1)
+        # The rig Mac's row by its device id (names repeat: "Aziz's MacBook Pro (1952)").
         item = self.sim.wait(ident=f"workspaces.filter.{self.device_id}", timeout=4)
         text = ""
         if item:
             x, y, w, h = item.frame
-            text = " ".join(o[4] for o in self.sim.ocr() if y - 2 <= o[1] <= y + h and o[0] >= x - 4)
+            # The row's gray subtitle is drawn after the menu's open animation: OCR
+            # read too early sees only the title (every redesigned-list run since the
+            # names grew a tag and the subtitle wrapped to three lines).
+            for _ in range(3):
+                time.sleep(0.8)
+                text = " ".join(o[4] for o in self.sim.ocr() if y - 2 <= o[1] <= y + h and o[0] >= x - 4)
+                if "Online" in text or "Last seen" in text or "Offline" in text:
+                    break
         self.sim.tap(60, 450)  # outside the menu: dismiss without choosing
         time.sleep(0.6)
         return text

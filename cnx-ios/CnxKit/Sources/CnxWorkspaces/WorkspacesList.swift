@@ -57,6 +57,8 @@ public struct WorkspacesList: View {
     @State private var visibleBottom: CGFloat = .infinity
     /// Each row's frame in the list (read on demand, never drawn from).
     @State private var rowFrames = RowFrames()
+    /// The Macs' names and Filter rows, memoized (verify/perf-latency.md).
+    @State private var macText = MacFilterMemo()
     @State private var closingFrame: CGRect = .zero
     /// The list's scroller, for bringing a row into view before its close popover.
     @State private var scrollProxy: ScrollViewProxy?
@@ -90,7 +92,7 @@ public struct WorkspacesList: View {
 
     /// Tags for the team's Macs that share a name, so every place that
     /// names a Mac says which one ("Aziz's MacBook Pro (3F2A)").
-    private var sameNames: MacNameDisambiguation { MacNameDisambiguation(macs) }
+    private var sameNames: MacNameDisambiguation { macText.names(macs) }
 
     private func displayName(_ mac: MacDevice) -> String { sameNames.displayName(mac) }
 
@@ -645,12 +647,13 @@ public struct WorkspacesList: View {
                 Label("All Macs", systemImage: "square.stack.3d.up")
             }
             .accessibilityIdentifier("workspaces.filter.all")
-            ForEach(MacScope.menuOrder(macs)) { mac in
+            ForEach(macText.entries(MacFilterMemo.Input(macs: macs, connection: store.macConnection,
+                                                         linkStatus: store.macLinkStatus, live: store.tracksMacData))) { mac in
                 // A title and a subtitle Text directly in the label: a menu
                 // shows the second as the subtitle (not inside a Label).
                 Toggle(isOn: chosen(.mac(mac.id))) {
-                    Text(mac.name)
-                    Text(macDetail(mac))
+                    Text(mac.title)
+                    Text(mac.detail)
                     // The model has no Mac kind (laptop or desktop) yet.
                     Image(systemName: "desktopcomputer")
                 }
@@ -666,13 +669,6 @@ public struct WorkspacesList: View {
     /// On for the chosen scope; turning one on chooses it (turning the chosen one off does nothing).
     private func chosen(_ value: MacScope) -> Binding<Bool> {
         Binding(get: { scope == value }, set: { if $0 { select(value) } })
-    }
-
-    /// Presence plus this phone's connection ("Online · Connecting…"), and the live link line.
-    private func macDetail(_ mac: MacDevice) -> String {
-        let presence = RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
-        let status = store.macStatusLine(mac, presence: presence).text
-        return [status, sameNames.detail(for: mac.id), store.macLinkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
     }
 
     private func retry() {

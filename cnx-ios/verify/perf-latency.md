@@ -138,3 +138,64 @@ Left:
   - New: `LaunchReconcileLiveTests` (the first live list keeps cached activity times).
   - New: `TerminalWarmSetTests`.
 - The iOS simulator Demo and Production builds compile.
+
+## Round 2: channels in the dial step, memoized Mac text (2026-10-14)
+
+Before is `d494906d` (round 1 merged). After is `77f74ea0`. Both used the same rig (`30a3f0c2`
+plus `sim.py` failing loudly when a recording does not start), the same Mac build and
+simulator, `--max-load 25`, n = 20 each.
+
+| Metric | Before median / p95 | After median / p95 |
+| --- | --- | --- |
+| Process start to settled live list (video) | 1256 / 1383 ms | **1141 / 1232 ms** |
+| First live row (app mark) | 1048 / 1135 ms | **950 / 970 ms** |
+| First cached row (app mark) | 771 / 799 ms | 766 / 784 ms |
+| Link up (Mac log) | 705 / 805 ms | 687 / 739 ms |
+| Tab switch, touch to settled | 344 / 360 ms | 346 / 360 ms |
+| Tab switch, touch to first frame | 107 / 112 ms | 109 / 113 ms |
+
+Load (1-minute average, median of the samples): cold launch 11.9 before and 11.0 after;
+tab switch 10.9 before and 16.5 after.
+
+Marks (median of 12 logged launches, ms from process start):
+
+| Mark | Before | After |
+| --- | --- | --- |
+| `link_connected` | 692 | 688 |
+| `pairing_opened`, `daemon_channel_open` | 990, 1030 | 689, 689 (in the dial step) |
+| `first_daemon_response` | 1042 | 690 |
+| `link_adopted` | 832 | 828 |
+| `link_served` | 960 | 833 |
+| `workspace_row_live` | 1052 | 950 |
+
+What changed:
+
+- **Dial step opens the channels.** `LinkController.prepare` runs in the dial's detached
+  step. It opens `auth`, then `daemon` (the order a pairing Mac needs), and sends the
+  setup batch (`WorkspaceSync.prepare`).
+- **No wait for the state stream.** A link that knows its path (`MacLink.connectedPath`)
+  is adopted as connected in the same turn.
+- **Served in the adoption turn.** The coordinator serves a prepared link in that turn
+  (`startServing`), and pairing's challenge starts detached (`startPairing`).
+- **Hops removed.** Link-up to live row went from about seven main-actor hops to two.
+  The remaining wait is for the main actor itself: `link_adopted` is about 60 ms after the
+  first cached frame.
+- **Mac text memoized.** `MacFilterMemo` computes the Mac names' disambiguation and the
+  Filter rows once per change, not on every body pass. The first cached row did not move
+  measurably on this account (22 Macs).
+
+Cached-row regression in round 1 (930 vs 778 ms): not reproduced at matched load (766 vs
+771 ms). The round-1 after run ran at load 21.5, the before run at 12.8.
+
+Rig:
+
+- `--max-load N` waits before each sample.
+- `mac_discovered` passes again. It finds the rig Mac's Filter row by device id, and reads
+  its subtitle after the menu settles; the OCR read too early saw only the title.
+- A recording that does not start now fails the metric instead of reporting n = 0. A
+  killed recorder leaves "Host recording is already in progress" until the simulator
+  reboots.
+
+Tests: `PreparedLinkTests` and `MacFilterMemoTests`. `swift test` on
+`mini-cmuxs-mac-mini-2` (Xcode 26.3): 312 tests in 99 suites pass. The tests use new APIs,
+so they could not be committed failing ahead of the fix.
