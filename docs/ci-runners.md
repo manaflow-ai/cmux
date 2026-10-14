@@ -15,7 +15,19 @@
 
 ## Exact-head merging
 
-`gh-merge-green` requires a completed, successful `ci-status` check on the
+`gh-merge-green` is optional. On `feat-cmux-next` a plain
+`gh pr merge --squash --match-head-commit <sha>` under that branch's merge rules
+is fine. When used there, the helper applies a fast gate by default. It waits up to
+`--wait` seconds (2400 by default) for path routing, the fast tier and the
+touched compiles on the exact head, then merges. It refuses a completed red in
+those lanes or in the web, app size, crash and lint families, conflict markers,
+and frozen paths. The full suites run after the merge. It prints one
+`gh-merge-green:` line saying what it checked and how long it waited.
+
+`--full` keeps the wait for every check, as below; every base other than
+`feat-cmux-next` (main and classic) always gets it.
+
+With `--full`, `gh-merge-green` requires a completed, successful `ci-status` check on the
 exact pull-request head. App diffs also require the completed
 `macos / macOS compile admission` check. A missing, queued, stale, or
 unsuccessful check is a refusal, and the helper prints the repair pointer.
