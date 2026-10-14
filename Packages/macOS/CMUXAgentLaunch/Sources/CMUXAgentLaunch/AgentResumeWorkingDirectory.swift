@@ -52,7 +52,8 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
     public func resolve(
         kind: String,
         runtimeCwd: String?,
-        launchWorkingDirectory: String?
+        launchWorkingDirectory: String?,
+        transcriptPath: String? = nil
     ) -> String? {
         let runtime = normalized(runtimeCwd)
         let launch = normalized(launchWorkingDirectory)
