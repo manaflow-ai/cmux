@@ -84,6 +84,23 @@ const createCMUXFeed = async (ctx, options = {}) => {
     return firstString(status.type, status.status, status.state)?.toLowerCase() === "idle";
   };
 
+  const sessionStatusType = (status) => {
+    if (typeof status === "string") return status.trim().toLowerCase();
+    if (!isObject(status)) return null;
+    return firstString(status.type, status.status, status.state)?.toLowerCase() || null;
+  };
+
+  const failureMessage = (event) => {
+    const props = eventProperties(event);
+    const raw = props.error || props.failure || props.reason;
+    if (typeof raw === "string") return normalizeText(raw, 500);
+    if (isObject(raw)) {
+      const nested = firstString(raw.message, raw.error, raw.reason, raw.description, raw.name);
+      if (nested) return normalizeText(nested, 500);
+    }
+    return normalizeText(firstString(props.message, props.description), 500);
+  };
+
   const normalizeText = (value, max = 1000) => {
     if (typeof value !== "string") return null;
     const normalized = value.replace(/\s+/g, " ").trim();
@@ -98,6 +115,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
         lastUserMessage: null,
         assistantPreamble: null,
         cwd: null,
+        lastStopKind: null,
       });
     }
     return sessions.get(key);
@@ -663,6 +681,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
       if (!sid || !text) return null;
       const state = sessionState(sid);
       state.lastUserMessage = text;
+      state.lastStopKind = null;
       return base(sid, {
         hook_event_name: "UserPromptSubmit",
         tool_input: { prompt: text },
@@ -682,6 +701,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
       const role = info.role || props.role;
       if (messageId && sessionId && role) {
         messageRoles.set(messageId, { sessionId, role });
+        if (role === "user") sessionState(sessionId).lastStopKind = null;
         if (messageRoles.size > 300) {
           messageRoles.delete(messageRoles.keys().next().value);
         }
@@ -699,6 +719,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
     const state = sessionState(meta.sessionId);
     if (meta.role === "user") {
       state.lastUserMessage = text;
+      state.lastStopKind = null;
       return base(meta.sessionId, {
         hook_event_name: "UserPromptSubmit",
         tool_input: { prompt: text },
@@ -709,6 +730,14 @@ const createCMUXFeed = async (ctx, options = {}) => {
       state.assistantPreamble = text;
     }
     return null;
+  };
+
+  const shouldEmitStop = (sessionId, kind) => {
+    const state = sessionState(sessionId);
+    if (state.lastStopKind === "failure") return false;
+    if (state.lastStopKind === "success" && kind === "success") return false;
+    state.lastStopKind = kind;
+    return true;
   };
 
   const pushBlocking = (event, requestId) => {
@@ -768,6 +797,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
           const info = props.info || {};
           const sid = sessionIdFromProperties(props) || "unknown";
           const state = sessionState(sid);
+          state.lastStopKind = null;
           state.cwd = info.directory || props.location?.directory || event.location?.directory || ctx?.location?.directory || ctx?.directory || state.cwd;
           pushTelemetry(base(sid, {
             hook_event_name: "SessionStart",
@@ -777,19 +807,36 @@ const createCMUXFeed = async (ctx, options = {}) => {
         }
         case "session.status": {
           const props = eventProperties(event);
-          if (!sessionStatusIsIdle(props.status)) break;
           const sid = sessionIdFromProperties(props);
-          if (!sid) break;
+          if (sid && sessionStatusType(props.status) === "busy") {
+            sessionState(sid).lastStopKind = null;
+            break;
+          }
+          if (!sessionStatusIsIdle(props.status)) break;
+          if (!sid || !shouldEmitStop(sid, "success")) break;
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
           }));
           break;
         }
         case "session.execution.succeeded":
-        case "session.execution.failed":
         case "session.execution.interrupted": {
           const sid = sessionIdFromEvent(event);
-          if (sid) pushTelemetry(base(sid, { hook_event_name: "Stop" }));
+          if (sid && shouldEmitStop(sid, "success")) pushTelemetry(base(sid, { hook_event_name: "Stop" }));
+          break;
+        }
+        case "session.execution.failed":
+        case "session.next.step.failed":
+        case "session.error": {
+          const sid = sessionIdFromEvent(event);
+          if (sid && shouldEmitStop(sid, "failure")) {
+            const error = failureMessage(event);
+            pushTelemetry(base(sid, {
+              hook_event_name: "Stop",
+              is_error: true,
+              ...(error ? { error } : {}),
+            }));
+          }
           break;
         }
         case "session.updated": {
@@ -798,17 +845,21 @@ const createCMUXFeed = async (ctx, options = {}) => {
           if (eventProperties(event).info?.time?.archived) {
             pushTelemetry(base(sid, { hook_event_name: "SessionEnd" }));
             sessions.delete(sid);
-          } else {
-            pushTelemetry(base(sid, { hook_event_name: "SessionStart" }));
           }
           break;
         }
         case "session.idle": {
           const sid = sessionIdFromProperties(eventProperties(event));
-          if (!sid) break;
+          if (!sid || !shouldEmitStop(sid, "success")) break;
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
           }));
+          break;
+        }
+        case "session.next.prompted":
+        case "session.next.prompt.admitted": {
+          const sid = sessionIdFromEvent(event);
+          if (sid) sessionState(sid).lastStopKind = null;
           break;
         }
         case "session.deleted": {

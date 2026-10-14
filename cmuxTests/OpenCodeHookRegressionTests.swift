@@ -82,7 +82,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
                   event["hook_event_name"] as? String == "Stop" else { return nil }
             return event
         }
-        XCTAssertEqual(stopEvents.count, 3, "Expected all OpenCode idle forms to emit Stop: \(frames)")
+        XCTAssertEqual(stopEvents.count, 1, "Expected duplicate OpenCode idle forms to coalesce: \(frames)")
         XCTAssertTrue(stopEvents.allSatisfy { $0["session_id"] as? String == "opencode-ses-feed-shape" })
         let requestIDs = frames.compactMap { $0["id"] as? String }
         XCTAssertEqual(requestIDs.count, Set(requestIDs).count, "OpenCode telemetry request IDs must not collide: \(frames)")

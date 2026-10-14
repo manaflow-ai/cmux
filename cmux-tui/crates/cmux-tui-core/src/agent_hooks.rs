@@ -297,6 +297,14 @@ fn semantic_kind(
         ("antigravity" | "hermes-agent", "sessionend" | "onsessionend") => "agent.turn.completed",
         ("opencode", "sessioncreated") => "agent.session.started",
         ("opencode", "sessionidle") => "agent.turn.completed",
+        (
+            "opencode",
+            "sessionexecutionsucceeded" | "sessionexecutioninterrupted",
+        ) => "agent.turn.completed",
+        (
+            "opencode",
+            "sessionexecutionfailed" | "sessionnextstepfailed" | "sessionerror",
+        ) => "agent.error.reported",
         ("opencode", "sessiondeleted") => "agent.session.ended",
         (_, event) if is_child_spawn(event) => "agent.child.spawned",
         (_, event) if is_child_completion(event) => "agent.child.completed",
@@ -957,6 +965,28 @@ mod tests {
         let deleted =
             agent_hook_journal_ingress("opencode", "session.deleted", None, json!({})).unwrap();
         assert_eq!(deleted.kind, "agent.session.ended");
+    }
+
+    #[test]
+    fn current_opencode_failure_events_report_errors() {
+        for event in ["session.execution.failed", "session.next.step.failed", "session.error"] {
+            let ingress = agent_hook_journal_ingress(
+                "opencode",
+                event,
+                None,
+                json!({"event":{"properties":{"sessionID":"opencode-session"}}}),
+            )
+            .unwrap();
+            assert_eq!(ingress.kind, "agent.error.reported", "{event}");
+        }
+    }
+
+    #[test]
+    fn current_opencode_completion_events_report_completed_turns() {
+        for event in ["session.execution.succeeded", "session.execution.interrupted"] {
+            let ingress = agent_hook_journal_ingress("opencode", event, None, json!({})).unwrap();
+            assert_eq!(ingress.kind, "agent.turn.completed", "{event}");
+        }
     }
 
     #[test]

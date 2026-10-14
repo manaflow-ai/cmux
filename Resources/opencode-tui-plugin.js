@@ -9,6 +9,11 @@ import { CMUXFeed } from "./index.js";
 
 const firstString = (...values) => values.find((value) => typeof value === "string" && value.trim())?.trim() || null;
 const properties = (event) => event?.data || event?.properties || {};
+const statusType = (status) => {
+  if (typeof status === "string") return status.trim().toLowerCase();
+  if (!status || typeof status !== "object") return null;
+  return firstString(status.type, status.status, status.state)?.toLowerCase() || null;
+};
 
 function sessionID(event) {
   const data = properties(event);
@@ -48,6 +53,17 @@ function cwd(ctx, event) {
     ctx?.directory,
     process.cwd(),
   );
+}
+
+function failureMessage(event) {
+  const data = properties(event);
+  const raw = data.error || data.failure || data.reason;
+  if (typeof raw === "string") return raw.slice(0, 500);
+  if (raw && typeof raw === "object") {
+    const nested = firstString(raw.message, raw.error, raw.reason, raw.description, raw.name);
+    if (nested) return nested.slice(0, 500);
+  }
+  return firstString(data.message, data.description)?.slice(0, 500) || null;
 }
 
 function rootFor(ctx, id) {
@@ -171,11 +187,19 @@ function sessionEventName(event) {
   const data = properties(event);
   if (event?.type === "session.created") return "session-start";
   if (event?.type === "session.deleted") return "session-end";
-  if (event?.type === "session.updated") return data.info?.time?.archived ? "session-end" : "session-start";
-  if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(event?.type)) return "stop";
+  if (event?.type === "session.updated") return data.info?.time?.archived ? "session-end" : null;
+  if (["session.execution.succeeded", "session.execution.interrupted"].includes(event?.type)) return "stop";
+  if (["session.execution.failed", "session.next.step.failed", "session.error"].includes(event?.type)) return "stop-failure";
   if (event?.type === "session.idle") return "stop";
-  if (event?.type === "session.status" && (data.status?.type || data.status?.status || data.status) === "idle") return "stop";
+  if (event?.type === "session.status" && statusType(data.status) === "idle") return "stop";
   return null;
+}
+
+function isTurnStartEvent(event) {
+  if (["session.next.prompted", "session.next.prompt.admitted", "session.inbox.enqueued"].includes(event?.type)) return true;
+  if (event?.type !== "session.status") return false;
+  const data = properties(event);
+  return statusType(data.status) === "busy";
 }
 
 function reportError(ctx, _error) {
@@ -190,18 +214,36 @@ function reportError(ctx, _error) {
   } catch (_) {}
 }
 
-async function handleEvent(ctx, ownership, feed, details, environment) {
+async function handleEvent(ctx, ownership, feed, details, environment, lifecycleStops) {
   const event = details?.event || details;
   const id = sessionID(event);
   if (!id || !ownership.belongs(id)) return;
+  if (isTurnStartEvent(event)) lifecycleStops.delete(id);
   const hook = sessionEventName(event);
-  if (hook) {
-    dispatchSessionHook(hook, {
+  let admittedHook = hook;
+  if (hook === "session-start") lifecycleStops.delete(id);
+  if (hook === "session-end") lifecycleStops.delete(id);
+  if (hook === "stop" || hook === "stop-failure") {
+    const kind = hook === "stop-failure" ? "failure" : "success";
+    const previous = lifecycleStops.get(id);
+    if (previous === "failure" || (previous === "success" && kind === "success")) {
+      admittedHook = null;
+    } else {
+      lifecycleStops.set(id, kind);
+    }
+  }
+  if (admittedHook) {
+    const payload = {
       session_id: id,
       cwd: cwd(ctx, event),
       event: event.type,
-      hook_event_name: hook === "stop" ? "Stop" : event.type,
-    }, spawn, environment);
+      hook_event_name: admittedHook === "stop-failure" ? "StopFailure" : admittedHook === "stop" ? "Stop" : event.type,
+    };
+    if (admittedHook === "stop-failure") {
+      const error = failureMessage(event);
+      if (error) payload.error = error;
+    }
+    dispatchSessionHook(admittedHook === "stop-failure" ? "stop" : admittedHook, payload, spawn, environment);
   }
   // The ownership check above is also the admission decision for the Feed
   // bridge. Avoid scanning the visible tab set a second time for this event.
@@ -217,8 +259,9 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
     locationForSession: () => ctx?.location,
     environment,
   });
+  const lifecycleStops = new Map();
   const onEvent = ({ details, event }) => {
-    void handleEvent(ctx, ownership, feed, details || event, environment).catch((error) => reportError(ctx, error));
+    void handleEvent(ctx, ownership, feed, details || event, environment, lifecycleStops).catch((error) => reportError(ctx, error));
   };
   const stop = ctx.data.listen(onEvent);
   return () => {
