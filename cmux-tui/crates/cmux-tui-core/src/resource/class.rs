@@ -103,6 +103,7 @@ impl ResourceOperation {
                 | Self::KeybindingsGet
                 | Self::BrowserDevicesList
                 | Self::SidebarLayoutGet
+                | Self::SidebarGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet
                 | Self::RoomList

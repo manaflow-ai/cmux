@@ -42,6 +42,11 @@ pub const CONVERSATION_THREAD_READ_CAPABILITY: &str = "conversation-thread-v1";
 /// top root; a reply to a thread reply joins its thread) and
 /// `conversation-link-resolve` opens a message permalink.
 pub const CONVERSATION_TREE_CAPABILITY: &str = "conversation-tree-v1";
+/// Threads are objects: the `thread.update` op (title, status open or
+/// resolved, owner) on the local owner and through `cloud-conversation-op`,
+/// `Message.thread` on roots, and the thread object fields of
+/// `ThreadSummary` (a reply after the resolution reopens the thread).
+pub const CONVERSATION_THREAD_OBJECTS_CAPABILITY: &str = "conversation-thread-objects-v1";
 /// The local conversation owner on an authenticated WebSocket connection
 /// (static credential or approved pairing) as `user_local`, the same as on
 /// the Unix socket: `conversation-*` commands, `conversation.*` operations

@@ -22398,6 +22398,222 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "settings window-style-default",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.chromeStyle.default",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Window Style: Default",
+      "title_key" : "action.appearance.chromeStyle.default",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings window-style-card",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.chromeStyle.card",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Window Style: Card",
+      "title_key" : "action.appearance.chromeStyle.card",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings window-style-card-outlined",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.chromeStyle.cardOutlined",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Window Style: Card with Outlines",
+      "title_key" : "action.appearance.chromeStyle.cardOutlined",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings window-style-flat",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.chromeStyle.flat",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Window Style: Flat",
+      "title_key" : "action.appearance.chromeStyle.flat",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings window-style-flat-sidebar-line",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.chromeStyle.flatSidebarLine",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Window Style: Flat with Sidebar Line",
+      "title_key" : "action.appearance.chromeStyle.flatSidebarLine",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings window-style-bare",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.chromeStyle.bare",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Window Style: Bare",
+      "title_key" : "action.appearance.chromeStyle.bare",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings window-style-panes",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.chromeStyle.panes",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Window Style: Panes",
+      "title_key" : "action.appearance.chromeStyle.panes",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings window-style-two-tone",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.chromeStyle.twoTone",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Window Style: Two-Tone",
+      "title_key" : "action.appearance.chromeStyle.twoTone",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "settings change-background",
       "context_menu" : "offered",
       "context_menus" : [
@@ -27153,7 +27369,7 @@
     "A submenu takes its label, else its action's title, without a trailing ellipsis; a folder takes its own title. A submenu or folder without a shown row is left out.",
     "A separator shows only after a shown row and before another shown row: runs collapse to one, and leading and trailing separators drop.",
     "A choices row is a submenu with one item per value in choices.values (then a separator and More… when more_opens_palette). It shows by the same visible_when as every row, and only when its action is bound and enabled (otherwise it is left out, not disabled).",
-    "A choices row with choices.trailer ends its submenu with that action under trailer.label, on the same target, after a separator when there are values. With a trailer the row shows even when it has no values (Move to Group > New Group).",
+    "A choices row with choices.trailer ends its submenu with that action under its own title, on the same target, after a separator when there are values. With a trailer the row shows even when it has no values (Move Workspace to Group > Move Workspace to New Group).",
     "context_menus_not_exported lists the menus built by hand in their views; they are not in context_menus. Whoever adds a new hand-built menu adds it to that list (ContextMenuCatalog.exportHandBuiltMenus)."
   ],
   "context_menus" : {
@@ -34654,7 +34870,7 @@
             "target_kind" : "workspace-group",
             "trailer" : {
               "id" : "workspace.moveToNewGroup",
-              "label" : "New Group"
+              "title_from" : "action"
             }
           },
           "enabled_when" : "can_perform",

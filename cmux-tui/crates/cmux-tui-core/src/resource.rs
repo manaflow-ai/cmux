@@ -428,6 +428,38 @@ pub enum ResourceOperation {
     SidebarLayoutGet,
     #[serde(rename = "sidebar_layout.update")]
     SidebarLayoutUpdate,
+    #[serde(rename = "sidebar.get")]
+    SidebarGet,
+    #[serde(rename = "sidebar.move")]
+    SidebarMove,
+    #[serde(rename = "sidebar.pin")]
+    SidebarPin,
+    #[serde(rename = "sidebar.unpin")]
+    SidebarUnpin,
+    #[serde(rename = "sidebar.item.add")]
+    SidebarItemAdd,
+    #[serde(rename = "sidebar.item.remove")]
+    SidebarItemRemove,
+    #[serde(rename = "sidebar.item.update")]
+    SidebarItemUpdate,
+    #[serde(rename = "sidebar.section.add")]
+    SidebarSectionAdd,
+    #[serde(rename = "sidebar.section.update")]
+    SidebarSectionUpdate,
+    #[serde(rename = "sidebar.section.move")]
+    SidebarSectionMove,
+    #[serde(rename = "sidebar.section.remove")]
+    SidebarSectionRemove,
+    #[serde(rename = "sidebar.group.create")]
+    SidebarGroupCreate,
+    #[serde(rename = "sidebar.group.update")]
+    SidebarGroupUpdate,
+    #[serde(rename = "sidebar.group.ungroup")]
+    SidebarGroupUngroup,
+    #[serde(rename = "sidebar.adopt")]
+    SidebarAdopt,
+    #[serde(rename = "sidebar.apply")]
+    SidebarApply,
     #[serde(rename = "project.list")]
     ProjectList,
     #[serde(rename = "project.observe")]

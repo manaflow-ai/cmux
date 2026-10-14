@@ -411,6 +411,7 @@ impl RemoteSession {
                         .get("since_ms")
                         .and_then(Value::as_u64)
                         .unwrap_or(updated_at_ms),
+                    last_prompt: value.get("last_prompt").and_then(Value::as_str).map(Arc::from),
                 };
                 {
                     let retired_surfaces = self.retired_surfaces.lock().unwrap();
