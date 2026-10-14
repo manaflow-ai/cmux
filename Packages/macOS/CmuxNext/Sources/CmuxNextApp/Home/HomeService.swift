@@ -24,6 +24,8 @@ final class HomeService {
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
+    /// Starts this build's brain host again when it dies (HomeService+BrainWatch).
+    @ObservationIgnored var brainWatch: ChiefBrainWatch?
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapabilities.shared.localConversations) }
     /// The owner of every Home conversation: one per Chief home, never per build.
@@ -33,7 +35,7 @@ final class HomeService {
     @ObservationIgnored private var availability: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
     /// The brain host was started on this app launch (it outlives the app).
-    @ObservationIgnored private var startedBrainHost = false
+    @ObservationIgnored var startedBrainHost = false
     /// Home opened in a window this launch; the host starts once the Chief
     /// owner is connected, even when Home opened first.
     @ObservationIgnored private var homeWasOpened = false
@@ -139,7 +141,8 @@ final class HomeService {
                 homeSource.connectionChanged(connection)
                 guard let connection else { continue }
                 reloadList(connection)
-                // Home opened before the owner answered: start the host now.
+                // Home opened before the owner answered, or the owner came back
+                // after a stop: start the host now if it does not run.
                 if homeWasOpened { homeDidOpen() }
                 // The Chief tab may wait on this owner (a local Chief with history
                 // takes it back from a placed chief): check it again now.
@@ -165,32 +168,15 @@ final class HomeService {
         if cloudChief != chief { cloudChief = chief }
     }
 
-    /// Home opened in a window: start the Chief home's brain host once per
-    /// launch. Its lock keeps one host per home, so a host another build
-    /// started keeps running, with its token: no new token revokes its binding.
+    /// Home opened in a window (or its owner reconnected): start the Chief
+    /// home's brain host when none runs (HomeService+BrainWatch).
     func homeDidOpen() {
         if !homeWasOpened {
             homeWasOpened = true
             publishAppLinks()
             observeActivation()
         }
-        guard !startedBrainHost, let connection else { return }
-        // task-owner: reads the endpoint, then spawns the detached host once
-        Task { [weak self] in
-            guard let self, let socket = await connection.endpoint?.socketPath,
-                  let host = HomeBrainHost.resolve(daemonSocket: socket, controlSocket: services.environment.launch.socketPath,
-                                                   home: chief.home) else { return }
-            guard !startedBrainHost else { return }
-            startedBrainHost = true
-            // The mux proves its principal with a token this (user) connection mints.
-            do {
-                let outcome = try await host.start { try await ConversationClient(connection).agentToken(for: HomeService.mux.id) }
-                logger.info("mux host: \(String(describing: outcome), privacy: .public)")
-            } catch {
-                startedBrainHost = false
-                logger.error("mux agent token: \(String(describing: error), privacy: .public)")
-            }
-        }
+        ensureBrain()
     }
 
     /// The open session for `conversation`, loaded on first use.

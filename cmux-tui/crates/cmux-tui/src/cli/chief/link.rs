@@ -92,7 +92,7 @@ impl Link {
             .map_err(|e| LinkError::Transport(e.to_string()))?;
         loop {
             let value = read_line(&mut self.reader)
-                .map_err(|e| LinkError::Transport(e.to_string()))?
+                .map_err(read_failed)?
                 .ok_or_else(|| LinkError::Transport(super::messages::messages().lost.into()))?;
             if value.get("type").and_then(Value::as_str) != Some("response")
                 || value.get("id").and_then(Value::as_str) != Some(&id)
@@ -133,7 +133,7 @@ impl Link {
             .map_err(|e| LinkError::Transport(e.to_string()))?;
         loop {
             let value = read_line(&mut self.reader)
-                .map_err(|e| LinkError::Transport(e.to_string()))?
+                .map_err(read_failed)?
                 .ok_or_else(|| LinkError::Transport(super::messages::messages().lost.into()))?;
             if value.get("id").and_then(Value::as_str) != Some(&id) || value.get("type").is_some() {
                 continue;
@@ -191,6 +191,19 @@ impl Link {
             })
             .map(|_| ())
             .map_err(|e| LinkError::Transport(e.to_string()))
+    }
+}
+
+/// A read error as the CLI says it: a request that met the read timeout
+/// (EAGAIN on macOS) names the timeout, not "Resource temporarily unavailable".
+fn read_failed(error: io::Error) -> LinkError {
+    match error.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => LinkError::Transport(
+            super::messages::messages()
+                .no_answer
+                .replace("{secs}", &REQUEST_TIMEOUT.as_secs().to_string()),
+        ),
+        _ => LinkError::Transport(error.to_string()),
     }
 }
 

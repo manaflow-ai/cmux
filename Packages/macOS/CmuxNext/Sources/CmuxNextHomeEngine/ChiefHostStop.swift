@@ -12,12 +12,19 @@ public nonisolated enum ChiefHostStop {
     /// `optchat-chief`, so a stale text never names another process.
     @discardableResult
     @concurrent static func stop(home: ChiefHome, isChiefHost: @Sendable (pid_t) -> Bool = ChiefHostStop.isChiefHost) async -> pid_t? {
+        guard let pid = runningHostPID(home: home, isChiefHost: isChiefHost), kill(pid, SIGTERM) == 0 else { return nil }
+        return pid
+    }
+
+    /// The pid of the host that holds the home's lock, from the lock's text,
+    /// while the lock is held and the process is an `optchat-chief`.
+    public nonisolated static func runningHostPID(home: ChiefHome, isChiefHost: (pid_t) -> Bool = ChiefHostStop.isChiefHost) -> pid_t? {
         let lock = home.root.appendingPathComponent("state/host.lock")
         guard ChiefMigration.lockHeld(at: lock),
-              // concurrency-allow: @concurrent: runs on the global executor, never the main actor
+              // concurrency-allow: a small local file read; callers run off the main actor or at a brain exit
               let text = try? String(contentsOf: lock, encoding: .utf8),
               let pid = text.split(separator: "\n").first.flatMap({ pid_t($0.trimmingCharacters(in: .whitespaces)) }),
-              pid > 1, isChiefHost(pid), kill(pid, SIGTERM) == 0 else { return nil }
+              pid > 1, isChiefHost(pid) else { return nil }
         return pid
     }
 
