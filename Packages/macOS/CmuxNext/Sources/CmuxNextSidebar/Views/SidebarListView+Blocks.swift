@@ -19,12 +19,12 @@ struct SidebarBlockGap: Hashable {
     var index: Int
 }
 
-/// A drop into a block, held until the move lands: the moved items stay
-/// hidden and the gap open, so nothing snaps back while the move is on the way.
-struct SidebarHeldDrop {
-    var hidden: Set<String>
-    var gap: SidebarBlockGap?
-    /// The list's structure and the blocks when the drop was sent: either changing ends the hold.
+/// A dropped drag kept on screen until its move lands (`SidebarListView.settling`).
+struct SidebarSettlingDrop {
+    let drag: SidebarListDrag
+    /// The drop's change (`SidebarDocStore.lastIntentKey`): its refusal or no-op ends the settle.
+    var key: String?
+    /// The list's structure and the blocks when the drop was sent: either changing ends the settle.
     var revision: UInt64
     var blocks: SidebarListBlocks?
 }
@@ -45,7 +45,9 @@ struct SidebarListBlocks: Equatable {
     var appHeights: [LayoutSectionID: CGFloat]
 
     /// Section `id` without `hiding` and with a gap at `gap` (an index among the items left), as wide as the first hidden item.
-    func content(_ id: String, hiding: Set<String>, gap: Int?) -> SidebarRegionView.Content? {
+    /// `joinsAbove`/`joinsBelow`: a block drawn right before or after it, so the two keep one band's spacing (a section
+    /// gap and its line between them, the band's padding only at the run's ends).
+    func content(_ id: String, hiding: Set<String>, gap: Int?, joinsAbove: Bool = false, joinsBelow: Bool = false) -> SidebarRegionView.Content? {
         guard var section = sections[id] else { return nil }
         section.items.removeAll { hiding.contains($0.id.rawValue) }
         var infos = infos
@@ -56,7 +58,10 @@ struct SidebarListBlocks: Equatable {
             if let moving { infos[Self.gapID] = infos[moving.id] }
             section.items.insert(slot, at: min(max(0, gap), section.items.count))
         }
-        return SidebarRegionView.Content(sections: [section], infos: infos, collapsed: collapsed, look: look, metrics: metrics,
+        var edges = metrics
+        if joinsAbove { (edges.topPadding, edges.leadingSeparator) = (metrics.sectionGap, true) }
+        if joinsBelow { edges.bottomPadding = 0 }
+        return SidebarRegionView.Content(sections: [section], infos: infos, collapsed: collapsed, look: look, metrics: edges,
                                          drawsLines: drawsLines, appHeights: appHeights)
     }
 }
@@ -95,21 +100,49 @@ final class SidebarBlockRowView: SidebarRowView {
 extension SidebarListView {
     /// The items the drag lifts (or a held drop moved), which no block draws meanwhile.
     private var blockHidden: Set<String> {
-        if let drag { return Set(drag.docItems ?? []) }
-        return heldDrop?.hidden ?? []
+        Set(shownDrag?.docItems ?? [])
     }
 
     /// Block `id`'s content as drawn (with the drag's or the held drop's gap) or as the hit test's base (without it).
     func blockContent(_ id: String, includeGap: Bool) -> SidebarRegionView.Content? {
-        let open = drag.map(\.blockTarget) ?? heldDrop?.gap
-        let gap = includeGap ? open.flatMap { $0.section == id ? $0.index : nil } : nil
-        return blocks?.content(id, hiding: blockHidden, gap: gap)
+        let gap = includeGap ? shownDrag?.blockTarget.flatMap { $0.section == id ? $0.index : nil } : nil
+        let (above, below) = blockJoins(id)
+        return blocks?.content(id, hiding: blockHidden, gap: gap, joinsAbove: above, joinsBelow: below)
     }
 
-    /// Ends a held drop once the move landed (the list's structure or the blocks changed).
-    func settleHeldDrop() {
-        guard let held = heldDrop, model.sectionsRevision != held.revision || blocks != held.blocks else { return }
-        heldDrop = nil
+    /// Whether block `id` has another block right above or below it in the list (no rows between them), by the
+    /// layout's own rules: a collapsed section or one whose groups the filter or the drag leave out lists no rows,
+    /// and a section whose items lay out to nothing draws no block.
+    func blockJoins(_ id: String) -> (above: Bool, below: Bool) {
+        let sections = model.sections
+        guard let index = sections.firstIndex(where: { $0.id == .custom(id) }) else { return (false, false) }
+        let matches = model.filterMatches
+        var excludedGroup: GroupID?
+        if case let .group(group)? = shownDrag?.payload { excludedGroup = group }
+        func docID(_ section: SidebarSection) -> String? {
+            if case let .custom(custom) = section.kind { custom.id } else { nil }
+        }
+        func listsNoRows(_ section: SidebarSection) -> Bool {
+            guard let id = docID(section) else { return false }
+            if model.collapsedLayoutSections.contains(LayoutSectionID(id)) { return true }
+            return !section.nodes.contains { node in
+                guard case let .group(group) = node, group.id != excludedGroup else { return false }
+                return matches.map { matches in group.workspaces.contains { matches.contains($0.id) } } ?? true
+            }
+        }
+        func hasBlock(_ section: SidebarSection) -> Bool {
+            guard let id = docID(section), let content = blocks?.content(id, hiding: blockHidden, gap: nil) else { return false }
+            return SidebarRegionView.layout(of: content, width: bounds.width).height > 0
+        }
+        let above = index > 0 && listsNoRows(sections[index - 1]) && hasBlock(sections[index - 1])
+        let below = listsNoRows(sections[index]) && index + 1 < sections.count && hasBlock(sections[index + 1])
+        return (above, below)
+    }
+
+    /// Ends a settling drop once its move landed (the list's structure or the blocks changed).
+    func settleDrop() {
+        guard let held = settling, model.sectionsRevision != held.revision || blocks != held.blocks else { return }
+        settling = nil
     }
 
     /// The gap's frame in the list (where a dropped card lands).
@@ -139,7 +172,7 @@ extension SidebarListView {
     /// list's one drag lifts it (the tile's snapshot follows the pointer).
     func dragTile(_ id: LayoutItemID, section: String, in region: SidebarRegionView, from start: NSPoint, _ event: NSEvent) -> Bool {
         if drag == nil {
-            heldDrop = nil
+            settling = nil
             guard let doc = model.docDrag, !model.locksReorder, let view = region.itemView(id) else { return false }
             let origin = convert(start, from: nil), point = convert(event.locationInWindow, from: nil)
             guard hypot(point.x - origin.x, point.y - origin.y) >= SidebarStyle.dragThreshold else { return false }
@@ -196,5 +229,17 @@ extension SidebarListView {
         if let before = target.before, let index = items.firstIndex(of: before) { return index }
         if let after = target.after, let index = items.firstIndex(of: after) { return index + 1 }
         return min(max(0, target.index ?? 0), items.count)
+    }
+}
+
+extension SidebarListView {
+    /// Where a dropped card settles: the block's gap, the list's gap (a tile
+    /// dropped among rows), else its own rows at the slot (nil: `land` finds them).
+    func settleFrame(_ drag: SidebarListDrag) -> NSRect? {
+        if let gap = drag.blockTarget { return blockGapFrame(gap) }
+        if drag.tileSource != nil, let y = displayed.gapY, displayed.gapHeight > 0 {
+            return NSRect(x: inset, y: y, width: max(0, bounds.width - inset * 2), height: displayed.gapHeight)
+        }
+        return nil
     }
 }

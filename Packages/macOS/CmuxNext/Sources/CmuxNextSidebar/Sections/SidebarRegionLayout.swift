@@ -25,6 +25,12 @@ public nonisolated struct SidebarRegionMetrics: Hashable, Sendable {
     /// first glyph on this column (SIDEBAR-FOOTER-AND-SPACE-MENU F1). Nil
     /// keeps `iconButtonWidth` and `tileGap`.
     public var glyphColumn: CGFloat?
+    /// A list block's edges (sidebar-v2): consecutive sections drawn in one
+    /// list keep the band's spacing. Nil: `padding`. A leading separator
+    /// draws in the top edge, as between two sections of one band.
+    public var topPadding: CGFloat?
+    public var bottomPadding: CGFloat?
+    public var leadingSeparator = false
 
     public init(rowHeight: CGFloat, headerHeight: CGFloat, inset: CGFloat, sectionGap: CGFloat, padding: CGFloat,
                 cardPadding: CGFloat, tileMinWidth: CGFloat, tileHeight: CGFloat, tileGap: CGFloat,
@@ -100,8 +106,11 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         }
         guard !shown.isEmpty else { return .empty }
         var result = SidebarRegionLayout.empty
-        var y = m.padding
-        var capped = m.padding
+        var y = m.topPadding ?? m.padding
+        var capped = y
+        if m.leadingSeparator, look.separatesSections {
+            result.separators.append(CGRect(x: 0, y: (y - m.lineWidth) / 2, width: width, height: m.lineWidth))
+        }
         for (index, section) in shown.enumerated() {
             if index > 0 {
                 if look.separatesSections {
@@ -159,8 +168,8 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                 capped += m.sectionGap
             }
         }
-        y += m.padding
-        capped += m.padding
+        y += m.bottomPadding ?? m.padding
+        capped += m.bottomPadding ?? m.padding
         result.height = y
         result.cappedHeight = min(capped, y)
         return result

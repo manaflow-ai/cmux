@@ -22,8 +22,12 @@ final class SidebarListView: NSView {
     var sections: [SectionID: SidebarSection] = [:]
     /// The sections the list draws in their own arrangement (tiles, a grid, a line, item rows) on the sidebar document.
     var blocks: SidebarListBlocks?
-    /// A drop into a block whose move is on the way (`SidebarHeldDrop`).
-    var heldDrop: SidebarHeldDrop?
+    /// A dropped drag whose move is on the way: the list keeps showing its drop (the rows or tile at the
+    /// slot, the source closed) until the model or the blocks change, so the drop settles with no fly-back
+    /// and no pop when the move lands; a refusal lets it go and the rows spring back.
+    var settling: SidebarSettlingDrop?
+    /// The drag whose look the list shows: the running one, else the settling one.
+    var shownDrag: Drag? { drag ?? settling?.drag }
     /// Wires a new block's region as the sidebar wires its bands (activation, menus, app views).
     var configureBlockRegion: ((SidebarRegionView) -> Void)?
     /// Listed document items (link, tab, app rows) by item id.
@@ -93,6 +97,19 @@ final class SidebarListView: NSView {
         groupEditing.wire()
         // A row content change configures its one row (SidebarRowIndex), never reloads the list.
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
+        // A refused change: a settling drop lets go and the rows spring back.
+        // A no-op drop settles the same way (nothing will change the model).
+        for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {
+            settleObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let key = note.userInfo?["key"] as? String
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                    // Only this list's drop: its key, or a refusal inside its own drop call (no key recorded yet).
+                    guard let self, let settling = self.settling, settling.key == nil || settling.key == key else { return }
+                    self.settling = nil
+                    self.reload(animated: true)
+                }
+            })
+        }
         // A favicon arrived: the link rows draw it (one configure per realized link row).
         faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
@@ -111,12 +128,14 @@ final class SidebarListView: NSView {
             // once self is gone (touching the lazy property here would create one).
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
             if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
+            for observer in settleObservers { NotificationCenter.default.removeObserver(observer) }
         }
     }
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
     private var occlusionObserver: (any NSObjectProtocol)?
     private var faviconObserver: (any NSObjectProtocol)?
+    private var settleObservers: [any NSObjectProtocol] = []
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this list's card only.
@@ -167,7 +186,7 @@ final class SidebarListView: NSView {
         }
         for workspace in workspaces.values { for tab in workspace.tabs { tabs[tab.id] = tab } }
         if let drag, !drag.isValid(in: model) { cancelDrag() }
-        settleHeldDrop()
+        settleDrop()
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
@@ -186,7 +205,7 @@ final class SidebarListView: NSView {
         }
         o.blockHeights = blockHeights(includeGap: includeGap)
         o.collapsedDocSections = Set(model.collapsedLayoutSections.map(\.rawValue))
-        guard let drag else { return o }
+        guard let drag = shownDrag else { return o }
         if drag.docItems != nil { o.showEmptyPinned = true } // an empty Pinned takes a drop on the document
         switch drag.payload {
         case let .workspaces(ids):

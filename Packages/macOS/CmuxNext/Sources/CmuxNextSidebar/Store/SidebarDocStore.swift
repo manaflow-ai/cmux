@@ -27,6 +27,19 @@ public final class SidebarDocStore {
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
     /// A refusal or failure to show (the refusal HUD).
     @ObservationIgnored public var onRefused: @MainActor (String) -> Void = { _ in }
+    /// Posted when a change was refused (by the mirror or the daemon), with its `key` in userInfo:
+    /// a list holding that drop's look lets it go.
+    nonisolated public static let refusedNotification = Notification.Name("cmux.sidebar.docRefused")
+    /// Posted when a change changed nothing (a no-op move echoes no batch), with its `key`: a list holding its look lets it go.
+    nonisolated public static let settledNotification = Notification.Name("cmux.sidebar.docSettled")
+    /// The idempotency key of the last change sent (a list matches a drop's notifications by it).
+    public private(set) var lastIntentKey: String?
+
+    /// Tells the App and every list that the change `key` was refused.
+    private func refuse(_ message: String, key: String? = nil) {
+        NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": key ?? lastIntentKey ?? ""])
+        onRefused(message)
+    }
     /// A user's move that can be undone: the title and the undo. The App
     /// puts it on its undo surface (the toast and Cmd-Z).
     @ObservationIgnored public var onUndoable: @MainActor (String, @escaping @MainActor () -> Void) -> Void = { _, _ in }
@@ -165,14 +178,15 @@ public final class SidebarDocStore {
 
     private func send(_ intent: SidebarMirrorIntent, title: String, undoable: Bool = true,
                       _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) {
-        guard isActive, let mirror, let remote else { return onRefused(SidebarDocStrings.unavailable) }
+        lastIntentKey = intent.idempotencyKey
+        guard isActive, let mirror, let remote else { return refuse(SidebarDocStrings.unavailable) }
         let stamped: Data?
         do {
             stamped = try mirror.apply(intent: intent)
         } catch let refusal as SidebarMirror.Refusal {
-            return onRefused(SidebarDocStrings.refused(refusal.code))
+            return refuse(SidebarDocStrings.refused(refusal.code))
         } catch {
-            return onRefused(SidebarDocStrings.unavailable)
+            return refuse(SidebarDocStrings.unavailable)
         }
         bump()
         let key = intent.idempotencyKey
@@ -182,7 +196,10 @@ public final class SidebarDocStore {
                 let reply = try await body(remote, key, stamped)
                 guard let self else { return }
                 // A no-op change echoes no batch: its intent must not stay pending.
-                if !reply.hasInverse { self.drop(key) }
+                if !reply.hasInverse {
+                    self.drop(key)
+                    NotificationCenter.default.post(name: Self.settledNotification, object: self, userInfo: ["key": key])
+                }
                 if undoable, reply.hasInverse {
                     let inverse = reply.inverse
                     self.onUndoable(title) { [weak self] in self?.apply(inverse, title: title) }
@@ -191,7 +208,7 @@ public final class SidebarDocStore {
                 guard let self else { return }
                 // The daemon refused it: no batch will echo the key.
                 self.drop(key)
-                self.onRefused(SidebarDocStrings.describe(error))
+                self.refuse(SidebarDocStrings.describe(error), key: key)
             }
         }
     }

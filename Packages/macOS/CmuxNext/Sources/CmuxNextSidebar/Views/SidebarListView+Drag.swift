@@ -7,7 +7,7 @@ extension SidebarListView {
     typealias Drag = SidebarListDrag
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)
-        heldDrop = nil
+        settling = nil
         guard displayed.row(for: press.key) != nil else { return }
         let payload: DragPayload
         var hidden: Set<SidebarRowKey>
@@ -97,15 +97,15 @@ extension SidebarListView {
         if SidebarListPinDrop.finish(self, drag) { return }
         if let items = drag.docItems, let doc = model.docDrag {
             guard let target = drag.docTarget else { return cancelDrag() }
-            let gapFrame = drag.blockTarget.flatMap(blockGapFrame)
-            // The block keeps the gap and hides the moved items until the move lands (no snap back).
-            heldDrop = SidebarHeldDrop(hidden: Set(items), gap: drag.blockTarget, revision: model.sectionsRevision, blocks: blocks)
+            // The list keeps the drop's look until the move lands; the card settles into the slot it shows.
+            settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
             revealedActive = nil
             doc.drop(items, target)
+            settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
             suppressed = drag.hiddenKeys
             reload(animated: true)
-            return land(drag, at: gapFrame)
+            return land(drag, at: settling == nil ? nil : settleFrame(drag))
         }
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil

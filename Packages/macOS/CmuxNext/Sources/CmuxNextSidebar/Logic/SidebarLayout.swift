@@ -91,6 +91,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         // first one keeps its empty placeholder, a drop target).
         let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty }
         var previousWasMachine = false
+        // A block brings the band's own padding: the list's top padding goes after the blocks, as below the band.
+        var previousWasBlock = false
         var shownEmptyMachine = false
 
         func visible(_ ws: SidebarWorkspace) -> Bool {
@@ -147,15 +149,17 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if case let .custom(custom) = section.kind { docID = custom.id }
             let blockHeight = docID.flatMap { o.blockHeights[$0] } ?? 0
             if let docID, o.collapsedDocSections.contains(docID) { nodes = [] }
-            let emptyDropZone = docID == SidebarDocStore.pinnedSection && o.showEmptyPinned && !filtering
+            let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
             if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
             let flat = o.flattensMachines && section.machine != nil
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
-            if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += m.sectionSpacing }
+            if firstSection && blockHeight > 0 { y -= m.topPadding }
+            if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += previousWasBlock ? m.topPadding : m.sectionSpacing }
             firstSection = false
+            previousWasBlock = blockHeight > 0 && nodes.isEmpty
             previousWasMachine = section.machine != nil
             if let docID, blockHeight > 0 {
                 rows.append(SidebarRow(
