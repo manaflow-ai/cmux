@@ -2443,8 +2443,7 @@ function AcpmuxPane() {
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   // The summary docks right of a chat where the pane has room beside it (an open artifact takes
   // that place; a new chat has nothing to sum up), else it is a popover (summary/cardState.ts).
-  const [shell, setShell] = useState<HTMLElement | null>(null);
-  const summaryCard = useSummaryCard(useDockRoom(shell, artifact !== undefined || freshView));
+  const summaryCard = useSummaryCard(useDockRoom(artifact !== undefined || freshView));
   const askedToolCalls = useMemo(
     () => pendingToolCalls(snapshot),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the asks' inputs, not the whole snapshot
@@ -4971,11 +4970,7 @@ function AcpmuxPane() {
   );
   return (
     <ShortcutsContext.Provider value={shortcuts}>
-      <section
-        ref={setShell}
-        className="acpmux-shell"
-        aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
-      >
+      <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's style, under it; a pick shows in place at once.

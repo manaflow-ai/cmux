@@ -58,22 +58,21 @@ const subscribe = (listener: () => void) => {
   };
 };
 
-/// Whether `shell` (the pane's `.acpmux-shell`) has room for the docked panel beside a chat
-/// column of CHAT_MIN_WIDTH, besides its session sidebar when that shows. `blocked` (a side panel
-/// already takes the right) gives no room.
-export function useDockRoom(shell: HTMLElement | null, blocked: boolean): boolean {
+/// Whether the pane (the page: the chat fills its webview) has room for the docked panel beside a
+/// chat column of CHAT_MIN_WIDTH. `blocked` (a side panel already takes the right) gives no room.
+/// It measures the page, not the chat's element: a ref that set state as the chat mounted
+/// re-rendered the pane then, and a relaunched new chat lost its kept draft.
+export function useDockRoom(blocked: boolean): boolean {
   const [room, setRoom] = useState(false);
   useEffect(() => {
-    if (!shell || blocked) return setRoom(false);
-    const measure = () => {
-      const sidebar = shell.querySelector<HTMLElement>(":scope>.acpmux-sidebar");
-      setRoom(shell.clientWidth - (sidebar?.offsetWidth ?? 0) >= CHAT_MIN_WIDTH + DOCK_WIDTH);
-    };
+    if (blocked) return setRoom(false);
+    const page = document.documentElement;
+    const measure = () => setRoom(page.clientWidth >= CHAT_MIN_WIDTH + DOCK_WIDTH);
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(shell);
+    observer.observe(page);
     return () => observer.disconnect();
-  }, [shell, blocked]);
+  }, [blocked]);
   return room;
 }
 
