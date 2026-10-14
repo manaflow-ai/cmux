@@ -24,30 +24,28 @@ public struct SidebarMotionFrame: Sendable {
 /// frame client of the list's window, active only between start and stop.
 @MainActor
 final class SidebarMotionProbe {
-    private unowned let list: SidebarListView
+    private weak var list: SidebarListView?
     private(set) var frames: [SidebarMotionFrame] = []
     static let capacity = 4000
-    private lazy var client = FrameClient(owner: "Sidebar.motionProbe", view: list) { [weak self] tick in
-        self?.sample(tick.timestamp) ?? false
-    }
-
+    private var client: FrameClient?
     init(list: SidebarListView) {
         self.list = list
+        client = FrameClient(owner: "Sidebar.motionProbe", view: list) { [weak self] tick in self?.sample(tick.timestamp) ?? false }
     }
 
     func start() {
         frames.removeAll()
-        client.activate()
+        client?.activate()
     }
 
     func stop() -> [SidebarMotionFrame] {
-        client.deactivate()
+        client?.deactivate()
         defer { frames.removeAll() }
         return frames
     }
 
     private func sample(_ time: CFTimeInterval) -> Bool {
-        guard frames.count < Self.capacity else { return false }
+        guard let list, frames.count < Self.capacity else { return false }
         var views: [String: CGRect] = [:]
         for (key, view) in list.rowViews {
             views[String(describing: key)] = Self.presented(view)
