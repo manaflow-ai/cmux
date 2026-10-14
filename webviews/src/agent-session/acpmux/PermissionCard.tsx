@@ -20,20 +20,22 @@ export function permissionOptionKind(option: PermissionOption): KnownPermissionK
 }
 
 export function permissionOptionLabel(option: PermissionOption, t: Translate, harness?: string): string {
+  const claude = harness === "claude" || harness?.startsWith("claude-");
+  const codex = harness === "codex" || harness?.startsWith("codex-");
   const kind = permissionOptionKind(option);
   if (kind === "allow_once") {
-    if (harness === "claude" || harness === "codex") return "Yes";
+    if (claude || codex) return "Yes";
     if (/^allow once$/i.test(option.name.trim())) return t("permission.allowOnce");
     return option.name;
   }
   if (kind === "allow_always" || kind === "allow_chat") {
-    if (harness === "claude") return "Yes, and don't ask again";
-    if (harness === "codex") return "Yes, and don't ask again for this command this session";
+    if (claude) return "Yes, and don't ask again";
+    if (codex) return "Yes, and don't ask again for this command this session";
     return option.name;
   }
   if (kind === "deny") {
-    if (harness === "claude") return "No, tell Claude what to do differently";
-    if (harness === "codex") return "No, tell Codex what to do differently";
+    if (claude) return "No, tell Claude what to do differently";
+    if (codex) return "No, tell Codex what to do differently";
     return option.name;
   }
   return option.name;

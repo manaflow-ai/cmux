@@ -53,8 +53,8 @@ export function ComposerQueue({
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
-  // Reserve space on the composer itself, not just a permission panel: PR rows, notices and
-  // the transcript must all stay above the queue, even when no permission is pending.
+  // Keep the stack reservation on the main pane. The queue itself is an overlay, so sending or
+  // removing a prompt does not resize the composer or move the reader's viewport.
   const reserve = useCallback((node: HTMLOListElement | null) => {
     list.current = node;
   }, []);
@@ -72,9 +72,9 @@ export function ComposerQueue({
   }, [queue, editing, onLost]);
   useLayoutEffect(() => {
     const node = list.current;
-    const chat = node?.closest<HTMLElement>(".acpmux-composer");
+    const chat = node?.closest<HTMLElement>(".acpmux-main");
     if (!node || !chat) return;
-    const update = () => chat.style.setProperty("--acpmux-queue-space", `${node.offsetHeight + 4}px`);
+    const update = () => chat.style.setProperty("--acpmux-queue-space", `${node.offsetHeight}px`);
     const observer = new ResizeObserver(update);
     observer.observe(node);
     update();

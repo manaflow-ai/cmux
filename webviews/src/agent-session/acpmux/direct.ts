@@ -149,9 +149,14 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
         if (!suggestion || typeof suggestion !== "object") return [];
         const rules = (suggestion as { rules?: unknown }).rules;
         return Array.isArray(rules)
-          ? rules
-              .filter((rule): rule is string => typeof rule === "string" && rule.trim().length > 0)
-              .map((rule) => rule.trim())
+          ? rules.flatMap((rule: unknown) => {
+              if (typeof rule === "string" && rule.trim()) return [rule.trim()];
+              if (!rule || typeof rule !== "object") return [];
+              const value = rule as { toolName?: unknown; ruleContent?: unknown };
+              const tool = typeof value.toolName === "string" ? value.toolName.trim() : "";
+              const content = typeof value.ruleContent === "string" ? value.ruleContent.trim() : "";
+              return [content || tool].filter(Boolean);
+            })
           : [];
       })
     : [];

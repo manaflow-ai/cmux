@@ -3,7 +3,7 @@
 // title and state. The chat folder's pull request, which the header chip follows live, shows its
 // live state and title. The newest two show and the rest wait behind Show more; a dismissed bar
 // stays hidden for this chat (the page's storage, so a reload keeps it hidden).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -75,8 +75,23 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
     )?.focus();
   }, [refocus]);
   const prs = all.filter((pr) => !dismissed.includes(pr.url)).reverse();
-  if (prs.length === 0) return null;
   const visible = expanded ? prs : prs.slice(0, SHOWN);
+  // ComposerQueue is an overlay anchored to the composer's top edge. Offset it by this dock's
+  // measured height without adding layout space, so queued prompts never paint through PR rows.
+  useLayoutEffect(() => {
+    const node = dock.current;
+    const main = node?.closest<HTMLElement>(".acpmux-main");
+    if (!node || !main) return;
+    const update = () => main.style.setProperty("--acpmux-pr-dock-space", `${node.offsetHeight}px`);
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    update();
+    return () => {
+      observer.disconnect();
+      main.style.removeProperty("--acpmux-pr-dock-space");
+    };
+  }, [visible.length]);
+  if (prs.length === 0) return null;
   const dismiss = (url: string, index: number) => {
     const next = [...dismissed, url];
     setDismissed(next);

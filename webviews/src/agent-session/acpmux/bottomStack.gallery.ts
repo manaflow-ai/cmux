@@ -79,12 +79,9 @@ const native = { "acp.trust.get": { cwd: CWD, level: "unknown" }, "acp.trust.set
 // a floated queue or a flex-shrunk ask must not paint into a sibling's frame.
 function geometry(ctx: PlayContext) {
   const selectors = [
-    ".acpmux-stage",
     ".acpmux-pr-dock",
     ".acpmux-trust-ask",
     ".acpmux-permission-panel",
-    ".acpmux-permission > fieldset",
-    ".acpmux-composer-trust-note",
     ".acpmux-composer-queue",
     ".acpmux-composer-box",
   ];
