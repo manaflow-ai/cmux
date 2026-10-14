@@ -31,7 +31,7 @@ enum DebugUpdater {
         case "stage":
             let version = params["version"]?.stringValue ?? "1.99.0"
             let count = max(0, Int(params["changes"]?.doubleValue ?? 12))
-            services.updater.debugStage(version: version, notes: fakeNotes(version: version, changes: count))
+            services.updater.debugStage(version: version, notes: .debugFake(version: version, changes: count))
             return .object(["staged": .string(version), "changes": JSONValue(count)])
         case "available":
             services.updater.debugIndicatorPhase = .available(version: params["version"]?.stringValue ?? "1.99.0")
@@ -65,23 +65,6 @@ enum DebugUpdater {
         default:
             throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"unstage\", \"available\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"share\" or \"share-copy\"")
         }
-    }
-
-    /// Release notes for a fake staged update: `changes` items, newest
-    /// first, each with an author and a PR number.
-    static func fakeNotes(version: String, changes: Int) -> ReleaseNotes {
-        let titles = ["Update card with release notes above the sidebar footer", "Restart to update keeps terminals and agents running",
-                      "Faster workspace switching with many tabs", "Browser tabs restore their scroll position",
-                      "Agent pane remembers the last model", "Fix a crash when closing a split during a drag"]
-        let authors = ["lawrencecchen", "contributor", "maintainer"]
-        let items = (0..<changes).map { index in
-            ReleaseNotes.ChangeItem(title: titles[index % titles.count], author: authors[index % authors.count], pr: 18_000 - index)
-        }
-        let summary = [ReleaseNotes.SummaryLine(group: "new", title: "Update cards show the changelog and build date"),
-                       ReleaseNotes.SummaryLine(group: "fixed", title: "A check while an update waits shows Restart to Update"),
-                       ReleaseNotes.SummaryLine(group: "changed", title: "Short update titles keep the version in the detail")]
-        return ReleaseNotes(version: 1, build: "0", shortVersion: version, date: "2026-10-10", highlights: [],
-                            changes: items.map(\.title), items: items, summary: summary)
     }
 
     static func terminate() {
