@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 442dff11d53dfe645fc5ba440d155e195aa7731c5bcae322ad5f01627e4f886e.
+// cmux-tui mux protocol 12, IR a7c2333b3e697db29aec05d498eaef13b9c41d138991ba08fef02691f77ad20c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2453,6 +2453,8 @@ pub struct RegisterBrowserProviderRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bearer_token: Optional<String>,
     pub endpoint: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hosting: Optional<T::BrowserProviderHosting>,
     pub provider_id: String,
     pub targets: Vec<T::BrowserProviderTarget>,
 }
@@ -4561,6 +4563,9 @@ impl CmuxClient {
     }
 
     pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {
+        if !request.hosting.is_missing() {
+            self.require_capability_field("register-browser-provider", "browser-provider-native-hosting-v1")?;
+        }
         self.execute(&REGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
 
