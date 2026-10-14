@@ -1,0 +1,24 @@
+# Kiln Light: warm neutral surfaces and a clay accent. A cmux theme (dark pair: Kiln).
+# cmux-accent = #bc815f
+palette = 0=#262624
+palette = 1=#b5432f
+palette = 2=#4d7a32
+palette = 3=#8c5f12
+palette = 4=#3d6aa8
+palette = 5=#9a4f7f
+palette = 6=#2f7d72
+palette = 7=#76746c
+palette = 8=#5c5a54
+palette = 9=#c9553f
+palette = 10=#5e8f40
+palette = 11=#a06e1c
+palette = 12=#4f7dba
+palette = 13=#ad6290
+palette = 14=#378a7f
+palette = 15=#8f8d85
+background = #faf9f5
+foreground = #262624
+cursor-color = #9c6446
+cursor-text = #faf9f5
+selection-background = #ecd9cc
+selection-foreground = #262624
