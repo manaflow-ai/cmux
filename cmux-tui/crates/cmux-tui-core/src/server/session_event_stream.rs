@@ -357,9 +357,9 @@ pub(super) fn run_session_event_stream(
                             "cmux-tui: session.events: placement restatement failed: {error:#}"
                         );
                         let end = resource_stream_end(
-                        &stream.stream_id,
-                        "gap",
-                        None,
+                            &stream.stream_id,
+                            "gap",
+                            None,
                             Some("request a fresh session snapshot"),
                             None,
                         );
@@ -416,8 +416,7 @@ fn delta_item(
     batch: crate::workspace_registry::ResourceEventBatch,
 ) -> anyhow::Result<Value> {
     let mut changes = batch.changes;
-    if let Some(shift) =
-        batch.placement_shift.as_ref().and_then(PlacementShift::from_value)
+    if let Some(shift) = batch.placement_shift.as_ref().and_then(PlacementShift::from_value)
         && !mux.control_clients.supports_capability(client, SIDEBAR_DOC_CAPABILITY)
         && let Some(array) = changes.as_array_mut()
     {

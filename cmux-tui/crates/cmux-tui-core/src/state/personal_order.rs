@@ -202,7 +202,8 @@ fn place_created_rows(
             queue_placement(transaction, &local, key)?;
         }
         let rows: i64 =
-            transaction.query_row("SELECT COUNT(*) FROM personal_workspaces", [], |row| row.get(0))?;
+            transaction
+                .query_row("SELECT COUNT(*) FROM personal_workspaces", [], |row| row.get(0))?;
         super::placement_shift::queue(transaction, usize::try_from(rows)?, None)?;
         return Ok(());
     };

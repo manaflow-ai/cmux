@@ -956,10 +956,8 @@ fn append_resource_journal_record_at(
     let mut placement_shift = None;
     if with_current_state {
         crate::state::values::decorate_changes(transaction, &mut decorated)?;
-        placement_shift = crate::state::closed_history_store::drain_pending_changes(
-            transaction,
-            &mut decorated,
-        )?;
+        placement_shift =
+            crate::state::closed_history_store::drain_pending_changes(transaction, &mut decorated)?;
     }
     let changes = &decorated;
     let kind = semantic_journal_kind(operation);
