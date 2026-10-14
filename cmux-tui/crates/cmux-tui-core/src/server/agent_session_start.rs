@@ -142,6 +142,9 @@ pub(super) struct StartParams {
     #[serde(default)]
     harness: Option<String>,
     cwd: String,
+    /// The person chose the home folder as the chat's folder (`agent-session-trust`'s rule).
+    #[serde(default)]
+    home_confirmed: bool,
 }
 
 impl StartParams {
@@ -180,6 +183,12 @@ pub(super) fn start(
         return refuse(writer, id, refusal);
     }
     if let Err(refusal) = startable(mux, params.surface) {
+        return refuse(writer, id, refusal);
+    }
+    // A chat never starts in `/`, above the home folder, or in the home folder
+    // unless the person chose it (cx-1bhjj), as on the Mac.
+    if let Err(refusal) = super::agent_session_trust::home_rule(&params.cwd, params.home_confirmed)
+    {
         return refuse(writer, id, refusal);
     }
     let Some(slot) = AgentSessionStarts::reserve(mux, params.surface) else {
@@ -236,7 +245,7 @@ fn run(
 }
 
 /// A link to acpmux, starting it once when nothing listens.
-fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxLink>, Refusal> {
+pub(super) fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxLink>, Refusal> {
     let open = || AcpmuxLink::connect(socket, |_| {});
     if let Ok(link) = open() {
         return Ok(link);
@@ -271,8 +280,8 @@ fn start_and_bind(
     }
     // The folder must be trusted before an agent starts there (an agent can
     // run the folder's own hooks and settings at start); this daemon reaches
-    // acpmux over its unix socket, which acpmux's trust gate does not hold,
-    // and the remote side can never answer the question.
+    // acpmux over its unix socket, which acpmux's trust gate does not hold;
+    // only the person answers it (`agent-session-trust`, from the app).
     let trust = link
         .call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT)
         .map_err(Refusal::of)?;
