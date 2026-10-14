@@ -6,15 +6,30 @@ import { HarnessHealthNotice, type HarnessHealth } from "./HarnessHealthNotice";
 
 type Props = {
   health: HarnessHealth;
+  /// How the host's updater answers `harness.update`: it finishes, fails, or is still running.
+  updater?: "ok" | "fails" | "pending";
+  /// A turn is running, so `harness.restart` holds the restart until it ends.
+  midTurn?: boolean;
 };
 
-function GalleryHarnessHealthNotice({ health }: Props) {
+function GalleryHarnessHealthNotice({ health, updater = "ok", midTurn = false }: Props) {
   const [opened, setOpened] = useState<string>();
+  const [calls, setCalls] = useState<string[]>([]);
+  const native = (method: string) => {
+    setCalls((list) => [...list, method]);
+    if (method === "harness.restart")
+      return Promise.resolve(midTurn ? { restarted: 0, after_turn: 1 } : { restarted: 1, after_turn: 0 });
+    if (updater === "pending") return new Promise<never>(() => undefined);
+    return Promise.resolve(
+      updater === "fails" ? { ok: false, error: "npm exited with status 1" } : { ok: true, version: health.latest },
+    );
+  };
   return (
     <div
       className="harness-health-gallery"
       data-harness-opened={opened ? "true" : "false"}
       data-harness-command={opened}
+      data-harness-calls={calls.join(" ")}
     >
       <HarnessHealthNotice
         health={health}
@@ -22,10 +37,15 @@ function GalleryHarnessHealthNotice({ health }: Props) {
         name="Codex"
         cwd="/Users/you/src/cmux"
         open={({ text }) => setOpened(text)}
+        native={native}
+        turnRunning={midTurn}
       />
     </div>
   );
 }
+
+const phase = (ctx: Parameters<Play>[0], name: string) =>
+  ctx.document.querySelector(`[data-harness-phase="${name}"]`) !== null;
 
 const runLogin: Play = async (ctx) => {
   await ctx.click({ selector: '[data-notice-action="login"]' });
@@ -38,11 +58,23 @@ const runLogin: Play = async (ctx) => {
 
 const runUpdate: Play = async (ctx) => {
   await ctx.click({ selector: '[data-notice-action="update"]' });
-  await ctx.waitFor(
-    () =>
-      ctx.document.querySelector('[data-harness-opened="true"]')?.getAttribute("data-harness-command") ===
-      "npm install -g @openai/codex@latest",
-  );
+  await ctx.waitFor(() => phase(ctx, "updated"));
+};
+
+const runUpdating: Play = async (ctx) => {
+  await ctx.click({ selector: '[data-notice-action="update"]' });
+  await ctx.waitFor(() => phase(ctx, "updating"));
+};
+
+const runFailed: Play = async (ctx) => {
+  await ctx.click({ selector: '[data-notice-action="update"]' });
+  await ctx.waitFor(() => phase(ctx, "failed"));
+};
+
+const runRestartAfterTurn: Play = async (ctx) => {
+  await runUpdate(ctx);
+  await ctx.click({ selector: '[data-notice-action="restart"]' });
+  await ctx.waitFor(() => phase(ctx, "waiting"));
 };
 
 const dismiss: Play = async (ctx) => {
@@ -73,7 +105,7 @@ export default componentEntry<Props>({
   checks: {
     anchorMovePx: {
       value: 0,
-      reason: "Running an agent login or update command must leave the inline notice anchored above the composer.",
+      reason: "Running an agent login or an in-place update must leave the inline notice anchored above the composer.",
     },
     layoutShiftMax: {
       value: 0,
@@ -96,9 +128,28 @@ export default componentEntry<Props>({
       play: runLogin,
     },
     outdated: {
-      note: "An outdated Codex CLI offers its own update command without hiding the current chat.",
+      note: "An outdated Codex CLI offers Update, Skip This Version and Not Now without hiding the current chat.",
+      props: { health: outdated },
+    },
+    updating: {
+      note: "Update runs the host's updater in place; the card says so quietly and holds Update and Skip.",
+      props: { health: outdated, updater: "pending" },
+      play: runUpdating,
+    },
+    updated: {
+      note: "A finished update says the new version is installed and offers Restart Chat.",
       props: { health: outdated },
       play: runUpdate,
+    },
+    "restart-after-turn": {
+      note: "A chat mid-turn restarts on the new version when the turn ends; the card says so.",
+      props: { health: outdated, midTurn: true },
+      play: runRestartAfterTurn,
+    },
+    "update-failed": {
+      note: "A failed update shows the updater's error inline with Try Again and Not Now.",
+      props: { health: outdated, updater: "fails" },
+      play: runFailed,
     },
     dismissed: {
       note: "Not Now hides the notice for this chat while leaving the composer in place.",
