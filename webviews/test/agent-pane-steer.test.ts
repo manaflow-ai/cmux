@@ -184,14 +184,19 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("first follow-up");
+      // The prompt stays in the composer until the host takes it (Composer.tsx), which can land
+      // a moment after its queue row draws.
+      const emptied = () =>
+        page.waitForFunction(
+          () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
+        );
       await page.keyboard.press("Enter");
       await page.locator(".acpmux-queued", { hasText: "first follow-up" }).waitFor();
-      await page.waitForFunction(
-        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
-      );
+      await emptied();
       await page.keyboard.type("second follow-up");
       await page.keyboard.press("Enter");
       await page.locator(".acpmux-queued", { hasText: "second follow-up" }).waitFor();
+      await emptied();
       expect({
         rows: await page.locator(".acpmux-queued").count(),
         composer: (await composerText(page)).trim(),
