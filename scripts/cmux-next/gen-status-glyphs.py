@@ -35,10 +35,12 @@ def load():
             assert op[0] in ARITY and op[0] != "rect" and len(op) == ARITY[op[0]] + 1, (glyph["name"], op)
         glyph["x1"] = pixel_rects(art)
     for name, states in data["sets"].items():
+        assert set(states) - {"about"} == set(STATES), (name, "a set picks a glyph for every state")
         for state, pick in states.items():
             if state == "about":
                 continue
-            assert state in STATES and pick[0] in names and pick[1] in data["tints"], (name, state, pick)
+            glyph = next(glyph for glyph in data["glyphs"] if glyph["name"] == pick[0]) if pick[0] in names else None
+            assert glyph and glyph["set"] in ("static", name) and pick[1] in data["tints"], (name, state, pick)
     return data
 
 

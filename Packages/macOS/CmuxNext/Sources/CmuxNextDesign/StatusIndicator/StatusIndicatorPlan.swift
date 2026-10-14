@@ -86,8 +86,8 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         if !animates {
             plan.animation = nil
             // The Codex-like set's still work mark is a whole ring, not a stopped arc (Leo's team,
-            // 2026-10-14: a static ring under Reduce Motion or the Static mode).
-            if set == .codex, plan.glyph == .arc { plan.glyph = .mark(.vector(.idle)) }
+            // 2026-10-14: a static ring under Reduce Motion or the Static mode). Loading keeps its stopped arc.
+            if set == .codex, state.isWorking, state.progress == nil { plan.glyph = .mark(.vector(.idle)) }
         }
         return plan
     }
