@@ -155,20 +155,21 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         println!("{}", m.usage);
         return 0;
     }
+    let word = match &args.control {
+        _ if args.shutdown => Some("shutdown"),
+        Some(control::Control::Engine(changes)) if !changes.is_empty() => Some("engine"),
+        Some(control::Control::Stop(_)) => Some("stop"),
+        _ => None,
+    };
+    if let Some(refusal) =
+        word.and_then(|word| registry::agent_control_refusal(&format!("cmux chief {word}"), word))
+    {
+        return super::wire::print_operation_error(&refusal, global.output);
+    }
     if args.shutdown {
         return shutdown::run(&global, args.chief_home.as_deref());
     }
     if let Some(control) = &args.control {
-        let word = match control {
-            control::Control::Engine(changes) if !changes.is_empty() => Some("engine"),
-            control::Control::Engine(_) => None,
-            control::Control::Stop(_) => Some("stop"),
-        };
-        if let Some(refusal) = word.and_then(|word| {
-            registry::agent_control_refusal(&format!("cmux chief {word}"), word)
-        }) {
-            return super::wire::print_operation_error(&refusal, global.output);
-        }
         return control::run(&global, args.chief_home.as_deref(), control, global.output);
     }
     let stdin_tty = std::io::stdin().is_terminal();

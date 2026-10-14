@@ -354,8 +354,13 @@ fn an_agent_caller_cannot_write_any_chief() {
 /// `cmux ARGS` (global flags first) as a person plus `env`: the agent caller
 /// markers are removed, then `env` names the one the test means.
 fn cmux_as(server: &HeadlessServer, args: &[&str], env: &[(&str, &str)]) -> Output {
+    cmux_at(&server.socket, args, env)
+}
+
+/// [`cmux_as`] on the socket `socket`.
+fn cmux_at(socket: &std::path::Path, args: &[&str], env: &[(&str, &str)]) -> Output {
     let mut command = Command::new(bin());
-    command.arg("--socket").arg(&server.socket).args(args).env("LC_ALL", "C");
+    command.arg("--socket").arg(socket).args(args).env("LC_ALL", "C");
     command.env_remove("CMUX_TUI_SOCKET");
     for key in [
         "ACPMUX_ENV",
@@ -373,11 +378,13 @@ fn cmux_as(server: &HeadlessServer, args: &[&str], env: &[(&str, &str)]) -> Outp
 }
 
 /// The other paths to a Chief write (cx-ebm.60.9 layer 1, hq-6d 2026-10-14):
-/// `cmux chief engine` with a change, `cmux chief stop`, and every raw path
-/// to a `chief.*` write (`cmux raw operation`, `cmux raw command`) refuse an
-/// agent caller with the same `origin.forbidden` / `agent_caller` / marker
-/// shape as `cmux chief new|edit|delete`, before they reach the daemon. The
-/// reads (`chief engine` with no change, `chief.profile.list|get`) stay open.
+/// `cmux chief engine` with a change, `cmux chief stop`, `cmux chief
+/// shutdown`, every raw path to a `chief.*` write (`cmux raw operation`,
+/// `cmux raw command`) and the app actions that write a Chief refuse an agent
+/// caller with the same `origin.forbidden` / `agent_caller` / marker shape as
+/// `cmux chief new|edit|delete`, before they connect to anything. The reads
+/// (`chief engine` with no change, `chief.engine.get`,
+/// `chief.profile.list|get|avatar.get`) stay open.
 #[test]
 fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
     let server = HeadlessServer::start("chief-registry-agent-raw");
@@ -404,17 +411,18 @@ fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
         "params": {"machine": "current", "session": "current", "chief": id, "role": "Boss"},
     })
     .to_string();
-    let raw_op = |name: &'static str, params: &str| -> Vec<String> {
+    let raw_op = |name: &str, params: &str| -> Vec<String> {
         ["--json", "raw", "operation", name, "--params-json", params]
             .iter()
             .map(|s| s.to_string())
             .collect()
     };
+    let argv = |words: &[&str]| -> Vec<String> { words.iter().map(|s| s.to_string()).collect() };
     let refused_calls: Vec<(Vec<String>, &str)> = vec![
-        (vec!["--json".into(), "chief".into(), "engine".into(), "--model".into(), "m".into()], "engine"),
-        (vec!["--json".into(), "chief".into(), "engine".into(), "--effort".into(), "high".into()], "engine"),
-        (vec!["--json".into(), "chief".into(), "stop".into()], "stop"),
-        (vec!["--json".into(), "chief".into(), "stop".into(), "a3".into()], "stop"),
+        (argv(&["--json", "chief", "engine", "--model", "m"]), "engine"),
+        (argv(&["--json", "chief", "engine", "--effort", "high"]), "engine"),
+        (argv(&["--json", "chief", "stop"]), "stop"),
+        (argv(&["--json", "chief", "stop", "a3"]), "stop"),
         (raw_op("chief.profile.update", &update), "chief.profile.update"),
         (raw_op("chief.profile.update", &update_default), "chief.profile.update"),
         (raw_op("chief.profile.create", &create), "chief.profile.create"),
@@ -423,10 +431,17 @@ fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
         (raw_op("chief.engine.set", &engine), "chief.engine.set"),
         (raw_op("chief.stop", &stop), "chief.stop"),
         (
-            vec!["--json".into(), "raw".into(), "command".into(), "--request-json".into(), raw_update.clone()],
+            argv(&["--json", "raw", "command", "--request-json", &raw_update]),
             "chief.profile.update",
         ),
+        (argv(&["--json", "chief", "shutdown"]), "shutdown"),
+        (argv(&["--json", "action", "run", "home.newChief"]), "home.newChief"),
+        (argv(&["--json", "action", "run", "home.archiveChief"]), "home.archiveChief"),
+        (argv(&["--json", "action", "run", "home.stopChief"]), "home.stopChief"),
+        (argv(&["--json", "home", "new-chief", "--name", "Rogue"]), "home new-chief"),
+        (argv(&["--json", "home", "archive-chief", "--chief", &id]), "home archive-chief"),
     ];
+    let nowhere = std::env::temp_dir().join(format!("no-such-chief-{}.sock", std::process::id()));
     for (key, value) in [
         ("ACPMUX_SESSION_ID", "s_chief_turn"),
         ("CMUX_AGENT_PRINCIPAL", id.as_str()),
@@ -442,6 +457,11 @@ fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
             assert_eq!(error["details"]["reason"], "agent_caller", "{key} {args:?}: {error}");
             assert_eq!(error["details"]["marker"], key, "{key} {args:?}: {error}");
             assert_eq!(error["details"]["refused"], *refused, "{key} {args:?}: {error}");
+            // The refusal comes before any connection: with no socket at all
+            // it is the same refusal, not a connect failure (exit 3).
+            let output = cmux_at(&nowhere, &args, &[(key, value)]);
+            assert_eq!(output.status.code(), Some(1), "{key} {args:?} (no socket): {output:?}");
+            assert_eq!(json_error(&output)["details"]["reason"], "agent_caller", "{key} {args:?}");
         }
     }
 
@@ -471,14 +491,26 @@ fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
         &agent,
     ));
     assert_eq!(got["id"], json!(id), "{got}");
-    // `chief engine` with no change is a read: it reaches the daemon (this
-    // headless daemon has no brain, so it answers its own refusal, not the
-    // agent one).
-    let read = cmux_as(&server, &["--json", "chief", "engine"], &agent);
-    assert!(
-        !String::from_utf8_lossy(&read.stderr).contains("agent_caller"),
-        "a read is not an agent refusal: {read:?}"
+    let avatar = stdout_json(&cmux_as(
+        &server,
+        &["--json", "raw", "operation", "chief.profile.avatar.get", "--params-json", &get],
+        &agent,
+    ));
+    assert_eq!(avatar["chief"], json!(id), "{avatar}");
+    // `chief engine` with no change and `chief.engine.get` are reads: they
+    // reach the daemon, which has no brain here and answers its own
+    // not-configured refusal, not the agent one.
+    let read = cmux_as(&server, &["chief", "engine"], &agent);
+    assert_eq!(read.status.code(), Some(1), "{read:?}");
+    assert!(String::from_utf8_lossy(&read.stderr).contains("not_configured"), "{read:?}");
+    let read = cmux_as(
+        &server,
+        &["--json", "raw", "operation", "chief.engine.get", "--params-json", &stop],
+        &agent,
     );
+    let error = json_error(&read);
+    assert_ne!(error["details"]["reason"], "agent_caller", "{error}");
+    assert!(error.to_string().contains("not_configured"), "{error}");
 
     // The person still writes through the raw path.
     let person = stdout_json(&cmux_as(

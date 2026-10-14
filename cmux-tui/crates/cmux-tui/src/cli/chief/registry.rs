@@ -201,7 +201,8 @@ fn agent_refused(what: &str, marker: &str) -> Value {
 
 /// The `chief.*` operations an agent caller may call: the reads. Every other
 /// `chief.*` operation (a profile write, `chief.engine.set`, `chief.stop`,
-/// and any later one) is a write the person makes.
+/// and any later one) is a write the person makes, so a new daemon `chief.*`
+/// read must be added here too.
 const AGENT_READS: [&str; 4] =
     ["chief.engine.get", "chief.profile.list", "chief.profile.get", "chief.profile.avatar.get"];
 
@@ -225,7 +226,26 @@ pub(in crate::cli) fn agent_operation_refusal(operation: &str) -> Option<Value> 
     if !operation.starts_with("chief.") || AGENT_READS.contains(&operation) {
         return None;
     }
-    agent_control_refusal(&format!("cmux raw {operation}"), operation)
+    agent_control_refusal(&format!("cmux raw operation {operation}"), operation)
+}
+
+/// The app actions that write a Chief through the app's own connection:
+/// their ids and their CLI names (`cmux action run` takes either).
+const APP_ACTIONS: [&str; 5] = [
+    "home.newChief",
+    "home.archiveChief",
+    "home.stopChief",
+    "home new-chief",
+    "home archive-chief",
+];
+
+/// [`agent_control_refusal`] for an app action (`cmux action run ID`,
+/// `cmux home new-chief`) that writes a Chief; `refused` is the action.
+pub(in crate::cli) fn agent_app_action_refusal(action: &str) -> Option<Value> {
+    if !APP_ACTIONS.contains(&action.trim()) {
+        return None;
+    }
+    agent_control_refusal(&format!("cmux action run {}", action.trim()), action.trim())
 }
 
 /// `cmux chief list|new|edit|delete …`.
