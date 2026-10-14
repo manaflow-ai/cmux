@@ -2,8 +2,9 @@
 // them showed through (the New Tab folder popover over the Chats list read as text on text). Every
 // one is now the solid popup surface, `--surface-popup`: the host's `--cmux-popup-surface`, the
 // same opaque fill as the native overlays (`Palette.popupSurface`), with no backdrop blur. The two
-// web tooltips (Base UI's `.ui-tooltip`, the title tooltip) also match the native tooltip: popup
-// surface, primary ink, 5 px radius, 4×8 padding, a separator hairline and the caption font.
+// web tooltips (Base UI's `.ui-tooltip`, the title tooltip) match the native tooltip: primary ink,
+// 5 px radius, 4×8 padding, a separator hairline and the caption font; since 2026-10-14 they are
+// frosted glass instead (tooltip-surface.test.ts).
 //
 // The pages are the real stylesheets with the variables the host sets, in a see-through window
 // (a translucent elevated background). The engines come from `playwright install chromium
@@ -82,10 +83,9 @@ ${tooltips}
 <div class="lg-palette" id="lg-palette">Search conversations</div>
 <div class="lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
+    // Tooltips are frosted glass (tooltip-surface.test.ts).
     surfaces: [
       "menu",
-      "ui-tooltip",
-      "title-tooltip",
       "page-menu",
       "icon-bar-pill",
       "md-link-card",
@@ -143,7 +143,6 @@ ${tooltips}`,
       "summary",
       // Leo 10-13: the New Tab suggestions showed the page's rows through them on a wallpaper theme.
       "new-tab-suggestions",
-      "title-tooltip",
     ],
   };
 
@@ -194,7 +193,7 @@ ${tooltips}`,
             return { border: style.borderTopWidth, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
           });
         const want = await look("context-menu");
-        const ids = pane.surfaces.filter((id) => id !== "title-tooltip");
+        const ids = pane.surfaces;
         const seen: Record<string, { border: string; radius: string; shadow: string }> = {};
         for (const id of ids) seen[id] = await look(id);
         expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, want])));

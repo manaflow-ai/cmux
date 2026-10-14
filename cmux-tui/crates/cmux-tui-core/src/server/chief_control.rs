@@ -107,7 +107,15 @@ pub(super) fn tool_line(
         ResourceOperation::ChiefEngineGet => json!({"tool": "engine", "action": "show"}),
         ResourceOperation::ChiefEngineSet => {
             let mut line = json!({"tool": "engine", "action": "set"});
-            for key in ["harness", "model", "effort", "speed", "compactor_speed"] {
+            for key in [
+                "harness",
+                "model",
+                "effort",
+                "speed",
+                "compactor_speed",
+                "compactor_harness",
+                "compactor_model",
+            ] {
                 if let Some(value) = fields.get(key) {
                     line[key] = value.clone();
                 }

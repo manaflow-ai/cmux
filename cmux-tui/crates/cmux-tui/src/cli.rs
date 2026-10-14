@@ -275,6 +275,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = mcp::run_if_requested(args)
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
+        .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
@@ -931,7 +932,8 @@ const AGENT_HELP: &str = "\
 USAGE
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
-  cmux agent inbox [<agent>] [--state queued|delivered|acknowledged|failed] [--limit <n>] [--ack]
+  cmux agent message release <message-id> --recipient <agent> --approve|--decline
+  cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]

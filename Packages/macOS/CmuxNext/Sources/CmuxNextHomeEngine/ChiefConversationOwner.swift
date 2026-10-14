@@ -78,11 +78,14 @@ public final class ChiefConversationOwner {
             logger.error("chief owner: \(String(describing: error), privacy: .public)")
             return
         }
+        // client-hello role main, with the install key the owner got at launch (an unsigned
+        // build): the owner verifies this app, so it issues the page's gesture confirmations.
         let configuration = DaemonConnection.Configuration(
             clientName: "cmux-next-home",
             requiredCapabilities: [DaemonCapabilities.shared.localConversations],
             retryWake: wake,
-            terminalEnvironment: nil)
+            terminalEnvironment: nil,
+            clientHello: ClientHelloIdentity(installKey: launcher.configuration.installKey))
         let provider = launcher.endpointProvider
         let wake = wake
         let logger = logger
@@ -100,6 +103,9 @@ public final class ChiefConversationOwner {
                 await connection.close()
                 return
             }
+            // Before anything uses the connection: an owner without this home's key (DEV only) restarts once while idle.
+            await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
+                                           identity: identity, logger: logger)
             if let prepare = self.prepare { await prepare(connection) }
             self.attach(connection, identity: identity)
             do {

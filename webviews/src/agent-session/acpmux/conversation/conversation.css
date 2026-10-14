@@ -696,13 +696,10 @@ pre.cv-math-source {
 
 /* ---------- Column ---------- */
 
-/* The transcript column; styles.css lines the composer and the cards above it up with it.
-   The queued prompts lie over the transcript's foot (ComposerQueue.tsx): the transcript ends above
-   them, so a followed reply's latest line is never under the queue. The size change is the
-   scroller's, which keeps a followed view at its end before the frame paints. A question waiting
-   for an answer keeps the space clear itself (.acpmux-asks-stack). */
+/* The transcript column; styles.css lines the composer and the cards above it up with it. The
+   bottom stack under it (bottomStack.css) changes the scroller's size, which keeps a followed view
+   at its end before the frame paints. */
 .acpmux-scroll {
-  margin-bottom: var(--acpmux-queue-space, 0px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
@@ -2013,6 +2010,11 @@ pre.cv-math-source {
   30% {
     opacity: 1;
   }
+}
+/* A chat reopening where the reader left it stays unseen while older pages bring that row back
+   (cx-odzaz), so it never flashes at its latest message first. */
+.acpmux-scroll[data-seeking] {
+  visibility: hidden;
 }
 /* The transcript's soft edges (New Tab's list, #19791): rows fade in under the header once the view
    has left the start, and out above the composer while more lies below, instead of a hard cut. A
