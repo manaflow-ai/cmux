@@ -148,4 +148,27 @@ async fn a_session_started_from_another_names_it_as_its_parent() {
         .await
         .unwrap();
     assert!(tagged["spawnedBy"].is_null());
+
+    // One level only: a parent that is itself a child names none, so two sessions tagged with
+    // each other both list on their own instead of hiding each other.
+    let looped = c
+        .request(method::MUX_TAG, json!({"sessionId": parent, "set": {"spawnedBy": child}}))
+        .await
+        .unwrap();
+    assert!(looped["spawnedBy"].is_null(), "{looped}");
+    let summary = |sessions: &Value, id: &str| {
+        sessions["sessions"].as_array().unwrap().iter().find(|s| s["sessionId"] == id).cloned()
+    };
+    let sessions = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
+    assert!(summary(&sessions, child).unwrap()["spawnedBy"].is_null());
+    c.request(method::MUX_TAG, json!({"sessionId": parent, "remove": ["spawnedBy"]}))
+        .await
+        .unwrap();
+
+    // An archived parent lists nowhere, so its children list on their own.
+    c.request(method::MUX_TAG, json!({"sessionId": parent, "set": {"archived": "1"}}))
+        .await
+        .unwrap();
+    let sessions = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
+    assert!(summary(&sessions, child).unwrap()["spawnedBy"].is_null());
 }
