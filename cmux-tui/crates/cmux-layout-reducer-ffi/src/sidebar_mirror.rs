@@ -204,9 +204,8 @@ impl Mirror {
         // The intent this batch confirms or refuses goes in every case: a
         // stale or gapped batch still says the daemon decided it. The shown
         // document changes only when an intent goes or rows apply.
-        let confirms = key
-            .as_ref()
-            .is_some_and(|key| self.pending.iter().any(|intent| intent.key == *key));
+        let confirms =
+            key.as_ref().is_some_and(|key| self.pending.iter().any(|intent| intent.key == *key));
         let applies = verdict.is_none() && bad_row.is_none();
         if !confirms && !applies {
             let mut result = verdict.or(bad_row).unwrap_or_else(|| json!({"ok": true}));
