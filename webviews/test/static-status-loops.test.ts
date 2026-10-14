@@ -142,7 +142,10 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       ["running", "completed", "failed", "cancelled"]
         .map((state) => `<span class="acpmux-lineage__icon" data-state="${state}"></span>`)
         .join("");
-    const p = await page(`${desktop}${pane}`, body, "no-preference", "static");
+    // The theme the pane always gets (applyAgentTheme), so state colors resolve as in the app.
+    const colors =
+      ":root{--agent-accent:#0a84ff;--agent-muted:#8e8e93;--agent-warning:#ff9f0a;--agent-danger:#ff453a;--surface-popup:#fff}";
+    const p = await page(`${desktop}${pane}${colors}`, body, "no-preference", "static");
     const shapes = await p.evaluate(() => {
       const shape = (node: Element, pseudo?: string) => {
         const style = getComputedStyle(node, pseudo);
@@ -150,6 +153,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
           style.content,
           style.clipPath,
           style.borderRadius,
+          style.boxShadow.includes("inset") ? "ring" : "",
           style.backgroundColor === "rgba(0, 0, 0, 0)" ? "hollow" : "filled",
         ].join(" | ");
       };
