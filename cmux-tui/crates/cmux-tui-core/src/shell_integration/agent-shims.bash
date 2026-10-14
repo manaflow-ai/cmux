@@ -20,7 +20,7 @@ _cmux_tui_agent_shims_first() {
   builtin return "$ret"
 }
 if [[ -n "${CMUX_TUI_AGENT_SHIMS-}" ]]; then
-  _cmux_tui_agent_shims_first
+  _cmux_tui_agent_shims_first || builtin true
   if [[ -n "${bash_preexec_imported-}${__bp_imported-}" ]]; then
     precmd_functions+=(_cmux_tui_agent_shims_first)
     preexec_functions+=(_cmux_tui_agent_shims_first)
