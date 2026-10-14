@@ -13,10 +13,12 @@ struct ZoomSpring: Equatable, Sendable {
     // frame timestamps).
     /// Page to card (tabs button): 0.369 / 0.873, four events agree.
     static let toOverview = ZoomSpring(response: 0.37, damping: 0.875)
-    /// Card to page (Done, a card, a new tab): the middle and tail fit
-    /// 0.385–0.40 / 0.98–0.99, but Safari covers 1850–2700 pt/s in the
-    /// first 2–3 frames, so it starts with about 8.5 progress/s.
-    static let toPage = ZoomSpring(response: 0.39, damping: 0.99, launch: 8.5)
+    /// Card to page (Done, a card): the middle and tail fit 0.385–0.40 /
+    /// 0.98–0.99. From rest: simulator Safari's first frame moves 7–11 pt
+    /// and its second about 21 pt (tabs-parity-audit 1a; this spring from
+    /// rest: 8 and 23 pt). The device recording's 8.5 progress/s launch put
+    /// 31 pt in the first frame on the simulator (re-audit D11).
+    static let toPage = ZoomSpring(response: 0.39, damping: 0.99)
     /// (+) New Tab: Safari's start page tail fits 0.34 / 0.97 with about
     /// 10 progress/s at its first sharp frame (tabs-parity-audit 2a).
     static let newTab = ZoomSpring(response: 0.34, damping: 0.97, launch: 10)

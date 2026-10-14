@@ -96,12 +96,16 @@ struct TabZoomStateTests {
         #expect(abs(s.progress - (q + 10.0 / 244)) < 1e-9 && s.spring == .reversalToOverview)
     }
 
-    /// Closing starts with Safari's launch velocity toward the page.
-    @Test func closeStartsFast() {
+    /// Opening a card starts from rest, as simulator Safari: the first
+    /// 60 Hz frame covers 7–11 pt of the 225 pt card-to-page travel.
+    @Test func openStartsFromRest() {
         var s = TabZoomState(overview: true)
         s.go(toOverview: false)
-        #expect(s.velocity == -ZoomSpring.toPage.launch)
+        #expect(s.velocity == 0)
         #expect(s.spring == .toPage)
+        s.step(1.0 / 60)
+        let firstFrame = (1 - s.progress) * 225
+        #expect(firstFrame >= 6 && firstFrame <= 11, "\(firstFrame) pt")
     }
 
     @Test func repeatedTogglesDuringAnimationAlwaysSettle() {
