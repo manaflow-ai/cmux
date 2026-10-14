@@ -1,3 +1,4 @@
+import CmuxNextSidebar
 import Foundation
 
 /// Strings of the sidebar section handlers (SidebarSections.xcstrings).
