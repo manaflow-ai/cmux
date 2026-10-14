@@ -45,6 +45,7 @@ pub mod persist;
 pub mod prompt;
 pub mod report;
 pub mod rpc;
+pub mod run;
 pub mod session_dir;
 pub mod settle_status;
 pub mod state;

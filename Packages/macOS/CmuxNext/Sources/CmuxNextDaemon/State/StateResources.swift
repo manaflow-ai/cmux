@@ -167,12 +167,23 @@ public struct WorkspaceStatus: Sendable, Hashable, Decodable {
         public var text: String
         public var icon: String?
         public var color: String?
+        /// Loading fields (`cmux status set --state --progress --style`, plans/cmux-next/status-indicators.md
+        /// section 5): `busy|success|error|waiting|info`, nil for a plain line (an older daemon or client).
+        public var state: String?
+        /// 0...1, busy only; nil while indeterminate.
+        public var progress: Double?
+        /// The reporter's style hint (`arc|native|dot|none`).
+        public var style: String?
 
-        public init(key: String, text: String, icon: String? = nil, color: String? = nil) {
+        public init(key: String, text: String, icon: String? = nil, color: String? = nil,
+                    state: String? = nil, progress: Double? = nil, style: String? = nil) {
             self.key = key
             self.text = text
             self.icon = icon
             self.color = color
+            self.state = state
+            self.progress = progress
+            self.style = style
         }
     }
 

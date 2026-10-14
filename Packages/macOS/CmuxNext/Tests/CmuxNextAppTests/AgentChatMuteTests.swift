@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextDaemon
@@ -22,8 +23,10 @@ struct AgentChatMuteTests {
         AgentSessionRef(host: host, session: session, harness: "codex")
     }
 
+    // The public resolve: a DEBUG build honors an exported CMUX_NEXT_ACPMUX_BIN here, which only
+    // changes `executable`. These tests talk to a fake socket and never check the executable.
     static func environment(_ acpmux: TaggingAcpmux) throws -> AcpmuxEnvironment {
-        try #require(AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: nil,
+        try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: nil,
                                                environment: ["ACPMUX_SOCKET": acpmux.path, "ACPMUX_HOME": "/tmp"],
                                                isExecutable: { _ in true }))
     }

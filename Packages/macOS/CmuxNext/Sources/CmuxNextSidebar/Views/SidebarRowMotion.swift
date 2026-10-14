@@ -58,7 +58,7 @@ struct RowMotion {
                 view.animator().alphaValue = 0
                 view.animator().frame = end
             }
-        }, completion: { [weak list, appearing, opens, leaving, leavingLines = lines.leaving] in
+        }, settleAtSleep: Self.settle(list), completion: { [weak list, appearing, opens, leaving, leavingLines = lines.leaving] in
             leavingLines.forEach { $0.removeFromSuperview() }
             guard let list else { return }
             // A row reopened since keeps clipping until its own open ends.
@@ -72,7 +72,7 @@ struct RowMotion {
     /// held still for an insert above it, then scrolled to it) opens from zero
     /// height at its slot instead of showing whole over the rows still making
     /// room (cx-ai79).
-    static func place(_ view: SidebarRowView, at target: NSRect, opening: Bool, hidden: Bool, in list: NSView) {
+    static func place(_ view: SidebarRowView, at target: NSRect, opening: Bool, hidden: Bool, in list: SidebarListView) {
         guard opening, !hidden, Motion.animatesMovement else {
             view.frame = target
             view.alphaValue = hidden ? 0 : 1
@@ -88,9 +88,17 @@ struct RowMotion {
         Motion.animate(.move, in: list, {
             view.animator().frame = target
             view.animator().alphaValue = 1
-        }, completion: { [view] in
+        }, settleAtSleep: Self.settle(list), completion: { [view] in
             if view.opens == open { view.clipsToBounds = false }
         })
+    }
+
+    /// When the display sleeps mid-move (no frame draws, so the move never ends), the rows
+    /// take the places the list holds then, without motion: a reload, never the targets this
+    /// move captured, which a newer change may have replaced. Rows still leaving go in the
+    /// move's completion, which runs right after.
+    private static func settle(_ list: SidebarListView) -> @MainActor () -> Void {
+        { [weak list] in list?.reload(animated: false) }
     }
 
     /// A moved selected row (with its workspace's tab rows) passes over the

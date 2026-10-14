@@ -8,26 +8,31 @@ public import Foundation
 ///   opacity changes stay as a short crossfade (hover feedback is
 ///   instant); loops stop.
 /// - `normal`: every time constant is 1.5x the `fast` token.
+/// - A live resize (a window edge under the pointer): movement is instant,
+///   so each frame lays out at the window's size and nothing springs toward
+///   a size the next frame replaces; fades and loops run as usual.
 public nonisolated struct MotionPolicy: Sendable, Equatable {
     public var speed: MotionSpeed
     public var reduceMotion: Bool
     /// `ui.animations.bounce`: structural springs bounce or not.
     public var bounce: MotionBounce
-    /// The kinds turned on one by one (`ui.animations.*` true; off by default).
+    /// The kinds turned on one by one (`ui.animations.*` true).
     public var enabledKinds: Set<MotionKind>
+    public var liveResize: Bool
 
-    public init(speed: MotionSpeed, reduceMotion: Bool, bounce: MotionBounce = .none, enabledKinds: Set<MotionKind> = []) {
+    public init(speed: MotionSpeed, reduceMotion: Bool, bounce: MotionBounce = .none,
+                enabledKinds: Set<MotionKind> = [], liveResize: Bool = false) {
         self.speed = speed
         self.reduceMotion = reduceMotion
         self.bounce = bounce
         self.enabledKinds = enabledKinds
+        self.liveResize = liveResize
     }
 
     /// Position, size, scale and scroll animate. When false, snap.
-    public var animatesMovement: Bool { speed != .off && !reduceMotion }
-    /// `kind` moves: movement animates and its switch is on. Off (the
-    /// default) means the change applies in one frame (Reduce Motion: no
-    /// crossfade either).
+    public var animatesMovement: Bool { speed != .off && !reduceMotion && !liveResize }
+    /// `kind` moves: movement animates and its switch is on. Off means the
+    /// change applies in one frame (Reduce Motion: no crossfade either).
     public func animates(_ kind: MotionKind) -> Bool { animatesMovement && enabledKinds.contains(kind) }
     /// Opacity and color changes animate. When false, apply at once.
     public var animatesFades: Bool { speed != .off }

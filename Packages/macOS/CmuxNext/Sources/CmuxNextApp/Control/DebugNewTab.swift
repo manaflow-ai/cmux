@@ -23,6 +23,7 @@ import WebKit
 /// the tab the pane showed, then each character as a key-down: the page is left before its field
 /// could report readiness, so its key hold must end and the keys reach the tab shown (nightly
 /// 2026-10-11: they waited forever and Cmd-T opened nothing).
+/// `drop_spare` drops the prewarmed spare, so the next opening loads cold.
 @MainActor
 enum DebugNewTab {
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
@@ -50,6 +51,10 @@ enum DebugNewTab {
         case "frame_strip":
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
             return await DebugFrameStrip.run(params, controller, services)
+        case "drop_spare":
+            // The next opening loads cold, as after memory pressure (scripts/ci/frame-pacing/golden.py).
+            services.newTabSpares.dropAll()
+            return state(services)
         case "retarget":
             // What a key-window change does, for no-activate runs whose windows never become key.
             guard let window = controller(params, services)?.window else { return .object(["error": .string("no such window")]) }

@@ -698,15 +698,13 @@ impl Orchestrator for Spawner {
         let run = self.engine_settings(plan.engine.as_ref());
         // The person's grant: a harness outside it starts nothing.
         let grant = self.grant.as_ref().map(|g| g.grant());
-        let refused = grant
-            .filter(|g| !g.allows_harness(&run.harness))
-            .map(|g| {
-                format!(
-                    "the person has not given this Chief's subagents the {} harness; it may use {}",
-                    run.harness,
-                    g.harnesses.iter().cloned().collect::<Vec<_>>().join(", ")
-                )
-            });
+        let refused = grant.filter(|g| !g.allows_harness(&run.harness)).map(|g| {
+            format!(
+                "the person has not given this Chief's subagents the {} harness; it may use {}",
+                run.harness,
+                g.harnesses.iter().cloned().collect::<Vec<_>>().join(", ")
+            )
+        });
         self.trace.emit(
             "spawn",
             json!({

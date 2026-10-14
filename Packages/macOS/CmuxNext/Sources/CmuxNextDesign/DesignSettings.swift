@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import Observation
+import Foundation
 
 /// Metrics a user may override individually on top of a density preset.
 /// Raw values are the cmux.json keys under `appearance.metrics`.
@@ -32,8 +33,14 @@ public final class DesignSettings {
     public var uiScale: CGFloat = 1
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
-    /// `ui.animationSpeed`: how fast chrome animates (see `Motion`).
-    public var animationSpeed: MotionSpeed = .fast
+    /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
+    /// `Motion.speedDidChange` for hosts outside Observation (a video wallpaper's player).
+    public var animationSpeed: MotionSpeed = .fast {
+        didSet {
+            guard animationSpeed != oldValue else { return }
+            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+        }
+    }
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default

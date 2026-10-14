@@ -3,6 +3,7 @@
 
   scripts/cmux-next/omnibar-pointer-live.py --tag <tag> [--out DIR] [--app PATH]
   scripts/cmux-next/omnibar-pointer-live.py --socket PATH   (an app already running)
+  --engine chromium   a Chromium tab instead of a WebKit one
 
 Launches the tagged app (no activation, automation socket, empty config), opens a WebKit tab and
 walks the states with `debug.mouse` (the synthesized pointer and clicks), `debug.key` and
@@ -23,7 +24,10 @@ walks the states with `debug.mouse` (the synthesized pointer and clicks), `debug
 The cursor checks are rule checks: `probe_cursor` is the cursor `OmnibarPointer` gives for the
 region AppKit hits at the point. `installed_text_cursor` (what the field last installed when AppKit
 rebuilt its cursor rects) is printed as a note, because AppKit rebuilds cursor rects lazily for the
-key window and a test window here is never key.
+key window and a test window here is never key. `tracked_cursor` is the cursor the toolbar row set
+on the last pointer move: the row sets it in any window state, because a Chromium page window takes
+the key while the page has the keyboard and the parent's cursor rects then do nothing. A never-key
+test window is that state, so the moves check the cursor the user sees there.
 
 GUI host only (cmux-lawrence-2 or the M1 Max through nx-remote). An app it launched is quit and
 the tag's daemons stopped at the end. Exits 1 when a check fails.
@@ -38,6 +42,7 @@ parser.add_argument("--tag")
 parser.add_argument("--socket", help="attach to the app serving this automation socket instead of launching one")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="omnibar-pointer-"))
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
+parser.add_argument("--engine", choices=("webkit", "chromium"), default="webkit")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 if not opts.socket and not opts.tag:
@@ -179,7 +184,7 @@ try:
     if not windows():
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     WINDOW = (wait_for(lambda: windows(), "a window", 60) or [{}])[0].get("id")
-    print("open a WebKit tab", rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": URL}, "focus": True}), flush=True)
+    print(f"open a {opts.engine} tab", rpc("action.run", {"action": f"openBrowser.{opts.engine}", "args": {"url": URL}, "focus": True}), flush=True)
     frames = (wait_for(lambda: (pointer().get("frames") or {}).get("text") and pointer()["frames"], "an omnibar with frames", 90)
               or {})
     print("frames", json.dumps(frames), flush=True)
@@ -221,7 +226,13 @@ try:
         gap = ((reload[0] + reload[2] + bar[0]) / 2, toolbar[1] + 1)
         check(probe(gap)[1] == "arrow", f"arrow over the toolbar row {probe(gap)}")
 
-    # 2. Hover follows the pointer.
+    # 2. Hover follows the pointer; a move sets the cursor the rules give (`tracked_cursor`).
+    for name, point, want in (("the text", center(text) if text else None, "iBeam"), ("the bar above the text", above_text, "iBeam"),
+                              ("past the end of the text", past_text, "iBeam"), ("the chip", center(chip) if chip else None, "arrow"),
+                              ("a button", center(reload) if reload else None, "arrow")):
+        if point:
+            mouse("move", point)
+            check(pointer().get("tracked_cursor") == want, f"rest: a move over {name} sets the {want} {pointer().get('tracked_cursor')}")
     if bar and page:
         mouse("move", center(bar))
         check(bool(wait_for(lambda: pointer().get("bar_hovering"), "bar hover", 5)), "the bar lights under the pointer")
@@ -240,7 +251,7 @@ try:
     if bar and page:
         mouse("move", center(bar))
         wait_for(lambda: pointer().get("bar_hovering"), "bar hover before the switch", 5)
-        print("second tab", rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": URL2}, "focus": True}), flush=True)
+        print("second tab", rpc("action.run", {"action": f"openBrowser.{opts.engine}", "args": {"url": URL2}, "focus": True}), flush=True)
         wait_for(lambda: "example.org" in (omnibar().get("text") or ""), "the second tab shows", 30)
         mouse("move", page)
         rpc("action.run", {"action": "prevSurface", "focus": True})
@@ -256,6 +267,10 @@ try:
         check(selection_all(first), f"first click selects the whole address: {first.get('selection')} of {len(first.get('text') or '')}")
         check(probe(center(text)) == ("text", "iBeam"), f"I-beam over the text while editing {probe(center(text))}")
         print(f"note installed_text_cursor while editing: {pointer().get('installed_text_cursor')}", flush=True)
+        for point in (center(text), above_text):
+            if point:
+                mouse("move", point)
+                check(pointer().get("tracked_cursor") == "iBeam", f"editing: a move over the text area sets the I-beam {pointer().get('tracked_cursor')}")
         if above_text:
             check(probe(above_text)[1] == "iBeam", f"I-beam over the bar above the text while editing {probe(above_text)}")
         snapshot("light-editing")
@@ -330,6 +345,17 @@ try:
         snapshot("dark-editing")
         blur()
     rpc("debug.appearance", {"mode": "system"})
+
+    # 8. Pointer moves over a New Tab page and back over a browser toolbar keep the app alive.
+    print("new tab page", rpc("action.run", {"action": "newTab.page", "focus": True}), flush=True)
+    for point in ((600, 20), (600, 44), (300, 44), (600, 300), (40, 400)):
+        mouse("move", point)
+    check("error" not in (rpc("debug.focus") or {"error": 1}), "the app answers after moves over a New Tab page")
+    rpc("action.run", {"action": "prevSurface", "focus": True})
+    for point in ((center(text) if text else None), (center(reload) if reload else None), page):
+        if point:
+            mouse("move", point)
+    check("error" not in (rpc("debug.focus") or {"error": 1}), "the app answers after moves over the toolbar and the page")
 finally:
     if app:
         rpc("debug.quit", {"fixture_quit": "end-sessions"})

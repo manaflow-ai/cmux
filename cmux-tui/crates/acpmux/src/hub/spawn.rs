@@ -109,6 +109,10 @@ impl Hub {
             p.argv.push("--system-prompt-file".into());
             p.argv.push(file.to_string_lossy().into_owned());
         }
+        // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
+        if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+            p.argv.extend(super::tools::disallowed_args(&meta.tools));
+        }
         Ok(p)
     }
 }

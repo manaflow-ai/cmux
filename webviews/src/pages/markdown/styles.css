@@ -50,7 +50,7 @@
   --cmux-md-error-color: var(--cmux-app-danger, light-dark(#b42318, #ff8a80));
   --cmux-md-link-broken-color: var(--cmux-md-error-color);
   --cmux-md-popover-background: var(--surface-popup);
-  --cmux-md-popover-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  --cmux-md-popover-shadow: var(--elevation-2);
   --cmux-md-popover-font-size: 12px;
 }
 

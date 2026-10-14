@@ -26,6 +26,9 @@ public struct Motion {
     /// (`NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`).
     public static let reduceMotionDidChange = Notification.Name("CmuxNextDesign.Motion.reduceMotionDidChange")
 
+    /// Posted on the main actor when `ui.animationSpeed` (`DesignSettings.animationSpeed`) changes.
+    public static let speedDidChange = Notification.Name("CmuxNextDesign.Motion.speedDidChange")
+
     /// System Reduce Motion (Accessibility > Display), or the test override.
     public static var reduceMotion: Bool {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -36,11 +39,11 @@ public struct Motion {
     public static var policy: MotionPolicy {
         let design = DesignSettings.shared
         return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
-                            enabledKinds: design.enabledAnimations)
+                            enabledKinds: design.enabledAnimations, liveResize: isLiveResizing)
     }
 
-    /// `kind` animates: movement animates (not `off`, not Reduce Motion) and
-    /// its `ui.animations.*` switch is on (off by default). When false the
+    /// `kind` animates: movement animates (not `off`, not Reduce Motion, not a
+    /// live resize) and its `ui.animations.*` switch is on. When false the
     /// change applies in one frame, with no crossfade.
     public static func animates(_ kind: MotionKind) -> Bool { policy.animates(kind) }
 

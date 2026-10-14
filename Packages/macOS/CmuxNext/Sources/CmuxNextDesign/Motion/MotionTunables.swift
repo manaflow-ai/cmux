@@ -106,6 +106,20 @@ public nonisolated enum MotionTunables {
     public static let hoverCardDwell = Tunable<Double>.number(
         "motion.hoverCard.dwell", .hover, "Hover card dwell", help: "Pointer rest on a sidebar workspace row before its hover card shows.",
         default: 1, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.hoverCardDwell")
+    /// Leo 2026-10-14: hover intent app-wide (`HoverIntentTiming`, AppKit's
+    /// `NSInitialToolTipDelay` is about 1 s).
+    public static let tooltipDelay = Tunable<Double>.number(
+        "motion.tooltip.delay", .hover, "Tooltip delay", help: "Pointer rest before the first tooltip shows.",
+        default: 0.45, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.tooltipDelay")
+    public static let tooltipWarm = Tunable<Double>.number(
+        "motion.tooltip.warm", .hover, "Tooltip warm time", help: "After a tooltip hides, how long the next one shows at once.",
+        default: 0.5, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.tooltipWarm")
+    public static let hoverCardGrace = Tunable<Double>.number(
+        "motion.hoverCard.grace", .hover, "Hover card grace", help: "How long a hover card stays after the pointer leaves its row and the card.",
+        default: 0.2, range: 0...2, step: 0.05, unit: .seconds, code: "MotionTunables.hoverCardGrace")
+    public static let hoverCardAim = Tunable<Double>.number(
+        "motion.hoverCard.aim", .hover, "Hover card aim", help: "How long a pointer heading into a hover card may pause on a row it crosses.",
+        default: 0.3, range: 0...2, step: 0.05, unit: .seconds, code: "MotionTunables.hoverCardAim")
     public static let panelOpenScale = Tunable<Double>.number(
         "motion.panel.openScale", .palette, "Panel open scale", help: "Scale the palette grows from when it opens.",
         default: 0.97, range: 0.8...1, step: 0.005, unit: .multiplier, code: "MotionTunables.panelOpenScale")
@@ -130,7 +144,8 @@ public nonisolated enum MotionTunables {
         MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, dividerReleaseProjection.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
-            + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel, hoverCardDwell].map(\.descriptor)
+            + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel, hoverCardDwell,
+               tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim].map(\.descriptor)
             + [panelOpenScale, panelCloseScale].map(\.descriptor)
     }
 }

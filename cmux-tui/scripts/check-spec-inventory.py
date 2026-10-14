@@ -893,6 +893,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "presentation-only",
         "route": "tree snapshot + frontend clipboard",
     },
+    "PinWorkspace": {
+        "classification": "direct",
+        "route": "sidebar.pin or sidebar.unpin (sidebar-doc-v1)",
+    },
     "DeleteManagedWorkspace": {
         "classification": "external-protocol",
         "route": "machine-provider delete_workspace",

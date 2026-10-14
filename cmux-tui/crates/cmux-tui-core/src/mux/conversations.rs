@@ -74,7 +74,7 @@ impl Mux {
         &self.conversations.remote
     }
 
-    /// The agent participant `client` bound with a token, if any. The
+    /// The agent or person participant `client` bound with a token, if any. The
     /// principal itself (`conversation_principal`) lives with the relay
     /// policy (server/remote_relay), which fails closed for remote
     /// connections.
@@ -124,7 +124,8 @@ impl Mux {
         typing.get(conversation).map(|set| set.iter().cloned().collect()).unwrap_or_default()
     }
 
-    /// An agent whose last bound connection ended types nowhere any more:
+    /// An agent or person whose last bound connection ended (or whose token
+    /// was replaced) types nowhere any more:
     /// clear its typing and tell subscribers, so no client waits on a
     /// typing indicator nobody will turn off.
     fn end_agent_typing(&self, participant: &str) {
@@ -171,7 +172,10 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&client);
-        if let Some(participant) = bound.filter(|p| p.starts_with("agent_")) {
+        // A bound agent or person: its typing ends with its last connection.
+        if let Some(participant) =
+            bound.filter(|p| p.starts_with("agent_") || p.starts_with("user_"))
+        {
             self.end_agent_typing(&participant);
         }
         // Safety: a removal never grants access, so a poisoned peers lock
@@ -195,15 +199,19 @@ impl Mux {
     /// unbound trusted connection is `user_local`, so removing the binding
     /// would make the old agent connection the person. The marker names no
     /// participant (`:` is not allowed in a participant id), so it fails
-    /// closed until the connection binds again with the new token.
+    /// closed until the connection binds again with the new token. Its
+    /// typing ends with the old binding.
     pub(crate) fn unbind_conversation_participant(&self, participant: &str) {
         let revoked = format!("{REVOKED_BINDING_PREFIX}{participant}");
-        let mut bindings =
-            self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner);
-        for bound in bindings.values_mut() {
-            if bound == participant {
-                bound.clone_from(&revoked);
+        {
+            let mut bindings =
+                self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner);
+            for bound in bindings.values_mut() {
+                if bound == participant {
+                    bound.clone_from(&revoked);
+                }
             }
         }
+        self.end_agent_typing(participant);
     }
 }

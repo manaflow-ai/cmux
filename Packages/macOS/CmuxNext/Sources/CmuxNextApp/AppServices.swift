@@ -85,7 +85,7 @@ final class AppServices {
     /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
     private(set) lazy var modelRouter: ModelRouterLease? = {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AcpmuxEnvironment.resolve(tag: environment.tag, bundledBinDirectory: bin,
+        guard let acpmux = AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
                                                      environment: ProcessInfo.processInfo.environment) else { return nil }
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
                                 logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
@@ -160,7 +160,7 @@ final class AppServices {
     /// Room, workspace and terminal themes.
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
-    private(set) lazy var remoteLocalhost: RemoteLocalhostService = RemoteLocalhostService(machines: machines)  // first read in init (no IUO)
+    private(set) lazy var remoteLocalhost = machines.makeRemoteLocalhost()  // first read in init (no IUO)
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
     private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, localhost: remoteLocalhost)
     var chromiumLikelyObservations: [Task<Void, Never>] = []
@@ -242,13 +242,7 @@ final class AppServices {
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
-        cache.cef.onReady = { [crashRecovery, crashReporting] in
-            crashRecovery.marker?.installHandlers()
-            crashReporting.reporter.reassertSignalHandlers()
-            // Chromium resets signal actions at start and catches SIGINT and
-            // SIGHUP itself; they stay requested quits.
-            QuitSignal.reclaim()
-        }
+        AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: cache.cef, reporter: crashReporting.reporter)
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
             // Chromium wanted a window and has none for that profile (a
             // normal one; an incognito store never gets here): a new browser

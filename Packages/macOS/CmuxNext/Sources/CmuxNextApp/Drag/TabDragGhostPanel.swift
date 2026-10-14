@@ -79,9 +79,10 @@ final class TabDragGhostPanel {
         tabLayer.contentsGravity = .resize
         tabLayer.contentsScale = scale
         tabLayer.shadowColor = ThemeScope.app.perform { Palette.shadow.cgColor }
-        tabLayer.shadowOpacity = 0.28
-        tabLayer.shadowRadius = 10
-        tabLayer.shadowOffset = CGSize(width: 0, height: -3)
+        // The raised elevation step (PopupStyle.elevation2): a tight lift, not a dark halo.
+        tabLayer.shadowOpacity = Float(PopupStyle.elevation2.alpha)
+        tabLayer.shadowRadius = PopupStyle.elevation2.layerRadius
+        tabLayer.shadowOffset = PopupStyle.elevation2.layerOffset()
         overlay.addSublayer(tabLayer)
         panel.contentView = root
     }
@@ -136,7 +137,7 @@ final class TabDragGhostPanel {
                                   width: max(0, current.width - inset * 2), height: thumbHeight)
         thumbLayer.opacity = Float(c)
         tabLayer.frame = tabLocal
-        tabLayer.shadowOpacity = Float(0.28 * (1 - c))
+        tabLayer.shadowOpacity = Float(PopupStyle.elevation2.alpha * (1 - c))
         let s = layout.scale
         if s != 1 {
             // The root layer's anchor is (0, 0) (AppKit), so the pivot is explicit.
