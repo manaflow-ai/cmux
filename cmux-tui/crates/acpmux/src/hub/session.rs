@@ -45,6 +45,10 @@ pub struct Session {
     /// Set on a freshly forked Claude session: the parent's agent session id
     /// to pass as `--resume <id> --fork-session` on first spawn.
     pub(super) fork_from: StdMutex<Option<String>>,
+    /// The model and the effort acpmux last set on this session (its own
+    /// start values or a client's set), so a repeated set is no new pick
+    /// (`start_defaults.rs`).
+    pub(super) applied: StdMutex<Applied>,
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed.
     pub(super) purged: AtomicBool,
@@ -136,4 +140,11 @@ pub(crate) fn prompt_text(blocks: &[Value]) -> String {
         .filter_map(|b| b.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// What acpmux last set on a session (`Session::applied`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Applied {
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }

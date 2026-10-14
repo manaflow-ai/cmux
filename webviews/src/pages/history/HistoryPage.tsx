@@ -7,7 +7,6 @@ import type { Strings } from "../shared/i18n";
 import { KindIcon } from "./KindIcon";
 import {
   BadgeLabel,
-  canClear,
   canOpen,
   FilterLabel,
   flatten,
@@ -134,7 +133,6 @@ export function HistoryPage({
             <button
               type="button"
               className="history-menu-button"
-              disabled={!canClear(snap.filter)}
               onClick={(event) => headerMenu(event, clearItems())}
             >
               {t("page.clear")}
