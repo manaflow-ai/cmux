@@ -11,9 +11,8 @@ import CoreGraphics
 ///   springs back.
 /// - No fade while dragging.
 /// - The card follows the finger from touch-down (the slop is not lost).
-/// - Release closes when the card, projected 0.35 s ahead at its release
-///   velocity, is at least 72% of its width to the left, or when the finger
-///   leaves leftward faster than 225 pt/s; otherwise the
+/// - Release closes when the card is at least 72% of its width to the left,
+///   or when the finger leaves leftward faster than 225 pt/s; otherwise the
 ///   card springs back to its slot (0.66 / 0.86) and settles to scale 1
 ///   (0.57 / 0.94).
 /// - Closing: the card keeps going left at the finger's speed (≥ 1000 pt/s,
@@ -60,17 +59,14 @@ struct CardSwipe: Equatable, Sendable {
     }
 
     /// Close on release? `offset` and `velocity` in points (/s), negative left.
-    /// The card is where it would come to rest: the release offset plus the
-    /// leftward velocity over `projectionTime`. A held release (no velocity)
-    /// still needs 72% of the width; a slow swipe that is still moving
-    /// closes sooner (Safari closed a 100 pt / 1 s swipe at −104.6 pt,
-    /// tabs-parity-audit 3e and 8a; a 60 pt flick closes at 250 pt/s, not
-    /// at 200).
-    static let projectionTime: CGFloat = 0.35
+    /// Close on release? `offset` and `velocity` in points (/s), negative
+    /// left. Only a large displacement (72% of the width) or a left fling
+    /// (faster than 225 pt/s) closes: a slow drag springs back however far
+    /// under the threshold it got (Safari; tabs-parity-reaudit D3a: a slow
+    /// 100 pt drag springs back in Safari every time).
     static func commits(offset: CGFloat, velocity: CGFloat, cardWidth: CGFloat) -> Bool {
         guard offset < 0, velocity < flingVelocity else { return false }
-        let projected = offset + min(0, velocity) * projectionTime
-        return projected <= -commitFraction * cardWidth || velocity <= -flingVelocity
+        return offset <= -commitFraction * cardWidth || velocity <= -flingVelocity
     }
 
     /// Where the fly-off ends: past the screen's leading edge.
