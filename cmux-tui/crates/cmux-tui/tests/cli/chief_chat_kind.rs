@@ -29,7 +29,17 @@ fn client_list(server: &HeadlessServer) -> Vec<Value> {
     }
 }
 
-/// The next `client-changed` or `client-detached` event on `watch`.
+/// This test's own `cmux chief` child, ended on drop (also when an assertion fails).
+struct Chat(std::process::Child);
+
+impl Drop for Chat {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// The next `client-changed` or `client-detached` event on `watch` (its read times out after 20 s).
 fn next_client_event(watch: &mut Conn) -> Value {
     loop {
         let event = watch.event();
@@ -48,7 +58,7 @@ fn an_open_chief_chat_is_a_chief_chat_client_until_it_ends() {
     watch.request("subscribe", json!({}));
 
     // A chat that stays open: pipe mode waits for the Chief's reply, and no brain answers.
-    let mut chat = Command::new(bin())
+    let chat = Command::new(bin())
         .arg("--socket")
         .arg(&server.socket)
         .args(["chief", "-p", "are you there?", "--timeout", "120"])
@@ -60,9 +70,10 @@ fn an_open_chief_chat_is_a_chief_chat_client_until_it_ends() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
+    let chat = Chat(chat);
 
     // The chat names itself once it connects (the watch reads its client-changed event).
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(15);
     let named = loop {
         assert!(Instant::now() < deadline, "the chat never named itself a chief-chat client");
         let event = next_client_event(&mut watch);
@@ -78,9 +89,8 @@ fn an_open_chief_chat_is_a_chief_chat_client_until_it_ends() {
     assert_eq!(chats[0]["transport"], "unix", "{listed:?}");
 
     // The chat ends (this test's own child): its client leaves, with the id it named.
-    chat.kill().unwrap();
-    chat.wait().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(30);
+    drop(chat);
+    let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         assert!(Instant::now() < deadline, "the ended chat's client never left");
         let event = next_client_event(&mut watch);
