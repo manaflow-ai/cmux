@@ -88,7 +88,13 @@ export function PermissionActionButton({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; shortcut?: string; description?: string }) {
   const { className, ...buttonProps } = props;
   return (
-    <button {...buttonProps} className={className} type="button" aria-keyshortcuts={shortcut || undefined}>
+    <button
+      {...buttonProps}
+      className={className}
+      type="button"
+      aria-label={label}
+      aria-keyshortcuts={shortcut || undefined}
+    >
       <span className="acpmux-permission-action-label">{label}</span>
       {description && <span className="acpmux-permission-action-description">{description}</span>}
       {shortcut && <kbd className="acpmux-permission-action-shortcut">{shortcut}</kbd>}
