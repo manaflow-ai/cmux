@@ -2036,7 +2036,7 @@ class Workflow(unittest.TestCase):
                      "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml'",
                      "github.event.workflow_run.path == '.github/workflows/nightly.yml'",
                      "github.event.workflow_run.head_repository.full_name == github.repository",
-                     "github.event.workflow_run.run_attempt == 1 || github.event.workflow_run.conclusion == 'failure'"):
+                     "github.event_name != 'workflow_run' || github.event.action != 'completed' || github.event.workflow_run.conclusion == 'failure'"):
             self.assertIn(part, condition)
         step = self.doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")

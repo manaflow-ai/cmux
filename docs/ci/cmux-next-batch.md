@@ -1,5 +1,10 @@
 # cmux-next batch queue
 
+The batch sheriff is `@teamleaderleo`. The sheriff owns the cadence run: when
+the heavy tier is red, roll forward the last green prefix, bisect the first red
+PR, and keep the next batch moving. The sheriff is a named operator, not an
+additional approval gate.
+
 Open a PR into `feat-cmux-next` and let the queue land it. You don't stack, rebase or rerun anything by hand. `scripts/ci/next_batch.py` is the controller. It runs either as `.github/workflows/cmux-next-batch.yml` with a GitHub App, or as `next_batch.py serve` on a workstation under the operator's gh login (see [Serving locally](#serving-locally)).
 
 ## What makes a PR eligible

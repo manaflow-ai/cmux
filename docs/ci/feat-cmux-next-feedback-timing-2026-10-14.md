@@ -40,11 +40,11 @@ also had canceled report-only and checks attempts before the final attempt.
    Blacksmith Linux job. Before: run p50/p90 **14.5 / 14.7 minutes**. After:
    the next green receipts should show the duplicate typecheck removed; the
    first post-change record is the measured comparison.
-3. **macOS admission:** the fast tier and canary remain minis first. The
-   measured 39.6-minute wait is an admission/eviction problem, so this change
-   coalesces stale PR work instead of routing native work away from minis.
-   The next controller sample is the canary for queue p50/p90 and setup/complete
-   overhead.
+3. **macOS admission:** the fast tier now runs on Blacksmith Linux; the Swift
+   canary and heavy suites remain minis first on the batch cadence. The measured
+   39.6-minute wait is an admission/eviction problem, so the per-PR path no
+   longer consumes a Mac slot. The next controller sample is the canary for
+   queue p50/p90 and setup/complete overhead.
 
 The retired persistent compile pilot is explicitly archived in
 `docs/ci/mac-fleet.md`; current routing and capacity belong to `ci-runners.md`

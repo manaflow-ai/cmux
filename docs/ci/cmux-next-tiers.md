@@ -5,15 +5,15 @@ A pull request into `feat-cmux-next` runs only the checks its change can break.
 against its first parent) and picks the tiers; the `cmux-next path routing`
 job's summary lists each tier and the reason for it.
 
-| Tier | Check (job) | Runs when the PR changes | Runner |
+| Tier | Check (job) | Runs when | Runner |
 | --- | --- | --- | --- |
-| checks | `cmux-next checks` (god files, concurrency, crash safety, string tables, script tests, package conventions, tier routing) | any cmux-next path | Linux (Blacksmith) |
-| generated | `cmux-next generated files` (action catalog, surfaces and inventory; CI target graph) | the CmuxNext package, `plans/cmux-next/`, the generators | mini |
-| swift canary | `cmux-next Swift canary` (Debug SwiftPM build of the changed production targets) | production Swift files under `Packages/macOS/CmuxNext/Sources/` only | mini, placed first |
-| native | `cmux-next Release compile (Xcode 26)` | Swift or app sources | mini |
-| scheme | `cmux app scheme compile (Debug)` | the app host, Xcode project, CLI, resources, webviews, local packages CmuxNext uses, an executable target | mini |
-| swift | `cmux-next swift test` | the test targets the target graph reaches | mini |
-| daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
+| Fast | `cmux-next checks`, web validation, web typecheck, and `cmux-next fast tier` (deterministic Rust) | every PR | Blacksmith Linux |
+| Batch cadence | Swift canary/tests, size cap, crash ratchet, Release and scheme compiles, daemon and generated checks | `full-ci` integration PR and every `feat-cmux-next` push | minis first |
+
+The fast tier is the per-PR merge gate. Its Rust entries are deterministic and
+run on Blacksmith Linux; the existing web workflows provide web and typecheck
+coverage. The batch sheriff is `@teamleaderleo`, who rolls forward the last
+green prefix or bisects the first red PR when the heavy cadence run fails.
 
 A web nit runs no Mac tier. When every changed file is under `webviews/`, the
 webviews app, the agent-pane bundle (`CmuxNextAgentPane/Resources/agent-pane/`)
@@ -23,14 +23,12 @@ proves the committed bundle matches them; the bundle is a `.copy` resource, so
 the app takes it without a compile. gallery-pr diffs the touched entries. A
 `dev-build` PR still compiles its dogfood app.
 
-The Swift canary is the pull-request gate for a small package-only Swift diff.
-It builds only the affected CmuxNext production targets with `swift build
---configuration debug --target`, reusing the linked SwiftPM scratch on a mini.
-It catches type-checking, dependency and module errors in those targets. It
-does not exercise optimizer-only behavior, Release compiler settings, Xcode
-scheme integration, signing or the CEF shim. The full Release compile still
-runs for diagnostics on that PR class and remains hard-gated on every
-`feat-cmux-next` push and on broader pull requests.
+Swift and native app validation intentionally stay on the batch cadence. The
+Swift canary still builds affected production targets when the batch route asks
+for it, but it is not a per-PR gate. It catches type-checking, dependency and
+module errors in those targets; it does not exercise optimizer-only behavior,
+Release compiler settings, Xcode scheme integration, signing or the CEF shim.
+The full Release compile remains the base-push backstop and the batch gate.
 
 A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
 `scripts/gh-merge-green` and their Python tests (alone or with web files). ci.yml's
