@@ -4485,6 +4485,14 @@ fn commit_workspace_registry_in_transaction(
         }
     }
     for (position, workspace) in workspaces.iter().enumerate() {
+        if let Some((_, name, _, _, (source, revision))) = stored.get(&workspace.key) {
+            let (source, revision) =
+                workspace_name_store::stored_name_provenance(source, *revision)?;
+            workspace_name_store::fence_stored_name(
+                Some(workspace_name_store::StoredName { name, source, revision }),
+                workspace,
+            )?;
+        }
         let (name_source, name_revision) = workspace_name_store::sql_name_provenance(
             workspace.name_source,
             workspace.name_revision,

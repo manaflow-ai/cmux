@@ -3358,6 +3358,7 @@ fn upsert_resource_workspace(
     active_screen: Option<&ScreenPublicId>,
     revision: i64,
 ) -> anyhow::Result<()> {
+    super::workspace_name_store::fence_stored_row(transaction, workspace)?;
     upsert_workspace_resource(transaction, workspace, revision)?;
     let position = i64::try_from(position).context("workspace position exceeds SQLite range")?;
     let (name_source, name_revision) = super::workspace_name_store::sql_name_provenance(

@@ -3,9 +3,12 @@
 //! user-owned.
 
 use anyhow::Context;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension, Transaction};
+use serde_json::json;
 
-use crate::resource_name::NameSource;
+use super::RegistryWorkspace;
+use crate::resource::ResourceError;
+use crate::resource_name::{NAME_PINNED, NameSource, name_refusal};
 
 /// Additive migration: names written before provenance stay user-owned.
 ///
@@ -57,4 +60,83 @@ pub(crate) fn sql_name_provenance(
     let revision =
         i64::try_from(revision).context("workspace name revision exceeds SQLite range")?;
     Ok((source.as_str(), revision))
+}
+
+/// The name a `workspaces` row stores, as the commit's transaction reads it.
+pub(crate) struct StoredName<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) source: NameSource,
+    pub(crate) revision: u64,
+}
+
+/// Refuses a workspace write whose name provenance storage has moved past.
+///
+/// The rename checks run against memory; this repeats them against the row
+/// inside the commit's transaction, so a rename stored since memory was read
+/// (another writer, or an older daemon through the trigger) wins. A write that
+/// keeps the stored provenance passes; a rename must advance it by exactly one
+/// revision; anything else is `revision.conflict`. An automatic rename over a
+/// stored user name is refused as in memory.
+pub(crate) fn fence_stored_name(
+    stored: Option<StoredName<'_>>,
+    desired: &RegistryWorkspace,
+) -> anyhow::Result<()> {
+    let Some(stored) = stored else {
+        return Ok(());
+    };
+    let same_name = stored.name == desired.name;
+    if desired.name_revision == stored.revision {
+        if same_name && desired.name_source == stored.source {
+            return Ok(());
+        }
+        // Memory renamed from the revision before; storage renamed differently.
+        return Err(ResourceError::revision_conflict(
+            desired.name_revision.saturating_sub(1),
+            stored.revision,
+        )
+        .into());
+    }
+    // The revision the writer read: memory's own when it lags, else the one
+    // its rename advanced from.
+    let read = if desired.name_revision < stored.revision {
+        desired.name_revision
+    } else {
+        desired.name_revision - 1
+    };
+    if read != stored.revision {
+        return Err(ResourceError::revision_conflict(read, stored.revision).into());
+    }
+    if desired.name_source == NameSource::Auto
+        && !same_name
+        && stored.source == NameSource::User
+        && !stored.name.trim().is_empty()
+    {
+        return Err(name_refusal(
+            "workspace.rename",
+            json!({"workspace":desired.public_id}),
+            NAME_PINNED,
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// [`fence_stored_name`] against the live row for `desired.key`.
+pub(crate) fn fence_stored_row(
+    transaction: &Transaction<'_>,
+    desired: &RegistryWorkspace,
+) -> anyhow::Result<()> {
+    let stored = transaction
+        .query_row(
+            "SELECT name, name_source, name_revision FROM workspaces
+             WHERE workspace_key = ?1 AND tombstoned = 0",
+            [&desired.key],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
+        )
+        .optional()?;
+    let Some((name, source, revision)) = stored else {
+        return Ok(());
+    };
+    let (source, revision) = stored_name_provenance(&source, revision)?;
+    fence_stored_name(Some(StoredName { name: &name, source, revision }), desired)
 }
