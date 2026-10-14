@@ -12,7 +12,7 @@ import CnxAgentChat
 /// verify/e2e-matrix.md #4 against the real source (review m3): building a
 /// workspace screen's `WorkspaceTabsSource` and its pages must not write
 /// anything a view read, or SwiftUI re-runs the update forever.
-@MainActor @Suite(.serialized) struct WorkspaceTabsSourceTests {
+@MainActor @Suite(.serialized) struct WorkspaceTabsSourceUpdateTests {
     /// Every observed property a view could have read, the store's and the
     /// chat directory's.
     static func readAll(_ store: AppStore, _ sessions: AgentSessionDirectory) {
