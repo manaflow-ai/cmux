@@ -29,6 +29,7 @@ __cmux_ghost_prefix=     # input for which __cmux_ghost_match was computed
 __cmux_ghost_match=      # full history line for that input, empty on a miss
 __cmux_ghost_prompt_key= # prompt identity __cmux_ghost_prompt_width belongs to
 __cmux_ghost_prompt_width=0
+__cmux_ghost_prompt_text= # the prompt's last line, as drawn
 __cmux_ghost_column=0    # screen column where the painted suggestion starts
 __cmux_ghost_echoctl=2   # width of readline's ^C echo, 0 when it is off
 __cmux_ghost_file=       # private per-shell file `fc` writes its answer to
@@ -71,63 +72,85 @@ __cmux_ghost_lookup() {
   return 0
 }
 
-# The width of the prompt's last line, measured once per prompt. ${PS1@P}
-# expands the prompt the way readline does; \[ \] spans become \001 \002 and
-# are dropped.
+# The prompt's last line as readline draws it, measured once per prompt.
+# ${PS1@P} expands the prompt the way readline does; \[ \] spans become
+# \001 \002, which are kept (without the markers) in the text and dropped
+# from the width.
 __cmux_ghost_measure_prompt() {
   local key="$PS1:$PWD:$COLUMNS"
   [[ $key == "$__cmux_ghost_prompt_key" ]] && return 0
-  local prompt=${PS1@P} visible=
+  local prompt=${PS1@P} visible= text=
   prompt=${prompt##*$'\n'}
   while [[ $prompt == *$'\001'* ]]; do
     visible+=${prompt%%$'\001'*}
+    text+=${prompt%%$'\001'*}
     prompt=${prompt#*$'\001'}
-    if [[ $prompt == *$'\002'* ]]; then prompt=${prompt#*$'\002'}; else prompt=; fi
+    if [[ $prompt == *$'\002'* ]]; then
+      text+=${prompt%%$'\002'*}
+      prompt=${prompt#*$'\002'}
+    else
+      prompt=
+    fi
   done
   visible+=$prompt
+  text+=$prompt
   __cmux_ghost_prompt_width=${#visible}
+  __cmux_ghost_prompt_text=$text
   __cmux_ghost_prompt_key=$key
   return 0
 }
 
-# Choose the suggestion for the current input and paint it.
+# Choose the suggestion for the current input and draw the line with it.
 __cmux_ghost_suggest() {
   __cmux_ghost_shown=
-  local line=$READLINE_LINE match=
-  ((READLINE_POINT == ${#line})) || return 0
-  [[ $line && $line != *$'\n'* ]] || return 0
-  # Typing along an earlier answer needs no lookup: a match that still fits
-  # is still the newest one, and a miss stays a miss.
-  if ! [[ $__cmux_ghost_prefix && $line == "$__cmux_ghost_prefix"* ]] \
-    || [[ $__cmux_ghost_match && $__cmux_ghost_match != "$line"* ]]; then
-    __cmux_ghost_lookup "$line"
+  local line=$READLINE_LINE ghost=
+  if ((READLINE_POINT == ${#line})) && [[ $line && $line != *$'\n'* ]]; then
+    # Typing along an earlier answer needs no lookup: a match that still
+    # fits is still the newest one, and a miss stays a miss.
+    if ! [[ $__cmux_ghost_prefix && $line == "$__cmux_ghost_prefix"* ]] \
+      || [[ $__cmux_ghost_match && $__cmux_ghost_match != "$line"* ]]; then
+      __cmux_ghost_lookup "$line"
+    fi
+    __cmux_ghost_prefix=$line
+    ((${#__cmux_ghost_match} > ${#line})) && ghost=${__cmux_ghost_match:${#line}}
   fi
-  __cmux_ghost_prefix=$line
-  match=$__cmux_ghost_match
-  ((${#match} > ${#line})) || return 0
+  __cmux_ghost_draw "$ghost"
+}
 
-  local columns=${COLUMNS:-80} end row column room ghost=${match:${#line}}
+# Bash clears the input line before a `bind -x` command and redraws it after,
+# so a frame drawn in between showed a blank line (flicker). Redraw the
+# prompt's last line, the input and the suggestion here instead, as one
+# synchronized update (DEC mode 2026), and leave the cursor where the clear
+# left it. Readline's own redraw then writes the same text over it. Readline
+# draws on stderr, and so does this.
+__cmux_ghost_draw() {
+  local line=$READLINE_LINE ghost=$1
+  # Control characters draw differently from their length; leave those
+  # lines to readline alone.
+  [[ $line == *[[:cntrl:]]* ]] && return 0
   __cmux_ghost_measure_prompt
+  local columns=${COLUMNS:-80} end row column room up out
   end=$((__cmux_ghost_prompt_width + ${#line}))
   row=$((end / columns))
   column=$((end % columns))
   room=$((columns - column - 1))
-  ((room > 0)) || return 0
-  ghost=${ghost:0:room}
-  __cmux_ghost_shown=$ghost
-  __cmux_ghost_column=$column
-  # Readline draws on stderr. It has cleared the input line and left the
-  # cursor where the prompt's last line starts. Newlines (not cursor-down)
-  # reach a row past the bottom of the screen by scrolling, exactly as
-  # readline's redraw will.
-  local down= right=
-  if ((row > 0)); then
-    printf -v down '%*s' "$row" ''
-    down=${down// /$'\n'}
+  if ((room > 0)); then ghost=${ghost:0:room}; else ghost=; fi
+  out=$'\e[?2026h\r'$__cmux_ghost_prompt_text$line
+  if [[ $ghost ]]; then
+    __cmux_ghost_shown=$ghost
+    __cmux_ghost_column=$column
+    printf -v out '%s%s%s\e[0m\e[%dD' "$out" "$__cmux_ghost_color" "$ghost" "${#ghost}"
+    up=$row
+  elif ((end > 0 && column == 0)); then
+    # A line that ends exactly at the margin leaves the cursor on its last
+    # row until the next character wraps it.
+    up=$((row - 1))
+  else
+    up=$row
   fi
-  if ((column > 0)); then printf -v right '\e[%dC' "$column"; fi
-  printf '\r%s%s%s%s\e[0m\r' "$down" "$right" "$__cmux_ghost_color" "$ghost" >&2
-  if ((row > 0)); then printf '\e[%dA' "$row" >&2; fi
+  out+=$'\r'
+  if ((up > 0)); then printf -v out '%s\e[%dA' "$out" "$up"; fi
+  printf '%s\e[?2026l' "$out" >&2
   return 0
 }
 
