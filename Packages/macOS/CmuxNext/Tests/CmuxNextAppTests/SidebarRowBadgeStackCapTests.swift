@@ -63,7 +63,7 @@ import Testing
 
     @Test func thePreviewSetShowsOneToSevenItemsAndNothingSelectsThem() throws {
         try Self.withCap(.seven) {
-            let sections = SidebarRowBadgePreview.sections()
+            let sections = SidebarSection.rowBadgePreview()
             let rows = sections.flatMap(\.workspaces)
             #expect(rows.count == 7)
             let sidebar = Self.sidebar(sections)

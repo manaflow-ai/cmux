@@ -9,7 +9,7 @@ public import CmuxNextDesign
 public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// One badge on the leading icon's bottom-right corner.
     case corner
-    /// Up to three overlapping glyphs in the trailing slot, one per pending item.
+    /// Overlapping glyphs in the trailing slot, one per pending item, up to `SidebarRowBadgeStackCap`.
     case stack
     /// The count badge and the trailing status glyph.
     case trailing
@@ -30,14 +30,15 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
 
 /// A row's pending items, most urgent first: a failure, then a permission (or sign-in) request,
 /// then a question, then work in progress, then each unread item (done). The corner badge draws
-/// the first; the stack draws up to `stackLimit` and leaves the rest to the hover card.
+/// the first; the stack draws up to `stackLimit` (`SidebarRowBadgeStackCap`) and leaves the rest to
+/// the tooltip and hover card.
 nonisolated struct WorkspaceRowBadges: Equatable {
-    static let stackLimit = 3
-
     var items: [StatusIndicatorState]
     var unreadCount: Int
+    var stackLimit: Int
 
-    init(unread: UnreadState, activity: StatusIndicatorState) {
+    init(unread: UnreadState, activity: StatusIndicatorState, stackLimit: Int = SidebarRowBadgeStackCap.five.limit) {
+        self.stackLimit = stackLimit
         switch unread {
         case .none: unreadCount = 0
         case .dot: unreadCount = 1
@@ -50,9 +51,9 @@ nonisolated struct WorkspaceRowBadges: Equatable {
     }
 
     var first: StatusIndicatorState? { items.first }
-    var stacked: [StatusIndicatorState] { Array(items.prefix(Self.stackLimit)) }
+    var stacked: [StatusIndicatorState] { Array(items.prefix(stackLimit)) }
     /// The items the stack leaves to the hover card.
-    var overflow: Int { max(0, items.count - Self.stackLimit) }
+    var overflow: Int { max(0, items.count - stackLimit) }
 
     static func rank(_ state: StatusIndicatorState) -> Int {
         switch state {
@@ -87,15 +88,25 @@ public nonisolated enum SidebarRowBadgeStackCap: String, Sendable, CaseIterable,
         default: .five, code: "SidebarRowBadgeStackCap.tunable")
 }
 
-/// Debug Settings `sidebar.rowBadgePreview`: a section of sample rows with 1 to 7 pending items,
-/// so the row badges can be seen without real sessions. The rows are placeholders: nothing
-/// selects, opens or closes them.
-public nonisolated enum SidebarRowBadgePreview {
-    public static let tunable = Tunable<Bool>.toggle(
-        "sidebar.rowBadgePreview", .sidebar, "Row badge preview rows",
-        help: "Adds sample rows with 1 to 7 pending items to the sidebar, to compare the row badges without real sessions.",
-        default: false, code: "SidebarRowBadgePreview.tunable")
+/// Debug Settings `sidebar.rowBadgePreview` (`SidebarTunables.rowBadgePreview`): a section of
+/// sample rows with 1 to 7 pending items, so the row badges can be seen without real sessions.
+/// The rows are placeholders: nothing selects, opens or closes them.
+extension SidebarSection {
+    static let rowBadgePreviewMachine = MachineID("row-badge-preview")
 
-    /// The preview rows' section.
-    public static func sections() -> [SidebarSection] { [] }
+    /// The preview rows' section: row N has N pending items, one state (unread, then each that
+    /// needs the user, then work) and N - 1 unread.
+    public static func rowBadgePreview() -> [SidebarSection] {
+        let machine = rowBadgePreviewMachine
+        let states: [StatusIndicatorState] = [.idle, .waiting(kind: .permission), .waiting(kind: .question), .working, .error,
+                                              .waiting(kind: .permission), .error]
+        let rows = states.enumerated().map { index, state in
+            let count = index + 1
+            let unread = state == .idle ? count : count - 1
+            return SidebarNode.workspace(SidebarWorkspace(
+                id: WorkspaceID("row-badge-preview-\(count)"), machineID: machine, title: count == 1 ? "1 item" : "\(count) items",
+                kind: .terminal, unread: unread > 0 ? .count(unread) : .none, activity: state, rowState: .placeholder))
+        }
+        return [SidebarSection(kind: .machine(SidebarMachine(id: machine, name: "Badge preview", kind: .server)), nodes: rows)]
+    }
 }

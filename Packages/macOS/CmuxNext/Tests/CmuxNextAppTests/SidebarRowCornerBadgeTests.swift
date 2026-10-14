@@ -96,23 +96,22 @@ import Testing
     }
 
     /// Leo's alternative (`sidebar.rowBadge` stack): one glyph per pending item in the trailing slot,
-    /// the most urgent first, overlapping like an avatar stack, at most three; the tooltip says how
-    /// many more there are.
-    @Test func theStackDrawsUpToThreeOverlappingGlyphsMostUrgentFirst() throws {
+    /// the most urgent first, overlapping like an avatar stack, up to the stack size (five by
+    /// default, `SidebarRowBadgeStackCapTests`); the tooltip says the count.
+    @Test func theStackDrawsOneOverlappingGlyphPerItemMostUrgentFirst() throws {
         let row = try Self.row(Self.sidebar(.stack), Self.failing)
         let stack = try #require(Self.visible(RowBadgeView.self, in: row).first)
-        #expect(stack.view.states == [.error, .success, .success])
+        #expect(stack.view.states == [.error, .success, .success, .success])
         #expect(stack.frame.minX > row.title.frame.minX, "the stack is in the trailing slot")
         let glyphs = Self.visible(StatusIndicatorView.self, in: stack.view).map(\.frame).sorted { $0.minX < $1.minX }
-        #expect(glyphs.count == 3)
+        #expect(glyphs.count == 4)
         for (left, right) in zip(glyphs, glyphs.dropFirst()) {
             // Whole glyphs (none hides another), on one center line ...
             #expect(right.minX >= left.maxX, "a glyph is covered: \(left) \(right)")
             #expect(abs(right.midY - left.midY) < 0.5, "glyphs share a center line")
         }
         // ... in chips that overlap like avatars.
-        #expect(stack.view.preferredWidth < 3 * stack.view.cellSide)
+        #expect(stack.view.preferredWidth < 4 * stack.view.cellSide)
         #expect(stack.view.toolTip?.contains(Strings.unreadCount(3)) == true)
-        #expect(stack.view.toolTip?.contains(Strings.statusMore(1)) == true)
     }
 }

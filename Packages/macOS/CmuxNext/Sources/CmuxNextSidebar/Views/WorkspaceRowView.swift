@@ -142,7 +142,7 @@ final class WorkspaceRowView: SidebarRowView {
         var group: GroupID?
         var fontSize: CGFloat
         var iconSize: CGFloat
-        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle
+        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
         var disclosure: SidebarTabDisclosure?
         var row: WorkspaceRowContent?
     }
@@ -153,7 +153,7 @@ final class WorkspaceRowView: SidebarRowView {
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
-            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge,
+            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
@@ -200,7 +200,7 @@ final class WorkspaceRowView: SidebarRowView {
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
         rowBadgeStyle = content.rowBadge
-        configureBadges(ws, shown: shown, style: content.rowBadge)
+        configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
         themedToolTip = nil // the workspace hover card shows the cwd (and CPU and memory)
         // A placeholder says nothing; its section header says it connects.
         setAccessibilityElement(!isShowingPlaceholder)

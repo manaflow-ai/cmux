@@ -9,8 +9,9 @@ import Foundation
 extension WorkspaceRowView {
     /// Applies `style` after the rest of `configure`: the leading icon, the badge, and the hidden
     /// count and trailing glyph. `trailing` leaves the row as it was.
-    func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle) {
-        let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity)
+    func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
+                         stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
+        let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit)
         guard style != .trailing, !isShowingPlaceholder else {
             rowBadge.configure([], look: .corner)
             return
