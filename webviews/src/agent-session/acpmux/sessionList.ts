@@ -109,7 +109,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     harness: session.harness,
     agentSessionId: text(session.agentSessionId),
     status: session.status,
-    model: session.model,
+    model: text(session.model),
     cwd: typeof session.cwd === "string" ? session.cwd : undefined,
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,

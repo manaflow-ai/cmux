@@ -2015,6 +2015,50 @@ pre.cv-math-source {
     opacity: 1;
   }
 }
+/* The transcript's soft edges (New Tab's list, #19791): rows fade in under the header once the view
+   has left the start, and out above the composer while more lies below, instead of a hard cut. A
+   mask paints nothing, so rows dissolve into whatever is behind the pane (its background or the
+   wallpaper) and nothing moves; at either end the edge is plain, so the first and last rows sit in
+   full ink. Reduce Transparency keeps plain edges. */
+.acpmux-scroll[data-fade-top] {
+  --acpmux-fade-top: 18px;
+}
+.acpmux-scroll[data-fade-bottom] {
+  --acpmux-fade-bottom: 18px;
+}
+/* Find in Chat's bar sits in the top band: it keeps full ink, and rows pass under it. */
+.acpmux-scroll[data-fade-top]:has(> .acpmux-find) {
+  --acpmux-fade-top: 0px;
+}
+.acpmux-scroll[data-fade-top],
+.acpmux-scroll[data-fade-bottom] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-fade-top, 0px),
+    #000 calc(100% - var(--acpmux-fade-bottom, 0px)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-fade-top, 0px),
+    #000 calc(100% - var(--acpmux-fade-bottom, 0px)),
+    transparent
+  );
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-scroll[data-fade-top],
+  .acpmux-scroll[data-fade-bottom] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-scroll[data-fade-top],
+:root[data-reduce-transparency] .acpmux-scroll[data-fade-bottom] {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-jump-latest {
     background-color: var(--agent-page-bg);
