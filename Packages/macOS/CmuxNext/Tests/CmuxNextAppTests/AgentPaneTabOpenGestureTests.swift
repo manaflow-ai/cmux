@@ -9,7 +9,8 @@ import Testing
 /// so a chat page's script (rendered agent output, say) could run one shell line on this Mac without
 /// the person's click. Like `shell.run`, it now needs the person's fresh gesture in the pane (a key or
 /// click, ``AgentPaneUserGestures``), which page script cannot make, and uses it once. A terminal
-/// opened only to type (`run: false`), an empty terminal and a browser tab run nothing and stay ungated.
+/// opened only to type printable text (`run: false`), an empty terminal and a browser tab run nothing
+/// and stay ungated; typed text with a control key (`run: false`, `tab.typeAhead`) is a run.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneTabOpenGestureTests {

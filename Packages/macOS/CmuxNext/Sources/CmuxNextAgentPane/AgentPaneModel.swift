@@ -235,10 +235,7 @@ public final class AgentPaneModel {
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
-        case .typeAhead(let text):
-            guard newTab != nil || allowsTabConversion, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
-            onTypeAhead(text)
-            return AgentPaneReply.success()
+        case .typeAhead(let text): return AgentPaneOpenTab.typeAhead(text, in: self)
         case .touched: return AgentPaneReply.success()
         // The shell box runs on this Mac: never for a chat on another machine (cx-k21v).
         case .shellRun, .shellRead, .shellStop:
