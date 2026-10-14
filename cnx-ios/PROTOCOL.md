@@ -282,6 +282,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   until the person allows iPhone connections again on the Mac, so the
   phone's removal copy can say so. Absent (older hosts): the Mac may add
   itself back.
+  `browser-stream-v1`: the host streams browser tabs (`browser`); the Mac
+  build bundles a browser host (Release builds ship none yet). A host that
+  says `removal-v1` without it refuses `browser` with `no_browser_host`, and
+  the phone hides New Browser Tab for that Mac.
 
 A service that ends normally closes its channel with `{code:"eof"}`; a
 refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or

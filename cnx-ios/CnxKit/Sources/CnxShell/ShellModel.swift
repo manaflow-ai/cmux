@@ -117,7 +117,10 @@ final class ShellModel {
             terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
             terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
             terminalTabs.uploaderProvider = { [weak live] tab in live?.terminalUploader(tabID: tab.id) }
-            creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link, acpmux: live.acpmux)
+            let backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link, acpmux: live.acpmux)
+            // New Browser Tab only for a Mac that streams browser tabs (`browser-stream-v1`).
+            backend.capabilities = { [weak store] mac in store?.macCapabilities[mac] }
+            creator.backend = backend
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
         } else {
             StreamedBrowserDirectory.shared.opener = nil

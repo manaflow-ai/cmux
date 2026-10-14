@@ -73,18 +73,15 @@ public struct CnxMacIdentityStore: Sendable {
 
     private func keychainRead() -> Data? {
         var item: CFTypeRef?
-        var search = query
-        search[kSecReturnData as String] = true
-        search[kSecMatchLimit as String] = kSecMatchLimitOne
+        let search = query.merging([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]) { $1 }
         guard SecItemCopyMatching(search as CFDictionary, &item) == errSecSuccess else { return nil }
         return item as? Data
     }
 
     private func keychainAdd(_ privateKey: Data) -> Bool {
-        var add = query
-        add[kSecValueData as String] = privateKey
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        add[kSecAttrLabel as String] = "cmux iPhone host identity"
+        let add = query.merging([kSecValueData as String: privateKey,
+                                 kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                                 kSecAttrLabel as String: "cmux iPhone host identity"]) { $1 }
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
