@@ -242,7 +242,12 @@ export function NewTabPage({
   const make = (next: TabKind, value: string, folder?: string) => {
     setOpenFailed(false);
     const result = onSubmit(next, value, folder);
-    if (result) void result.catch(() => setOpenFailed(true));
+    // The suggestions float over the note: they close until the next edit, so it shows.
+    if (result)
+      void result.catch(() => {
+        setOpenFailed(true);
+        setDismissed(queryRef.current);
+      });
   };
   // The location stays a suggestion until edited: the rows are the empty bar's.
   const [touched, setTouched] = useState(false);
