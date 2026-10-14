@@ -345,7 +345,7 @@ async fn dispatch_request(
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
-            let blocks = params
+            let mut blocks = params
                 .get("prompt")
                 .and_then(Value::as_array)
                 .cloned()
@@ -358,6 +358,10 @@ async fn dispatch_request(
                 .ok_or_else(|| {
                     RpcError::invalid_params("prompt must be an array of content blocks")
                 })?;
+            // A remote web client may not hide text, directly or through a peer daemon.
+            let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
+                == crate::hub::Control::Web;
+            crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             let steer = mux_meta(&params)
                 .and_then(|m| m.get("steer"))
                 .and_then(Value::as_bool)

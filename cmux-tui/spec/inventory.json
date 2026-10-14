@@ -867,6 +867,12 @@
       ]
     },
     {
+      "name": "terminal-input-unclaimed",
+      "streams": [
+        "control"
+      ]
+    },
+    {
       "name": "terminal-reaped",
       "streams": [
         "subscribe"

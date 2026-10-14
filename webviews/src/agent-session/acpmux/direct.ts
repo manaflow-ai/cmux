@@ -32,6 +32,7 @@ import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
+import { WORKSPACE_CONTEXT } from "./workspaceContext";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -55,6 +56,9 @@ export type AcpmuxHostConfig = {
   prompt?: string;
   /** An outside Claude Code or Codex chat this pane resumes once it connects. */
   adopt?: AcpmuxAdopt;
+  /** A chat opened for its workspace (Cmd-I's chat dock): its first prompt carries the workspace
+   *  context (workspaceContext.ts), hidden from the transcript. */
+  workspaceContext?: boolean;
 };
 
 /** A harness's own session for acpmux to adopt (`_meta.acpmux.adopt`). */
@@ -614,6 +618,8 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
+  /// A prompt carrying the workspace context is on its way (send).
+  private contextInFlight = false;
 
   private constructor(
     host: AcpmuxHostConfig,
@@ -1856,10 +1862,15 @@ export class AcpmuxDirectClient {
     if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
     let taken = false;
+    // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
+    // and a prompt sent while one carrying it is in flight goes without it.
+    const context = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
+    if (context) this.contextInFlight = true;
     const accept = () => {
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
+      if (context) this.host = { ...this.host, workspaceContext: undefined };
       accepted?.();
     };
     this.promptAccepts.set(promptId, accept);
@@ -1869,7 +1880,7 @@ export class AcpmuxDirectClient {
         sessionId,
         prompt: promptBlocks(input, attachments),
         _meta: {
-          acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}) },
+          acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}), ...(context ? { context } : {}) },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
       });
@@ -1879,6 +1890,8 @@ export class AcpmuxDirectClient {
       this.optimisticPromptAttachments.delete(promptId);
     } catch (error) {
       this.promptAccepts.delete(promptId);
+      // A refused prompt did not use the context: the next send carries it.
+      if (context && !taken) this.contextInFlight = false;
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
       const queued = this.queuedSends.delete(promptId);
       if (queued) {
