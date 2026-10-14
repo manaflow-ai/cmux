@@ -319,10 +319,16 @@ private struct CloudWelcomeAccountView: View {
             nextStep: CloudWelcomeNextStep.resolve(
                 isAuthenticated: accountFlow?.isAuthenticated == true,
                 isPlanKnown: accountFlow?.hasLoadedBillingPlan == true,
-                isPro: accountFlow?.isProActive == true
+                isPro: accountFlow?.isProActive == true,
+                hasCloudTeamAccess: CloudWelcomeNextStep.hasSharedTeamAccess(
+                    availableTeamCount: accountFlow?.availableTeams.count ?? 0
+                )
             ),
             onNotNow: onNotNow,
             onNext: onNext,
+            hasCloudTeamAccess: CloudWelcomeNextStep.hasSharedTeamAccess(
+                availableTeamCount: accountFlow?.availableTeams.count ?? 0
+            ),
             sliderShowsFeatureList: sliderShowsFeatureList,
             sliderListUsesDots: sliderListUsesDots,
             posterHeadline: posterHeadline,
