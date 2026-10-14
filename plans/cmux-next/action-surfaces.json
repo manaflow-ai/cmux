@@ -18314,72 +18314,6 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-previous-turn",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "",
-        "modifiers" : [
-          "ctrl",
-          "opt"
-        ]
-      },
-      "id" : "agentPane.previousTurn",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Previous Turn",
-      "title_key" : "action.agentPane.previousTurn",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-next-turn",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "",
-        "modifiers" : [
-          "ctrl",
-          "opt"
-        ]
-      },
-      "id" : "agentPane.nextTurn",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Next Turn",
-      "title_key" : "action.agentPane.nextTurn",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
       "cli_name" : "action agent-pane-permission-allow-once",
       "context_menu" : "guiOnly",
       "context_menus" : [
@@ -19129,6 +19063,126 @@
       "palette_suggested" : null,
       "title" : "Stop Computer Use",
       "title_key" : "action.computerUseStop",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-previous-turn",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "",
+        "modifiers" : [
+          "ctrl",
+          "opt"
+        ]
+      },
+      "id" : "agentPane.previousTurn",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Previous Turn",
+      "title_key" : "action.agentPane.previousTurn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-next-turn",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "",
+        "modifiers" : [
+          "ctrl",
+          "opt"
+        ]
+      },
+      "id" : "agentPane.nextTurn",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Next Turn",
+      "title_key" : "action.agentPane.nextTurn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-previous-bookmarked-prompt",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.previousBookmarkedPrompt",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Previous Bookmarked Prompt",
+      "title_key" : "action.agentPane.previousBookmarkedPrompt",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-next-bookmarked-prompt",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.nextBookmarkedPrompt",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Next Bookmarked Prompt",
+      "title_key" : "action.agentPane.nextBookmarkedPrompt",
       "title_table" : "ActionCatalog"
     },
     {
@@ -26190,33 +26244,6 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "action sidebar-density-comfortable",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "sidebarBackground"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "sidebar.density.comfortable",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.sidebar",
-        "order" : 107,
-        "title" : "Sidebar",
-        "title_key" : "category.sidebar",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Sidebar Density: Comfortable",
-      "title_key" : "action.sidebar.density.comfortable",
-      "title_table" : "SidebarSectionActions"
-    },
-    {
-      "cli" : "guiOnly",
       "cli_name" : "action sidebar-density-expanded",
       "context_menu" : "offered",
       "context_menus" : [
@@ -32055,7 +32082,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.density.comfortable",
+              "id" : "sidebar.density.expanded",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -32067,27 +32094,14 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "sidebar.density.expanded",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
               "kind" : "separator",
-              "order" : 6
+              "order" : 5
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 7,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
