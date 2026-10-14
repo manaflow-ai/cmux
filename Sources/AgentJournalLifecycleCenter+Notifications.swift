@@ -20,6 +20,23 @@ extension AgentJournalLifecycleCenter {
         }
     }
 
+    /// An idle reminder repeats its turn's completion. Once that completion was
+    /// delivered and the user read or dismissed it, the turn is acknowledged and
+    /// the reminder must not come back as a new unread notification. A reminder
+    /// whose completion never notified, or is still unread, keeps its nag.
+    static func reminderRepeatsAcknowledgedCompletion(
+        _ completion: AgentNotificationDecision.RemindedCompletion,
+        store: AgentJournalStore
+    ) async -> Bool {
+        // A receipt read failure fails open to the existing reminder delivery.
+        guard let delivered = try? store.hasNotificationReceipt(identity: completion.identity),
+              delivered else { return false }
+        let unread = await MainActor.run {
+            TerminalNotificationStore.shared.hasUnreadNotification(correlationKey: completion.correlationKey)
+        }
+        return completion.isAcknowledged(completionWasDelivered: delivered, completionIsUnread: unread)
+    }
+
     static func clearInvalidatedNotifications(_ event: AgentJournalEvent, decision: AgentNotificationDecision) {
         guard let workspaceID = event.draft.workspaceId.flatMap(UUID.init(uuidString:)),
               let surfaceID = event.draft.surfaceId.flatMap(UUID.init(uuidString:)) else { return }

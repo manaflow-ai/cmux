@@ -1063,6 +1063,12 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
     }
 
+    /// Whether the notification a producer correlated with `correlationKey` is
+    /// still stored and unread, wherever its pane lives now.
+    func hasUnreadNotification(correlationKey: String) -> Bool {
+        notifications.contains { $0.correlationKey == correlationKey && !$0.isRead }
+    }
+
     func hasUnreadNotificationRequiringPaneFlash(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         notifications.contains { notification in
             notification.matches(tabId: tabId, surfaceId: surfaceId) &&

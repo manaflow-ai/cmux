@@ -386,6 +386,15 @@ public struct AgentNotificationReconciler: Sendable {
                 // observations and journal replay compatibility.
                 identity = Self.key([sessionKey, Self.key([identityKind, context?.turnIdentity ?? session.turn])])
             }
+            // The reminder repeats this turn's completion. Only the app knows
+            // whether the user already read or dismissed it.
+            let remindedCompletion = identityKind == "idle-reminder"
+                ? session.completionIdentity.flatMap { completion in
+                    session.delivered[completion].map {
+                        AgentNotificationDecision.RemindedCompletion(identity: completion, correlationKey: $0)
+                    }
+                }
+                : nil
             session.delivered[identity] = context?.notification?.correlationKey ?? identity
             session.deliveredSurfaceIDs[identity] = draft.surfaceId
             if identityKind == "completion" {
@@ -396,7 +405,8 @@ public struct AgentNotificationReconciler: Sendable {
                 .accepted,
                 identity: identity,
                 invalidatedCorrelationKeys: boundaryInvalidations,
-                projectsLifecycle: context?.notification?.category != "idle-reminder"
+                projectsLifecycle: context?.notification?.category != "idle-reminder",
+                remindedCompletion: remindedCompletion
             )
         }
         if draft.kind == .turnStarted, let incomingTurn, incomingTurn == session.turn,

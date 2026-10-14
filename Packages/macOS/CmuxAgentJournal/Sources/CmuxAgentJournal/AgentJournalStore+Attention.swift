@@ -17,6 +17,17 @@ extension AgentJournalStore {
         }
     }
 
+    /// Whether a semantic event's notification was already reserved, without reserving it.
+    /// - Parameter identity: The reconciler's stable semantic identity.
+    /// - Throws: A storage error; callers must fail open to the existing delivery path.
+    public func hasNotificationReceipt(identity: String) throws -> Bool {
+        try withDatabase { database in
+            try Self.scalarInt64(database,
+                "SELECT COUNT(*) FROM agent_notification_receipt WHERE identity = ?1;",
+                binding: [.text(identity)]) == 1
+        }
+    }
+
     static func migrateAttention(_ database: AgentJournalDatabase) throws {
         try database.exec("""
             CREATE TABLE IF NOT EXISTS agent_attention_context (
