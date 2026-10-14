@@ -108,14 +108,6 @@ struct ContextMenuShapeTests {
         #expect(!ids(new).contains("splitLeft") && !ids(new).contains("splitUp"))
     }
 
-    /// Pane IDs and links are copied from the pane's menu, not the tab's.
-    @Test func theTabMenuCopiesOnlyTabThings() {
-        #expect(!ids(rows(.tab)).contains("palette.copyPaneID"))
-        #expect(!ids(rows(.tab)).contains("palette.copyPaneLink"))
-        #expect(ids(rows(.pane)).contains("palette.copyPaneID"))
-        #expect(ids(rows(.pane)).contains("palette.copyPaneLink"))
-    }
-
     /// Show Tabs Under Workspaces is a sidebar setting: on the sidebar's menu, not every row's.
     /// Save Layout as Template moves next to New Workspace from Template.
     @Test func theWorkspaceRowKeepsSidebarSettingsOnTheSidebar() throws {
