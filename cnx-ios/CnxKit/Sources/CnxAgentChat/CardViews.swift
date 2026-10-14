@@ -134,25 +134,44 @@ public struct PermissionActionBar: View {
     let request: ACPPermissionRequest
     let respond: (ACPPermissionOption?) -> Void
     let replyInstead: (() -> Void)?
+    /// The allow waiting for Face ID: its button spins, the other allows are disabled,
+    /// Deny stays available.
+    var approvingOptionID: String?
 
-    public init(request: ACPPermissionRequest, respond: @escaping (ACPPermissionOption?) -> Void, replyInstead: (() -> Void)? = nil) {
+    public init(request: ACPPermissionRequest, approvingOptionID: String? = nil,
+                respond: @escaping (ACPPermissionOption?) -> Void, replyInstead: (() -> Void)? = nil) {
         self.request = request
+        self.approvingOptionID = approvingOptionID
         self.respond = respond
         self.replyInstead = replyInstead
     }
 
+    /// Shown on the allow while Face ID runs (the Feed's string).
+    public static let waitingForFaceID = "Waiting for Face ID…"
+
     public var body: some View {
         VStack(spacing: 8) {
             ForEach(request.options) { option in
-                Button { respond(option) } label: {
+                Button {
+                    // The allow already waiting for Face ID ignores a second tap.
+                    guard !(option.isAllow && approvingOptionID != nil) else { return }
+                    respond(option)
+                } label: {
                     // Long options ("Always allow cargo test in this workspace")
                     // wrap instead of truncating. An allow is signed after Face ID
                     // (verify/phone-approvals.md), and says so.
                     HStack(spacing: 6) {
-                        if option.isAllow { Image(systemName: "faceid").accessibilityHidden(true) }
-                        Text(option.name).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
+                        if option.id == approvingOptionID {
+                            ProgressView().controlSize(.small).accessibilityHidden(true)
+                            Text(Self.waitingForFaceID).lineLimit(1)
+                        } else {
+                            if option.isAllow { Image(systemName: "faceid").accessibilityHidden(true) }
+                            Text(option.name).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
+                        }
                     }
+                    .animation(.cnxSnap, value: approvingOptionID)
                 }
+                    .disabled(approvingOptionID != nil && option.isAllow && option.id != approvingOptionID)
                     .accessibilityHint(option.isAllow ? "Approve with Face ID" : "")
                     .buttonStyle(CnxCapsuleButtonStyle(style(option), size: .bar))
                     .sensoryFeedback(.impact(weight: .light), trigger: false)

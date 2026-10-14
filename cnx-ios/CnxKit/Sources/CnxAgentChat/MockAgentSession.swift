@@ -1,6 +1,7 @@
 // DEBUG and Demo builds only: mock content is never compiled into Production.
 #if DEBUG
 import CmuxAgentQuestion
+import CnxModel
 import Foundation
 
 /// An offline `AgentSessionSource` that streams a realistic Claude Code style
@@ -81,10 +82,18 @@ public final class MockAgentSession: AgentSessionSource {
             questionWaiter = nil
         case .respondPermission(let id, let optionID):
             guard id == pendingPermissionID else { return }
-            emit(.permissionDecision(permissionId: id, optionId: optionID))
-            pendingPermissionID = nil
-            permissionWaiter?.resume(returning: optionID)
-            permissionWaiter = nil
+            // DEBUG: an allow waits for mock "Face ID" (Settings → Developer), so the
+            // waiting state shows. A deny never waits.
+            let delay = DeveloperOptions.mockFaceIDDelay
+            if delay > .zero, let optionID, !optionID.lowercased().contains("deny"), !optionID.lowercased().contains("reject") {
+                Task { [weak self] in
+                    try? await Task.sleep(for: delay)
+                    guard let self, id == self.pendingPermissionID else { return }
+                    self.decide(permission: id, optionID: optionID)
+                }
+                return
+            }
+            decide(permission: id, optionID: optionID)
         case .answerQuestion(let id, let answer):
             guard id == pendingQuestionID else { return }
             emit(.questionAnswered(questionId: id, answer: answer))
@@ -104,6 +113,13 @@ public final class MockAgentSession: AgentSessionSource {
             queued.removeAll { $0.id == promptID }
             emit(.dequeued(promptId: promptID))
         }
+    }
+
+    private func decide(permission id: String, optionID: String?) {
+        emit(.permissionDecision(permissionId: id, optionId: optionID))
+        pendingPermissionID = nil
+        permissionWaiter?.resume(returning: optionID)
+        permissionWaiter = nil
     }
 
     func emit(_ event: AgentSessionEvent) {

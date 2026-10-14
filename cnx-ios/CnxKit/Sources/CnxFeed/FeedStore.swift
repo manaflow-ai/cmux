@@ -409,6 +409,17 @@ public final class FeedStore {
             return
         }
         guard answersLocally else { return failUnsent(id) }
+        let delay = DeveloperOptions.mockFaceIDDelay
+        if option.isAllow, delay > .zero {
+            guard item(id: id)?.pending == nil else { return }
+            mutate(id) { $0.pending = Self.waitingForFaceID }
+            Task {
+                try? await Task.sleep(for: delay)
+                mutate(id) { $0.pending = nil }
+                applyRespond(id, option: option)
+            }
+            return
+        }
         applyRespond(id, option: option)
     }
 

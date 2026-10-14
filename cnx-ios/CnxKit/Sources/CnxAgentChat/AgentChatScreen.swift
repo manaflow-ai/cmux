@@ -496,7 +496,7 @@ public struct AgentChatBottomStack: View {
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 if let permission = store.pendingPermission, !surface.permissionBarHidden {
-                    PermissionActionBar(request: permission.request) { option in
+                    PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
                         withAnimation(.cnxSmooth) { store.respond(to: permission.request, option: option) }
                     } replyInstead: {
                         withAnimation(.cnxSmooth) { surface.replyInsteadOfPermission = true }
