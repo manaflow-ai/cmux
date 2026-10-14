@@ -14,7 +14,7 @@ two terminal tabs (`action.run`), reads the strip (`debug.tab_drag`) and the sid
 above the target row (a brief pass, as a hand crossing it) onto the row's center and releases,
 then reads the workspaces (`snapshot.get`). It never launches or quits the app.
 
-Usage: sidebar-tab-drop-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock
+Usage: sidebar-tab-drop-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--record DIR]
 Exit status 0 when every check passes.
 """
 import argparse, json, socket, sys, time
@@ -22,6 +22,7 @@ import argparse, json, socket, sys, time
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--out", default="/tmp", help="unused; accepted for capture drivers")
+parser.add_argument("--record", help="also record the window (debug.window_record) during the drag into this directory")
 opts = parser.parse_args()
 ROWS = []
 
@@ -133,6 +134,9 @@ def main():
     slot_y = ry + 2  # the slot between the target row and the row above it
     # Press on the tab, carry it into the sidebar through the slot above the target row
     # (a brief pass, 80 ms), then onto the row's center, and release there.
+    if opts.record:
+        rpc("debug.window_record", {"dir": opts.record, "seconds": 3.0})
+        time.sleep(0.3)  # test harness: still frames before the press
     mouse(action="drag", x=sx, y=sy, to_x=cx, to_y=slot_y, steps=12, release=False)
     time.sleep(0.08)  # test harness: a hand passing through the slot
     mouse(action="drag", x=cx, y=slot_y, to_x=cx, to_y=cy, steps=4, press=False, release=False)
