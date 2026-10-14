@@ -174,6 +174,56 @@ export function captureServerEvent(
   return delivery;
 }
 
+/** Events per `/batch/` request; PostHog accepts far larger bodies, this keeps each request small. */
+export const SERVER_EVENT_BATCH_SIZE = 200;
+
+export type ServerEventBatchResult = {
+  readonly sent: number;
+  readonly failed: number;
+};
+
+/**
+ * Deliver many product events now, in `/batch/` requests of
+ * SERVER_EVENT_BATCH_SIZE, and report how many were accepted. For cron jobs
+ * that own their run and must await delivery before answering; request paths
+ * use `captureServerEvent`. Same gating as `captureServerEvent`; never throws.
+ */
+export async function captureServerEventBatch(
+  inputs: readonly ServerEventInput[],
+  dependencies: Partial<ServerEventDependencies> = {},
+): Promise<ServerEventBatchResult> {
+  const deps: ServerEventDependencies = { ...defaultDependencies, ...dependencies };
+  if (isAnalyticsTestRun(deps.env) && !dependencies.fetch) return { sent: 0, failed: 0 };
+  if (!serverAnalyticsEnabled(deps.env)) return { sent: 0, failed: 0 };
+  const posthogHost = configuredPosthogHost(deps.env);
+  if (!isAllowedPosthogHost(posthogHost, deps.env)) return { sent: 0, failed: inputs.length };
+  const now = deps.now();
+  const batch = inputs.flatMap((input) => {
+    const payload = serverEventPayload(input, now);
+    if (!payload) return [];
+    // The key travels once at the top of the batch body.
+    const event: Record<string, unknown> = { ...payload };
+    delete event.api_key;
+    return [event];
+  });
+  let sent = 0;
+  let failed = inputs.length - batch.length;
+  for (let start = 0; start < batch.length; start += SERVER_EVENT_BATCH_SIZE) {
+    const chunk = batch.slice(start, start + SERVER_EVENT_BATCH_SIZE);
+    try {
+      await deliver(JSON.stringify({ api_key: POSTHOG_PROJECT_KEY, batch: chunk }), deps.fetch, posthogHost, "/batch/");
+      sent += chunk.length;
+    } catch (error: unknown) {
+      failed += chunk.length;
+      console.warn("[analytics] server event batch delivery failed", {
+        events: chunk.length,
+        error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+      });
+    }
+  }
+  return { sent, failed };
+}
+
 export function isSecurePosthogHost(host: string): boolean {
   try {
     const url = new URL(host);
@@ -207,12 +257,17 @@ function configuredPosthogHost(env: Record<string, string | undefined>): string 
   return (env.POSTHOG_HOST ?? POSTHOG_HOST).replace(/\/$/, "");
 }
 
-async function deliver(body: string, fetchImpl: typeof fetch, posthogHost: string): Promise<void> {
+async function deliver(
+  body: string,
+  fetchImpl: typeof fetch,
+  posthogHost: string,
+  path: "/capture/" | "/batch/" = "/capture/",
+): Promise<void> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let response: Response;
     try {
-      response = await fetchImpl(`${posthogHost}/capture/`, {
+      response = await fetchImpl(`${posthogHost}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body,
