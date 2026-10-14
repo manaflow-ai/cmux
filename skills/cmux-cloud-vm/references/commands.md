@@ -58,7 +58,6 @@ cmux vm tree --json                    # {machines: [{id, local, name, status, l
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
-cmux vm restart <id>                   # provider-level restart, including frozen guests
 cmux vm resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
 cmux vm network <id>                   # outbound policy: mode, presets, domains, ranges, applied state
 cmux vm agent-updates <id>             # latest (updated on attach) or image (baked pins)
@@ -159,9 +158,9 @@ Socket `vm.stats`. CPU, memory, and disk right now; a sleeping machine reports `
 cmux vm restart <id> [--json]
 ```
 
-Restarts the machine through the provider control plane, so it remains usable even when the guest is frozen and `exec`, terminal, or health probes do not answer. The operation preserves the machine's disk and identity, returns it to `running`, and uses the provider's documented pause/start recovery when a deployment does not expose a dedicated restart endpoint. The server rejects the action when the provider does not advertise restart support or the machine has been destroyed.
+Requests hard recovery through a provider control-plane operation that discards a frozen guest's memory and boots its existing disk. The server currently rejects this action when the provider does not advertise a verified restart capability; the Freestyle API in this release exposes pause/start only, and pause/start resumes the same memory rather than recovering a frozen guest. The machine's disk and identity are preserved when a provider advertises the operation.
 
-Socket `vm.restart` is the same hard-restart action used by the macOS machine menu and iOS Cloud controls. It does not run a guest command or mark a healthy machine dead while the provider restart is in progress.
+Socket `vm.restart` is the same capability-gated recovery action used by the macOS machine menu and iOS Cloud controls. It does not run a guest command or infer guest health from provider-running state.
 
 ### `cmux vm resize`
 
