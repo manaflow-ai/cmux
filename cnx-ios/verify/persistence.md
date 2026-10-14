@@ -120,5 +120,31 @@ a deleted account keeps nothing; Feed read marks are per account.
 
 ## Live run
 
-See "Live run result" below (E2E rig `verify/e2e/run.sh`, step
-`persist_approval`).
+Not completed (2026-10-14 15:20 PT). The rig step is ready:
+`verify/e2e/run.sh --mac-app "<cnx-e2e-1bd377aa app>" --no-build --latency none
+--sim-name cnx-persist-ios26 --steps fresh_install,sign_in,choose_space,mac_discovered,persist_approval`.
+`persist_approval` signs out and in, checks that the rig Mac's
+`paired-devices.json` is unchanged and the link reconnects, then taps Settings
+→ Devices → Remove This iPhone from My Macs and waits for a new approval of
+new keys for the same device id. It records `persist-approval.mp4` in the run
+folder.
+
+What happened on four attempts against `cnx-e2e-1bd377aa` (the only built Mac
+app with pairing and the DEBUG pairing seed), on a laptop at load 50 to 65,
+with three other sessions taking turns on the rig:
+
+- `145811`: sign-in failed in the rig (the number layout did not switch in
+  time). `sim.py` now retries the switch once.
+- `150505`: setup did not reach the tab bar. A rerun of the same three steps
+  without the Mac (`/tmp/cnx-persist-dbg`) passed: setup advanced to
+  Workspaces normally, so this was the load, not this branch.
+- one run stopped at the 585 s bound while the simulator booted.
+- `151341`: fresh install, sign-in and setup passed; the rig Mac's
+  `cnx-hostd` never started (the run log says "cnx-hostd NOT running"; its log
+  has not moved since 14:31), so no link and no pairing to check. A
+  `SecurityAgent` process was running; whether it held a Keychain prompt for
+  the rig app was not checked (that needs the screen).
+
+Rig fixes on this branch: `mac.running_rig_apps` skips apps `lsappinfo`
+still lists after they exit (they blocked every run), and `sim.softtype`
+retries a slow layout switch.
