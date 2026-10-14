@@ -171,7 +171,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "palette_usage.forget"
                         | "sidebar_layout.update"
                         // The sidebar document (sidebar-doc-v1) is the app's
-                        // too; the CLI has no sidebar verbs yet.
+                        // too; the CLI sets only a section's scroll and row
+                        // limit (`sidebar section-scroll`, `section-max-rows`,
+                        // both sidebar.section.update with a partial patch).
                         | "sidebar.adopt"
                         | "sidebar.apply"
                         | "sidebar.get"

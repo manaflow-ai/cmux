@@ -443,6 +443,20 @@ pub struct Config {
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
+    /// `defaultPermissionMode`: the permission mode a new chat starts in when
+    /// the person has not picked one for its harness (`hub/start_mode.rs`):
+    /// `fullAccess`, `standard` or `ask`. Absent: the cmux setting
+    /// `agents.defaultPermissionMode`, else `fullAccess`. For acpmux without
+    /// the cmux app, and for hermetic tests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_permission_mode: Option<String>,
+    /// `lastPermissionMode`: the level of the person's latest mode pick in
+    /// any chat (`fullAccess`, `standard` or `ask`), the start mode of every
+    /// new chat on every harness (`hub/start_mode.rs`). Written only by a
+    /// pick from the app pane; wins over `defaultPermissionMode` and the
+    /// cmux setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_permission_mode: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
