@@ -121,13 +121,19 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     let stub = files.join("brain.sh");
     fs::write(&stub, STUB).unwrap();
     fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    // A stub acpmux that records each call (its args and ACPMUX_HOME).
+    let acpmux = files.join("acpmux.sh");
+    let calls = files.join("acpmux-calls");
+    fs::write(&acpmux, format!("#!/bin/sh\necho \"$* $ACPMUX_HOME\" >> '{}'\n", calls.display()))
+        .unwrap();
+    fs::set_permissions(&acpmux, fs::Permissions::from_mode(0o755)).unwrap();
     let chief_home = files.join("chief-home");
     fs::create_dir_all(&chief_home).unwrap();
     let brains = json!({
         "executable": stub,
         "home": chief_home,
         "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
-                "chief_title": "Chief", "acpmux_bin": "/opt/cmux-test/bin/acpmux"},
+                "chief_title": "Chief", "acpmux_bin": acpmux},
     })
     .to_string();
     let mut server = HeadlessServer::start_with_options(
@@ -156,7 +162,7 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     expect("ACPMUX_HOME", scout_home.join("a").to_str().unwrap());
     expect("CMUX_SOCKET_PATH", chief_home.join("state/app.sock").to_str().unwrap());
     expect("MUX_USER_NAME", "Test Person");
-    expect("ACPMUX_BIN", "/opt/cmux-test/bin/acpmux");
+    expect("ACPMUX_BIN", acpmux.to_str().unwrap());
     assert!(env["PATH"].starts_with("/opt/cmux-test/bin:"), "{env:?}");
     assert!(!env.contains_key("CMUX_TUI_CHIEF_BRAINS"), "{env:?}");
     assert!(!env.contains_key("ACPMUX_SOCKET"), "{env:?}");
@@ -214,6 +220,12 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     let deleted = chief_cli(&server, &["delete", &ops, "--json"], "");
     assert_success(&deleted);
     wait_gone(ops_pid, "after delete");
+    // ...and its acpmux, which the brain started in its own process group.
+    assert_eq!(
+        wait_file(&calls),
+        format!("daemon shutdown {}", ops_home.join("a").display()),
+        "the deleted Chief's acpmux was not shut down"
+    );
     assert!(alive(restarted));
 
     // Daemon shutdown stops the rest.
