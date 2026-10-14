@@ -3,11 +3,14 @@ import AppKit
 /// MessagesLab R76's header controls (HeaderBar.swift) inside the Home pane.
 /// Blocker: HeaderBar installs an NSToolbar and a titlebar accessory on the
 /// window, and a Home tab shares the cmux-next window. The same controls sit
-/// in the pane over `HeaderBackdropView` (the blurred, darkened transcript),
-/// at HeaderBar's measured places: the 40 pt avatar centered 8 pt from the
-/// top (the toolbar item), and the glass capsule name pill centered 58 pt
-/// from the top (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron). No
-/// band, no edge line, no video button (Home has no calls).
+/// in the pane over `HeaderBackdropView` (the blurred, darkened transcript):
+/// the 40 pt avatar 9 pt from the top, and the glass capsule name pill
+/// centered 58.5 pt from the top (`HeaderBar.pillWidth`, bold 13 pt, the dim
+/// chevron). cmux: the places are the baseline's Messages reference (avatar
+/// top 9, pill centre 58.5; HeaderBar's own constants are 8 and 58). The
+/// avatar draws over the pill's backing and under the pill's glass, so the
+/// whole disc shows as in Messages (the disc reaches 49 pt, the pill starts
+/// at 44.5 pt). No band, no edge line, no video button (Home has no calls).
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
     let pill = NSButton()
@@ -28,17 +31,19 @@ final class PaneHeaderView: NSView {
     var onContact: () -> Void = {}
 
     static let avatarSize: CGFloat = 40
-    static let avatarTop: CGFloat = 8
-    /// HeaderBar: Messages' pill center, 58 pt from the window top.
-    static let pillCenterY: CGFloat = 58
+    static let avatarTop: CGFloat = 9
+    /// Messages' pill center, 58.5 pt from the window top (the baseline reference).
+    static let pillCenterY: CGFloat = 58.5
     static let pillHeight: CGFloat = 28
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         avatar.imageScaling = .scaleProportionallyUpOrDown
-        addSubview(avatar)
+        // Back to front: the pill's backing, the avatar, the pill (glass): the backing never
+        // covers the disc's bottom, and the disc shows through the glass where they meet.
         pillBacking.wantsLayer = true
         addSubview(pillBacking)
+        addSubview(avatar)
         // HeaderBar's pill, as configured there.
         if #available(macOS 26, *) {
             pill.bezelStyle = .glass
