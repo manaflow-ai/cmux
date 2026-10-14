@@ -46,14 +46,21 @@ ffi) and the app. Change this file first, then the implementations.
 - Devices: `deviceId` is a client-generated UUID persisted in Keychain;
   `kind` is `mac` or `phone`.
 
-## HTTP (base `https://cnx-ios-api-<env>.debussy.workers.dev`; `debussy` is the account's workers.dev subdomain)
+## HTTP (base: production `https://cnx-ios-api.cmux.dev`, dev `https://cnx-ios-api-dev.debussy.workers.dev`)
+
+The production Worker `cnx-ios-api-prod` accepts only the production Stack
+project `9790718f-14cd-4f7e-824d-eaf527a82b82` and uses its own database
+(PlanetScale `cmux/cnx-ios-prod`). The dev Worker accepts both projects for
+testing. Production and Release app builds, the Mac app's Release build and
+`run-host.sh` default to the production URL.
 
 Errors are `{"error":{"code","message"}}` with codes `unauthorized` (401; the
 message ends with the reason in parentheses, one of `malformed`,
 `unknown_project`, `expired`, `not_yet_valid`, `bad_claims`, `unknown_key`,
 `keys_unavailable`, `bad_signature`, `anonymous`, `restricted`, and never
 echoes the token),
-`bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403),
+`bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
+`rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
 `membership_unavailable` / `invite_failed` (502).
 
 | Method + path | Body / result |
@@ -64,7 +71,13 @@ echoes the token),
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji}` for the caller (per user per team) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace) |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
-| `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable) |
+| `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
+| `GET /v1/me/devices` | → `{devices:[{deviceId,kind,name,teamId,createdAt,updatedAt,lastSeenAt,online,push}]}` (0.7.0): every Mac and phone the caller registered, in any team or personal space. `online` is live presence for Macs and `null` for phones; `push` is whether the phone has an APNs token |
+| `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the device's team hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its relay sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
+| `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
+| `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
+| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `cnx` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. `eventId` (≤ 64) is the APNs collapse id. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
+| `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
 | `GET /v1/teams/:teamId/hub` | → `{ingressColo, hubColo, locationHint}`: diagnostics added in 0.6.0. Where this request entered Cloudflare, where the team's `TeamHub` runs, and the region a hub created by this request would get (`null` when unknown) |
 
@@ -87,7 +100,7 @@ offline presence in between); a Mac re-registered into another team is closed
 with 4001 `moved`.
 
 - server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}`
-- server → all: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt}}`
+- server → all: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt}}`; a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
 - client → server → peer: `{"type":"signal","to":deviceId,"from":deviceId,"sessionId":uuid,"payload":P}`.
   A `from` other than the socket's own deviceId is refused with `bad_request`.
   On every forwarded signal the DO sets `"fromUserId": <sender's Stack userId>`,
