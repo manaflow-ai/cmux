@@ -6,7 +6,8 @@
 // - file.search ranks as the mock daemon does, relative to the folder searched;
 // - a folder outside the slot's folder, a slot-less server and a write are refused;
 // - the read list admits no mutating git command, not even by an abbreviated option;
-// - a repository's own config never runs a program (fsmonitor, filter drivers), and the dev's
+// - a repository's own config never runs a program (fsmonitor, filter drivers, a driver named
+//   with "=", a lazy fetch from a promisor remote, a submodule's diff driver), and the dev's
 //   GIT_* environment never redirects a read.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
@@ -326,4 +327,72 @@ describe("untrusted repository", () => {
     }
     expect(git("rev-parse", "--abbrev-ref", "HEAD")).toBe("feature");
   });
+});
+
+describe("hostile repositories inside the slot", () => {
+  const gitIn = (dir: string, ...args: string[]) =>
+    execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  /// A repository nested in the slot's folder (so its reads are allowed), removed afterwards.
+  async function withRepo(name: string, run: (dir: string, marker: string) => Promise<void>) {
+    const dir = path.join(repo, name);
+    const marker = path.join(root, `${name}-ran`);
+    try {
+      await run(dir, marker);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("a filter driver whose name contains '=' never runs", () =>
+    withRepo("hostile-filter-name", async (dir, marker) => {
+      execFileSync("git", ["init", "-q", "-b", "main", dir]);
+      fs.writeFileSync(path.join(dir, "a.txt"), "one\n");
+      gitIn(dir, "add", ".");
+      gitIn(dir, "commit", "-q", "-m", "a");
+      gitIn(dir, "config", "filter.a=b.clean", `touch ${marker}; cat`);
+      fs.writeFileSync(path.join(dir, ".git", "info", "attributes"), "*.txt filter=a=b\n");
+      fs.writeFileSync(path.join(dir, "a.txt"), "one\ntwo\n");
+      const { body } = await read("git.diff", { cwd: dir, scope: "uncommitted", include_patch: true });
+      expect(body.ok).toBe(true);
+      expect(fs.existsSync(marker)).toBe(false);
+    }));
+
+  test("a partial clone never fetches a missing blob from its promisor remote", () =>
+    withRepo("hostile-promisor", async (dir, marker) => {
+      const origin = path.join(root, "promisor-origin");
+      execFileSync("git", ["init", "-q", "-b", "main", origin]);
+      gitIn(origin, "config", "uploadpack.allowFilter", "true");
+      fs.writeFileSync(path.join(origin, "a.txt"), "one\n");
+      gitIn(origin, "add", ".");
+      gitIn(origin, "commit", "-q", "-m", "one");
+      fs.writeFileSync(path.join(origin, "a.txt"), "one\ntwo\n");
+      gitIn(origin, "commit", "-q", "-am", "two");
+      execFileSync("git", ["clone", "-q", "--no-checkout", "--filter=blob:none", `file://${origin}`, dir]);
+      // The missing blobs would come from a command the repository names.
+      gitIn(dir, "config", "remote.origin.url", `ext::sh -c touch% ${marker}`);
+      gitIn(dir, "config", "protocol.ext.allow", "always");
+      gitIn(dir, "config", "core.sshCommand", `touch ${marker}; false`);
+      await read("git.diff", { cwd: dir, scope: "committed", include_patch: true });
+      expect(fs.existsSync(marker)).toBe(false);
+    }));
+
+  test("a submodule's diff driver never runs", () =>
+    withRepo("hostile-submodule", async (dir, marker) => {
+      const sub = path.join(dir, "sub");
+      execFileSync("git", ["init", "-q", "-b", "main", dir]);
+      execFileSync("git", ["init", "-q", "-b", "main", sub]);
+      fs.writeFileSync(path.join(sub, "a.txt"), "one\n");
+      gitIn(sub, "add", ".");
+      gitIn(sub, "commit", "-q", "-m", "one");
+      gitIn(dir, "add", "sub");
+      gitIn(dir, "commit", "-q", "-m", "sub");
+      fs.writeFileSync(path.join(sub, "a.txt"), "one\ntwo\n");
+      gitIn(sub, "commit", "-q", "-am", "two");
+      fs.writeFileSync(path.join(sub, ".git", "info", "attributes"), "* diff=evil\n");
+      gitIn(sub, "config", "diff.evil.command", `touch ${marker}; true`);
+      gitIn(dir, "config", "diff.submodule", "diff");
+      const { body } = await read("git.diff", { cwd: dir, scope: "uncommitted", include_patch: true });
+      expect(body.ok).toBe(true);
+      expect(fs.existsSync(marker)).toBe(false);
+    }));
 });
