@@ -20740,6 +20740,33 @@
       "title_table" : "RemoteActions"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "workspace set-remote-localhost",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.setRemoteLocalhost",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Workspace Localhost…",
+      "title_key" : "action.workspace.setRemoteLocalhost",
+      "title_table" : "RemoteActions"
+    },
+    {
       "cli" : "clipboard",
       "cli_name" : "action remote-copy-error",
       "context_menu" : "offered",
@@ -27153,7 +27180,6 @@
     "A submenu takes its label, else its action's title, without a trailing ellipsis; a folder takes its own title. A submenu or folder without a shown row is left out.",
     "A separator shows only after a shown row and before another shown row: runs collapse to one, and leading and trailing separators drop.",
     "A choices row is a submenu with one item per value in choices.values (then a separator and More… when more_opens_palette). It shows by the same visible_when as every row, and only when its action is bound and enabled (otherwise it is left out, not disabled).",
-    "A choices row with choices.trailer ends its submenu with that action under trailer.label, on the same target, after a separator when there are values. With a trailer the row shows even when it has no values (Move to Group > New Group).",
     "context_menus_not_exported lists the menus built by hand in their views; they are not in context_menus. Whoever adds a new hand-built menu adds it to that list (ContextMenuCatalog.exportHandBuiltMenus)."
   ],
   "context_menus" : {
@@ -32451,53 +32477,6 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 5
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "tabGroup.create",
-          "kind" : "action",
-          "order" : 6,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "tabGroup.addTab",
-          "kind" : "action",
-          "order" : 7,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "tabGroup.removeTab",
-          "kind" : "action",
-          "order" : 8,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 9
-        },
-        {
           "children" : [
             {
               "children" : [
@@ -32918,8 +32897,57 @@
               "order" : 6
             },
             {
+              "children" : [
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.create",
+                  "kind" : "action",
+                  "order" : 0,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.addTab",
+                  "kind" : "action",
+                  "order" : 1,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.removeTab",
+                  "kind" : "action",
+                  "order" : 2,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                }
+              ],
+              "folder" : "group",
+              "kind" : "folder",
+              "order" : 7,
+              "title" : "Group",
+              "title_key" : "menu.folder.group",
+              "title_table" : "Localizable"
+            },
+            {
               "kind" : "separator",
-              "order" : 7
+              "order" : 8
             },
             {
               "children" : [
@@ -33138,14 +33166,14 @@
               ],
               "folder" : "move",
               "kind" : "folder",
-              "order" : 8,
+              "order" : 9,
               "title" : "Move",
               "title_key" : "menu.folder.move",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 9
+              "order" : 10
             },
             {
               "children" : [
@@ -33217,14 +33245,14 @@
               ],
               "folder" : "copy",
               "kind" : "folder",
-              "order" : 10,
+              "order" : 11,
               "title" : "Copy",
               "title_key" : "menu.folder.copy",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 11
+              "order" : 12
             },
             {
               "children" : [
@@ -33270,7 +33298,7 @@
               ],
               "folder" : "close",
               "kind" : "folder",
-              "order" : 12,
+              "order" : 13,
               "title" : "Close",
               "title_key" : "menu.folder.close",
               "title_table" : "Localizable"
@@ -33278,20 +33306,20 @@
           ],
           "folder" : "more",
           "kind" : "folder",
-          "order" : 10,
+          "order" : 5,
           "title" : "More",
           "title_key" : "menu.folder.more",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 11
+          "order" : 6
         },
         {
           "enabled_when" : "can_perform",
           "id" : "closeTab",
           "kind" : "action",
-          "order" : 12,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -34645,22 +34673,14 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 4
-        },
-        {
           "choices" : {
             "argument" : "group",
-            "target_kind" : "workspace-group",
-            "trailer" : {
-              "id" : "workspace.moveToNewGroup",
-              "label" : "New Group"
-            }
+            "target_kind" : "workspace-group"
           },
           "enabled_when" : "can_perform",
           "id" : "moveWorkspaceToGroup",
           "kind" : "choices",
-          "order" : 5,
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -34668,36 +34688,6 @@
 
             ]
           }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "groupSelectedWorkspaces",
-          "kind" : "action",
-          "order" : 6,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "removeWorkspaceFromGroup",
-          "kind" : "action",
-          "order" : 7,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 8
         },
         {
           "children" : [
@@ -35178,14 +35168,51 @@
                   }
                 },
                 {
+                  "choices" : {
+                    "argument" : "localhost",
+                    "more_opens_palette" : false,
+                    "values" : [
+                      {
+                        "title" : "The Workspace's Machine",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "machine"
+                      },
+                      {
+                        "title" : "This Mac",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "thisMac"
+                      },
+                      {
+                        "title" : "Follow Settings",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "setting"
+                      }
+                    ]
+                  },
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.setRemoteLocalhost",
+                  "kind" : "choices",
+                  "order" : 17,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : "remoteHosts",
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 17
+                  "order" : 18
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "sidebar.workspaceTabs.toggle",
                   "kind" : "action",
-                  "order" : 18,
+                  "order" : 19,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35210,9 +35237,48 @@
               "children" : [
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "saveLayoutTemplate",
+                  "id" : "groupSelectedWorkspaces",
                   "kind" : "action",
                   "order" : 0,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.moveToNewGroup",
+                  "kind" : "action",
+                  "order" : 1,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "removeWorkspaceFromGroup",
+                  "kind" : "action",
+                  "order" : 2,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "saveLayoutTemplate",
+                  "kind" : "action",
+                  "order" : 3,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35570,20 +35636,20 @@
           ],
           "folder" : "more",
           "kind" : "folder",
-          "order" : 9,
+          "order" : 5,
           "title" : "More",
           "title_key" : "menu.folder.more",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 6
         },
         {
           "enabled_when" : "can_perform",
           "id" : "closeWorkspace",
           "kind" : "action",
-          "order" : 11,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,

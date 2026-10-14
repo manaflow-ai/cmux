@@ -36,6 +36,7 @@ enum AppActions {
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)
+        RemoteLocalhostHandlers.bind(into: registry, context: context)
         WindowMembershipHandlers.bind(into: registry, context: context)
         SidebarHandlers.bind(into: registry, context: context)
         SidebarSectionHandlers.bind(into: registry, context: context)
