@@ -1,0 +1,71 @@
+name: cmux-next motion golden
+
+# A pull request into feat-cmux-next that touches an interaction the golden interactions
+# measure (scripts/ci/frame-pacing/golden.py, cx-codh2: New Tab grow, sidebar collapse
+# and expand, transcript follow, live window resize, Motion) gets one golden-only run of
+# cmux-next-frame-pacing.yml on its branch. That run builds the branch and measures it on
+# an owned mini's 120 Hz virtual display, only while an owned Mac is free, and only warns:
+# no required check reads it. This job is a dispatcher on Linux, so the pull_request run
+# itself never takes Mac capacity (feat pull requests run Linux checks only, chief
+# 2026-10-10). Fork and draft pull requests dispatch nothing; a fork's head could not run
+# on an owned Mac anyway (resolve-dispatch-ref.yml trusts this repository's branch heads).
+# Runs land under the frame pacing workflow, filtered by the pull request's branch.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, ready_for_review]
+    # The transcript's follow code also lives in acpmux/App.tsx, which changes too often
+    # to build on an owned Mac each time.
+    paths:
+      - .github/workflows/cmux-next-motion-golden.yml
+      - .github/workflows/cmux-next-frame-pacing.yml
+      - scripts/ci/frame-pacing/**
+      - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugTraceFrames.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugMotion.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugNewTab.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabPage+Open.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabSparePool.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripView+Sync.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripView+Layout.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripDebug.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabMotion.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabLayoutEngine.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Spring.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarContainerView*.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/ShellWindow*.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/Frame*.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/**
+      - "Packages/macOS/CmuxNext/Sources/**/Motion*.swift"
+      - webviews/src/agent-session/acpmux/pacing.ts
+      - webviews/src/agent-session/acpmux/followTrace.ts
+      - webviews/src/agent-session/acpmux/streamDebug.ts
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-motion-golden-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write # starts cmux-next-frame-pacing.yml on this pull request's branch
+    steps:
+      - name: Start the golden interactions on this branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-frame-pacing.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH" \
+            -f ref="$BRANCH" -f suites=golden
+          query="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote("branch:" + sys.argv[1]))' "$BRANCH")"
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/cmux-next-frame-pacing.yml?query=$query"
+          echo "::notice title=Golden interactions::Started on $BRANCH (warning only): $url"
+          printf '## Golden interactions\n\nStarted a golden-only frame pacing run on %s. It warns only and runs only while an owned Mac is free: [runs](%s).\n' \
+            "$BRANCH" "$url" >> "$GITHUB_STEP_SUMMARY"

@@ -90,8 +90,10 @@ struct NewTabSuccession {
     /// for a provisional one (Cmd-T's New Tab page shows before the store has its tab) takes the
     /// provisional tab's cell: the store swaps them in one step, so one provisional tab leaving as
     /// one tab arrives is that pair. It was a shrink beside a grow on every Cmd-T.
-    static func order(_ snapshot: PaneController.Snapshot, in pane: PaneController) -> PaneController.Snapshot {
-        let shown = Set(pane.stripModel.tabs.map(\.id)), listed = Set(snapshot.items.map(\.id))
+    static func order(_ reported: PaneController.Snapshot, in pane: PaneController) -> PaneController.Snapshot {
+        let shown = Set(pane.stripModel.tabs.map(\.id))
+        var snapshot = holdingSuccessor(reported, shown: shown, in: pane)
+        let listed = Set(snapshot.items.map(\.id))
         let left = shown.filter { ProvisionalTab.isProvisional($0.rawValue) && !listed.contains($0) }
         let arrived = snapshot.items.filter { !shown.contains($0.id) }
         var handed: SurfaceID?
@@ -104,7 +106,6 @@ struct NewTabSuccession {
             active[ObjectIdentifier(pane.pane)] = nil
             return snapshot
         }
-        var snapshot = snapshot
         // The store's tab after a provisional one, the one made, else the tab being selected.
         let tabs = pane.pane.tabs.filter { !succession.known.contains($0.id) }
         let made = [handed, succession.surface, pane.pendingSelectSurface].lazy.compactMap { $0 }.first { surface in tabs.contains { $0.surface == surface } }
@@ -131,6 +132,31 @@ struct NewTabSuccession {
         if snapshot.items == others { succession.expiry.cancel() }
         active[ObjectIdentifier(pane.pane)] = snapshot.items == others ? nil : succession
         snapshot.items = others
+        return snapshot
+    }
+
+    /// `snapshot` without a daemon tab its provisional tab still stands in for. A resync snapshot
+    /// adds the daemon's tab with no transaction, and until the create's reply names it the store
+    /// shows the provisional tab again at the pane's end (`IntentOverlay.restore`): both listed,
+    /// the daemon tab right before it. Shown as listed, that was a second tab growing in beside
+    /// the provisional one, which then shrank away (cx-codh2 insertion traces, 3, 10 and 20 tabs).
+    /// One new tab of the provisional one's kind and page directly before it waits off the strip
+    /// while the provisional tab is listed: selection and content stay with the provisional tab
+    /// (the create's reply selects the new tab once it shows: `PaneController.apply`), and once
+    /// the store swaps them `order` hands the new tab the provisional tab's cell.
+    private static func holdingSuccessor(_ reported: PaneController.Snapshot, shown: Set<StripTabID>,
+                                         in pane: PaneController) -> PaneController.Snapshot {
+        // A succession places its tab itself (`order`); this is the plain Cmd-T's end of the strip.
+        guard active[ObjectIdentifier(pane.pane)] == nil else { return reported }
+        let items = reported.items
+        guard items.count > 1, let last = items.last, shown.contains(last.id), ProvisionalTab.isProvisional(last.id.rawValue) else { return reported }
+        let fresh = items.filter { !shown.contains($0.id) }
+        guard fresh.count == 1, fresh[0].id == items[items.count - 2].id,
+              let provisional = pane.pane.tabs.first(where: { $0.id == last.id.rawValue }),
+              let tab = pane.pane.tabs.first(where: { $0.id == fresh[0].id.rawValue }),
+              !ProvisionalTab.isProvisional(tab.id), tab.kind == provisional.kind, tab.page == provisional.page else { return reported }
+        var snapshot = reported
+        snapshot.items.remove(at: items.count - 2)
         return snapshot
     }
 }

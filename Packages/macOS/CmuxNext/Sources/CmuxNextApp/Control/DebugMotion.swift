@@ -10,9 +10,19 @@ import CmuxNextSettings
 /// false overrides Reduce Motion in memory (null follows the system setting
 /// again), so a bench records reduced motion without the system setting.
 /// `work` is each timed animation's main-thread work per frame (`MotionTrace.measure`).
+/// `trace_start`, `trace_read` and `trace_stop` sample animated geometry on every display
+/// frame instead (DEBUG builds, `DebugTraceFrames`).
 enum DebugMotion {
-    static func handle(_ params: [String: JSONValue]) -> JSONValue {
-        switch params["action"]?.stringValue ?? "read" {
+    static func handle(_ params: [String: JSONValue], _ services: AppServices? = nil) -> JSONValue {
+        let action = params["action"]?.stringValue ?? "read"
+        #if DEBUG
+        if action.hasPrefix("trace_") {
+            var trace = params
+            trace["action"] = .string(String(action.dropFirst("trace_".count)))
+            return DebugTraceFrames.shared.handle(trace, services)
+        }
+        #endif
+        switch action {
         case "start":
             MotionTrace.start()
         case "speed":

@@ -53,6 +53,7 @@ extension TabStripView {
             metrics: metrics,
             closingModeWidth: closingModeWidth
         )
+        var seam: CGFloat? // the previous slot's trailing edge as shown now
         for slot in result.slots where slot.id != Self.placeholderID {
             guard var m = motion[slot.id] else { continue }
             if added.contains(slot.id) {
@@ -60,10 +61,10 @@ extension TabStripView {
                     m = TabMotion(x: pendingDrop.x, width: pendingDrop.width, alpha: 1)
                     self.pendingDrop = nil
                 } else {
-                    // New tabs grow in from zero width at their slot.
-                    m = TabMotion(x: slot.x, width: animated ? 0 : slot.width, alpha: animated ? 0 : 1)
+                    m = animated ? .growing(at: seam ?? slot.x) : TabMotion(x: slot.x, width: slot.width, alpha: 1)
                 }
             }
+            seam = m.x.value + max(0, m.width.value)
             if drag?.id != slot.id { m.x.target = groupDragX(for: slot) ?? slot.x }
             if groups.isDragged(slot.id) { m.x.snap() }
             m.width.target = slot.width
