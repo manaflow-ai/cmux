@@ -397,7 +397,8 @@ fn backfill_arrangement(
                 continue;
             }
             section.align = align.clone();
-            section.gap = gap.filter(|gap| cmux_layout_reducer::sidebar_doc::GAP_RANGE.contains(gap));
+            section.gap =
+                gap.filter(|gap| cmux_layout_reducer::sidebar_doc::GAP_RANGE.contains(gap));
             changed = true;
         }
     }

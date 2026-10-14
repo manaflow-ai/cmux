@@ -862,7 +862,11 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
 /// Give `section` its region and order key among the other sections of
 /// its region (renumbering them when no key fits). A scroll that is the
 /// old region's default (the user never changed it) follows the region.
-pub(super) fn place_section(tx: &mut Tx, section: &mut Section, place: &SectionPlace) -> Result<(), Refusal> {
+pub(super) fn place_section(
+    tx: &mut Tx,
+    section: &mut Section,
+    place: &SectionPlace,
+) -> Result<(), Refusal> {
     if let Some(region) = &place.region
         && *region != section.region
     {

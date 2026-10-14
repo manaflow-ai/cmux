@@ -13,7 +13,9 @@ use serde_json::json;
 use crate::mux::*;
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
-use crate::state::sidebar_doc_legacy::{mint_item_id, pinned_ops, project_layout, section_field_ops};
+use crate::state::sidebar_doc_legacy::{
+    mint_item_id, pinned_ops, project_layout, section_field_ops,
+};
 use crate::state::sidebar_doc_store as doc_store;
 use crate::state::sidebar_layout::{self, Op};
 use crate::state::sidebar_layout_store::{self as store, ID, RESOURCE};

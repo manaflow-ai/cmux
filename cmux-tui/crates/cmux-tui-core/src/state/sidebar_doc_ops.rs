@@ -75,15 +75,16 @@ pub(crate) fn closes_for_reset(
     }
     let local = crate::state::values::local_registry_id(connection)?;
     let open: HashSet<String> = {
-        let mut statement = connection.prepare(
-            "SELECT public_id FROM resource_workspaces WHERE deleted_revision IS NULL",
-        )?;
+        let mut statement = connection
+            .prepare("SELECT public_id FROM resource_workspaces WHERE deleted_revision IS NULL")?;
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<_, _>>()?
     };
     let refs: Vec<WorkspaceRef> = doc
         .items_unordered()
         .filter_map(|item| item.body.workspace())
-        .filter(|reference| reference.session_id == local && !open.contains(&reference.workspace_id))
+        .filter(|reference| {
+            reference.session_id == local && !open.contains(&reference.workspace_id)
+        })
         .cloned()
         .collect();
     if !refs.is_empty() {
