@@ -89,7 +89,8 @@ extension IPhoneHostService {
             agentTabHost: agentTabHost,
             computerName: computerName,
             acpmuxEnvironment: acpmuxEnvironment,
-            browserHosts: browserHosts
+            browserHosts: browserHosts,
+            pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment)
         )
     }
 
