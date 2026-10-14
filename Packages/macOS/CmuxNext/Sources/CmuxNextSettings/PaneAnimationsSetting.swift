@@ -4,8 +4,8 @@
 /// panes"): a split, close, move, swap, zoom, column reveal or screen switch
 /// applies in one frame. On restores the springs. `ui.animationSpeed` "off"
 /// and Reduce Motion still snap them.
-public nonisolated struct PaneAnimationsSetting: Sendable {
-    public init() {}
+public nonisolated struct PaneAnimationsSetting {
+    public nonisolated init() {}
     public static let configPath = ["ui", "paneAnimations"]
     public static let fallback = false
 
