@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds CCmuxAppFFI.xcframework: the ONE Rust static library the cmux macOS
 # app links (cmux-tui/crates/cmux-app-ffi = the remote desktop core C ABI +
-# the sidebar layout reducer C ABI over one Rust runtime). Apple's compact
+# the sidebar layout reducer C ABI + the cmux-motion C ABI over one Rust
+# runtime). Apple's compact
 # unwind encodes at most three personality routines per image (C++, iroh,
 # this library); every extra Rust static library breaks the app link. The
 # headers keep their modules (CCmuxRdFFI, CCmuxLayoutReducerFFI), so Swift
@@ -24,7 +25,8 @@ case "$out_root" in ""|"/") echo "error: CMUX_APP_FFI_OUT must name a directory"
 lib_name="libcmux_app_ffi.a"
 headers_in=("$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
             "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI"
-            "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI")
+            "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI"
+            "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI")
 
 for tool in cargo rustup xcodebuild lipo clang libtool; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: $tool is required" >&2; exit 1; }

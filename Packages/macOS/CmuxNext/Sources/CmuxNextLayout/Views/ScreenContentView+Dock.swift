@@ -71,9 +71,11 @@ extension ScreenContentView {
         var visible = revealing.map(host.frame.intersection) ?? host.frame
         if scrolls, let clip { visible = visible.intersection(clip) }
         for cover in panes(above: host) { visible = visible.remainder(outside: cover) }
+        // A split's presented rect is the content itself: rounded as at rest.
         let changed = visible == host.frame
             ? host.setStripClip(nil)
-            : host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
+            : host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY),
+                                cornerRadius: revealing == nil ? 0 : host.cornerRadius)
         // A clip can change while the pane stays put (a dock growing over it): the window's
         // Chromium pages re-read their clip shapes, which carry this mask.
         if changed { context.stripClipsDidChange() }

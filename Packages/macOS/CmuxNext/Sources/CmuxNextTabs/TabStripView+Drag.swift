@@ -276,3 +276,15 @@ extension TabStripView {
     /// trails the reply by a frame or two) before the model's order shows.
     static let reorderSettleTimeout: Duration = .milliseconds(300)
 }
+
+// Debug proofs (debug.new_tab frame_strip `drag_new`) drive a drag at a tab's place.
+extension TabStripView {
+    /// The tabs in the order the strip shows them.
+    public var displayedOrder: [TabID] { displayed.map(\.id) }
+
+    /// Where `id`'s cell shows now, its center in window coordinates; nil when it shows nowhere.
+    public func tabCenterInWindow(_ id: TabID) -> CGPoint? {
+        guard let m = motion[id] else { return nil }
+        return tabsClip.convert(CGPoint(x: m.x.value - scroll.value + m.width.value / 2, y: tabsClip.bounds.midY), to: nil)
+    }
+}

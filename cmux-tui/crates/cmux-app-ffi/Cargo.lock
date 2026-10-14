@@ -22,6 +22,7 @@ name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-layout-reducer-ffi",
+ "cmux-motion",
  "cmux-palette-ranker",
  "cmux-rd-ffi",
 ]
@@ -53,6 +54,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "cmux-motion"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-palette-ranker"

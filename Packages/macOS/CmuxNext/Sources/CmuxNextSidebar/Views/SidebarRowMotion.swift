@@ -30,10 +30,8 @@ struct RowMotion {
             return
         }
         guard Motion.animatesMovement else {
-            // Reduce Motion: rows take their places at once and the change crossfades (motion.md
-            // rule 7). Inside the movement spring, which Reduce Motion skips, the fades never ran:
-            // a closed row vanished and a new one popped in.
-            if !appearing.isEmpty || !leaving.isEmpty { Motion.crossfadeInPlace(list.layer) }
+            // Reduce Motion: rows take their places in one step, with no crossfade standing in
+            // for the motion (DESIGN P6): no movement, and nothing a person must wait out.
             Motion.withoutAnimation {
                 moves()
                 lines.changes()

@@ -1,7 +1,9 @@
 #if DEBUG
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextTabs
 import CmuxNextWakeups
 
 /// `debug.new_tab {action: "frame_strip"}` (DEBUG builds): the window as the
@@ -22,6 +24,15 @@ import CmuxNextWakeups
 /// `content_intermediate` counts frames equal to neither. The pane's strip (its tabs slide) is left
 /// out of those and of `intermediate`; `strip_intermediate` counts its frames equal to neither, and
 /// `desync` those where one of strip and content shows the new tab and the other the old one.
+///
+/// Motion proofs (scripts/cmux-next/motion-proof.py, hq-1d): `gesture: "plus"` presses the
+/// focused strip's + (its intent) instead of a key, `gesture: "drag_new"` drags the strip's first
+/// tab while a CLI new tab lands. Outside the content and the strip, each frame's `progress`
+/// (0 = before, 1 = final) never goes back (`reversals`) or leaps (`jumps` over `jump`, default
+/// 0.6; `max_step`), and `moving` counts the frames between before and final. `content: "none"`
+/// (splits) takes no content area. Tab motion is judged from the strip's own `tabs.travel`
+/// samples while `debug.motion` records (`tabs_moving_frames`, `tabs_restarts`: a second motion
+/// in one gesture, `tabs_peak_travel`): a sliding cell is not monotonic in pixels.
 @MainActor
 enum DebugFrameStrip {
     typealias Frame = WindowFrame
@@ -42,15 +53,24 @@ enum DebugFrameStrip {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             lead.schedule(after: .milliseconds(120)) { @MainActor in done.resume() }
         }
-        let sent = DebugKey.send(["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": params["modifiers"] ?? .array([.string("command")]),
+        let sent: JSONValue
+        if params["gesture"]?.stringValue == "plus", let pane = controller.content?.focusedPane {
+            pane.stripModel.send(.newTab(after: nil))
+            sent = .string("plus")
+        } else if params["gesture"]?.stringValue == "drag_new", let pane = controller.content?.focusedPane {
+            sent = await dragWhileNewTab(pane, services)
+        } else {
+            sent = DebugKey.send(["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": params["modifiers"] ?? .array([.string("command")]),
                                   "window": .string(controller.state.id)], services: services)
-        let sentAt = BenchSpans.ms(.now - start)
+        }
+        let sentAt = BenchSpans.ms(.now - start), sentTime = CACurrentMediaTime()
         let frames = await recording.value
         let spans = BenchSpans.end()
         guard let first = frames.first, let last = frames.last, let before = frames.last(where: { $0.milliseconds < sentAt }) else {
             return .object(["error": .string("no frames"), "key": sent])
         }
-        let content = (controller.content?.focusedPane?.view.contentHost).flatMap { rect(of: $0, window: window, frame: first) }
+        let content = params["content"]?.stringValue == "none" ? nil
+            : (controller.content?.focusedPane?.view.contentHost).flatMap { rect(of: $0, window: window, frame: first) }
         // The pane's strip, apart: its own motion (tabs sliding over) is not content.
         let strip = (controller.content?.focusedPane?.view.stripView)
             .flatMap { $0.isHiddenOrHasHiddenAncestor ? nil : rect(of: $0, window: window, frame: first) }
@@ -58,6 +78,8 @@ enum DebugFrameStrip {
         var rows: [JSONValue] = []
         var intermediate = 0, blank = 0, contentIntermediate = 0, desync = 0, stripIntermediate = 0
         var settledAt: Double?, firstChange: Double?
+        var moving = 0, reversals = 0, jumps = 0, previous: Double?, maxStep = 0.0, peak = 0.0
+        let jump = params["jump"]?.doubleValue ?? 0.6
         let shown = frames.firstIndex { $0.milliseconds >= before.milliseconds } ?? frames.endIndex
         // Off the main actor: six comparisons a frame stalled it past the watchdog in a Debug build.
         let measures = await WindowFrame.measure(Array(frames[shown...]), before: before, last: last, content: content, strip: strip)
@@ -72,7 +94,16 @@ enum DebugFrameStrip {
             // Neither the content before the key nor the settled one; blank: flat too (an empty terminal is flat).
             let isBlank = content != nil && m.flatness > 0.995 && insideBefore > tolerance && insideFinal > tolerance
             let isContentIntermediate = frame.milliseconds > sentAt && insideBefore > tolerance && insideFinal > tolerance
-            if isIntermediate { intermediate += 1 }
+            if isIntermediate { intermediate += 1; moving += 1 }
+            // Progress outside the content and the strip from before (0) to final (1).
+            let total = m.outsideBefore + m.outsideFinal
+            let progress = total > 0 ? m.outsideBefore / total : (m.outsideBefore > 0 ? 1 : 0)
+            if let previous {
+                maxStep = max(maxStep, progress - previous)
+                if progress - previous > jump, previous < 0.05 { jumps += 1 }
+                if progress < peak - 0.05 { reversals += 1 }
+            }
+            (peak, previous) = (max(peak, progress), progress)
             if isBlank { blank += 1 }
             if isContentIntermediate { contentIntermediate += 1 }
             if frame.milliseconds > sentAt {
@@ -90,7 +121,11 @@ enum DebugFrameStrip {
             ]))
         }
         WindowFrame.writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))
+        let tabs = MotionTravelSummary("tabs.travel", after: sentTime)
         return .object([
+            "moving": .number(Double(moving)), "reversals": .number(Double(reversals)), "jumps": .number(Double(jumps)),
+            "max_step": .number((maxStep * 1000).rounded() / 1000), "tabs_moving_frames": .number(Double(tabs.movingFrames)),
+            "tabs_restarts": .number(Double(tabs.restarts)), "tabs_peak_travel": .number(tabs.peak.rounded()),
             "key": sent, "dir": .string(dir), "frames": .array(rows), "intermediate": .number(Double(intermediate)),
             "blank": .number(Double(blank)), "frame_count": .number(Double(rows.count)),
             "content_intermediate": .number(Double(contentIntermediate)), "desync": .number(Double(desync)),
@@ -99,6 +134,38 @@ enum DebugFrameStrip {
             "spans": .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) }),
             "mean_interval_ms": .number(frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0),
         ])
+    }
+
+    /// `gesture: "drag_new"`: drags the focused strip's first tab right in 12 steps, one per frame
+    /// (synthetic events into the strip's own handlers), and at step 4 a script opens a terminal tab
+    /// in the pane (`newSurface` with the CLI's origin): the drag's springs must keep running.
+    private static func dragWhileNewTab(_ pane: PaneController, _ services: AppServices) async -> JSONValue {
+        let strip = pane.view.stripView
+        guard let window = strip.window, let id = strip.displayedOrder.first, let start = strip.tabCenterInWindow(id) else {
+            return .string("drag_new: no tab")
+        }
+        func send(_ type: NSEvent.EventType, _ dx: CGFloat) {
+            guard let event = NSEvent.mouseEvent(with: type, location: CGPoint(x: start.x + dx, y: start.y), modifierFlags: [],
+                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                 context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
+            else { return }
+            switch type {
+            case .leftMouseDown: strip.mouseDown(with: event)
+            case .leftMouseUp: strip.mouseUp(with: event)
+            default: strip.mouseDragged(with: event)
+            }
+        }
+        send(.leftMouseDown, 0)
+        for step in 1...12 {
+            let tick = DemandTimer(owner: "debug.frame_strip.drag")
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in tick.schedule(after: .milliseconds(16)) { @MainActor in done.resume() } }
+            send(.leftMouseDragged, CGFloat(step) * 18)
+            if step == 4 {
+                _ = services.registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .cli))
+            }
+        }
+        send(.leftMouseUp, 12 * 18)
+        return .string("drag_new")
     }
 
     /// `host`'s bounds in `frame` pixels (top-left origin).
