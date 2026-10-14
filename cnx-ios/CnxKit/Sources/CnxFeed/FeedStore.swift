@@ -305,6 +305,12 @@ public final class FeedStore {
 
     public func item(id: String) -> FeedItem? { items.first { $0.id == id } }
 
+    /// Drops an item the source withdrew (a duplicate of another event).
+    public func remove(_ id: String) {
+        items.removeAll { $0.id == id }
+        unseenNewIDs.removeAll { $0 == id }
+    }
+
     /// Marks an open ask resolved elsewhere (another device or the Mac).
     public func resolveElsewhere(_ id: String, text: String) {
         mutate(id) { item in

@@ -52,7 +52,7 @@ import Testing
     static func make(_ daemon: FakeDaemon) -> (FeedStore, TerminalFeed) {
         let store = FeedStore(items: [])
         let feed = TerminalFeed(store: store)
-        feed.request = { command, params in daemon.respond(command, params) }
+        feed.request = { command, params, _ in daemon.respond(command, params) }
         store.onItemsChange = { [weak feed] items in feed?.itemsChanged(items) }
         return (store, feed)
     }
@@ -61,7 +61,7 @@ import Testing
         for _ in 0..<500 where !condition() { await Task.yield() }
     }
 
-    static let connection = ObjectIdentifier(NSObject())
+    static let connection = 1
 
     @Test func hydratesTerminalAgentEventsOnConnect() async {
         let daemon = FakeDaemon()
@@ -202,11 +202,42 @@ import Testing
         await Self.settle { store.items.count == 1 }
         store.markDone("term-mac-ntf_1")
 
-        feed.treeChanged(Self.tree(), macID: "mac", connection: ObjectIdentifier(NSObject()))
+        feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
         await Self.settle { daemon.lists == 2 }
         await Self.settle { false }
         #expect(store.items.count == 1)
         #expect(store.item(id: "term-mac-ntf_1")?.isDone == true)
+    }
+
+    /// Review findings: a terminal that went to work before it ever asked does
+    /// not answer its first ask; a hook's event replaces the terminal's own echo
+    /// shown before it; reading an older event does not mark the tab read.
+    @Test func firstAskWaitsEchoesGoAndOnlyTheNewestReadMarksTheTab() async {
+        let daemon = FakeDaemon()
+        let (store, feed) = Self.make(daemon)
+        feed.treeChanged(Self.tree(codex: "idle"), macID: "mac", connection: Self.connection)
+        await Self.settle { daemon.lists == 1 }
+        feed.treeChanged(Self.tree(codex: "working"), macID: "mac", connection: Self.connection)
+        daemon.rows = [Self.row("ntf_1", "Codex", body: "Approval requested: touch x", surface: 1, at: 1_000_000, source: "terminal")]
+        feed.notificationPosted()
+        await Self.settle { store.items.count == 1 }
+        #expect(store.item(id: "term-mac-ntf_1")?.needsYou == true)
+
+        daemon.rows.append(Self.row("ntf_2", "Codex needs approval", body: "touch x", level: "warning", surface: 1, at: 1_001_000))
+        feed.notificationPosted()
+        await Self.settle { store.item(id: "term-mac-ntf_1") == nil }
+        #expect(store.items.map(\.id) == ["term-mac-ntf_2"])
+        #expect(store.item(id: "term-mac-ntf_2")?.needsYou == true)
+
+        daemon.rows.append(Self.row("ntf_3", "Codex finished", surface: 1, at: 9_000_000))
+        feed.notificationPosted()
+        await Self.settle { store.items.count == 2 }
+        store.markRead("term-mac-ntf_2")
+        await Self.settle { false }
+        #expect(daemon.acks.isEmpty)
+        store.markRead("term-mac-ntf_3")
+        await Self.settle { !daemon.acks.isEmpty }
+        #expect(daemon.acks == [1])
     }
 
     @Test func wordsAndKinds() {

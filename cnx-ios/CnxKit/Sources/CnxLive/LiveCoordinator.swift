@@ -163,8 +163,11 @@ public final class LiveCoordinator {
         feed.place = { [weak self] sessionID in self?.place(sessionID: sessionID) }
         feed.hub = acpmux
         feed.terminal = terminalFeed
-        terminalFeed.request = { [weak self] command, params in
-            guard let client = self?.workspaces.daemon else { throw DaemonReplyError(message: "Not connected") }
+        terminalFeed.request = { [weak self] command, params, connection in
+            // Never another connection's (or another Mac's) channel.
+            guard let self, self.workspaces.connectionSerial == connection, let client = self.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
             var fields: [String: Any] = [:]
             for (key, value) in params { fields[key] = value }
             return try await client.request(command, params: fields)
@@ -1047,7 +1050,7 @@ public final class LiveCoordinator {
         scheduleSnapshotSave()
         // History items name their workspace and tab once the tree places their session.
         if acpmux.isReady { feed.hydrate(Array(acpmux.sessions.values)) }
-        terminalFeed.treeChanged(tree, macID: macID, connection: workspaces.daemon.map(ObjectIdentifier.init))
+        terminalFeed.treeChanged(tree, macID: macID, connection: workspaces.connectionSerial)
     }
 
     @ObservationIgnored private var feedSavePending = false

@@ -29,6 +29,9 @@ public final class WorkspaceSync {
     /// only activity time the daemon gives.
     @ObservationIgnored private var activity: [Int: Date] = [:]
     @ObservationIgnored public private(set) var macID = ""
+    /// Counts bound `daemon` channels: names the current connection (a new
+    /// channel, even to the same Mac, is a new one).
+    @ObservationIgnored public private(set) var connectionSerial = 0
     @ObservationIgnored private let deviceID: String
     @ObservationIgnored private let deviceName: String
 
@@ -48,6 +51,7 @@ public final class WorkspaceSync {
     public func bind(_ channel: (any LinkChannel)?, macID: String, cached: [Workspace] = []) async {
         eventTask?.cancel()
         client = nil
+        connectionSerial += 1
         activity = [:]
         guard let channel else { return }
         await bind(Self.prepare(channel, deviceID: deviceID, deviceName: deviceName), macID: macID, cached: cached)
@@ -94,6 +98,7 @@ public final class WorkspaceSync {
         self.macID = macID
         let client = prepared.client
         self.client = client
+        connectionSerial += 1
         let events = client.events
         eventTask = Task { [weak self] in
             for await line in events {

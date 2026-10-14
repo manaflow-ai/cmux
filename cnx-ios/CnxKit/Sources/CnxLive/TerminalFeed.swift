@@ -51,12 +51,14 @@ public final class TerminalFeed {
     static let echoWindow: TimeInterval = 10
 
     let store: FeedStore
-    /// Sends one request on the Mac's `daemon` channel; nil while unbound.
+    /// Sends one request on the Mac's `daemon` channel of `connection`; nil
+    /// while unbound. It throws when that channel is no longer the bound one,
+    /// so a read or a read mark never crosses to another Mac or connection.
     /// Parameters are integers only (`limit`, `surface`).
-    public var request: (@MainActor (_ command: String, _ params: [String: Int]) async throws -> Data)?
+    public var request: (@MainActor (_ command: String, _ params: [String: Int], _ connection: Int) async throws -> Data)?
 
     private(set) var macID = ""
-    private var connection: ObjectIdentifier?
+    private var connection: Int?
     private var tree: DaemonTree?
     private(set) var entries: [Entry] = []
     private var markers: [Int: DaemonTree.NotificationMarker] = [:]
@@ -66,7 +68,6 @@ public final class TerminalFeed {
     /// going back to work since (blocked or idle, then working): an ask there
     /// was answered.
     private var statuses: [Int: WorkspaceTab.AgentStatus?] = [:]
-    private var resumed: Set<Int> = []
     /// Items the Mac reported read: marked read once, so a later Unread on the phone sticks.
     private var macRead: Set<String> = []
     /// Tabs acknowledged from the phone, by the newest notification they covered.
@@ -78,6 +79,8 @@ public final class TerminalFeed {
     private var listing = false
     private var dirty = false
     private var generation = 0
+    /// The Mac has no notification ledger (an older cmux): not asked again on this connection.
+    private var unsupported = false
 
     public init(store: FeedStore) {
         self.store = store
@@ -91,7 +94,7 @@ public final class TerminalFeed {
     /// The Mac's tree arrived (`connection` names the daemon channel it came
     /// on): a new connection reads the ledger (history); a changed unread
     /// marker reads it again (a new notification, or a read on the Mac).
-    public func treeChanged(_ tree: DaemonTree, macID: String, connection: ObjectIdentifier?) {
+    public func treeChanged(_ tree: DaemonTree, macID: String, connection: Int) {
         if connection != self.connection || macID != self.macID {
             self.connection = connection
             self.macID = macID
@@ -99,13 +102,14 @@ public final class TerminalFeed {
             markers = [:]
             harnesses = [:]
             statuses = [:]
-            resumed = []
             acked = [:]
+            unsupported = false
             hydrated = false
             historyIDs = []
             generation += 1
         }
         self.tree = tree
+        var resumed: Set<Int> = []
         for workspace in tree.workspaces {
             for tab in workspace.tabs where tab.kind == .terminal {
                 guard let surface = tree.surfaces[tab.id] else { continue }
@@ -118,6 +122,15 @@ public final class TerminalFeed {
         let changed = tree.notificationMarkers != markers
         markers = tree.notificationMarkers
         apply()
+        // Back at work: the asks shown on that terminal were answered there.
+        // An ask that arrives later waits again.
+        for entry in entries {
+            guard let surface = entry.surface, resumed.contains(surface) else { continue }
+            let id = Self.itemID(macID: macID, entry: entry.id)
+            if let item = store.item(id: id), item.kind == .needsInput, item.resolution == nil {
+                store.resolveElsewhere(id, text: "Answered in the terminal")
+            }
+        }
         if !hydrated || changed { Task { await refresh() } }
     }
 
@@ -128,7 +141,7 @@ public final class TerminalFeed {
 
     /// Reads the ledger now (coalesced: one read in flight, one more queued).
     public func refresh() async {
-        guard let request else { return }
+        guard request != nil, connection != nil, !unsupported else { return }
         if listing {
             dirty = true
             return
@@ -138,12 +151,19 @@ public final class TerminalFeed {
         repeat {
             dirty = false
             let generation = generation
+            // The connection may have changed while an earlier read ran.
+            guard let request, let connection = self.connection else { return }
             do {
-                let reply = try await request("list-notifications", ["limit": Self.limit])
-                guard generation == self.generation else { return }
+                let reply = try await request("list-notifications", ["limit": Self.limit], connection)
+                // A newer connection queued its own read (`dirty`): go round again.
+                guard generation == self.generation else { continue }
                 apply(ledger: try WorkspaceSync.check(reply))
-            } catch {
+            } catch let error as DaemonReplyError {
                 // An older Mac without the ledger (`notification-ack-v1`): no terminal events.
+                if generation == self.generation { unsupported = true }
+                log.error("list-notifications refused: \(error.message, privacy: .public)")
+                return
+            } catch {
                 log.error("list-notifications failed: \(String(describing: error), privacy: .public)")
                 return
             }
@@ -161,19 +181,26 @@ public final class TerminalFeed {
     /// The phone read these items (opened, swiped, marked): the Mac marks
     /// their tabs read too, as its own panel does.
     public func itemsChanged(_ items: [FeedItem]) {
-        guard let request, !macID.isEmpty else { return }
+        guard let request, let connection, !macID.isEmpty else { return }
         let byID = Dictionary(entries.map { (Self.itemID(macID: macID, entry: $0.id), $0) }, uniquingKeysWith: { first, _ in first })
+        // The Mac reads a whole tab at once, so only the read of a tab's newest
+        // event marks it: reading an older one must not hide a newer one there.
+        var newest: [Int: Date] = [:]
+        for entry in entries where !isEcho(entry) {
+            if let surface = entry.surface { newest[surface] = max(newest[surface] ?? entry.createdAt, entry.createdAt) }
+        }
         var surfaces: [Int: Date] = [:]
         for item in items where item.opensTerminal && item.isRead {
             guard let entry = byID[item.id], !entry.acknowledged, let surface = entry.surface,
+                  newest[surface] == entry.createdAt,
                   (acked[surface] ?? .distantPast) < entry.createdAt else { continue }
-            surfaces[surface] = max(surfaces[surface] ?? entry.createdAt, entry.createdAt)
+            surfaces[surface] = entry.createdAt
         }
         for (surface, newest) in surfaces {
             acked[surface] = newest
             Task {
                 do {
-                    _ = try WorkspaceSync.check(try await request("ack-tab-notifications", ["surface": surface]))
+                    _ = try WorkspaceSync.check(try await request("ack-tab-notifications", ["surface": surface], connection))
                 } catch {
                     log.error("ack-tab-notifications \(surface, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 }
@@ -191,16 +218,27 @@ public final class TerminalFeed {
         let places = Self.places(tree)
         var history: [FeedItem] = []
         var fresh: [FeedItem] = []
-        for entry in entries where !isEcho(entry) {
+        for entry in entries {
             guard let surface = entry.surface else { continue }
             let id = Self.itemID(macID: macID, entry: entry.id)
             let known = store.item(id: id)
+            if isEcho(entry) {
+                // Shown before the hook's own event arrived: the hook's tells it.
+                if known != nil { store.remove(id) }
+                continue
+            }
             guard let place = places[surface] else { continue }
             guard place.tab.kind == .terminal else { continue }
             let harness = place.tab.harness ?? harnesses[surface] ?? Self.harness(title: entry.title) ?? "terminal"
             var item = Self.item(entry, id: id, harness: harness, workspace: place.workspace, tab: place.tab)
             if known == nil, hydrated, !historyIDs.contains(entry.id) { fresh.append(item) } else {
-                if let known { item.createdAt = known.createdAt }
+                if let known {
+                    item.createdAt = known.createdAt
+                    // Unchanged: no merge (each one rewrites and saves the Feed).
+                    if known.kind == item.kind, known.markdown == item.markdown, known.agentName == item.agentName,
+                       known.harness == item.harness, known.workspaceID == item.workspaceID,
+                       known.workspaceTitle == item.workspaceTitle, known.tabID == item.tabID { continue }
+                }
                 history.append(item)
             }
         }
@@ -216,8 +254,7 @@ public final class TerminalFeed {
         resolveWaiting()
     }
 
-    /// A terminal that asked for input and then went on (working again, or a
-    /// later event on the same tab) was answered there.
+    /// A terminal that asked for input and then posted again was answered there.
     private func resolveWaiting() {
         let prefix = "term-\(macID)-"
         for entry in entries {
@@ -225,10 +262,8 @@ public final class TerminalFeed {
             let id = Self.itemID(macID: macID, entry: entry.id)
             guard id.hasPrefix(prefix), let item = store.item(id: id), item.kind == .needsInput, item.resolution == nil else { continue }
             let later = entries.contains { $0.surface == surface && $0.createdAt > entry.createdAt && !isEcho($0) }
-            if later || resumed.contains(surface) { store.resolveElsewhere(id, text: "Answered in the terminal") }
+            if later { store.resolveElsewhere(id, text: "Answered in the terminal") }
         }
-        // A resume answers the asks shown so far; a later ask waits again.
-        resumed = resumed.filter { surface in !entries.contains { $0.surface == surface } }
     }
 
     /// A terminal's own (OSC) notification next to an agent hook's on the same tab.
