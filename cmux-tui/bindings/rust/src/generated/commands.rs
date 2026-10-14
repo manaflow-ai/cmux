@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955.
+// cmux-tui mux protocol 12, IR 8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2756,19 +2756,26 @@ pub struct SelectWorkspaceRequest {
 pub type SelectWorkspaceResult = T::EmptyResult;
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SendRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bytes: Optional<T::Base64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
-    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub text: Optional<String>,
 }
 
 #[rustfmt::skip]
-pub type SendResult = T::EmptyResult;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SendResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub queued: Option<bool>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4671,6 +4678,9 @@ impl CmuxClient {
     pub fn send(&mut self, request: SendRequest) -> Result<SendResult> {
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_capability_field("send", "terminal-input-while-creating-v1")?;
         }
         self.execute(&SEND_METADATA, &request)
     }

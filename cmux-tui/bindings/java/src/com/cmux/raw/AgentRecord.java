@@ -11,15 +11,21 @@ import java.util.Objects;
 
 
 public final class AgentRecord implements WireValue {
+    /** Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports. */
+    private final Field<String> agent;
     private final String session;
+    /** When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`. */
+    private final Field<UInt64> sinceMs;
     private final AgentSource source;
     private final AgentState state;
     private final UInt64 surface;
     private final UInt64 updatedAtMs;
 
     private AgentRecord(Builder builder) {
+        this.agent = builder.agent;
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = builder.session;
+        this.sinceMs = builder.sinceMs;
         if (!builder.sourceSet) throw new IllegalArgumentException("source is required");
         this.source = Wire.nonNull(builder.source, "source");
         if (!builder.stateSet) throw new IllegalArgumentException("state is required");
@@ -32,7 +38,9 @@ public final class AgentRecord implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<String> agent() { return agent; }
     public String session() { return session; }
+    public Field<UInt64> sinceMs() { return sinceMs; }
     public AgentSource source() { return source; }
     public AgentState state() { return state; }
     public UInt64 surface() { return surface; }
@@ -41,8 +49,16 @@ public final class AgentRecord implements WireValue {
     public static AgentRecord fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "AgentRecord");
         Builder builder = builder();
+        Object rawAgent = Wire.optional(object, "agent");
+        if (!Wire.isMissing(rawAgent)) {
+            builder.agent(rawAgent == null ? null : Wire.string(rawAgent, "AgentRecord.agent"));
+        }
         Object rawSession = Wire.required(object, "session");
         builder.session(rawSession == null ? null : Wire.string(rawSession, "AgentRecord.session"));
+        Object rawSinceMs = Wire.optional(object, "since_ms");
+        if (!Wire.isMissing(rawSinceMs)) {
+            builder.sinceMs(Wire.uint64(rawSinceMs, "AgentRecord.since_ms"));
+        }
         Object rawSource = Wire.required(object, "source");
         builder.source(AgentSource.fromWire(rawSource));
         Object rawState = Wire.required(object, "state");
@@ -57,7 +73,9 @@ public final class AgentRecord implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "agent", agent);
         Wire.put(object, "session", session);
+        Wire.put(object, "since_ms", sinceMs);
         Wire.put(object, "source", source);
         Wire.put(object, "state", state);
         Wire.put(object, "surface", surface);
@@ -68,18 +86,20 @@ public final class AgentRecord implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AgentRecord that)) return false;
-        return Objects.equals(session, that.session) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
+        return Objects.equals(agent, that.agent) && Objects.equals(session, that.session) && Objects.equals(sinceMs, that.sinceMs) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(session, source, state, surface, updatedAtMs); }
+    public int hashCode() { return Objects.hash(agent, session, sinceMs, source, state, surface, updatedAtMs); }
 
     @Override
     public String toString() { return "AgentRecord" + toWire(); }
 
     public static final class Builder {
+        private Field<String> agent = Field.omitted();
         private String session;
         private boolean sessionSet;
+        private Field<UInt64> sinceMs = Field.omitted();
         private AgentSource source;
         private boolean sourceSet;
         private AgentState state;
@@ -89,9 +109,17 @@ public final class AgentRecord implements WireValue {
         private UInt64 updatedAtMs;
         private boolean updatedAtMsSet;
 
+        public Builder agent(String value) {
+            this.agent = Field.ofNullable(value);
+            return this;
+        }
         public Builder session(String value) {
             this.session = value;
             this.sessionSet = true;
+            return this;
+        }
+        public Builder sinceMs(UInt64 value) {
+            this.sinceMs = Field.of(value);
             return this;
         }
         public Builder source(AgentSource value) {

@@ -1,5 +1,6 @@
 //! Ranking: the typed query and the empty query, learned picks, frecency and aliases.
 
+use crate::shortcut::{self, Stroke};
 use crate::text::Query;
 use crate::text::{collapsed_lower, js_string_cmp, js_trim, js_trim_end, title_is_query};
 use crate::tier::{
@@ -30,6 +31,8 @@ const SUGGESTION_LIMIT: usize = 5;
 pub(crate) struct Prepared {
     pub fields: Vec<Vec<Field>>,
     pub ids: Vec<Option<Vec<char>>>,
+    /// Each row's shortcut strokes, from its keycaps.
+    pub shortcuts: Vec<Option<Vec<Stroke>>>,
 }
 
 impl Prepared {
@@ -45,6 +48,10 @@ impl Prepared {
                         .filter(|id| !id.is_empty())
                         .map(|id| id.chars().map(crate::text::fold_scalar).collect())
                 })
+                .collect(),
+            shortcuts: entries
+                .iter()
+                .map(|entry| shortcut::parse_keycaps(&entry.keycaps))
                 .collect(),
         }
     }
@@ -284,6 +291,9 @@ struct Scored {
     /// A demoted row whose whole title is the query.
     exact_name: bool,
     shortcut: bool,
+    /// The query names this row's shortcut ("cmd i" for ⌘I): first among enabled rows after the
+    /// user's own aliases.
+    chord: bool,
     lifted: bool,
     aliased: bool,
     highlights: Vec<usize>,
@@ -316,6 +326,13 @@ pub(crate) fn rank(
         .map(|hidden| hidden.iter().map(String::as_str).collect())
         .unwrap_or_default();
     let aliased = aliased_actions(request.aliases.as_ref(), raw);
+    // A query that names a shortcut ("cmd i", "⌥⇧K"); plain words parse to nothing.
+    let chord = shortcut::parse_query(raw);
+    let names_shortcut = |index: usize| {
+        chord.as_deref().is_some_and(|chord| {
+            prepared.shortcuts[index].as_deref().is_some_and(|row| shortcut::matches(chord, row))
+        })
+    };
     let mut scored: Vec<Scored> = Vec::new();
     let rank_pass = |allows_typo: bool, scored: &mut Vec<Scored>| {
         let mut strong = 0;
@@ -362,6 +379,7 @@ pub(crate) fn rank(
                 demoted: entry.demoted == Some(true),
                 exact_name: entry.demoted == Some(true) && title_is_query(&entry.title, raw),
                 shortcut: entry.has_shortcut == Some(true),
+                chord: names_shortcut(index),
                 lifted: false,
                 aliased: enabled && entry.action_id.as_ref().is_some_and(|id| aliased.contains(id)),
                 highlights: highlights_for(found.query.get(), &prepared.fields[index][0].text),
@@ -413,8 +431,38 @@ pub(crate) fn rank(
                 demoted: entry.demoted == Some(true),
                 exact_name: false,
                 shortcut: entry.has_shortcut == Some(true),
+                chord: names_shortcut(index),
                 lifted: false,
                 aliased: true,
+                highlights: Vec::new(),
+            });
+        }
+    }
+    // The row bound to the shortcut the query names, even when the query matches none of its text.
+    if chord.is_some() {
+        let present: HashSet<usize> = scored.iter().map(|item| item.index).collect();
+        for (index, entry) in entries.iter().enumerate() {
+            if present.contains(&index)
+                || !names_shortcut(index)
+                || !shown_while_typing(entry, gated, raw)
+            {
+                continue;
+            }
+            if entry.frecency_key.as_deref().is_some_and(|key| hidden.contains(key)) {
+                continue;
+            }
+            let enabled = entry.is_enabled != Some(false);
+            scored.push(Scored {
+                index,
+                score: if enabled { 0 } else { -DISABLED_PENALTY },
+                tier: 0,
+                enabled,
+                demoted: entry.demoted == Some(true),
+                exact_name: false,
+                shortcut: true,
+                chord: true,
+                lifted: false,
+                aliased: false,
                 highlights: Vec::new(),
             });
         }
@@ -436,13 +484,18 @@ pub(crate) fn rank(
         scored.sort_by(|left, right| {
             let (left_starts, right_starts) =
                 (starts.contains(&left.index), starts.contains(&right.index));
-            right.aliased.cmp(&left.aliased).then(right_starts.cmp(&left_starts)).then_with(|| {
-                if left_starts {
-                    left.index.cmp(&right.index)
-                } else {
-                    right.score.cmp(&left.score).then(left.index.cmp(&right.index))
-                }
-            })
+            right
+                .aliased
+                .cmp(&left.aliased)
+                .then((right.chord && right.enabled).cmp(&(left.chord && left.enabled)))
+                .then(right_starts.cmp(&left_starts))
+                .then_with(|| {
+                    if left_starts {
+                        left.index.cmp(&right.index)
+                    } else {
+                        right.score.cmp(&left.score).then(left.index.cmp(&right.index))
+                    }
+                })
         });
     } else {
         scored.sort_by(|left, right| {
@@ -450,6 +503,7 @@ pub(crate) fn rank(
                 .enabled
                 .cmp(&left.enabled)
                 .then(right.aliased.cmp(&left.aliased))
+                .then(right.chord.cmp(&left.chord))
                 .then(right.lifted.cmp(&left.lifted))
                 .then(right.tier.cmp(&left.tier))
                 .then(left.demoted.cmp(&right.demoted))

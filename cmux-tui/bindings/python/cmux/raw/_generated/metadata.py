@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955'
+IR_SHA256 = '8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609'
 
 
 @dataclass(frozen=True)
@@ -2616,6 +2616,7 @@ COMMANDS = {
             'bytes': CommandFieldMetadata(None, None),
             'paste': CommandFieldMetadata(7, None),
             'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, 'terminal-input-while-creating-v1'),
             'text': CommandFieldMetadata(None, None),
         },
     ),
@@ -3530,6 +3531,7 @@ EVENTS = {
     'tab-renamed': EventMetadata('tab-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'terminal-clipboard-read': EventMetadata('terminal-clipboard-read', 12, 'terminal-clipboard-read-v1', ('control',), 'emitted'),
     'terminal-clipboard-read-cancelled': EventMetadata('terminal-clipboard-read-cancelled', 12, 'terminal-clipboard-read-v1', ('control',), 'emitted'),
+    'terminal-input-unclaimed': EventMetadata('terminal-input-unclaimed', 12, 'terminal-input-while-creating-v1', ('control',), 'emitted'),
     'terminal-reaped': EventMetadata('terminal-reaped', 12, 'terminal-reap-v1', ('subscribe',), 'emitted'),
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),
