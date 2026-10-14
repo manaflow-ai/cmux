@@ -233,6 +233,7 @@ EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
         "workspace.close",
         "workspace.create",
         "workspace.layout.apply",
+        "workspace.open_url",
         "workspace.run",
     }
 )
