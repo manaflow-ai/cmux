@@ -23,6 +23,9 @@ enum SidebarStyle {
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
     static var indicatorSize: CGFloat { Metrics.statusMarkSize }
+    /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
+    /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
+    static var statusGlyphSize: CGFloat { badgeHeight }
     static var dotSize: CGFloat { Metrics.space3 }
     /// A window rail button's glyph box and glyph (the Codex rail's 15pt
     /// glyphs on 32pt tiles), and its tile's rounding.
