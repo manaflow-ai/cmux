@@ -164,9 +164,12 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         return true
     }
 
-    /// Reopens the introduction from the sidebar Cloud button.
+    /// Reopens the introduction from the sidebar Cloud button. An explicit
+    /// press always shows the card, even after the one-time launch campaign
+    /// recorded it as seen, and still records it so the launch never repeats it.
     func presentIntroduction(over parent: NSWindow?) {
-        present(over: parent)
+        Self.markCampaignSeen(in: defaults)
+        show(over: parent)
     }
 
     #if DEBUG

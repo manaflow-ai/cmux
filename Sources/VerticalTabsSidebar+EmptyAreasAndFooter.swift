@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettingsUI
 import CmuxSidebar
 import CmuxSidebarProviderKit
 import CmuxUpdater
@@ -35,6 +36,7 @@ enum SidebarFooterButtonMetrics {
     static let profileIconSize = accountAndHelpVisualSize
     static let mobileIconSize: CGFloat = 12
     static let helpIconSize = accountAndHelpVisualSize
+    static let cloudIconSize = accountAndHelpVisualSize
     static let hoverOpacity = 0.08
 }
 
@@ -75,6 +77,7 @@ enum SidebarFooterControl: CaseIterable, Equatable {
     case account
     case mobileConnect
     case help
+    case cloud
     case shortcutDiscovery
     case upgrade
     case extensions
@@ -318,6 +321,41 @@ struct SidebarMobileConnectButton: View {
             .safeHelp(title)
             .hintableAccessibilityLabel(title)
             .accessibilityIdentifier("SidebarMobileConnectButton")
+        }
+    }
+}
+
+/// Opens Cloud Machines in the right sidebar, introducing Cloud first while
+/// it is off. Follows the "Show Cloud and Device Icons in Sidebar" setting and
+/// stays hidden when managed policy disables Cloud.
+struct SidebarCloudButton: View {
+    @LiveSetting(\.sidebar.showCloudDeviceIcons) private var showsCloudDeviceIcons
+    @State private var anchorView: NSView?
+    private let title = String(localized: "sidebar.cloud.button", defaultValue: "Cloud")
+
+    var body: some View {
+        if showsCloudDeviceIcons, CloudMachinesFeature.isAvailable {
+            Button {
+                AppDelegate.shared?.performSidebarCloudButtonAction(preferredWindow: anchorView?.window)
+            } label: {
+                SidebarFooterCircularIcon(
+                    systemName: "cloud",
+                    style: SidebarFooterCircularIconStyle.standard.resized(to: SidebarFooterButtonMetrics.cloudIconSize)
+                )
+                .frame(
+                    width: SidebarFooterButtonMetrics.buttonSize,
+                    height: SidebarFooterButtonMetrics.buttonSize
+                )
+            }
+            .buttonStyle(SidebarFooterIconButtonStyle())
+            .frame(
+                width: SidebarFooterButtonMetrics.buttonSize,
+                height: SidebarFooterButtonMetrics.buttonSize
+            )
+            .background(TitlebarControlAnchorView { anchorView = $0 })
+            .safeHelp(title)
+            .hintableAccessibilityLabel(title)
+            .accessibilityIdentifier("SidebarCloudButton")
         }
     }
 }
