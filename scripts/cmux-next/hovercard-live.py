@@ -244,7 +244,7 @@ def customize_checks(folder):
 
     # Hot reload: the folder first, the command hidden.
     with open(main, "w") as script:
-        script.write(template.replace('const FIELDS = ["needsInput", "notification", "task", "agent", "command", "presence", "lastReply", "folder", "branch", "pullRequest", "machine", "status"]',
+        script.write(template.replace('const FIELDS = ["needsInput", "notification", "unread", "task", "agent", "command", "presence", "lastReply", "folder", "branch", "pullRequest", "machine", "status"]',
                                       'const FIELDS = ["folder", "task"]'))
     def reordered(text):
         ls = card_lines(text)
