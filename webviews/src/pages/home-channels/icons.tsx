@@ -101,7 +101,9 @@ const PATHS: Record<HomeIconName, ReactNode> = {
   close: <path d="M5 5l10 10M15 5 5 15" />,
   chevronRight: <path d="m8 5 5 5-5 5" />,
   chevronLeft: <path d="m12 5-5 5 5 5" />,
-  attach: <path d="m15.5 9.5-5.8 5.8a3.6 3.6 0 0 1-5.1-5.1l6.2-6.2a2.4 2.4 0 0 1 3.4 3.4l-6.1 6.1a1.2 1.2 0 0 1-1.7-1.7l5.5-5.5" />,
+  attach: (
+    <path d="m15.5 9.5-5.8 5.8a3.6 3.6 0 0 1-5.1-5.1l6.2-6.2a2.4 2.4 0 0 1 3.4 3.4l-6.1 6.1a1.2 1.2 0 0 1-1.7-1.7l5.5-5.5" />
+  ),
   download: <path d="M10 3.5v9M6 9l4 4 4-4M4.5 16h11" />,
   video: (
     <>

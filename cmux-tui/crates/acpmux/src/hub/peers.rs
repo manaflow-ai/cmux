@@ -428,12 +428,8 @@ impl Hub {
     pub fn all_session_summaries(&self) -> Vec<Value> {
         let mut v: Vec<Value> = self.sessions().iter().map(|s| self.session_summary(s)).collect();
         v.extend(self.remote_sessions());
-        v.sort_by(|a, b| {
-            b.get("updatedAt")
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-                .cmp(&a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0))
-        });
+        // Newest first, ties by sessionId: the order session list pages keep.
+        super::session_pages::sort_session_summaries(&mut v);
         v
     }
 }
