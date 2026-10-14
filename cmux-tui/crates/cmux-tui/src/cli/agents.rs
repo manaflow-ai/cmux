@@ -115,7 +115,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     let backend = mcp::cli_backend(global.clone());
     // A long wait shows the progress notes app waits show (app/wait.rs).
     let notes = match &command {
-        AgentCommand::Wait(request) => Some(app::wait_notes(
+        AgentCommand::Wait(request) => Some(app::wait::notes(
             &request.describe(),
             crate::localization::catalog().app_control.agents_waiting_progress,
             request.timeout,

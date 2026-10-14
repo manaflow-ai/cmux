@@ -27,7 +27,6 @@ use open::{OpenRequest, parse_open};
 use open::{is_web_url, parse_open_with};
 use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
-pub(super) use wait::notes as wait_notes;
 
 mod agent_open;
 mod call;
@@ -38,7 +37,7 @@ mod page;
 mod run;
 mod settings;
 mod skew;
-mod wait;
+pub(super) mod wait;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] = &[
