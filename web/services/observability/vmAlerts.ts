@@ -429,7 +429,6 @@ async function listUnhealthyVms(
     .select({ id: cloudVms.id, updatedAt: cloudVms.updatedAt })
     .from(cloudVms)
     .where(stale)
-    .orderBy(cloudVms.updatedAt)
     .limit(VM_ALERT_SAMPLE_LIMIT);
   return { count: Number(countRow?.total ?? 0), samples };
 }

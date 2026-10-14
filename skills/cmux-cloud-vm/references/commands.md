@@ -58,6 +58,7 @@ cmux vm tree --json                    # {machines: [{id, local, name, status, l
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
+cmux vm restart <id>                   # provider-level restart, including frozen guests
 cmux vm resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
 cmux vm network <id>                   # outbound policy: mode, presets, domains, ranges, applied state
 cmux vm agent-updates <id>             # latest (updated on attach) or image (baked pins)
@@ -151,6 +152,16 @@ cmux vm stats <id> [--json]            # alias: cmux vm top
 ```
 
 Socket `vm.stats`. CPU, memory, and disk right now; a sleeping machine reports `asleep` and is not woken. `--json`: `{id, state: awake|asleep, cpu_percent, cpus, memory_used_mb, memory_total_mb, disk_used_mb, disk_total_mb}`. The router uses this to pick the least-loaded pool machine.
+
+### `cmux vm restart`
+
+```bash
+cmux vm restart <id> [--json]
+```
+
+Restarts the machine through the provider control plane, so it remains usable even when the guest is frozen and `exec`, terminal, or health probes do not answer. The operation preserves the machine's disk and identity, returns it to `running`, and uses the provider's documented pause/start recovery when a deployment does not expose a dedicated restart endpoint. The server rejects the action when the provider does not advertise restart support or the machine has been destroyed.
+
+Socket `vm.restart` is the same hard-restart action used by the macOS machine menu and iOS Cloud controls. It does not run a guest command or mark a healthy machine dead while the provider restart is in progress.
 
 ### `cmux vm resize`
 
@@ -805,7 +816,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.stats` | `vm stats`; the router's load scoring |
 | `vm.env_set` | `vm env set` |
 | `vm.file_put` | `vm push` |
-| `vm.pause`, `vm.resume` | `vm pause`, `vm resume` |
+| `vm.pause`, `vm.resume`, `vm.restart` | `vm pause`, `vm resume`, `vm restart` |
 | `vm.reflection` | `vm self` |
 | `vm.snapshot_list`, `vm.snapshot_delete` | `cmux rpc vm.snapshot_list`, `cmux rpc vm.snapshot_delete` |
 | `vm.terminal_output`, `vm.terminal_wait_exit` | `vm terminal output`, `vm terminal wait-exit` |
@@ -851,6 +862,7 @@ The current CLI also exposes these machine-scoped operations:
 cmux vm self <id> [<path>] [--json]
 cmux vm pause <id>
 cmux vm resume <id>
+cmux vm restart <id>
 cmux vm dev <id> [<folder>] [--name <workspace>] [--layout <file>] [--no-open]
 cmux vm layout export <id> [<workspace>] [--raw]
 cmux vm layout apply <id> <file>|- [--name <workspace>] [--workspace <empty-workspace>]

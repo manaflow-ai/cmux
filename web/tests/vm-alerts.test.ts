@@ -211,7 +211,7 @@ describe("VM alert checks", () => {
       values (
         'user-health', 'team-health', 'free', 'freestyle', 'provider-health', 'snapshot-health', 'running',
         jsonb_build_object('cmuxResourceUsage', jsonb_build_object(
-          'providerVmId', 'provider-health', 'receivedAt', ${now.getTime() - 6 * 60 * 1000}
+          'providerVmId', 'provider-health', 'receivedAt', ${now.getTime() - 6 * 60 * 1000}::bigint
         )), ${new Date(now.getTime() - 6 * 60 * 1000)}
       )
     `;
