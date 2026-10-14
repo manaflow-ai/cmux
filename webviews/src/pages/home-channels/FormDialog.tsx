@@ -3,7 +3,7 @@
 // fields follow; the actions sit bottom-right with the primary one last. ui/Dialog traps focus,
 // returns it on close and closes on Escape or a press outside. Return submits from a field;
 // Cmd-Return submits from a multi-line field too.
-import type { FormEvent, KeyboardEvent, ReactNode } from "react";
+import { useRef, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Dialog } from "../../ui/Dialog";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 
@@ -22,6 +22,11 @@ export interface FormDialogProps {
 }
 
 export function FormDialog({ title, lead, onClose, onSubmit, actions, busy, wide, children }: FormDialogProps) {
+  // The first field takes focus (else the first action): the sheet's first decision.
+  const first = useRef<HTMLElement | null>(null);
+  const frame = (node: HTMLFormElement | null) => {
+    first.current = node?.querySelector<HTMLElement>("input:not([type=file]), textarea, .lg-form-actions button") ?? null;
+  };
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!busy) onSubmit?.();
@@ -41,8 +46,9 @@ export function FormDialog({ title, lead, onClose, onSubmit, actions, busy, wide
       label={title}
       className={`lg-form${wide ? " wide" : ""}`}
       backdropClassName="lg-scrim"
+      initialFocus={first}
     >
-      <form className="lg-form-frame" onSubmit={submit} aria-busy={busy || undefined}>
+      <form ref={frame} className="lg-form-frame" onSubmit={submit} aria-busy={busy || undefined}>
         <KeyboardScope className="lg-form-keys" handleKeyDown={keys}>
           <header className="lg-form-head">
             <h2 className="lg-form-title">{title}</h2>

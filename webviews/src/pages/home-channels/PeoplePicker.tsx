@@ -26,7 +26,7 @@ export function PeoplePicker({ people, picked, onPicked, strings, loading }: Peo
     const byId = new Map(people.map((person) => [person.id, person]));
     const first = picked.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
     const rest = people.filter((person) => !picked.includes(person.id));
-    return [...first, ...rest].filter((person) => !needle || person.name.toLocaleLowerCase().includes(needle));
+    return [...first, ...rest.filter((person) => !needle || person.name.toLocaleLowerCase().includes(needle))];
   }, [people, picked, query]);
   const toggle = (id: string) => onPicked(picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id]);
   // Up and Down walk the field and the rows (each row is a checkbox the browser focuses).
