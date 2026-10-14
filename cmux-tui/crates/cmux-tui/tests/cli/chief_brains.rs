@@ -261,19 +261,19 @@ fn each_chief_brain_is_titled_with_its_own_name() {
                 "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
     })
     .to_string();
-    let _server = HeadlessServer::start_with_options(
+    let mut owned = HeadlessServer::start_with_options(
         "chief-brains-title",
         None,
         None,
         &[("CMUX_TUI_CHIEF_BRAINS", brains.as_str())],
     );
-    let server = &_server;
+    let server = &owned;
     let scout = make_chief(server, "Scout", "Researcher");
     let ops = make_chief(server, "Ops", "Release captain");
     let scout_home = brain_dir(&chief_home, &scout);
     let ops_home = brain_dir(&chief_home, &ops);
-    wait_file(&scout_home.join("pid.1"));
-    wait_file(&ops_home.join("pid.1"));
+    let scout_pid: i32 = wait_file(&scout_home.join("pid.1")).parse().unwrap();
+    let ops_pid: i32 = wait_file(&ops_home.join("pid.1")).parse().unwrap();
     let title = |home: &std::path::Path, n: u32| {
         env_of(&home.join(format!("env.{n}"))).get("MUX_CHIEF_TITLE").cloned()
     };
@@ -282,6 +282,15 @@ fn each_chief_brain_is_titled_with_its_own_name() {
 
     let renamed = chief_cli(server, &["edit", &scout, "--name", "Scout Two", "--json"], "");
     assert_success(&renamed);
-    wait_file(&scout_home.join("pid.2"));
+    let renamed_pid: i32 = wait_file(&scout_home.join("pid.2")).parse().unwrap();
     assert_eq!(title(&scout_home, 2).as_deref(), Some("Scout Two"));
+    wait_gone(scout_pid, "after the rename");
+
+    // Stop the daemon so it stops the brains it started.
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    wait_gone(renamed_pid, "after daemon shutdown");
+    wait_gone(ops_pid, "after daemon shutdown");
 }
