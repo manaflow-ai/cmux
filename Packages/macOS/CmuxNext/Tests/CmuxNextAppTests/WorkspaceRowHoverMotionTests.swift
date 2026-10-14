@@ -48,6 +48,10 @@ struct WorkspaceRowHoverMotionTests {
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
         try #require(window.screen != nil)
+        // Laid out first, so the list's clip view has its size when the rows apply: a reload into a
+        // zero-size clip realizes no row, and the clip's resize realizes it only through a
+        // notification that can arrive after this test reads the row (macOS 27 run 38491021284).
+        sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
         sidebar.layoutSubtreeIfNeeded()
         let row = try #require(sidebar.list.rowViews[.workspace(id)] as? WorkspaceRowView)
