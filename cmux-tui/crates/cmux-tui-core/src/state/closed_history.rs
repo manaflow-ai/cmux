@@ -13,7 +13,7 @@
 //! request's result, so a retry with the same key replays it.
 
 use crate::Actor;
-use crate::mux::tab_groups::pane_by_public_id;
+use crate::mux::tab_groups::{group_members, pane_by_public_id};
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
 use crate::state::closed_history_query::{
@@ -372,9 +372,8 @@ impl Mux {
         let presentation = self.presentation_snapshot();
         // A group row a close left behind (no strip edit pruned it yet)
         // holds no open tab: it is not live, and forms again.
-        let live = self.with_state(|state| {
-            !crate::mux::tab_groups::group_members(state, &presentation.tab_groups, &id).is_empty()
-        });
+        let live = self
+            .with_state(|state| !group_members(state, &presentation.tab_groups, &id).is_empty());
         if !live || closed {
             let wanted = archive["tab_ids"]
                 .as_array()
