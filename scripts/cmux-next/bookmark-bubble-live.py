@@ -9,7 +9,9 @@ walks the bubble through the socket:
 
   1. `bookmark.addPage` opens it: one visible `bookmarks.edit` panel, a child of the browser
      window, its card under the star and inside the window's width; no NSPopover window;
-  2. the same action again closes it (the star toggles the bubble), the page stays bookmarked;
+  2. the same action again closes it, and so does a click on the star (the star toggles the
+     bubble; with the app active the panel is key and the click first moves the keys to the
+     window: that path needs an active app, a --needs input run), the page stays bookmarked;
   3. it opens again, and a click on the page outside it closes it;
   4. it opens again with the window not key: `debug.window_list` shows it shown (alpha 1).
 
@@ -106,6 +108,12 @@ try:
     omnibar = lambda: rpc("debug.omnibar", {"window": WINDOW}) or {}
     check(bool(quiet_wait(lambda: "example.com" in (omnibar().get("text") or ""), 60)), "the tab shows example.com")
     main = next((w for w in windows() if w.get("kind") == "main" and w.get("visible")), None)
+    check(main is not None, "the browser window is in debug.window_list")
+    MARGIN = 10  # PopupStyle shadow band around the card in the panel frame
+
+    def card(window):
+        f = window["frame"]
+        return {"x": f["x"] + MARGIN, "y": f["y"] + MARGIN, "width": f["width"] - 2 * MARGIN, "height": f["height"] - 2 * MARGIN}
 
     def open_bubble(what):
         rpc("action.run", {"action": "bookmark.addPage", "focus": True})
@@ -119,7 +127,7 @@ try:
         check(bubble.get("parent") == main.get("id"), f"the bubble is a child of the browser window: {bubble.get('parent')} vs {main.get('id')}")
         check("Popover" not in (bubble.get("class") or ""), f"the bubble is not an NSPopover window: {bubble.get('class')}")
         check(not any("Popover" in (w.get("class") or "") and w.get("visible") for w in windows()), "no NSPopover window is visible")
-        mf, bf = main["frame"], bubble["frame"]
+        mf, bf = main["frame"], card(bubble)
         star = ((omnibar().get("pointer") or {}).get("frames") or {}).get("star")
         if star:
             # Star in window points from the top left; screen y is up.
@@ -127,7 +135,8 @@ try:
             card_top = bf["y"] + bf["height"]
             check(card_top <= star_bottom + 2 and card_top >= star_bottom - 40,
                   f"the bubble opens under the star: card top {card_top:.0f}, star bottom {star_bottom:.0f}")
-            check(bf["x"] <= mf["x"] + star[0] + star[2] + 30, f"the bubble lines up with the star: {bf} star {star}")
+            star_right = mf["x"] + star[0] + star[2]
+            check(abs(bf["x"] + bf["width"] - star_right) <= 2, f"the bubble's trailing edge lines up with the star: {bf} star right {star_right}")
         check(bf["x"] >= mf["x"] - 30 and bf["x"] + bf["width"] <= mf["x"] + mf["width"] + 30,
               f"the bubble stays over the window: {bf} in {mf}")
     cap = os.environ.get("NX_CAPTURE")
@@ -143,6 +152,11 @@ try:
     # 2. The star toggles it.
     rpc("action.run", {"action": "bookmark.addPage", "focus": True})
     check(bool(quiet_wait(lambda: not bubbles(), 5)), "bookmark.addPage again closes the bubble")
+    star = ((omnibar().get("pointer") or {}).get("frames") or {}).get("star")
+    if star and open_bubble("reopen for the star click"):
+        rpc("debug.mouse", {"window": WINDOW, "action": "click", "x": star[0] + star[2] / 2, "y": star[1] + star[3] / 2})
+        time.sleep(0.6)  # a reopen would show a new bubble right after the close
+        check(bool(quiet_wait(lambda: not bubbles(), 5)) and not bubbles(), "a click on the star closes the bubble (no reopen)")
     check(((omnibar().get("pointer") or {}).get("frames") or {}).get("star") is not None, "the star still shows (the page stays bookmarked)")
     # 3. A click on the page outside closes it.
     bubble = open_bubble("reopen")

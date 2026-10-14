@@ -63,7 +63,6 @@ public final class BookmarkEditBubble: NSObject {
     public func show(relativeTo anchor: NSView) {
         BookmarkEditBubble.current?.close()
         guard let window = anchor.window else { return }
-        BookmarkEditBubble.current = self
         model.colors = anchor.performWithTheme { BookmarkPageColors.resolve() }
         model.onDone = { [weak self] in self?.close() }
         model.onRemove = { [weak self] in
@@ -78,7 +77,6 @@ public final class BookmarkEditBubble: NSObject {
             self?.onMore()
         }
         let content = NSHostingView(rootView: BookmarkEditView(model: model))
-        content.fillWithPopupSurface(themeOf: anchor)
         let card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
         popup.panel.adoptPopupStyle(card: card)
         popup.panel.adoptThemeScope(of: anchor)
@@ -89,8 +87,10 @@ public final class BookmarkEditBubble: NSObject {
         }
         let size = content.fittingSize
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
-        popup.show(size: CGSize(width: ceil(size.width), height: ceil(size.height)), anchor: rect, in: window,
-                   preferred: .below, trailing: true, makeKey: true)
+        if popup.show(size: CGSize(width: ceil(size.width), height: ceil(size.height)), anchor: rect, in: window,
+                      preferred: .below, trailing: true, makeKey: true) != nil {
+            BookmarkEditBubble.current = self
+        }
     }
 
     public func close() {

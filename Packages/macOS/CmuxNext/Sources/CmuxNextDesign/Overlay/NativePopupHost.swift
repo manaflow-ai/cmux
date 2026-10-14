@@ -33,7 +33,14 @@ public final class NativePopupHost {
     public init(panel: NSPanel) {
         self.panel = panel
         if let keyed = panel as? NativePopupPanel {
-            keyed.onLostKeys = { [weak self] in self?.dismiss() }
+            keyed.onLostKeys = { [weak self, weak keyed] in
+                guard let self, let keyed else { return }
+                // A press on the control that toggles the popup makes its window key first; the
+                // control closes the popup itself, so that key loss is not a dismiss.
+                if let event = NSApp.currentEvent, [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
+                   event.window !== keyed, keepsOpen(event) { return }
+                dismiss()
+            }
         }
     }
 
@@ -78,14 +85,19 @@ public final class NativePopupHost {
         isClosing = true
         let closing = generation
         let panel = panel
+        // A closing popup gives the keys back at once: typing during the fade goes to the window.
+        if panel.isKeyWindow {
+            panel.makeFirstResponder(nil)
+            if let parent = panel.parent, parent.isVisible { parent.makeKey() }
+        }
         // The panel leaves even when its owner goes during the fade (its tab closed).
         panel.closePopup(pivot: panel.popupPivot(toward: anchor)) { [weak self] in
             // A show during the close keeps the panel.
-            guard self?.generation ?? closing == closing else { return }
-            self?.isClosing = false
+            guard (self?.generation ?? closing) == closing else { return }
             panel.parent?.removeChildWindow(panel)
             panel.orderOut(nil)
             panel.resetPopupScale()
+            self?.isClosing = false
         }
     }
 
