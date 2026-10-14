@@ -1,0 +1,59 @@
+/* Late content settles in (cx-sya4n; ui/motion.ts says how). Small and local only: a fade, a few
+   pixels of rise, a crossfade in place. Easings are the native springs (MotionTunables, speed
+   fast) sampled to their 95% time as CSS linear(); the pane's host durations (--agent-motion-*)
+   win where they exist. */
+:root {
+  --motion-ease-move: linear(0, 0.073, 0.239, 0.394, 0.536, 0.656, 0.765, 0.835, 0.887, 0.929, 0.954, 0.971, 0.982, 0.99, 1);
+  --motion-ease-appear: linear(0, 0.088, 0.221, 0.394, 0.55, 0.679, 0.763, 0.84, 0.895, 0.927, 0.955, 0.973, 0.984, 0.99, 1);
+  --motion-ease-settle: linear(0, 0.062, 0.187, 0.308, 0.452, 0.582, 0.691, 0.766, 0.837, 0.891, 0.93, 0.957, 0.973, 0.987, 1);
+  --motion-move: var(--agent-motion-move, 183ms);
+  --motion-appear: 167ms;
+  --motion-settle: 169ms;
+  --motion-fade: var(--agent-motion-in, 120ms);
+  --motion-reveal-rise: 3px;
+  --motion-stagger-step: 25ms;
+}
+
+/* Reveal: style="--ui-reveal-index: N" staggers it (the first four rows; later ones with the fourth). */
+.ui-reveal {
+  animation: ui-reveal var(--motion-appear) var(--motion-ease-appear) both;
+  animation-delay: calc(min(var(--ui-reveal-index, 0), 3) * var(--motion-stagger-step));
+}
+@keyframes ui-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-reveal-rise));
+  }
+}
+
+/* Crossfade: children share one cell; the old one (data-leaving) fades out as the new fades in. */
+.ui-crossfade {
+  display: grid;
+}
+.ui-crossfade > * {
+  grid-area: 1 / 1;
+  animation: ui-fade-in var(--motion-fade) ease-out both;
+}
+.ui-crossfade > [data-leaving] {
+  animation-name: ui-fade-out;
+  pointer-events: none;
+}
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes ui-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* Reduce Motion: a plain short fade, no rise, no stagger (desktop.css shortens it further). */
+@media (prefers-reduced-motion: reduce) {
+  .ui-reveal {
+    animation-name: ui-fade-in;
+    animation-duration: var(--motion-fade);
+    animation-delay: 0ms;
+  }
+}

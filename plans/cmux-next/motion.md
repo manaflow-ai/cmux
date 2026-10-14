@@ -122,6 +122,23 @@ scroll and hold by 1.5; Reduce Motion and `off` never start it.
 "normal" multiplies every response and fade duration by 1.5; damping does
 not change. Loops keep their period (they show state, not transitions).
 
+## Late content (cx-sya4n, Leo 2026-10-14)
+
+Motion is small and local: grow, fade, settle, hover, as short as still feels comfortable, never
+whole panes travelling. Big or debatable motion ships only behind a Debug toggle, off by default.
+Content that arrives late (a reply, a list that loads, a card filled in) settles in instead of
+popping, with these helpers only; they add no tokens.
+
+| Helper | Native (CmuxNextDesign) | Web (webviews/src/ui/motion.ts, motion.css) |
+| --- | --- | --- |
+| Reveal: fade from clear plus a 3 pt/px rise | `Motion.reveal(layer, index:)`: `fadeIn` opacity with the `appear` spring cut at its 95% time | `reveal(element, index)` or `.ui-reveal` (`--ui-reveal-index`), 167 ms on `--motion-ease-appear` |
+| Crossfade in place | `Motion.crossfadeInPlace(layer)` | `.ui-crossfade`, leaving child `data-leaving` |
+| Stagger | `Motion.stagger(index:)`: 25 ms per item, first 4 items | `stagger(i)`, same numbers |
+| Reduce Motion | reveal fades only, stagger 0 | reveal fades only, no rise, stagger 0 |
+
+The web easings (`--motion-ease-move|appear|settle`) are the native springs sampled as CSS
+`linear()`. A live resize should also skip the stagger once `Motion.isLiveResizing` lands (#20467).
+
 ## Why these values
 
 - Damping 0.9, not 1. A critically damped spring spends its last third
