@@ -1861,7 +1861,16 @@ export function VirtualTranscript({
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <>
-      <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
+      <div
+        ref={ref}
+        className="acpmux-scroll"
+        role="feed"
+        aria-label={t("transcript.label")}
+        onScroll={onScroll}
+        // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more lies below.
+        data-fade-top={scroll.top > 0.5 || undefined}
+        data-fade-bottom={layout.totalHeight - scroll.top - height > 0.5 || undefined}
+      >
         <ThreadMinimap
           rows={rows}
           sessionId={sessionId}
