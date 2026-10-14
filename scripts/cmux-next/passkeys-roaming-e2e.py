@@ -106,12 +106,35 @@ def devtools(method, params=None):
 
 
 def shot(name):
+    """The app's windows (JSON, every layer) and two pictures: the composed window with its
+    popups and dialogs, and the frontmost window alone."""
     if not (opts.capture and opts.pid):
         return None
-    path = os.path.join(opts.out, f"{name}.png")
-    done = subprocess.run(["bash", opts.capture, "shot", "--pid", str(opts.pid), "--with-popups", "--out", path],
-                          capture_output=True, text=True, timeout=60)
-    return path if done.returncode == 0 else f"capture failed: {done.stderr.strip()[:200]}"
+    base = os.path.join(opts.out, name)
+    listed = subprocess.run(["bash", opts.capture, "windows", "--all-layers", "--pid", str(opts.pid)],
+                            capture_output=True, text=True, timeout=60)
+    with open(base + ".windows.json", "w") as handle:
+        handle.write(listed.stdout)
+    notes = []
+    for suffix, extra in (("", ["--with-popups"]), (".front", [])):
+        done = subprocess.run(["bash", opts.capture, "shot", "--pid", str(opts.pid), *extra, "--out", f"{base}{suffix}.png"],
+                              capture_output=True, text=True, timeout=60)
+        notes.append(f"{base}{suffix}.png" if done.returncode == 0 else f"capture failed: {done.stderr.strip()[:160]}")
+    return {"pictures": notes, "windows": window_summary(listed.stdout)}
+
+
+def window_summary(text):
+    """(layer, title, size) per on-screen window: a WebAuthn sheet is its own window of the app."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return text.strip()[:200]
+    windows = data.get("windows", data) if isinstance(data, dict) else data
+    rows = []
+    for w in windows if isinstance(windows, list) else []:
+        b = w.get("bounds") or {}
+        rows.append([w.get("layer", w.get("z_index")), w.get("title", ""), int(b.get("width", 0)), int(b.get("height", 0))])
+    return rows
 
 
 def row(name, status, detail):
@@ -158,34 +181,37 @@ def ceremony(tab, transport):
     devtools("WebAuthn.enable", {"enableUI": False})
     added = devtools("WebAuthn.addVirtualAuthenticator",
                      {"options": {"automaticPresenceSimulation": True, **AUTHENTICATORS[transport]}})
+    # CEF's in-process DevTools loses this reply (timedOut after 5 s) while the call itself
+    # runs (passkeys.md 10, harness note), so a missing id is not a failure; the ceremony below
+    # can only pass through the virtual authenticator (UI off, no other authenticator).
     authenticator = added.get("authenticatorId")
-    if not authenticator:
-        devtools("WebAuthn.disable")
-        return "FAIL", f"no virtual authenticator: {added}"
+    note = "" if authenticator else f"(add reply lost: {str(added)[:80]}) "
     try:
         username = f"cmux-{transport}-{uuid.uuid4().hex[:8]}"
         fill(tab, username, "cross_platform")
         click(tab, "register-button")
         registered = wait(lambda: (lambda t: t if ("Success" in t or "failed" in t.lower() or "error" in t.lower()) else None)(alert_text(tab)), 30)
-        made = credentials(authenticator) or []
-        if not registered or "Success" not in registered or len(made) != 1:
-            return "FAIL", f"register: alert {registered!r}, credentials {len(made)}"
-        count = made[0].get("signCount", 0)
+        made = credentials(authenticator) if authenticator else None
+        if not registered or "Success" not in registered or (made is not None and len(made) != 1):
+            return "FAIL", note + f"register: alert {registered!r}, credentials {made if made is None else len(made)}"
+        count = made[0].get("signCount", 0) if made else None
         click(tab, "login-button")
         signed = wait(lambda: js(tab, "location.pathname") == "/profile" or (lambda t: t if "failed" in t.lower() else None)(alert_text(tab)), 30)
         path = js(tab, "location.pathname")
-        after = credentials(authenticator) or []
-        if path != "/profile" or len(after) != 1 or after[0].get("signCount", 0) <= count:
-            return "FAIL", f"sign in: path {path!r}, alert {alert_text(tab)!r}, sign count {count} -> {[c.get('signCount') for c in after]}"
+        after = credentials(authenticator) if authenticator else None
+        counted = after is None or (len(after) == 1 and after[0].get("signCount", 0) > (count or 0))
+        if path != "/profile" or not counted:
+            return "FAIL", note + f"sign in: path {path!r}, alert {alert_text(tab)!r}, sign count {count} -> {after}"
         picture = shot(f"signed-in-{transport}")
-        return "PASS", f"{username}: registered and signed in (/profile), sign count {count} -> {after[0].get('signCount')}; {picture}"
+        counts = f"sign count {count} -> {after[0].get('signCount')}" if after else "sign count not read"
+        return "PASS", note + f"{username}: registered and signed in (/profile), {counts}; {picture}"
     finally:
-        devtools("WebAuthn.removeVirtualAuthenticator", {"authenticatorId": authenticator})
-        devtools("WebAuthn.disable")
+        devtools("WebAuthn.disable")  # drops every virtual authenticator, one whose id was lost too
 
 
 def dialogs(tab):
     """Chromium's dialog in the pane: recorded and captured, a person judges the picture."""
+    row("dialog: none (baseline)", "NOTE", shot("dialog-baseline"))
     # 1. A virtual USB key that is never touched: Chromium's "use your security key" sheet.
     if load_site(tab):
         devtools("WebAuthn.enable", {"enableUI": True})
@@ -194,7 +220,7 @@ def dialogs(tab):
         fill(tab, f"cmux-touch-{uuid.uuid4().hex[:8]}", "cross_platform")
         click(tab, "register-button")
         time.sleep(4)  # test harness: the sheet animates in
-        row("dialog: touch your key", "NOTE", {"authenticator": added.get("authenticatorId"), "focused": js(tab, "document.hasFocus()"),
+        row("dialog: touch your key", "NOTE", {"authenticator": str(added)[:80], "focused": js(tab, "document.hasFocus()"),
                                                "alert": alert_text(tab), "screenshot": shot("dialog-touch-security-key")})
         devtools("WebAuthn.disable")
     # 2. A real cross-platform request (no virtual authenticator): hybrid QR, Bluetooth, USB.
