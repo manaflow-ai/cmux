@@ -115,7 +115,7 @@ import Testing
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
         let start = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12)))
-        let count = BackdropArt.allCases.count
+        let count = BackdropArt.dailyRotation.count
         let works = (0..<count).map { BackdropArt.daily(on: start.addingTimeInterval(Double($0) * 86_400), calendar: calendar) }
         #expect(Set(works).count == count)
         #expect(zip(works, works.dropFirst()).allSatisfy { $0 != $1 })
@@ -142,6 +142,14 @@ import Testing
         }
         #expect(shown.count == 2 * BackdropArt.allCases.count)
         #expect(!shown.contains(.goyaSaturn))
+    }
+
+    /// The daily set is listed by hand: every catalog work in catalog order except Saturn, no repeats.
+    @Test func theDailySetIsTheCatalogWithoutSaturn() {
+        let rotation = BackdropArt.dailyRotation
+        #expect(Set(rotation).count == rotation.count)
+        #expect(Set(rotation).isSubset(of: Set(BackdropArt.allCases)))
+        #expect(rotation == BackdropArt.allCases.filter { $0 != .goyaSaturn })
     }
 
     /// Saturn stays in the picker, and choosing it by hand shows it.
