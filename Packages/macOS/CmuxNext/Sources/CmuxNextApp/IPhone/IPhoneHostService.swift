@@ -40,6 +40,8 @@ final class IPhoneHostService {
         /// Folders the phone may preview files from (the chat roots).
         var fileRoots: @MainActor () -> [String]
         var computerName: @Sendable () async -> String
+        /// The Chief owner's session (`ChiefHome.session`): phones reach Chief through it.
+        var chiefSession: String?
     }
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
@@ -126,11 +128,12 @@ final class IPhoneHostService {
                 let deviceID = try CnxDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
                 let name = await dependencies.computerName()
                 guard !Task.isCancelled, self?.running == want else { return }
-                let launch = CnxHostLaunch(
+                var launch = CnxHostLaunch(
                     executable: executable, baseURL: dependencies.baseURL, teamID: want.teamID, userID: want.userID,
                     deviceID: deviceID, deviceName: name, daemonSocket: socket,
                     stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
                     stackProjectID: dependencies.stackProjectID)
+                launch.chiefSession = dependencies.chiefSession
                 await supervisor.start(.init(
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cnx-hostd.log", isDirectory: false)))

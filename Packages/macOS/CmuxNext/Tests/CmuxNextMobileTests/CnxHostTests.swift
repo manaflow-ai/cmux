@@ -60,6 +60,10 @@ import Testing
         #expect(environment["CMUX_SOCKET_PASSWORD"] == nil)
         #expect(environment["CNX_REFRESH_TOKEN"] == nil)
         #expect(environment.keys.allSatisfy { !$0.lowercased().contains("token") })
+        #expect(environment["CNX_CHIEF_SESSION"] == nil)
+        var chief = launch
+        chief.chiefSession = "cmux-chief-c39c6f72"
+        #expect(chief.environment(inherited: [:])["CNX_CHIEF_SESSION"] == "cmux-chief-c39c6f72")
     }
 
     @Test func controlLinesAreSingleJSONLines() throws {
