@@ -37,7 +37,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
         uid: UInt32 = getuid(),
-        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+        launchEnvironment: [String: String] = [:]
     ) -> AcpmuxEnvironment? {
         guard let executable = executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
             .first(where: { isExecutable($0.path) }) else { return nil }
@@ -51,15 +52,15 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             home = userHome.appendingPathComponent(".acpmux", isDirectory: true)
         }
         let socket = socketPath(configured: environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }, home: home, uid: uid)
+        var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
+                                "ACPMUX_SECRET_TOOLS": "1"]
+        childEnvironment.merge(launchEnvironment) { _, new in new }
+        if let cli = bundledBinDirectory?.appendingPathComponent("cmux").path, isExecutable(cli) {
+            childEnvironment["CMUX_BUNDLED_CLI_PATH"] = cli
+        }
         return AcpmuxEnvironment(
             executable: executable, home: home, socketPath: socket,
-            daemonArguments: slug == nil ? [] : ["--listen", "127.0.0.1:0"],
-            // ACPMUX_LOCAL_ROUTER: the daemon starts the local model relay
-            // (cmux-router routes; ModelRouterLease gives it the bearer).
-            // ACPMUX_SECRET_TOOLS: agents get request_secret, answered on the
-            // pane's private card (cx-ncc.42).
-            childEnvironment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
-                               "ACPMUX_SECRET_TOOLS": "1"]
+            daemonArguments: slug == nil ? [] : ["--listen", "127.0.0.1:0"], childEnvironment: childEnvironment
         )
     }
 

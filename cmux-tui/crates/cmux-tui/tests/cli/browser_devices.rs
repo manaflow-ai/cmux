@@ -225,7 +225,7 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
 }
 
 #[test]
-fn browser_profile_commands_create_move_open_and_delete_through_a_real_daemon() {
+fn browser_profile_commands_create_move_and_open_and_refuse_delete_through_a_real_daemon() {
     let server = HeadlessServer::start("browser-profiles");
 
     let created = ok(&server, &["browser", "profile", "create", "--name", "Work"]);
@@ -272,14 +272,16 @@ fn browser_profile_commands_create_move_open_and_delete_through_a_real_daemon() 
     let moved = ok(&server, &["browser", "profile", "list"]);
     assert_eq!(moved["browser_profiles"][0]["name"], "Work", "{moved}");
 
-    ok(&server, &["browser", "profile", "delete", "--profile", "Work"]);
+    // Only a person deletes a browser profile, in the app: the CLI is refused and the profile stays.
+    let refusal = refused(&server, &["browser", "profile", "delete", "--profile", "Work"]);
+    assert!(refusal.contains("only a person deletes a browser profile"), "{refusal}");
     let after_delete = ok(&server, &["browser", "profile", "list"]);
     assert!(
         after_delete["browser_profiles"]
             .as_array()
             .unwrap()
             .iter()
-            .all(|profile| profile["id"] != profile_id),
+            .any(|profile| profile["id"] == profile_id),
         "{after_delete}"
     );
 }

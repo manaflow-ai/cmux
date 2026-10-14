@@ -27,12 +27,12 @@ extension AgentPaneView {
     /// Runs a grouped-permission action from the app shortcut registry. The
     /// page keeps the decision scoped to its selected session and refuses
     /// stale, collecting, or unavailable groups before sending anything.
-    public func runPermissionAction(_ command: String) {
+    public func runPermissionAction(_ command: String, byPerson: Bool) {
         let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
-        // The user pressed the app's permission shortcut: that is the gesture its answer uses.
-        model.transport.gestures.record()
+        // The person's shortcut is the gesture its answer uses; a posted key or script grants nothing.
+        AgentPanePersonInput.record(model.transport.gestures, if: byPerson, answer: true)
         send(command)
     }
 }

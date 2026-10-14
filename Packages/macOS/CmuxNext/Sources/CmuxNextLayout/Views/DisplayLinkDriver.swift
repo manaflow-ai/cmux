@@ -8,6 +8,9 @@ import CmuxNextWakeups
 final class DisplayLinkDriver {
     /// Called once per frame with the elapsed seconds. Return true to keep ticking.
     var onFrame: ((Double) -> Bool)?
+    /// Tests are the clock: `start` asks for no display-link frames, and the test steps
+    /// `LayoutRootView.advanceFrame` at a fixed dt instead.
+    var isManual = false
 
     private var client: FrameClient?
 
@@ -18,7 +21,7 @@ final class DisplayLinkDriver {
     func attach(to view: NSView) {
         detach()
         client = FrameClient(owner: "Layout.animation", view: view) { [weak self] tick in
-            let keepGoing = self?.onFrame?(tick.elapsed) ?? false
+            let keepGoing = MotionTrace.measure("layout") { self?.onFrame?(tick.elapsed) ?? false }
             if !keepGoing { MotionTrace.end("layout") }
             return keepGoing
         }
@@ -32,7 +35,7 @@ final class DisplayLinkDriver {
     }
 
     func start() {
-        guard let client, !client.isActive else { return }
+        guard let client, !client.isActive, !isManual else { return }
         MotionTrace.begin("layout")
         client.activate()
     }

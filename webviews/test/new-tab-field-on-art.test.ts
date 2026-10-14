@@ -57,7 +57,9 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
 <input class="nt-field" data-focus-ring="none" placeholder="Search or type a URL"></div></div></div></div>
 <div class="ui-positioner"><div class="ui-popup nt-popover"><div class="nt-rows" id="rows">
 <div class="nt-row is-selected" id="row">reddit.com</div></div></div></div>
-<div class="ui-positioner"><div class="ui-popup ui-context-menu" id="menu"><div class="ui-menu-item" id="item">Copy</div></div></div>`;
+<div class="ui-positioner"><div class="ui-popup ui-context-menu" id="menu"><div class="ui-menu-item" id="item">Copy</div></div></div>
+<div class="acpmux-shell"><div class="acpmux-newtab"><div style="position:relative"><div class="acpmux-omni" id="omni">
+<div class="acpmux-omni-row is-selected" id="omni-row">reddit.com</div></div></div></div></div>`;
 
   // The alpha of a computed color, in either engine's serialization.
   const alpha = (color: string) => {
@@ -102,6 +104,10 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
             [row, list],
           );
         expect(await metrics("#row", "#rows")).toEqual(await metrics("#item", "#menu"));
+        // The classic template's suggestions (NewTabPage's omnibar) are the same rows (batch 2).
+        expect(await metrics("#omni-row", "#omni")).toEqual(await metrics("#item", "#menu"));
+        const corner = (id: string) => page.$eval(id, (node) => getComputedStyle(node).borderTopLeftRadius);
+        expect(await corner("#omni")).toBe(await corner("#menu"));
         await page.close();
       });
 

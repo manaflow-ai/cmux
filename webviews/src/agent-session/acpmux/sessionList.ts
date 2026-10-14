@@ -40,6 +40,8 @@ export type AcpmuxSessionEntry = {
   forkSeq?: number;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
+  /** Its last turn completed: its harness profile runs here (signed in, routed). */
+  worked?: boolean;
 };
 
 export type SessionPullRequest = {
@@ -124,6 +126,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     parentId: text(session.parentId),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
+    worked: session.lastTurn?.status === "completed",
   };
 }
 
