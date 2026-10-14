@@ -370,6 +370,34 @@ final class TabsModel {
         return true
     }
 
+    /// Long press and drag on the grid: `key` moves to `index` (local grid
+    /// order; the host keeps its own).
+    func move(_ key: String, to index: Int) {
+        var keys = items.map(\.id)
+        guard let from = keys.firstIndex(of: key) else { return }
+        keys.remove(at: from)
+        keys.insert(key, at: max(0, min(index, keys.count)))
+        if keys != order { order = keys }
+    }
+
+    /// Duplicate Tab: a new browser tab on the same page, placed right after
+    /// the original (Safari). Nil when the host refused (notice set).
+    @discardableResult
+    func duplicate(_ key: String) async -> String? {
+        guard let tab = browser.tabs.first(where: { $0.id == key }) else { return nil }
+        let wasActive = activeKey
+        guard let id = await browser.newTab(url: tab.url, attach: false) else { return nil }
+        let m = BrowserStyle.shared.motion
+        withAnimation(m.resolve(m.reflow)) {
+            syncOrder()
+            if let i = items.firstIndex(where: { $0.id == key }) { move(id, to: i + 1) }
+        }
+        // Safari keeps the grid on the original's selection.
+        if let wasActive, wasActive != activeKey { select(wasActive) }
+        browser.requestThumbnail(id)
+        return id
+    }
+
     /// The order from before an optimistic close, for the items that exist.
     private func restoreOrder(_ saved: [String]) {
         order = saved

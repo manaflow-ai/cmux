@@ -66,6 +66,12 @@ struct OverviewLayout: Equatable, Sendable {
     /// The tab zoom's card end: the card's content frame converted to the
     /// screen through the grid content's origin in screen coordinates
     /// (x 0, y = -scroll offset when the grid fills the screen).
+    /// The card slot under `point` (grid content coordinates), counting
+    /// the gaps around a card as that card; nil outside every slot.
+    func slot(at point: CGPoint) -> Int? {
+        (0..<count).first { card($0).insetBy(dx: -8, dy: -16).contains(point) }
+    }
+
     func zoomEndpoint(_ index: Int, contentOrigin: CGPoint?, fallbackOffset: CGFloat) -> CGRect {
         let origin = contentOrigin ?? CGPoint(x: 0, y: -fallbackOffset)
         return card(index).offsetBy(dx: origin.x, dy: origin.y)

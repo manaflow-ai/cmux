@@ -204,11 +204,20 @@ struct TabOverview: View {
     var placeholderTerminal = false
     /// The created tab that replaces the placeholder (no insert fade).
     var slotTakeover: String?
+    /// A card's long-press menu item was chosen.
+    var onCardMenu: (CardMenuAction, String) -> Void = { _, _ in }
+    /// Long press and drag: move the card to a grid index.
+    var onMove: (String, Int) -> Void = { _, _ in }
     /// The grid started (true) or stopped (false) scrolling.
     var onScrolling: (Bool) -> Void = { _ in }
 
     private let style = BrowserStyle.shared
     @State private var bitmaps = CardBitmaps()
+    /// The card a long press lifted for a drag (set when the drag item is
+    /// made, which also happens for a long press that only opens the menu).
+    @State private var dragging: String?
+    /// The drag is over the grid: the dragged card's slot shows a gap.
+    @State private var dragOver = false
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var colorScheme
 
@@ -247,6 +256,15 @@ struct TabOverview: View {
                                 onClose: { Task { _ = await onClose(tab.id) } })
                             .contentShape(.rect)
                             .onTapGesture { if gridInteractive { onSelect(tab.id) } }
+                            // Long press: Safari's card menu (the card lifts and
+                            // the grid dims behind it); moving the finger instead
+                            // drags the card to another slot.
+                            .contentShape(.contextMenuPreview, .rect(cornerRadius: layout.cardRadius))
+                            .contextMenu { cardMenu(tab) }
+                            .onDrag {
+                                dragging = tab.id
+                                return NSItemProvider(object: tab.id as NSString)
+                            }
                             // Swipe left to close (CardSwipe).
                             .gesture(CardSwipeGesture { phase in
                                 // The card the zoom is landing on stays put.
@@ -265,7 +283,7 @@ struct TabOverview: View {
                                 case .cancelled: swipes.cancel(tab.id, reduceMotion: rm)
                                 }
                             })
-                            .opacity(swipes.opacity(tab.id))
+                            .opacity(dragOver && dragging == tab.id ? 0 : swipes.opacity(tab.id))
                             // Lifted about the card's centre while dragged.
                             .scaleEffect(swipes.scale(tab.id), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
                             // Explicit stacking in grid order (a swiped card on
@@ -307,6 +325,7 @@ struct TabOverview: View {
                     }
                 }
                 .frame(width: layout.size.width, height: layout.contentHeight, alignment: .topLeading)
+                .onDrop(of: [.text], delegate: CardReorderDrop(layout: layout, ids: tabs.items.map(\.id), dragging: $dragging, over: $dragOver, move: onMove))
                 .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(browserScreenSpace)).origin }) { [scroll] origin in
                     if scroll.contentOrigin != origin { scroll.contentOrigin = origin }
                 }
@@ -316,7 +335,16 @@ struct TabOverview: View {
                 if scroll.offset != y { scroll.offset = y }
             }
             .onScrollPhaseChange { _, phase in onScrolling(phase.isScrolling) }
-            .onChange(of: tabs.items.map(\.id)) { _, ids in bitmaps.retain(Set(ids)) }
+            .onChange(of: tabs.items.map(\.id)) { _, ids in
+                bitmaps.retain(Set(ids))
+                if let d = dragging, !ids.contains(d) { dragging = nil; dragOver = false }
+            }
+            // A drag that ended without a drop never reports back: leaving
+            // the settled grid always shows every card again.
+            .onChange(of: gridInteractive) { _, _ in
+                dragging = nil
+                dragOver = false
+            }
             .scrollIndicators(.hidden)
             .ignoresSafeArea()
             .scaleEffect(1.06 - 0.06 * shown)
@@ -335,6 +363,20 @@ struct TabOverview: View {
             }
         }
         .frame(width: layout.size.width, height: layout.size.height)
+    }
+
+    /// Safari's card menu (no Pin, Select or Move yet); terminals only close.
+    @ViewBuilder private func cardMenu(_ tab: TabItem) -> some View {
+        if case .browser = tab {
+            Button("Copy Link", systemImage: "doc.on.doc") { onCardMenu(.copyLink, tab.id) }
+            Button("Duplicate Tab", systemImage: "plus.square.on.square") { onCardMenu(.duplicate, tab.id) }
+        }
+        Section {
+            Button("Close Tab", systemImage: "xmark", role: .destructive) { onCardMenu(.close, tab.id) }
+            if tabs.items.count > 1 {
+                Button("Close Other Tabs", systemImage: "xmark.square", role: .destructive) { onCardMenu(.closeOthers, tab.id) }
+            }
+        }
     }
 
     private var topControls: some View {
@@ -426,5 +468,40 @@ struct TabOverview: View {
             .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
         }
     }
+}
+#endif
+
+#if os(iOS)
+/// A card's long-press menu items.
+enum CardMenuAction: Equatable, Sendable {
+    case copyLink, duplicate, close, closeOthers
+}
+
+/// Reorders the grid while a card is dragged: the card moves into the slot
+/// under the finger (the others reflow), as in Safari.
+struct CardReorderDrop: DropDelegate {
+    let layout: OverviewLayout
+    let ids: [String]
+    @Binding var dragging: String?
+    @Binding var over: Bool
+    let move: (String, Int) -> Void
+
+    func dropEntered(info: DropInfo) { if dragging != nil { over = true } }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        if let key = dragging, let slot = layout.slot(at: info.location), slot < ids.count, ids[slot] != key {
+            let m = BrowserStyle.shared.motion
+            withAnimation(m.resolve(m.reflow)) { move(key, slot) }
+        }
+        return DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragging = nil
+        over = false
+        return true
+    }
+
+    func dropExited(info: DropInfo) { over = false }
 }
 #endif

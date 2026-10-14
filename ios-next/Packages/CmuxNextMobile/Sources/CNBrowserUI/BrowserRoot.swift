@@ -288,6 +288,8 @@ struct BrowserScreen: View {
                             placeholderId: newTabSlot?.showsPlaceholder(in: itemIds) == true ? Self.newTabMarker : nil,
                             placeholderTerminal: newTabIsTerminal,
                             slotTakeover: newTabSlot?.created(in: itemIds),
+                            onCardMenu: cardMenu,
+                            onMove: { key, index in tabs.move(key, to: index) },
                             onScrolling: { tabs.setGridScrolling($0) })
                     .opacity(overviewVisible ? 1 : 0)
                     .allowsHitTesting(overviewVisible)
@@ -1174,6 +1176,23 @@ struct BrowserScreen: View {
         debugFingers = []
     }
     #endif
+
+    /// A grid card's long-press menu.
+    private func cardMenu(_ action: CardMenuAction, _ key: String) {
+        let reflow = motion.resolve(motion.reflow)
+        switch action {
+        case .copyLink:
+            if let url = model.tabs.first(where: { $0.id == key })?.url, let u = URL(string: url) { UIPasteboard.general.url = u }
+        case .duplicate:
+            Task { await tabs.duplicate(key) }
+        case .close:
+            Task { _ = await tabs.closeOptimistic(key, animation: reflow) }
+        case .closeOthers:
+            for other in tabs.items.map(\.id) where other != key {
+                Task { _ = await tabs.closeOptimistic(other, animation: reflow) }
+            }
+        }
+    }
 
     private func closeAll() {
         let ids = tabs.items.map(\.id)
