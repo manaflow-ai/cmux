@@ -74,6 +74,10 @@ const PRICES_AND_SHELL: [source: string, shown: string][] = [
   ["cost:$5,cap:$10", "cost:$5,cap:$10"],
   ["Set $HOME and $PATH first.", "Set $HOME and $PATH first."],
   ["Run echo $$ and $$ to see the PID.", "Run echo $$ and $$ to see the PID."],
+  [
+    "The runner costs $5 and $10 an hour, and echo $$ prints the PID.",
+    "The runner costs $5 and $10 an hour, and echo $$ prints the PID.",
+  ],
   ["Escaped \\$5 and \\$10.", "Escaped $5 and $10."],
   ["Use `$x$` literally.", "Use $x$ literally."],
 ];
