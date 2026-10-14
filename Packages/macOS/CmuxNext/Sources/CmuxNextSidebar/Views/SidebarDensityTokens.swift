@@ -22,9 +22,12 @@ import CoreGraphics
 /// | list top padding       | 4       | 6           | `space2`→`space3` |
 /// | group bottom padding   | 6       | 8           | `space3`→`space4` |
 ///
-/// Text size and weight do not change (Interface Size owns the text size);
-/// row spacing stays `space1` so selection fills keep their rhythm. Values
-/// are read at layout time, never cached, so a change applies live.
+/// Row title and detail text size and weight do not change (Interface Size
+/// owns the text size); a group header's name keeps its existing rule and
+/// follows its bar (`SidebarStyle.groupHeaderFont`: 11 pt on the 24 pt row,
+/// 12 pt on the 28 pt row). Row spacing stays `space1` so selection fills
+/// keep their rhythm. Values are read at layout time, never cached, so a
+/// change applies live.
 enum SidebarDensityTokens {
     static var density: SidebarDensity { DesignSettings.shared.sidebarSections.density }
     static var isComfortable: Bool { density == .comfortable }

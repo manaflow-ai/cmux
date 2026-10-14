@@ -203,7 +203,9 @@ def measure(state, pinned_ws):
            "favicon_tab": [height(r) for r in rows("tab", state) if r.get("icon") == "favicon"],
            "group": [height(r) for r in rows("group", state)],
            "section": [height(r) for r in rows("section", state)],
-           "pinned": None}
+           "pinned": None,
+           # The row's leading x in the list: the sidebar's horizontal inset.
+           "row_x": sorted({((r.get("frame") or {}).get("x")) for r in rows("workspace", state) if not r.get("group")} - {None})}
     item = next((i for i in state.get("items") or [] if i.get("ref_kind") == "workspace" and str(i.get("ref", "")).endswith(":" + str(pinned_ws))), None)
     if item and item.get("window_frame"):
         out["pinned"] = item["window_frame"].get("height")
@@ -230,6 +232,7 @@ def capture(label, pid, pinned_ws):
 
 def set_density(name, baseline_row):
     """Runs sidebar.density.<name> and waits until cmux.json and the row heights follow."""
+    check(baseline_row is not None, f"{name}: the done row is listed before the switch")
     action(f"sidebar.density.{name}", focus=False)
     check(bool(wait(lambda: configured_density() == name, 10)), f"{name}: the action writes sidebar.density = {name} to cmux.json")
     # The list relayouts from the setting: wait for the 'done' row's height to leave the old value.
@@ -290,7 +293,9 @@ try:
     hidden = (rpc("debug.sidebar_rows", {"menu_x": 120, "menu_y": 560}) or {}).get("submenus") or {}
     options = next((v for k, v in hidden.items() if "Option" in k), None)
     print("Options submenu:", options, flush=True)
-    if options is not None:
+    if options is None:
+        check(False, f"default: the sidebar background menu has an Options folder (submenus {list(hidden)})")
+    else:
         check("Sidebar Density: Compact" not in options and "Sidebar Density: Comfortable" in options,
               f"default: Options offers Comfortable and hides Compact (the current density) ({options})")
 
@@ -314,11 +319,13 @@ try:
     if default["pinned"] is not None:
         check(comfortable["pinned"] is not None and comfortable["pinned"] - default["pinned"] == step,
               f"comfortable: the pinned band row grows by the step ({default['pinned']} -> {comfortable['pinned']})")
+    check(default["row_x"] and comfortable["row_x"] and comfortable["row_x"][0] > default["row_x"][0],
+          f"comfortable: rows sit further in (row x {default['row_x']} -> {comfortable['row_x']})")
     check(all((expanded["workspace"].get(t) or 0) >= h for t, h in default["workspace"].items() if h),
           "expanded: no workspace row is shorter than compact")
     check(any((expanded["workspace"].get(t) or 0) > h for t, h in default["workspace"].items() if h),
           "expanded: rows gain detail lines")
-    check(compact["workspace"] == default["workspace"] and compact["tab"] == default["tab"] and compact["group"] == default["group"],
+    check(all(compact[k] == default[k] for k in ("workspace", "tab", "group", "section", "pinned", "row_x")),
           "compact again: the rows match the default")
 finally:
     server.shutdown()
