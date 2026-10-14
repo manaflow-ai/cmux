@@ -45,6 +45,9 @@ impl TestClient {
     }
 }
 
+/// The person key this test's hub holds, as a daemon the app started does.
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
 fn cwd() -> String {
     std::env::temp_dir().to_string_lossy().into_owned()
 }
@@ -77,13 +80,27 @@ async fn claude_setup() -> (Arc<Hub>, TestClient) {
     cfg.permission_policy = PermissionPolicy::ApproveAll;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
+    // The client is the person at the app (`hub/person.rs`): Ultracode and
+    // Fast mode are theirs to switch, never a script's.
+    hub.person.install_spawn_key(PERSON_KEY).unwrap();
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
+    let init = c
+        .request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
         .await
         .unwrap();
+    let challenge = &init["_meta"]["acpmux"]["personChallenge"];
+    let proof = acpmux::hub::person::person_proof(
+        PERSON_KEY,
+        acpmux::hub::person::TRANSPORT_UNIX,
+        challenge["nonce"].as_str().unwrap(),
+        challenge["connection"].as_str().unwrap(),
+    )
+    .unwrap();
+    let r = c.request("_acpmux/person_prove", json!({"proof": proof})).await.unwrap();
+    assert_eq!(r["person"], json!(true), "{r}");
     (hub, c)
 }
 
