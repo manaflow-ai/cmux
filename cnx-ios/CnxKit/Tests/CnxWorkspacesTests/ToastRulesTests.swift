@@ -62,6 +62,6 @@ import Testing
             }
         }
         let frame = grid.frame(toastHeight: 40, screenHeight: screen.height, safeTop: screen.top, safeBottom: screen.bottom)
-        #expect(frame.maxY == 874 - 34 - 64)
+        #expect(abs(frame.maxY - (874 - 34 - 64)) < 0.01)
     }
 }
