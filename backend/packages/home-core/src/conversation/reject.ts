@@ -31,7 +31,7 @@ export const LOCAL_REJECT_CODES = [
   "question_closed",
   /** The answer misses an item, names an unknown option, chooses too many, or types Other where the item does not allow it. */
   "invalid_answer",
-  /** `thread_root` names no message of this conversation, or a message that is itself in a thread (one level). */
+  /** `thread_root` names no message of this conversation, or a message that is itself in a thread, or not the parent's own root (`thread_root` is always the top root). */
   "invalid_thread_root"
 ] as const
 
