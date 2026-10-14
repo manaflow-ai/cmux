@@ -1012,16 +1012,18 @@ fn the_compactor_follows_the_engines_claude_harness() {
         harness: harness.map(str::to_owned),
         ..EngineChoice::default()
     };
-    for (set, engine_harness, compactor) in [
-        (None, Some("claude-sr"), "claude-sr"),
-        (None, None, "claude"),
-        (None, Some("codex"), "claude"),
-        (Some("codex"), Some("claude-sr"), "codex"),
+    for (set, engine_harness, turn, compactor) in [
+        (None, Some("claude-sr"), "claude", "claude-sr"),
+        (None, None, "claude", "claude"),
+        (None, Some("codex"), "claude", "claude"),
+        (None, Some("codex"), "claude-sr", "claude-sr"),
+        (None, None, "codex", "claude"),
+        (Some("codex"), Some("claude-sr"), "claude", "codex"),
     ] {
         assert_eq!(
-            compactor_harness_for(&answer, set, "claude", &engine(engine_harness)),
+            compactor_harness_for(&answer, set, turn, &engine(engine_harness)),
             compactor,
-            "set {set:?}, engine.json harness {engine_harness:?}"
+            "set {set:?}, engine.json harness {engine_harness:?}, host turn {turn}"
         );
     }
 }

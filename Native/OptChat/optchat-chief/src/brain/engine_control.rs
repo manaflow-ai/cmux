@@ -67,21 +67,21 @@ impl Brain {
             let turn_harness = set(&harness)
                 .or_else(|| choice.harness.clone())
                 .unwrap_or_else(|| s.harness.clone());
-            // The compactor's harness after this set: the set one, else
-            // the turns' engine harness (host::compactor_harness_for; a
-            // codex one leaves the compactor on a Claude route, whose
-            // speed check is the same).
-            let compactor_target = match &compactor_harness {
+            // The compactor's family after this set: the set harness's, else
+            // the turns' when it is Claude, else Claude (a codex Chief
+            // compacts on a Claude route; host::compactor_harness_for).
+            let compactor_family = match &compactor_harness {
                 Some(_) => set(&compactor_harness),
                 None => choice.compactor_harness.clone(),
             }
-            .unwrap_or_else(|| turn_harness.clone());
-            for (value, target) in [
-                (&speed, &turn_harness),
-                (&compactor_speed, &compactor_target),
+            .map(|h| self.family_of(&h))
+            .unwrap_or(crate::acpmux::Family::Claude);
+            for (value, family) in [
+                (&speed, self.family_of(&turn_harness)),
+                (&compactor_speed, compactor_family),
             ] {
                 if let Some(v) = value.as_deref()
-                    && let Err(reason) = crate::engine::check_speed(v, self.family_of(target))
+                    && let Err(reason) = crate::engine::check_speed(v, family)
                 {
                     return error("invalid_speed", reason);
                 }
