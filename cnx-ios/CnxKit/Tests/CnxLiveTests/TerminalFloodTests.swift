@@ -152,6 +152,19 @@ import Testing
         }
     }
 
+    @Test func aMacSharingNoFoldersSaysSo() async {
+        let link = OneChannelLink(RefusingChannel(refusal: LinkError(code: "forbidden", message: "no workspace roots are shared")))
+        let source = LinkFileArtifactSource(macName: "Studio", baseDirectory: "/Users/me") { link }
+        do {
+            _ = try await source.load(TerminalArtifact(reference: "notes.md", kind: .markdown))
+            Issue.record("a refused read must not load")
+        } catch let error as ArtifactUnavailable {
+            #expect(error.message == "Studio isn't sharing any folders with this phone yet, so notes.md can't be opened here.")
+        } catch {
+            Issue.record("unexpected \(error)")
+        }
+    }
+
     @Test func aRealFileLoadsAndAnEmptyOneSaysSo() async throws {
         let text = OneChannelLink(RefusingChannel(refusal: nil, data: [Data("# Title\n\nhello ".utf8), Data("from the Mac\n".utf8)]))
         let loaded = try await LinkFileArtifactSource(macName: "Studio", baseDirectory: "/Users/me") { text }

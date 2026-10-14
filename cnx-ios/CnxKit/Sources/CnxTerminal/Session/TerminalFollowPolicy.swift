@@ -7,7 +7,7 @@ import CoreGraphics
 ///   user scrolled up never moves them.
 /// - Input (typing, the key bar, the composer, paste) on the primary screen
 ///   follows again and jumps to the prompt, like Terminal and Blink.
-/// - When the scrollback shrinks (`clear`, ESC [3J) or the document ends
+/// - When the scrollback is cleared (`clear`, ESC [3J) or the document ends
 ///   above the place on screen, the rows being read are gone: follow again.
 public struct TerminalFollowPolicy: Sendable {
     public var following = true
@@ -21,9 +21,12 @@ public struct TerminalFollowPolicy: Sendable {
         following = offsetY >= maxOffsetY - rowHeight
     }
 
-    /// The scrollback's total rows changed from `previous` to `total`.
-    public mutating func scrollbackChanged(from previous: Int, to total: Int) {
-        if total < previous { following = true }
+    /// The scrollback's total rows changed from `previous` to `total`. Only a
+    /// cleared scrollback (`clear`, ESC [3J: about one screen of rows left)
+    /// follows again; Ghostty trimming old pages at the scrollback limit, or a
+    /// reflow, also lowers the total and must not move a reader.
+    public mutating func scrollbackChanged(from previous: Int, to total: Int, screenRows: Int) {
+        if total < previous, total <= max(screenRows, 1) { following = true }
     }
 
     /// The document's height changed; returns the offset to show, or nil to stay.

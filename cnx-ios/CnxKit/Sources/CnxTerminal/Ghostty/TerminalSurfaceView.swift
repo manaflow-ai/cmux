@@ -21,6 +21,8 @@ import UIKit
 @MainActor
 final class TerminalSurfaceView: UIView {
     var onInput: ((Data) -> Void)?
+    /// The person typed, pressed a key or pasted (before the bytes go out).
+    var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
     /// The surface became first responder (direct typing) or resigned.
     var onFocusChange: ((Bool) -> Void)?

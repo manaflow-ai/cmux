@@ -80,6 +80,9 @@ public struct LinkFileArtifactSource: ArtifactSource {
         let name = (path as NSString).lastPathComponent
         return switch error.code {
         case "not_found": ArtifactUnavailable("\(name) isn't on \(macName) anymore.")
+        case "forbidden" where error.message.contains("no workspace roots"):
+            // cnx-hostd shares no folder at all (CNX_FILE_ROOTS empty).
+            ArtifactUnavailable("\(macName) isn't sharing any folders with this phone yet, so \(name) can't be opened here.")
         case "forbidden": ArtifactUnavailable("\(name) is outside the folders \(macName) shares with this phone.")
         case "bad_request": ArtifactUnavailable("\(name) isn't a regular file.")
         case "unknown_service": ArtifactUnavailable("\(macName) doesn't serve files yet. Update cmux on the Mac.")

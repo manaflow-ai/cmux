@@ -112,6 +112,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     isolated deinit {
         outputLink?.invalidate()
+        if outputPaused { model.session.setOutputPaused(false) }
     }
 
     override func viewDidLoad() {
@@ -306,13 +307,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let tuiTap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
         tuiClip.addGestureRecognizer(tuiTap)
 
-        surface.onInput = { [weak self] data in
-            guard let self else { return }
-            // Every input path (keyboard, key bar, composer, paste) ends here:
-            // typing brings the prompt back into view, like Terminal.
-            self.revealCursorForInput()
-            self.model.session.send(data)
-        }
+        surface.onInput = { [weak self] data in self?.model.session.send(data) }
+        // Every input path (keyboard, key bar, composer, paste) goes through
+        // the surface's `perform`: typing brings the prompt into view, like Terminal.
+        surface.onUserInput = { [weak self] in self?.revealCursorForInput() }
         surface.onEvent = { [weak self] event in self?.surfaceEvent(event) }
         surface.onPresent = { [weak self] in self?.surfacePresented() }
         surface.onFocusChange = { [weak self] focused in
@@ -656,7 +654,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard scrollbar.total != documentTotal || documentRows == 0 || outputSinceProbe else { return }
         // The scrollback shrank (`clear`, ESC [3J): the rows the user was
         // reading are gone. Follow the prompt again, like Terminal.
-        follow.scrollbackChanged(from: documentTotal, to: scrollbar.total)
+        follow.scrollbackChanged(from: documentTotal, to: scrollbar.total, screenRows: surface.grid.rows)
         documentTotal = scrollbar.total
         outputSinceProbe = false
         var rows = scrollbar.total

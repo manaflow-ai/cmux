@@ -79,7 +79,7 @@ struct TerminalKeyBar: View {
                     ForEach(KeyBarKey.middle, id: \.self) { key in
                         KeyCap(key: key, model: model)
                             .onGeometryChange(for: Bool.self) { proxy in
-                                KeyBarClipping().isFullyVisible(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
+                                KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
                             } action: { visible in
                                 if visible { clipped.remove(key) } else { clipped.insert(key) }
                             }

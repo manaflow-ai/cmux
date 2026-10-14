@@ -92,9 +92,12 @@ import Testing
     @Test func clearedScrollbackFollowsAgain() {
         var policy = TerminalFollowPolicy()
         policy.userScrolled(offsetY: 100, maxOffsetY: 2000, rowHeight: 17)
-        policy.scrollbackChanged(from: 900, to: 950)
+        policy.scrollbackChanged(from: 900, to: 950, screenRows: 150)
         #expect(!policy.following)
-        policy.scrollbackChanged(from: 950, to: 60) // clear (ESC [3J)
+        // Ghostty trimming old pages at the scrollback limit (or a reflow) is not a clear.
+        policy.scrollbackChanged(from: 50_000, to: 49_200, screenRows: 150)
+        #expect(!policy.following)
+        policy.scrollbackChanged(from: 950, to: 150, screenRows: 150) // clear (ESC [3J)
         #expect(policy.following)
     }
 
@@ -108,14 +111,29 @@ import Testing
     }
 }
 
+@Suite struct UserInputTests {
+    @Test func onlyWhatThePersonTypedCounts() {
+        #expect(TerminalInputAction.text("a").isUserInput)
+        #expect(TerminalInputAction.paste("ls\n").isUserInput)
+        #expect(!TerminalInputAction.preedit("ka").isUserInput)
+        #expect(!TerminalInputAction.text("").isUserInput)
+        var router = TerminalInputRouter()
+        let actions = router.key(usage: TerminalHIDUsage.up, extra: [])
+        #expect(actions.contains { $0.isUserInput })
+        #expect(actions.filter(\.isUserInput).count == actions.filter { if case .key(let e) = $0 { e.isPress } else { false } }.count)
+    }
+}
+
 @Suite struct KeyBarClippingTests {
-    @Test func keysUnderThePinnedGroupOrPastTheEndAreClipped() {
+    @Test func keysWhoseCenterIsUnderThePinnedGroupOrPastTheEndAreHidden() {
         let clipping = KeyBarClipping()
         let visible = CGRect(x: 120, y: 0, width: 200, height: 44) // scrolled by 120
-        #expect(clipping.isFullyVisible(CGRect(x: 130, y: 0, width: 40, height: 34), in: visible))
-        #expect(!clipping.isFullyVisible(CGRect(x: 100, y: 0, width: 40, height: 34), in: visible)) // under esc/ctrl/alt
-        #expect(!clipping.isFullyVisible(CGRect(x: 300, y: 0, width: 40, height: 34), in: visible)) // under the joystick
-        #expect(clipping.isFullyVisible(CGRect(x: 0, y: 0, width: 40, height: 34), in: nil))
+        #expect(clipping.isActivatable(CGRect(x: 130, y: 0, width: 40, height: 34), in: visible))
+        // Cut at the leading edge, center showing: a tap at its center hits it.
+        #expect(clipping.isActivatable(CGRect(x: 110, y: 0, width: 40, height: 34), in: visible))
+        #expect(!clipping.isActivatable(CGRect(x: 90, y: 0, width: 40, height: 34), in: visible)) // under esc/ctrl/alt
+        #expect(!clipping.isActivatable(CGRect(x: 310, y: 0, width: 40, height: 34), in: visible)) // under the joystick
+        #expect(clipping.isActivatable(CGRect(x: 0, y: 0, width: 40, height: 34), in: nil))
     }
 }
 

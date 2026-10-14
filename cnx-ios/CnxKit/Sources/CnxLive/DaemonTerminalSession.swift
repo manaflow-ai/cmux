@@ -124,6 +124,7 @@ public final class DaemonTerminalSession: TerminalSession {
         eventTask = nil
         inbox?.close()
         inbox = nil
+        outputPaused = false
         handler = nil
         client = nil
         dropInputLane()
