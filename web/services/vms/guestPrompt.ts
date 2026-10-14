@@ -32,7 +32,11 @@ const assetPath = (relativePath: string) =>
   fileURLToPath(new URL(relativePath, import.meta.url).toString());
 const bashrc = readFileSync(assetPath("./images/devbox/cmux-bashrc"), "utf8");
 const prompt = readFileSync(assetPath("./images/devbox/cmux-prompt.bash"), "utf8");
+const ghost = readFileSync(assetPath("./images/devbox/cmux-ghost.bash"), "utf8");
+// Written in this order: the bashrc sources ghost.bash, so a shell that starts
+// mid-install finds the file it names.
 export const guestPromptInstallFiles = {
+  "ghost.bash": ghost,
   "prompt.bash": prompt,
   bashrc,
 } as const;
@@ -79,6 +83,7 @@ export function guestPromptInstallCommand(identity: GuestPromptIdentity, directo
     throw new Error("Invalid Cloud prompt identity");
   }
   const files = {
+    "ghost.bash": ghost.replaceAll("/etc/cmux", directory),
     "prompt.bash": prompt.replaceAll("/etc/cmux", directory),
     bashrc: bashrc.replaceAll("/etc/cmux", directory),
   };

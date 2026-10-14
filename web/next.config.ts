@@ -212,6 +212,7 @@ const nextConfig: NextConfig = {
     "/*": [
       "./services/vms/images/devbox/cmux-bashrc",
       "./services/vms/images/devbox/cmux-prompt.bash",
+      "./services/vms/images/devbox/cmux-ghost.bash",
     ],
     "**/opengraph-image": [
       "./app/lib/open-graph-fonts/**/*",

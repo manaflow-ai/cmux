@@ -205,7 +205,7 @@ The Freestyle devbox image is defined in
 `web/services/vms/images/devbox/` and baked with `web/scripts/build-devbox-freestyle.ts`
 (chatmux devbox
 parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
-agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
+agents, ghost-text devshell, agent-config generator). The session daemon is cmux-tui,
 baked at `/root/.cmux/bin/cmux-tui` from the files.cmux.com artifacts manifest pin
 current at bake time (recorded as `cmuxTuiCommit` in the manifest entry). Its identity
 is bound to the machine's instance id by `cmux-devbox-boot`, so create runs no guest
@@ -541,7 +541,7 @@ manifest. The standalone npm release continues to use that same source core.
 Freestyle machines boot the shared devbox snapshot (definition in
 `services/vms/images/devbox/`, baked with `web/scripts/build-devbox-freestyle.ts` against
 the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/python/bun,
-uv, gh, devtools, pinned coding agents, ble.sh, half-life prompt, seeded history). Machines
+uv, gh, devtools, pinned coding agents, history ghost text, half-life prompt, seeded history). Machines
 run no cmuxd-remote: the **cmux-tui remote daemon is the machine's only session daemon**,
 and the bake installs the pinned static-musl build at `/root/.cmux/bin/cmux-tui` with
 `sha256sum -c` verification. A create is one `vms.create` (firewall, VPC, and the coderouter
