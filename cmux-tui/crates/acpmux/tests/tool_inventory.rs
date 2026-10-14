@@ -30,7 +30,8 @@ const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claud
 
 /// What the fake Claude Code's system/init reports besides its own fields:
 /// cmux's server (also given by acpmux), two of the user's servers (one
-/// already off), cmux's plugin and skill, and one of the user's skills.
+/// already off), a claude.ai connector, cmux's plugin and skill, and one of
+/// the user's skills.
 fn claude_init() -> Value {
     json!({
         "tools": ["Bash", "mcp__cmux__browser_open", "mcp__github__create_issue"],
@@ -38,6 +39,7 @@ fn claude_init() -> Value {
             {"name": "cmux", "status": "connected"},
             {"name": "github", "status": "connected"},
             {"name": "linear", "status": "disabled"},
+            {"name": "claude.ai Foo  (Beta)", "status": "connected"},
         ],
         "plugins": [{"name": "cmux", "path": "/x"}, {"name": "reviewer", "path": "/y"}],
         "skills": ["cmux:cmux-browser", "pdf"],
@@ -286,6 +288,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             row("skill:cmux:cmux-cua", "cmux", "cmux", true, false),
             row("mcp:github", "mcp", "claude", true, true),
             row("mcp:linear", "mcp", "claude", false, false),
+            row("mcp:claude.ai Foo  (Beta)", "mcp", "claude", true, true),
             row("plugin:reviewer", "plugin", "claude", true, false),
             row("skill:pdf", "skill", "claude", true, false),
         ],
@@ -328,7 +331,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         .expect_err("no such tool");
     assert_eq!(unknown["code"], json!(-32002), "{unknown}");
 
-    // During a turn the choice is recorded and applies at the next start.
+    // During a turn the choice is recorded and applies when the turn ends.
     let mut app = client(&hub, Origin::LocalApp);
     let gate = root.join("turn-gate");
     let hold = format!("hold: {}", gate.display());
@@ -341,11 +344,13 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         .call("_acpmux/set_tools", json!({"sessionId": claude, "id": "mcp:cmux", "enabled": false}))
         .await
         .expect("set_tools during a turn");
-    assert_eq!(set["applied"], json!("nextStart"), "{set}");
+    assert_eq!(set["applied"], json!("afterTurn"), "{set}");
     assert!(!tool(&set["tools"], "mcp:cmux").3, "{set}");
     std::fs::write(&gate, "").unwrap();
     let said = local.reply(900).await;
     assert_eq!(disallowed(&argv(&said)), ["mcp__github"], "the turn's process ran on: {said}");
+    let args = argv(&local.ask(&claude, "hi").await);
+    assert_eq!(disallowed(&args), ["mcp__cmux", "mcp__github"], "the next turn restarted: {args:?}");
 
     // Both choices survive a respawn.
     local.call("session/close", json!({"sessionId": claude})).await.expect("close");
@@ -367,6 +372,14 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     assert!(tool(&set["tools"], "mcp:github").3, "{set}");
     let args = argv(&local.ask(&claude, "hi").await);
     assert_eq!(disallowed(&args), ["mcp__cmux"], "{args:?}");
+
+    // A claude.ai connector, in Claude Code's spelling of its name: other
+    // characters become `_`, then runs of `_` collapse and the ends trim.
+    let connector = json!({"sessionId": claude, "id": "mcp:claude.ai Foo  (Beta)", "enabled": false});
+    let set = app.call("_acpmux/set_tools", connector).await.expect("turn the connector off");
+    assert_eq!(set["applied"], json!("now"), "{set}");
+    let args = argv(&local.ask(&claude, "hi").await);
+    assert_eq!(disallowed(&args), ["mcp__cmux", "mcp__claude_ai_Foo_Beta"], "{args:?}");
 
     // Claude Code was never sent mcp_toggle (it persists to ~/.claude.json).
     let controls = std::fs::read_to_string(&control_log).unwrap();
