@@ -88,6 +88,7 @@ pub(super) struct SessionParts {
     pub relay_in: mpsc::UnboundedSender<Bytes>,
     pub options: DialOptions,
     pub stun: Vec<SocketAddr>,
+    pub endpoints: Vec<String>,
 }
 
 /// One live tunnel, as roaming sees it.
@@ -102,6 +103,8 @@ pub(super) struct Session {
     relay_in: mpsc::UnboundedSender<Bytes>,
     options: DialOptions,
     stun: Mutex<Vec<SocketAddr>>,
+    /// This side's endpoints as last offered to the peer.
+    endpoints: Mutex<Vec<String>>,
     follow: Mutex<Option<JoinHandle<()>>>,
     announce: Mutex<Option<mpsc::UnboundedSender<Vec<String>>>>,
     control_task: Mutex<Option<JoinHandle<()>>>,
@@ -143,6 +146,7 @@ impl Session {
             relay_in: parts.relay_in,
             options: parts.options,
             stun: Mutex::new(parts.stun),
+            endpoints: Mutex::new(parts.endpoints),
             follow: Mutex::new(None),
             announce: Mutex::new(None),
             control_task: Mutex::new(None),
@@ -236,9 +240,11 @@ impl Session {
         signaling.unsubscribe(&self.session_id);
     }
 
+    /// Tell the peer this side's endpoints (an empty list: unchanged, but
+    /// the network changed, so the peer resends what it sent lately).
     fn announce(&self, endpoints: Vec<String>) {
-        if endpoints.is_empty() {
-            return;
+        if !endpoints.is_empty() {
+            lock(&self.endpoints).clone_from(&endpoints);
         }
         if let Some(tx) = lock(&self.announce).as_ref() {
             let _ = tx.send(endpoints);
@@ -324,6 +330,9 @@ impl Session {
         old.unsubscribe(&self.session_id);
         self.follow(client.subscribe(&self.session_id));
         let _ = self.control.send(Control::Rehomed);
+        // Relay frames toward this side's old socket were lost: the peer
+        // resends what it sent lately.
+        self.announce(Vec::new());
         tracing::debug!(session = self.session_id, "WireGuard session moved to a new signaling socket");
     }
 }

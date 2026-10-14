@@ -389,13 +389,16 @@ struct Route {
 const ROAM_SPRAY: Duration = Duration::from_secs(3);
 /// Spacing of those extra datagrams inside the window.
 const ROAM_SPRAY_GAP: Duration = Duration::from_millis(100);
-/// Datagrams sent in this long before a roam or a route change are sent
-/// again on the new route: those that went into the dead route would
-/// otherwise cost TCP inside the tunnel its 1 s minimum retransmission
-/// timeout. WireGuard's replay window drops the copies that did arrive.
-const REPLAY_AGE: Duration = Duration::from_secs(1);
-/// At most this many datagrams are kept for that.
-const REPLAY_MAX: usize = 256;
+/// Data messages sent in this long before a roam, a route change or a new
+/// signaling socket are sent again on the new route: those that went into
+/// the dead route would otherwise cost TCP inside the tunnel its 1 s
+/// minimum retransmission timeout, or after a long outage (airplane mode)
+/// its backed-off one. WireGuard's replay window drops the copies that did
+/// arrive. As long as the link's own keepalive timeout.
+const REPLAY_AGE: Duration = Duration::from_secs(20);
+/// At most this many datagrams are kept for that (about 100 ms of a
+/// 15 Mbit/s stream; a whole outage of retransmissions and keepalives).
+const REPLAY_MAX: usize = 128;
 /// While the confirmed route is TURN, plain UDP candidates are tried this
 /// often, so the session goes back to a direct path once one works again.
 const UPGRADE_SPRAY_GAP: Duration = Duration::from_secs(5);
@@ -569,12 +572,23 @@ impl HybridUnderlay {
             }
             Control::PeerEndpoints(endpoints) => {
                 tracing::debug!(?endpoints, "WireGuard peer announced new endpoints");
-                self.set_peer_endpoints(endpoints);
+                // An empty list says only that the peer's network changed.
+                if !endpoints.is_empty() {
+                    self.set_peer_endpoints(endpoints);
+                }
                 self.spray_until = Some(now + ROAM_SPRAY);
                 self.next_spray = None;
                 self.last_marker = None;
+                // What we sent toward its old network may be lost.
+                self.replay_recent();
             }
-            Control::Rehomed => self.last_marker = None,
+            Control::Rehomed => {
+                self.last_marker = None;
+                // Relay frames sent on the dead socket are lost.
+                if !self.direct_only() {
+                    self.replay_recent();
+                }
+            }
             Control::Blackhole => {
                 self.blackhole = true;
                 self.turn = None;
@@ -584,6 +598,10 @@ impl HybridUnderlay {
     }
 
     fn record(&mut self, datagram: &[u8]) {
+        // Handshake messages are never worth repeating.
+        if cmux_transport::classify(datagram) != cmux_transport::DatagramClass::WireGuardData {
+            return;
+        }
         let now = Instant::now();
         while self.recent.len() >= REPLAY_MAX
             || self.recent.front().is_some_and(|(at, _)| now.duration_since(*at) > REPLAY_AGE)
@@ -945,6 +963,8 @@ struct TunnelSpec<'a> {
     own_ip: Ipv4Addr,
     peer_ip: Ipv4Addr,
     peer_endpoints: &'a [String],
+    /// What this side offered the peer.
+    own_endpoints: Vec<String>,
     turn: Option<TurnCarrier>,
     /// The phone allocates TURN (again after a roam) when offered one.
     dialer: bool,
@@ -1010,6 +1030,7 @@ fn start_tunnel(
         relay_in: relay_tx,
         options: options.clone(),
         stun: spec.stun,
+        endpoints: spec.own_endpoints,
     });
     Ok(Tunnel { session, path: path_rx })
 }
@@ -1044,6 +1065,7 @@ impl Dialer for WireGuardDialer {
             }
             options.timeline.mark("endpoints_gathered");
             let (private_key, public_key) = keypair();
+            let own_endpoints = endpoints.clone();
             signaling
                 .send_signal(
                     mac,
@@ -1089,6 +1111,7 @@ impl Dialer for WireGuardDialer {
                 own_ip: DIALER_OVERLAY,
                 peer_ip,
                 peer_endpoints: &peer_endpoints,
+                own_endpoints,
                 turn,
                 dialer: true,
                 stun,
@@ -1155,6 +1178,7 @@ impl Dialer for WireGuardDialer {
                 own_ip,
                 peer_ip,
                 peer_endpoints: &peer_endpoints,
+                own_endpoints: endpoints.clone(),
                 turn: None,
                 dialer: false,
                 stun,

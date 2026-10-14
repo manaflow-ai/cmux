@@ -167,6 +167,7 @@ pub struct LinkHandle {
     path: tokio::sync::watch::Receiver<cnx_link::LinkPath>,
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
     timeline: Timeline,
+    session_id: String,
 }
 
 impl Drop for LinkHandle {
@@ -288,6 +289,74 @@ impl LinkHandle {
     /// Marks recorded later (the first ping, `first_pong`) appear as they come.
     pub fn timings(&self) -> Vec<TimingMark> {
         timing_marks(&self.timeline)
+    }
+
+    /// The latest WireGuard roam of this link (`network_changed`,
+    /// `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
+    /// ...), in milliseconds since the network changed; empty before any.
+    pub fn roam_timings(&self) -> Vec<TimingMark> {
+        cnx_link::dial::wireguard::roam_timeline(&self.session_id)
+            .map(|timeline| timing_marks(&timeline))
+            .unwrap_or_default()
+    }
+
+    /// Debug: measure a network change. Pings back to back for 1 s, then
+    /// takes this device's network away (every WireGuard session's socket
+    /// and TURN allocation go dead) and, when `roam`, roams at once; keeps
+    /// pinging for `window_ms`. Returns JSON: `stall_ms` (the longest wait
+    /// for a pong from the change on), `pongs`, `path` at the end, and the
+    /// roam marks.
+    pub async fn debug_network_change_probe(&self, roam: bool, window_ms: u32) -> String {
+        let link = self.link.clone();
+        let path = self.path.clone();
+        let session_id = self.session_id.clone();
+        on_runtime(async move {
+            let pinging = async |until: std::time::Instant, gaps: &mut Vec<Duration>| {
+                let mut last = std::time::Instant::now();
+                while std::time::Instant::now() < until {
+                    if link.ping().await.is_err() {
+                        break;
+                    }
+                    let now = std::time::Instant::now();
+                    gaps.push(now - last);
+                    last = now;
+                }
+            };
+            let mut warmup = Vec::new();
+            pinging(std::time::Instant::now() + Duration::from_secs(1), &mut warmup).await;
+            let changed = std::time::Instant::now();
+            let hit = cnx_link::dial::wireguard::simulate_network_loss(None, true);
+            let roam_task = roam.then(|| tokio::spawn(cnx_link::dial::wireguard::network_changed()));
+            let mut gaps = Vec::new();
+            pinging(changed + Duration::from_millis(u64::from(window_ms)), &mut gaps).await;
+            if let Some(task) = roam_task {
+                let _ = task.await;
+            }
+            let stall = gaps.iter().max().copied().unwrap_or_default();
+            let marks: Vec<serde_json::Value> = cnx_link::dial::wireguard::roam_timeline(&session_id)
+                .map(|timeline| timing_marks(&timeline))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|mark| serde_json::json!({ "name": mark.name, "ms": mark.millis }))
+                .collect();
+            let path = match *path.borrow() {
+                cnx_link::LinkPath::Direct => "direct",
+                cnx_link::LinkPath::Relay => "relay",
+                cnx_link::LinkPath::Turn => "turn",
+            };
+            serde_json::json!({
+                "roam": roam,
+                "sessions": hit,
+                "stall_ms": (stall.as_secs_f64() * 10_000.0).round() / 10.0,
+                "pongs": gaps.len(),
+                "warmup_max_ms": warmup.iter().max().map_or(0.0, |gap| gap.as_secs_f64() * 1000.0),
+                "path": path,
+                "marks": marks,
+                "link_closed": link.is_closed(),
+            })
+            .to_string()
+        })
+        .await
     }
 }
 
@@ -494,6 +563,7 @@ pub async fn connect_inner(
         path: connected.path,
         watcher: Mutex::new(Some(watcher)),
         timeline,
+        session_id: connected.session_id,
     }))
 }
 
@@ -660,6 +730,55 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
         };
         tokio::join!(warm().ice_servers(&base_url, &token, &timeline), socket);
         timing_marks(&timeline)
+    })
+    .await
+}
+
+/// How long the signaling socket may take to answer after a network
+/// change before a new one is opened (the old network's socket is usually
+/// dead, and the WireGuard relay and roaming need a live one).
+const NETWORK_PROBE: Duration = Duration::from_millis(1000);
+
+/// The device's network changed or came back (iOS `NWPathMonitor`): every
+/// WireGuard link moves onto the new network at once without a redial, and
+/// the signaling socket is checked (and replaced when dead) so relay frames
+/// flow again. Returns the steps: the first link's roam marks, then the
+/// signaling ones prefixed `signaling:`.
+#[uniffi::export]
+pub async fn network_changed(
+    base_url: String,
+    token: String,
+    team_id: String,
+    device_id: String,
+) -> Vec<TimingMark> {
+    on_runtime(async move {
+        let roam = tokio::spawn(cnx_link::dial::wireguard::network_changed());
+        let timeline = Timeline::new();
+        let key = SocketKey { base_url, team_id, device_id };
+        if let Some(socket) = warm().pooled(&key).await {
+            if socket.client.probe(NETWORK_PROBE).await {
+                timeline.mark("alive");
+            } else {
+                timeline.mark("stale");
+                warm().evict(&socket).await;
+            }
+        }
+        match warm().pooled_or_open(&key, &token, &timeline).await {
+            Ok((socket, _)) => {
+                if cnx_link::dial::wireguard::rehome(&socket.client) > 0 {
+                    timeline.mark("rehomed");
+                }
+            }
+            Err(_) => timeline.mark("failed"),
+        }
+        let roamed = roam.await.unwrap_or_default();
+        let mut marks = roamed.first().map(|(_, timeline)| timing_marks(timeline)).unwrap_or_default();
+        marks.extend(
+            timing_marks(&timeline)
+                .into_iter()
+                .map(|mark| TimingMark { name: format!("signaling:{}", mark.name), millis: mark.millis }),
+        );
+        marks
     })
     .await
 }

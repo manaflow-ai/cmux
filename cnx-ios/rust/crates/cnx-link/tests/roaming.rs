@@ -77,6 +77,17 @@ struct Run {
     marks: Vec<(String, Duration)>,
 }
 
+/// What happens to the phone at 1 s.
+#[derive(Debug, Clone, Copy)]
+enum Change {
+    /// Its network goes away; it roams this much later (as the OS reports
+    /// the new path), or never.
+    Network(Option<Duration>),
+    /// The backend drops its signaling socket; it opens a new one and the
+    /// session moves there.
+    Signaling,
+}
+
 /// Stream through an echo channel, take the phone's network away at 1 s
 /// (and roam `roam` later, as the OS reports the new path), keep streaming
 /// for `after_change`, then check every byte came back in order.
@@ -84,6 +95,15 @@ async fn stream_across_a_change(
     phone_options: DialOptions,
     mac_options: DialOptions,
     roam: Option<Duration>,
+    after_change: Duration,
+) -> Run {
+    stream_across(phone_options, mac_options, Change::Network(roam), after_change).await
+}
+
+async fn stream_across(
+    phone_options: DialOptions,
+    mac_options: DialOptions,
+    change: Change,
     after_change: Duration,
 ) -> Run {
     let server = FakeSignaling::start(FakeOptions::default()).await;
@@ -110,10 +130,8 @@ async fn stream_across_a_change(
             });
         }
     });
-    let phone =
-        SignalingClient::connect(&server.base_url, "user:alice", "team", &uuid::Uuid::new_v4().to_string())
-            .await
-            .unwrap();
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
     let connected =
         dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, LinkConfig::default())
             .await
@@ -167,14 +185,29 @@ async fn stream_across_a_change(
     tokio::time::sleep(Duration::from_secs(1)).await;
     let before = *connected.path.borrow();
     let changed_at = Instant::now();
-    assert_eq!(wireguard::simulate_network_loss(Some(&session_id), true), 1);
-    let roam_task = roam.map(|delay| {
-        let session_id = session_id.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
-            wireguard::roam_session(&session_id, true).await
-        })
-    });
+    let mut _new_phone = None;
+    let roam_task = match change {
+        Change::Network(roam) => {
+            assert_eq!(wireguard::simulate_network_loss(Some(&session_id), true), 1);
+            roam.map(|delay| {
+                let session_id = session_id.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    wireguard::roam_session(&session_id, true).await
+                })
+            })
+        }
+        Change::Signaling => {
+            server.kick(&phone_id);
+            let mut closed = phone.events();
+            while !matches!(closed.recv().await, Ok(cnx_link::signaling::SignalingEvent::Disconnected(_))) {}
+            let fresh =
+                SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+            assert!(wireguard::rehome(&fresh) >= 1);
+            _new_phone = Some(fresh);
+            None
+        }
+    };
     tokio::time::sleep(after_change).await;
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     let (sent, _sender) = writer.await.unwrap();
@@ -261,6 +294,32 @@ async fn wireguard_roams_after_a_late_path_update() {
     eprintln!("late roam: {run:?}");
     assert_eq!(run.after, LinkPath::Direct);
     assert!(run.stall < Duration::from_millis(600), "stalled {:?}", run.stall);
+}
+
+/// Airplane mode for 5 s, then the network comes back: the same session
+/// resumes (no redial), and TCP inside it does not wait out a backed-off
+/// retransmission timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_resumes_after_airplane_mode() {
+    let run =
+        stream_across_a_change(options(), options(), Some(Duration::from_secs(5)), Duration::from_secs(7))
+            .await;
+    eprintln!("airplane: {run:?}");
+    assert_eq!(run.after, LinkPath::Direct);
+    assert!(run.stall < Duration::from_millis(5500), "stalled {:?}", run.stall);
+}
+
+/// Relay only (no TURN): the backend drops the phone's signaling socket, as
+/// a network change does. The session moves to the new socket and the
+/// relay frames lost on the old one are sent again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_relay_follows_a_new_signaling_socket() {
+    let phone = DialOptions { relay_only: true, ..options() };
+    let mac = DialOptions { relay_only: true, ..options() };
+    let run = stream_across(phone, mac, Change::Signaling, Duration::from_secs(3)).await;
+    eprintln!("rehome: {run:?}");
+    assert_eq!(run.after, LinkPath::Relay);
+    assert!(run.stall < Duration::from_secs(1), "stalled {:?}", run.stall);
 }
 
 /// The baseline: the network goes away and nothing roams. The session
