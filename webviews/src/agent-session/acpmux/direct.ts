@@ -1780,7 +1780,8 @@ export class AcpmuxDirectClient {
             name: summary.name,
             harness: summary.harness,
             family: typeof summary.family === "string" ? summary.family : undefined,
-            model: summary.model,
+            // acpmux reports `model: null` for a harness with no model (one known only from its config).
+            model: text(summary.model),
             effort: effort?.currentValue,
             promptCapabilities: summary.agentCapabilities?.promptCapabilities,
             steering: summary.steering === true,

@@ -15,22 +15,26 @@ impl Hub {
     /// Mark or unmark the prompt logged at `seq`, and return the chat's marks.
     /// Only a `user_message` record of this chat can be marked; unmarking takes
     /// any seq, so a mark whose prompt is gone can still be cleared.
-    pub fn set_bookmark(
-        &self,
+    pub async fn set_bookmark(
+        self: &Arc<Self>,
         session: &Session,
         seq: u64,
         bookmarked: bool,
     ) -> Result<Vec<u64>, RpcError> {
-        if session.moving().is_some() {
-            return Err(queue::moving_error());
-        }
-        if bookmarked && !self.is_prompt(session, seq) {
+        if bookmarked && !self.is_prompt(session, seq).await {
             return Err(RpcError::invalid_params(format!(
                 "seq {seq} is not a prompt in session {}",
                 session.id
             )));
         }
-        let (marks, changed) = {
+        // One section under the chat's move lock for the check, the change, its record and its
+        // save: two sets log (and save) in the order they change the marks, so the last record
+        // every pane hears is the marks kept; and a move begins before the change or after it.
+        let moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
+        if moving.is_some() {
+            return Err(queue::moving_error());
+        }
+        let (marks, before) = {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             if bookmarked
                 && !meta.bookmarks.contains(&seq)
@@ -43,34 +47,41 @@ impl Hub {
             }
             let changed =
                 if bookmarked { meta.bookmarks.insert(seq) } else { meta.bookmarks.remove(&seq) };
-            (meta.bookmarks.iter().copied().collect::<Vec<_>>(), changed)
-        };
-        if changed {
-            // A mark is not chat activity: the session keeps its place in the list.
-            let before = session.meta().updated_at;
-            let record = self.append(session, "mux", "bookmarks", json!({"bookmarks": marks}));
-            {
-                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-                if meta.updated_at == record.at {
-                    meta.updated_at = before;
-                }
+            let marks = meta.bookmarks.iter().copied().collect::<Vec<_>>();
+            if !changed {
+                return Ok(marks);
             }
-            self.save_meta(session);
+            (marks, meta.updated_at)
+        };
+        let record = self.append(session, "mux", "bookmarks", json!({"bookmarks": marks}));
+        {
+            // A mark is not chat activity: the session keeps its place in the list.
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if meta.updated_at == record.at {
+                meta.updated_at = before;
+            }
         }
+        self.save_meta(session);
+        drop(moving);
         Ok(marks)
     }
 
-    /// Whether `seq` is a prompt (`user_message`) in the chat's log.
-    fn is_prompt(&self, session: &Session, seq: u64) -> bool {
+    /// Whether `seq` is a prompt (`user_message`) in the chat's log. The store reads files, so
+    /// the scan runs off the async workers.
+    async fn is_prompt(self: &Arc<Self>, session: &Session, seq: u64) -> bool {
         if seq == 0 || seq > session.seq.load(Ordering::SeqCst) {
             return false;
         }
-        let mut found = false;
-        let _ = self.store.scan(&session.id, seq - 1, &mut |e: EventRecord| {
-            found = e.seq == seq && e.dir == "mux" && e.kind == "user_message";
-            false
+        let (hub, id) = (self.clone(), session.id.clone());
+        let scan = tokio::task::spawn_blocking(move || {
+            let mut found = false;
+            let _ = hub.store.scan(&id, seq - 1, &mut |e: EventRecord| {
+                found = e.seq == seq && e.dir == "mux" && e.kind == "user_message";
+                false
+            });
+            found
         });
-        found
+        scan.await.unwrap_or(false)
     }
 }
 

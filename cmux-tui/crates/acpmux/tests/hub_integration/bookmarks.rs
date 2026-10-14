@@ -179,3 +179,49 @@ async fn a_moved_chat_keeps_its_bookmarks_and_the_source_keeps_none() {
     let here = src.request(GET, json!({"sessionId": id})).await.unwrap();
     assert_eq!(here["bookmarks"], json!([]), "the source keeps no bookmarks: {here}");
 }
+
+/// Sets from many panes at once: the last `bookmarks` record in the log (what every attached pane
+/// and an attach replay end on) is always the chat's marks as acpmux keeps them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn concurrent_sets_log_the_marks_in_the_order_they_change_them() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "racing-marks").await;
+    for text in ["first", "second"] {
+        c.request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await
+        .unwrap();
+    }
+    let prompts = seqs(&mut c, &id, "user_message").await;
+    for round in 0..10 {
+        let mut writers = Vec::new();
+        for w in 0..8usize {
+            let mut wc = connect(&hub).await;
+            let (id, prompts) = (id.clone(), prompts.clone());
+            writers.push(tokio::spawn(async move {
+                for n in 0..20usize {
+                    let seq = prompts[(w + n) % prompts.len()];
+                    let on = (w + n + round) % 2 == 0;
+                    wc.request(SET, json!({"sessionId": id, "seq": seq, "bookmarked": on}))
+                        .await
+                        .unwrap();
+                }
+            }));
+        }
+        for writer in writers {
+            writer.await.unwrap();
+        }
+        let kept = c.request(GET, json!({"sessionId": id})).await.unwrap();
+        let page = c
+            .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 50_000}))
+            .await
+            .unwrap();
+        let events = page["events"].as_array().unwrap();
+        let last = events.iter().rev().find(|e| e["kind"] == "bookmarks");
+        if let Some(last) = last {
+            assert_eq!(last["msg"]["bookmarks"], kept["bookmarks"], "round {round}: {kept}");
+        }
+    }
+}

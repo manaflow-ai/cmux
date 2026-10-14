@@ -164,3 +164,44 @@ test("a refused toggle is taken back", async () => {
   await act(async () => root.unmount());
   host.remove();
 });
+
+test("an old local mark leaves localStorage only once acpmux keeps it", async () => {
+  const KEY = "cmux.agentPane.threadBookmarks.v1";
+  const keys = ["chat-1#user-3#a1", "chat-1#user-7#b2", "other#user-3#c3"];
+  dom.window.localStorage.setItem(KEY, JSON.stringify(keys));
+  // acpmux keeps the first and refuses the second (unreachable for a moment, say).
+  const calls: Call[] = [];
+  setBookmarkTransport({
+    get: async (sessionId) => ({ sessionId, bookmarks: [] }),
+    set: async (sessionId, seq, bookmarked) => {
+      calls.push({ sessionId, seq, bookmarked });
+      if (seq === 7) throw new Error("unreachable");
+      return { sessionId, bookmarks: [seq] };
+    },
+  });
+  const first = await mount();
+  await settle();
+  expect(calls).toEqual([
+    { sessionId: "chat-1", seq: 3, bookmarked: true },
+    { sessionId: "chat-1", seq: 7, bookmarked: true },
+  ]);
+  expect(JSON.parse(dom.window.localStorage.getItem(KEY) ?? "[]")).toEqual(["chat-1#user-7#b2", "other#user-3#c3"]);
+  await act(async () => first.root.unmount());
+  first.host.remove();
+
+  // The next attach tries the one acpmux did not take again.
+  const again: Call[] = [];
+  setBookmarkTransport({
+    get: async (sessionId) => ({ sessionId, bookmarks: [3] }),
+    set: async (sessionId, seq, bookmarked) => {
+      again.push({ sessionId, seq, bookmarked });
+      return { sessionId, bookmarks: [3, seq] };
+    },
+  });
+  const second = await mount();
+  await settle();
+  expect(again).toEqual([{ sessionId: "chat-1", seq: 7, bookmarked: true }]);
+  expect(JSON.parse(dom.window.localStorage.getItem(KEY) ?? "[]")).toEqual(["other#user-3#c3"]);
+  await act(async () => second.root.unmount());
+  second.host.remove();
+});
