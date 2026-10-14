@@ -68,6 +68,11 @@ impl Client {
         }
     }
 
+    /// Hear every session's `_acpmux/session_changed`, as the app does.
+    async fn watch(&mut self) {
+        self.call("_acpmux/watch", json!({"enabled": true})).await;
+    }
+
     async fn new_session(&mut self) -> String {
         let created = self
             .call("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}}))
@@ -105,6 +110,7 @@ async fn a_chat_its_harness_never_titles_gets_a_short_generated_title_after_its_
     let asked = asked_path("generated");
     let hub = hub(&asked);
     let mut client = Client::open(&hub);
+    client.watch().await;
     let session = client.new_session().await;
 
     client.prompt(&session, "Plan a three-dish picnic menu").await;
@@ -127,6 +133,7 @@ async fn a_harness_title_wins_and_nothing_is_generated() {
     let asked = asked_path("harness");
     let hub = hub(&asked);
     let mut client = Client::open(&hub);
+    client.watch().await;
     let session = client.new_session().await;
 
     client.prompt(&session, "harness-title: Picnic planning").await;
