@@ -73,6 +73,24 @@ final class BrowserModel {
     @ObservationIgnored private var streamId: UInt32?
     @ObservationIgnored private var streamTabId: String?
     @ObservationIgnored private var streamTask: Task<Void, Never>?
+    /// The latest frame received while frames are held (decoded on release).
+    @ObservationIgnored private var heldFrame: (tabId: String, streamId: UInt32, frame: BrowserFrame)?
+
+    /// True while the page is covered by the settled tab grid: frames are
+    /// acked but not decoded or shown (the cards are static snapshots; a
+    /// page animating under the grid cost a JPEG decode and a grid update
+    /// per frame). Releasing decodes the latest held frame once.
+    @ObservationIgnored var holdsFrames = false {
+        didSet {
+            guard !holdsFrames, oldValue, let held = heldFrame else { return }
+            heldFrame = nil
+            Task { [weak self] in
+                let decoded = await Self.decode(held.frame)
+                guard let self, self.streamId == held.streamId, !self.holdsFrames, let decoded else { return }
+                self.frames[held.tabId] = decoded
+            }
+        }
+    }
     @ObservationIgnored private var streamClient: HostClient?
     @ObservationIgnored private var attachToken = 0
     @ObservationIgnored private var sentViewport: BrowserViewport?
@@ -240,6 +258,10 @@ final class BrowserModel {
                     // unacked frames is spent on the network, not on this
                     // phone's decoder. Undecodable frames are acked too.
                     Task { try? await client.ackFrame(streamId: sid, seq: frame.seq) }
+                    if let self, self.holdsFrames {
+                        self.heldFrame = (tabId, sid, frame)
+                        continue
+                    }
                     let decoded = await Self.decode(frame)
                     guard let self, self.streamId == sid else { return }
                     if let decoded {

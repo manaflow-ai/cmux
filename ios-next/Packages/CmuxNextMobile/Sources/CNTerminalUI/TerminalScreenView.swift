@@ -133,6 +133,17 @@ public final class TerminalHandle {
 
     /// True while this terminal has a live renderer.
     public var hasRenderer: Bool { controller != nil }
+
+    /// Whether the live view draws (true) or keeps showing its last frame
+    /// (false: a static card covers or replaces it). Output is still parsed.
+    public func setRendering(_ rendering: Bool) {
+        controller?.terminalView.rendering = rendering
+    }
+
+    /// The live view's last presented frame, `maxPixelWidth` wide at most.
+    public func snapshot(maxPixelWidth: CGFloat) -> UIImage? {
+        controller?.snapshot(maxPixelWidth: maxPixelWidth)
+    }
     /// True once the renderer has drawn the terminal's output (or shows its
     /// ended/failed state); hosts cover it with the card image until then.
     public var isLive: Bool {

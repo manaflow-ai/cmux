@@ -89,6 +89,23 @@ public final class TerminalHandlePool {
         thumbnails.show(terminalIds, cardSize: cardSize, style: style)
     }
 
+    /// The open terminal's live view becomes its static card: its last
+    /// presented frame is the card image and it stops drawing (`resume`
+    /// with `rendering(true)` when it is opened again). Returns false when
+    /// it has no frame (the card keeps its image and the view keeps drawing).
+    @discardableResult
+    public func showAsCard(_ terminalId: String) -> Bool {
+        guard let h = handles[terminalId], let image = h.snapshot(maxPixelWidth: thumbnails.cardPixelWidth) else { return false }
+        thumbnails.setImage(terminalId, image: image)
+        h.setRendering(false)
+        return true
+    }
+
+    /// The terminal's live view draws again (it is being opened).
+    public func showLive(_ terminalId: String) {
+        handles[terminalId]?.setRendering(true)
+    }
+
     /// Releases every renderer and off-screen surface except the terminal on
     /// screen (called on a memory warning; hosts may call it when hidden).
     public func releaseForMemoryWarning() {

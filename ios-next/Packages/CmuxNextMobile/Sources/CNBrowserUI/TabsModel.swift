@@ -89,6 +89,10 @@ final class TabsModel {
     @ObservationIgnored var showTerminalCards: (([String]) -> Void)?
     /// Holds (true) or resumes (false) the terminal cards' live refresh.
     @ObservationIgnored var pauseTerminalCards: ((Bool) -> Void)?
+    /// The open terminal's live view becomes its static card (true when it
+    /// had a frame to show); and back to live.
+    @ObservationIgnored var terminalShowAsCard: ((String) -> Bool)?
+    @ObservationIgnored var terminalShowLive: ((String) -> Void)?
     /// Tells the terminal cards whether the grid is on screen.
     @ObservationIgnored var terminalCardsVisible: ((Bool) -> Void)?
 

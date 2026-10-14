@@ -109,8 +109,27 @@ final class GhosttyTerminalView: UIView {
     /// Creates the surface once the view has a window (its scale is known).
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard window != nil, surface == nil else { return }
-        createSurface()
+        if window != nil, surface == nil { createSurface() }
+        applyOcclusion()
+    }
+
+    /// Whether the renderer draws (true) or keeps showing its last frame
+    /// (false, for example while a static card stands in for it). A view
+    /// out of a window never draws: a kept renderer would otherwise draw a
+    /// Metal frame on every output change while nobody sees it.
+    var rendering = true {
+        didSet { if rendering != oldValue { applyOcclusion() } }
+    }
+
+    private var appliedVisible: Bool?
+
+    private func applyOcclusion() {
+        guard let surface else { return }
+        let visible = rendering && window != nil
+        guard visible != appliedVisible else { return }
+        appliedVisible = visible
+        ghostty_surface_set_occlusion(surface, visible)
+        if visible { requestFrame() }
     }
 
     /// Diagnostics of the surface (app, surface, draws, grid).
@@ -156,7 +175,8 @@ final class GhosttyTerminalView: UIView {
         diagnostics["surface"] = surface == nil ? "nil" : "ok"
         if let surface {
             // Visible and focused: the renderer draws only for a visible surface.
-            ghostty_surface_set_occlusion(surface, true)
+            appliedVisible = nil
+            applyOcclusion()
             ghostty_surface_set_focus(surface, true)
         }
         applyTheme()

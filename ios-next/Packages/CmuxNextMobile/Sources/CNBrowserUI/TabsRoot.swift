@@ -21,6 +21,8 @@ public struct TabsRoot: View {
         model.showTerminalCards = { [weak terminals] ids in terminals?.showCards(ids) }
         model.pauseTerminalCards = { [weak terminals] paused in terminals?.thumbnails.setPaused(paused) }
         model.terminalCardsVisible = { [weak terminals] visible in terminals?.thumbnails.setVisible(visible) }
+        model.terminalShowAsCard = { [weak terminals] id in terminals?.pool.showAsCard(id) ?? false }
+        model.terminalShowLive = { [weak terminals] id in terminals?.pool.showLive(id) }
         _tabs = State(initialValue: model)
         _terminals = State(initialValue: terminals)
     }

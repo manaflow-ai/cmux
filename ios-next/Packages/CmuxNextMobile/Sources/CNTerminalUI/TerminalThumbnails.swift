@@ -7,122 +7,83 @@ import GhosttyNextKit
 public import SwiftUI
 public import UIKit
 
-/// Live snapshot images of terminals for a tab grid (cards), including
-/// terminals that are not on screen.
+/// Static snapshot images of terminals for a tab grid (cards), including
+/// terminals that are not on screen. Cards never render live.
 ///
-/// Each shown terminal gets a headless Ghostty surface (never drawn, small
-/// scrollback) attached to the host's stream: it parses the output exactly
-/// like the full terminal, and the card image is the visible grid's text
-/// drawn in the theme's colors, refreshed on output at most every
-/// `refreshInterval` (2 Hz by default). At most `maxLive` terminals stay
-/// attached (least recently shown are dropped), so memory is bounded.
+/// A card's image comes from the live terminal's last presented frame when
+/// the user leaves that terminal (`resume(_:image:)`, `setImage`), or, for a
+/// terminal not open on this phone, from ONE off-screen frame: a headless
+/// Ghostty surface at card resolution attaches to the host's stream, lets
+/// the replay settle, draws once, hands over the frame and is torn down.
+/// One surface at a time, in order (cards without an image first).
+///
+/// `show(_:cardSize:)` is called when the grid opens: cards with no image,
+/// one in the other appearance, or one older than `minRefreshAge` queue for
+/// one frame each (the host has no "output since" signal, so the age bounds
+/// refreshes to at most one per card per grid opening and interval). Nothing
+/// renders while the cards are hidden (`setVisible(false)`) or the app is in
+/// the background; while the grid scrolls (`setPaused(true)`) only cards
+/// with no image yet are drawn, and new images wait until it stops.
 /// Mirrored (`term.mirror.v1`) terminals render at the Mac's grid; phone
 /// owned ones attach at their current grid, so nothing is resized.
-///
-/// Usage: call `show(_:cardSize:)` with the ids visible in the grid (again
-/// when that set or the card size changes), read `images[id]` (observable),
-/// and call `stopAll()` when the grid goes away.
 @MainActor
 @Observable
 public final class TerminalThumbnails {
     public let connection: HostConnection
+    /// Kept for API compatibility: at most one off-screen surface runs.
     public let maxLive: Int
-    public let refreshInterval: Duration
+    /// A card's image is refreshed when the grid opens only if it is at
+    /// least this old.
+    public let minRefreshAge: Duration
     /// Latest card image per terminal id.
     public private(set) var images: [String: UIImage] = [:]
 
-    @ObservationIgnored private var live: [String: HeadlessTerminal] = [:]
-    @ObservationIgnored private var order: [String] = []
+    @ObservationIgnored private var current: (id: String, terminal: HeadlessTerminal)?
+    @ObservationIgnored private var queue: [String] = []
+    @ObservationIgnored private var snapshotAt: [String: ContinuousClock.Instant] = [:]
+    /// Images that arrived while the grid scrolled (published when it stops).
+    @ObservationIgnored private var held: [String: (UIImage, UIUserInterfaceStyle)] = [:]
     @ObservationIgnored private var cardSize = CGSize(width: 180, height: 300)
     @ObservationIgnored private var generation = -1
     @ObservationIgnored private var style: UIUserInterfaceStyle = .light
     /// `show` was called with `.unspecified`: follow the app's windows.
     @ObservationIgnored private var followsSystem = false
     /// The last text drawn per terminal, so a style or size change redraws
-    /// every card at once (live or not) without waiting for output.
+    /// every text card at once without waiting for a frame.
     @ObservationIgnored private var lastLines: [String: (lines: [String], grid: (cols: Int, rows: Int))] = [:]
     @ObservationIgnored private var observedWindows: [ObjectIdentifier: any UITraitChangeRegistration] = [:]
-
-    /// Terminals open full screen: their card comes from the open view when
-    /// it closes; no off-screen surface parses them meanwhile.
+    /// Terminals open full screen: their card comes from the open view.
     @ObservationIgnored private var suspended: Set<String> = []
-    /// Cards waiting for a surface to draw their first (or restyled) image.
-    @ObservationIgnored private var pendingImage: [String] = []
     @ObservationIgnored private var lastWanted: [String] = []
     /// Terminals that ended on the Mac (their card says so; never attached again).
     @ObservationIgnored private var ended: Set<String> = []
     /// The light/dark style each card image was drawn in.
     @ObservationIgnored private var imageStyles: [String: UIUserInterfaceStyle] = [:]
+    /// The grid is scrolling.
+    @ObservationIgnored private var paused = false
+    /// The cards are on screen (false: nothing renders).
+    @ObservationIgnored private var visible = true
+    @ObservationIgnored private var active = true
+    @ObservationIgnored private var lifecycleObservers: [any NSObjectProtocol] = []
 
     /// Card width in pixels (images are rendered at this width).
     public var cardPixelWidth: CGFloat { (cardSize.width * min(UIScreen.main.scale, 2)).rounded() }
 
-    @ObservationIgnored private var pushTask: Task<Void, Never>?
-    /// Live cards hold their refreshes (the grid is scrolling).
-    @ObservationIgnored private var paused = false
-    /// The cards are on screen (false: no card renders at all).
-    @ObservationIgnored private var visible = true
-    @ObservationIgnored private var lifecycleObservers: [any NSObjectProtocol] = []
-
-    /// Holds (true) or resumes (false) the live cards' refreshes. While held,
-    /// a card that has an image keeps it (output is still parsed); one with
-    /// no image yet still draws its first. Resuming draws what changed.
-    public func setPaused(_ paused: Bool) {
-        guard paused != self.paused else { return }
-        self.paused = paused
-        for t in live.values { t.setHold(paused: paused, hidden: !visible) }
-    }
-
-    /// Whether the cards are on screen. Hidden cards never render (no
-    /// off-screen Ghostty draw or GPU readback while the grid is covered by
-    /// a page); their output is still parsed, so showing them again draws
-    /// each current screen once.
-    public func setVisible(_ visible: Bool) {
-        guard visible != self.visible else { return }
-        self.visible = visible
-        for t in live.values { t.setHold(paused: paused, hidden: !visible) }
-    }
-
-    /// The app went to the background: every off-screen surface and stream
-    /// stops; the cards keep their images and attach again in the foreground.
-    private func observeLifecycle() {
-        let center = NotificationCenter.default
-        lifecycleObservers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.stopAll() }
-        })
-        lifecycleObservers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.visible, !self.lastWanted.isEmpty else { return }
-                self.show(self.lastWanted, cardSize: self.cardSize, style: self.followsSystem ? .unspecified : self.style)
-            }
-        })
-    }
-
-    public init(connection: HostConnection, maxLive: Int = 6, refreshInterval: Duration = .milliseconds(500)) {
+    public init(connection: HostConnection, maxLive: Int = 1, minRefreshAge: Duration = .seconds(10)) {
         self.connection = connection
         self.maxLive = maxLive
-        self.refreshInterval = refreshInterval
-        // Cards follow grid changes (a resize, the Mac's window) like the
-        // live view does, so their layout matches.
+        self.minRefreshAge = minRefreshAge
         observeLifecycle()
-        pushTask = Task { [weak self, connection] in
-            for await push in connection.pushes() {
-                guard case .terminalUpdated(let t) = push else { continue }
-                self?.live[t.id]?.gridChanged(cols: t.cols, rows: t.rows)
-            }
-        }
     }
 
     isolated deinit {
-        pushTask?.cancel()
+        current?.terminal.stop()
         for o in lifecycleObservers { NotificationCenter.default.removeObserver(o) }
     }
 
-    /// Keeps these terminals live (attached and re-rendered on output).
-    /// Others beyond `maxLive` are detached, oldest first. Cards render at
-    /// `cardSize` (points) in `style` (light or dark).
-    /// `.unspecified` follows the app's windows (their light/dark changes
-    /// redraw the cards by themselves).
+    /// The grid opened (or its cards or size changed): queues one frame for
+    /// each card that needs one. Cards render at `cardSize` (points) in
+    /// `style` (light or dark); `.unspecified` follows the app's windows.
     public func show(_ terminalIds: [String], cardSize: CGSize, style: UIUserInterfaceStyle = .unspecified) {
         followsSystem = style == .unspecified
         if followsSystem { observeWindows() }
@@ -132,82 +93,109 @@ public final class TerminalThumbnails {
         self.style = resolved
         if restyled { redrawAll() }
         if connection.generation != generation {
-            // A new link: every stream is gone, attach again.
+            // A new link: a running stream is gone.
             generation = connection.generation
-            for t in live.values { t.stop() }
-            live.removeAll()
+            stopCurrent(requeue: false)
         }
-        let wanted = terminalIds.filter { !suspended.contains($0) }
+        let wanted = terminalIds.filter { !suspended.contains($0) && !ended.contains($0) }
         lastWanted = wanted
-        for id in wanted {
-            order.removeAll { $0 == id }
-            order.append(id)
+        let now = ContinuousClock.now
+        let missing = wanted.filter { images[$0] == nil }
+        let stale = wanted.filter { id in
+            images[id] != nil && (imageStyles[id] != resolved || snapshotAt[id].map { now - $0 >= minRefreshAge } ?? true)
         }
-        if restyled { for t in live.values { t.restyle(self.style, page: pageSize) } }
-        // Cards with no image (or one in the other appearance) queue for a
-        // slot; at most `maxLive` surfaces run. When a queued card is waiting,
-        // a live card hands its slot over as soon as it has drawn its image
-        // (it keeps that image), so every card gets one however many there
-        // are. Cards that already have an image fill free slots to stay live.
-        pendingImage = wanted.filter { live[$0] == nil && !ended.contains($0) && (images[$0] == nil || imageStyles[$0] != self.style) }
-        let haveImage = wanted.filter { live[$0] == nil && !pendingImage.contains($0) }
-        TerminalMemory.trace("thumbnails show \(terminalIds.count) ids, need \(pendingImage.count), live \(live.count), client \(connection.client != nil)")
-        // Live cards that are not wanted any more make room first.
-        for id in live.keys where !wanted.contains(id) && !pendingImage.isEmpty {
-            live.removeValue(forKey: id)?.stop()
-        }
-        // Live cards whose image is current hand over to waiting ones now.
-        for (id, _) in live where !pendingImage.isEmpty && images[id] != nil && imageStyles[id] == self.style && live.count >= maxLive {
-            live.removeValue(forKey: id)?.stop()
-        }
-        startPending()
-        _ = haveImage
-        while live.count > maxLive, let oldest = order.first(where: { live[$0] != nil && !wanted.contains($0) }) {
-            live.removeValue(forKey: oldest)?.stop()
+        queue = missing + stale
+        if let current, !wanted.contains(current.id) { stopCurrent(requeue: false) }
+        if let current { queue.removeAll { $0 == current.id } }
+        TerminalMemory.trace("thumbnails show \(terminalIds.count) ids, missing \(missing.count), stale \(stale.count), client \(connection.client != nil)")
+        pump()
+    }
+
+    /// Holds (true) or resumes (false) refreshes while the grid scrolls:
+    /// only cards with no image yet are drawn; new images of other cards
+    /// wait until it stops.
+    public func setPaused(_ paused: Bool) {
+        guard paused != self.paused else { return }
+        self.paused = paused
+        if !paused {
+            for (id, entry) in held { publish(id, entry.0, entry.1) }
+            held.removeAll()
+            pump()
         }
     }
 
-    /// Starts queued cards while slots are free.
-    private func startPending() {
-        while live.count < maxLive, !pendingImage.isEmpty, connection.client != nil {
-            start(pendingImage.removeFirst())
-        }
-        // Everyone has an image: free slots go back to shown cards, most
-        // recently shown first, so they keep following their output.
-        guard pendingImage.isEmpty else { return }
-        for id in lastWanted.reversed() where live.count < maxLive && live[id] == nil && !suspended.contains(id) && !ended.contains(id) {
-            start(id)
-        }
+    /// Whether the cards are on screen. Hidden cards never render.
+    public func setVisible(_ visible: Bool) {
+        guard visible != self.visible else { return }
+        self.visible = visible
+        if visible { pump() } else { stopCurrent(requeue: true) }
     }
 
-    private func start(_ id: String) {
-        guard live[id] == nil, let client = connection.client else { return }
+    /// Starts the next queued card when nothing is rendering.
+    private func pump() {
+        guard current == nil, visible, active, let client = connection.client else { return }
+        guard let index = queue.firstIndex(where: { !paused || images[$0] == nil }) else { return }
+        let id = queue.remove(at: index)
         let mirrored = connection.hostInfo?.supports(.terminalMirror) ?? false
-        let headless = HeadlessTerminal(terminalId: id, client: client, interval: refreshInterval, mirrored: mirrored,
-                                        style: self.style, page: pageSize) { [weak self] result in
+        let style = self.style
+        let headless = HeadlessTerminal(terminalId: id, client: client, mirrored: mirrored, style: style, page: pageSize) { [weak self] result in
             guard let self else { return }
             switch result {
             case .image(let image, let drawnStyle):
-                self.images[id] = image
-                self.imageStyles[id] = drawnStyle
-                self.lastLines[id] = nil
+                if self.paused, self.images[id] != nil {
+                    self.held[id] = (image, drawnStyle)
+                } else {
+                    self.publish(id, image, drawnStyle)
+                }
             case .text(let lines, let grid):
                 self.render(id, lines: lines, grid: grid)
             case .ended:
                 self.images[id] = TerminalCardRenderer.endedImage(size: self.cardSize, style: self.style)
                 self.imageStyles[id] = self.style
                 self.ended.insert(id)
-                self.live.removeValue(forKey: id)?.stop()
             }
-            // Hand the slot to a card still waiting for its first image.
-            if !self.pendingImage.isEmpty, self.imageStyles[id] == self.style, let done = self.live.removeValue(forKey: id) {
-                done.stop()
-            }
-            self.startPending()
+        } onSettled: { [weak self] in
+            guard let self, self.current?.id == id else { return }
+            self.current?.terminal.stop()
+            self.current = nil
+            self.pump()
         }
-        live[id] = headless
-        headless.setHold(paused: paused, hidden: !visible)
+        current = (id, headless)
         headless.start()
+    }
+
+    private func publish(_ id: String, _ image: UIImage, _ drawnStyle: UIUserInterfaceStyle) {
+        images[id] = image
+        imageStyles[id] = drawnStyle
+        lastLines[id] = nil
+        snapshotAt[id] = .now
+    }
+
+    private func stopCurrent(requeue: Bool) {
+        guard let current else { return }
+        current.terminal.stop()
+        self.current = nil
+        if requeue, !queue.contains(current.id) { queue.insert(current.id, at: 0) }
+    }
+
+    /// The app went to the background: the running surface and its stream
+    /// stop; the grid queues its cards again in the foreground.
+    private func observeLifecycle() {
+        let center = NotificationCenter.default
+        lifecycleObservers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.active = false
+                self.stopCurrent(requeue: true)
+            }
+        })
+        lifecycleObservers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.active = true
+                self.pump()
+            }
+        })
     }
 
     /// The page a card shows, in points (the screen's width, the card's
@@ -218,46 +206,50 @@ public final class TerminalThumbnails {
         return (CGSize(width: width, height: (width * aspect).rounded()), cardPixelWidth / width)
     }
 
-    /// Frees one live surface not in `keeping` (least recently shown).
-    private func evictOldest(keeping: [String]) -> Bool {
-        guard let oldest = order.first(where: { live[$0] != nil && !keeping.contains($0) }) else { return false }
-        live.removeValue(forKey: oldest)?.stop()
-        return true
-    }
-
-    /// The terminal opened full screen: stop parsing it off screen.
+    /// The terminal opened full screen: no off-screen frame for it.
     public func suspend(_ terminalId: String) {
         suspended.insert(terminalId)
-        live.removeValue(forKey: terminalId)?.stop()
+        queue.removeAll { $0 == terminalId }
+        if current?.id == terminalId { stopCurrent(requeue: false); pump() }
     }
 
-    /// The full-screen terminal closed: its last screen becomes the card, and
-    /// the next `show` resumes it off screen.
+    /// The full-screen terminal closed without a frame: its last text
+    /// becomes the card (if given), and it queues for one off-screen frame.
     public func resume(_ terminalId: String, lines: [String]? = nil, grid: (cols: Int, rows: Int)? = nil) {
         suspended.remove(terminalId)
         if let lines, let grid { render(terminalId, lines: lines, grid: grid) }
+        if !queue.contains(terminalId), current?.id != terminalId { queue.insert(terminalId, at: 0) }
+        pump()
     }
 
     /// The full-screen terminal closed with this frame of its renderer.
     public func resume(_ terminalId: String, image: UIImage) {
         suspended.remove(terminalId)
-        images[terminalId] = image
-        imageStyles[terminalId] = style
-        lastLines[terminalId] = nil
+        setImage(terminalId, image: image)
     }
 
-    /// Detaches every live terminal; images stay until replaced.
+    /// A card image taken from the live terminal (its last presented frame).
+    public func setImage(_ terminalId: String, image: UIImage) {
+        queue.removeAll { $0 == terminalId }
+        held[terminalId] = nil
+        publish(terminalId, image, style)
+    }
+
+    /// Stops the running surface; images stay until replaced.
     public func stopAll() {
-        for t in live.values { t.stop() }
-        live.removeAll()
+        stopCurrent(requeue: false)
+        queue.removeAll()
     }
 
-    /// Drops a terminal's image and stream (it was closed).
+    /// Drops a terminal's image (it was closed).
     public func forget(_ terminalId: String) {
-        live.removeValue(forKey: terminalId)?.stop()
+        if current?.id == terminalId { stopCurrent(requeue: false) }
+        queue.removeAll { $0 == terminalId }
         images[terminalId] = nil
         lastLines[terminalId] = nil
-        order.removeAll { $0 == terminalId }
+        snapshotAt[terminalId] = nil
+        held[terminalId] = nil
+        pump()
     }
 
     private func render(_ id: String, lines: [String], grid: (cols: Int, rows: Int)) {
@@ -266,7 +258,7 @@ public final class TerminalThumbnails {
         images[id] = TerminalCardRenderer.image(lines: lines, cols: grid.cols, size: cardSize, style: style)
     }
 
-    /// Redraws every card from its last text in the current style and size.
+    /// Redraws every text card from its last text in the current style and size.
     private func redrawAll() {
         for (id, entry) in lastLines {
             images[id] = TerminalCardRenderer.image(lines: entry.lines, cols: entry.grid.cols, size: cardSize, style: style)
@@ -309,11 +301,11 @@ public final class TerminalThumbnails {
         guard resolved != style else { return }
         style = resolved
         redrawAll()
-        // Live cards draw again in the new theme; others when next shown.
-        for t in live.values { t.restyle(resolved, page: pageSize) }
-        // Cards not live now are redrawn in the new appearance in turn.
-        pendingImage = lastWanted.filter { live[$0] == nil && !ended.contains($0) && imageStyles[$0] != style }
-        startPending()
+        // Cards in the other appearance get one frame each, in turn.
+        stopCurrent(requeue: true)
+        let restyle = lastWanted.filter { !ended.contains($0) && imageStyles[$0] != style && !queue.contains($0) }
+        queue.insert(contentsOf: restyle, at: 0)
+        pump()
     }
 }
 
@@ -391,18 +383,28 @@ struct TerminalCardRenderer {
     }
 }
 
-/// One terminal rendered off screen for its card: a Ghostty surface with its
-/// real Metal renderer, laid out like the page (screen width, card aspect)
-/// at card resolution, fed by its own attach stream; the card image is the
-/// renderer's presented frame (same pixels as the live terminal). Text is
-/// the fallback when no frame is available.
+/// One frame of a terminal rendered off screen for its card: a Ghostty
+/// surface with its real Metal renderer, laid out like the page (screen
+/// width, card aspect) at card resolution, fed by its own attach stream.
+/// Once the replay has settled (no output for `quiet`, or `maxWait` after
+/// attaching while output keeps coming) it draws one frame, delivers the
+/// presented pixels (same as the live terminal) and calls `onSettled`; the
+/// owner then stops it. Never draws again on its own.
 @MainActor
 final class HeadlessTerminal {
     let terminalId: String
     let client: HostClient
-    let interval: Duration
     let mirrored: Bool
     let onResult: (CardResult) -> Void
+    let onSettled: () -> Void
+    /// Output pause that counts as "the replay arrived" (a UI debounce).
+    static let quiet: Duration = .milliseconds(150)
+    /// Draw even if output keeps coming (a busy terminal).
+    static let maxWait: Duration = .milliseconds(1500)
+    /// Give up (the owner moves to the next card).
+    static let timeout: Duration = .seconds(6)
+    /// Draws for one card: the frame, font fitting passes, retries.
+    static let maxRenders = 6
 
     enum CardResult {
         case image(UIImage, UIUserInterfaceStyle)
@@ -432,27 +434,38 @@ final class HeadlessTerminal {
     private var dirty = false
     private var rendering = false
     private var stopped = false
-    /// Refreshes wait while the grid scrolls (the first image does not)
-    /// and while the cards are hidden (nothing renders).
-    private var paused = false
-    private var hidden = false
+    private var settled = false
+    private var renders = 0
+    private var quietTask: Task<Void, Never>?
+    private var deadlineTasks: [Task<Void, Never>] = []
 
-    func setHold(paused: Bool, hidden: Bool) {
-        self.paused = paused
-        self.hidden = hidden
-        renderIfIdle()
-    }
-
-    init(terminalId: String, client: HostClient, interval: Duration, mirrored: Bool, style: UIUserInterfaceStyle,
-         page: (size: CGSize, scale: CGFloat), onResult: @escaping (CardResult) -> Void) {
+    init(terminalId: String, client: HostClient, mirrored: Bool, style: UIUserInterfaceStyle,
+         page: (size: CGSize, scale: CGFloat), onResult: @escaping (CardResult) -> Void,
+         onSettled: @escaping () -> Void) {
         self.terminalId = terminalId
         self.client = client
-        self.interval = interval
         self.mirrored = mirrored
         self.style = style
         self.page = page
         self.onResult = onResult
+        self.onSettled = onSettled
         view = UIView(frame: CGRect(origin: .zero, size: page.size))
+    }
+
+    private func settle() {
+        guard !settled, !stopped else { return }
+        settled = true
+        onSettled()
+    }
+
+    /// Draws once output has paused for `quiet` (bounded delay, restarted
+    /// by each chunk; `maxWait` caps it).
+    private func scheduleQuietRender() {
+        quietTask?.cancel()
+        quietTask = Task { [weak self] in
+            do { try await Task.sleep(for: Self.quiet) } catch { return }
+            self?.requestRender()
+        }
     }
 
     func start() {
@@ -463,13 +476,10 @@ final class HeadlessTerminal {
         config.scale_factor = Double(page.scale)
         config.font_size = Float(fontSize)
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
-        guard let surface = ghostty_surface_new(app.app, &config) else { return }
-        // Drawn (never shown): the page at card resolution. Occluded between
-        // card refreshes: a visible surface's renderer thread draws a Metal
-        // frame on every output change (a spinner in a TUI meant continuous
-        // GPU work for each off-screen card); `renderIfIdle` makes it
-        // visible only for the frame it takes.
-        ghostty_surface_set_occlusion(surface, false)
+        guard let surface = ghostty_surface_new(app.app, &config) else { settle(); return }
+        // Drawn (never shown): the page at card resolution. Visible to the
+        // renderer for its short life (one card frame, then torn down).
+        ghostty_surface_set_occlusion(surface, true)
         ref = SurfaceRef(surface)
         applyStyle()
         applySize()
@@ -477,6 +487,15 @@ final class HeadlessTerminal {
         TerminalMemory.log()
         let client = self.client
         let id = terminalId
+        deadlineTasks.append(Task { [weak self] in
+            do { try await Task.sleep(for: Self.maxWait) } catch { return }
+            guard let self, self.renders == 0 else { return }
+            self.requestRender()
+        })
+        deadlineTasks.append(Task { [weak self] in
+            do { try await Task.sleep(for: Self.timeout) } catch { return }
+            self?.settle()
+        })
         task = Task { [weak self] in
             do {
                 // The current grid, so a phone-owned terminal is not resized;
@@ -490,6 +509,8 @@ final class HeadlessTerminal {
                 }
                 self.streamId = result.streamId
                 self.setGrid(cols: result.terminal.cols, rows: result.terminal.rows)
+                // An empty terminal sends nothing: draw after the quiet time.
+                self.scheduleQuietRender()
                 for await bytes in client.openStream(id: result.streamId) {
                     guard !self.stopped else { break }
                     self.feed(bytes)
@@ -497,6 +518,7 @@ final class HeadlessTerminal {
             } catch {
                 TerminalMemory.trace("thumbnail \(id): attach failed: \(error)")
                 if let rpc = error as? RPCError, rpc.code == .notFound, let self, !self.stopped { self.onResult(.ended) }
+                self?.settle()
                 return
             }
         }
@@ -506,6 +528,8 @@ final class HeadlessTerminal {
         guard !stopped else { return }
         stopped = true
         task?.cancel()
+        quietTask?.cancel()
+        for t in deadlineTasks { t.cancel() }
         if let streamId {
             let client = self.client
             Task { try? await client.detachTerminal(streamId: streamId) }
@@ -610,28 +634,33 @@ final class HeadlessTerminal {
                 ghostty_surface_process_output(ref.surface, base, UInt(raw.count))
             }
         }
-        requestRender()
+        scheduleQuietRender()
     }
 
-    /// Renders now, then at most once per interval while output keeps coming.
+    /// Draws the card's frame (after the output queued so far was parsed);
+    /// settles once a frame was delivered and nothing asks for another
+    /// (font fitting), or after `maxRenders`.
     private func renderIfIdle() {
-        guard dirty, !rendering, !stopped, !hidden, !(paused && delivered), let ref else { return }
+        guard dirty, !rendering, !stopped, !settled, let ref else { return }
         dirty = false
         rendering = true
+        renders += 1
         // After the output queued so far was parsed.
         queue.async {
             Task { @MainActor [weak self] in
                 guard let self, !self.stopped else { return }
                 self.fitMirrorFont()
                 let before = GhosttySnapshot.frameID(of: self.view)
-                ghostty_surface_set_occlusion(ref.surface, true)
                 ghostty_surface_refresh(ref.surface)
                 ghostty_surface_draw(ref.surface)
                 await self.deliverFrame(ref, after: before)
-                if !self.stopped { ghostty_surface_set_occlusion(ref.surface, false) }
-                do { try await Task.sleep(for: self.interval) } catch {}
+                if self.stopped { return }
                 self.rendering = false
-                self.renderIfIdle()
+                if self.dirty, self.renders < Self.maxRenders {
+                    self.renderIfIdle()
+                } else if self.delivered || self.renders >= Self.maxRenders {
+                    self.settle()
+                }
             }
         }
     }
