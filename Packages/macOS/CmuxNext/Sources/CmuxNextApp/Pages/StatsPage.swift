@@ -33,7 +33,9 @@ final class StatsPageTab: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         // One request line per call to this app's acpmux; no acpmux answers unavailable.
         let socket = services.flatMap(QuitAgents.environment)?.socketPath
-        let provider = StatsPageProvider { line in
+        let provider = StatsPageProvider(allowed: { [weak services] in
+            services?.settings?.snapshot.previewFeatures == true
+        }) { line in
             guard let socket else { return nil }
             return try await AgentActivityLineConnection.oneShot(path: socket, send: line, deadline: .seconds(30))
         }

@@ -11,17 +11,21 @@ public extension PageDescriptor {
 /// `cmux.stats.summary {days, tzOffsetMinutes}`: one `_acpmux/stats` request to this app's acpmux,
 /// whose answer (counts and times only) goes back to the page as is. `send` delivers one request
 /// line and returns the reply line, or nil when there is no acpmux to ask; it throws on a closed
-/// connection or its deadline.
+/// connection or its deadline. `allowed` is asked on every call, so a tab restored or left open
+/// after `labs.previewFeatures` turned off scans nothing.
 @MainActor
 public final class StatsPageProvider: PageProvider {
+    private let allowed: @MainActor () -> Bool
     private let send: @Sendable (Data) async throws -> Data?
 
-    public init(send: @escaping @Sendable (Data) async throws -> Data?) {
+    public init(allowed: @escaping @MainActor () -> Bool, send: @escaping @Sendable (Data) async throws -> Data?) {
+        self.allowed = allowed
         self.send = send
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard op == "cmux.stats.summary" else { throw PageError.unknownOp(op) }
+        guard allowed() else { throw PageError(code: "cmux.stats.unavailable", message: Self.previewRefusal, retryable: true) }
         // Only the two numbers reach acpmux, which clamps them.
         var request: [String: JSONValue] = [:]
         if let days = params["days"]?.doubleValue { request["days"] = .number(days) }
