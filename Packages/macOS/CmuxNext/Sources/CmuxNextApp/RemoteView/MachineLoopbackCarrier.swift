@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 import Foundation
 import CmuxNextCompat
