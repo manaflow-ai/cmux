@@ -9,8 +9,9 @@ import Testing
 /// window stacked insets. The curved main pane sat a 6 pt gutter in from the window, every pane
 /// sat another 2 pt (plus a 2 pt column gap at the sides) inside it as its own outlined, rounded
 /// box, and beside the sidebar the gutter came on top of the sidebar's own 6 pt row inset. One
-/// inset is left: the main pane's gutter at the window edges. Inside it panes are flush and told
-/// apart by one line, and the sidebar's row inset is the only gap between its rows and the pane.
+/// inset is left: the sidebar's row inset beside it. The main pane meets the window edges (Leo
+/// 2026-10-13: a gutter there read as a second outline inside the window's), inside it panes are
+/// flush and told apart by one line.
 @MainActor @Suite(.serialized) struct MainPaneOneInsetTests {
     func root(sidebarHidden: Bool) -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared
@@ -71,16 +72,17 @@ import Testing
     @Test func theSidebarsRowInsetIsTheOnlyGapBesideIt() throws {
         let (window, root) = root(sidebarHidden: false)
         defer { window.close() }
-        try #require(Metrics.mainPaneGutter > 0 && root.sidebar.frame.width > 0)
-        let sidebar = root.sidebar.frame, card = root.contentHost.frame
+        try #require(Metrics.mainPaneCurved && root.sidebar.frame.width > 0)
+        let sidebar = root.sidebar.frame, card = root.contentHost.frame, bounds = window.contentView!.bounds
         #expect(card.minX == sidebar.maxX, "no gutter on top of the sidebar's own row inset")
-        #expect(window.contentView!.bounds.maxX - card.maxX == Metrics.mainPaneGutter, "the gutter at the window edge")
+        #expect(card.maxX == bounds.maxX && card.maxY == bounds.maxY && card.minY == bounds.minY,
+                "no gutter at the window edges")
     }
 
-    @Test func withTheSidebarHiddenTheGutterIsAtTheWindowEdge() throws {
+    @Test func withTheSidebarHiddenThePaneMeetsTheWindowEdge() throws {
         let (window, root) = root(sidebarHidden: true)
         defer { window.close() }
-        try #require(Metrics.mainPaneGutter > 0)
-        #expect(root.contentHost.frame.minX == Metrics.mainPaneGutter)
+        try #require(Metrics.mainPaneCurved)
+        #expect(root.contentHost.frame == window.contentView!.bounds)
     }
 }

@@ -119,9 +119,9 @@ extension WindowRootView {
         }
     }
 
-    /// Insets the content host by the gutter from the titlebar and the
-    /// window edges (also with the sidebar hidden or in fullscreen; beside a
-    /// shown sidebar the sidebar's row inset is the one gap), rounds it, and
+    /// Insets the content host by the gutter (0 by default: it meets the
+    /// window edges) from the titlebar and the window edges; beside a shown
+    /// sidebar the sidebar's row inset is the one gap. Rounds it and
     /// reshades the chrome.
     func applyMainPane() {
         let gutter = Metrics.mainPaneGutter

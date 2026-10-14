@@ -9,7 +9,8 @@ import Testing
 /// sits the gutter in from the window's edges, and its corners used a fixed 8 pt radius. At the
 /// window's bottom corners that curve did not follow the window's own (about 16 pt), so the gutter
 /// pinched and widened around each corner. The pane's corners are concentric with the window's:
-/// the window radius less the gutter, so the gutter runs at one width all the way round.
+/// the window radius less the gutter. Since Leo's 2026-10-13 call the pane meets the window edge
+/// (no gutter), so its corners are the window's own and the two read as one outline.
 @MainActor struct MainPaneWindowCornerTests {
     func root() -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared
@@ -25,13 +26,11 @@ import Testing
         return (window, root)
     }
 
-    @Test func theMainPaneCornersAreConcentricWithTheWindowCorners() throws {
+    @Test func theMainPaneCornersAreTheWindowCorners() throws {
         let (window, root) = root()
         defer { window.close() }
         let windowRadius = CEFClipShape.windowCornerRadius(window)
-        let gutter = Metrics.mainPaneGutter
-        try #require(Metrics.mainPaneCurved && windowRadius > gutter, "a curved main pane in a window with round corners")
-        #expect(root.contentHost.layer?.cornerRadius == windowRadius - gutter,
-                "the pane's corner is the window's corner less the gutter")
+        try #require(Metrics.mainPaneCurved && windowRadius > 0, "a curved main pane in a window with round corners")
+        #expect(root.contentHost.layer?.cornerRadius == windowRadius, "the pane's corner is the window's own")
     }
 }
