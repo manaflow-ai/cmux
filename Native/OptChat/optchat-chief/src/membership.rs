@@ -75,6 +75,12 @@ impl Membership {
                 "OPTCHAT_CHIEF_PARTICIPANT {participant:?} is not an agent_ participant id"
             ));
         }
+        if !local && participant != AGENT_MUX {
+            // The cloud link maps the cloud chief onto agent_mux (cloud/idmap.rs).
+            return Err(format!(
+                "OPTCHAT_CHIEF_PARTICIPANT {participant} needs the local conversation source"
+            ));
+        }
         let (group_wake, side) = match group_wake.map(str::trim) {
             None | Some("") => (GroupWake::Mention, false),
             Some("mention") => (GroupWake::Mention, true),
@@ -85,10 +91,16 @@ impl Membership {
                 ));
             }
         };
+        // The cloud source keeps its own wake rule: the setting is local only.
+        let local_side = local && side;
         Ok(Membership {
             participant: participant.to_owned(),
-            group_wake,
-            local_side: local && side,
+            group_wake: if local_side {
+                group_wake
+            } else {
+                GroupWake::Mention
+            },
+            local_side,
         })
     }
 
@@ -96,11 +108,17 @@ impl Membership {
         self.participant == AGENT_MUX
     }
 
+    /// Whether the Chief reads every message of its channels and may stay
+    /// quiet there (`NO_REPLY`).
+    pub fn acts_on_its_own(&self) -> bool {
+        self.local_side && self.group_wake == GroupWake::Every
+    }
+
     /// The system prompt paragraph for a Chief that reads every message of
     /// its channels (None in the other modes): constant per host, so the
     /// prompt cache holds.
     pub fn instructions(&self) -> Option<String> {
-        (self.local_side && self.group_wake == GroupWake::Every).then(|| {
+        self.acts_on_its_own().then(|| {
             format!(
                 "## Channels\n\nYou take part in group conversations (channels) beside your \
 conversation with the user. Every person's message there reaches you, labelled \

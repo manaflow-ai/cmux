@@ -570,23 +570,20 @@ pub fn select_chief(conversations: Vec<Summary>) -> Option<Summary> {
     select_chief_of(conversations, AGENT_MUX)
 }
 
-/// [`select_chief`] for the Chief `chief`: its oldest conversation with the
-/// person and no other participant when it has one (its DM), else its
-/// oldest conversation.
+/// [`select_chief`] for the Chief `chief`. A Chief that is not agent_mux
+/// answers in its oldest DM with the person (the person and the Chief only);
+/// None when it has none, so the link creates it (a channel never becomes a
+/// Chief's main conversation).
 pub fn select_chief_of(conversations: Vec<Summary>, chief: &str) -> Option<Summary> {
     if chief != AGENT_MUX {
-        let dm = conversations
-            .iter()
+        return conversations
+            .into_iter()
             .filter(|c| {
                 c.participants.len() == 2
                     && c.participants.iter().any(|p| p.id == chief)
                     && c.participants.iter().any(|p| p.id == USER_LOCAL)
             })
-            .min_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)))
-            .cloned();
-        if dm.is_some() {
-            return dm;
-        }
+            .min_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)));
     }
     conversations
         .into_iter()

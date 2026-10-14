@@ -26,20 +26,20 @@ impl Brain {
         match change {
             Change::Conversation {
                 conversation: summary,
-            } => {
-                let member = summary
-                    .participants
-                    .iter()
-                    .any(|p| p.id == self.settings.membership.participant);
-                self.side_member.insert(summary.id.clone(), member);
-            }
+            } => self.note_side_members(&summary),
             Change::Message { message } => {
                 if message.author == self.settings.membership.participant {
                     self.mux_messages.insert(message.id.clone());
                     return;
                 }
-                if self.side_member.get(&conversation) == Some(&false) {
-                    return;
+                // Not read: a conversation the Chief is not in, and a
+                // message whose author is known not to be a person (only
+                // people wake a Chief). An unknown author is read: the
+                // read refreshes the participants.
+                match self.side_member.get(&conversation) {
+                    Some(None) => return,
+                    Some(Some(people)) if people.get(&message.author) == Some(&false) => return,
+                    _ => {}
                 }
                 self.on_mux_wake(vec![MuxWake {
                     conversation,
@@ -49,6 +49,26 @@ impl Brain {
             }
             Change::ReadCursor { .. } | Change::MessageUpdated { .. } => {}
         }
+    }
+
+    /// Caches whether the Chief takes part in `summary`'s conversation, and
+    /// which of its participants are people.
+    fn note_side_members(&mut self, summary: &Summary) {
+        let participant = &self.settings.membership.participant;
+        let member = summary.participants.iter().any(|p| &p.id == participant);
+        let people = member.then(|| {
+            summary
+                .participants
+                .iter()
+                .map(|p| {
+                    (
+                        p.id.clone(),
+                        p.kind == cmux_conversation::ParticipantKind::Human,
+                    )
+                })
+                .collect()
+        });
+        self.side_member.insert(summary.id.clone(), people);
     }
 
     pub(super) fn on_mux_wake(&mut self, wakes: Vec<MuxWake>) {
@@ -103,8 +123,7 @@ impl Brain {
         match self.read_side(conversation, from) {
             Ok((summary, messages)) => {
                 let participant = self.settings.membership.participant.clone();
-                let member = summary.participants.iter().any(|p| p.id == participant);
-                self.side_member.insert(conversation.to_owned(), member);
+                self.note_side_members(&summary);
                 for m in &messages {
                     if m.author == participant {
                         self.mux_messages.insert(m.id.clone());
@@ -121,6 +140,8 @@ impl Brain {
                 ));
                 self.state.side.remove(conversation);
                 self.side_handled.remove(conversation);
+                // Not read again for each of its messages.
+                self.side_member.insert(conversation.to_owned(), None);
                 self.save();
                 // Acked so the queue stops delivering it.
                 let top = self.mux_pending.get(conversation).copied().unwrap_or(seq);
@@ -188,9 +209,6 @@ impl Brain {
             )
         {
             let labelled = labelled(summary, &text);
-            if let Some(target) = crate::membership::thread_target(summary, &message) {
-                self.reply_threads.insert(message.id.clone(), target);
-            }
             match crate::approval::Answer::parse(&text) {
                 // An answer to this conversation's pending approval.
                 Some(answer) if self.has_approval(Some(conversation)) => {
@@ -211,6 +229,9 @@ impl Brain {
                         _ => Vec::new(),
                     };
                     let logged = super::images::logged_text(&labelled, &images);
+                    if let Some(target) = crate::membership::thread_target(summary, &message) {
+                        self.reply_threads.insert(message.id.clone(), target);
+                    }
                     self.queue_in(
                         Some(conversation.to_owned()),
                         logged,

@@ -492,10 +492,10 @@ pub struct Brain {
     /// Woken conversations not acked yet: the highest woken seq of each
     /// (`mux_ack.rs`).
     mux_pending: HashMap<String, u64>,
-    /// Local side conversations (`membership`): whether the Chief takes
-    /// part in each, from the last summary seen; a message of one it is not
-    /// in is not read.
-    side_member: HashMap<String, bool>,
+    /// Local side conversations (`membership`), from the last summary seen:
+    /// None when the Chief is not in it (its messages are not read), else
+    /// each participant and whether it is a person.
+    side_member: HashMap<String, Option<HashMap<String, bool>>>,
     /// The thread a reply to a waking group message goes into, by message
     /// id: `(thread_root, parent)` (`membership::thread_target`). In memory
     /// only: after a restart such a reply goes to the top level.
