@@ -74,6 +74,7 @@ mod mouse_dispatch;
 mod pty_mouse;
 mod pty_write;
 mod tab_moves;
+mod workspace_pins;
 
 mod clipboard;
 mod left_down;
