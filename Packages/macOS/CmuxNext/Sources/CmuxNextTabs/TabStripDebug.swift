@@ -18,4 +18,12 @@ public struct TabStripDebug {
 
     /// The image the strip's hover card shows now (nil: placeholder).
     public static func cardThumbnail(in strip: TabStripView) -> CGImage? { strip.hoverCard.shownThumbnail }
+
+    /// `debug.motion` `trace_*` (a `MotionFrameTrace` sampler): each tab cell of a strip as
+    /// `[id, x, width, opacity]` in the tab row, and the strip's width; nil for another view.
+    public static func motionSample(_ view: NSView) -> [String: [Any]]? {
+        guard let strip = view as? TabStripView else { return nil }
+        return ["tabs": strip.cells.map { [$0.key.rawValue, Double($0.value.frame.minX), Double($0.value.frame.width), Double($0.value.layer.opacity)] as [Any] },
+                "strip": [Double(strip.bounds.width)]]
+    }
 }

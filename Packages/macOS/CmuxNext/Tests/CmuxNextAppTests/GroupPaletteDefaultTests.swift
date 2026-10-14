@@ -146,7 +146,11 @@ import Testing
         header.isHovered = true
         header.layoutSubtreeIfNeeded()
 
-        header.moreButton.performClick(nil)
+        // The button's own action, not performClick: on macOS 27 performClick spins a nested event
+        // loop and queues blocks that stop the current run loop, and one can run after that loop
+        // ended and stop the test helper's main run loop, which exits the run with status 0.
+        let more = header.moreButton
+        #expect(more.sendAction(more.action, to: more.target), "the more button has no action")
 
         #expect(!menuAsked, "the more button showed the right-click menu")
         #expect(sidebar.list.groupEditor.shownGroup == ids[0], "the more button did not open the group editor")

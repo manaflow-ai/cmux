@@ -43,6 +43,9 @@ public final class Commands {
     public static final CommandMetadata CLOSE_TABS = new CommandMetadata("close-tabs", Authority.CONTROL, 12, "batch-close-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("reason", "close-reason-v1")));
     public static final CommandMetadata CLOSE_TERMINAL = new CommandMetadata("close-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_WORKSPACE = new CommandMetadata("close-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L), Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1"), Map.entry("if_empty", "close-workspace-if-empty-v1"), Map.entry("key", "workspace-registry-v1"), Map.entry("reason", "close-reason-v1")));
+    public static final CommandMetadata CLOUD_ATTACHMENT_LINK = new CommandMetadata("cloud-attachment-link", Authority.LOCAL_ADMIN, 12, "cloud-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_ATTACHMENT_READ = new CommandMetadata("cloud-attachment-read", Authority.LOCAL_ADMIN, 12, "cloud-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_ATTACHMENT_UPLOAD = new CommandMetadata("cloud-attachment-upload", Authority.LOCAL_ADMIN, 12, "cloud-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_HISTORY = new CommandMetadata("cloud-conversation-history", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_OP = new CommandMetadata("cloud-conversation-op", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_RUN = new CommandMetadata("cloud-conversation-run", Authority.LOCAL_ADMIN, 12, "cloud-conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -58,6 +61,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_MUX_ACK = new CommandMetadata("cloud-mux-ack", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_MUX_SUBSCRIBE = new CommandMetadata("cloud-mux-subscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_MUX_UNSUBSCRIBE = new CommandMetadata("cloud-mux-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_PARTICIPANT_AVATAR_GET = new CommandMetadata("cloud-participant-avatar-get", Authority.LOCAL_ADMIN, 12, "participant-avatars-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_CLEAR = new CommandMetadata("cloud-session-clear", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -312,6 +316,9 @@ public final class Commands {
         values.put("close-tabs", CLOSE_TABS);
         values.put("close-terminal", CLOSE_TERMINAL);
         values.put("close-workspace", CLOSE_WORKSPACE);
+        values.put("cloud-attachment-link", CLOUD_ATTACHMENT_LINK);
+        values.put("cloud-attachment-read", CLOUD_ATTACHMENT_READ);
+        values.put("cloud-attachment-upload", CLOUD_ATTACHMENT_UPLOAD);
         values.put("cloud-conversation-history", CLOUD_CONVERSATION_HISTORY);
         values.put("cloud-conversation-op", CLOUD_CONVERSATION_OP);
         values.put("cloud-conversation-run", CLOUD_CONVERSATION_RUN);
@@ -327,6 +334,7 @@ public final class Commands {
         values.put("cloud-mux-ack", CLOUD_MUX_ACK);
         values.put("cloud-mux-subscribe", CLOUD_MUX_SUBSCRIBE);
         values.put("cloud-mux-unsubscribe", CLOUD_MUX_UNSUBSCRIBE);
+        values.put("cloud-participant-avatar-get", CLOUD_PARTICIPANT_AVATAR_GET);
         values.put("cloud-session-clear", CLOUD_SESSION_CLEAR);
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);

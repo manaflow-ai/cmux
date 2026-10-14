@@ -1,4 +1,4 @@
-import { checkAgentBudget, checkAgentStreak } from "./budget.ts"
+import { checkAgentBudget, checkAgentStreak, threadAgentStreak, withTurn } from "./budget.ts"
 import { removeParticipant, setSettings } from "./cloud.ts"
 import { acceptInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
 import { parseRfc3339Millis, validToken } from "./ids.ts"
@@ -97,19 +97,15 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       // Every head carries the loop guard (O(1), no row window, so work cards cannot hide agent
       // turns). A head written before the counters existed falls back to the row window once.
       const counted = head.agent_text_streak !== undefined
-      const budget = counted || cloud ? checkAgentStreak(head, request.actor, parts, nowMs) : request.recent ? checkAgentBudget(head, request.actor, parts, request.recent, nowMs) : null
+      const budget = counted || cloud ? checkAgentStreak(head, request.actor, parts, nowMs, threadRoot) : request.recent ? checkAgentBudget(head, request.actor, parts, request.recent, nowMs, threadRoot) : null
       if (budget) fail(budget)
       next.last_seq = head.last_seq + 1
       next.updated_at = now
       if (hasText(parts)) {
-        if (actor.kind === "agent") {
-          // A legacy head (no counters yet) seeds the streak from the host window's trailing agent texts.
-          const seed = counted || cloud || !request.recent ? (head.agent_text_streak ?? 0) : trailingAgentTexts(head, request.recent)
-          next.agent_text_streak = seed + 1
-          next.last_agent_text_at = now
-        } else {
-          next.agent_text_streak = 0
-        }
+        // The streak of the thread this message joins: an agent's text adds 1, a person's resets it.
+        // A legacy head (no counters yet) seeds it from the host window's trailing agent texts.
+        const seed = actor.kind === "agent" && !(counted || cloud) && request.recent ? threadAgentStreak(head, request.recent, threadRoot) : undefined
+        applyTurn(next, withTurn(next, threadRoot, actor.kind === "agent", now, seed))
       }
       const message: Message = {
         id: request.new_message_id,
@@ -177,8 +173,9 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       const part = Number.isInteger(index) && index >= 0 && index <= 0xffff_ffff ? message.parts[index] : undefined
       if (part?.type !== "question") return fail("invalid_part_index")
       const answered = answerQuestion(part, op.answer, actor, now)
-      // A person's answer is a human turn: the agent may go on (the loop guard counts from here).
-      next.agent_text_streak = 0
+      // A person's answer (question answers are human only) is a person's turn in the question's
+      // thread: agents may go on there (the loop guard counts from here).
+      applyTurn(next, withTurn(next, message.thread_root, false, now))
       return updated(next, { ...message, parts: message.parts.map((p, i) => (i === index ? answered : p)) })
     }
     case "read_cursor.set": {
@@ -276,13 +273,11 @@ const updated = (next: Draft, message: Message): Commit => {
 const sortedRecord = (record: Readonly<Record<string, number>>): Record<string, number> =>
   Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
 
-/** Agent text messages at the newest end of `recent` (newest first), up to the first human text. */
-const trailingAgentTexts = (head: ConversationHead, recent: ReadonlyArray<Message>): number => {
-  let count = 0
-  for (const message of recent) {
-    if (!hasText(message.parts)) continue
-    if (findParticipant(head, message.author)?.kind !== "agent") break
-    count++
-  }
-  return count
+/** Copies the loop-guard fields of `turned` (`withTurn`) onto the draft head. */
+const applyTurn = (next: Draft, turned: ConversationHead): void => {
+  const draft = next as { agent_text_streak?: number; last_agent_text_at?: string; thread_agent_streaks?: Readonly<Record<string, number>> }
+  if (turned.agent_text_streak !== undefined) draft.agent_text_streak = turned.agent_text_streak
+  if (turned.last_agent_text_at !== undefined) draft.last_agent_text_at = turned.last_agent_text_at
+  if (turned.thread_agent_streaks === undefined) delete draft.thread_agent_streaks
+  else draft.thread_agent_streaks = turned.thread_agent_streaks
 }

@@ -32,6 +32,7 @@ on:
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
+      - scripts/cmux-next/state-roots-baseline.tsv
       # Local packages CmuxNext depends on and files its tests read
       # (ci-target-graph.json `packages` and `reads`).
       - Packages/Shared/**
@@ -117,6 +118,8 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/build_names.py
+      - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/gen-protected-folders.py
@@ -127,6 +130,7 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      - Resources/cmux-themes/**
       # The bundled CLI shims the app ships.
       - Resources/bin/**
       - ghostty-next
@@ -135,6 +139,8 @@ on:
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
+      - .github/workflows/intent-familiar-review.yml
+      - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -251,6 +257,8 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/build_names.py
+      - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/gen-protected-folders.py
@@ -261,6 +269,7 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      - Resources/cmux-themes/**
       # The bundled CLI shims the app ships.
       - Resources/bin/**
       - ghostty-next
@@ -269,6 +278,8 @@ on:
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
+      - .github/workflows/intent-familiar-review.yml
+      - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -736,7 +747,7 @@ jobs:
     # rescue's watch of a side lane ends at attempt 2.
     # Same-tree mode runs it too: its owned-pool-watch marker lets the rescue
     # re-run a tree job that a mini refuses (no head to move on a dispatch).
-    if: ${{ !cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
+    if: ${{ !cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
@@ -826,8 +837,9 @@ jobs:
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
-    # Pull requests into feat-cmux-next run this job (cx-g34i skipped only their Mac
-    # tiers; 9be3770c73c8 dropped it by mistake). God files and types are warn-only
+    # Pull requests into feat-cmux-next run the cheap static checks. The size
+    # cap and crash ratchet are cadence checks: they run on pushes and on the
+    # full-ci batched integration PR, not on every contributor PR. God files and types are warn-only
     # (Lawrence 2026-10-10): over the hard ceiling (GODFILES_WARN_SLACK: allowance
     # + 20% of the budget, so a new type past 1200 lines) the step writes a
     # warning and passes. Other style ratchets warn under a hard ceiling and fail
@@ -901,9 +913,14 @@ jobs:
         continue-on-error: true
         env:
           EVENT_NAME: ${{ github.event_name }}
+          FULL_CI: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
         # A pull request that does not grow the App passes even over the cap
         # (its merge commit's first parent is the base).
         run: |
+          if [[ "$FULL_CI" != true ]]; then
+            echo "Size cap is a batch cadence check; ordinary PRs receive the fast tier only."
+            exit 0
+          fi
           base=()
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
           scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
@@ -923,6 +940,11 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
 
+      - name: No literal state roots (per-build isolation S7, cx-is1kf.8)
+        id: state-roots
+        continue-on-error: true
+        run: bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
+
       - name: Main-thread concurrency
         id: concurrency
         continue-on-error: true
@@ -931,7 +953,14 @@ jobs:
       - name: Crash safety
         id: crash-safety
         continue-on-error: true
-        run: scripts/cmux-next/check-crash-safety.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+        env:
+          FULL_CI: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          if [[ "$FULL_CI" != true ]]; then
+            echo "Crash ratchet is a batch cadence check; ordinary PRs receive the fast tier only."
+            exit 0
+          fi
+          scripts/cmux-next/check-crash-safety.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       # A test that posts to a process-global notification center reaches every
       # observer in the test process on the posting thread (#18771's signal 5).
@@ -1003,6 +1032,10 @@ jobs:
         id: script-tests
         continue-on-error: true
         run: |
+          python3 tests/test_intent_familiar_warning.py
+          python3 tests/test_ci_launch_budget_gate.py
+          python3 tests/test_strings_output_encoding.py
+          bash tests/test_strip_release_bundle.sh
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
@@ -1029,6 +1062,7 @@ jobs:
           bash scripts/cmux-next/tests/cargo-test-selected.test.sh
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
           bash scripts/cmux-next/tests/app-capability-references.test.sh
+          bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
@@ -1043,6 +1077,7 @@ jobs:
           bash scripts/cmux-next/tests/fast-tier.test.sh
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
           bash scripts/cmux-next/tests/check-no-process-scan.test.sh
+          bash scripts/cmux-next/tests/check-state-roots.test.sh
           bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
           bash scripts/cmux-next/tests/ratchet-tiers.test.sh
           bash scripts/cmux-next/tests/base-autofix.test.sh
@@ -1061,6 +1096,8 @@ jobs:
           # The herdr-derived agent plugin's vendored manifests match their pin.
           python3 -I scripts/cmux-next/herdr-sync.py check
           python3 -I scripts/cmux-next/tests/test_herdr_sync.py
+          # The restore journey names a DEV build's socket and acpmux home by the app's rule.
+          python3 -I scripts/cmux-next/tests/test_build_names.py
           bash scripts/cef/tests/test-embedder-step.test.sh
 
       # The app's Ghostty shell integration comes from ghostty-next (the
@@ -1072,6 +1109,8 @@ jobs:
         run: |
           git submodule update --init --depth 1 --filter=blob:none ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
+          # Ghostty's themes survive the Resources phase in either order (Xcode, fleet Linux builder).
+          bash scripts/cmux-next/tests/bundle-resources-layout.test.sh
 
       # The bundled terminfo (Ghostty's entries with cmux's overlay on top)
       # carries ghostty-next's capabilities and cmux's 256-color 8-15 patch.
@@ -1185,6 +1224,7 @@ jobs:
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
+            ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
@@ -1237,7 +1277,7 @@ jobs:
   # restore them by the same key instead of running bun and Vite+ themselves; a push to
   # feat-cmux-next fills the cache every pull request can read.
   web-bundles:
-    if: ${{ inputs.dev_daily != true && (!((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')))) }}
+    if: ${{ inputs.dev_daily != true && inputs.same_tree_sha == '' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
     name: cmux-next web bundles (source-keyed cache)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -1336,11 +1376,16 @@ jobs:
   # excludes the app host, package manifest, resources and toolchain inputs.
   swift-canary:
     needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.swift_canary == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
+    # The canary is useful on the full-ci batch branch; ordinary PRs get the
+    # fast tier. Base pushes remain the Release backstop.
+    if: ${{ !cancelled() && needs.path_route.outputs.swift_canary == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
     name: cmux-next Swift canary
     concurrency:
-      group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-swift-canary', github.ref) || format('cmux-next-run-{0}-swift-canary', github.run_id) }}
-      cancel-in-progress: false
+      group: ${{ github.event_name == 'pull_request' && format('cmux-next-pr-{0}-swift-canary', github.event.pull_request.number) || github.event_name == 'push' && format('cmux-next-push-{0}-swift-canary', github.ref) || format('cmux-next-run-{0}-swift-canary', github.run_id) }}
+      # A newer PR push or manual rerun supersedes an older canary. This keeps
+      # the queue focused on the current head instead of replaying stale
+      # typechecks.
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     permissions:
       contents: read
@@ -1425,7 +1470,11 @@ jobs:
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier', github.ref) || format('cmux-next-run-{0}-fast-tier', github.run_id) }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # vars.CI_FAST_LANE_RUNNER is the fast tier's own reserved runner on each owned
+    # mini (label glaeda-fast-std-xcode-26.6). It is set only after every mini has
+    # that runner; while it is unset the route below is unchanged. The fork clause
+    # stays first, so a fork pull request never reaches it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_FAST_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_FAST_LANE_RUNNER || (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     permissions:
       contents: read
     # A cold package build can exceed the 5-minute target; the job still runs
@@ -1495,18 +1544,19 @@ jobs:
   # already published, and daemon-test runs them against it.
   swift-test:
     needs: [path_route, macos-placement, push-head-preflight]
-    # feat-cmux-next pushes skip swift test. Its PRs run it on the gui minis
-    # (macOS 27) report-only until it is stable (hq#1915); a PR that bumps a
-    # vendored binary pin (GhosttyNextKit, CEF) runs it blocking.
-    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
-    name: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.vendored_pin != 'true' && 'cmux-next swift test (macOS 27, report-only)' || 'cmux-next swift test' }}
-    continue-on-error: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.vendored_pin != 'true' }}
+    # Swift is a batch cadence check. A contributor PR gets the fast
+    # tier; the full-ci batch integration PR and base pushes run the minis-first
+    # Swift suites and serve as the backstop.
+    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
+    name: cmux-next swift test
+    continue-on-error: false
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
     # (see the workflow concurrency comment).
     concurrency:
-      group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-swift-test', github.ref) || format('cmux-next-run-{0}-swift-test', github.run_id) }}
-      cancel-in-progress: false
+      group: ${{ github.event_name == 'pull_request' && format('cmux-next-pr-{0}-swift-test', github.event.pull_request.number) || github.event_name == 'push' && format('cmux-next-push-{0}-swift-test', github.ref) || format('cmux-next-run-{0}-swift-test', github.run_id) }}
+      # Report-only PR attempts are superseded by a newer push or rerun.
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.gui_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     permissions:
       contents: read
@@ -1728,7 +1778,7 @@ jobs:
     needs: [path_route, macos-placement, push-head-preflight]
     # This run's own tier on a published tree (path routing's probe), or
     # same-tree mode after the artifacts workflow published it.
-    if: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && inputs.same_tree_origin != 'push' && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon')))) }}
+    if: ${{ inputs.same_tree_origin != 'push' && !cancelled() && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon'))) }}
     name: cmux-next daemon tests
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
@@ -1940,7 +1990,7 @@ jobs:
 
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (!cancelled() && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
+    if: ${{ !cancelled() && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
     name: cmux-next generated files
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
@@ -2126,12 +2176,11 @@ jobs:
 
   release-compile:
     needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && (!cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
     name: cmux-next Release compile (Xcode 26)
-    # Package-only Swift PRs have the bounded Swift canary as their merge gate.
-    # Keep this full Release compile visible and running for diagnostics, while
-    # retaining a hard failure on every feat-cmux-next push and on broader PRs.
-    continue-on-error: ${{ github.event_name == 'pull_request' && needs.path_route.outputs.swift_canary == 'true' }}
+    # Release is part of the full-ci batch cadence and every base push. Ordinary
+    # PRs use the fast tier; the batch tip is the native merge gate.
+    continue-on-error: false
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
     # (see the workflow concurrency comment).
@@ -2334,7 +2383,7 @@ jobs:
     needs: [path_route, macos-placement, push-head-preflight, dev-daily-tree-wait]
     # This run's own tier on a published tree (path routing's probe), or
     # same-tree mode after the artifacts workflow published it.
-    if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme')))) }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme')))) }}
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
@@ -2537,13 +2586,21 @@ jobs:
           retention-days: 2
           compression-level: 0
 
+      # A busy host makes first-frame timing a host-load measurement.
+      # Keep the compile required, record the load, and leave the launch probe
+      # for a fresh run instead of failing the PR on host contention.
+      - name: Gate launch-time budget on host load
+        id: launch-load
+        if: inputs.dev_daily != true
+        run: python3 scripts/ci/launch_budget_gate.py
+
       # Launch-time budget (#17587): warm launches of this build, on a copy
       # named for a tag of its own (its own socket, daemon and state), from an
       # empty profile. Budgets are about 4x a capture Mac's medians, so this
       # catches a launch that blocks (a daemon wait on the main path, a sync
       # read), not run-to-run noise.
       - name: Launch-time budget
-        if: inputs.dev_daily != true
+        if: inputs.dev_daily != true && steps.launch-load.outputs.skip != 'true'
         timeout-minutes: 5
         run: |
           set -euo pipefail

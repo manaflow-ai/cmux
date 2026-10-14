@@ -27,6 +27,9 @@ export type HomeIconName =
   | "threads"
   | "hash"
   | "command"
+  | "personAdd"
+  | "edit"
+  | "compose"
   | "pin"
   | "attach"
   | "download"
@@ -101,7 +104,9 @@ const PATHS: Record<HomeIconName, ReactNode> = {
   close: <path d="M5 5l10 10M15 5 5 15" />,
   chevronRight: <path d="m8 5 5 5-5 5" />,
   chevronLeft: <path d="m12 5-5 5 5 5" />,
-  attach: <path d="m15.5 9.5-5.8 5.8a3.6 3.6 0 0 1-5.1-5.1l6.2-6.2a2.4 2.4 0 0 1 3.4 3.4l-6.1 6.1a1.2 1.2 0 0 1-1.7-1.7l5.5-5.5" />,
+  attach: (
+    <path d="m15.5 9.5-5.8 5.8a3.6 3.6 0 0 1-5.1-5.1l6.2-6.2a2.4 2.4 0 0 1 3.4 3.4l-6.1 6.1a1.2 1.2 0 0 1-1.7-1.7l5.5-5.5" />
+  ),
   download: <path d="M10 3.5v9M6 9l4 4 4-4M4.5 16h11" />,
   video: (
     <>
@@ -117,6 +122,14 @@ const PATHS: Record<HomeIconName, ReactNode> = {
     </>
   ),
   check: <path d="m5 10.5 3.2 3L15 6.5" />,
+  personAdd: (
+    <>
+      <circle cx="8" cy="7" r="3" />
+      <path d="M2.5 16c.6-2.7 2.8-4.5 5.5-4.5s4.9 1.8 5.5 4.5M15.5 6v5M13 8.5h5" />
+    </>
+  ),
+  edit: <path d="M12.5 4.5l3 3L7.5 15.5H4.5v-3zM11 6l3 3" />,
+  compose: <path d="M9.5 4.5H5.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-4M13.5 3.5l3 3-6 6h-3v-3z" />,
   threads: <path d="M4 5h12M4 10h12M4 15h7" />,
   hash: <path d="M8 3.5 6.5 16.5M13.5 3.5 12 16.5M4 7.5h12.5M3.5 12.5H16" />,
   command: (

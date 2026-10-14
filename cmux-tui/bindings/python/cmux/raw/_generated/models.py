@@ -2336,6 +2336,98 @@ class CloseWorkspaceRequest:
 
 
 @dataclass(frozen=True)
+class CloudAttachmentLinkRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-attachment-link/request'
+    conversation: str
+    hash: str
+    name: Union[str, None, MissingType] = field(default=MISSING)
+    variant: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudAttachmentLinkResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-attachment-link/result'
+    expires_in_ms: int
+    path: str
+
+
+@dataclass(frozen=True)
+class CloudAttachmentReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-attachment-read/request'
+    conversation: str
+    hash: str
+    length: Union[int, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    variant: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudAttachmentReadResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-attachment-read/result'
+    byte_count: int
+    data: str
+    eof: bool
+    hash: str
+    mime_type: str
+    offset: int
+
+
+@dataclass(frozen=True)
+class CloudAttachmentUploadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-attachment-upload/request'
+    op: str
+    byte_count: Union[int, None, MissingType] = field(default=MISSING)
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
+    data: Union[str, None, MissingType] = field(default=MISSING)
+    duration_ms: Union[int, None, MissingType] = field(default=MISSING)
+    height: Union[int, None, MissingType] = field(default=MISSING)
+    mime_type: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    piece: Union[str, None, MissingType] = field(default=MISSING)
+    poster: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    preview: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    sha256: Union[str, None, MissingType] = field(default=MISSING)
+    upload: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudAttachmentUploadResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-attachment-upload/result'
+    needs: Union[List[str], None, MissingType] = field(default=MISSING)
+    received: Union[int, None, MissingType] = field(default=MISSING)
+    stored: Union[CloudAttachmentUploadResultStored, None, MissingType] = field(default=MISSING)
+    upload: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudAttachmentUploadResultStored:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-attachment-upload/result/fields/stored/type'
+    byte_count: int
+    hash: str
+    mime_type: str
+    poster: Union[CloudAttachmentUploadResultStoredPoster, None, MissingType] = field(default=MISSING)
+    preview: Union[CloudAttachmentUploadResultStoredPreview, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudAttachmentUploadResultStoredPoster:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-attachment-upload/result/fields/stored/type/fields/poster/type'
+    byte_count: int
+    hash: str
+    mime_type: str
+
+
+@dataclass(frozen=True)
+class CloudAttachmentUploadResultStoredPreview:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-attachment-upload/result/fields/stored/type/fields/preview/type'
+    byte_count: int
+    hash: str
+    mime_type: str
+
+
+@dataclass(frozen=True)
 class CloudConversationHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-history/request'
     before_seq: int
@@ -2442,6 +2534,13 @@ class CloudMuxSubscribeRequest:
 class CloudMuxUnsubscribeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-mux-unsubscribe/request'
     pass
+
+
+@dataclass(frozen=True)
+class CloudParticipantAvatarGetRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-participant-avatar-get/request'
+    participant_id: str
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3696,7 +3795,7 @@ class NotifyRequest:
 @dataclass(frozen=True)
 class PageCredentialRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/page-credential/request'
-    pass
+    page: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5065,6 +5164,15 @@ class PaneClosedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class ParticipantAvatarChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/participant-avatar-changed/payload'
+    avatar: Union[JsonValue, None]
+    event: Literal['participant-avatar-changed']
+    participant: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class PersonalChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/personal-changed/payload'
     event: Literal['personal-changed']
@@ -5489,7 +5597,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -5738,6 +5846,15 @@ __all__ = [
     'CloseTabsRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
+    'CloudAttachmentLinkRequest',
+    'CloudAttachmentLinkResult',
+    'CloudAttachmentReadRequest',
+    'CloudAttachmentReadResult',
+    'CloudAttachmentUploadRequest',
+    'CloudAttachmentUploadResult',
+    'CloudAttachmentUploadResultStored',
+    'CloudAttachmentUploadResultStoredPoster',
+    'CloudAttachmentUploadResultStoredPreview',
     'CloudConversationHistoryRequest',
     'CloudConversationOpRequest',
     'CloudConversationRunRequest',
@@ -5753,6 +5870,7 @@ __all__ = [
     'CloudMuxAckRequest',
     'CloudMuxSubscribeRequest',
     'CloudMuxUnsubscribeRequest',
+    'CloudParticipantAvatarGetRequest',
     'CloudSessionClearRequest',
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',
@@ -6051,6 +6169,7 @@ __all__ = [
     'PairingResolvedEvent',
     'PaneAddedEvent',
     'PaneClosedEvent',
+    'ParticipantAvatarChangedEvent',
     'PersonalChangedEvent',
     'ProgramStatusChangedEvent',
     'RenderDeltaEvent',
