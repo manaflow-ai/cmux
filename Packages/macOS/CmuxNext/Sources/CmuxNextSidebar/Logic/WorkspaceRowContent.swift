@@ -83,7 +83,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
-    /// style): the kind's icon when the user set none, a dim second line
+    /// style): the user's icon only (no kind glyph, WORKSPACE-ROWS-NO-DEFAULT-ICON), a dim second line
     /// (an unread notification's text when `sidebar.workspaceRow.notification` shows it, else the agent chat's last message, else the agent's status line, else
     /// the folder and branch), the time
     /// since the last change on the title's line, and a third line for the
@@ -93,7 +93,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), Self.nonEmpty(ws.pullRequest)].compactMap { $0 }
         self.init(
-            icon: ws.icon ?? .symbol(ws.kind.symbol),
+            icon: ws.icon,
             detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
                 ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
