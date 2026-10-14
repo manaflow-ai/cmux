@@ -7,8 +7,8 @@
 //! - renders the profile after the base prompt in the cloud brain's format
 //!   (backend chief-brain/prompts.ts); the default Chief renders nothing, so
 //!   its prompt stays byte-identical;
-//! - offers through the real `optchat-chief mcp` server only the tools the
-//!   person granted, plus `profile` when the record allows any self-edit;
+//! - offers through the real `optchat-chief mcp` server (which asks the
+//!   host's tools socket for the grant) only the tools the person granted, plus `profile` when the record allows any self-edit;
 //! - refuses an ungranted tool at the tools socket, also when a turn asks
 //!   for it by name;
 //! - changes its own role and picture through `profile` on its own bound
@@ -52,13 +52,22 @@ struct Conn {
 impl Conn {
     fn open(socket: &Path) -> Conn {
         let stream = UnixStream::connect(socket).unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
-        Conn { writer: stream.try_clone().unwrap(), reader: BufReader::new(stream), next: 0 }
+        stream
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        Conn {
+            writer: stream.try_clone().unwrap(),
+            reader: BufReader::new(stream),
+            next: 0,
+        }
     }
 
     fn line(&mut self, what: &Value) -> Value {
         let mut line = String::new();
-        assert!(self.reader.read_line(&mut line).unwrap() > 0, "the daemon closed: {what}");
+        assert!(
+            self.reader.read_line(&mut line).unwrap() > 0,
+            "the daemon closed: {what}"
+        );
         serde_json::from_str(&line).unwrap()
     }
 
@@ -100,8 +109,8 @@ impl Conn {
 
     /// A participant token for `participant`, in a 0600 file under `dir`.
     fn token_file(&mut self, dir: &Path, participant: &str) -> PathBuf {
-        let token = self.req(json!({"cmd": "conversation-agent-token", "participant": participant}))
-            ["token"]
+        let token = self
+            .req(json!({"cmd": "conversation-agent-token", "participant": participant}))["token"]
             .as_str()
             .unwrap()
             .to_owned();
@@ -119,7 +128,10 @@ struct Daemon {
 
 impl Daemon {
     fn start() -> Daemon {
-        let dir = tempfile::Builder::new().prefix("ocp").tempdir_in("/tmp").unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("ocp")
+            .tempdir_in("/tmp")
+            .unwrap();
         let socket = dir.path().join("d.sock");
         let status = cli(dir.path())
             .arg("--socket")
@@ -173,19 +185,27 @@ impl Mcp {
             .spawn()
             .unwrap();
         let out = BufReader::new(child.stdout.take().unwrap());
-        let mut mcp = Mcp { child, out, next: 0 };
+        let mut mcp = Mcp {
+            child,
+            out,
+            next: 0,
+        };
         mcp.rpc("initialize", json!({"protocolVersion": "2025-06-18"}));
         mcp
     }
 
     fn rpc(&mut self, method: &str, params: Value) -> Value {
         self.next += 1;
-        let request = json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params});
+        let request =
+            json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params});
         let stdin = self.child.stdin.as_mut().unwrap();
         writeln!(stdin, "{request}").unwrap();
         stdin.flush().unwrap();
         let mut line = String::new();
-        assert!(self.out.read_line(&mut line).unwrap() > 0, "mcp closed: {request}");
+        assert!(
+            self.out.read_line(&mut line).unwrap() > 0,
+            "mcp closed: {request}"
+        );
         let answer: Value = serde_json::from_str(&line).unwrap();
         answer["result"].clone()
     }
@@ -202,7 +222,13 @@ impl Mcp {
     /// A tool call: (is_error, text).
     fn call(&mut self, name: &str, arguments: Value) -> (bool, String) {
         let r = self.rpc("tools/call", json!({"name": name, "arguments": arguments}));
-        (r["isError"] == true, r["content"][0]["text"].as_str().unwrap_or_default().to_owned())
+        (
+            r["isError"] == true,
+            r["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+        )
     }
 }
 
@@ -239,17 +265,39 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
 
     // The prompt: the base and the person's instructions first, then the
     // profile in the cloud brain's format.
-    let base = optchat_chief::prompt::system_text(Some("Person text."), &optchat_chief::prompt::Tools::Mcp);
+    let base = optchat_chief::prompt::system_text(
+        Some("Person text."),
+        &optchat_chief::prompt::Tools::Mcp,
+    );
     let instructions = tools.instructions(Some("Person text.".to_owned()));
-    let text = optchat_chief::prompt::system_text(instructions.as_deref(), &optchat_chief::prompt::Tools::Mcp);
+    let text = optchat_chief::prompt::system_text(
+        instructions.as_deref(),
+        &optchat_chief::prompt::Tools::Mcp,
+    );
     let head = base.trim_end();
-    assert!(text.starts_with(head), "the base prompt and the person's text come first");
+    assert!(
+        text.starts_with(head),
+        "the base prompt and the person's text come first"
+    );
     assert!(
         text.contains("## This Chief (the rules above come first)\nName: Scout\nRole: Release captain\nPersonality: Terse and exact."),
         "{text}"
     );
-    assert!(text.contains("## Added instructions (the rules above come first)\nAlways name the branch."));
-    assert_eq!(text, optchat_chief::prompt::system_text(tools.instructions(Some("Person text.".to_owned())).as_deref(), &optchat_chief::prompt::Tools::Mcp), "byte-stable while the record does not change");
+    assert!(
+        text.contains(
+            "## Added instructions (the rules above come first)\nAlways name the branch."
+        )
+    );
+    assert_eq!(
+        text,
+        optchat_chief::prompt::system_text(
+            tools
+                .instructions(Some("Person text.".to_owned()))
+                .as_deref(),
+            &optchat_chief::prompt::Tools::Mcp
+        ),
+        "byte-stable while the record does not change"
+    );
 
     // The default Chief renders nothing: its prompt stays byte-identical.
     let mux_token = me.token_file(dir.path(), "agent_mux");
@@ -259,16 +307,21 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
         "agent_mux".into(),
     )))
     .expect("the default Chief reads its record");
-    assert_eq!(default.instructions(Some("Person text.".to_owned())).as_deref(), Some("Person text."));
+    assert_eq!(
+        default
+            .instructions(Some("Person text.".to_owned()))
+            .as_deref(),
+        Some("Person text.")
+    );
 
     // The tools socket, served as the host serves it, and the real MCP server.
     let socket = dir.path().join("tools.sock");
     let memory = open_chat(&dir.path().join("memory"));
-    let mcp_args = {
-        let mut a = vec!["mcp".to_owned(), "--socket".to_owned(), socket.display().to_string()];
-        a.extend(tools.mcp_args());
-        a
-    };
+    let mcp_args = vec![
+        "mcp".to_owned(),
+        "--socket".to_owned(),
+        socket.display().to_string(),
+    ];
     optchat_chief::tools::serve_all(
         &socket,
         optchat_chief::tools::Served {
@@ -281,26 +334,48 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
     )
     .unwrap();
     let mut mcp = Mcp::start(&mcp_args);
-    assert_eq!(mcp.names(), ["zoom", "date", "tell", "profile"], "only the granted tools, and profile");
+    assert_eq!(
+        mcp.names(),
+        ["zoom", "date", "tell", "profile"],
+        "only the granted tools, and profile"
+    );
     let (refused, why) = mcp.call("spawn", json!({"tasks": ["build it"]}));
-    assert!(refused && why.contains("spawn"), "an ungranted tool is refused by name: {why}");
+    assert!(
+        refused && why.contains("spawn"),
+        "an ungranted tool is refused by name: {why}"
+    );
     // A turn that asks the socket directly (the `chief` launcher) is refused too.
     let direct = optchat_chief::tools::ask(
         &socket,
         optchat_chief::tools::Call::parse("spawn", &json!({"tasks": ["x"]})).unwrap(),
     );
-    assert!(direct.is_err_and(|e| e.contains("not given")), "the socket refuses spawn");
+    assert!(
+        direct.is_err_and(|e| e.contains("not given")),
+        "the socket refuses spawn"
+    );
 
     // profile: read, change an allowed field, refuse another, set the picture.
     let (err, read) = mcp.call("profile", json!({}));
-    assert!(!err && read.contains("Release captain") && read.contains("self_edit"), "{read}");
+    assert!(
+        !err && read.contains("Release captain") && read.contains("self_edit"),
+        "{read}"
+    );
     let (err, changed) = mcp.call("profile", json!({"role": "Build captain"}));
     assert!(!err, "{changed}");
     let record = me.v2("chief.profile.get", json!({"chief": scout}), None);
-    assert_eq!(record["role"], "Build captain", "the daemon holds the Chief's own change");
+    assert_eq!(
+        record["role"], "Build captain",
+        "the daemon holds the Chief's own change"
+    );
     let (err, denied) = mcp.call("profile", json!({"display_name": "Boss"}));
-    assert!(err && denied.contains("Not allowed: display_name"), "{denied}");
-    assert_eq!(me.v2("chief.profile.get", json!({"chief": scout}), None)["display_name"], "Scout");
+    assert!(
+        err && denied.contains("Not allowed: display_name"),
+        "{denied}"
+    );
+    assert_eq!(
+        me.v2("chief.profile.get", json!({"chief": scout}), None)["display_name"],
+        "Scout"
+    );
     let png = dir.path().join("me.png");
     std::fs::write(&png, PNG).unwrap();
     let (err, set) = mcp.call("profile", json!({"avatar_path": png.display().to_string()}));
@@ -309,6 +384,9 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
     assert_eq!(avatar["avatar"]["media_type"], "image/png", "{avatar}");
     let text_file = dir.path().join("me.txt");
     std::fs::write(&text_file, b"not a picture").unwrap();
-    let (err, bad) = mcp.call("profile", json!({"avatar_path": text_file.display().to_string()}));
+    let (err, bad) = mcp.call(
+        "profile",
+        json!({"avatar_path": text_file.display().to_string()}),
+    );
     assert!(err && bad.contains("PNG, JPEG, GIF or WebP"), "{bad}");
 }
