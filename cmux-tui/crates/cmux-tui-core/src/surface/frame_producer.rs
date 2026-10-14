@@ -25,7 +25,8 @@ pub(super) fn spawn_frame_producer(
         // frame of prompt latency. Later frames retain the 8 ms pacing.
         let mut first_frame = true;
         while let Ok(mut requested) = requests.recv() {
-            let deadline = if first_frame { Instant::now() } else { last_frame + RENDER_FRAME_CADENCE };
+            let deadline =
+                if first_frame { Instant::now() } else { last_frame + RENDER_FRAME_CADENCE };
             loop {
                 let now = Instant::now();
                 if now >= deadline {
