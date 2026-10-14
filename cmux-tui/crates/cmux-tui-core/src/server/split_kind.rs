@@ -252,6 +252,11 @@ impl SplitParams {
     pub(super) fn set_terminal_id(&mut self, terminal_hex: String) {
         self.content.terminal_id = Some(terminal_hex);
     }
+
+    /// The caller-minted terminal host id, if the request names one.
+    pub(super) fn terminal_id(&self) -> Option<&str> {
+        self.content.terminal_id.as_deref()
+    }
 }
 
 impl NewPaneRightParams {
@@ -261,6 +266,10 @@ impl NewPaneRightParams {
 
     pub(super) fn set_terminal_id(&mut self, terminal_hex: String) {
         self.content.terminal_id = Some(terminal_hex);
+    }
+
+    pub(super) fn terminal_id(&self) -> Option<&str> {
+        self.content.terminal_id.as_deref()
     }
 }
 
