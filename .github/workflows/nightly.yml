@@ -4036,7 +4036,14 @@ jobs:
             ".github/workflows/nightly.yml push nightly-next $GITHUB_REPOSITORY"|".github/workflows/nightly.yml workflow_dispatch nightly-next $GITHUB_REPOSITORY") ;;
             *) echo "pending run $PENDING_RUN is not this repository's nightly.yml run on nightly-next: $origin" >&2; exit 1 ;;
           esac
-          gh run download "$PENDING_RUN" --repo "$GITHUB_REPOSITORY" -n cmux-nightly-identity-pending-bundle -D pending
+          if ! gh run download "$PENDING_RUN" --repo "$GITHUB_REPOSITORY" -n cmux-nightly-identity-pending-bundle -D pending; then
+            # A meta artifact without its bundle can never continue: retire it so
+            # the next run submits anew instead of waiting out the 6-hour limit.
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PENDING_RUN/artifacts?name=cmux-nightly-identity-pending-meta" --jq '.artifacts[].id' \
+              | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
+            echo "pending run $PENDING_RUN has no bundle; its metadata was retired" >&2
+            exit 1
+          fi
           python3 -I -c 'import json, sys; m = json.load(open(sys.argv[1])); assert str(m["build"]) == sys.argv[2], (m["build"], sys.argv[2]); print("pending submission", m["submission_id"], "of build", m["build"])' pending/pending.json "$NIGHTLY_BUILD"
           mkdir -p legacy-app legacy-out
           tar -C legacy-app -xzf pending/app.tar.gz
@@ -4098,21 +4105,22 @@ jobs:
           cp pending/pending.json pending-meta.json
           mkdir -p pending-meta && mv pending-meta.json pending-meta/pending.json
 
-      - name: Upload the pending submission metadata
-        if: steps.notarize.outputs.submission_pending == 'true' && env.LEGACY_ACTION == 'new'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-nightly-identity-pending-meta
-          path: pending-meta/pending.json
-          if-no-files-found: error
-          retention-days: 2
-
+      # The bundle first: a meta artifact always has its bundle.
       - name: Upload the pending submission bundle
         if: steps.notarize.outputs.submission_pending == 'true' && env.LEGACY_ACTION == 'new'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-identity-pending-bundle
           path: pending/
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Upload the pending submission metadata
+        if: steps.notarize.outputs.submission_pending == 'true' && env.LEGACY_ACTION == 'new'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-identity-pending-meta
+          path: pending-meta/pending.json
           if-no-files-found: error
           retention-days: 2
 

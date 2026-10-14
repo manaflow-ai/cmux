@@ -2,7 +2,7 @@
 """After a cmux NIGHTLY-identity attempt: retire the pending submission? count a failure? (cx-x7hwx)
 
 Usage: nightly-next-legacy-resolve.py --action new|continue --pending true|false
-           --notarize success|failure|skipped --published true|false --answered true|false
+           --notarize success|failure|skipped|cancelled --published true|false --answered true|false
 
 --answered is true when Apple gave a final answer about the submission: the
 notary log names Accepted, Invalid or Rejected, or the app carries a valid
