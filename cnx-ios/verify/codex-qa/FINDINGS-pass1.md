@@ -75,6 +75,54 @@ Status: in progress.
   a half keyboard (`codexqa-raw/s4-keyboard-during-stream.mp4` at 53.2 s). Could be capture tearing; check with
   Instruments or a 60 fps capture.
 
+### F8 MAJOR: after switching back to the Codex tab, the last row sits half under the composer for seconds
+- Steps: Codex working (`Working (48s ...)`); Tabs -> New Browser Tab -> Tabs -> tap the codex card.
+- Expected: Codex's status row (`GPT-6-Astra max · ...`) rests above the composer as before the switch.
+- Actual: the terminal comes back in 1.7 s, but the status row's lower half is under the composer card in every
+  frame for at least 3.5 s (end of that recording); by 8 s it is fully visible again. This is the user's
+  "row hidden under the composer", reproduced through a tab switch (keyboard down).
+- Evidence: `artifacts/frames/s6-lastrow-hidden-after-tab-switch-4fps.jpg` (4 fps bottom crops, 47 s -> 53 s of
+  Codex's timer), `artifacts/frames/s6-lastrow-2.5s-vs-8s.jpg`, `artifacts/shots/s6-back-to-codex-0..5.jpg`.
+  Returning from Workspaces, foreground after 20 s in the background and a cold relaunch did NOT show it
+  (`artifacts/shots/s6-return-*.jpg`, `s6-fg-*.jpg`, `s6-relaunch-*.jpg`).
+- Suspected area: the warm-tab path (`CnxTerminal/Session/TerminalWarmSet.swift`, `TerminalHeldFrame.swift`):
+  the re-shown page keeps the bottom inset/document height measured before the composer's final frame
+  (or before Codex's next redraw) and only corrects on the next row change.
+
+### F9 MAJOR: closing the Codex tab from the grid detaches a running Codex with no confirmation or undo
+- Steps: Codex working (and holding a background terminal). Tabs -> the card's x.
+- Expected: a confirmation that a program is running (or at least an Undo toast), since the close is one small tap.
+- Actual: the card disappears at once; no prompt, no toast. On the Mac the Codex terminal keeps running with no
+  tab (`tab_ids: []`, still `running` 2 min later); the phone has no way back to it, and the CLI says a tab-less
+  terminal ends after the reap grace period.
+- Evidence: `artifacts/shots/s6c-close-codex-0..4.jpg`; Mac `terminal list` in the run notes below.
+- Suspected area: `CnxWorkspaces/WorkspaceTabsSource.swift` `close(_:)` (optimistic close, undone only when the
+  Mac refuses); the tab's program state (`activity.state = in_use`) is available from the Mac.
+
+### F10 MINOR: largest text size: the composer does not relayout on a live Dynamic Type change
+- Steps: Settings text size -> AX XXXL while a terminal tab is open (`simctl ui content_size`).
+- Actual: the placeholder grows but the card does not: `Send to azi…` is clipped (keyboard down) and drawn over
+  the card's top edge (keyboard up, direct typing `Typing int…`). After the next trait change (appearance) the
+  card grows correctly. The key bar does not scale (fine); the terminal grid is unaffected.
+- Evidence: `artifacts/shots/s7-dark-axxxl-kbdown.jpg`, `s7-dark-axxxl-composer.jpg`, `s7-dark-axxxl-direct.jpg`,
+  then `s7-light-axxxl.jpg` (correct).
+- Suspected area: `CnxTerminal/Composer/ComposerTextView.swift` (UITextView height cache not invalidated on
+  `UIContentSizeCategory.didChangeNotification` / `adjustsFontForContentSizeCategory`).
+
+### F11 MINOR: cold relaunch flashes the white launch screen before the dark terminal
+- ~1.3 s white screen with the chevron, then the dark held frame of the Codex tab (`artifacts/frames` n/a;
+  video `codexqa-raw/s6b-nav-bg-relaunch.mp4` last 20 s). A dark launch background (or following the restored
+  tab's appearance) avoids the flash. Reattach itself is good: input-ready 2.6 s after launch, with a small
+  `Connecting to Aziz's MacBook Pro` badge over the held frame for ~0.3 s.
+
+### F12 MINOR: New Terminal in a workspace opens in `~`, not the workspace's folder
+- The `codexqa` workspace was created with `--cwd ~/cnx-ios-e2e/codexqa-proj`; Tabs -> + -> New Terminal opened
+  `term_fe63...` in `/Users/azizalbahar`, so `codex` there would start in the wrong folder. (Could be Mac-side.)
+
+### F13 MINOR: a new browser tab shows a debug stats overlay in the Demo build
+- `phone 14:09.670 · 1 fps · 2 kbps · 804×1,444 · latency 257 ms · decode 13.0 ms` on an about:blank page
+  (`artifacts/shots/s6-browser-new.jpg`). Fine if DEBUG-only; confirm it is compiled out of TestFlight.
+
 ## Works well (no disruption seen)
 - Codex startup, the folder-trust menu (arrow highlight, Enter on the soft keyboard), Codex's main screen
   and status row all render cleanly above the composer, keyboard up (`artifacts/sheets/s1-codex-start.jpg`,
@@ -91,6 +139,12 @@ Status: in progress.
   (`artifacts/sheets/s4-keyboard-during-stream.jpg`).
 - Key bar ^C clears Codex's input; `/` opens Codex's command popup; key bar Down moves its selection; Esc closes it
   (`artifacts/shots/s5-*.jpg`). The joystick thumb now escapes the circle (`s5b-joystick-up30.jpg`).
+- Tab grid -> + -> New Browser Tab / New Terminal / back to the Codex card: the Codex tab comes back live in 1.7 s
+  with its full content (aside from F8). Back to Workspaces and reopening: 2.8 s, rows in place. Background 20 s
+  and foreground: in place, no reconnect banner. Cold relaunch mid-Codex: restores the Codex tab, input-ready in 2.6 s.
+- Dark/light switch: the terminal keeps its dark theme; chrome follows; no flash (`artifacts/shots/s7-*.jpg`).
+- Toasts: the only toast seen in this pass was the small `Connecting to …` badge on relaunch (~0.3 s), which
+  did not cover terminal rows the person was reading.
 
 ## Rig notes
 - The `origin/feat-cnx-ios-mactry` fleet build (job 2f98c7fc4d02124e3beb58c2, Linux-pool placement) has no
