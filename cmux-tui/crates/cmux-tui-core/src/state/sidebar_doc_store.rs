@@ -24,6 +24,24 @@ pub(crate) const DOC_RESOURCE: &str = "sidebar_doc";
 pub(crate) const DOC_ID: &str = "user";
 const REVISION_KEY: &str = "sidebar_doc_revision";
 const MIGRATED_KEY: &str = "sidebar_doc_v1_migrated";
+/// A fresh token per document write: the key of the parsed-document cache.
+const EPOCH_KEY: &str = "sidebar_doc_epoch";
+
+/// The last document this process wrote or read, by `(registry id, epoch)`.
+/// A write that rolls back leaves an epoch no row holds, so its entry never
+/// matches; reads then parse the rows as before.
+static CACHE: std::sync::Mutex<Option<(String, String, Doc)>> = std::sync::Mutex::new(None);
+
+fn cache_key(connection: &Connection) -> anyhow::Result<Option<(String, String)>> {
+    let Some(epoch) = meta(connection, EPOCH_KEY)? else { return Ok(None) };
+    Ok(meta(connection, "registry_id")?.map(|registry| (registry, epoch)))
+}
+
+fn remember(key: (String, String), doc: &Doc) {
+    if let Ok(mut cache) = CACHE.lock() {
+        *cache = Some((key.0, key.1, doc.clone()));
+    }
+}
 /// The largest stored row.
 const MAX_ROW_BYTES: usize = 64 * 1024;
 
@@ -67,6 +85,23 @@ pub(crate) fn is_migrated(connection: &Connection) -> anyhow::Result<bool> {
 
 /// The stored document. A row that no longer parses is skipped (logged).
 pub(crate) fn read_doc(connection: &Connection) -> anyhow::Result<Doc> {
+    let key = cache_key(connection)?;
+    if let Some((registry, epoch)) = &key
+        && let Ok(cache) = CACHE.lock()
+        && let Some((cached_registry, cached_epoch, doc)) = cache.as_ref()
+        && cached_registry == registry
+        && cached_epoch == epoch
+    {
+        return Ok(doc.clone());
+    }
+    let doc = read_rows(connection)?;
+    if let Some(key) = key {
+        remember(key, &doc);
+    }
+    Ok(doc)
+}
+
+fn read_rows(connection: &Connection) -> anyhow::Result<Doc> {
     let revision = meta(connection, REVISION_KEY)?.and_then(|v| v.parse().ok()).unwrap_or(0);
     let mut doc = Doc { revision, sections: Vec::new(), items: Vec::new() };
     let tables = connection
@@ -134,10 +169,12 @@ fn write_item(transaction: &Transaction<'_>, item: &Item) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// Write `changes` and the new revision; return the `session.events`
-/// changes: one upsert or delete per row, then the `sidebar_doc` marker.
+/// Write `changes` (from the stored document to `doc`) and the new
+/// revision; return the `session.events` changes: one upsert or delete per
+/// row, then the `sidebar_doc` marker.
 pub(crate) fn write_changes(
     transaction: &Transaction<'_>,
+    doc: &Doc,
     previous_revision: u64,
     revision: u64,
     changes: &Changes,
@@ -161,6 +198,14 @@ pub(crate) fn write_changes(
         events.push(state_delete(SECTION_RESOURCE, id));
     }
     set_meta(transaction, REVISION_KEY, &revision.to_string())?;
+    let epoch = crate::workspace_registry::try_new_uuid_v4()?;
+    set_meta(transaction, EPOCH_KEY, &epoch)?;
+    if let Some(registry) = meta(transaction, "registry_id")? {
+        let mut written = doc.clone();
+        written.revision = revision;
+        written.normalize();
+        remember((registry, epoch), &written);
+    }
     events.push(state_upsert(
         DOC_RESOURCE,
         DOC_ID,
@@ -179,7 +224,11 @@ pub(crate) fn write_changes(
 pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
     let tx = connection.unchecked_transaction()?;
     create_sidebar_doc_schema(&tx)?;
+    super::sidebar_doc_sync::create_triggers(&tx)?;
     if is_migrated(&tx)? {
+        // Old writes (also an older binary's) since the last open.
+        super::sidebar_doc_sync::sync_from_legacy(&tx)?;
+        tx.commit()?;
         return Ok(());
     }
     let input = super::sidebar_doc_legacy::legacy_input(&tx)?;
@@ -196,8 +245,8 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
         deleted_items: Vec::new(),
     };
     // No journal batch at open: clients read the document with sidebar.get.
-    write_changes(&tx, 0, doc.revision, &changes, None)?;
-    super::sidebar_doc_legacy::store_shadow(&tx)?;
+    write_changes(&tx, &doc, 0, doc.revision, &changes, None)?;
+    super::sidebar_doc_sync::clear_dirty(&tx)?;
     set_meta(&tx, MIGRATED_KEY, "1")?;
     tx.commit()?;
     Ok(())

@@ -337,6 +337,54 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread.
+    ThreadUpdateOp {
+        name: "thread.update",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ThreadUpdateParams,
+        result: HomeConversationCommit,
+        error: ThreadUpdateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ThreadUpdateParams {
+    pub conversation: ConversationId,
+    pub root: MessageId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<HomeThreadStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes thread.update declares.
+    ThreadUpdateError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidThreadOwner = "invalid_thread_owner",
+        InvalidThreadRoot = "invalid_thread_root",
+        InvalidThreadUpdate = "invalid_thread_update",
+        InvalidTitle = "invalid_title",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Rename a group conversation (not a dm or chief thread).
     TitleSetOp {
         name: "title.set",

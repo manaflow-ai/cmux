@@ -336,11 +336,15 @@ another machine's section (`cross_machine`); an app section takes no items
 (`provider_owned`); a machine section cannot be removed. Pinned and custom
 sections keep a closed workspace or an empty group (`keeps_closed`); a
 machine section shows only live workspaces. `sidebar.get` reads it as
-`{revision, sections, items}`. `sidebar.move {items, to}`, `sidebar.pin`,
+`{revision, sections, items}` (each section and item carries its
+forward-compatible keys in `extra`). `sidebar.move {items, to}`, `sidebar.pin`,
 `sidebar.unpin` (to the item's own machine section), the `sidebar.item.*`,
 `sidebar.section.*` and `sidebar.group.*` mutations and `sidebar.adopt
 {refs, to?}` are one reducer op each; `sidebar.apply {ops}` applies a list
-atomically. Each returns `{revision, inverse}`, where `inverse` is the list
+atomically, including the `close {refs}` op: a closed workspace leaves a
+machine section (with a group there it empties) and stays in Pinned and
+custom sections, where it draws dimmed; the daemon applies it itself when a
+workspace of this machine closes. Each returns `{revision, inverse}`, where `inverse` is the list
 of `item.put`, `item.delete`, `section.put` and `section.delete` ops that
 `sidebar.apply` takes to undo it. A refusal is `validation.invalid` whose
 reason is the reducer's and writes nothing. A change publishes, in its
@@ -356,7 +360,11 @@ tables stay. The old verbs keep working on top of it: `sidebar_layout.get`
 shows the Pinned items as the `sec_pinned` tiles (its revision is the
 layout's plus the document's), a tile `sidebar_layout.update` adds, removes
 or reorders is a Pinned op, personal group and placement writes, pin flags
-and new workspaces' personal rows are followed into the document, and
+and new workspaces' personal rows are followed into the document
+(incrementally: triggers mark the changed rows), the items a `sidebar.*`
+mutation changes are written back to the personal rows and groups (a
+workspace in Pinned or a custom section is a loose row at its document
+position, a group in Pinned is `pinned`), and
 `workspace.list {order: personal}` is the document's order of this
 machine's workspaces.
 

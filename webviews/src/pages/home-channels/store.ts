@@ -19,6 +19,8 @@ import {
   type HomeResolvedLink,
   type HomeThreadPage,
   type HomeThreadStats,
+  type HomeThreadStatus,
+  type HomeThreadUpdate,
 } from "./types";
 
 export const PAGE = 100;
@@ -422,6 +424,27 @@ export class HomeChannelsStore {
         text: trimmed,
         idempotencyKey: this.key("edit"),
       });
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Sets a thread's title, status or owner (any participant; an empty title or owner clears it).
+   * The owner answers with the root's message-updated event. Resolves true when the owner took it. */
+  async updateThread(
+    root: HomeMessage,
+    fields: { title?: string; status?: HomeThreadStatus; owner?: string },
+  ): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      await this.client.call(HomeOps.updateThread, {
+        conversation: root.conversation,
+        root: root.id,
+        ...fields,
+        idempotencyKey: this.key("thread"),
+      } satisfies HomeThreadUpdate);
       return true;
     } catch (error) {
       this.set({ error: describe(error) });

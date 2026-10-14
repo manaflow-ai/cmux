@@ -68,12 +68,19 @@ impl Mux {
                     if !outcome.changes.is_empty() {
                         events = doc_store::write_changes(
                             transaction,
+                            &outcome.doc,
                             doc.revision,
                             outcome.doc.revision,
                             &outcome.changes,
                             Some(&mutation.id),
                         )?;
                     }
+                    crate::state::sidebar_doc_sync::write_back(
+                        transaction,
+                        &doc,
+                        &outcome.doc,
+                        &outcome.changes,
+                    )?;
                     next_doc = outcome.doc;
                 }
                 let mut next = reduced;

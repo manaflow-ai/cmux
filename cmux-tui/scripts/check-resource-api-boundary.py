@@ -1097,8 +1097,8 @@ def _validate_catalog_type(
                 # targets, patches and ops are the reducer's own objects
                 # (cmux-layout-reducer sidebar_doc), validated there, and a
                 # newer app's keys must survive a round trip.
-                "types.SidebarDocSnapshot.fields.sections.items",
-                "types.SidebarDocSnapshot.fields.items.items",
+                "types.SidebarSectionSnapshot.fields.kind",
+                "types.SidebarItemSnapshot.fields.body",
                 "types.SidebarDocMutation.fields.inverse.items",
                 "operations.sidebar.adopt.params.fields.refs.items",
                 "operations.sidebar.adopt.params.fields.to",

@@ -164,7 +164,7 @@ declare namespace Cmux {
   type HomeInboxEntry = { conversation: Cmux.ConversationId; rev: number; kind: Cmux.ConversationKind; title: string; last_seq: number; last_at: Cmux.Timestamp; preview: string; preview_attachments?: { kind: "photo" | "video" | "audio" | "file"; count: number }; dm_peer?: Cmux.ParticipantId; removed: boolean; unread: number; mentions: number; counts_rev: number; pinned: boolean; pin_position?: number; muted: boolean; muted_until?: unknown; archived: boolean; archived_seq: number; marked_unread: boolean }
   type HomeInvite = { id: Cmux.InviteId; address: Cmux.AddressId; channel: "email" | "sms"; display_name: string; invited_by: Cmux.ParticipantId; created_at: Cmux.Timestamp; expires_at: Cmux.Timestamp; status: "pending" | "pending_approval" | "accepted" | "revoked" | "expired"; accepted_by?: string; accepted_at?: Cmux.Timestamp; requested_by?: string; requested_name?: string; requested_at?: Cmux.Timestamp; delivery: { state: Cmux.HomeDeliveryState; provider_id?: string; at: Cmux.Timestamp }; copy_variant: string; locale: string }
   type HomeLinkPreviewImage = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
-  type HomeMessage = { id: Cmux.MessageId; conversation: Cmux.ConversationId; seq: number; client_msg_id: Cmux.ClientToken; author: Cmux.ParticipantId; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; thread_root?: Cmux.MessageId; created_at: Cmux.Timestamp; edited_at?: Cmux.Timestamp; retracted_at?: Cmux.Timestamp; reactions: Array<Cmux.HomeReaction> }
+  type HomeMessage = { id: Cmux.MessageId; conversation: Cmux.ConversationId; seq: number; client_msg_id: Cmux.ClientToken; author: Cmux.ParticipantId; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; thread_root?: Cmux.MessageId; thread?: Cmux.HomeThreadState; created_at: Cmux.Timestamp; edited_at?: Cmux.Timestamp; retracted_at?: Cmux.Timestamp; reactions: Array<Cmux.HomeReaction> }
   type HomePart = unknown
   type HomeParticipant = { id: Cmux.ParticipantId; kind: "human" | "agent" | "address"; display_name: string; agent_class?: "mux" | "agent"; acp_session?: string; owner_user?: string; role?: "owner" | "member"; joined_seq?: number; added_by?: string; left_at?: Cmux.Timestamp }
   type HomeParticipantInput = { id: Cmux.ParticipantId; kind: "human" | "agent"; display_name: string; agent_class?: "mux" | "agent"; owner_user?: string }
@@ -173,7 +173,9 @@ declare namespace Cmux {
   type HomeReactionKind = unknown
   type HomeSha256 = string
   type HomeTextRun = { start: number; length: number; mention?: Cmux.ParticipantId; link?: string }
-  type HomeThreadSummary = { root: Cmux.MessageId; reply_count: number; last_reply_seq: number | null; last_reply_at: Cmux.Timestamp | null; authors: Array<Cmux.ParticipantId> }
+  type HomeThreadState = { title?: string; owner?: Cmux.ParticipantId; resolved?: { by: Cmux.ParticipantId; at: Cmux.Timestamp; seq: number } }
+  type HomeThreadStatus = "open" | "resolved"
+  type HomeThreadSummary = { root: Cmux.MessageId; reply_count: number; last_reply_seq: number | null; last_reply_at: Cmux.Timestamp | null; authors: Array<Cmux.ParticipantId>; status?: Cmux.HomeThreadStatus; title?: string; owner?: Cmux.ParticipantId; resolved_by?: Cmux.ParticipantId; resolved_at?: Cmux.Timestamp }
   type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number; kind?: Cmux.HostKind; wg_public_key?: Cmux.WgPublicKey; tags?: Array<string>; orphaned?: { at: number; former_owner: Cmux.UserId } }
   type HostId = string
   type HostKind = "device" | "server"
@@ -321,9 +323,11 @@ declare namespace Cmux {
   type SidebarAttachPatch = { kind: "patch"; sidebar_view_id: string /* sidebar_view_… */; render: Cmux.RenderPatch }
   type SidebarAttachScroll = { kind: "scroll"; sidebar_view_id: string /* sidebar_view_… */; scroll: Cmux.RenderScroll }
   type SidebarAttachSnapshot = { kind: "snapshot"; sidebar_view: Cmux.SidebarViewSnapshot; render: Cmux.RenderSnapshot }
+  type SidebarDocChange = { revision: string; previous_revision: string; idempotency_key: string | null }
   type SidebarDocMutation = { revision: string; inverse: Array<Cmux.JsonValue> }
-  type SidebarDocSnapshot = { revision: string; sections: Array<Cmux.JsonValue>; items: Array<Cmux.JsonValue> }
+  type SidebarDocSnapshot = { revision: string; sections: Array<Cmux.SidebarSectionSnapshot>; items: Array<Cmux.SidebarItemSnapshot> }
   type SidebarItemRef = { kind: string; value: string }
+  type SidebarItemSnapshot = { id: string; section: string; parent?: string; order: string; body: Cmux.JsonValue; shows_label: boolean; span?: number; extra?: Record<string, Cmux.JsonValue> }
   type SidebarLayoutOp = unknown
   type SidebarLayoutOpItemAdd = { kind: "item.add"; item: Cmux.JsonValue; section: string; index: number }
   type SidebarLayoutOpItemMove = { kind: "item.move"; id: string; section: string; index: number }
@@ -338,6 +342,7 @@ declare namespace Cmux {
   type SidebarLayoutSnapshot = { revision: string; sections: Array<Cmux.JsonValue> }
   type SidebarPluginSnapshot = { id: string /* sidebar_plugin_… */; name: string; source: string; revision?: string; active: boolean; enabled: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SidebarSectionPatch = { title?: string | null; look?: string; room?: string | null; max_rows?: number | null; shows_title?: boolean; layout?: string; align?: string; gap?: number | null; columns?: number | null }
+  type SidebarSectionSnapshot = { id: string; kind: Cmux.JsonValue; title?: string; shows_title: boolean; region: string; look: string; arrangement: string; columns?: number; max_rows?: number; room?: string; order: string; keeps_closed: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SidebarViewSnapshot = { id: string /* sidebar_view_… */; session_id: string /* session_… */; cols: number; rows: number; running: boolean; extra?: Record<string, Cmux.JsonValue> }
   type Size = { cols: number; rows: number }
   type SnapshotId = string
@@ -349,7 +354,7 @@ declare namespace Cmux {
   type StateDeleteResult = { id: Cmux.StateId; deleted: boolean }
   type StateEntitySnapshot = unknown
   type StateId = string
-  type StateResourceKind = "tab_group" | "saved_tab_group" | "workspace_group" | "workspace_placement" | "room" | "screen_group" | "closed" | "workspace_status" | "window_record"
+  type StateResourceKind = "tab_group" | "saved_tab_group" | "workspace_group" | "workspace_placement" | "room" | "screen_group" | "closed" | "workspace_status" | "window_record" | "sidebar_layout" | "sidebar_item" | "sidebar_section" | "sidebar_doc"
   type StateUpsert = { kind: "state_upsert"; sequence: number; resource: Cmux.StateResourceKind; id: string; value: Cmux.StateEntitySnapshot }
   type Step = unknown
   type StreamEnd = { reason: "completed" | "canceled" | "closed" | "gap" | "error"; cursor?: Cmux.Cursor; recovery?: string; error?: Cmux.StreamError }
@@ -1508,6 +1513,10 @@ interface CmuxGlobal {
     wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string }, Cmux.TerminalWaitResult>
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
+  }
+  thread: {
+    /** `thread.update` (mutation, scope `thread:write`): Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread. */
+    update: CmuxOp<{ conversation: Cmux.ConversationId; root: Cmux.MessageId; title?: string; status?: Cmux.HomeThreadStatus; owner?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
   title: {
     /** `title.set` (mutation, scope `title:write`): Rename a group conversation (not a dm or chief thread). */

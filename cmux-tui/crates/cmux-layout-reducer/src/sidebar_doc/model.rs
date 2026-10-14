@@ -3,8 +3,9 @@
 //! Wire shapes: a section's `kind` and an item's `body` are objects tagged by
 //! `type` (`{"type":"machine","session_id":"..."}`,
 //! `{"type":"workspace","ref":{"session_id":"...","workspace_id":"..."}}`).
-//! Sections, items and workspace refs keep unknown keys in `extra`, so a
-//! newer client's fields survive a round trip through an older daemon.
+//! Sections, items and workspace refs carry forward-compatible data in an
+//! explicit `extra` object (the catalog convention), so a newer client's
+//! fields survive a round trip through an older daemon.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -49,7 +50,7 @@ pub fn group_item_id(group_id: &str) -> ItemId {
 pub struct WorkspaceRef {
     pub session_id: String,
     pub workspace_id: String,
-    #[serde(flatten)]
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
 }
 
@@ -160,7 +161,7 @@ pub struct Section {
     pub order: String,
     #[serde(default)]
     pub keeps_closed: bool,
-    #[serde(flatten)]
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
 }
 
@@ -299,7 +300,7 @@ pub struct Item {
     pub shows_label: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span: Option<i64>,
-    #[serde(flatten)]
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
 }
 
@@ -562,7 +563,7 @@ pub struct NewItem {
     pub shows_label: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span: Option<i64>,
-    #[serde(flatten)]
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
 }
 
@@ -629,6 +630,12 @@ pub enum Op {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         to: Option<Target>,
     },
+    /// Workspaces that closed. In a section that does not keep closed items
+    /// (a machine section) the item goes, and so does a group there that it
+    /// leaves empty; in Pinned and custom sections it stays (drawn dimmed,
+    /// reopened on click).
+    #[serde(rename = "close")]
+    Close { refs: Vec<WorkspaceRef> },
     #[serde(rename = "item.put")]
     ItemPut { item: Item },
     #[serde(rename = "item.delete")]

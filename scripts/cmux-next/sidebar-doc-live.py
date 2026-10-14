@@ -184,7 +184,7 @@ def ws_item(doc: dict, session: str, workspace: str) -> dict | None:
     for item in doc["items"]:
         ref = item["body"].get("ref") if item["body"].get("type") == "workspace" else None
         if ref and ref["session_id"] == session and (
-            ref["workspace_id"] == workspace or ref.get("workspace_ref") == workspace
+            ref["workspace_id"] == workspace or ref.get("extra", {}).get("workspace_ref") == workspace
         ):
             return item
     return None
@@ -333,9 +333,9 @@ def main() -> int:
         remote = group_item(doc, "Remote")
         check("group Remote in remote-a's section with ra2, ra3 placed by reference",
               remote is not None and remote["section"] == "sec_m_remote-a"
-              and [c["body"]["ref"].get("workspace_ref") for c in children(doc, remote["id"])] == ["ra2", "ra3"],
+              and [c["body"]["ref"]["extra"].get("workspace_ref") for c in children(doc, remote["id"])] == ["ra2", "ra3"],
               remote)
-        rb = [i["body"]["ref"].get("workspace_ref") for i in top(doc, "sec_m_remote-b")]
+        rb = [i["body"]["ref"]["extra"].get("workspace_ref") for i in top(doc, "sec_m_remote-b")]
         check("remote-b rows in their machine section", rb == ["rb1", "rb2"], rb)
         url = items_by_id(doc).get("itm_docs")
         check("custom section url item migrated", url is not None and url["section"] == "sec_work", url)
@@ -421,9 +421,46 @@ def main() -> int:
         new_item = ws_item(followed, local, w7)
         check("a new workspace is adopted into its machine section",
               new_item is not None and new_item["section"] == f"sec_m_{local}", new_item)
+        # Closes: a machine-section workspace leaves the doc; a pinned one stays.
+        daemon.ok("workspace.close", {"workspace": w7}, mutate=True)
+        daemon.ok("workspace.close", {"workspace": ids["w5"]}, mutate=True)
+        closed = daemon.ok("sidebar.get")
+        check("a closed workspace is removed from its machine section", ws_item(closed, local, w7) is None)
+        kept = ws_item(closed, local, ids["w5"])
+        check("a closed workspace in Pinned stays", kept is not None and kept["section"] == "sec_pinned", kept)
+
+        # Write-back: old readers (list-personal) see document moves and groups.
+        w3 = ws_item(closed, local, ids["w3"])
+        daemon.ok("sidebar.move", {"items": [w3["id"]], "to": {"section": f"sec_m_{local}", "index": 0}},
+                  mutate=True)
+        made = daemon.ok("sidebar.group.create", {"name": "DocGroup", "items": [ws_item(closed, local, ids["w2"])["id"]]},
+                         mutate=True)
+        daemon.ok("sidebar.move", {"items": [w1["id"]], "to": {"section": f"sec_m_{local}",
+                                                               "parent": frontend["id"]}}, mutate=True)
+        personal = daemon.raw({"cmd": "list-personal"})
+        rows = [r for r in personal["workspaces"] if r["session_id"] == local]
+        by_key = {r["workspace_key"]: r for r in rows}
+        keys = seeded["keys"]
+        groups_by_name = {g["name"]: g["id"] for g in personal["groups"]}
+        check("write-back: a document move out of a group ungroups the old row",
+              by_key[keys["w3"]].get("group") in (None, ""), by_key[keys["w3"]])
+        check("write-back: sidebar.group.create makes an old group holding its workspace",
+              "DocGroup" in groups_by_name and by_key[keys["w2"]].get("group") == groups_by_name["DocGroup"],
+              {"groups": list(groups_by_name), "w2": by_key[keys["w2"]]})
+        check("write-back: a move into a group sets the old row's group",
+              by_key[keys["w1"]].get("group") == seeded["frontend"], by_key[keys["w1"]])
+        after_moves = daemon.ok("sidebar.get")
+        id_to_key = {ids[name]: key for name, key in keys.items()}
+        doc_loose = [id_to_key[i["body"]["ref"]["workspace_id"]] for i in top(after_moves, f"sec_m_{local}")
+                     if i["body"].get("type") == "workspace" and i["body"]["ref"]["workspace_id"] in id_to_key]
+        old_loose = [r["workspace_key"] for r in sorted(rows, key=lambda r: r["index"])
+                     if not r.get("group") and r["workspace_key"] in doc_loose]
+        check("write-back: the old order of this machine's loose rows matches the document",
+              old_loose == doc_loose and doc_loose[:1] == [keys["w3"]], {"old": old_loose, "doc": doc_loose})
+        assert made["value"]["revision"]
         order = [w["id"] for w in daemon.ok("workspace.list", {"order": "personal"})]
         check("workspace.list personal order follows the document (Pinned first)",
-              max(order.index(ids["w6"]), order.index(ids["w1"])) < order.index(ids["w2"]), order)
+              order.index(ids["w6"]) < order.index(ids["w3"]), order)
         final = daemon.ok("sidebar.get")
     finally:
         daemon.stop()
@@ -438,8 +475,8 @@ def main() -> int:
               len(restarted["items"]) == len(final["items"]) and len(restarted["sections"]) == len(final["sections"]))
         layout = daemon.ok("sidebar_layout.get")
         tiles = next((s for s in layout["sections"] if s["id"] == "sec_pinned"), {"items": []})["items"]
-        check("old sidebar_layout.get still shows the pinned item after restart",
-              f"{local}:{ids['w1']}" in [t["ref"]["value"] for t in tiles])
+        check("old sidebar_layout.get still shows the pinned items after restart",
+              f"{local}:{ids['w6']}" in [t["ref"]["value"] for t in tiles], tiles)
     finally:
         daemon.stop()
     print(f"{'FAILED' if failures else 'OK'}: {len(failures)} failure(s); workdir {work}", flush=True)
