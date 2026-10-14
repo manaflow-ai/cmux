@@ -332,8 +332,10 @@ await requireBrowserLane("agent-pane-jump-latest.test.ts", async () => {
     await page.waitForTimeout(400);
     await film(page);
     const top = () => toggle.evaluate((node) => Math.round(node.getBoundingClientRect().top));
+    // A plain click where the toggle is: a locator click may scroll it first, which is not the app.
+    const box = (await toggle.boundingBox())!;
     const before = await top();
-    await toggle.click();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     const tops: number[] = [];
     for (let frame = 0; frame < 12; frame++) {
       tops.push(await top());
