@@ -100,6 +100,14 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         browserSignIn.signInIsSlow
     }
 
+    var signInFailureTitle: String? {
+        lastSignInFailure?.title
+    }
+
+    var signInFailureRecovery: String? {
+        lastSignInFailure?.recovery
+    }
+
     var isCompletingSignIn: Bool {
         _ = teamObservationRevision
         return coordinator.isLoading || coordinator.isRestoringSession

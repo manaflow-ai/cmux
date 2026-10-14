@@ -373,6 +373,16 @@ public final class HostBrowserSignInFlow {
                     }
                     return
                 }
+                // Safari can finish the web handoff after the hosted session
+                // reports that it was cancelled or failed. Keep this attempt's
+                // state as a short-lived, single-use external state before
+                // resuming the session continuation, so the callback is not
+                // lost in the gap between those two events.
+                if case .cancelled = result {
+                    self.preserveCallbackStateForLateCompletion(attemptID: attemptID, reason: "cancelled")
+                } else if case .failed = result {
+                    self.preserveCallbackStateForLateCompletion(attemptID: attemptID, reason: "failed")
+                }
                 self.resumeActiveSessionContinuation(returning: result, reason: "sessionCompletion", expectedAttemptID: attemptID)
             }
             let started = session.start()
@@ -479,6 +489,12 @@ public final class HostBrowserSignInFlow {
         slowSignInHintTask?.cancel()
         slowSignInHintTask = nil
         signInIsSlow = false
+    }
+
+    private func preserveCallbackStateForLateCompletion(attemptID: UInt64, reason: String) {
+        guard activeAttemptID == attemptID, let state = activeCallbackState else { return }
+        issueCallbackState(state)
+        log.log("auth.browser.attempt.retainCallbackState id=\(attemptID) reason=\(reason)")
     }
 
     private func recordBrowserSessionFailure(reason: String, attemptID: UInt64) {
