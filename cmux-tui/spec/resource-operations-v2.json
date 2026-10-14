@@ -14844,6 +14844,24 @@
               "max_length": 128
             },
             "description": "The compactor speed, default or fast, applied at the next brain start; empty or default clears it."
+          },
+          "compactor_harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's acpmux harness, applied at the next brain start; empty or default clears it (the turns' engine harness when it is a Claude one, else the default Claude route)."
+          },
+          "compactor_model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's model, applied at the next brain start; empty or default clears it (Claude Haiku on a Claude harness)."
           }
         },
         "extra": false
