@@ -612,6 +612,8 @@ impl ChildAgent {
             return;
         }
         let mut guard = self.child.lock().await;
+        #[cfg(unix)]
+        let under = under_unreaped(guard.as_ref()).await;
         // The saved group id, not `child.id()`: once the leader is reaped
         // that is None, and its background processes would survive.
         if let Some(pid) = self.pid {
@@ -634,6 +636,8 @@ impl ChildAgent {
             let _ = child.kill().await;
         }
         *guard = None;
+        #[cfg(unix)]
+        end_still_running(under).await;
     }
 
     /// Stop the agent within a bound: SIGTERM to its process group, wait up
@@ -659,6 +663,12 @@ impl ChildAgent {
             return;
         }
         let pgid = self.pid.map(|p| p as i32);
+        // Busy: the exit watcher reaps the agent, which is gone then.
+        #[cfg(unix)]
+        let under = match self.child.try_lock() {
+            Ok(g) => under_unreaped(g.as_ref()).await,
+            Err(_) => Vec::new(),
+        };
         #[cfg(unix)]
         if let Some(pg) = pgid {
             unsafe {
@@ -684,6 +694,8 @@ impl ChildAgent {
         {
             let _ = c.start_kill();
         }
+        #[cfg(unix)]
+        end_still_running(under).await;
     }
 
     pub async fn is_alive(&self) -> bool {
@@ -1133,4 +1145,29 @@ impl ChildAgent {
             }
         }
     }
+}
+
+/// The processes under a direct agent, by pid and start time, taken before
+/// its group is signalled: a helper the harness moved out of its group
+/// (setsid, Node's `detached: true`) is out of reach of the group signal
+/// and runs on with parent pid 1 once the harness is gone (cx-n3uid). The
+/// pid is read only while the agent is not reaped (`Child::id` is Some), so
+/// it cannot name a reused pid.
+#[cfg(unix)]
+async fn under_unreaped(child: Option<&Child>) -> Vec<crate::agent_host::tree::Started> {
+    let Some(pid) = child.and_then(Child::id) else { return Vec::new() };
+    tokio::task::spawn_blocking(move || crate::agent_host::tree::descendants(&[pid]))
+        .await
+        .unwrap_or_default()
+}
+
+/// SIGKILL each of `procs` that still runs as the same process: what the
+/// group signal of a direct agent did not reach.
+#[cfg(unix)]
+async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
+    if procs.is_empty() {
+        return;
+    }
+    let _ = tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
+        .await;
 }
