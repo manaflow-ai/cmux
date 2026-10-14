@@ -10,6 +10,10 @@
 //   - the folder popover filters with its search field and tells duplicate names apart;
 //   - the strip and the card read as one surface: no hairline draws across the seam where the
 //     strip stands on the card (Leo: the card's top hairline showed under the strip).
+//   - design panel (compact composer): the strip's first and last marks line up with the prompt's
+//     edges, with no gap where it stands inside the card's corner; no "·" floats between folder
+//     and computer; in a narrow pane the folder cuts in the middle ("atl…web"), the computer shows
+//     its icon alone (named by its tooltip and label) and the branch keeps its name.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -275,4 +279,103 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         tones: tones.map(Math.round),
       });
     });
+  /** Runs in the page: the strip's controls against the prompt's edges. */
+  function measureMarks() {
+    const rect = (element: Element | null | undefined) => {
+      if (!element) return null;
+      const { left, right, top, bottom, width } = element.getBoundingClientRect();
+      return { left, right, top, bottom, width };
+    };
+    const strip = document.querySelector(".acpmux-composer-strip")!;
+    const pickers = [...strip.querySelectorAll<HTMLElement>(".acpmux-location-picker")];
+    const computer = strip.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"]');
+    const branch = pickers.at(-1)!;
+    const branchLabel = branch.querySelector<HTMLElement>(".acpmux-location-label")!;
+    const computerLabel = computer?.querySelector<HTMLElement>(".acpmux-location-label");
+    const head = strip.querySelector<HTMLElement>(".acpmux-location-head");
+    return {
+      prompt: rect(
+        document.querySelector(".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]"),
+      ),
+      strip: rect(strip),
+      folderIcon: rect(pickers[0]?.querySelector(".acpmux-location-icon")),
+      branchChevron: rect(branch.querySelector(".ui-ghost-icon:last-child")),
+      text: strip.textContent ?? "",
+      head: head ? { clipped: head.scrollWidth > head.clientWidth + 0.5, text: head.textContent } : null,
+      tail: rect(strip.querySelector(".acpmux-location-tail")),
+      tailText: strip.querySelector(".acpmux-location-tail")?.textContent,
+      computerLabelShown: computerLabel ? getComputedStyle(computerLabel).display !== "none" : null,
+      computerIcon: rect(computer?.querySelector(".acpmux-location-icon")),
+      computerName: computer
+        ? (computer.getAttribute("title") ?? computer.querySelector("[title]")?.getAttribute("title") ?? "")
+        : null,
+      branchClipped: branchLabel.scrollWidth > branchLabel.clientWidth + 0.5,
+    };
+  }
+
+  for (const width of [420, 760])
+    test(`the chat composer at ${width} px: the strip's marks line up with the prompt's edges`, async () => {
+      const page = await open("agent-pane.composer-strip", "project", width);
+      await page.locator(".acpmux-composer-strip .acpmux-location-icon").first().waitFor();
+      const marks = await page.evaluate(measureMarks);
+      await page.close();
+      const prompt = marks.prompt!;
+      const folderIcon = marks.folderIcon!;
+      const branchChevron = marks.branchChevron!;
+      // A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's ink ends 4 px inside.
+      expect(Math.abs(folderIcon.left + 1.5 - prompt.left)).toBeLessThanOrEqual(2);
+      expect(Math.abs(branchChevron.right - 4 - prompt.right)).toBeLessThanOrEqual(2);
+      expect(marks.text).not.toContain("·");
+      expect(marks.computerLabelShown).toBe(true);
+    });
+
+  for (const width of [290, 300])
+    test(`the chat composer at ${width} px: the folder cuts in the middle, the computer is its icon, the branch is whole`, async () => {
+      const page = await open("agent-pane.composer-strip", "project", width);
+      await page.locator(".acpmux-composer-strip .acpmux-location-icon").first().waitFor();
+      const marks = await page.evaluate(measureMarks);
+      await page.close();
+      const strip = marks.strip!;
+      // atlas-web keeps its end in view; never "atla…".
+      expect(marks.tailText).toBe("web");
+      const tail = marks.tail!;
+      expect(tail.width).toBeGreaterThan(0);
+      expect(tail.right).toBeLessThanOrEqual(strip.right);
+      // The computer gives way to its icon, still named for the pointer and VoiceOver.
+      expect(marks.computerLabelShown).toBe(false);
+      expect(marks.computerIcon!.width).toBeGreaterThan(0);
+      expect(marks.computerName).toContain("This Mac");
+      expect(marks.branchClipped).toBe(false);
+    });
+
+  // Inside the card's corner: one column just inside the strip's side, from the strip down into the
+  // card. The card's corner has dropped there, and a gap would show the page between the two.
+  test("the chat composer: no gap where the strip stands inside the card's corner", async () => {
+    const page = await browser!.newPage({ viewport: { width: 420, height: 560 }, deviceScaleFactor: 2 });
+    await page.goto(stageURL("agent-pane.composer-strip", "project"));
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+    const at = await page.evaluate(() => {
+      const strip = document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect();
+      const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+      return { x: strip.left + 1, seam: card.top, inside: strip.left - card.left };
+    });
+    // The strip stands inside the corner's 18 px radius (that is what lines its marks up).
+    expect(at.inside).toBeLessThan(18);
+    const png = PNG.sync.read(await page.screenshot({ clip: { x: at.x, y: at.seam - 4, width: 1, height: 8 } }));
+    await page.close();
+    const tones: number[] = [];
+    for (let y = 0; y < png.height; y++) {
+      const offset = (png.width * y + png.width - 1) * 4;
+      tones.push(0.2126 * png.data[offset]! + 0.7152 * png.data[offset + 1]! + 0.0722 * png.data[offset + 2]!);
+    }
+    const worst = Math.max(...tones.map((tone) => Math.abs(tone - tones[0]!)));
+    expect({ worst: Math.round(worst), tones: tones.map(Math.round) }).toEqual({
+      worst: Math.min(Math.round(worst), 5),
+      tones: tones.map(Math.round),
+    });
+  });
 });
