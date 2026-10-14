@@ -1,9 +1,10 @@
 //! Runs git for the git reads. The caller's own environment never redirects
 //! git (every `GIT_*` variable is dropped), repository config never runs a
-//! program (no fsmonitor, no transport, so no lazy fetch in a partial clone,
-//! and no `git diff` inside a submodule here; callers add `--no-ext-diff`,
-//! `--no-textconv` and blank filter drivers through `overrides`), pathspecs
-//! are literal, and each run has a deadline and bounded output.
+//! program (no fsmonitor, no hooks, no transport, so no lazy fetch in a
+//! partial clone, and no `git diff` inside a submodule here; callers add
+//! `--no-ext-diff`, `--no-textconv` and blank filter drivers through
+//! `overrides`), pathspecs are literal, and each run has a deadline and
+//! bounded output.
 
 use std::io::{ErrorKind, Read};
 use std::path::Path;
@@ -160,7 +161,7 @@ fn run(
 
 /// Confines `command`, a git that only reads, so neither the caller's
 /// environment nor repository config makes it run a program or reach a
-/// remote: every inherited `GIT_*` variable is dropped, fsmonitor,
+/// remote: every inherited `GIT_*` variable is dropped, fsmonitor, hooks,
 /// signature checks and submodule inline diffs are off, the attributes and
 /// order files are never read, `overrides` (blanked filter drivers, from
 /// [`crate::Repository`]) are set, and every transport is refused. A diff
@@ -176,6 +177,11 @@ pub fn confine_read(command: &mut Command, overrides: &[Override]) {
     // `log.showSignature` would print signature checks into parsed output
     // and run the signing program.
     command.args(["-c", "core.fsmonitor=false", "-c", "log.showSignature=false"]);
+    // A diff or status that refreshes a stale index writes it, and each
+    // write runs `post-index-change` from `.git/hooks` (no config needed)
+    // or `core.hooksPath`. As a `-c` setting this reaches the git run inside
+    // a submodule too.
+    command.args(["-c", "core.hooksPath=/dev/null"]);
     // `diff.submodule=diff` would run `git diff` inside a submodule, with
     // the submodule's own diff drivers.
     command.args(["-c", "diff.submodule=short"]);
