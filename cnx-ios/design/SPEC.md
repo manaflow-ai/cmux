@@ -1140,7 +1140,8 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CnxWorkspaces/WorkspacesLi
 - Rows with no known activity time (live: no event since the phone connected) sort after
   every timed row, in the Mac's focus order (`focused_at`), and show no time.
 - Workspace row (Mail anatomy): insets 0 / 20, vertical 10. A status gutter centered on
-  line 1, 32 pt at Large and scaled with Dynamic Type (`@ScaledMetric`, as are the discs):
+  line 1, 32 pt at Large and scaled like `.body` with Dynamic Type (`UIFontMetrics` from the
+  environment's size, as are the discs; `@ScaledMetric` doubled it in list rows):
   `warning` 10 pt disc (needs you), mini spinner (working or creating), 8 pt `label` disc
   (done), else empty. Line 1: the name `rowTitle` semibold (`label3` offline) and a trailing
   `meta` time (`RelativeStamp`, `label` when it needs you). Line 2 `rowSubtitle` `label2`:
@@ -1150,7 +1151,8 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CnxWorkspaces/WorkspacesLi
   " · <Mac>" when Recent mixes Macs and no filter is set); offline at 60 % opacity. The
   agent and task come from the tab the state is about (`agentTab(for:)`: the waiting or
   working tab, else the first agent tab); with no agent tab: "Needs you", "Working", "Done".
-  Separators start at the text (the gutter). Press: the system highlight. At accessibility
+  Separators start at the text (the gutter). Press: a `fillSelected` row fill while the
+  finger is down (not the List cell highlight, which stuck on behind swipe actions). At accessibility
   sizes the name wraps to 2 lines with the time still trailing beside it (no line of its
   own), and line 2 takes 2 lines.
 - Status priority: Creating > Offline > Needs you > Working > Done > Idle. Done is the Mac's
@@ -1167,12 +1169,18 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CnxWorkspaces/WorkspacesLi
   backend cannot manage the workspace. Offline: the header and "Show <Mac>" (filters).
 - Swipe left: Close (system destructive role with `.tint(nil)`) and Rename (`gray`). Close
   is confirmed in a popover pointing at the row (Mail), anchored to a view over the list at
-  the row's frame: a row's own presentation is dropped while its swipe actions close. No
+  the row's frame, read from UIKit probe views when Close is tapped (a row's own
+  presentation is dropped while its swipe actions close, and SwiftUI geometry inside list
+  cells went stale on scroll). At accessibility sizes the popover is nearly screen-tall, so
+  the row first scrolls to the top (`smooth`) and the popover opens under it. No
   full swipe, no leading swipe (the team drawer owns it). Rename and close apply at once
   and are undone if the Mac refuses (toast).
-- States: team loading with no cache, or the linked Mac's first list pending → `SkeletonList`;
-  cached rows stay at full opacity while refreshing. Failed → "Couldn't load workspaces" +
-  Retry. Filtered online Mac with none → "No workspaces on <Mac>" + New Workspace; filtered
+- States (live mode reads each Mac's `MacDataMachine` phase): team loading with no cache, or
+  the linked Mac dialing with nothing known → `SkeletonList`. Last-known (snapshot) rows show
+  at 55 % opacity with no agent state (never "is waiting" from a cache) until the Mac
+  answers; while the link connects the subtitle reads "Updating…" after 1.5 s. An online Mac
+  whose dial failed with nothing known is a "<Mac> · Can't connect" line (Retry); filtered to
+  it, "Can't connect to <Mac>" + Retry. Team failed → "Couldn't load workspaces" + Retry. Filtered online Mac with none → "No workspaces on <Mac>" + New Workspace; filtered
   offline Mac → "<Mac> is offline"; live, filtered to an online Mac the phone is not linked to
   → "<Mac> isn't connected" + Connect; under All, such a Mac is a "<Mac> · Not connected"
   line that links it on a tap. Every Mac asleep → "Your Macs are asleep" header above the

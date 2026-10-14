@@ -591,3 +591,113 @@ and `16b-new-confirmed`.
 **Known**: one frame during the New Workspace menu dismissal (`ios26-dark/frames/f188`)
 shows the list shifted by the search drawer for 0.5 s (the drawer collapses as Escape
 dismisses the menu); this is a script artifact of the hardware Escape key.
+
+### Round 2 — design review
+
+Reviewed every step screenshot of the five runs in `round2/` and the `ios26-dark` 2 fps
+frames around each transition. Paths are under `verify/evidence/2026-10-13/wsdesign/`.
+
+**Round 1 findings: all fixed.**
+
+1. The waiting tab opens on its card ("Codex wants to run a command", Allow once / Deny /
+   Reply instead) with no "Working" flash (`round2/*/18-opened-waiting-tab.png`,
+   `round2/ios26-dark/frames/f190`–`f191`).
+2. The filter menu shows "Online" / "Last seen 2h ago" under each Mac (`round2/*/02`).
+3. Filtered to the offline Mac, there is no repeated line (`round2/*/04`).
+4. The fold scrolls its first row into view (`round2/ios26-ax/07`).
+5. The close popover points at "design system" at Large on iOS 26 and 27 (`round2/ios26-dark/13`,
+   `round2/ios27-dark/13`). It looks native; the anchor view is not visible. See new 3 for AX.
+6. The menu titles the agent tab with its task and the agent as its subtitle (`round2/*/11`).
+7. "is working" reads at `label2` in both modes (`round2/ios26-light/01`).
+8. and 9. At AX sizes the time stays trailing and the gutter scales; 3.5 rows fit
+   (`round2/ios26-ax/01`).
+10. The new workspace reads "Home", and the creating spinner is captured
+    (`round2/*/16-new-pending.png`).
+
+**New in round 2 (minor)**
+
+1. **The gutter and row height regressed at Large.** Text now starts about 48 pt from the
+   edge (was 32) and the row pitch is about 72 pt (was 61). Compare
+   `round1/ios26-dark/01-list.png` (names at x≈97 px) with `round2/ios26-dark/01-list.png`
+   (x≈145 px). The list feels indented, and the offline Mac's line is now hidden under the
+   tab bar on the first screen, so the user cannot see that a Mac is offline without
+   scrolling. Fix: the `@ScaledMetric` base must give 32 pt at `.large`. Check the
+   initial value and that no padding is added to it twice, for example a leading inset
+   plus the gutter frame. Restore 10 pt vertical row padding. Re-check that the separator
+   inset follows.
+2. **A swiped row turns into a gray pill with one clipped letter** ("m … 2h",
+   `round2/ios26-dark/12-swipe-close.png`, light too). Round 1 showed no fill
+   (`round1/ios26-dark/12`). It is the row's pressed or highlight fill staying on during
+   the swipe. Mail shows no fill there. Fix: do not draw a press fill on rows (let `List`
+   own selection), or clear it when a swipe begins. Keep `listRowBackground(bg)`.
+3. **At AX sizes the close popover points at the wrong row.** The arrow points at cnx-ios's
+   status line, about 80 pt above the swiped "design system" row
+   (`round2/ios26-ax/12` → `13`). The stored row frame is stale or measured in another
+   coordinate space at large type. Fix: read the row's frame at the moment Close is
+   tapped, in the same named coordinate space as the anchor overlay. Add an AX check
+   of step 13 to the script.
+
+**Nits**
+
+- `round2/ios26-dark/frames/f186`–`f188`: the list drops about 15 pt under the search field for
+  one frame as the New Workspace menu closes. The script closes the menu with the hardware
+  Escape key (`record-wsdesign.sh` line 90), which also goes to the search controller, so
+  the implementer's explanation is plausible. Escape is a real input on iPad and with a
+  keyboard, though. Next recording, close the menu with a tap outside. If the shift is
+  gone, accept it; if not, it is an app issue.
+- The MacBook Pro still shows a desktop icon (known; no Mac kind in the model).
+
+**Taste.** The list now reads like a first-party app: status in words, attention first,
+system menus, swipes, popovers and pushes, correct in dark, light and at AX sizes, and the
+same on iOS 26 and 27. New 1 is the one visible step back; with it fixed I would show this
+to the user without hesitation.
+
+**Verdict: SIGN OFF** (no major issues). Fix new 1 to 3 before handing the build to the
+user; the nits are optional.
+
+### Round 3 — implementation
+
+Fixes the three items of the round 2 review, the Escape nit, removes the prototypes and
+merges `origin/feat-cnx-ios`. Evidence: `verify/evidence/2026-10-13/wsdesign/round3/`
+(`ios26-dark`, `ios26-light`, `ios26-ax`, `ios27-dark`, `ios27-light`: 20 steps,
+`walk.mp4`, 2 fps `frames/` and `check-13.txt` each), plus hero shots `final-dark.png` and
+`final-light.png` (iOS 26.5, Large, list at launch, clean status bar). One headless
+simulator at a time, each deleted afterwards.
+
+| # | Defect | Fix | Evidence |
+| --- | --- | --- | --- |
+| 1 | Gutter about 48–64 pt and rows about 72 pt at Large; the offline line fell under the tab bar. | `@ScaledMetric(relativeTo: .body)` in list rows scaled 32 pt to about 64 pt at Large (the round 2 dot center was at x 32 pt). The gutter and discs now scale with `UIFontMetrics(.body)` from the environment's Dynamic Type size, exactly the value at Large; the separator inset uses the same function. The row padding was never changed (10 pt); the taller rows most likely came from the doubled disc metric in the gutter's baseline alignment, and are gone with it. | `round3/ios26-dark/01-list.png` matches `round1/ios26-dark/01-list.png` (text at 32 pt, same row pitch, the MacBook Pro line above the tab bar); `final-dark.png`, `final-light.png` |
+| 2 | A swiped row became a gray pill. | The List cell highlight (default button style in a List) stayed on during the swipe. Rows use `RowPressStyle`: a full-row `fillSelected` fill only while the finger is down; a swipe or scroll cancels the press. `listRowBackground(bg)` kept. | `round3/*/12-swipe-close.png` (no fill; only "2h" beside the actions, which is system behavior) |
+| 3 | At AX sizes the close popover pointed about 80 pt off. | Two causes. SwiftUI geometry callbacks inside list cells did not follow scrolling, so the stored frame went stale: each row and the anchor overlay now carry a UIKit probe view, and the row's frame is converted into the overlay's space at the moment Close is tapped. And at AX sizes the popover is nearly screen-tall and cannot sit beside a row in the lower half: the row first scrolls to the top (`smooth`, then the popover in the animation's completion) and the popover opens under it. The script checks step 13 at every size: the popover's text must sit just above or below the swiped row without covering it. | `round3/ios26-ax/13-close-confirm.png` (row at the top, popover under it, arrow on its bottom edge); `check-13.txt`: PASS in all five runs (gap 24.7 / 35.0 pt at Large, 133 pt at AX-XL where the popover's own padding is larger) |
+| nit | New Workspace menu closed with the hardware Escape key; one-frame list shift. | The script closes it with a tap outside (left side, below the menu). No shift in the frames around the dismissal (`round3/ios26-dark/frames`, the last 30 frames). | — |
+
+**Cleanup**: `CnxWorkspaces/Prototypes/` and the DEBUG `-cnx-wsproto` hook in
+`CnxShell/Screens.swift` are deleted. The prototypes live in commit `274eedb0fe6d`; their
+screenshots stay in `wsdesign/directions/`.
+
+**Merge** (commit `a3229fc1562b`, 57 upstream commits). `origin/feat-cnx-ios` added its own
+honest-state model, `MacDataMachine` (per-Mac phases: live, cached snapshot, loading,
+failed, offline, idle) fed by `LiveCoordinator`, and a launch snapshot of every Mac's
+workspaces. My `WorkspaceListSync` overlapped it and is removed; `WorkspaceInbox.Context`
+now takes the phases (`ListState`: live, loading, cached(updating), failed, notConnected).
+Behavior: cached rows show dimmed (55 %, the upstream treatment) with no agent state, so a
+cache never says "is waiting"; a failed dial with nothing known is a "<Mac> · Can't
+connect" line that retries; the filter menu's subtitle uses upstream's `macStatusLine`
+("Online · Connecting…") plus the link line; the `ConnectTimeline` row marks are kept.
+`Workspace` decodes snapshots saved before `hasActivityTime`, `focusOrder` and
+`activeTabID` existed. `DaemonTree` keeps both the focus order and upstream's per-Mac
+active pane. The app build used the `CnxFFI.xcframework` built for the same Rust tree
+(`origin/feat-cnx-ios` `a074414f18c7`, copied from the `feat-cnx-ios` worktree).
+
+**Script** (`record-wsdesign.sh`): warms up the automation session on a fresh simulator
+(the first iOS 27 run timed out), closes the New Workspace menu with a tap, and writes
+`check-13.txt`.
+
+**Tests**: `swift test` in `CnxKit`, every suite green after the merge (CnxWorkspacesTests
+23, CnxModelTests 56, CnxLiveTests 55, the AgentChat suites 43, and the rest);
+`liveListStates` now covers the cached, failed, loading and not-connected phases.
+
+**Known**: on opening the waiting tab, the chat's composer shows for one frame before the
+permission card replaces it (`round3/ios26-dark/frames`, near the end). The status bar
+in the `ios26-*` walk recordings shows a "◂ Settings" back link from an earlier Settings
+launch on that simulator; the hero shots were taken on a fresh simulator without it.

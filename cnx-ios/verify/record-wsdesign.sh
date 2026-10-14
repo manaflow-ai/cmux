@@ -43,6 +43,8 @@ top() { axe swipe --start-x 200 --start-y 300 --end-x 200 --end-y 750 --duration
 filter() { sleep 0.5; tap --id workspaces.filter; sleep 1.5; read -r x y < <(where "workspaces.filter.$1"); at "$x" "$y"; }
 
 xcrun simctl terminate "$udid" dev.cmux.cnx 2>/dev/null || true
+# A fresh simulator's first automation session can time out: warm it up.
+for _ in 1 2 3 4; do axe describe-ui --udid "$udid" >/dev/null 2>&1 && break; sleep 3; done
 SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch "$udid" dev.cmux.cnx \
   -cnx.setupComplete YES -cnx-tab workspaces -cnx.workspaces.macFilter.team-manaflow "" -cnx-mock-create-delay 8 >/dev/null
 sleep 4
@@ -79,6 +81,29 @@ read -r x y < <(reveal workspace.row.ws-design)
 axe swipe --start-x 340 --start-y "$y" --end-x 120 --end-y "$y" --duration 0.4 --udid "$udid" >/dev/null
 shot 12-swipe-close
 tap --id workspace.swipe.close; shot 13-close-confirm
+# The popover must sit against the swiped row (just above or below it), at
+# every text size: writes PASS or FAIL with the frames to check-13.txt.
+axe describe-ui --udid "$udid" | python3 -c '
+import json,sys
+row=title=button=None
+def walk(n):
+    global row,title,button
+    f=n.get("frame") or {}
+    if n.get("AXUniqueId")=="workspace.row.ws-design": row=f
+    label=n.get("AXLabel") or ""
+    if label.startswith("Close \u201cdesign system\u201d?"): title=f
+    if label=="Close Workspace": button=f
+    for c in n.get("children") or []: walk(c)
+for n in json.load(sys.stdin): walk(n)
+if not (row and title and button):
+    print("FAIL missing", row, title, button); sys.exit()
+top=min(title["y"],button["y"]); bottom=max(title["y"]+title["height"],button["y"]+button["height"])
+rt,rb=row["y"],row["y"]+row["height"]
+gap=(rt-bottom) if bottom<=rt+10 else (top-rb)
+# gap: from the row to the popover text (title above the buttons). The popover
+# adds its own padding (more at accessibility sizes); negative means it covers the row.
+print(("PASS" if -10<=gap<=160 else "FAIL"), "gap", round(gap,1), "row", round(rt,1), round(rb,1), "popover", round(top,1), round(bottom,1))
+' | tee "$dir/check-13.txt"
 tap --label "Close Workspace" --element-type Button; shot 14-closed 1.2
 top
 # Creations take 8 s here (-cnx-mock-create-delay): the pending row shows its spinner.
@@ -86,8 +111,8 @@ tap --id workspaces.new; shot 15-new-pushed 1.5
 back; shot 16-new-pending 1.2
 shot 16b-new-confirmed 6
 read -r x y < <(where workspaces.new); hold "$x" "$y"; shot 17-new-options
-# Dismiss the menu (Escape; a tap can land on a full-height AX menu).
-axe key 41 --udid "$udid" >/dev/null; sleep 0.8
+# Dismiss the menu with a tap outside it (it opens on the right, under the button).
+at 30 760; sleep 0.8
 read -r x y < <(top; reveal workspace.row.ws-ghostty); at "$x" "$y"; shot 18-opened-waiting-tab 2
 back; shot 19-back 1.5
 kill -INT $rec; wait $rec || true

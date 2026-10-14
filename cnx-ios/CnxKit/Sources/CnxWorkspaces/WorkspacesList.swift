@@ -46,14 +46,16 @@ public struct WorkspacesList: View {
     @State private var renameText = ""
     @State private var closing: Workspace?
     /// The rows' status gutter (32 pt at Large), for the separator inset.
-    @ScaledMetric(relativeTo: .body) private var gutter: CGFloat = WorkspaceRow.gutter
-    /// Where each offline Mac's line ends in the list's visible area, and
-    /// where that area ends (above the tab bar): unfolding scrolls when needed.
-    @State private var foldBottoms: [String: CGFloat] = [:]
+    @Environment(\.dynamicTypeSize) private var typeSize
+    private var gutter: CGFloat { WorkspaceRow.scaled(WorkspaceRow.gutter, typeSize) }
+    /// Where the list's visible area ends (above the tab bar): unfolding
+    /// scrolls when the first new row would open below it.
     @State private var visibleBottom: CGFloat = .infinity
     /// Each row's frame in the list (read on demand, never drawn from).
     @State private var rowFrames = RowFrames()
     @State private var closingFrame: CGRect = .zero
+    /// The list's scroller, for bringing a row into view before its close popover.
+    @State private var scrollProxy: ScrollViewProxy?
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, refresh: (() async -> Void)? = nil,
@@ -234,6 +236,7 @@ public struct WorkspacesList: View {
     private func list(_ inbox: WorkspaceInbox) -> some View {
         ScrollViewReader { proxy in
             inboxList(inbox, proxy: proxy)
+                .onAppear { scrollProxy = proxy }
         }
     }
 
@@ -305,6 +308,9 @@ public struct WorkspacesList: View {
             WorkspaceRow(workspace: ws, status: status, macName: inbox.showsMacNames ? macName : nil,
                          offlineMacName: status == .offline ? macName : nil)
         }
+        // Not the List's cell highlight: it stuck on as a gray pill while a
+        // swipe was under way. A press fill that ends when the touch moves.
+        .buttonStyle(RowPressStyle())
         // Last-known rows (live mode), dimmed until the Mac answers on this link.
         .opacity(inbox.stale.contains(ws.id) ? 0.55 : 1)
         .animation(theme.motion.smooth.animation, value: inbox.stale.contains(ws.id))
@@ -337,7 +343,7 @@ public struct WorkspacesList: View {
         }
         .contextMenu { menu(ws, status: status, canManage: canManage) }
         // Where the row is, so the close popover can point at it.
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rowFrames.byID[ws.id] = $0 }
+        .background { FrameProbe(id: ws.id) { rowFrames.rows[ws.id] = WeakProbe(view: $0) } }
         .accessibilityActions {
             if canManage {
                 Button("Rename") { startRename(ws) }
@@ -349,9 +355,19 @@ public struct WorkspacesList: View {
 
     /// Asks before closing, in a popover pointing at the row (Mail).
     private func confirmClose(_ ws: Workspace) {
-        let row = rowFrames.byID[ws.id] ?? .zero
-        closingFrame = row.offsetBy(dx: -rowFrames.origin.x, dy: -rowFrames.origin.y)
-        closing = ws
+        let present = {
+            closingFrame = rowFrames.frame(of: ws.id) ?? .zero
+            closing = ws
+        }
+        // At accessibility sizes the popover is about as tall as the screen
+        // and fits only under a row near the top: bring the row up first, then
+        // point at it where it is (round 2 review: it pointed 80 pt off).
+        guard typeSize.isAccessibilitySize, let scrollProxy else { return present() }
+        withAnimation(theme.motion.smooth.animation) {
+            scrollProxy.scrollTo(ws.id, anchor: .top)
+        } completion: {
+            present()
+        }
     }
 
     /// The close popover's anchor: a view over the list at the row's place.
@@ -360,7 +376,7 @@ public struct WorkspacesList: View {
     private var closeAnchor: some View {
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { rowFrames.origin = $0 }
+            .background { FrameProbe(id: "anchor") { rowFrames.anchor = $0 } }
             .overlay(alignment: .topLeading) { anchor }
             .allowsHitTesting(false)
     }
@@ -449,7 +465,7 @@ public struct WorkspacesList: View {
                 }
                 // Rows opening below the visible area: bring the first into view.
                 if opening, let first = fold.workspaces.first,
-                   (foldBottoms[fold.mac.id] ?? 0) + WorkspaceRow.minHeight > visibleBottom {
+                   (rowFrames.frame(of: "fold.\(fold.mac.id)")?.maxY ?? 0) + WorkspaceRow.minHeight > visibleBottom {
                     Task { @MainActor in
                         await Task.yield()
                         withAnimation(theme.motion.smooth.animation) { proxy.scrollTo(first.id, anchor: .bottom) }
@@ -488,7 +504,7 @@ public struct WorkspacesList: View {
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .accessibilityValue(fold.reason == .offline && !fold.isForcedOpen ? (isOpen ? "Expanded" : "Collapsed") : "")
-        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).maxY } action: { foldBottoms[fold.mac.id] = $0 }
+        .background { FrameProbe(id: "fold.\(fold.mac.id)") { rowFrames.rows["fold.\(fold.mac.id)"] = WeakProbe(view: $0) } }
         .accessibilityIdentifier("workspaces.fold.\(fold.mac.id)")
     }
 
@@ -624,12 +640,63 @@ public struct WorkspacesList: View {
     }
 }
 
-/// Row frames for the close popover's anchor. A plain reference, so
-/// scrolling (which updates it) does not re-render the list.
+/// Where rows are, read when Close is tapped: each row and the anchor
+/// overlay carry a UIKit probe view, and the row's probe is converted into
+/// the overlay's space at that moment. (SwiftUI geometry callbacks inside
+/// list cells did not follow scrolling, so a stored frame went stale.) A
+/// plain reference: registering never re-renders the list.
 final class RowFrames {
-    var byID: [String: CGRect] = [:]
-    /// The list's own origin, in the same (global) space.
-    var origin: CGPoint = .zero
+    var rows: [String: WeakProbe] = [:]
+    weak var anchor: FrameProbe.Probe?
+
+    /// The row's frame in the anchor overlay, now; nil when it is not on screen.
+    func frame(of id: String) -> CGRect? {
+        guard let probe = rows[id]?.view, probe.id == id, probe.window != nil, let anchor else { return nil }
+        return probe.convert(probe.bounds, to: anchor)
+    }
+}
+
+struct WeakProbe {
+    weak var view: FrameProbe.Probe?
+}
+
+/// An invisible UIKit view the size of its SwiftUI parent, tagged with an id.
+struct FrameProbe: UIViewRepresentable {
+    let id: String
+    let register: (Probe) -> Void
+
+    final class Probe: UIView {
+        var id = ""
+    }
+
+    func makeUIView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.isUserInteractionEnabled = false
+        probe.id = id
+        register(probe)
+        return probe
+    }
+
+    func updateUIView(_ probe: Probe, context: Context) {
+        // A reused cell carries another row now.
+        probe.id = id
+        register(probe)
+    }
+}
+
+/// A row's press feedback: the `fillSelected` color behind the whole row
+/// while the finger is down. A scroll or a swipe cancels the press, so it
+/// never stays on behind swipe actions.
+struct RowPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                theme.colors.fillSelected.color
+                    .opacity(configuration.isPressed ? 1 : 0)
+                    .padding(.vertical, -10)
+                    .padding(.trailing, -20)
+            }
+    }
 }
 
 /// A section title as a row that scrolls with the list (not a pinned
@@ -661,9 +728,19 @@ struct WorkspaceRow: View {
     var offlineMacName: String?
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The status gutter; separators start at the text.
-    @ScaledMetric(relativeTo: .body) private var gutter: CGFloat = Self.gutter
-    @ScaledMetric(relativeTo: .body) private var needsYouDisc: CGFloat = 10
-    @ScaledMetric(relativeTo: .body) private var doneDisc: CGFloat = 8
+    private var gutter: CGFloat { Self.scaled(Self.gutter, typeSize) }
+    private var needsYouDisc: CGFloat { Self.scaled(10, typeSize) }
+    private var doneDisc: CGFloat { Self.scaled(8, typeSize) }
+
+    /// `value` at Large, scaled like `.body` for the environment's Dynamic
+    /// Type size (the same curve as the row's text). Not `@ScaledMetric`: in
+    /// list rows it scaled 32 pt to about 64 pt at Large (round 2 review).
+    static func scaled(_ value: CGFloat, _ size: DynamicTypeSize) -> CGFloat {
+        let category = UIContentSizeCategory(size)
+        guard category != .large else { return value }
+        let traits = UITraitCollection(preferredContentSizeCategory: category)
+        return UIFontMetrics(forTextStyle: .body).scaledValue(for: value, compatibleWith: traits)
+    }
 
     /// The gutter at Large; the list scales it the same way for separators.
     static let gutter: CGFloat = 32
