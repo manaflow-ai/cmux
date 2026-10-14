@@ -11,8 +11,12 @@
 //! start (`take_from_env`), so no terminal it starts inherits it. Without
 //! it nothing starts.
 //!
-//! Each brain runs in `<home>/chiefs/<id>` with its own acpmux home, as the
-//! participant `<id>` with a token minted in process (`agent-token`, 0600).
+//! Each brain runs in `<home>/c/<last 8 of id>` with its own acpmux home
+//! (`a` in it), as the participant `<id>` with a token minted in process
+//! (`agent-token`, 0600). The directory is short because Unix sockets live
+//! under it (optchat/tools.sock, the acpmux router's socket) and a socket
+//! path has at most 103 bytes; `<home>/chiefs/<id>` was 120 and more on a
+//! DEV build (2026-10-14, cmux-lawrence-2).
 //! The default Chief (`agent_mux`) is never started here: the app's Home
 //! keeps its lifecycle (and NIGHTLY's shared home) as it was.
 //!
@@ -115,9 +119,22 @@ fn config() -> Option<BrainsConfig> {
     }
 }
 
-/// The brain directory of Chief `chief` under the Chief home `home`.
+/// The brain directory of Chief `chief` under the Chief home `home`: the
+/// last 8 characters of its id (40 random bits of the ULID), lowercased.
 pub fn brain_home(home: &Path, chief: &str) -> PathBuf {
-    home.join("chiefs").join(chief)
+    let tail = chief.get(chief.len().saturating_sub(8)..).unwrap_or(chief);
+    home.join("c").join(tail.to_ascii_lowercase())
+}
+
+/// The longest socket path under a brain directory
+/// (`optchat/tools.sock`; acpmux's `a/router/router.sock` is one byte
+/// shorter): a home whose sockets do not fit starts no brain.
+const LONGEST_SOCKET: &str = "optchat/tools.sock";
+/// The longest Unix socket path, in bytes (macOS sun_path less the NUL).
+const MAX_SOCKET_PATH: usize = 103;
+
+fn sockets_fit(mux_home: &Path) -> bool {
+    mux_home.join(LONGEST_SOCKET).as_os_str().len() <= MAX_SOCKET_PATH
 }
 
 /// The brain's whole environment (the brain starts from an empty one): the
@@ -155,7 +172,7 @@ pub fn brain_environment(
     put("CMUX_APP_DAEMON_SOCKET", config.home.join("state/app-daemon.sock").display().to_string());
     // Its own acpmux (the brain derives the socket from the home); never the
     // default Chief's.
-    put("ACPMUX_HOME", mux_home.join("acpmux").display().to_string());
+    put("ACPMUX_HOME", mux_home.join("a").display().to_string());
     put("ACPMUX_LOCAL_ROUTER", "1".into());
     put("ACPMUX_SECRET_TOOLS", "1".into());
     put("OPTCHAT_CHIEF_PARTICIPANT", chief.to_owned());
@@ -598,6 +615,17 @@ impl Supervisor {
             return;
         };
         if is_default(&record) {
+            return;
+        }
+        let mux_home = brain_home(&self.config.home, chief);
+        if !sockets_fit(&mux_home) {
+            let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
+            if !std::mem::replace(&mut brain.lock_noted, true) {
+                eprintln!(
+                    "cmux-tui: Chief brain {chief} cannot start: {} is too long for its sockets",
+                    mux_home.display()
+                );
+            }
             return;
         }
         // A brain this daemon did not start (one an earlier owner left)

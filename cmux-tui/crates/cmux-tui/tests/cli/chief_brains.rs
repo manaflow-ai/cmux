@@ -1,6 +1,6 @@
 //! The daemon's Chief brain supervisor (cx-ebm.60.6) against a real headless
 //! daemon and a stub brain executable that records its env and argv: a Chief
-//! the person makes gets its own brain in `<home>/chiefs/<id>` with its own
+//! the person makes gets its own brain in `<home>/c/<id tail>` with its own
 //! token; a person's message starts a stopped brain; a prompt change
 //! restarts it between turns; delete and daemon shutdown stop it. The
 //! default Chief is never started by the daemon.
@@ -52,6 +52,11 @@ fn wait_file(path: &std::path::Path) -> String {
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("{} never appeared", path.display());
+}
+
+/// A brain's directory: `<home>/c/<last 8 of the id, lowercased>`.
+fn brain_dir(home: &std::path::Path, chief: &str) -> PathBuf {
+    home.join("c").join(chief[chief.len() - 8..].to_ascii_lowercase())
 }
 
 fn alive(pid: i32) -> bool {
@@ -135,7 +140,7 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
 
     // A new Chief gets its own brain at once, in its own directory.
     let scout = make_chief(&server, "Scout", "Researcher");
-    let scout_home = chief_home.join("chiefs").join(&scout);
+    let scout_home = brain_dir(&chief_home, &scout);
     let scout_pid: i32 = wait_file(&scout_home.join("pid.1")).parse().unwrap();
     assert!(alive(scout_pid));
     let env = env_of(&scout_home.join("env.1"));
@@ -148,7 +153,7 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     expect("MUX_AGENT_TOKEN_FILE", scout_home.join("agent-token").to_str().unwrap());
     expect("MUX_HOST_LOG", scout_home.join("host.log").to_str().unwrap());
     expect("CMUX_CHIEF_HOME", chief_home.to_str().unwrap());
-    expect("ACPMUX_HOME", scout_home.join("acpmux").to_str().unwrap());
+    expect("ACPMUX_HOME", scout_home.join("a").to_str().unwrap());
     expect("CMUX_SOCKET_PATH", chief_home.join("state/app.sock").to_str().unwrap());
     expect("MUX_USER_NAME", "Test Person");
     expect("ACPMUX_BIN", "/opt/cmux-test/bin/acpmux");
@@ -176,7 +181,7 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     // person's message in a conversation it is in starts it again.
     fs::write(chief_home.join("exit-first"), "").unwrap();
     let ops = make_chief(&server, "Ops", "Release captain");
-    let ops_home = chief_home.join("chiefs").join(&ops);
+    let ops_home = brain_dir(&chief_home, &ops);
     wait_file(&ops_home.join("pid.1"));
     fs::remove_file(chief_home.join("exit-first")).unwrap();
     // A message to the default Chief starts nothing here (the app runs it).
@@ -187,7 +192,7 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     let ops_pid: i32 = wait_file(&ops_home.join("pid.2")).parse().unwrap();
     assert!(alive(ops_pid));
     assert_eq!(env_of(&ops_home.join("env.2"))["OPTCHAT_CHIEF_PARTICIPANT"], ops);
-    assert!(!chief_home.join("chiefs/agent_mux").exists(), "the default Chief got a daemon brain");
+    assert!(!brain_dir(&chief_home, "agent_mux").exists(), "the default Chief got a daemon brain");
     assert_ne!(token, fs::read_to_string(ops_home.join("agent-token")).unwrap());
 
     // A prompt change restarts the brain, but only after its turn: the
