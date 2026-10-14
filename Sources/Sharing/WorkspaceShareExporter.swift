@@ -703,7 +703,7 @@ final class WorkspaceShareExporter {
     ) -> WorkspaceShareScene.Surface.Kind {
         if let terminal = panel as? TerminalPanel {
             return isShareableTextBox(terminal) ? .textbox : .terminal
-        } else if panel is BrowserPanel {
+        } else if panel is BrowserPanel || panel is DeferredBrowserPanel {
             return .browser
         } else {
             return .unsupported
@@ -715,6 +715,13 @@ final class WorkspaceShareExporter {
         workspace: Workspace,
         capture: @escaping (BrowserPanel) async throws -> NSImage
     ) async -> String? {
+        if workspace.panels[panelID] is DeferredBrowserPanel {
+            guard workspace.requestDeferredBrowserMaterialization(
+                panelId: panelID,
+                isVisibleInUI: true,
+                reason: "workspace.share.browser"
+            ) else { return nil }
+        }
         guard let browser = workspace.browserPanel(for: panelID),
               let image = try? await capture(browser) else { return nil }
         return browserDataURL(image)
