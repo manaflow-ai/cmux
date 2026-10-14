@@ -420,16 +420,17 @@ async fn a_message_sent_now_into_a_turn_that_ended_is_too_late() {
     let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
     let mut c = Client::open(&hub);
     let session = c.new_session().await;
-    let turn = c.send("session/prompt", prompt(&session, "p-turn", "work", None)).await;
+    c.send("session/prompt", prompt(&session, "p-turn", "work", None)).await;
     c.until(|v| v.pointer("/params/update/content/text") == Some(&json!("turn: work"))).await;
     let p = provenance(&session, "msg-now");
-    let waiting = c.queue(prompt(&session, "p-now", "sent now", Some(&p))).await;
+    c.queue(prompt(&session, "p-now", "sent now", Some(&p))).await;
     let send_now = json!({"sessionId": session, "promptId": "p-now", "op": "send_now"});
     let sent = c.call("_acpmux/queue_edit", send_now).await;
     assert_eq!(sent["sent"], "steer", "{sent}");
-    c.reply_to(turn).await;
-    c.reply_to(waiting).await;
-    c.wait_record(&session, "turn_result", |_| true).await;
+    // Both prompts are answered in either order: wait on the log, not on the replies.
+    let steered = c.wait_record(&session, "user_message", |m| m["promptId"] == "p-now").await;
+    assert_eq!(steered["steer"], true, "{steered}");
+    c.wait_record(&session, "turn_result", |m| m["promptId"] == "p-turn").await;
 
     let late = c.withdraw(&session, "msg-now").await;
     assert_eq!(late["outcome"], "too_late", "{late}");
