@@ -12,7 +12,10 @@ public final class AgentSubagentPanes {
     private var tabs: [String: String] = [:]
     private var order: [String] = []
     private var opening: String?
-    private var queue: [(agent: String, focus: Bool)] = []
+    private var queue: [Request] = []
+
+    /// A waiting request: the subagent, whether it takes focus, and the chat tab that asked.
+    public struct Request: Sendable { public var agent: String; public var focus: Bool; public var chat: String }
 
     public init() {}
 
@@ -22,19 +25,20 @@ public final class AgentSubagentPanes {
         return tabs[agent]
     }
 
-    /// Starts opening subagent `agent`'s pane; false when another open runs (the request waits
-    /// for ``finish()``) or this one already runs.
-    public func begin(_ agent: String, focus: Bool) -> Bool {
+    /// Starts opening subagent `agent`'s pane for chat tab `chat`; false when another open runs (the
+    /// request waits for ``finish()``; a repeat that asks for focus keeps that) or this one already runs.
+    public func begin(_ agent: String, focus: Bool, chat: String) -> Bool {
         guard let opening else {
             self.opening = agent
             return true
         }
-        if opening != agent, !queue.contains(where: { $0.agent == agent }) { queue.append((agent, focus)) }
+        if let index = queue.firstIndex(where: { $0.agent == agent }) { queue[index].focus = queue[index].focus || focus }
+        else if opening != agent { queue.append(Request(agent: agent, focus: focus, chat: chat)) }
         return false
     }
 
     /// Ends the open that runs; returns the next waiting request, if any.
-    public func finish() -> (agent: String, focus: Bool)? {
+    public func finish() -> Request? {
         opening = nil
         return queue.isEmpty ? nil : queue.removeFirst()
     }

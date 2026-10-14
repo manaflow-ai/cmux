@@ -77,13 +77,13 @@ extension AgentTabStore {
             if focus { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: open))) }
             return true
         }
-        guard panes.begin(agent, focus: focus) else { return true }
-        let next: @MainActor () -> Void = { [weak self] in
+        guard panes.begin(agent, focus: focus, chat: provisional) else { return true }
+        let next: @MainActor (Bool) -> Void = { [weak self] moved in
             // The daemon's move-tab-to-split focuses the new pane; an unfocused open gives focus back
-            // to the chat (cx-1933q follow-up: a move that keeps focus, in the daemon).
-            if !focus, let self { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(
+            // to the chat (cx-3hw0i: a move that keeps focus, in the daemon).
+            if moved, !focus, let self { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(
                 target: ActionTargetRef(kind: .tab, id: resolve(provisional)), arguments: ["focus": .bool(true)], origin: .script)) }
-            if let request = panes.finish() { _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: provisional) }
+            if let request = panes.finish() { _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: request.chat) }
         }
         let stack = panes.stackAnchor(isOpen: isOpen)
         let opened = openBeside(stack ?? provisional, direction: stack == nil ? "right" : "down", origin: focus ? .user : .script,
@@ -92,25 +92,26 @@ extension AgentTabStore {
             panes.record(agent, tab: key)
             self?.revealTurn(AgentSubagentPanes.reveal(agent), in: key)
         }, finished: next)
-        if !opened { next() }
+        if !opened { next(false) }
         return opened
     }
 
     @discardableResult
     private func openBeside(_ provisional: String, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user,
                             open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil,
-                            finished: (@MainActor () -> Void)? = nil) -> Bool {
+                            finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
         guard let (pane, daemon) = locate(resolve(provisional)), let pending = try? open(pane, daemon) else { return false }
         guard split else { return true }
         // task-owner: one tab creation, then one move of that tab
         Task { [weak self] in
-            defer { finished?() }
+            var moved = false
+            defer { finished?(moved) }
             guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { return }
             created?(tab.key)
             _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(
                 target: ActionTargetRef(kind: .tab, id: tab.key), arguments: ["direction": .string(direction)], origin: origin))
             // A later subagent pane stacks under this one: wait (bounded) until it left the anchor's pane.
-            if finished != nil { _ = await TabMirror.reaches(tab.key, in: locate) { $0 != pane } }
+            if finished != nil { moved = await TabMirror.reaches(tab.key, in: locate) { $0 != pane } }
         }
         return true
     }
