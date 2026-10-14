@@ -5,8 +5,11 @@ import CnxBrowserStream
 import CnxDesign
 import CnxModel
 import Observation
+import OSLog
 import SwiftUI
 import UIKit
+
+private let tabsLog = Logger(subsystem: "dev.cmux.cnx", category: "tabs")
 
 /// Drives one workspace's `TabsView`: the workspace's tabs (agent chats,
 /// terminals, browsers) as TabsKit tabs, with the last tab used on this
@@ -179,14 +182,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func close(_ id: TabsKitTab.ID) async -> Bool {
         guard let workspace, let tab = workspace.tabs.first(where: { $0.id == id }) else { return true }
         guard let creator else {
-            notice = "Connect to \(macName) to close tabs."
+            show("Connect to \(macName) first.")
             CnxTheme.standard.haptics.error()
             return false
         }
         do {
             try await creator.backend.closeTab(tab, in: workspace)
         } catch {
-            notice = "Couldn't close \(tab.title) on \(macName): \(Self.message(error))"
+            show(TabNotice(action: .close(title: tab.title), macName: macName, reason: Self.message(error)))
             CnxTheme.standard.haptics.error()
             return false
         }
@@ -201,20 +204,39 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return true
     }
 
-    /// Shown by TabsKit as a glass toast (a tab that could not be created).
+    /// Shown by TabsKit as a glass toast (a tab that could not be created): one short
+    /// line (`TabNotice`). It clears itself after `noticeLifetime`, or on a tap (TabsKit
+    /// calls `clearNotice()`).
     public private(set) var notice: String?
     public func clearNotice() { notice = nil }
+
+    /// How long a toast stays (a UI timeout, not synchronization).
+    static let noticeLifetime: Duration = .seconds(4)
+
+    private func show(_ text: String) {
+        notice = text
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.noticeLifetime)
+            if self?.notice == text { withAnimation { self?.clearNotice() } }
+        }
+    }
+
+    /// The short line in the toast; the Mac's reason goes to the log only.
+    private func show(_ notice: TabNotice) {
+        tabsLog.error("tab request refused on \(self.macName, privacy: .public): \(notice.detail, privacy: .public)")
+        show(notice.text)
+    }
 
     /// Opens the tab on the Mac and activates it once the Mac lists it (so a
     /// terminal attaches at once and a chat is bound to its session). A
     /// refusal shows as a notice; nothing phone-only is ever added.
     public func createTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
         guard let workspace else {
-            notice = "This workspace is no longer on the Mac."
+            show("This workspace is no longer on \(macName).")
             return nil
         }
         guard let creator, !creator.backend.tabKinds(on: workspace.macID).isEmpty else {
-            notice = "Connect to \(macName) to open tabs."
+            show("Connect to \(macName) first.")
             return nil
         }
         let kind = Self.kind(of: option)
@@ -222,7 +244,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         do {
             tab = try await creator.backend.createTab(kind, in: workspace)
         } catch {
-            notice = "Couldn't open \(option.title.replacingOccurrences(of: "New ", with: "a new ")) on \(macName): \(Self.message(error))"
+            show(TabNotice(action: .open(optionTitle: option.title), macName: macName, reason: Self.message(error)))
             CnxTheme.standard.haptics.error()
             return nil
         }
