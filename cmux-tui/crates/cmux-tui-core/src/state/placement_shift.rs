@@ -16,6 +16,9 @@
 //! Current state, not the state at the batch's revision: a later write
 //! that changes a row again sends that row again in its own batch, so a
 //! reader that applies the batches in order ends at the current order.
+//! Exception (as before this module): `forget-session` deletes a machine's
+//! rows outside any resource batch and sends no placement change, so the
+//! rows after them keep their old index until a later shift restates them.
 
 use rusqlite::{Connection, Transaction};
 use serde_json::{Value, json};
@@ -83,16 +86,18 @@ pub(crate) fn merge(shift: &mut Option<PlacementShift>, more: PlacementShift) {
     *shift = Some(shift.map_or(more, |shift| shift.union(more)));
 }
 
-/// What the current placements depend on: the resource revision and the
-/// personal revision. Equal keys read equal placements.
-pub(crate) fn state_key(connection: &Connection) -> anyhow::Result<(u64, u64)> {
+/// What the current placements depend on: the resource revision, the
+/// personal revision and the connection's write count (so a write that
+/// advances neither revision still reads fresh placements). Equal keys
+/// read equal placements.
+pub(crate) fn state_key(connection: &Connection) -> anyhow::Result<(u64, u64, u64)> {
     let resource = connection.query_row(
         "SELECT value FROM meta WHERE key = 'resource_revision'",
         [],
         |row| row.get::<_, String>(0),
     )?;
     let personal = crate::workspace_registry::personal_store::personal_revision(connection)?;
-    Ok((resource.parse()?, personal))
+    Ok((resource.parse()?, personal, connection.total_changes()))
 }
 
 /// Every current placement as its `workspace_placement` upsert, in order.

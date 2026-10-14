@@ -438,10 +438,11 @@ fn delta_item(
 
 /// The current placements, shared by every connection and every batch
 /// while the state they depend on is unchanged (keyed by the registry's
-/// generation and its resource and personal revisions). A read at or after
-/// a batch's commit is valid for that batch (`crate::state::placement_shift`),
-/// so a stream that resumes across many shifted batches reads them once.
-type PlacementCache = Option<((String, (u64, u64)), Arc<Vec<Value>>)>;
+/// generation, its resource and personal revisions and its write count). A
+/// read at or after a batch's commit is valid for that batch
+/// (`crate::state::placement_shift`), so a stream that resumes across many
+/// shifted batches reads them once.
+type PlacementCache = Option<((String, (u64, u64, u64)), Arc<Vec<Value>>)>;
 static PLACEMENTS: std::sync::Mutex<PlacementCache> = std::sync::Mutex::new(None);
 
 fn current_placements(mux: &Mux, generation: &str) -> anyhow::Result<Arc<Vec<Value>>> {

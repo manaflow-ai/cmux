@@ -217,7 +217,8 @@ connection gets, at the end of that batch's `changes`, a
 `workspace_placement` upsert for each placement in the range, read from the
 state when the batch is sent (a later write that moves a row again sends it
 again, so a reader that applies the batches in order ends at the current
-order). `workspace.place`, and a `sidebar.*` mutation that writes a
+order; `forget-session`, which deletes a machine's rows outside a resource
+batch, sends no placement change, as before). `workspace.place`, and a `sidebar.*` mutation that writes a
 workspace's personal row back, do the same for the rows between the moved
 row's old and new index. A caller that
 wants another place sends `workspace.place` after the creation; that later
