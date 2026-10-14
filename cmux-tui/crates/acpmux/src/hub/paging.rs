@@ -144,22 +144,20 @@ impl Hub {
             })?;
             return Ok(page);
         }
-        let mut ring: std::collections::VecDeque<EventRecord> =
-            std::collections::VecDeque::with_capacity(limit.min(4096));
-        self.store.scan(id, after, &mut |rec| {
-            if rec.seq >= before {
+        let mut found = Vec::new();
+        self.store.scan_back(id, after, before, &mut |rec| {
+            if !filter.matches(&rec) {
+                return true;
+            }
+            if found.len() == limit {
+                page.has_more = true;
                 return false;
             }
-            if filter.matches(&rec) {
-                if ring.len() == limit {
-                    ring.pop_front();
-                    page.has_more = true;
-                }
-                ring.push_back(rec);
-            }
+            found.push(rec);
             true
         })?;
-        page.events = ring.into();
+        found.reverse();
+        page.events = found;
         Ok(page)
     }
 }
