@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 51c00043a9a8aed2eca070157fec1e513d5244b984cf2b1dd25a31637989b9d6.
+// cmux-tui mux protocol 12, IR 70e4f221b4cc30541db42e497e4ac735eb2e8751d5f4816b4e6a242a30284f7c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -605,6 +605,17 @@ pub struct CloudInboxListRequest {
 pub type CloudInboxListResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudInboxOpRequest {
+    pub conversation: String,
+    pub idempotency_key: String,
+    pub op: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type CloudInboxOpResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudInboxSubscribeRequest {
 }
@@ -686,6 +697,24 @@ pub struct ConversationAgentTokenRequest {
 pub struct ConversationAgentTokenResult {
     pub participant: String,
     pub token: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentLinkRequest {
+    pub conversation: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub variant: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentLinkResult {
+    pub expires_in_ms: u64,
+    pub path: String,
 }
 
 #[rustfmt::skip]
@@ -869,6 +898,24 @@ pub struct ConversationImportResult {
     pub conversation: T::ConversationSummary,
     pub imported: Vec<u64>,
     pub skipped: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationInboxOpRequest {
+    pub conversation: String,
+    pub op: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationInboxOpResult {
+    pub conversation: String,
+    pub marked_unread: bool,
+    pub participant: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pin_position: Option<u64>,
+    pub pinned: bool,
 }
 
 #[rustfmt::skip]
@@ -2388,6 +2435,8 @@ pub struct NotifyRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PageCredentialRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub page: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -3970,6 +4019,10 @@ impl CmuxClient {
         self.execute(&CLOUD_INBOX_LIST_METADATA, &request)
     }
 
+    pub fn cloud_inbox_op(&mut self, request: CloudInboxOpRequest) -> Result<CloudInboxOpResult> {
+        self.execute(&CLOUD_INBOX_OP_METADATA, &request)
+    }
+
     pub fn cloud_inbox_subscribe(&mut self, request: CloudInboxSubscribeRequest) -> Result<CloudInboxSubscribeResult> {
         self.execute(&CLOUD_INBOX_SUBSCRIBE_METADATA, &request)
     }
@@ -4006,6 +4059,10 @@ impl CmuxClient {
         self.execute(&CONVERSATION_AGENT_TOKEN_METADATA, &request)
     }
 
+    pub fn conversation_attachment_link(&mut self, request: ConversationAttachmentLinkRequest) -> Result<ConversationAttachmentLinkResult> {
+        self.execute(&CONVERSATION_ATTACHMENT_LINK_METADATA, &request)
+    }
+
     pub fn conversation_attachment_read(&mut self, request: ConversationAttachmentReadRequest) -> Result<ConversationAttachmentReadResult> {
         self.execute(&CONVERSATION_ATTACHMENT_READ_METADATA, &request)
     }
@@ -4032,6 +4089,10 @@ impl CmuxClient {
 
     pub fn conversation_import(&mut self, request: ConversationImportRequest) -> Result<ConversationImportResult> {
         self.execute(&CONVERSATION_IMPORT_METADATA, &request)
+    }
+
+    pub fn conversation_inbox_op(&mut self, request: ConversationInboxOpRequest) -> Result<ConversationInboxOpResult> {
+        self.execute(&CONVERSATION_INBOX_OP_METADATA, &request)
     }
 
     pub fn conversation_link_resolve(&mut self, request: ConversationLinkResolveRequest) -> Result<ConversationLinkResolveResult> {

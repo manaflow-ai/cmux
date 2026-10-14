@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '51c00043a9a8aed2eca070157fec1e513d5244b984cf2b1dd25a31637989b9d6'
+IR_SHA256 = '70e4f221b4cc30541db42e497e4ac735eb2e8751d5f4816b4e6a242a30284f7c'
 
 
 @dataclass(frozen=True)
@@ -596,6 +596,19 @@ COMMANDS = {
             'limit': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-inbox-op': CommandMetadata(
+        'cloud-inbox-op',
+        'local-admin',
+        12,
+        'conversation-inbox-state-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-inbox-subscribe': CommandMetadata(
         'cloud-inbox-subscribe',
         'local-admin',
@@ -691,6 +704,20 @@ COMMANDS = {
         None,
         {
             'participant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-attachment-link': CommandMetadata(
+        'conversation-attachment-link',
+        'local-admin',
+        12,
+        'ws-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'hash': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'variant': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-attachment-read': CommandMetadata(
@@ -802,6 +829,18 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'messages': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-inbox-op': CommandMetadata(
+        'conversation-inbox-op',
+        'local-admin',
+        12,
+        'conversation-inbox-state-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-link-resolve': CommandMetadata(
@@ -2181,6 +2220,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'page': CommandFieldMetadata(None, None),
         },
     ),
     'pairing-response': CommandMetadata(
@@ -3574,6 +3614,7 @@ EVENTS = {
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
     'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'conversation-draft': EventMetadata('conversation-draft', 12, 'conversation-draft-events-v1', ('subscribe',), 'emitted'),
+    'conversation-inbox-changed': EventMetadata('conversation-inbox-changed', 12, 'conversation-inbox-state-v1', ('subscribe',), 'emitted'),
     'conversation-run-changed': EventMetadata('conversation-run-changed', 12, 'conversation-runs-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
