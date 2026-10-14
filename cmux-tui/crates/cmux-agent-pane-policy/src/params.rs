@@ -173,8 +173,14 @@ pub fn session_refusal(
         return None;
     }
     let session = named.and_then(Value::as_str);
+    // Other params that name a session must name one of the pane's too.
+    let others_held = p.scoped_session_params.get(method).is_none_or(|keys| {
+        let params = object.get("params").and_then(Value::as_object);
+        keys.iter()
+            .all(|key| params.and_then(|p| p.get(key)).and_then(Value::as_str).is_some_and(&holds))
+    });
     match session {
-        Some(s) if holds(s) => None,
+        Some(s) if holds(s) && others_held => None,
         _ => Some(Refused {
             refusal: Refusal::SessionNotInPane,
             method: Some(method.to_owned()),

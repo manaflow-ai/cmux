@@ -233,6 +233,12 @@ try:
         s = pane("chat_state", pane=PANE)
         return s if isinstance(s, dict) and "error" not in s and s.get("connection") else None
     st = wait(state, 60, 0.5)
+    if not st and isinstance(opened, dict) and not opened.get("created"):
+        # The action ran on a pane but opened nothing there: open the chat in the focused pane.
+        opened = rpc("action.run", {"action": "palette.newAgentChat", "focus": True})
+        say("open agent chat again in the focused pane", json.dumps(opened)[:300])
+        PANE = None
+        st = wait(state, 60, 0.5)
     say("chat_state", json.dumps(st)[:1500])
     if not st:
         say("snapshot after open", json.dumps(rpc("snapshot.get"))[:3000])
