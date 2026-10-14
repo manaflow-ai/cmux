@@ -48,6 +48,10 @@ parser.add_argument("--gesture-events", type=int, default=300, help="trackpad ev
 parser.add_argument("--profile", action="store_true", help="Time Profiler of the tick window (main-thread stall frames)")
 parser.add_argument("--no-trace", action="store_true", help="no Animation Hitches recording of the scroll")
 parser.add_argument("--skip-create", action="store_true", help="use the perf workspaces an earlier run made")
+parser.add_argument("--repeats", type=int, default=1,
+                    help="valid scroll recordings per mode (the median by hitch total is the result; each is in `runs`)")
+parser.add_argument("--hover-per-event", action="store_true",
+                    help="move the synthesized pointer on every gesture event (round-1 harness; adds a hover recompute per event)")
 opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -345,8 +349,21 @@ def hitches(trace, pid):
                 durations.append(int(duration.text) / 1e6)
     except Exception as error:  # noqa: BLE001
         return {"error": f"export: {error}"}
+    # The app's update (its transaction, begin to commit) per frame: an update longer than a
+    # frame is what Instruments calls "Potentially expensive app update(s)".
+    updates = []
+    try:
+        for cells, _ in export_table(trace, "hitches-updates"):
+            process = next((n for t, n in cells if t == "process"), None)
+            duration = next((n for t, n in cells if t == "duration"), None)
+            if process is not None and f"({pid})" in (process.get("fmt") or "") and duration is not None and (duration.text or "").isdigit():
+                updates.append(int(duration.text) / 1e6)
+    except Exception:  # noqa: BLE001 (an older trace without the table)
+        pass
     return {"hitches": rows, "p50_ms": percentile(durations, 50), "p95_ms": percentile(durations, 95),
-            "max_ms": round(max(durations), 2) if durations else None, "total_ms": round(sum(durations), 1)}
+            "max_ms": round(max(durations), 2) if durations else None, "total_ms": round(sum(durations), 1),
+            "app_updates": len(updates), "update_p50_ms": percentile(updates, 50), "update_p90_ms": percentile(updates, 90),
+            "updates_over_8_3_ms": len([u for u in updates if u > 8.34])}
 
 
 def hang_records(reply):
@@ -453,12 +470,19 @@ def scroll_to_top(window, point):
 
 
 def gesture(window, point, events, dy):
-    """One trackpad gesture: `events` scroll events at 60 per second; per-event RPC times."""
+    """One trackpad gesture: `events` scroll events at 60 per second; per-event RPC times.
+    Only the first event moves the synthesized pointer (`hover: false` after it): every pointer move
+    recomputes each hover target in the window (PointerHover.refresh), which is harness work, not
+    scroll work (30-40% of the main thread in the round-1 scroll profiles). An app without the
+    parameter ignores it (and so measures with the per-event hover refresh)."""
     times = []
     phases = ["began"] + ["changed"] * (events - 2) + ["ended"]
-    for phase in phases:
+    for index, phase in enumerate(phases):
         t0 = time.perf_counter()
-        ms, _ = timed_rpc("debug.mouse", dict(point, window=window, action="scroll", dy=dy, phase=phase))
+        params = dict(point, window=window, action="scroll", dy=dy, phase=phase)
+        if index > 0 and not opts.hover_per_event:
+            params["hover"] = False
+        ms, _ = timed_rpc("debug.mouse", params)
         times.append(ms)
         rest = 1 / 60 - (time.perf_counter() - t0)
         if rest > 0:
@@ -493,24 +517,44 @@ def scroll_mode(pid, window, label, terms):
     time.sleep(1)
     before = realized_titles(window)
     seconds = opts.gesture_events * 2 / 60 + 2
+    attempts = opts.repeats * 2  # a recording that fails (another xctrace on the host) or saw no app updates runs again
     if terms:
-        start_ticks(terms, seconds + 8)
+        start_ticks(terms, (seconds + 10) * attempts)
         time.sleep(1)
     counters(reset=True)
-    trace = None if opts.no_trace else Trace(pid, f"scroll-{label}-hitches", opts.gesture_events / 60 + 1, "Animation Hitches")
-    if trace:
-        trace.__enter__()
-    rpc("debug.frames", {"action": "start"})
-    down = gesture(window, point, opts.gesture_events, -60.0)
-    moved = realized_titles(window) != before
-    if trace:
-        trace.__exit__(None, None, None)
-    up = gesture(window, point, opts.gesture_events, 60.0)
-    frames = rpc("debug.frames", {"action": "stop"})
-    result.update({"frames": frames, "event_rpc": latency_stats(down + up), "moved_down": moved})
-    if trace and os.path.exists(trace.path):
-        result["hitches"] = hitches(trace.path, pid)
-        result["hitches_trace"] = os.path.relpath(trace.path, opts.out)
+    runs, moved, down, up, frames = [], False, [], [], None
+    for attempt in range(attempts):
+        if len([r for r in runs if r.get("valid")]) >= opts.repeats:
+            break
+        trace = None if opts.no_trace else Trace(pid, f"scroll-{label}-hitches-{attempt + 1}", opts.gesture_events / 60 + 1, "Animation Hitches")
+        if trace:
+            trace.__enter__()
+        rpc("debug.frames", {"action": "start"})
+        d = gesture(window, point, opts.gesture_events, -60.0)
+        moved = moved or realized_titles(window) != before
+        if trace:
+            trace.__exit__(None, None, None)
+        u = gesture(window, point, opts.gesture_events, 60.0)
+        f = rpc("debug.frames", {"action": "stop"})
+        down, up, frames = down + d, up + u, f
+        run = {"frames": f}
+        if trace and os.path.exists(trace.path):
+            run["hitches"] = hitches(trace.path, pid)
+            run["hitches_trace"] = os.path.relpath(trace.path, opts.out)
+        # Valid: the recording worked and the app drew (an occluded or sleeping window commits nothing).
+        h = run.get("hitches") or {}
+        run["valid"] = bool(trace) and "error" not in h and (h.get("app_updates") or 0) >= opts.gesture_events // 3
+        runs.append(run)
+        print(f"scroll {label} run {attempt + 1}: valid {run['valid']} hitches {h.get('hitches')} total {h.get('total_ms')} "
+              f"updates {h.get('app_updates')} p99 {(f or {}).get('p99_ms')}", flush=True)
+    valid = sorted((r for r in runs if r.get("valid")), key=lambda r: r["hitches"].get("total_ms") or 0)
+    pick = valid[len(valid) // 2] if valid else (runs[-1] if runs else {})
+    result.update({"frames": pick.get("frames") or frames, "event_rpc": latency_stats(down + up), "moved_down": moved,
+                   "runs": runs, "valid_runs": len(valid)})
+    if "hitches" in pick:
+        result["hitches"], result["hitches_trace"] = pick["hitches"], pick.get("hitches_trace")
+    if not opts.no_trace:
+        check(len(valid) >= opts.repeats, f"scroll {label}: {len(valid)} valid hitch recordings of {opts.repeats}")
     check(moved, f"scroll {label}: the trackpad gesture moved the list (realized rows changed: {moved})")
     after = counters()
     if after is not None:

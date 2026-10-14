@@ -6,6 +6,7 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService } from "./attachmentService";
+import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, threadOf } from "./model";
 import { conversationHash, hashConversation, setHash } from "./panes";
@@ -135,6 +136,8 @@ export class HomeChannelsStore {
   /** Who types in each conversation (typing events); activity adds the running drafts. */
   private readonly typingBy = new Map<string, Set<string>>();
 
+  /** Participants' pictures through this store's client (none without a client: initials). */
+  readonly avatars: AvatarService | undefined;
   /** Uploads and reads of attachments through this store's client (none without a client). */
   readonly attachments: AttachmentService | undefined;
   /** The page's sheets (new message, new Chief, invite, archive) and the Chief records. */
@@ -148,6 +151,7 @@ export class HomeChannelsStore {
     host: PageClient | null = null,
   ) {
     this.attachments = client ? new AttachmentService(client) : undefined;
+    this.avatars = client ? new AvatarService(client) : undefined;
     this.sheets = new HomeSheets(client, host, {
       open: async (conversation) => {
         await this.reloadInbox();
@@ -719,6 +723,7 @@ export class HomeChannelsStore {
     for (const entry of batch.typing ?? []) if (!entry.on) this.drafts.typingOff(entry.conversation, entry.participant);
     for (const message of batch.messages ?? []) this.drafts.posted(message);
     if (batch.runs?.length) this.runs.apply(batch.runs);
+    if (batch.avatars?.length) this.avatars?.changed(batch.avatars);
     if (batch.messages?.length) this.runs.noteMessages(batch.messages);
     let conversations: Map<string, HomeConversation> | undefined;
     for (const conversation of batch.conversations ?? []) {

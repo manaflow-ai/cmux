@@ -473,6 +473,26 @@ impl CloudConversations {
         Ok(value)
     }
 
+    /// `cloud-participant-avatar-get`: a Cloud participant's picture (the
+    /// owner's `participant.avatar.get`: `{participant_id, avatar}`, the
+    /// avatar with its base64 `data`, or null).
+    pub fn participant_avatar(&self, participant: &str) -> Result<Value, CloudError> {
+        let valid = ["user_", "agent_"].iter().any(|prefix| {
+            participant.strip_prefix(prefix).is_some_and(|rest| {
+                (1..=64).contains(&rest.len())
+                    && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+            })
+        });
+        if !valid {
+            return Err(CloudError::BadRequest(format!(
+                "participant {participant:?} is not a person or Chief id"
+            )));
+        }
+        let body = read_body("participant.avatar.get", json!({"participant_id": participant}));
+        let (value, _) = read_value(self.post("/v1/read", &body)?)?;
+        Ok(value)
+    }
+
     /// The account (JWT `sub`) and Stack project (JWT `aud`) of the current
     /// person's lease, when its token carries both and is no chief token:
     /// the inputs of the person's Worker user id. Never the token.

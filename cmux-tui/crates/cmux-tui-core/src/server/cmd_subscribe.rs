@@ -144,6 +144,17 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // An avatar change only to a connection that asked for it in
+                // set-client-info (`participant-avatars-v1`).
+                MuxEvent::Conversation(event)
+                    if event.is_avatar()
+                        && !event_mux.control_clients.supports_capability(
+                            client,
+                            super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY,
+                        ) =>
+                {
+                    continue;
+                }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
                 MuxEvent::CloudConversation(_) if !conversation_client => {
