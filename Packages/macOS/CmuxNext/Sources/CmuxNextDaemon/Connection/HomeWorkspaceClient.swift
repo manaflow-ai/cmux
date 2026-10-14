@@ -90,6 +90,14 @@ public struct NewConversationTabRequest: DaemonRequest {
         self.transaction = transaction
     }
 
+    /// A page tab in `workspace`'s active pane, or in a new first pane when it has none (the Home dock's page).
+    public init(page: String, workspace: WorkspaceHandle, origin: String, mutationID: String) {
+        self.page = page
+        self.workspace = workspace
+        self.origin = origin
+        self.mutationID = mutationID
+    }
+
     /// The first agent tab creates the workspace's first pane without a shell.
     public init(agentSession: AgentSessionRef, workspace: WorkspaceHandle, origin: String? = nil, mutationID: String? = nil) {
         self.agentSession = agentSession
