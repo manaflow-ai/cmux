@@ -47,6 +47,17 @@ export type Indicator = "input" | "working" | "failed" | "lost" | "done";
 /** acpmux never claims host isolation. */
 export type Isolation = "unverified";
 
+/** The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`). */
+export type Lane = {
+  /** The failed or lost turn's error text. */
+  error: (string | null);
+  /** Unix ms the state began; null when the daemon does not know. */
+  since: (number | null);
+  state: LaneState;
+} & Record<string, unknown>;
+
+export type LaneState = "working" | "input" | "failed" | "lost" | "idle";
+
 export type LastMessage = {
   role: MessageRole;
   text: string;
@@ -57,6 +68,8 @@ export type LastMessage = {
  * are absent.
  */
 export type LastTurn = {
+  /** Why a turn ended without an answer, e.g. `outcome_unknown`. */
+  detail?: (string | null);
   endedAt: number;
   errorSource?: (string | null);
   errorText?: (string | null);
@@ -246,6 +259,10 @@ export type SessionSummary = {
   harness: string;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
+  /** Since when it waits on the person (`lane`); null while it does not. */
+  inputSince?: (number | null);
+  /** What it is doing and since when (`views::lane`); null for a closed session. */
+  lane?: (Lane | null);
   /** One sidebar line; null before the first prompt. */
   lastMessage?: (LastMessage | null);
   lastPrompt?: (string | null);

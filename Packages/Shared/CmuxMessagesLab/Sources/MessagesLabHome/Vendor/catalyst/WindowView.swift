@@ -36,6 +36,17 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     var morphLayer: CALayer { morphView.layer }
     let ledger = MotionLedger()
     private(set) var morphs: [String: MorphBubble] = [:]
+    /// Rows of my sends whose message is not delivered yet (row key -> message id): their cells keep the crisp edge
+    /// (RowCell.crispEdge) until the message is delivered, read or failed, as Messages.
+    private var crispSends: [String: ID] = [:]
+    /// Drops the crisp sends whose message id matches; their visible cells and thread copies take the soft edge.
+    private func releaseCrisp(_ match: (ID) -> Bool) {
+        crispSends = crispSends.filter { !match($0.value) }
+        for case let cell as RowCell in collection.visibleCells where cell.crispEdge {
+            if let k = cell.spec?.key, crispSends[k] == nil { cell.crispEdge = false }
+        }
+        threadViews.forEach { $0.setNeedsDisplay() }
+    }
     private let thumb = UIView()
     private let threadLayer = UIView()
     /// The blurred, darkened transcript under an open thread or reply (ThreadBackdrop).
@@ -704,6 +715,23 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
     func commit(_ action: Action, at t: Double, old: AppState, new state: AppState) {
         if case .setScroll = action { return }
+        // My message is delivered (or read, or failed): its sent row takes the soft resting edge with this update
+        // (RowCell.crispEdge). `.sending` and `.sent` (the send itself) keep the crisp edge.
+        if case let .status(id, st) = action, st != .sending, st != .sent, crispSends.values.contains(id) {
+            releaseCrisp { $0 == id }
+        }
+        // cmux: also every crisp send whose message is past sent in the new state (delivered, read or failed), whatever
+        // the action: Home sends one status per update (HomeDiff.keepNewestStatus: two sends delivered together give
+        // only the newer one a status) and a rebuild's replaceWindow carries statuses with no status action. Sends are
+        // recent: only the newest 256 messages are read.
+        if !crispSends.isEmpty {
+            let ids = Set(crispSends.values)
+            var past = Set<ID>()
+            for m in state.conversation.messages.suffix(256) where ids.contains(m.id) {
+                switch m.status { case .delivered?, .read?, .failed?: past.insert(m.id); default: break }
+            }
+            if !past.isEmpty { releaseCrisp { past.contains($0) } }
+        }
         // this view's width (several Home tabs), not the process-wide `Metrics.current`.
         if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
         // Rows configured in this transaction draw now (RowCell.transitionDepth).
@@ -1456,6 +1484,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                              textOrigin: CGPoint(x: frame.minX - flying.minX, y: frame.minY - flying.minY), begin: begin, scale: renderScale,
                              fieldShrinks: field.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
         morphs[key] = mb
+        if crispSends.count > 64 { releaseCrisp { _ in true } } // statuses that never came (bounded)
+        crispSends[key] = m.id
+        for case let cell as RowCell in collection.visibleCells where cell.spec?.key == key { cell.crispEdge = true }
         #if canImport(UIKit) || APPKIT_NATIVE
         // The glass tints the bubble until its bottom leaves the field's top.
         let topNow = Double(compose.fieldRect.minY), topWas = Double(field.minY)
@@ -1584,6 +1615,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         defer { step(2) }
         cell.fillSpan = fillSpan
         cell.renderScale = renderScale
+        cell.crispEdge = crispSends[r.spec.key] != nil
         cell.configure(r.spec)
         step(0)
         // A row needs the container-motion check once per row shown in this cell and once per new
@@ -1831,7 +1863,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             let v = CanvasView(frame: CGRect(x: 0, y: top, width: bounds.width, height: spec.height + 2 * RowDraw.margin)) { [weak self] ctx, _ in
                 Fixture.withRenderScale(self?.renderScale ?? 0) {
                     Fixture.elevated = true
-                    RowDraw.drawStatic(spec, ctx, windowY: top)
+                    // A just-sent reply is crisp in its copy too, until it is delivered (RowCell.crispEdge).
+                    SoftBalloon.withCrispCopy(self?.crispSends[spec.key] != nil) { RowDraw.drawStatic(spec, ctx, windowY: top) }
                     Fixture.elevated = false
                 }
             }
@@ -1901,6 +1934,35 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             let outline = cell.convert(RowDraw.balloon(RowDraw.bodyRect(spec), row: row, scale: renderScale), to: self)
             if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key, outline: outline) }
         }
+        return nil
+    }
+
+    /// The soft mask (SoftBalloon) of a hit's balloon in this view's coordinates, where its cell or thread copy draws it
+    /// (with the cell's window snap, RowCell.rowSnap), or nil (a balloon with the crisp shape): the menu highlight's
+    /// shape (cx-3cb soft-copies).
+    func softMask(_ h: Hit) -> SoftBalloon.Mask? {
+        if threadOpen {
+            for (v, spec) in zip(threadViews, threadSpecs) where spec.key == h.key {
+                guard crispSends[spec.key] == nil, case let .part(row) = spec.kind, let m = SoftBalloon.mask(frame: RowDraw.bodyRect(spec), row: row, scale: renderScale) else { return nil }
+                return SoftBalloon.Mask(image: m.image, frame: m.frame.offsetBy(dx: v.frame.minX, dy: v.frame.minY), center: m.center)
+            }
+            return nil
+        }
+        for case let cell as RowCell in collection.visibleCells {
+            guard let spec = cell.spec, spec.key == h.key, case let .part(row) = spec.kind else { continue }
+            // A just-sent row shows the crisp shape (RowCell.crispEdge): so does its highlight.
+            guard !cell.crispEdge, let m = SoftBalloon.mask(frame: RowDraw.bodyRect(spec), row: row, scale: renderScale) else { return nil }
+            let f = cell.convert(m.frame, to: self).offsetBy(dx: cell.rowSnap.x, dy: cell.rowSnap.y)
+            return SoftBalloon.Mask(image: m.image, frame: f, center: m.center)
+        }
+        return nil
+    }
+
+    /// The layer the hit row's soft mask masks (the cell's fill container), for a copy of that mask elsewhere in the
+    /// window to draw its image the same way up (MenuHighlight); nil in the thread view or without a visible cell.
+    func softMaskOwner(_ h: Hit) -> CALayer? {
+        guard !threadOpen else { return nil }
+        for case let cell as RowCell in collection.visibleCells where cell.spec?.key == h.key { return cell.fillContainer }
         return nil
     }
 

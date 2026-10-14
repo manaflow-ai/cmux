@@ -17,10 +17,18 @@ a temp Chief root (CMUX_NEXT_CHIEF_ROOT), never ~/.cmux/chief.
   3. B quits with quitEndSessions: A's brain is the same process, still alive,
      and A answers a new message.
 
+The app's own (pane) acpmux, per build (S2, cx-is1kf.3): ACPMUX_ROOT stands
+for ~/.acpmux (CMUX_NEXT_ACPMUX_ROOT, a DEBUG override). A as NIGHTLY keeps
+the shared root itself; B has ACPMUX_ROOT/builds/com.cmuxterm.app.nightly.cmux-next.
+Steps 1 to 3 also check: each app's daemon runs in its own home (pid, socket
+inode), B's daemon is another process, and B's quit leaves A's daemon (same
+pid, same socket inode) running.
+
 Exit 0 when every step passed; the first failed step's number otherwise.
 Usage: chief-per-build-live.py --tag TAG --app APP [--reply-wait 240] [--out DIR]
 """
 import argparse, json, os, shutil, socket, sqlite3, subprocess, sys, tempfile, time
+import re
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--tag", required=True)
@@ -39,6 +47,9 @@ TAG_B = f"{TAG}b"
 BUNDLE_B = f"com.cmuxterm.app.debug.{TAG_B}"
 NEXT_NIGHTLY = "com.cmuxterm.app.nightly.cmux-next"
 B_HOME = os.path.join(ROOT, NEXT_NIGHTLY)
+ACPMUX_ROOT = os.path.join(SCRATCH, "acpmux")
+A_ACPMUX = ACPMUX_ROOT
+B_ACPMUX = os.path.join(ACPMUX_ROOT, "builds", NEXT_NIGHTLY)
 os.makedirs(opts.out, exist_ok=True)
 
 
@@ -152,6 +163,39 @@ def memory_count(home, text):
     return sum(1 for kind, body in rows if kind == "user" and text in body)
 
 
+def acpmux_daemon(app, home):
+    """(pid, socket inode) of the acpmux daemon in `home`, else None. Never starts one."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
+    try:
+        out = subprocess.run([app.acpmux, "daemon", "status", "--json"], env={**env, "ACPMUX_HOME": home},
+                             capture_output=True, text=True, timeout=30).stdout
+        status = json.loads(out)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    pid, sock = status.get("pid"), status.get("socket")
+    if not pid or not sock or os.path.realpath(status.get("home") or "") != os.path.realpath(home):
+        return None
+    try:
+        return (pid, os.stat(sock).st_ino)
+    except OSError:
+        return None
+
+
+def pane_daemon(app, home):
+    """The app's own acpmux daemon in `home`: started at launch (the agent pane prewarm),
+    else by a new agent chat."""
+    found = wait(lambda: acpmux_daemon(app, home), 60)
+    if not found:
+        say(app.name, "new agent chat", json.dumps(app.rpc("action.run", {"action": "palette.newAgentChat", "focus": True}))[:200])
+        found = wait(lambda: acpmux_daemon(app, home), 90)
+    return found
+
+
+def acpmux_shutdown(app, home):
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
+    subprocess.run([app.acpmux, "daemon", "shutdown"], env={**env, "ACPMUX_HOME": home}, capture_output=True, timeout=30)
+
+
 def cleanup(app, home):
     """The Chief of `home`: its acpmux daemon and router, then brain and owner (documented stop)."""
     acpmux_home = os.path.join(home, "acpmux")
@@ -194,40 +238,52 @@ for home in (NIGHTLY_HOME, B_HOME):
 open(os.path.join(NIGHTLY_HOME, "migration.json"), "w").write('{"status": "test home: nothing to import"}\n')
 try:
     # 0. the shared home of older builds
-    a.launch({"CMUX_NEXT_CHIEF_HOME": NIGHTLY_HOME})
+    a.launch({"CMUX_NEXT_CHIEF_HOME": NIGHTLY_HOME, "CMUX_NEXT_ACPMUX_ROOT": ACPMUX_ROOT})
     ok0 = wait(lambda: brain_pid(NIGHTLY_HOME), 180) and a.send(m0)
     say(f"step 0: shared home {NIGHTLY_HOME}: brain and reply {'ok' if ok0 else 'FAILED'}")
     a.quit(NIGHTLY_HOME)
+    acpmux_shutdown(a, os.path.join(ACPMUX_ROOT, "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip(".")))
     if not ok0:
         failed = failed or 10
         raise SystemExit
     # 1. A as NIGHTLY under the temp root keeps that home
-    a.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": "com.cmuxterm.app.nightly"})
+    a.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": "com.cmuxterm.app.nightly",
+              "CMUX_NEXT_ACPMUX_ROOT": ACPMUX_ROOT})
     a_brain = wait(lambda: brain_pid(NIGHTLY_HOME), 180)
+    a_acpmux = pane_daemon(a, A_ACPMUX)
+    say(f"step 1: NIGHTLY acpmux (pid, socket inode) {a_acpmux} in {A_ACPMUX}")
     shown_m0 = wait(lambda: any(t == m0 for _, t in a.shown()), 60)
     count = memory_count(NIGHTLY_HOME, m0)
     others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY))
     say(f"step 1: NIGHTLY brain {a_brain} on default; Home shows M0: {bool(shown_m0)}; memory has M0 {count}x; other homes {others}")
-    if not (a_brain and shown_m0 and count == 1 and not others):
+    if not (a_brain and shown_m0 and count == 1 and not others and a_acpmux):
         failed = failed or 1
     # 2. B at the same time: its own empty home and brain
     b = App("B", copy_as_b(opts.app), TAG_B)
-    b.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": NEXT_NIGHTLY})
+    b.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": NEXT_NIGHTLY,
+              "CMUX_NEXT_ACPMUX_ROOT": ACPMUX_ROOT})
     b_brain = wait(lambda: brain_pid(B_HOME), 180)
+    b_acpmux = pane_daemon(b, B_ACPMUX)
+    a_acpmux_2 = acpmux_daemon(a, A_ACPMUX)
+    say(f"step 2: B acpmux {b_acpmux} in {B_ACPMUX}; A acpmux now {a_acpmux_2} (was {a_acpmux})")
     wait(lambda: b.chief_row(), 60)
     b_shown = b.shown()
     sockets = {h: os.path.exists(os.path.join(h, "optchat", "tools.sock")) for h in (NIGHTLY_HOME, B_HOME)}
     say(f"step 2: B brain {b_brain} on {B_HOME}; A brain {brain_pid(NIGHTLY_HOME)}; B shows {len(b_shown)} messages;"
         f" M0 in B: {any(t == m0 for _, t in b_shown)}; tools sockets {sockets}; memory M0 in B {memory_count(B_HOME, m0)}")
     if not (b_brain and b_brain != a_brain and not any(t == m0 for _, t in b_shown) and all(sockets.values())
-            and memory_count(B_HOME, m0) <= 0):
+            and memory_count(B_HOME, m0) <= 0
+            and b_acpmux and a_acpmux_2 == a_acpmux and b_acpmux[0] != (a_acpmux or (0,))[0]):
         failed = failed or 2
     # 3. B quits; A's brain is untouched and answers
     b.quit(B_HOME)
+    acpmux_shutdown(b, B_ACPMUX)
     after = brain_pid(NIGHTLY_HOME)
+    a_acpmux_3 = acpmux_daemon(a, A_ACPMUX)
     replied = a.send(m1)
-    say(f"step 3: after B quit, A brain {after} (was {a_brain}, alive {bool(a_brain) and alive(a_brain)}); A replied {replied}")
-    if not (after == a_brain and alive(a_brain) and replied):
+    say(f"step 3: after B quit, A brain {after} (was {a_brain}, alive {bool(a_brain) and alive(a_brain)}); A replied {replied};"
+        f" A acpmux {a_acpmux_3} (was {a_acpmux})")
+    if not (after == a_brain and alive(a_brain) and replied and a_acpmux_3 == a_acpmux):
         failed = failed or 3
 except SystemExit:
     pass
@@ -236,6 +292,10 @@ finally:
         a.quit(NIGHTLY_HOME)
     if b and b.proc and b.proc.poll() is None:
         b.quit(B_HOME)
+    # The apps' own acpmux daemons (quitEndSessions ends them; this is the backstop).
+    acpmux_shutdown(a, A_ACPMUX)
+    if b:
+        acpmux_shutdown(b, B_ACPMUX)
     # Nothing of the run stays: the B copy and the temp homes with their memory.
     shutil.rmtree(SCRATCH, ignore_errors=True)
     say("result", "PASS" if failed == 0 else f"FAIL {failed}")

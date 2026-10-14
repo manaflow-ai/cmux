@@ -48,6 +48,8 @@ pub struct SessionSummary {
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
+    /// Since when it waits on the person (`lane`); null while it does not.
+    pub input_since: Option<u64>,
     #[schemars(with = "Option<String>")]
     pub current_mode_id: Value,
     pub model: Option<String>,
@@ -69,6 +71,8 @@ pub struct SessionSummary {
     pub shown: bool,
     /// The status dot every client draws (`status_indicator`); null for none.
     pub indicator: Option<Indicator>,
+    /// What it is doing and since when (`views::lane`); null for a closed session.
+    pub lane: Option<Lane>,
     /// The peer daemon a remote session runs on; absent for this daemon's own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
@@ -84,17 +88,25 @@ pub enum Indicator {
     Done,
 }
 
-impl Indicator {
-    pub fn from_wire(text: &str) -> Option<Self> {
-        Some(match text {
-            "input" => Self::Input,
-            "working" => Self::Working,
-            "failed" => Self::Failed,
-            "lost" => Self::Lost,
-            "done" => Self::Done,
-            _ => return None,
-        })
-    }
+/// The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[schemars(transform = require_all)]
+pub struct Lane {
+    pub state: LaneState,
+    /// Unix ms the state began; null when the daemon does not know.
+    pub since: Option<u64>,
+    /// The failed or lost turn's error text.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LaneState {
+    Working,
+    Input,
+    Failed,
+    Lost,
+    Idle,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -162,6 +174,8 @@ pub struct LastTurn {
     pub stop_reason: Option<String>,
     pub error_text: Option<String>,
     pub error_source: Option<String>,
+    /// Why a turn ended without an answer, e.g. `outcome_unknown`.
+    pub detail: Option<String>,
     pub ended_at: u64,
 }
 

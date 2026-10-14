@@ -8,5 +8,5 @@ body{background:var(--agent-page-bg,#171717);color:var(--agent-text,#f2f2f2);fon
 .acpmux-preview-controls button{border:1px solid var(--agent-border-strong);border-radius:7px;padding:7px;background:var(--agent-control);color:var(--agent-text);cursor:pointer}
 .acpmux-preview-controls output{font-variant-numeric:tabular-nums;color:var(--agent-accent)}
 .acpmux-preview-controls small{line-height:1.4;color:var(--agent-muted)}
-.acpmux-preview-frame{height:100%;width:min(100%,900px);min-width:360px;border:1px solid var(--agent-border);border-radius:12px;overflow:hidden;box-shadow:0 8px 32px var(--agent-shadow);background:var(--agent-page-bg)}
+.acpmux-preview-frame{height:100%;width:min(100%,900px);min-width:360px;border:1px solid var(--agent-border);border-radius:12px;overflow:hidden;box-shadow:var(--elevation-2);background:var(--agent-page-bg)}
 .acpmux-markdown p{margin:0 0 8px}.acpmux-markdown p:last-child{margin-bottom:0}.acpmux-markdown ul{margin:4px 0 8px;padding-left:20px}.acpmux-markdown blockquote{border-left:2px solid var(--agent-border-strong);padding-left:10px;color:var(--agent-soft)}.acpmux-heading{font-weight:600;margin:4px 0 8px}.acpmux-heading-1{font-size:18px}.acpmux-heading-2{font-size:15px}

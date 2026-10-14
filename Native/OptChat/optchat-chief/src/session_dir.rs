@@ -120,9 +120,11 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
     if subagent {
         args.extend(["--role".to_owned(), "subagent".to_owned()]);
     }
+    // The Chief's own tools stay in every prompt (`alwaysLoad`), never behind ToolSearch
+    // (TURN_SETTINGS_ENV): a `spawn` turn calls spawn first, with no ToolSearch step.
     servers.insert(
         "optchat".into(),
-        json!({"type": "stdio", "command": setup.exe, "args": args, "env": {}}),
+        json!({"type": "stdio", "command": setup.exe, "args": args, "env": {}, "alwaysLoad": true}),
     );
     if let Some(cmux) = &setup.cmux_mcp {
         servers.insert(
@@ -192,14 +194,15 @@ pub const SUBAGENT_DENIED_TOOLS: [&str; 5] = [
 /// A turn session's denied tools (parity item 5): the above, and every
 /// other built-in tool of Claude Code 2.1.287 the Chief does not work with,
 /// so the turn's prefix stays small (measured 2026-10-08: 20.7k to 12.1k
-/// tokens bare). A turn keeps Bash, Read, Edit, Write, WebFetch and
-/// WebSearch, and the Chief's MCP tools load with it (no ToolSearch,
-/// `TURN_SETTINGS_ENV`); work beyond those goes to subagents. The turn
+/// tokens bare). A turn keeps Bash, Read, Edit, Write, WebFetch, WebSearch
+/// and ToolSearch; the Chief's own MCP tools load with it and the cmux MCP
+/// tools behind ToolSearch (`TURN_SETTINGS_ENV`); work beyond those goes to
+/// subagents. The turn
 /// preset's `--tools` allowlist (`host::TURN_TOOLS`) is the main guard: a
 /// tool a later Claude Code adds is not offered. This
 /// list stays as the second guard, for an acpmux older than that preset
 /// arg (the preset is then installed without it).
-pub const TURN_DENIED_TOOLS: [&str; 26] = [
+pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "Task",
     "Agent",
     "AskUserQuestion",
@@ -224,18 +227,22 @@ pub const TURN_DENIED_TOOLS: [&str; 26] = [
     "TaskList",
     "TaskStop",
     "TaskUpdate",
-    "ToolSearch",
     "Workflow",
 ];
 
 /// The Claude Code env of every turn, in the turn directory's project
 /// settings (over the user's settings env; acpmux's built-in Chief presets
-/// take no env from the host): no tool search, so the Chief's MCP tools
-/// (`spawn`, `zoom`, ...) load with the turn. With tool search on (Claude
-/// Code's default on the first-party route) every subagent turn first
-/// called ToolSearch to load `spawn`: one more request, 8.1 s against
-/// 5.6 s for capture s12 (2026-10-13).
-pub const TURN_SETTINGS_ENV: [(&str, &str); 1] = [("ENABLE_TOOL_SEARCH", "false")];
+/// take no env from the host): tool search on, so every MCP tool but the
+/// Chief's own (`optchat`, `alwaysLoad` in `.mcp.json`) waits behind
+/// ToolSearch. The cmux MCP server that acpmux gives every agent chat
+/// (cx-wx93i) and the app's `CMUX_MCP_COMMAND` server list 165 tools, 100.8k
+/// tokens without the app's actions (count_tokens, 2026-10-14); loaded with
+/// the turn they made a one-word reply write a 274k-token cache ($2.75,
+/// cx-l0vf8). `true`, not `auto`: Claude Code turns `auto` off for a base URL
+/// that is not Anthropic's (the subrouter), and the subrouter forwards the
+/// tool_reference blocks. `optchat` stays loaded, so a `spawn` turn still
+/// calls spawn first (cx-7ssql: ToolSearch before spawn cost 2.5 s).
+pub const TURN_SETTINGS_ENV: [(&str, &str); 1] = [("ENABLE_TOOL_SEARCH", "true")];
 
 /// Days Claude Code keeps a turn session's transcript in the isolated
 /// configuration (the memory is the record; these only help debugging).
