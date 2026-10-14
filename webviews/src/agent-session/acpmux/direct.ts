@@ -1504,6 +1504,8 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
         this.stopGaveUp = false;
+        // Stop was answered: its grace must not judge the next turn.
+        clearTimeout(this.stopTimer);
         this.pendingPermission = undefined;
         this.groupedPermissions.clear();
         this.openQuestions.clear();
