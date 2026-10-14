@@ -12,20 +12,31 @@
 //!    `agent_chat`) or pinned to the left edge.
 //! 3. Reuse: the selected browser tab of the focused right-side pane, else of
 //!    the right-side pane focused most recently (then layout order), else any
-//!    browser tab on the right side. It navigates through `browser.navigate`
-//!    and becomes its pane's selected tab; the keyboard focus stays.
-//! 4. Else a new browser tab through `tab.create_browser` in the first of
-//!    those panes; a workspace with no screen gets the screen that
-//!    `tab.create_browser` makes for it.
+//!    browser tab on the right side. It navigates and becomes its pane's
+//!    selected tab; the keyboard focus stays. A frontend-rendered tab
+//!    navigates through its frontend record (`update-frontend-browser-tab`
+//!    URL semantics: the hosting app loads the new URL), a daemon-rendered
+//!    one through `browser.navigate`.
+//! 4. Else a new browser tab in the first of those panes. When a connected
+//!    client renders browser tabs itself (it declared
+//!    `frontend-browser-tabs-v1`: the cmux app), the daemon makes a frontend
+//!    browser tab through the `new-frontend-browser-tab` commit (selected,
+//!    right after the pane's selected tab), and reuse takes only frontend
+//!    tabs. Else `tab.create_browser` makes a cmux-browser tab; a workspace
+//!    with no screen gets the screen that `tab.create_browser` makes for it.
 //! 5. Else (only the dock) a browser in a new viewport column right of the
 //!    dock (`pane-browser-kind-v1`'s `pane.split`), and the focus goes back
 //!    to the pane that had it. The column rules keep a scrolling column
 //!    beside every dock, so this is a fallback for a layout that breaks them.
 //!
-//! Each step runs under a key derived from the request's key, so a retry
-//! replays what the first request did. Errors of a step (`engine_unavailable`
-//! with no browser provider, a browser still starting) are returned as they
-//! are.
+//! The request's key records its result in the session's mutation ledger:
+//! a retry with the same key and request answers the first result (the
+//! same tab, no second navigation) even after the selection changed, and the
+//! same key with another workspace or URL is `idempotency.conflict`. Each
+//! step also runs under a key derived from the request's key, so a retry
+//! after a step that committed before the ledger did replays that step.
+//! Errors of a step (`engine_unavailable` with no browser provider, a
+//! browser still starting) are returned as they are and record nothing.
 
 use std::cmp::Reverse;
 use std::sync::Arc;
@@ -34,16 +45,19 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use super::{
-    ParsedResourceRequest, dispatch_resource_request, mutation_result, required_string,
-    resource_operation_error, validate_resource_envelope,
+    ParsedResourceRequest, dispatch_resource_request, required_string, resource_operation_error,
+    validate_resource_envelope,
 };
+use crate::history_ops::ledger;
 use crate::model::{DockEdge, DockRole};
-use crate::mux::PANE_BROWSER_URL_FIELD;
+use crate::mux::{FrontendTabPlacement, PANE_BROWSER_URL_FIELD};
 use crate::resource::{
     BrowserPublicId, ContentPublicId, PanePublicId, RequestEnvelope, ResourceError,
     ResourceOperation, ScreenPublicId, TabPublicId, WorkspacePublicId,
 };
-use crate::{Mux, PaneId, ResourceSelectors, ResourceTarget, Surface, SurfaceKind};
+use crate::server::FRONTEND_BROWSER_TABS_CAPABILITY;
+use crate::workspace_registry::FrontendBrowserRecord;
+use crate::{Mux, PaneId, ResourceSelectors, ResourceTarget, Surface, SurfaceId, SurfaceKind};
 
 /// Advertised by `identify`: `workspace.open_url`.
 pub(crate) const CAPABILITY: &str = "workspace-open-url-v1";
@@ -51,6 +65,9 @@ const OPERATION: &str = "workspace.open_url";
 const MAX_URL_BYTES: usize = 8192;
 /// Width of the column a link opens right of a lone dock.
 const NEW_COLUMN_WIDTH: f64 = 0.5;
+/// The engine of a frontend browser tab the daemon makes (the app's
+/// default; the app owns the engine choice of the tabs it makes itself).
+const FRONTEND_ENGINE: &str = "webkit";
 
 pub(super) fn dispatch(
     mux: &Arc<Mux>,
@@ -69,22 +86,47 @@ pub(super) fn dispatch(
         .idempotency_key
         .clone()
         .ok_or_else(|| ResourceError::validation_invalid(None, "a mutation needs a key"))?;
-    let steps = StepKeys::new(&key, &workspace, &url);
-    // A retry of a request whose first attempt created the tab replays it.
+    let fingerprint = ledger::fingerprint(
+        OPERATION,
+        &Map::from_iter([
+            ("workspace".to_string(), json!(workspace.as_str())),
+            ("url".to_string(), json!(url)),
+        ]),
+    );
+    // A retry answers the first result, or refuses another request.
+    if ledger::seen(mux, &key, OPERATION)? {
+        return ledger::commit(mux, &key, OPERATION, &fingerprint, &Value::Null, &request.actor);
+    }
+    let value = open(mux, &request, &workspace, &url, &key)?;
+    ledger::commit(mux, &key, OPERATION, &fingerprint, &value, &request.actor)
+}
+
+/// Open `url` in `workspace`: the value of the result.
+fn open(
+    mux: &Arc<Mux>,
+    request: &ParsedResourceRequest,
+    workspace: &WorkspacePublicId,
+    url: &str,
+    key: &str,
+) -> Result<Value, ResourceError> {
+    let steps = StepKeys::new(key, workspace, url);
+    // A request whose create step committed before its ledger entry.
     if let Some(created) = created_before(mux, &steps)? {
         return Ok(created);
     }
-    let candidates = mux.with_state(|state| right_side(state, &workspace));
+    let frontend = mux.control_clients.any_client_supports(FRONTEND_BROWSER_TABS_CAPABILITY);
+    let candidates = mux.with_state(|state| right_side(state, workspace));
     let Some(candidates) = candidates else {
         return Err(ResourceError::not_found("workspace", workspace.as_str()));
     };
-    let call = Call { mux, request: &request, url: &url };
-    if let Some(reuse) = reusable_browser(mux, &candidates) {
+    let call = Call { mux, request, url, workspace };
+    if let Some(reuse) = reusable_browser(mux, &candidates, frontend) {
         return call.reuse(&steps, &candidates, reuse);
     }
-    match (candidates.ranked.first(), candidates.dock) {
+    match (candidates.ranked.first(), candidates.dock.as_ref()) {
+        (Some(pane), _) if frontend => call.create_frontend_browser(pane, &candidates, &steps),
         (Some(pane), _) => call.create_browser("pane", pane.id.as_str(), &steps),
-        (None, Some(dock)) => call.new_column(&dock, candidates.focused.as_ref(), &steps),
+        (None, Some(dock)) => call.new_column(dock, candidates.focused.as_ref(), &steps),
         (None, None) => call.create_browser("workspace", workspace.as_str(), &steps),
     }
 }
@@ -172,9 +214,10 @@ impl StepKeys {
 
 /// One pane of the right side and its tabs, in strip order.
 struct RightPane {
+    pane: PaneId,
     id: PanePublicId,
-    active: Option<crate::SurfaceId>,
-    tabs: Vec<(crate::SurfaceId, Arc<Surface>)>,
+    active: Option<SurfaceId>,
+    tabs: Vec<(SurfaceId, Arc<Surface>)>,
 }
 
 /// The target screen's right side, best pane first, its dock pane, and the
@@ -216,6 +259,7 @@ fn right_side(state: &crate::State, workspace: &WorkspacePublicId) -> Option<Rig
         .into_iter()
         .filter_map(|(id, pane)| {
             Some(RightPane {
+                pane: id,
                 id: public(id)?,
                 active: pane.active_surface(),
                 tabs: pane
@@ -239,11 +283,14 @@ fn right_side(state: &crate::State, workspace: &WorkspacePublicId) -> Option<Rig
     })
 }
 
-/// A browser tab the link may reuse: its pane, tab and browser.
+/// A browser tab the link may reuse: its pane, surface, tab and browser,
+/// and whether a frontend renders it.
 struct Reuse {
     pane: PanePublicId,
+    surface: SurfaceId,
     tab: TabPublicId,
     browser: BrowserPublicId,
+    frontend: bool,
 }
 
 fn browser_page(mux: &Mux, surface: &Surface) -> Option<(TabPublicId, BrowserPublicId)> {
@@ -255,12 +302,20 @@ fn browser_page(mux: &Mux, surface: &Surface) -> Option<(TabPublicId, BrowserPub
     Some((identity.tab_id.clone(), browser.clone()))
 }
 
-fn reusable_browser(mux: &Mux, side: &RightSide) -> Option<Reuse> {
+/// With `frontend_only` (a frontend renders browser tabs), only a
+/// frontend-rendered tab: the app cannot show a cmux-browser page.
+fn reusable_browser(mux: &Mux, side: &RightSide, frontend_only: bool) -> Option<Reuse> {
     let reuse = |pane: &RightPane, surface: &Surface| {
+        let frontend = mux.is_frontend_browser_surface(surface);
+        if frontend_only && !frontend {
+            return None;
+        }
         browser_page(mux, surface).map(|(tab, browser)| Reuse {
             pane: pane.id.clone(),
+            surface: surface.id,
             tab,
             browser,
+            frontend,
         })
     };
     let selected = side.ranked.iter().find_map(|pane| {
@@ -274,7 +329,8 @@ fn reusable_browser(mux: &Mux, side: &RightSide) -> Option<Reuse> {
     })
 }
 
-/// A created step's result, when this request's create step already ran.
+/// A created step's value, when this request's `tab.create_browser` step
+/// already ran.
 fn created_before(mux: &Arc<Mux>, steps: &StepKeys) -> Result<Option<Value>, ResourceError> {
     let resolution =
         mux.resource_creation_resolution(&steps.create).map_err(resource_operation_error)?;
@@ -283,14 +339,14 @@ fn created_before(mux: &Arc<Mux>, steps: &StepKeys) -> Result<Option<Value>, Res
     }
     let mut value = resolution["created_path"].clone();
     value["reused"] = json!(false);
-    let revision = resolution["revision"].as_str().and_then(|revision| revision.parse().ok());
-    mutation_result(mux, value, revision.unwrap_or_default(), true).map(Some)
+    Ok(Some(value))
 }
 
 struct Call<'a> {
     mux: &'a Arc<Mux>,
     request: &'a ParsedResourceRequest,
     url: &'a str,
+    workspace: &'a WorkspacePublicId,
 }
 
 impl Call<'_> {
@@ -326,7 +382,56 @@ impl Call<'_> {
             json!({"url": self.url}),
             Some(&steps.create),
         )?;
-        Ok(with_reused(created, false))
+        let mut value = created["value"].clone();
+        value["reused"] = json!(false);
+        Ok(value)
+    }
+
+    /// A frontend browser tab in `pane` (the `new-frontend-browser-tab`
+    /// commit, under the create step's key): the pane's selected tab, right
+    /// after the tab that was selected; the keyboard focus stays.
+    fn create_frontend_browser(
+        &self,
+        pane: &RightPane,
+        side: &RightSide,
+        steps: &StepKeys,
+    ) -> Result<Value, ResourceError> {
+        let record = FrontendBrowserRecord {
+            engine: FRONTEND_ENGINE.to_string(),
+            url: self.url.to_string(),
+            title: None,
+            favicon_url: None,
+            profile_id: None,
+            owner: None,
+        };
+        let placement = FrontendTabPlacement { activate: true, after: pane.active };
+        let outcome = self
+            .mux
+            .new_frontend_browser_tab_keyed_as(
+                &self.request.actor,
+                Some(pane.pane),
+                record,
+                None,
+                &steps.create,
+                placement,
+            )
+            .map_err(resource_operation_error)?;
+        let Some((tab, browser)) = browser_page(self.mux, &outcome.surface) else {
+            return Err(ResourceError::operation_failed(
+                OPERATION,
+                "the new browser tab has no public tab or browser id",
+                json!({}),
+            ));
+        };
+        Ok(json!({
+            "kind": "browser",
+            "workspace_id": self.workspace.as_str(),
+            "screen_id": side.screen.as_ref().map(ScreenPublicId::as_str),
+            "pane_id": pane.id.as_str(),
+            "tab_id": tab.as_str(),
+            "browser_id": browser.as_str(),
+            "reused": false,
+        }))
     }
 
     /// A browser in a new viewport column right of the lone dock pane.
@@ -366,20 +471,18 @@ impl Call<'_> {
                 &mutation,
             )
             .map_err(resource_operation_error)?;
-        let mut value = commit.result.clone();
+        let mut value = commit.result;
         value["reused"] = json!(false);
         // A new pane takes the focus; it goes back to the pane that had it.
-        let Some(focused) = focused.filter(|pane| value["pane_id"] != pane.as_str()) else {
-            return mutation_result(self.mux, value, commit.revision, commit.replayed);
-        };
-        let restored = self.inner(
-            ResourceOperation::PaneFocus,
-            Map::from_iter([("pane".to_string(), json!(focused.as_str()))]),
-            json!({}),
-            Some(&steps.select),
-        )?;
-        let revision = restored["revision"].as_str().and_then(|revision| revision.parse().ok());
-        mutation_result(self.mux, value, revision.unwrap_or(commit.revision), commit.replayed)
+        if let Some(focused) = focused.filter(|pane| value["pane_id"] != pane.as_str()) {
+            self.inner(
+                ResourceOperation::PaneFocus,
+                Map::from_iter([("pane".to_string(), json!(focused.as_str()))]),
+                json!({}),
+                Some(&steps.select),
+            )?;
+        }
+        Ok(value)
     }
 
     /// Navigate the reused browser, then select its tab in its pane.
@@ -389,12 +492,26 @@ impl Call<'_> {
         side: &RightSide,
         reuse: Reuse,
     ) -> Result<Value, ResourceError> {
-        let navigated = self.inner(
-            ResourceOperation::BrowserNavigate,
-            Map::from_iter([("browser".to_string(), json!(reuse.browser.as_str()))]),
-            json!({"url": self.url}),
-            Some(&steps.navigate),
-        )?;
+        if reuse.frontend {
+            // The hosting app loads the URL its record now names.
+            self.mux
+                .update_frontend_browser_tab_with_owner_as(
+                    &self.request.actor,
+                    reuse.surface,
+                    Some(self.url.to_string()),
+                    None,
+                    None,
+                    None,
+                )
+                .map_err(resource_operation_error)?;
+        } else {
+            self.inner(
+                ResourceOperation::BrowserNavigate,
+                Map::from_iter([("browser".to_string(), json!(reuse.browser.as_str()))]),
+                json!({"url": self.url}),
+                Some(&steps.navigate),
+            )?;
+        }
         let selectors = ResourceSelectors {
             machine: self.request.selectors.machine.clone(),
             session: self.request.selectors.session.clone(),
@@ -407,26 +524,17 @@ impl Call<'_> {
             self.request.actor.clone(),
         )
         .map_err(resource_operation_error)?;
-        let selected = self
-            .mux
+        self.mux
             .commit_tab_selection_keeping_focus(selectors, &mutation)
             .map_err(resource_operation_error)?;
-        let workspace = navigated["value"]["workspace_id"].clone();
-        let value = json!({
+        Ok(json!({
             "kind": "browser",
-            "workspace_id": workspace,
+            "workspace_id": self.workspace.as_str(),
             "screen_id": side.screen.as_ref().map(ScreenPublicId::as_str),
             "pane_id": reuse.pane.as_str(),
             "tab_id": reuse.tab.as_str(),
             "browser_id": reuse.browser.as_str(),
             "reused": true,
-        });
-        let replayed = navigated["replayed"] == true && selected.replayed;
-        mutation_result(self.mux, value, selected.revision, replayed)
+        }))
     }
-}
-
-fn with_reused(mut result: Value, reused: bool) -> Value {
-    result["value"]["reused"] = json!(reused);
-    result
 }

@@ -471,7 +471,10 @@ fn open_url_uses_the_frontend_browser_path_when_the_app_renders_browsers() {
     let first = value(&opened).clone();
     assert_eq!(first["kind"], "browser", "{opened}");
     assert_eq!(first["reused"], false, "{opened}");
-    assert_eq!(first["pane_id"], recent["resource_id"], "not the right-side pane used last: {opened}");
+    assert_eq!(
+        first["pane_id"], recent["resource_id"],
+        "not the right-side pane used last: {opened}"
+    );
     let tab = first["tab_id"].clone();
     assert!(tab.as_str().is_some_and(|id| id.starts_with("tab_")), "{opened}");
     assert!(first["browser_id"].as_str().is_some_and(|id| id.starts_with("browser_")), "{opened}");

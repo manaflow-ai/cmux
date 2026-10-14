@@ -677,6 +677,7 @@ impl ClientRegistry {
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
+                    || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
@@ -867,6 +868,18 @@ impl ClientRegistry {
                     .collect(),
             })
             .collect()
+    }
+
+    /// Whether a connected client declared `capability` (for
+    /// `frontend-browser-tabs-v1`: a frontend that renders browser tabs, the
+    /// cmux app, is attached to this session).
+    pub(crate) fn any_client_supports(&self, capability: &str) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .clients
+            .values()
+            .any(|record| record.capabilities.contains(capability))
     }
 
     pub(super) fn supports_capability(&self, client: u64, capability: &str) -> bool {
