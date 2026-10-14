@@ -25,6 +25,7 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
+    nonisolated(unsafe) static var npDepth = 0
     static let npDiag: Void = {
         func say(_ s: String) { FileHandle.standardError.write(Data(("NPDIAG " + s + "\n").utf8)) }
         atexit { FileHandle.standardError.write(Data(("NPDIAG atexit\n" + Thread.callStackSymbols.joined(separator: "\n") + "\n").utf8)) }
@@ -50,10 +51,10 @@ import Testing
                 method_setImplementation(method, imp_implementationWithBlock(block))
             }
         }
-        var depth = 0
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.entry.rawValue | CFRunLoopActivity.exit.rawValue, true, -1_000_000) { _, activity in
-            if activity == .entry { depth += 1; return }
-            depth -= 1
+            if activity == .entry { NowPlayingCardTests.npDepth += 1; return }
+            NowPlayingCardTests.npDepth -= 1
+            let depth = NowPlayingCardTests.npDepth
             if depth <= 0 {
                 let mode = CFRunLoopCopyCurrentMode(CFRunLoopGetMain()).map { String(describing: $0) } ?? "nil"
                 say("outer runloop exit depth \(depth) mode \(mode)\n" + Thread.callStackSymbols.joined(separator: "\n"))
