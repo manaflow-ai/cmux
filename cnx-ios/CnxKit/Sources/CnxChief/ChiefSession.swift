@@ -121,10 +121,11 @@ public final class ChiefSession {
         return message.text.contains("?") && message.id != seenMessageID
     }
 
-    /// Home's Needs You filter: something waits in the outbox, or Chief is
-    /// idle with its newest message unread.
+    /// Home's Needs You filter: something waits in the outbox, Chief is
+    /// waiting on the user (the pin's preview, F6), or Chief is idle with its
+    /// newest message unread.
     public var needsYou: Bool {
-        if !outbox.isEmpty { return true }
+        if !outbox.isEmpty || isWaitingOnYou { return true }
         guard !isTyping, let message = lastMessage else { return false }
         return message.senderID == identity.chiefID && unreadCount > 0
     }

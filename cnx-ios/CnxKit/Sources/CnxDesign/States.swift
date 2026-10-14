@@ -201,6 +201,8 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public let symbol: String?
     public let showsSpinner: Bool
     public let text: String
+    /// A second line, smaller, for what to do next (pairing: where the Mac asks).
+    public var detail: String? = nil
 
     public static func reconnecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting to \(mac)…") }
     public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "You're offline")
@@ -209,11 +211,16 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public static func connecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Connecting to \(mac)…") }
     /// A dial that keeps failing (for example WebRTC with no TURN path).
     public static func failed(_ text: String) -> Self { Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text) }
-    /// The Mac shows "Allow … to connect?" for this phone (verify/phone-approvals.md).
-    public static func waitingForPairing(on mac: String) -> Self { Self(symbol: "lock.shield", showsSpinner: true, text: "Allow this iPhone on \(mac)") }
+    /// The Mac shows "Allow … to connect?" for this phone as a notification
+    /// (verify/phone-approvals.md): the banner points there, on two lines.
+    public static func waitingForPairing(on mac: String) -> Self {
+        Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone on \(mac)"),
+             detail: String(localized: "Check your Mac's notification"))
+    }
     /// The same after the phone replaced an unreadable stored key.
     public static func waitingForPairingAfterNewKeys(on mac: String) -> Self {
-        Self(symbol: "lock.shield", showsSpinner: true, text: "This iPhone's keys were reset. Allow it again on \(mac)")
+        Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone again on \(mac)"),
+             detail: String(localized: "Its keys were reset. Check your Mac's notification"))
     }
 }
 
@@ -233,13 +240,27 @@ public struct ConnectionBanner: View {
             } else if let symbol = state.symbol {
                 Image(systemName: symbol)
             }
-            Text(state.text)
+            if let detail = state.detail {
+                // Two lines: what to do, then where (the Mac's notification).
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(state.text).lineLimit(2)
+                    Text(detail)
+                        .font(theme.type.meta)
+                        .foregroundStyle(theme.colors.label2)
+                        .lineLimit(2)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(state.text)
+            }
         }
         .font(theme.type.meta.weight(.semibold))
         .foregroundStyle(theme.colors.label)
-        .padding(.horizontal, 14)
-        .frame(height: 36)
-        .glassEffect(.regular, in: .capsule)
+        .padding(.horizontal, state.detail == nil ? 14 : 16)
+        .padding(.vertical, state.detail == nil ? 0 : 8)
+        .frame(minHeight: 36)
+        .glassEffect(.regular, in: .rect(cornerRadius: state.detail == nil ? 18 : 20, style: .continuous))
+        .padding(.horizontal, 16)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.updatesFrequently)
     }

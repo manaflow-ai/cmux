@@ -24,6 +24,16 @@ struct AgentConversation: Identifiable, Hashable {
     var id: String { tabID }
 }
 
+/// Markdown to one plain line, as a list preview: the rows, Chief's pin
+/// bubble and its VoiceOver label (F4).
+func plainPreview(_ markdown: String) -> String {
+    markdown
+        .replacingOccurrences(of: "```[a-z]*", with: "", options: .regularExpression)
+        .replacingOccurrences(of: "[*_`#>]", with: "", options: .regularExpression)
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        .trimmingCharacters(in: .whitespaces)
+}
+
 /// Home (SPEC 3.1, 6): a Messages-style conversation list. Chief is pinned
 /// in Messages' pinned grid at the top (large avatar, preview or typing
 /// bubble above it); agent conversations follow as Messages rows (unread
@@ -127,13 +137,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// Markdown to one plain line, as a list preview.
-    static func plain(_ markdown: String) -> String {
-        markdown
-            .replacingOccurrences(of: "```[a-z]*", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "[*_`#>]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
-    }
+    static func plain(_ markdown: String) -> String { plainPreview(markdown) }
 
     public var body: some View {
         let stamp = MessagesStamp()
@@ -164,6 +168,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 NavigationLink(value: AgentChatDestination(workspaceID: conversation.workspaceID, tabID: conversation.tabID)) {
                     MessagesRow(
                         title: conversation.title,
+                        agent: conversation.title.hasSuffix("· \(conversation.name)") ? nil : conversation.name,
                         preview: conversation.preview,
                         stamp: stamp.string(for: conversation.date),
                         isUnread: unread.contains(conversation.id),
@@ -309,7 +314,9 @@ struct PinnedGrid: View {
         NavigationLink(value: ChiefRoute()) {
             pin
                 .frame(maxWidth: .infinity)
-                .padding(.top, 14)
+                // The bubble rides above the avatar: room for it, so it
+                // keeps clear of the search field at every size (F3).
+                .padding(.top, showsBubble ? 14 + Self.bubbleClearance : 14)
                 .padding(.bottom, 10)
                 .contentShape(.rect)
         }
@@ -327,6 +334,7 @@ struct PinnedGrid: View {
         .accessibilityIdentifier("home.chief")
         .animation(theme.motion.snappy.animation, value: session.isTyping)
         .animation(theme.motion.snappy.animation, value: showsPreview)
+        .animation(theme.motion.snappy.animation, value: showsBubble)
     }
 
     /// The preview bubble: something unread, or Chief waiting on the user
@@ -336,9 +344,18 @@ struct PinnedGrid: View {
         session.unreadCount > 0 || session.isWaitingOnYou
     }
 
+    private var showsBubble: Bool { session.isTyping || showsPreview }
+
+    /// Extra top room while a bubble shows. Without it the bubble (26 pt
+    /// above the avatar) came within 3 pt of the search field at Large and
+    /// touched it at AX5 (round 1 review); 10 pt leaves 13 pt and 8 pt.
+    static let bubbleClearance: CGFloat = 10
+
+    private var previewText: String { plainPreview(session.preview) }
+
     private var accessibilityLabel: Text {
         if session.isTyping { return Text("Chief, typing") }
-        if showsPreview { return Text("Chief, \(session.preview)") }
+        if showsPreview { return Text("Chief, \(previewText)") }
         return Text("Chief, pinned")
     }
 
@@ -351,7 +368,7 @@ struct PinnedGrid: View {
                         .offset(x: -14, y: -18)
                         .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
                 } else if showsPreview {
-                    Text(session.preview)
+                    Text(previewText)
                         .font(.caption2)
                         // A glance, not the message: it stays a small bubble
                         // over the avatar at accessibility sizes too.
@@ -392,6 +409,9 @@ struct PinnedGrid: View {
 /// title on its own lines, then the date and chevron, then the preview.
 struct MessagesRow<Avatar: View>: View {
     let title: String
+    /// The agent, for VoiceOver (F5): the avatar mark says it to the eye
+    /// only. nil when the title already names it ("cmux · Codex").
+    var agent: String?
     let preview: String
     let stamp: String
     let isUnread: Bool
@@ -418,6 +438,20 @@ struct MessagesRow<Avatar: View>: View {
         }
         .padding(.vertical, 12)
         .contentShape(.rect)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    /// "Needs you, cmux, Claude, 1:46 AM, Refactor transport layer".
+    private var accessibilityText: String {
+        var parts: [String] = []
+        if isUnread { parts.append(String(localized: "Unread")) } else if needsYou { parts.append(String(localized: "Needs you")) }
+        parts.append(title)
+        if let agent { parts.append(agent) }
+        parts.append(stamp)
+        if !preview.isEmpty { parts.append(preview) }
+        if isMuted { parts.append(String(localized: "Alerts hidden")) }
+        return parts.joined(separator: ", ")
     }
 
     /// Messages keeps a gutter for the unread dot. Unread wins; then the
