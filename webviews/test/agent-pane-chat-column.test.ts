@@ -4,8 +4,8 @@
 // panes, as Codex and Claude desktop do. While a reply streams the view stays at its latest line
 // unless the reader scrolls up, and nothing it shows moves when a queue appears or a row opens.
 //
-// A prompt is a solid bubble on the composer's surface, its text inset evenly, with one Copy on
-// hover; a tool row shows none (a turn's answer has its own in the footer).
+// A prompt is a solid bubble on the composer's surface, its text inset evenly; a hover shows no Copy
+// on it or on a tool row (both are on right-click; a turn's answer has its own in the footer).
 //
 // Before: the transcript's rows used a 720px column inside 26.5px gutters and the composer a 760px
 // column inside 16px ones, so their edges never met and the narrow-pane inset was neither. The
