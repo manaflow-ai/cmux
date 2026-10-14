@@ -8,13 +8,15 @@ Launches the tagged app (no activation, automation socket, empty config), opens 
 walks the states with `debug.mouse` (the synthesized pointer and clicks), `debug.key` and
 `debug.omnibar` (its `pointer` report: hover, the cursor region at a probe point, frames):
 
-  1. cursor at rest: the arrow over the text, the bar around it, the chip, a button and the row;
+  1. cursor at rest: the I-beam over the text area (the text, above it, past its end), the arrow
+     over the chip, a button and the row;
   2. hover: the bar and a button light under the pointer and clear when it leaves;
   3. a hover does not survive a tab switch: a tab hidden under the pointer and shown again after
      the pointer left shows no hover;
   4. focus: the first click selects the whole address, a second click places the caret, the
-     I-beam shows over the text only while editing, Escape returns the keyboard to the page;
-  5. a click on the bar above the text focuses and selects too;
+     I-beam stays over the text area while editing, Escape returns the keyboard to the page;
+  5. a click on the bar above the text, and one past the end of the text, focuses and selects all:
+     the I-beam area and the press area are one rectangle (`text_area`);
   6. Cmd-L focuses and selects; typed text reverts on Escape (still focused), a second Escape blurs;
   7. snapshots of rest, hover and editing in light and dark (`debug.window_snapshot`).
 
@@ -188,15 +190,22 @@ try:
     reload = frames.get(reload_id) if reload_id else None
     chip = frames.get("chip")
     page = (bar[0] + bar[2] / 2, bar[1] + bar[3] + 200) if bar else None
+    text_area = frames.get("text_area")
     above_text = (text[0] + text[2] / 2, bar[1] + 1.5) if bar and text else None
+    # Past the end of the short address, inside the text area (left of the star or the bar's end).
+    past_text = (text_area[0] + text_area[2] - 4, bar[1] + bar[3] / 2) if bar and text_area else None
+    check(bool(text_area), f"the pointer report has the text area: {text_area}")
 
     # 1. Cursor at rest.
     rpc("debug.appearance", {"mode": "light"})
     snapshot("light-rest")
     if text:
-        check(probe(center(text)) == ("text", "arrow"), f"rest: arrow over the text {probe(center(text))}")
+        check(probe(center(text)) == ("text", "iBeam"), f"rest: I-beam over the text {probe(center(text))}")
     if above_text:
-        check(probe(above_text) == ("bar", "arrow"), f"rest: arrow over the bar around the text {probe(above_text)}")
+        check(probe(above_text) == ("bar", "iBeam"), f"rest: I-beam over the bar above the text {probe(above_text)}")
+    if past_text:
+        check(probe(past_text)[1] == "iBeam", f"rest: I-beam past the end of the text {probe(past_text)}")
+    print(f"note installed_text_cursor at rest: {pointer().get('installed_text_cursor')}", flush=True)
     if chip:
         check(probe(center(chip))[1] == "arrow" and probe(center(chip))[0] == "control", f"arrow over the chip {probe(center(chip))}")
     if reload:
@@ -241,7 +250,7 @@ try:
         check(probe(center(text)) == ("text", "iBeam"), f"I-beam over the text while editing {probe(center(text))}")
         print(f"note installed_text_cursor while editing: {pointer().get('installed_text_cursor')}", flush=True)
         if above_text:
-            check(probe(above_text)[1] == "arrow", f"arrow over the bar around the text while editing {probe(above_text)}")
+            check(probe(above_text)[1] == "iBeam", f"I-beam over the bar above the text while editing {probe(above_text)}")
         snapshot("light-editing")
         # The test window is never key, so AppKit drops a raw click on the field editor (it takes no
         # first mouse); debug.omnibar_mouse presses over the text as AppKit does for a key window.
@@ -262,21 +271,24 @@ try:
         print("after Escape", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
         check(bool(wait_for(lambda: not omnibar().get("has_focus"), "one Escape blurs", 3)), "one Escape after the clicks returns to the page")
         blur()
-        check(probe(center(text)) == ("text", "arrow"), f"arrow over the text after the omnibar blurs {probe(center(text))}")
+        check(probe(center(text)) == ("text", "iBeam"), f"I-beam over the text after the omnibar blurs {probe(center(text))}")
 
-    # 5. A click on the bar above the text focuses and selects.
-    if above_text:
-        blur()
-        before = omnibar()
-        mouse("click", above_text)
-        bar_click = bool(wait_for(lambda: selection_all(omnibar()), "bar click focuses", 5))
-        after = omnibar()
-        check(bar_click, f"a click on the bar above the text focuses and selects all: {after.get('phase')} "
-                         f"{after.get('text')!r} {after.get('selection')}")
-        if not bar_click:  # what the field held before the click, and the state machine's last inputs
-            print("   before the click", {k: before.get(k) for k in ("phase", "field_editor_active", "field_text", "field_selection")}, flush=True)
-            for line in (after.get("pointer") or {}).get("omnibar_trace") or []:
-                print("   trace", line, flush=True)
+    # 5. A click anywhere in the text area (the I-beam area) focuses and selects all.
+    for name, point in (("above the text", above_text), ("past the end of the text", past_text)):
+        if not point:
+            continue
+        for attempt in range(3):  # three presses each: a flake shows up here, not in a later run
+            blur()
+            before = omnibar()
+            mouse("click", point)
+            bar_click = bool(wait_for(lambda: selection_all(omnibar()), f"bar click {name} focuses", 5))
+            after = omnibar()
+            check(bar_click, f"a click on the bar {name} focuses and selects all ({attempt + 1}/3): {after.get('phase')} "
+                             f"{after.get('text')!r} {after.get('selection')}")
+            if not bar_click:  # what the field held before the click, and the state machine's last inputs
+                print("   before the click", {k: before.get(k) for k in ("phase", "field_editor_active", "field_text", "field_selection")}, flush=True)
+                for line in (after.get("pointer") or {}).get("omnibar_trace") or []:
+                    print("   trace", line, flush=True)
         blur()
 
     # 6. Cmd-L, typed text, Escape twice.
