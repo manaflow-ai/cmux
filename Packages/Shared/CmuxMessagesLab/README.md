@@ -65,6 +65,14 @@ and render-server field animation, blurred header and native scrolling.
   yet. `scripts/cmux-next/home-scale-change.py` records it and fails when it
   lasts longer than 0.5 s; the return to 2x keeps the one-frame rule (no
   old-scale bitmap one frame after the change).
+- Soft copies (7924f00, cx-3cb soft-copies): a just-sent balloon keeps a
+  crisp edge in flight and after it lands, and takes the soft edge when its
+  status becomes delivered, read or failed (`MessagesWindowView.crispSends`,
+  at most 64 rows). Home sends those statuses from HomeDiff
+  (`HomeMapping.status`: a committed message with a sequence is delivered;
+  a committed message without one stays `.sent`, so it stays crisp until its
+  sequence comes). The context menu's highlight on my text balloon has the
+  soft edge too (`Cmux/PaneMenu.swift` MenuHighlight, as Host.swift).
 - `Patches/`: one unified diff per edited vendored file. Every edit is also
   marked `cmux:` in the source.
 - `Sources/MessagesLabHome/Cmux/`: cmux code in the same module (the upstream
