@@ -80,6 +80,11 @@ public nonisolated enum MotionTunables {
     public static let marqueeMinimumTravel = Tunable<Double>.number(
         "motion.marquee.minimumTravel", .hover, "Marquee minimum travel", help: "Clipping under this many points never scrolls.",
         default: 2, range: 0...40, step: 1, unit: .points, code: "MotionTunables.marqueeMinimumTravel")
+    /// Leo 2026-10-13: the workspace hover card showed on every row the
+    /// pointer passed; it waits for a native-tooltip dwell instead.
+    public static let hoverCardDwell = Tunable<Double>.number(
+        "motion.hoverCard.dwell", .hover, "Hover card dwell", help: "Pointer rest on a sidebar workspace row before its hover card shows.",
+        default: 1, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.hoverCardDwell")
     public static let panelOpenScale = Tunable<Double>.number(
         "motion.panel.openScale", .palette, "Panel open scale", help: "Scale the palette grows from when it opens.",
         default: 0.97, range: 0.8...1, step: 0.005, unit: .multiplier, code: "MotionTunables.panelOpenScale")
@@ -104,7 +109,7 @@ public nonisolated enum MotionTunables {
         MotionSpring.allCases.compactMap { springs[$0]?.descriptor }
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
-            + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel].map(\.descriptor)
+            + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel, hoverCardDwell].map(\.descriptor)
             + [panelOpenScale, panelCloseScale].map(\.descriptor)
     }
 }
