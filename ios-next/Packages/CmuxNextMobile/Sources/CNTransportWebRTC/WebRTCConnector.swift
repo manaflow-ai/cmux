@@ -115,6 +115,10 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
     /// bytesReceived per candidate pair at the previous stats read.
     private var pairBytes: [String: Double] = [:]
     private let createdAt = ContinuousClock.now
+    private var gate = OfferGate()
+    private var offerSDP: String?
+    private var answerTimerTask: Task<Void, Never>?
+    private var presenceTask: Task<Void, Never>?
 
     static let noAnswerMessage = "Your Mac did not answer the connection request."
 
@@ -177,8 +181,30 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
                 }
             }
         }
-        try await signaling.send(Self.offerMessage(hostId: hostId, sessionId: sessionId, sdp: sdp, relayOnly: options.relayOnly))
-        stage("offer sent")
+        lock.withLock { offerSDP = sdp }
+        // Resend the offer as soon as an offline host comes back (its own
+        // signaling reconnects drop offers sent meanwhile).
+        let presence = signaling.presence()
+        let hostId = self.hostId
+        let watcher = Task { [weak self] in
+            for await p in presence where p.hostId == hostId {
+                guard let self else { return }
+                let action = self.lock.withLock { self.gate.presence(online: p.online) }
+                if action == .send {
+                    self.stage("host back online; resending offer")
+                    await self.sendOffer()
+                }
+            }
+        }
+        lock.withLock { presenceTask = watcher }
+        let known = await signaling.presenceByHost[hostId]
+        if lock.withLock({ gate.start(hostOnline: known) }) == .send {
+            try await signaling.send(Self.offerMessage(hostId: hostId, sessionId: sessionId, sdp: sdp, relayOnly: options.relayOnly))
+            stage("offer sent")
+            startAnswerTimer()
+        } else {
+            stage("host offline; waiting for presence before the offer")
+        }
 
         let timeout = options.connectTimeout
         let timer = Task { [weak self] in
@@ -186,15 +212,13 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
             self?.stage("timed out")
             self?.failOpen(TransportError.timedOut)
         }
-        defer { timer.cancel() }
-        let answerTimeout = options.answerTimeout
-        let answerTimer = Task { [weak self] in
-            do { try await ContinuousClock().sleep(for: answerTimeout) } catch { return }
-            guard let self, !self.lock.withLock({ self.remoteDescriptionSet }) else { return }
-            self.stage("no answer")
-            self.failOpen(TransportError.connectFailed(Self.noAnswerMessage))
+        defer {
+            timer.cancel()
+            lock.withLock {
+                answerTimerTask?.cancel()
+                presenceTask?.cancel()
+            }
         }
-        defer { answerTimer.cancel() }
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, any Error>) in
             lock.lock()
             if isOpen { lock.unlock(); c.resume(); return }
@@ -214,6 +238,37 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         lock.withLock { reportedPair = (path.localCandidate, path.remoteCandidate) }
         continuation.yield(.pathChanged(path))
         startPathPolling()
+    }
+
+    /// Sends (or resends) the offer and restarts the answer timer.
+    private func sendOffer() async {
+        guard let sdp = lock.withLock({ offerSDP }) else { return }
+        do {
+            try await signaling.send(Self.offerMessage(hostId: hostId, sessionId: sessionId, sdp: sdp, relayOnly: options.relayOnly))
+            stage("offer sent")
+            startAnswerTimer()
+        } catch {
+            // Signaling is down too; the presence watcher resends when the
+            // host (and our socket) is back, the connect timeout bounds it.
+            lock.withLock { _ = gate.hostOffline() }
+        }
+    }
+
+    /// No answer within `answerTimeout` of the latest send fails the attempt,
+    /// unless the host is known offline (then presence drives the resend).
+    private func startAnswerTimer() {
+        let answerTimeout = options.answerTimeout
+        let task = Task { [weak self] in
+            do { try await ContinuousClock().sleep(for: answerTimeout) } catch { return }
+            guard let self else { return }
+            guard self.lock.withLock({ self.gate.answerTimedOut() }) == .fail else { return }
+            self.stage("no answer")
+            self.failOpen(TransportError.connectFailed(Self.noAnswerMessage))
+        }
+        lock.withLock {
+            answerTimerTask?.cancel()
+            answerTimerTask = task
+        }
     }
 
     /// Logs a connect stage with the time since this link was created.
@@ -286,6 +341,7 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
     private func handleSignal(_ message: SignalMessage) {
         switch message {
         case .answer(_, _, _, let sdp):
+            lock.withLock { gate.answerReceived() }
             stage("answer received")
             peerConnection.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { [weak self] error in
                 guard let self else { return }
@@ -313,6 +369,10 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
             }
         case .bye:
             close(reason: "The host ended the session.")
+        case .error(let code, _, _) where code == "host_offline" && !lock.withLock({ gate.answered }):
+            // The host's signaling is reconnecting; wait for its presence.
+            lock.withLock { _ = gate.hostOffline() }
+            stage("host_offline for the offer; waiting for presence")
         case .error(let code, let text, _):
             webRTCLog.error("link \(self.sessionId, privacy: .public) signaling error \(code, privacy: .public): \(text ?? "", privacy: .public)")
             let error = SignalingError.server(code: code, message: text)
@@ -357,6 +417,8 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         signalTask?.cancel()
         graceTask?.cancel()
         pathPollTask?.cancel()
+        answerTimerTask?.cancel()
+        presenceTask?.cancel()
         // Closing a peer connection joins WebRTC's threads; do it off the
         // caller (often the main actor during sign-out or a host switch).
         let pc = peerConnection
