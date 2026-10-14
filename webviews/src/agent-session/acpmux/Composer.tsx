@@ -1222,11 +1222,11 @@ export function Composer({
                 </button>
               ) : remote.canSend ? (
                 <>
-                  {steerable && (
+                  {steerable ? (
                     <button
                       key="steer"
                       type="button"
-                      className="acpmux-steer"
+                      className="acpmux-send acpmux-send-steer acpmux-send-ready"
                       aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
                       title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
                       onClick={() => {
@@ -1234,26 +1234,30 @@ export function Composer({
                         field.current?.focus();
                       }}
                     >
-                      {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                      <span className="acpmux-send-label">
+                        {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                      </span>
+                      <ArrowUpIcon />
+                    </button>
+                  ) : (
+                    <button
+                      key="send"
+                      ref={sendButton}
+                      type="submit"
+                      disabled={Boolean(blocked) && !shell}
+                      className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                      aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+                      title={
+                        shell
+                          ? t("composer.shellRun")
+                          : blocked?.reason
+                            ? t(blocked.reason)
+                            : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
+                      }
+                    >
+                      <ArrowUpIcon />
                     </button>
                   )}
-                  <button
-                    key="send"
-                    ref={sendButton}
-                    type="submit"
-                    disabled={Boolean(blocked) && !shell}
-                    className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
-                    aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                    title={
-                      shell
-                        ? t("composer.shellRun")
-                        : blocked?.reason
-                          ? t(blocked.reason)
-                          : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
-                    }
-                  >
-                    <ArrowUpIcon />
-                  </button>
                 </>
               ) : null}
             </span>
