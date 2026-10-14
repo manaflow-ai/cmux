@@ -244,9 +244,9 @@ impl Translator {
                     .lock()
                     .await
                     .iter()
-                    .find(|(_, v)| **v == *id)
-                    .map(|(k, _)| k.clone());
-                let Some(ctl_id) = ctl else { return Outbound::Lines(vec![]) };
+                    .find(|(_, request)| request.acp_id == *id)
+                    .map(|(k, request)| (k.clone(), request.clone()));
+                let Some((ctl_id, control)) = ctl else { return Outbound::Lines(vec![]) };
                 self.control_out.lock().await.remove(&ctl_id);
                 let outcome =
                     result.as_ref().and_then(|r| r.get("outcome")).cloned().unwrap_or(Value::Null);
@@ -262,10 +262,20 @@ impl Translator {
                     // allow / allow_always: pass the (possibly answered) input back.
                     let updated =
                         result.as_ref().and_then(|r| r.pointer("/_meta/updatedInput")).cloned();
-                    match updated {
-                        Some(u) => json!({"behavior": "allow", "updatedInput": u}),
-                        None => json!({"behavior": "allow"}),
+                    let mut response = json!({"behavior": "allow"});
+                    if let Some(u) = updated {
+                        response["updatedInput"] = u;
                     }
+                    // Claude Code installs a lasting project/session rule
+                    // only when its own suggested PermissionUpdate objects
+                    // are echoed back in this field. Never send suggestions
+                    // for a one-time answer: that would silently widen it.
+                    if selected == "allow_always"
+                        && let Some(suggestions) = control.permission_suggestions
+                    {
+                        response["updatedPermissions"] = suggestions;
+                    }
+                    response
                 };
                 Outbound::Lines(vec![
                     json!({"type": "control_response", "response": {"subtype": "success", "request_id": ctl_id, "response": response}}),
