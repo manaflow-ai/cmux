@@ -52,6 +52,41 @@ public nonisolated struct HistoryTrailLocation: Codable, Sendable, Equatable {
     }
 }
 
+/// The daemon's whole location trail: its `cmux-next/personal/history.locations` projection (schema 1,
+/// cmux-tui `history_ops/trail.rs`), read with `frontend_projection.get` like the hidden-history
+/// document. Back/Forward rebuild from it, not from `history.entries.list`: the list leaves out the
+/// places History does not show (a terminal titled `~`, a `cmux:` page, `about:blank`), and a step
+/// that left the list read as removed (cx-hnmbt.14).
+public nonisolated struct HistoryTrailDocument: Decodable, Sendable {
+    public static let subject = "history.locations"
+    public static let schemaVersion: UInt32 = 1
+
+    nonisolated struct Entry: Decodable, Sendable {
+        var window: String
+        var atMs: Int64
+        var location: HistoryTrailLocation
+
+        enum CodingKeys: String, CodingKey {
+            case window, location
+            case atMs = "at_ms"
+        }
+    }
+
+    var entries: [Entry]
+
+    /// The document in `data` (nil: not a schema 1 trail document).
+    public init?(data: Data, schemaVersion: UInt32) {
+        guard schemaVersion == Self.schemaVersion,
+              let document = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
+        self = document
+    }
+
+    /// Every step, oldest first, with its time on the app's clock.
+    public var steps: [(location: HistoryLocation, time: Date)] {
+        entries.map { ($0.location.historyLocation(window: $0.window), Date(timeIntervalSince1970: Double($0.atMs) / 1_000)) }
+    }
+}
+
 /// A trail step as the daemon lists it: its place and time (the app's clock, in ms).
 public nonisolated struct HistoryTrailStepID: Hashable, Sendable {
     public var key: HistoryLocation.Key

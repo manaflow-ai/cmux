@@ -10,8 +10,11 @@ struct DaemonHistoryClient: Sendable {
     static let capability = "history-v1"
 
     let relay: ResourceRelayClient
+    /// The connection itself, for the trail document (``trail()``).
+    let connection: DaemonConnection
 
     init(connection: DaemonConnection) {
+        self.connection = connection
         relay = ResourceRelayClient(connection: connection)
     }
 

@@ -22,8 +22,15 @@ extension DaemonHistoryClient {
         return (id, recorded)
     }
 
-    /// The daemon's trail, oldest first (at most its 200 entries).
+    /// The daemon's trail, oldest first (at most its 200 entries): every step of its trail document,
+    /// also the ones History does not list (``HistoryTrailDocument``). Before the daemon's first write
+    /// there is no document; the rows then show the app's older trail, adopted.
     func trail() async throws -> [(location: HistoryLocation, time: Date)] {
+        let stored = try await connection.frontendProjection(subject: HistoryTrailDocument.subject)
+        if stored.projection != .null, let document = HistoryTrailDocument(
+            data: try JSONEncoder().encode(stored.projection), schemaVersion: stored.schemaVersion) {
+            return document.steps
+        }
         let rows = try await list(kinds: [.location], text: "", range: .all, limit: 5_000)
         return rows.reversed().compactMap { row in row.trailLocation.map { ($0, row.time) } }
     }
