@@ -13,8 +13,8 @@ new-profile grace and 10-minute session grace, so the run passes
 Steps: launch the app (no activation, automation socket, empty config), open
 two Chromium tabs in one pane, switch between them 8 times, then count the
 app's on-screen windows above the main window (a help bubble is its own
-window) and capture the window. Then read the command lines of Chromium's
-helper processes, which carry the browser's feature overrides.
+window) and capture the window. Then read Chromium's ChromeFeatureState file,
+which records the browser's feature overrides.
 
 Usage (from an nx-remote --app-from-fleet job):
   chrome-promos-live.py TAG APP_PATH --expect bubble|none
@@ -185,20 +185,25 @@ try:
         check(extra is not None and extra > 0, f"a Chrome help bubble window appears after the tab switches (+{extra})")
     else:
         check(extra is not None and extra <= 0, f"no new window appears after the tab switches (+{extra})")
-    # chrome://version does not render in a cmux tab. Chromium hands its
-    # feature overrides to every helper process on the command line, so the
-    # helpers' command lines show whether the IPH demo-mode override is in
-    # effect (the other switches are browser-process only).
-    helpers = subprocess.run(["ps", "-A", "-ww", "-o", "command="], capture_output=True, text=True).stdout
-    roots = (os.path.realpath(args.app), os.path.abspath(args.app))
-    mine = [line for line in helpers.splitlines() if line.startswith(roots) and "--type=" in line]
-    with_features = [line for line in mine if "--enable-features=" in line]
-    for line in with_features[:1]:
-        print("helper enable-features:", [part for part in line.split() if part.startswith("--enable-features=")], flush=True)
-    has_demo = any("IPH_DemoMode" in line for line in with_features)
-    print(f"helper processes: {len(mine)}, with --enable-features: {len(with_features)}, IPH_DemoMode: {has_demo}", flush=True)
+    # chrome://version does not render in a cmux tab, and helper processes
+    # get the feature state through shared memory, not their command line.
+    # Chromium writes the browser's feature overrides to ChromeFeatureState
+    # in its user data directory at every launch: that file shows whether
+    # the IPH demo-mode override is in effect.
+    data_dir = os.path.join(os.environ["HOME"], "Library/Application Support", info["CFBundleIdentifier"], "Chromium")
+    try:
+        state = json.load(open(os.path.join(data_dir, "ChromeFeatureState")))
+    except (OSError, ValueError) as e:
+        state = {"error": str(e)}
+    print("ChromeFeatureState:", json.dumps(state), flush=True)
+    # A fresh profile only: the first-run sentinel and the tracker database
+    # stay from any earlier run of an older build.
+    print("first-run sentinel:", os.path.exists(os.path.join(data_dir, "First Run")),
+          "| tracker database:", os.path.exists(os.path.join(data_dir, "Default", "Feature Engagement Tracker")), flush=True)
     if args.expect == "none":
-        check(has_demo, "Chromium's helper processes run with the IPH_DemoMode override")
+        check("IPH_DemoMode" in state.get("enable-features", "")
+              and "chosen_feature/IPH_Dummy" in state.get("force-fieldtrial-params", ""),
+              "Chromium runs with IPH_DemoMode on IPH_Dummy (ChromeFeatureState)")
 finally:
     stop = os.environ.get("NX_APP_STOP")
     if stop:
