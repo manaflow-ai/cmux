@@ -23,10 +23,32 @@ public struct LinkPairing: Sendable {
         case idle
         /// The Mac shows "Allow … to connect?"; the link waits for the answer.
         case waiting(mac: String)
+        /// The same, after this phone replaced an unreadable stored key (the
+        /// Mac asks again because the key is new).
+        case waitingAfterNewKeys(mac: String)
         case paired
         /// The user refused this phone on the Mac.
         case denied(mac: String)
         case failed(String)
+
+        /// The Mac is asking its person about this phone.
+        public var isWaiting: Bool {
+            switch self {
+            case .waiting, .waitingAfterNewKeys: true
+            default: false
+            }
+        }
+    }
+
+    /// What the phone says for a refusal `code` from the Mac's `auth`.
+    public static func refusalText(_ error: LinkError) -> String {
+        switch error.code {
+        case "timeout": "nobody answered the Mac's prompt. Retry, then allow this iPhone on the Mac"
+        case "rate_limited": "the Mac asked about this iPhone recently: \(error.message)"
+        case "busy": "the Mac is already pairing this iPhone"
+        case "unavailable": "the Mac isn't ready to pair yet. Retry in a moment"
+        default: error.message
+        }
     }
 
     /// What pairing found.

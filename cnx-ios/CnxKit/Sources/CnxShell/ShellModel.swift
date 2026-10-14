@@ -210,6 +210,7 @@ final class ShellModel {
         // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
         switch live?.pairingState {
         case .waiting(let mac)?: return .waitingForPairing(on: mac)
+        case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac)
         case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone")
         case .failed(let reason)?: return .failed("Pairing failed: \(reason)")
         default: return live?.banner

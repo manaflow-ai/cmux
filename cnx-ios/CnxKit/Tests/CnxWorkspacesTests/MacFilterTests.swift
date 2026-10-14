@@ -374,9 +374,9 @@ import Testing
 
     @Test func aMacBeingLinkedSaysConnecting() {
         func state(_ list: WorkspaceInbox.ListState, _ connection: MacConnection?, online: Bool = true,
-                   autoLinks: Bool = true, canCreate: Bool = false, live: Bool = true) -> MacEmptyState {
+                   reach: MacReach = .linkTarget, canCreate: Bool = false, live: Bool = true) -> MacEmptyState {
             MacEmptyState.resolve(isOnline: online, list: list, connection: connection, tracksLive: live,
-                                  autoLinks: autoLinks, canCreate: canCreate)
+                                  reach: reach, canCreate: canCreate)
         }
         // The e2e case: last-known "no rows" for a Mac the link is not on.
         #expect(state(.cached(updating: false), nil) == .connecting)
@@ -392,9 +392,17 @@ import Testing
         #expect(state(.failed("timed out"), nil) == .failed("timed out"))
         #expect(state(.cached(updating: false), .failed("timed out")) == .failed("timed out"))
         #expect(state(.live, nil, online: false) == .offline)
-        // Without a live link to move (or a Mac this phone may not dial), the honest "isn't connected".
-        #expect(state(.notConnected, nil, autoLinks: false) == .notConnected)
-        #expect(state(.cached(updating: false), nil, autoLinks: false) == .notConnected)
+        // Review M5: the link is on another Mac (or on none, say the team start failed):
+        // never "Connecting…" with no way out, but Connect.
+        #expect(state(.notConnected, nil, reach: .elsewhere) == .notConnected)
+        #expect(state(.cached(updating: false), nil, reach: .elsewhere) == .notConnected)
+        #expect(state(.loading, nil, reach: .elsewhere) == .notConnected)
+        #expect(state(.cached(updating: false), .connecting, reach: .elsewhere) == .notConnected)
+        // Review m11: a teammate's Mac has no Connect that does nothing.
+        #expect(state(.notConnected, nil, reach: .othersMac) == .othersMac)
+        #expect(state(.live, nil, reach: .othersMac) == .othersMac)
+        // Mock mode (no live link): nothing to move.
+        #expect(state(.notConnected, nil, reach: .none) == .notConnected)
         // Mock mode: every list is the Mac's own.
         #expect(state(.live, nil, canCreate: true, live: false) == .empty(canCreate: true))
     }

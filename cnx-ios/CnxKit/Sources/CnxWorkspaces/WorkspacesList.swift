@@ -574,7 +574,7 @@ public struct WorkspacesList: View {
     @ViewBuilder private func scopedEmptyState(_ mac: MacDevice) -> some View {
         let canCreate = target != nil
         switch MacEmptyState.resolve(isOnline: mac.isOnline, list: listState(mac.id), connection: store.macConnection[mac.id],
-                                     tracksLive: store.tracksMacData, autoLinks: linking?.canLink(mac.id) == true, canCreate: canCreate) {
+                                     tracksLive: store.tracksMacData, reach: linking?.reach(mac.id) ?? .none, canCreate: canCreate) {
         case .offline:
             EmptyState(
                 symbol: "moon.zzz",
@@ -600,6 +600,13 @@ public struct WorkspacesList: View {
                 primary: reconnect.map { reconnect in { reconnect(mac.id) } }
             )
             .accessibilityIdentifier("workspaces.empty.not-connected")
+        case .othersMac:
+            EmptyState(
+                symbol: "person.crop.circle.badge.questionmark",
+                title: "\(mac.name) belongs to a teammate",
+                message: "Only the iPhones of the person who signed in on \(mac.name) can connect to it. Its workspaces show here, but this iPhone can't open them."
+            )
+            .accessibilityIdentifier("workspaces.empty.others-mac")
         case .connecting:
             VStack(spacing: 12) {
                 ProgressView()

@@ -2,6 +2,7 @@ import CnxAgentChat
 import CnxTransport
 import CryptoKit
 import Foundation
+import LocalAuthentication
 import Testing
 @testable import CnxLive
 
@@ -23,6 +24,22 @@ import Testing
         #expect(text == #"{"Which?":"B","a\"b":["x\ny","\u0001"],"codex":{"answers":["é"]}}"#)
         #expect(ApprovalPayload.answersDigest(Self.answers) == "44ba30ad88bf4d244b42c361e7ba2a97441780fce0cdfd2a175df95d6e2d6fc8")
         #expect(ApprovalPayload.answersDigest(nil) == "")
+    }
+
+    /// Review m9: numbers print as acpmux (serde_json) prints what it read
+    /// from this phone's JSON. Expected values come from serde_json 1.x.
+    @Test func numbersMatchAcpmux() {
+        let cases: [(Double, String)] = [
+            (3, "3"), (1e15, "1000000000000000"), (1e16, "1e+16"), (1.5e16, "1.5e+16"),
+            (1.2345678901234568e17, "1.2345678901234568e+17"), (0.5, "0.5"), (1e-7, "1e-7"), (-0.0, "-0.0"),
+            (1.5e20, "1.5e+20"), (9_007_199_254_740_992, "9007199254740992"), (1e21, "1e+21"), (1e-5, "0.00001"),
+            (1e-6, "1e-6"), (0.0001, "0.0001"), (123.456, "123.456"), (-2.5, "-2.5"), (100.25, "100.25"),
+            (0.001234, "0.001234"), (12_345_678_901_234.5, "12345678901234.5"), (2e-300, "2e-300"),
+            (1.7976931348623157e308, "1.7976931348623157e+308"), (-1e16, "-1e+16"), (-7, "-7"),
+        ]
+        for (value, expected) in cases {
+            #expect(ApprovalPayload.canonicalNumber(value) == expected, "\(value)")
+        }
     }
 
     @Test func payloadMatchesAcpmux() {
@@ -79,9 +96,9 @@ import Testing
         let key = P256.Signing.PrivateKey()
         let reasons = Sent()
         hub.approver = AcpmuxHub.Approver(phoneID: "phone-1", macDevice: "mac-1",
-                                          now: { Date(timeIntervalSince1970: 1_000) }) { message, reason in
+                                          now: { Date(timeIntervalSince1970: 1_000) }) { reason in
             reasons.append(["reason": reason])
-            return try key.signature(for: message).rawRepresentation
+            return { message in try key.signature(for: message).rawRepresentation }
         }
         try await hub.respond(sessionID: "s1", permissionID: "perm", optionID: "allow")
         try await hub.respond(sessionID: "s1", permissionID: "perm", optionID: "deny")
@@ -105,11 +122,73 @@ import Testing
         let sent = Sent()
         let hub = AcpmuxHub()
         await hub.bind(try await Self.fakeAcpmux(sent).openChannel(service: "acpmux", args: [:]))
-        hub.approver = AcpmuxHub.Approver(phoneID: "phone-1", macDevice: "mac-1") { _, _ in throw PhoneKeys.Failure.cancelled }
+        hub.approver = AcpmuxHub.Approver(phoneID: "phone-1", macDevice: "mac-1") { _ in throw PhoneKeys.Failure.cancelled }
         await #expect(throws: AcpmuxHub.ApprovalCancelled.self) {
             try await hub.respond(sessionID: "s1", permissionID: "perm", optionID: "allow")
         }
         #expect(sent.all.isEmpty)
+    }
+
+    /// Review m9: the signature's expiry starts after Face ID returned, so a
+    /// sheet left up for minutes does not send an expired answer.
+    @Test func theExpiryStartsAfterFaceID() async throws {
+        let sent = Sent()
+        let hub = AcpmuxHub()
+        await hub.bind(try await Self.fakeAcpmux(sent).openChannel(service: "acpmux", args: [:]))
+        let clock = Sent()
+        clock.append(["now": 1_000])
+        let key = P256.Signing.PrivateKey()
+        hub.approver = AcpmuxHub.Approver(phoneID: "phone-1", macDevice: "mac-1",
+                                          now: { Date(timeIntervalSince1970: TimeInterval(clock.all.last?["now"] as? Int ?? 0)) }) { _ in
+            clock.append(["now": 5_000])  // the user took 4000 s to look at Face ID
+            return { message in try key.signature(for: message).rawRepresentation }
+        }
+        try await hub.respond(sessionID: "s1", permissionID: "perm", optionID: "allow")
+        let meta = try #require((sent.all.first?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])
+        let decision = try #require(meta["approverDecision"] as? [String: Any])
+        #expect((decision["expiresAt"] as? NSNumber)?.intValue == 5_120)
+    }
+
+    /// Review m9: an acpmux before phone approvals (no `decisionNonce`) gets
+    /// nothing from a paired phone, and the phone says to update the Mac.
+    @Test func anOlderMacSaysToUpdate() async throws {
+        let sent = Sent()
+        let hub = AcpmuxHub()
+        let old = MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String else { return [] }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
+            switch method {
+            case "initialize": return [reply(#"{"protocolVersion":1}"#)]
+            case "_acpmux/info":
+                return [reply(#"{"sessionId":"s1","pending":[{"permissionId":"perm","request":{"options":[{"optionId":"allow","kind":"allow_once"}]}}]}"#)]
+            case "_acpmux/permission_respond":
+                sent.append(object["params"] as? [String: Any] ?? [:])
+                return [reply("{}")]
+            default: return [reply(#"{"sessions":[]}"#)]
+            }
+        }
+        await hub.bind(try await old.openChannel(service: "acpmux", args: [:]))
+        hub.approver = AcpmuxHub.Approver(phoneID: "phone-1", macDevice: "mac-1") { _ in
+            Issue.record("asked for Face ID")
+            return { _ in Data() }
+        }
+        do {
+            try await hub.respond(sessionID: "s1", permissionID: "perm", optionID: "allow")
+            Issue.record("expected a refusal")
+        } catch {
+            #expect(AcpmuxSessionSource.message(error).contains("update cmux on the Mac"))
+        }
+        #expect(sent.all.isEmpty)
+    }
+
+    @Test func faceIDErrorsReadAsPlainWords() {
+        let lockout = AcpmuxSessionSource.message(PhoneKeys.Failure.notVerified(LAError.Code.biometryLockout.rawValue))
+        #expect(lockout == "Not approved: Face ID is locked. Unlock this iPhone with its passcode, then try again.")
+        let passcode = AcpmuxSessionSource.message(PhoneKeys.Failure.notVerified(LAError.Code.passcodeNotSet.rawValue))
+        #expect(passcode.contains("set a passcode"))
+        #expect(!AcpmuxSessionSource.message(PhoneKeys.Failure.notVerified(-9999)).contains("Code"))
     }
 }
 

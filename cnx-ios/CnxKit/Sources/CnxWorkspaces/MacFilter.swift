@@ -90,38 +90,65 @@ public struct MacLinking {
     /// Whether this phone may dial the Mac at all (a teammate's Mac in a
     /// shared team is listed, never dialed). A read, safe in a view body.
     public var canLink: @MainActor (String) -> Bool
+    /// Whether the phone's one link targets the Mac now (dialing or up). A read.
+    public var isLinkTarget: @MainActor (String) -> Bool
 
-    public init(link: @escaping @MainActor (String) -> Void, canLink: @escaping @MainActor (String) -> Bool) {
+    public init(link: @escaping @MainActor (String) -> Void, canLink: @escaping @MainActor (String) -> Bool,
+                isLinkTarget: @escaping @MainActor (String) -> Bool) {
         self.link = link
         self.canLink = canLink
+        self.isLinkTarget = isLinkTarget
     }
+
+    /// How the link stands toward `macID`, for ``MacEmptyState``.
+    @MainActor public func reach(_ macID: String) -> MacReach {
+        guard canLink(macID) else { return .othersMac }
+        return isLinkTarget(macID) ? .linkTarget : .elsewhere
+    }
+}
+
+/// How the phone's link stands toward one Mac.
+public enum MacReach: Equatable, Sendable {
+    /// No live link to move (mock mode).
+    case none
+    /// The link targets this Mac: its data is on its way.
+    case linkTarget
+    /// The link is on another Mac (or none); Connect moves it here.
+    case elsewhere
+    /// A teammate's Mac: protocol v1 lets only its owner's phones connect.
+    case othersMac
 }
 
 /// What the list says when it is filtered to one Mac and has no rows.
 public enum MacEmptyState: Equatable, Sendable {
     case offline
     case failed(String)
-    /// Online, nothing dialing it, and nothing will on its own (no live link).
+    /// Online, and the link is not on it: Connect moves it here.
     case notConnected
+    /// A teammate's Mac: listed, but only its owner's phones can connect.
+    case othersMac
     /// Online and being linked: its list (or the ability to create on it)
     /// arrives with the link.
     case connecting
     /// The Mac answered with no workspaces (or cached data says so).
     case empty(canCreate: Bool)
 
-    /// - `autoLinks`: choosing the Mac links it (live mode).
+    /// - `reach`: how the phone's link stands toward the Mac. "Connecting"
+    ///   only while the link actually targets it; otherwise Connect.
     /// - `connection`: this phone's link to the Mac (nil: not linked).
     /// - `tracksLive`: live data (false in mock mode, where every list is the Mac's).
     public static func resolve(isOnline: Bool, list: WorkspaceInbox.ListState, connection: MacConnection?,
-                               tracksLive: Bool, autoLinks: Bool, canCreate: Bool) -> MacEmptyState {
+                               tracksLive: Bool, reach: MacReach, canCreate: Bool) -> MacEmptyState {
         guard isOnline else { return .offline }
+        if reach == .othersMac { return .othersMac }
+        let autoLinks = reach == .linkTarget
         switch list {
         case .failed(let reason):
             return .failed(reason)
         case .notConnected:
             return autoLinks ? .connecting : .notConnected
         case .loading:
-            return .connecting
+            return reach == .elsewhere ? .notConnected : .connecting
         case .live, .cached:
             if canCreate || !tracksLive { return .empty(canCreate: canCreate) }
             switch connection {
@@ -130,7 +157,7 @@ public enum MacEmptyState: Equatable, Sendable {
             // yet (the rows are last-known): still connecting. Only a Mac
             // that answered and still refuses new workspaces says so.
             case .connected: return list == .live ? .empty(canCreate: false) : .connecting
-            case .connecting: return .connecting
+            case .connecting: return autoLinks || reach == .none ? .connecting : .notConnected
             case nil: return autoLinks ? .connecting : .notConnected
             }
         }

@@ -68,7 +68,8 @@ struct WorkspacesScreen: View {
                     { macID in live.retry(macID: macID) }
                 },
                 linking: shell.live.map { live in
-                    MacLinking(link: { live.select(macID: $0) }, canLink: { live.canLink(macID: $0) })
+                    MacLinking(link: { live.select(macID: $0) }, canLink: { live.canLink(macID: $0) },
+                               isLinkTarget: { live.link.target?.macID == $0 })
                 },
                 refresh: shell.live.map { live in { await live.workspaces.refresh() } },
                 switchTeam: { shell.switchTeam(to: $0) },
