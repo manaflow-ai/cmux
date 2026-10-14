@@ -13,9 +13,11 @@ import {
   type HomeEventBatch,
   type HomeHistory,
   type HomeInbox,
+  type HomeMarkUnreadRequest,
   type HomeMessage,
   type HomePage,
   type HomeParticipant,
+  type HomePinRequest,
   type HomeResolvedLink,
   type HomeThreadPage,
   type HomeThreadStats,
@@ -92,6 +94,8 @@ export interface HomeSnapshot {
   /** Participants typing or writing a reply, by conversation (every conversation, not only the
    * open one): a Chief's row shows it as working. */
   activity: ReadonlyMap<string, ReadonlySet<string>>;
+  /** The owner keeps my pins and marks (Pin and Mark as Unread are offered only then). */
+  inboxState: boolean;
   error?: string;
 }
 
@@ -128,6 +132,7 @@ export class HomeChannelsStore {
       // store knows: it shows as failed, with Retry (the same idempotency key, never twice).
       pending: carry.entries.map((entry) => ({ ...entry, failed: true })),
       activity: new Map(),
+      inboxState: false,
     };
     carry.entries = this.snapshot.pending;
   }
@@ -255,7 +260,14 @@ export class HomeChannelsStore {
         this.snapshot.selected && conversations.has(this.snapshot.selected)
           ? this.snapshot.selected
           : defaultSelection(inbox.conversations);
-      this.set({ me: inbox.me, conversations, connection: "online", loading: false, error: undefined });
+      this.set({
+        me: inbox.me,
+        conversations,
+        connection: "online",
+        loading: false,
+        error: undefined,
+        inboxState: inbox.inboxState === true,
+      });
       if (selected && selected !== this.snapshot.selected) await this.select(selected);
       else if (selected) await this.reloadPage(selected);
     } catch (error) {
@@ -266,6 +278,8 @@ export class HomeChannelsStore {
   /** Opens a conversation: its newest page, then marks it read. */
   async select(id: string): Promise<void> {
     if (id === this.snapshot.selected && this.snapshot.messages.length > 0) return;
+    // Opening a conversation I marked unread reads it: the mark goes.
+    if (this.snapshot.conversations.get(id)?.markedUnread) void this.setMarkedUnread(id, false);
     this.set({
       selected: id,
       messages: [],
@@ -534,6 +548,60 @@ export class HomeChannelsStore {
     }
   }
 
+  /** Pins or unpins a conversation in my list. Optimistic: the row moves at once (a new pin goes
+   * last); the owner's change replaces it, and a refusal puts the row back. Resolves true when the
+   * owner took it. */
+  async setPinned(id: string, pinned: boolean): Promise<boolean> {
+    const before = this.snapshot.conversations.get(id);
+    if (!this.client || !before || before.pinned === pinned) return false;
+    const last = Math.max(0, ...[...this.snapshot.conversations.values()].map((c) => c.pinPosition ?? 0));
+    this.patchConversation(id, pinned ? { pinned, pinPosition: Math.max(Date.now(), last + 1) } : { pinned, pinPosition: undefined });
+    try {
+      await this.client.call(HomeOps.pin, { conversation: id, pinned, idempotencyKey: this.key("pin") } satisfies HomePinRequest);
+      return true;
+    } catch (error) {
+      this.patchConversation(id, { pinned: before.pinned, pinPosition: before.pinPosition });
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Flags a conversation unread (the read cursor stays) or clears the flag. Optimistic, as a pin. */
+  async setMarkedUnread(id: string, unread: boolean): Promise<boolean> {
+    const before = this.snapshot.conversations.get(id);
+    if (!this.client || !before || (before.markedUnread === true) === unread) return false;
+    this.patchConversation(id, { markedUnread: unread });
+    try {
+      await this.client.call(HomeOps.markUnread, {
+        conversation: id,
+        unread,
+        idempotencyKey: this.key("unread"),
+      } satisfies HomeMarkUnreadRequest);
+      return true;
+    } catch (error) {
+      this.patchConversation(id, { markedUnread: before.markedUnread });
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Mark as Read: my read cursor to the newest message, and my unread mark cleared. */
+  markConversationRead(id: string): void {
+    const conversation = this.snapshot.conversations.get(id);
+    if (!conversation) return;
+    if (conversation.markedUnread) void this.setMarkedUnread(id, false);
+    this.markRead(conversation, conversation.lastSeq);
+  }
+
+  private patchConversation(id: string, patch: Partial<HomeConversation>): void {
+    const current = this.snapshot.conversations.get(id);
+    if (!current) return;
+    const next: HomeConversation = { ...current, ...patch };
+    if (next.pinPosition === undefined) delete next.pinPosition;
+    if (!next.markedUnread) delete next.markedUnread;
+    this.set({ conversations: new Map(this.snapshot.conversations).set(id, next) });
+  }
+
   /** Deletes my message for everyone (the owner keeps a "deleted" row). */
   async retract(message: HomeMessage): Promise<void> {
     if (!this.client) return;
@@ -590,6 +658,17 @@ export class HomeChannelsStore {
     for (const id of batch.removed ?? []) {
       conversations ??= new Map(this.snapshot.conversations);
       conversations.delete(id);
+    }
+    for (const change of batch.inbox ?? []) {
+      const current = (conversations ?? this.snapshot.conversations).get(change.conversation);
+      if (!current) continue;
+      conversations ??= new Map(this.snapshot.conversations);
+      const next: HomeConversation = { ...current, pinned: change.pinned };
+      delete next.pinPosition;
+      delete next.markedUnread;
+      if (change.pinPosition !== undefined) next.pinPosition = change.pinPosition;
+      if (change.markedUnread) next.markedUnread = true;
+      conversations.set(change.conversation, next);
     }
     if (conversations) patch.conversations = conversations;
     const selected = this.snapshot.selected;

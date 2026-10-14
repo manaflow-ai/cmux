@@ -17,6 +17,8 @@ export const HomeOps = {
   createGroup: "cmux.home.createGroup",
   resolveLink: "cmux.home.resolveLink",
   updateThread: "cmux.home.updateThread",
+  pin: "cmux.home.pin",
+  markUnread: "cmux.home.markUnread",
   events: "cmux.home.events",
 } as const;
 
@@ -49,7 +51,12 @@ export interface HomeConversation {
   /** Mentions of me after my read cursor (the owner's count; 0 where the owner keeps none). */
   mentions: number;
   muted: boolean;
+  /** Pinned by me (my own list state; the owner keeps it per person). */
   pinned: boolean;
+  /** My pin order: lower first (owners with conversation-inbox-state-v1; the pin time in ms). */
+  pinPosition?: number;
+  /** I marked it unread (the read cursor stays); opening it clears the mark. */
+  markedUnread?: boolean;
   lastText?: string;
   /** When the last message was posted (the list's order and time; a read moves `updatedAt`). */
   lastAt?: number;
@@ -143,6 +150,31 @@ export interface HomeInbox {
   me: HomeParticipant;
   conversations: HomeConversation[];
   rev: number;
+  /** The owner keeps my pins and marks (conversation-inbox-state-v1): the page offers Pin and
+   * Mark as Unread only then. */
+  inboxState?: boolean;
+}
+
+/** `cmux.home.pin`: pin or unpin a conversation in my list (pinned last, by pin time). */
+export interface HomePinRequest {
+  conversation: string;
+  pinned: boolean;
+  idempotencyKey?: string;
+}
+
+/** `cmux.home.markUnread`: flag a conversation unread, or clear the flag. */
+export interface HomeMarkUnreadRequest {
+  conversation: string;
+  unread: boolean;
+  idempotencyKey?: string;
+}
+
+/** One change of my own list state of a conversation (a pin, a mark). */
+export interface HomeInboxChange {
+  conversation: string;
+  pinned: boolean;
+  pinPosition?: number;
+  markedUnread: boolean;
 }
 
 /** The owner's stats of one thread root, counted over every reply (not only the loaded window).
@@ -198,6 +230,8 @@ export interface HomeEventBatch {
   typing?: { conversation: string; participant: string; on: boolean }[];
   /** Running replies, in order (applied before this batch's messages). */
   drafts?: HomeDraftItem[];
+  /** My own list state changes (pins, marks), in order. */
+  inbox?: HomeInboxChange[];
 }
 
 export interface HomeSearchHit {

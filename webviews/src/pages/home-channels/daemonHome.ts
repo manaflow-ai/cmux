@@ -13,6 +13,7 @@ import {
   HomeOps,
   type HomeConversation,
   type HomeEventBatch,
+  type HomeInboxChange,
   type HomeMessage,
   type HomeParticipant,
   type HomePart,
@@ -27,6 +28,9 @@ type Json = Record<string, unknown>;
 const LOCAL_USER = "user_local";
 /** `thread.update`, `Message.thread` and the thread object fields of the stats. */
 const THREAD_OBJECTS_CAPABILITY = "conversation-thread-objects-v1";
+/** My own pins and marks: `conversation-inbox-op`, the list fields, `conversation-inbox-changed`
+ * and `cloud-inbox-op` (the Cloud owner's `inbox.pin` and `inbox.mark_unread`). */
+const INBOX_STATE_CAPABILITY = "conversation-inbox-state-v1";
 const CHIEF = { id: "agent_mux", kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" };
 const TAPBACK_EMOJI: Record<string, string> = {
   love: "❤️",
@@ -159,8 +163,11 @@ export function conversation(raw: Json, me: string): HomeConversation {
     unread: lastSeq > cursor ? lastSeq - cursor : 0,
     mentions: 0,
     muted: false,
-    pinned: false,
+    // My own list state (conversation-inbox-state-v1: `conversation-list` adds it for me).
+    pinned: raw.pinned === true,
   };
+  if (result.pinned && typeof raw.pin_position === "number") result.pinPosition = raw.pin_position;
+  if (raw.marked_unread === true) result.markedUnread = true;
   const text = plain(last);
   if (text !== undefined) result.lastText = text;
   // The last message's time orders the list even when it was deleted (a read never moves a row).
@@ -305,6 +312,7 @@ export class DaemonHomeClient implements PageClient {
           me,
           conversations: [...summaries.map((entry) => conversation(entry, this.me)), ...cloud],
           rev: Math.max(0, ...summaries.map((entry) => num(entry.rev))),
+          inboxState: await this.capable(INBOX_STATE_CAPABILITY),
         };
       }
       case HomeOps.page: {
@@ -429,11 +437,35 @@ export class DaemonHomeClient implements PageClient {
           throw pageError("cmux.page.unavailable", "this cmux instance has no thread objects");
         return this.submit(str(params, "conversation"), this.key(params, options), update);
       }
+      case HomeOps.pin: {
+        const pinned = params.pinned === true;
+        // The pin time orders my pins across both owners (one merged list).
+        const op: Json = pinned ? { kind: "inbox.pin", pinned, position: Date.now() } : { kind: "inbox.pin", pinned };
+        return this.inboxOp(str(params, "conversation"), this.key(params, options), op);
+      }
+      case HomeOps.markUnread:
+        return this.inboxOp(str(params, "conversation"), this.key(params, options), {
+          kind: "inbox.mark_unread",
+          unread: params.unread === true,
+        });
       case HomeOps.createGroup:
         return this.createGroup(params, options);
       default:
         throw pageError("cmux.protocol.unknown_op", op);
     }
+  }
+
+  /** My own list state of one conversation, on its owner: the local owner keeps it beside the
+   * conversation, a Cloud owner in my UserDO inbox (through the daemon). */
+  private async inboxOp(conversationId: string, key: string, op: Json): Promise<unknown> {
+    if (!(await this.capable(INBOX_STATE_CAPABILITY)))
+      throw pageError("cmux.page.unavailable", "this cmux instance keeps no pins");
+    if (this.cloud.owns(conversationId)) {
+      await this.daemon.request("cloud-inbox-op", { conversation: conversationId, idempotency_key: key, op });
+      return { conversation: conversationId };
+    }
+    await this.daemon.request("conversation-inbox-op", { conversation: conversationId, op });
+    return { conversation: conversationId };
   }
 
   /** A channel of the local user and known local participants (the Chief when none is named);
@@ -513,6 +545,17 @@ export class DaemonHomeClient implements PageClient {
         } else {
           deliver((batch) => (batch.inboxStale = true));
         }
+      } else if (event.event === "conversation-inbox-changed") {
+        // My own pin or mark (the daemon sends only mine).
+        deliver((batch) => {
+          const change: HomeInboxChange = {
+            conversation: String(event.conversation),
+            pinned: event.pinned === true,
+            markedUnread: event.marked_unread === true,
+          };
+          if (change.pinned && typeof event.pin_position === "number") change.pinPosition = event.pin_position;
+          (batch.inbox ??= []).push(change);
+        });
       } else if (event.event === "conversation-typing") {
         deliver((batch) =>
           (batch.typing ??= []).push({

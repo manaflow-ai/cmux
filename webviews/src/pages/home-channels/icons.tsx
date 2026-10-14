@@ -26,7 +26,8 @@ export type HomeIconName =
   | "check"
   | "threads"
   | "hash"
-  | "command";
+  | "command"
+  | "pin";
 
 const PATHS: Record<HomeIconName, ReactNode> = {
   bold: <path d="M6 4h5a3 3 0 0 1 0 6H6zM6 10h6a3 3 0 0 1 0 6H6z" strokeWidth="2" />,
@@ -34,6 +35,7 @@ const PATHS: Record<HomeIconName, ReactNode> = {
   strike: (
     <path d="M4 10h12M13.5 6.5c-.4-1.5-1.8-2.5-3.6-2.5-2 0-3.4 1.1-3.4 2.6 0 .9.4 1.6 1.3 2M6.5 13.5c.4 1.5 1.8 2.5 3.6 2.5 2 0 3.5-1.1 3.5-2.7 0-.6-.2-1.1-.6-1.6" />
   ),
+  pin: <path d="M7.5 3.5h5M8.5 3.5v4.2L6 10.5v1.5h8v-1.5l-2.5-2.8V3.5M10 12v4.5" />,
   link: (
     <path d="M8.5 11.5a3 3 0 0 0 4.2 0l2.4-2.4a3 3 0 0 0-4.2-4.2l-.9.9M11.5 8.5a3 3 0 0 0-4.2 0l-2.4 2.4a3 3 0 0 0 4.2 4.2l.9-.9" />
   ),
