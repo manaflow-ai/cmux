@@ -7,12 +7,16 @@ public import Foundation
 public nonisolated struct MetricTunable: Sendable {
     public let compact: CGFloat
     public let comfortable: CGFloat
+    /// The compact value under Compact tabs (`Metrics.compactTabs`), when it differs.
+    public let tight: CGFloat?
     public let key: MetricKey?
     public let tunable: DerivedTunable<CGFloat>
 
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
-    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compact, comfortable, key))) }
+    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key))) }
+    /// The compact value in effect: `tight` under Compact tabs, else `compact`.
+    @MainActor var compactValue: CGFloat { tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact }
     public var descriptor: TunableDescriptor { tunable.descriptor }
 
     static func make(_ name: String, _ section: TunableSection, _ label: String, help: String,
@@ -24,7 +28,7 @@ public nonisolated struct MetricTunable: Sendable {
         let tunable = DerivedTunable<CGFloat>.number(
             "metrics.\(name)", section, label, help: help + note, range: range ?? 0...upper, step: step, unit: .points,
             code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key) }
-        return MetricTunable(compact: compact, comfortable: comfortable, key: key, tunable: tunable)
+        return MetricTunable(compact: compact, comfortable: comfortable, tight: tight, key: key, tunable: tunable)
     }
 }
 
