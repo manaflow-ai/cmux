@@ -6,10 +6,16 @@ enum CLIApplicationPolicy {
     static func apply(
         setActivationPolicy: (NSApplication.ActivationPolicy) -> Void
     ) {
-        setActivationPolicy(.regular)
+        setActivationPolicy(.prohibited)
     }
 
-    static func apply(application: NSApplication = .shared) {
+    @MainActor
+    static func apply() {
+        apply(application: .shared)
+    }
+
+    @MainActor
+    static func apply(application: NSApplication) {
         apply { policy in
             application.setActivationPolicy(policy)
         }

@@ -46310,7 +46310,7 @@ struct CMUXTermMain {
         // The bundled CLI lives inside cmux.app. Mark it as a prohibited
         // background process before any hook or socket work can reach AppKit,
         // so macOS does not add helper launches to Dock recents.
-        CLIApplicationPolicy.apply()
+        await CLIApplicationPolicy.apply()
 #endif
         // Record the caller's standard descriptors before anything can open a
         // file that reuses a closed standard number.
