@@ -178,3 +178,34 @@ struct MacScreenDevelopmentSettingsRouteTests {
         #expect(SettingsWindowService.route(section: .advanced, setting: nil, devBuild: false) == "#/settings/advanced")
     }
 }
+
+/// Behind the Connect (confirm) or not-paired card a tab sends no input to the other Mac, and
+/// after Connect its keyboard state follows the surface's real focus (it was stuck at "not
+/// captured" while keys went to the remote).
+@MainActor
+struct MacScreenInputGateTests {
+    private func pairing() -> VNCPairing { VNCPairing.generate(name: "Gate Test", kind: "stream") }
+
+    @Test func noInputBehindTheConfirmCardUntilConnect() {
+        let pane = MacScreenPane(name: "Gate Test", pairing: pairing(), preferences: ScreenPreferences(), confirmed: false)
+        #expect(pane.model.gate == .confirm)
+        #expect(!pane.view.input.controlMode)
+        #expect(!pane.model.capturesKeyboard)
+        // What Connect does to the input (no network here: the session is not started).
+        pane.model.gate = .open
+        pane.view.syncInputGate()
+        #expect(pane.view.input.controlMode)
+        // Not in a window, so not first responder: the state says so.
+        #expect(pane.model.capturesKeyboard == pane.view.input.hasKeyboard)
+        pane.close()
+    }
+
+    @Test func forgottenMacStopsInput() {
+        let pane = MacScreenPane(name: "Gate Test", pairing: pairing(), preferences: ScreenPreferences(), confirmed: true)
+        #expect(pane.view.input.controlMode)
+        pane.forgotten()
+        #expect(pane.model.gate == .missing)
+        #expect(!pane.view.input.controlMode)
+        #expect(!pane.model.capturesKeyboard)
+    }
+}
