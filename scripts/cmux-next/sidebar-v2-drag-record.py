@@ -406,31 +406,37 @@ try:
         wait(lambda: f"S{opts.stress - 1:04d}" in json.dumps(window().get("rows", [])) or None, 600)
         # The new workspaces scrolled the list to its end, so Alpha and the Pinned tiles have no on-screen frame (hitch7
         # failed on a None tile frame): wheel the list back to its top before the drags.
+        # New workspaces go to the list's top (newest first) and the Pinned tiles are a block at the very top of the
+        # list, so at 1000 workspaces Alpha (near the end) and Pinned are never on screen together (setup1
+        # 1014-155557-376478: Pinned block y -14440, Alpha y 1818). Wheel the list to its top until both Pinned tiles
+        # have a frame; scenario 1 then drags the first workspace row under Pinned instead of Alpha.
+        def pinned_block_y():
+            block = next((r for r in window().get("rows", []) if str(r.get("key", "")) == 'block("sec_pinned")'), None)
+            return ((block or {}).get("window_frame") or {}).get("y")
         def at_top():
-            alpha, pinned = rows().get("Alpha"), section_items("sec_pinned")
-            frame = (alpha or {}).get("window_frame") or {}
-            return bool(frame and 0 <= frame.get("y", -1) < 800 and pinned and all(i.get("window_frame") for i in pinned))
-        # Focus Alpha first (the list reveals the selected row), then wheel up in trackpad phases (hitch8: plain 4000 px
-        # wheel events did not move the list).
-        focused = ""  # the CLI takes ws_ ids, not the row's UUID (hitch9: no workspace matches)
-        for attempt in range(40):
+            pinned, y = section_items("sec_pinned"), pinned_block_y()
+            return bool(pinned and all(i.get("window_frame") for i in pinned) and y is not None and y >= 0)
+        sign, before = 1, pinned_block_y()
+        for attempt in range(80):
             if at_top():
                 break
             anchor = next((r for r in window().get("rows", []) if r.get("in_list") and r.get("window_frame")
-                           and 0 <= r["window_frame"]["y"] < 800), None)
+                           and 0 <= r["window_frame"]["y"] < 760), None)
             if not anchor:
+                print("no on-screen list row to wheel over", flush=True)
                 break
             point = {"x": center(anchor["window_frame"])[0], "y": center(anchor["window_frame"])[1], "action": "scroll"}
-            # Toward Alpha: hitch9 found it below the window (y 1218), so the list must move up (negative dy), not down.
-            alpha_y = ((rows().get("Alpha") or {}).get("window_frame") or {}).get("y", -1)
-            step = -600 if alpha_y >= 800 else 600
-            for phase, dy in (("began", 0), ("changed", step), ("changed", step), ("ended", 0)):
-                reply = rpc("debug.mouse", {**point, "dy": dy, "phase": phase})
-            if attempt < 2:
-                print("scroll", attempt, "reply", reply, "anchor y", anchor["window_frame"]["y"], flush=True)
+            for phase, dy in (("began", 0), ("changed", 800 * sign), ("changed", 800 * sign), ("changed", 800 * sign), ("ended", 0)):
+                rpc("debug.mouse", {**point, "dy": dy, "phase": phase})
             time.sleep(0.2)  # test harness: let the scroll apply
-        alpha = rows().get("Alpha") or {}
-        print("list at top:", at_top(), "focus:", focused[:120], "alpha frame:", alpha.get("window_frame"),
+            after = pinned_block_y()
+            if attempt < 3 or attempt % 10 == 0:
+                print("scroll", attempt, "sign", sign, "pinned block y", before, "->", after, flush=True)
+            # The block row's y must grow toward 0; if it does not (or the row left the realized rows), flip the wheel once.
+            if attempt == 0 and (after is None or before is None or after <= before):
+                sign = -sign
+            before = after
+        print("list at top:", at_top(), "pinned block y:", pinned_block_y(),
               "pinned frames:", [i.get("window_frame") for i in section_items("sec_pinned")], flush=True)
     if opts.setup_only:
         print("snapshot", json.dumps(rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "setup.png"), "webviews": False}, timeout=60))[:300], flush=True)
@@ -443,6 +449,11 @@ try:
 
     # 1. A workspace row into Pinned tiles (between the two tiles).
     alpha, pinned = rows().get("Alpha"), section_items("sec_pinned")
+    if opts.stress:
+        # The first workspace row under Pinned (Alpha is ~1000 rows down; see the setup note above).
+        alpha = next((r for r in window().get("rows", []) if r.get("in_list") and str(r.get("key", "")).startswith("workspace")
+                      and r.get("window_frame") and 0 <= r["window_frame"]["y"] < 760), None)
+        print("scenario 1 source:", (alpha or {}).get("title"), (alpha or {}).get("window_frame"), flush=True)
     if "1" in WANTED and alpha and alpha.get("window_frame") and len(pinned) >= 2 and pinned[0].get("window_frame"):
         start, first = center(alpha["window_frame"]), pinned[0]["window_frame"]
         record("1-row-into-pinned", [start, (start[0], start[1] - 30), (first["x"] + first["width"] * 0.85, first["y"] + first["height"] / 2)],
