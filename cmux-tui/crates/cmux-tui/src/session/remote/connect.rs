@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::session::sidebar_doc::SIDEBAR_DOC_CAPABILITY;
-use cmux_tui_core::server::PLACEMENT_SHIFT_CAPABILITY;
 use cmux_tui_core::server::OPEN_DEVICE_KINDS_CAPABILITY;
+use cmux_tui_core::server::PLACEMENT_SHIFT_CAPABILITY;
 
 impl RemoteSession {
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
