@@ -17882,6 +17882,17 @@
       "since": 12,
       "capability": "tab-split-respawn-v1"
      },
+     "keep_focus": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "tab-split-keep-focus-v1"
+     },
      "transaction": {
       "type": {
        "kind": "scalar",
@@ -17975,6 +17986,17 @@
       "default": null,
       "since": 12,
       "capability": "tab-column-respawn-v1"
+     },
+     "keep_focus": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "tab-split-keep-focus-v1"
      },
      "transaction": {
       "type": {
