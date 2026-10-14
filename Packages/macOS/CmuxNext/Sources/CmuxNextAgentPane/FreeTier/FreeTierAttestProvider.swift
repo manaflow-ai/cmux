@@ -202,7 +202,9 @@ public actor FreeTierAttestProvider {
         guard request["purpose"] as? String == Self.purpose,
               let encoded = request["client_data_hash"] as? String,
               let hash = Data(base64Encoded: encoded), hash.count == 32 else { return ["error": "refused"] }
-        guard enabled, !signedIn, !storeFailed else { return ["error": "disabled"] }
+        guard enabled, !signedIn else { return ["error": "disabled"] }
+        // The store refused once: say so again without asking it (the relay then stays store_failed).
+        guard !storeFailed else { return ["error": "store_failed"] }
         guard attest.isSupported else { return ["error": "unsupported"] }
         do {
             switch request["req"] as? String {
@@ -248,7 +250,7 @@ public actor FreeTierAttestProvider {
             // and no further store access until the next launch or a settings change.
             storeFailed = true
             logger.error("free tier: the App Attest key id store failed (status \(error.status, privacy: .public)); no new key, proofs paused")
-            return ["error": "disabled"]
+            return ["error": "store_failed"]
         } catch {
             return ["error": "failed"]
         }

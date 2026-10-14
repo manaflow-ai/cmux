@@ -186,7 +186,7 @@ type Asked = Arc<Mutex<Vec<(String, String, Vec<u8>, Option<bool>)>>>;
 /// A stand-in app provider: registers, then answers every request with
 /// fixed proof strings. Returns the connection (dropping it ends the provider).
 fn provider(dir: &Path, origin: &str, has_key: bool, asked: Asked) -> UnixStream {
-    provider_with(dir, origin, has_key, false, asked, None)
+    provider_with(dir, origin, has_key, false, asked, None, false)
 }
 
 fn provider_with(
@@ -196,6 +196,7 @@ fn provider_with(
     signed_in: bool,
     asked: Asked,
     gate: Option<Gate>,
+    fail_store: bool,
 ) -> UnixStream {
     let stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
     let mut write = stream.try_clone().unwrap();
@@ -227,7 +228,9 @@ fn provider_with(
                 let _ = release.recv();
             }
             let key = "a2V5LWlkLWZvci10aGUtdGVzdC1kZXZpY2UtMDEyMzQ1Ng";
-            let reply = if req == "attest" {
+            let reply = if fail_store {
+                json!({"id": id, "error": "store_failed"})
+            } else if req == "attest" {
                 json!({"id": id, "key_id": key, "attestation": "YXR0ZXN0YXRpb24", "device_token": "ZGV2aWNlLXRva2Vu"})
             } else {
                 json!({"id": id, "key_id": key, "assertion": "YXNzZXJ0aW9u"})
@@ -424,7 +427,7 @@ fn free_tier_a_signed_in_app_never_takes_a_free_lease() {
     let (key, port) = mint(&dir);
     let asked: Asked = Arc::default();
     // Signed in, but the account bearer has not reached this relay yet (a restart).
-    let _held = provider_with(&dir, &origin, true, true, asked.clone(), None);
+    let _held = provider_with(&dir, &origin, true, true, asked.clone(), None, false);
 
     let (status, body) = chat(port, &key);
     assert_eq!(status, 503, "{body}");
@@ -460,6 +463,7 @@ fn free_tier_a_lease_in_flight_stores_no_token_after_the_setting_turns_off_or_an
             false,
             asked.clone(),
             Some((arrived_tx, release_rx)),
+            false,
         );
 
         let request = std::thread::spawn(move || chat(port, &key));
@@ -507,8 +511,12 @@ fn free_tier_a_lost_attest_reply_is_followed_by_an_assertion_not_a_second_attest
 
     let (status, _) = chat(port, &key);
     assert_ne!(status, 200);
-    // The relay waits out its first retry delay (2 s) before it asks again.
-    std::thread::sleep(Duration::from_millis(2300));
+    // Wait until the relay's own retry time (free.until_ms of the backoff state), with a deadline.
+    let free = admin(&dir, json!({"op": "status"})).unwrap()["free"].clone();
+    assert_eq!(free["state"], "backoff", "{free}");
+    let until = free["until_ms"].as_u64().expect("backoff names its retry time");
+    assert!(until <= now_ms() + 10_000, "retry time too far: {until}");
+    std::thread::sleep(Duration::from_millis(until.saturating_sub(now_ms()) + 50));
     let (status, body) = chat(port, &key);
     assert_eq!(status, 200, "{body}");
     let kinds: Vec<_> =
@@ -518,5 +526,30 @@ fn free_tier_a_lost_attest_reply_is_followed_by_an_assertion_not_a_second_attest
     assert_eq!(api.seen.iter().filter(|(p, _, _)| p == "/v1/inference/free/attest").count(), 1);
     let chat_call = api.seen.iter().find(|(p, _, _)| p.ends_with("chat/completions")).unwrap();
     assert_eq!(chat_call.1, "Bearer free-token-after-loss");
+    drop(relay);
+}
+
+#[test]
+fn free_tier_a_refused_keychain_stops_leases_until_the_app_registers_again() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    let origin = start_api(api.clone());
+    let dir = scratch("store");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    let asked: Asked = Arc::default();
+    let held = provider_with(&dir, &origin, true, false, asked.clone(), None, true);
+
+    let (status, body) = chat(port, &key);
+    assert_eq!(status, 401, "{body}");
+    assert_eq!(body["error"]["code"], "free.store_failed");
+    assert_eq!(admin(&dir, json!({"op": "status"})).unwrap()["free"]["state"], "store_failed");
+    // No second lease: the app is not asked again, so its Keychain is not asked again.
+    assert_eq!(chat(port, &key).1["error"]["code"], "free.store_failed");
+    assert_eq!(asked.lock().unwrap().len(), 1);
+
+    // The app registers again (a relaunch): the relay may lease again.
+    held.shutdown(std::net::Shutdown::Both).unwrap();
+    let _again = provider_with(&dir, &origin, true, false, Arc::default(), None, false);
+    assert_eq!(admin(&dir, json!({"op": "status"})).unwrap()["free"]["state"], "idle");
     drop(relay);
 }
