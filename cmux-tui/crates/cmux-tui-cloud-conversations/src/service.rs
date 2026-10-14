@@ -476,7 +476,11 @@ impl CloudConversations {
     /// `cloud-participant-avatar-get`: a Cloud participant's picture (the
     /// owner's `participant.avatar.get`: `{participant_id, avatar}`, the
     /// avatar with its base64 `data`, or null).
-    pub fn participant_avatar(&self, participant: &str) -> Result<Value, CloudError> {
+    pub fn participant_avatar(
+        &self,
+        participant: &str,
+        conversation: Option<&str>,
+    ) -> Result<Value, CloudError> {
         let valid = ["user_", "agent_"].iter().any(|prefix| {
             participant.strip_prefix(prefix).is_some_and(|rest| {
                 (1..=64).contains(&rest.len())
@@ -488,7 +492,16 @@ impl CloudConversations {
                 "participant {participant:?} is not a person or Chief id"
             )));
         }
-        let body = read_body("participant.avatar.get", json!({"participant_id": participant}));
+        let mut params = json!({"participant_id": participant});
+        if let Some(conversation) = conversation {
+            if !crate::contract::valid_conversation_id(conversation) {
+                return Err(CloudError::BadRequest(format!(
+                    "conversation {conversation:?} is not a conversation id"
+                )));
+            }
+            params["conversation"] = json!(conversation);
+        }
+        let body = read_body("participant.avatar.get", params);
         let (value, _) = read_value(self.post("/v1/read", &body)?)?;
         Ok(value)
     }

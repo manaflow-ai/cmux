@@ -59,12 +59,19 @@ export class CloudHome {
   /** Whether participant `id` (not the person) is in a cloud conversation this page read: its
    *  picture is the Cloud owner's. */
   hasParticipant(id: string): boolean {
-    if (id === LOCAL_USER) return false;
-    for (const head of this.heads.values()) {
+    return this.conversationWith(id) !== undefined;
+  }
+
+  /** A cloud conversation this page knows that has participant `id` (not the person): a head that
+   *  names them, else a DM with them. Cloud answers another participant's picture only with one. */
+  conversationWith(id: string): string | undefined {
+    if (id === LOCAL_USER) return undefined;
+    for (const [conversation, head] of this.heads) {
       const people = head.participants;
-      if (Array.isArray(people) && people.some((person) => (person as Json | null)?.id === id)) return true;
+      if (Array.isArray(people) && people.some((person) => (person as Json | null)?.id === id)) return conversation;
     }
-    return false;
+    for (const [conversation, entry] of this.entries) if (entry.dm_peer === id) return conversation;
+    return undefined;
   }
 
   /** The person's id rewritten to the page's `me` in an owner value (people, authors, cursors). */
