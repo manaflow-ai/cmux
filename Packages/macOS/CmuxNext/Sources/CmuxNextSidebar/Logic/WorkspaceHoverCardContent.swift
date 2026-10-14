@@ -46,6 +46,10 @@ struct WorkspaceHoverCardContent: Equatable {
             facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · ")))
         }
         if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3)) }
+        // The agent chat's last reply line, when no task says more.
+        if detail.task == nil, let message = workspace.lastMessage, !message.isEmpty {
+            facts.append(Fact(icon: .agentChatList, text: message, lines: 2))
+        }
         for presence in workspace.presence.prefix(2) {
             facts.append(Fact(icon: toolIcon(presence.activity), text: Strings.presenceLine(presence)))
         }

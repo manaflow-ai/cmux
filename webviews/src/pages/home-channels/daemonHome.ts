@@ -17,12 +17,16 @@ import {
   type HomeParticipant,
   type HomePart,
   type HomeReaction,
+  type HomeResolvedLink,
+  type HomeThreadObject,
   type HomeThreadStats,
 } from "./types";
 
 type Json = Record<string, unknown>;
 
 const LOCAL_USER = "user_local";
+/** `thread.update`, `Message.thread` and the thread object fields of the stats. */
+const THREAD_OBJECTS_CAPABILITY = "conversation-thread-objects-v1";
 const CHIEF = { id: "agent_mux", kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" };
 const TAPBACK_EMOJI: Record<string, string> = {
   love: "❤️",
@@ -107,6 +111,16 @@ export function message(raw: Json): HomeMessage {
     clientMessageId: String(raw.client_msg_id ?? ""),
   };
   if (raw.edited_at) result.editedAt = time(raw.edited_at);
+  const thread = raw.thread as Json | undefined;
+  if (thread && typeof thread === "object") {
+    const object: HomeThreadObject = {};
+    if (typeof thread.title === "string") object.title = thread.title;
+    if (typeof thread.owner === "string") object.owner = thread.owner;
+    const resolved = thread.resolved as Json | undefined;
+    if (resolved && typeof resolved === "object")
+      object.resolved = { by: String(resolved.by), at: time(resolved.at), seq: num(resolved.seq) };
+    result.thread = object;
+  }
   if (replyTo) result.replyTo = { message: replyTo.message_id, partIndex: replyTo.part_index };
   // A message from before threads marked its thread as a reply to the root (HomeCoreMapping).
   const root = (raw.thread_root as string | undefined) ?? replyTo?.message_id;
@@ -160,6 +174,11 @@ function threads(raw: unknown): HomeThreadStats[] {
     };
     if (typeof entry.last_reply_seq === "number") stats.lastReplySeq = entry.last_reply_seq;
     if (entry.last_reply_at) stats.lastReplyAt = time(entry.last_reply_at);
+    if (entry.status === "open" || entry.status === "resolved") stats.status = entry.status;
+    if (typeof entry.title === "string") stats.title = entry.title;
+    if (typeof entry.owner === "string") stats.owner = entry.owner;
+    if (typeof entry.resolved_by === "string") stats.resolvedBy = entry.resolved_by;
+    if (entry.resolved_at) stats.resolvedAt = time(entry.resolved_at);
     return stats;
   });
 }
@@ -178,9 +197,10 @@ export class DaemonHomeClient implements PageClient {
   private streamStarted: Promise<void> | null = null;
   /** Conversations whose page the page read (refetched after a lost event). */
   private readonly opened = new Set<string>();
-  /** The cloud owners through this daemon; `cloudCapable` once `identify` names the capability. */
+  /** The cloud owners through this daemon (when `identify` names the capability). */
   private readonly cloud: CloudHome;
-  private cloudCapable: Promise<boolean> | null = null;
+  /** The daemon's `identify` capabilities, read once. */
+  private capabilities: Promise<string[]> | null = null;
   /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
   private readonly cloudListeners = new Set<(conversation: HomeConversation) => void>();
 
@@ -205,13 +225,17 @@ export class DaemonHomeClient implements PageClient {
     });
   }
 
+  private capable(capability: string): Promise<boolean> {
+    this.capabilities ??= this.daemon
+      .request<{ capabilities?: string[] }>("identify")
+      .then((identity) => identity.capabilities ?? [])
+      .catch(() => []);
+    return this.capabilities.then((list) => list.includes(capability));
+  }
+
   /** Whether this daemon serves the cloud owners to a page (an older one does not: local only). */
   private cloudReady(): Promise<boolean> {
-    this.cloudCapable ??= this.daemon
-      .request<{ capabilities?: string[] }>("identify")
-      .then((identity) => identity.capabilities?.includes(WS_CLOUD_CAPABILITY) === true)
-      .catch(() => false);
-    return this.cloudCapable;
+    return this.capable(WS_CLOUD_CAPABILITY);
   }
 
   async call<R>(op: string, rawParams: unknown, options?: PageCallOptions): Promise<R> {
@@ -308,6 +332,19 @@ export class DaemonHomeClient implements PageClient {
           thread: threads([page.thread])[0],
         };
       }
+      case HomeOps.resolveLink: {
+        // Local conversations only; a Cloud conversation link is a later read (DESIGN.md G4).
+        const resolved = await this.daemon.request<Json>("conversation-link-resolve", {
+          url: str(params, "url", 512),
+        });
+        const result: HomeResolvedLink = {
+          conversation: String((resolved.conversation as Json).id),
+          path: ((resolved.path as unknown[]) ?? []).map(String),
+        };
+        if (resolved.message) result.message = message(resolved.message as Json);
+        if (typeof resolved.thread_root === "string") result.threadRoot = resolved.thread_root;
+        return result;
+      }
       case HomeOps.search: {
         const found = await this.daemon.request<{ hits: Json[] }>("conversation-search", {
           query: str(params, "query", 200),
@@ -340,6 +377,9 @@ export class DaemonHomeClient implements PageClient {
         const key = this.key(params, options);
         const send: Json = { kind: "message.send", client_msg_id: key, parts: [{ type: "text", text }] };
         if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
+        // The reply's parent at any depth (conversation-tree-v1): the owner keeps the top root.
+        if (typeof params.replyTo === "string" && params.replyTo)
+          send.reply_to = { message_id: params.replyTo, part_index: 0 };
         return this.submit(str(params, "conversation"), key, send);
       }
       case HomeOps.react: {
@@ -366,6 +406,19 @@ export class DaemonHomeClient implements PageClient {
           kind: "message.retract",
           message_id: str(params, "message"),
         });
+      case HomeOps.updateThread: {
+        // conversation-thread-objects-v1: the same op on the local owner and, through the
+        // daemon's proxy, a Cloud owner. Empty title or owner clears it.
+        const update: Json = { kind: "thread.update", root: str(params, "root") };
+        if (typeof params.title === "string") update.title = params.title;
+        if (params.status === "open" || params.status === "resolved") update.status = params.status;
+        if (typeof params.owner === "string") update.owner = params.owner;
+        if (Object.keys(update).length === 2) throw pageError("cmux.page.invalid_params", "thread");
+        // An older daemon has no thread objects: say so instead of a malformed-op error.
+        if (!(await this.capable(THREAD_OBJECTS_CAPABILITY)))
+          throw pageError("cmux.page.unavailable", "this cmux instance has no thread objects");
+        return this.submit(str(params, "conversation"), this.key(params, options), update);
+      }
       case HomeOps.createGroup:
         return this.createGroup(params, options);
       default:
