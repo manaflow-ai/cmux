@@ -20,7 +20,13 @@ pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents doctor [--json]\n";
+mod wait;
+
+pub(super) use wait::{
+    DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
+};
+
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|wait|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -59,6 +65,9 @@ pub(super) fn normalize_qualified_targets(
         (Some("workspace" | "tab"), Some("select")) | (Some("terminal"), Some("focus")) => Some(2),
         (Some("terminal"), Some("split")) => {
             args.iter().position(|value| value == "--surface").map(|index| index + 1)
+        }
+        (Some("wait"), _) => {
+            args.iter().position(|value| value == "--target").map(|index| index + 1)
         }
         _ => None,
     };
@@ -104,7 +113,19 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         Err(error) => return print_usage(&global, &error.0),
     };
     let backend = mcp::cli_backend(global.clone());
-    match execute(&backend, None, &command, global.idempotency_key.as_deref(), "agents") {
+    // A long wait shows the progress notes app waits show (app/wait.rs).
+    let notes = match &command {
+        AgentCommand::Wait(request) => Some(app::wait_notes(
+            &request.describe(),
+            crate::localization::catalog().app_control.agents_waiting_progress,
+            request.timeout,
+            global.output,
+        )),
+        _ => None,
+    };
+    let outcome = execute(&backend, None, &command, global.idempotency_key.as_deref(), "agents");
+    drop(notes);
+    match outcome {
         Ok(value) => wire::print_local_success(&value, global.output),
         Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
         Err(AgentFailure::Owner(failure)) => {
@@ -117,6 +138,7 @@ pub(super) enum AgentCommand {
     Snapshot,
     Resource { action: String, args: Vec<String> },
     App { action: String, args: Vec<String> },
+    Wait(wait::WaitRequest),
 }
 
 /// Why an agent action answered without a receipt.
@@ -188,6 +210,7 @@ pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
                 .chain(rest.iter().map(|value| (*value).into()))
                 .collect(),
         }),
+        ["wait", rest @ ..] => wait::parse(rest).map(AgentCommand::Wait),
         _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }
 }
@@ -257,6 +280,7 @@ pub(super) fn execute<B: Backend>(
         AgentCommand::App { action, args } => {
             (action, run_app(backend, action, args, idempotency_key, origin)?)
         }
+        AgentCommand::Wait(request) => return wait::run(backend, session, request),
     };
     Ok(receipt(backend, session, action, result, key))
 }
@@ -415,18 +439,23 @@ fn receipt<B: Backend>(
     result: Value,
     idempotency_key: Option<String>,
 ) -> Value {
-    let state = compose_snapshot(
-        backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
-        backend
-            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
-            .map_err(mcp::agent_failure_value),
-    );
+    let state = fresh_state(backend, session);
     let mut receipt =
         json!({"schema_version": 1, "action": action, "result": result, "state": state});
     if let Some(key) = idempotency_key {
         receipt["idempotency_key"] = Value::String(key);
     }
     receipt
+}
+
+/// A fresh composed snapshot, the `state` of every receipt.
+fn fresh_state<B: Backend>(backend: &B, session: Option<&str>) -> Value {
+    compose_snapshot(
+        backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
+        backend
+            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
+            .map_err(mcp::agent_failure_value),
+    )
 }
 
 fn print_usage(global: &GlobalArgs, message: &str) -> i32 {

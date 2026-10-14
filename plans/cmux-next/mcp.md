@@ -72,6 +72,19 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     reach other agents' pending tool inputs: `agents_dialog_answer` only denies a
     permission (`mode: "deny"`; a person approves in cmux) or answers a question, and a
     reply whose transport drops after sending reports `in_progress`;
+  - `agents_wait` (`cmux agents wait`, same code path, `cli/agents/wait.rs`): waits
+    `until` `idle` (the agent of a `term_`, `tab_` or `agent_` id or an agent chat's
+    session stops working: idle, done or blocked on a dialog), `dialog` (a permission or
+    question dialog is pending, a target's when given) or `text` (literal text, or a
+    regex with `regex: true`, on a terminal's screen), for `timeout_seconds` (default
+    30, at most 120). It answers `{until, matched, waited_seconds, match, state}` with a
+    fresh snapshot; a timeout is `matched: false`, not an error, and a condition that
+    already holds answers at once. `text` is the daemon's `terminal.wait` (it wakes on
+    output); `idle` and `dialog` hold `session.events` open and check on each event, and
+    every second for what only the app knows (chat agent state, dialogs), which has no
+    event. A call with `_meta.progressToken` gets `notifications/progress` every 5 s
+    (`progress` seconds waited, `total` the timeout). Read-only: it reads what
+    `agents_snapshot`, `agents_dialog_list` and `terminal_wait` already read;
   - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
     above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is
     the receipt (`rendered`, `bytes`, `title`);

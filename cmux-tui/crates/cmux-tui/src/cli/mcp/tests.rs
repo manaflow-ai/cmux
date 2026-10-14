@@ -167,6 +167,41 @@ impl Backend for Fake {
         }
     }
 
+    /// The daemon's stream: its snapshot, then a delta when a daemon change
+    /// is due (a dialog is the app's and has none), and a tick without one.
+    fn session_events(
+        &self,
+        _session: Option<&str>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure> {
+        if on_wake(Some(&json!({"kind": "snapshot"}))) {
+            return Ok(());
+        }
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(());
+            }
+            let next_change = self
+                .live
+                .borrow()
+                .changes
+                .iter()
+                .filter(|(_, change)| matches!(change, Change::Daemon(_)))
+                .map(|(at, _)| *at)
+                .min();
+            let wake = next_change.unwrap_or(deadline).min(now + tick).min(deadline);
+            std::thread::sleep(wake.saturating_duration_since(now));
+            let delta = next_change.is_some_and(|at| at <= wake);
+            let item = json!({"kind": "delta"});
+            if on_wake(delta.then_some(&item)) {
+                return Ok(());
+            }
+        }
+    }
+
     fn browser(
         &self,
         request: browser_tools::Request,
