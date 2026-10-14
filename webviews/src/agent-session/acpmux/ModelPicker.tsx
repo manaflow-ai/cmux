@@ -245,6 +245,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onCombo,
     fastMode,
     catalogRefresh,
+    usage,
   } = props;
   const t = useT();
   const modelText = t(PICKER_LABELS.model);
@@ -655,6 +656,7 @@ export function ModelPicker(props: ModelPickerProps) {
         className="acpmux-picker-button"
         data-menu={modelText}
         aria-label={modelText}
+        title={usage ? `${chipLabel} · ${usage}` : undefined}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
