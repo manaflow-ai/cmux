@@ -992,3 +992,36 @@ fn the_bundled_codex_is_the_fallback_for_the_chiefs_own_codex() {
         "the Chief home's copy wins"
     );
 }
+
+/// cosmic-gray 2026-10-14 (cg-steward): a Chief whose engine.json picks
+/// `claude-sr`, on a machine with no `claude` login of its own, compacted on
+/// `claude` and every node failed "not signed in". With no compactor harness
+/// set, the compactor follows the turns' engine harness when it is a Claude
+/// one; a codex engine still compacts on a Claude route, and a set compactor
+/// harness wins.
+#[test]
+fn the_compactor_follows_the_engines_claude_harness() {
+    use optchat_chief::engine::EngineChoice;
+    use optchat_chief::host::compactor_harness_for;
+    let answer = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
+        "codex": {"argv": ["/u/.local/share/cmux-acp/current/bin/codex-acp"], "family": "codex"},
+    }});
+    let engine = |harness: Option<&str>| EngineChoice {
+        harness: harness.map(str::to_owned),
+        ..EngineChoice::default()
+    };
+    for (set, engine_harness, compactor) in [
+        (None, Some("claude-sr"), "claude-sr"),
+        (None, None, "claude"),
+        (None, Some("codex"), "claude"),
+        (Some("codex"), Some("claude-sr"), "codex"),
+    ] {
+        assert_eq!(
+            compactor_harness_for(&answer, set, "claude", &engine(engine_harness)),
+            compactor,
+            "set {set:?}, engine.json harness {engine_harness:?}"
+        );
+    }
+}
