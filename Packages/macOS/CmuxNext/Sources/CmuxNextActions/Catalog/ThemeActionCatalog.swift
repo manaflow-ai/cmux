@@ -70,9 +70,12 @@ nonisolated extension CatalogArgument {
 
     /// Same list and order as onboarding's theme step
     /// (`ThemeCatalog.curated` in CmuxNextDesign; a test keeps them equal).
+    /// Fogline and Kiln are cmux's own (Resources/cmux-themes, bundled with Ghostty's).
     static let curatedThemes = [
         "Rose Pine", "Rose Pine Moon", "Catppuccin Mocha", "TokyoNight", "Gruvbox Dark", "Nord", "Vesper",
+        "Fogline", "Kiln",
         "Rose Pine Dawn", "Catppuccin Latte", "GitHub Light Default",
+        "Fogline Light", "Kiln Light",
     ]
 }
 
