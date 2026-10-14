@@ -1,5 +1,6 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers"
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose"
+import { createHash } from "node:crypto"
 import { defineConfig } from "vitest/config"
 import { cloudAllowedTeams } from "./test/setup/cloud-teams.ts"
 
@@ -21,6 +22,10 @@ for (const kid of ["test-link-1", "test-link-2"]) {
   const pair = await generateKeyPair("EdDSA", { crv: "Ed25519", extractable: true })
   linkKeys[kid] = { ...(await exportJWK(pair.privateKey)), kid }
 }
+// The user id of a test Stack subject (src/domains/user.ts userIdFor, local project id from wrangler.jsonc).
+const testUser = (sub: string) => `user_${createHash("sha256").update(`stack:454ecd03-1db2-4050-845e-4ce5b0cd9895:${sub}`).digest("hex").slice(0, 20)}`
+// A JWT-shaped test value with only `exp` (seconds); never a real token.
+const fakeJwt = (exp: number) => ["e30", Buffer.from(JSON.stringify({ exp })).toString("base64url"), "sig"].join(".")
 const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
 
 export default defineConfig({
@@ -79,6 +84,15 @@ export default defineConfig({
           STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key",
           // Chief brains (chief-brain/brain-do.ts): wakes reach the brain; the fake model (no AI binding in tests).
           CHIEF_BRAIN_ENABLED: "1",
+          // The metered Claude route and its sign-in refresh, faked at their HTTP boundary in
+          // test/chief-brain-claude.test.ts. Test-only values: an expired fake access token and a fake refresh token.
+          CHIEF_BRAIN_CLAUDE_URL: "https://claude.test/api/claude-david",
+          CHIEF_BRAIN_CLAUDE_REFRESH_URL: "https://auth.test/api/v1/auth/sessions/current/refresh",
+          CHIEF_BRAIN_CLAUDE_STACK_AUTH: JSON.stringify({ accessToken: fakeJwt(1), refreshToken: "test-refresh-token-not-real" }),
+          CHIEF_BRAIN_CLAUDE_OWNERS: testUser("brain-claude-ok"),
+          // The second allowed owner comes from the no-deploy list (a secret on staging).
+          CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA: testUser("brain-claude-fail"),
+          CHIEF_BRAIN_FALLBACK_MODEL: "fake",
           // Team VMs use the in-object fake provider (team-vm-driver.ts).
           TEAM_VM_DRIVER: "fake",
           // The team VM bind runs against the fake guest (team-vm-fake-guest.ts).

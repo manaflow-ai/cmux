@@ -361,7 +361,17 @@ export class MockSettingsProvider {
     ghostty_diagnostics: [],
     computer_use: { phase: "ready", accessibility: true, screen_recording: false, helper: "cmux Computer Use" },
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
-    backdrops: [{ id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" }],
+    backdrops: [
+      { id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" },
+      {
+        id: "system:/System/Library/Desktop Pictures/.wallpapers/Sonoma/Sonoma Graphic Light Landscape.mov",
+        title: "Sonoma Graphic",
+        attribution: "macOS system wallpaper · Sonoma Graphic",
+        collection: "video",
+        collection_title: "Moving wallpapers",
+        video: true,
+      },
+    ],
   };
   private readonly hostChanged = new Set<EventSourceContext>();
   private readonly accountsChanged = new Set<EventSourceContext>();

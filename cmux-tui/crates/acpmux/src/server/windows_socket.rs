@@ -73,7 +73,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     while let Some(socket) = rx.recv().await {
         match crate::local_stream::bridge(socket) {
             Ok(stream) => {
-                tokio::spawn(super::serve_stream(hub.clone(), stream, None));
+                tokio::spawn(super::stream::serve_stream(hub.clone(), stream, None));
             }
             Err(e) => tracing::warn!("accept failed: {e}"),
         }
