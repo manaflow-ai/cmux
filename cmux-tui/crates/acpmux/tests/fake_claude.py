@@ -16,6 +16,8 @@ is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl, with
 a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
 "hold: PATH" answers once PATH exists, so a test can act while a turn runs.
+A prompt ending in "settings-probe" replies with the prompt text as Claude
+read it, every `apply_flag_settings` it got, and its argv.
 FAKE_CLAUDE_AUTH=1 looks for a sign-in the way Claude Code does (the
 environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
@@ -49,6 +51,7 @@ def stored(sid):
     return os.path.join(STORE, sid + (LAYOUT or ""))
 SESSION = "fake-claude-session"
 RESUME = None
+FLAG_SETTINGS = []
 if STORE:
     for flag in ("--session-id", "--resume"):
         if flag in sys.argv[:-1]:
@@ -110,6 +113,8 @@ for line in sys.stdin:
                   "error": "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}})
             continue
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
+        if request.get("subtype") == "apply_flag_settings":
+            FLAG_SETTINGS.append(request.get("settings"))
         if request.get("subtype") == "initialize":
             send({"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
                   "permissionMode": MODE, "tools": [], "mcp_servers": []})
@@ -192,6 +197,8 @@ for line in sys.stdin:
             while not os.path.exists(said[len("hold: "):]):
                 time.sleep(0.02)
         text = json.dumps(sys.argv[1:])
+        if said.endswith("settings-probe"):
+            text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
         if said.strip() == "history-probe" and STORE and LAYOUT:
             with open(stored(SESSION)) as f:
                 records = [json.loads(line) for line in f if line.strip()]

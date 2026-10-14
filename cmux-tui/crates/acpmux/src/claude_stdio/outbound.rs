@@ -100,10 +100,6 @@ impl Translator {
                                 _ => json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")}),
                             })
                             .collect();
-                        let mut content = content;
-                        if !steer && *self.effort.lock().await == "ultrathink" {
-                            ultrathink(&mut content);
-                        }
                         // Claude Code echoes the line with this uuid when it reads it.
                         let uuid = uuid::Uuid::now_v7().to_string();
                         let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
@@ -172,26 +168,51 @@ impl Translator {
                                 ])
                             }
                             "effort" => {
-                                if !EFFORTS.iter().any(|(v, _, _)| *v == val) {
+                                // Ultracode and Ultrathink were Reasoning choices once; a
+                                // remembered pick of either still applies.
+                                let legacy = matches!(val.as_str(), "ultracode" | "ultrathink");
+                                if !legacy && !EFFORTS.iter().any(|(v, _)| *v == val) {
                                     return Outbound::Reply(Message::err(
                                         id.clone(),
                                         RpcError::invalid_params(format!(
                                             "effort must be one of {}",
                                             EFFORTS
                                                 .iter()
-                                                .map(|(v, _, _)| *v)
+                                                .map(|(v, _)| *v)
                                                 .collect::<Vec<_>>()
                                                 .join(", ")
                                         )),
                                     ));
                                 }
+                                let effort = effort_value(&val).to_owned();
+                                let settings = effort_settings(&effort);
                                 self.pending.lock().await.insert(
                                     id.to_string(),
-                                    Pending::Control(Setting::Effort, val.clone()),
+                                    Pending::Control(Setting::Effort, effort),
                                 );
                                 // Claude Code's live effort switch is the flag-settings channel.
                                 Outbound::Lines(vec![
-                                    json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": effort_settings(&val)}}),
+                                    json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": settings}}),
+                                ])
+                            }
+                            ULTRACODE_OPTION => {
+                                // On runs Ultracode (xhigh plus the setting); Off keeps xhigh.
+                                let effort = match val.as_str() {
+                                    "on" => ULTRACODE,
+                                    "off" => "xhigh",
+                                    _ => {
+                                        return Outbound::Reply(Message::err(
+                                            id.clone(),
+                                            RpcError::invalid_params("ultracode must be on or off"),
+                                        ));
+                                    }
+                                };
+                                self.pending.lock().await.insert(
+                                    id.to_string(),
+                                    Pending::Control(Setting::Effort, effort.to_owned()),
+                                );
+                                Outbound::Lines(vec![
+                                    json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": effort_settings(effort)}}),
                                 ])
                             }
                             other => Outbound::Reply(Message::err(
@@ -284,18 +305,6 @@ impl Translator {
                 ])
             }
         }
-    }
-}
-
-/// Ultrathink: the prompt's first text block starts with the prefix (one is
-/// added when the prompt has only images or resources).
-fn ultrathink(content: &mut Vec<Value>) {
-    match content.iter_mut().find(|b| b["type"] == "text") {
-        Some(block) => {
-            let text = block["text"].as_str().unwrap_or("");
-            block["text"] = json!(format!("{ULTRATHINK_PREFIX}{text}"));
-        }
-        None => content.insert(0, json!({"type": "text", "text": ULTRATHINK_PREFIX.trim_end()})),
     }
 }
 

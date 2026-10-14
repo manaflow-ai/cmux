@@ -2829,6 +2829,8 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    // A terminal harness (Muse Code) runs in a terminal tab, never as a chat: no picker lists it.
+    ...(harness.kind === "terminal" ? { pickable: false } : {}),
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
