@@ -1,0 +1,186 @@
+import AppKit
+@testable import CmuxNextApp
+import CmuxNextDesign
+import CmuxNextSettings
+@testable import CmuxNextSidebar
+import Foundation
+import Observation
+import Testing
+
+/// The sidebar's Now Playing card (cx-ouoxo, behind `labs.previewFeatures`), driven by a fake Now
+/// Playing source through the same feed and intent route the app uses: it shows what plays with its
+/// artwork and controls, its controls and scrubber reach the source, it draws in the terminal theme,
+/// nothing on it moves under Reduce Motion, and it is there only while the preview is on.
+@MainActor @Suite(.serialized) struct NowPlayingCardTests {
+    @Observable final class FakeSource: NowPlayingSource {
+        var nowPlaying: SidebarNowPlaying?
+        @ObservationIgnored var commands: [SidebarNowPlayingCommand] = []
+        func perform(_ command: SidebarNowPlayingCommand) { commands.append(command) }
+    }
+
+    @Observable final class Flag {
+        var on: Bool
+        init(_ on: Bool) { self.on = on }
+    }
+
+    static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
+
+    /// An 8 pt square of color, as PNG.
+    static func artwork() -> Data {
+        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8, bitsPerSample: 8, samplesPerPixel: 4,
+                                      hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        for x in 0..<8 { for y in 0..<8 { bitmap.setColor(NSColor(srgbRed: 0.2, green: 0.6, blue: 0.7, alpha: 1), atX: x, y: y) } }
+        return bitmap.representation(using: .png, properties: [:])!
+    }
+
+    static func track(playing: Bool = true) -> SidebarNowPlaying {
+        SidebarNowPlaying(title: "Weightless", artist: "Marconi Union", artwork: artwork(), isPlaying: playing, position: 60,
+                          duration: 480, positionDate: Date(), canPrevious: true, canNext: true, labels: labels)
+    }
+
+    struct Harness {
+        let source: FakeSource
+        let flag: Flag
+        let model: SidebarModel
+        let sidebar: SidebarView
+        let window: NSWindow
+        let feed: Task<Void, Never>
+        var card: SidebarNowPlayingCardView { sidebar.nowPlayingCardView }
+
+        /// Waits for the sidebar to show (or hide) the card; it follows the model on a task.
+        func cardShows(_ shows: Bool = true, within timeout: Duration = .seconds(10)) async {
+            let deadline = ContinuousClock.now + timeout
+            while (card.isHidden || card.frame.isEmpty) == shows, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(5))
+                sidebar.needsLayout = true
+                sidebar.layoutSubtreeIfNeeded()
+            }
+        }
+
+        func close() {
+            feed.cancel()
+            window.close()
+        }
+    }
+
+    func make(previewOn: Bool = true, scope: ThemeScope? = nil, playing: Bool = true) async -> Harness {
+        _ = NSApplication.shared
+        let source = FakeSource()
+        source.nowPlaying = Self.track(playing: playing)
+        let flag = Flag(previewOn)
+        let model = SidebarModel()
+        model.onIntent = { [source] intent in SidebarNowPlayingFeed.handle(intent, source: source) }
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        scope?.root(sidebar)
+        let width = Metrics.sidebarWidth
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: width, height: 640), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = sidebar
+        sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 640)
+        window.orderFrontRegardless()
+        let feed = SidebarNowPlayingFeed.start(model: model, source: source, enabled: { flag.on })
+        let harness = Harness(source: source, flag: flag, model: model, sidebar: sidebar, window: window, feed: feed)
+        await harness.cardShows(previewOn)
+        return harness
+    }
+
+    @Test func theCardShowsWhatPlaysWithItsArtworkAndControls() async throws {
+        let h = await make()
+        defer { h.close() }
+        try #require(!h.card.isHidden && !h.card.frame.isEmpty, "no Now Playing card while a track plays")
+        #expect(h.sidebar.bounds.contains(h.card.frame), "the card \(h.card.frame) is not inside the sidebar \(h.sidebar.bounds)")
+        #expect(h.card.titleLabel.stringValue == "Weightless")
+        #expect(h.card.artistLabel.stringValue == "Marconi Union")
+        #expect(h.card.artworkView.image != nil, "no artwork")
+        #expect(h.card.playPauseButton.accessibilityLabel() == "Pause", "a playing track offers Pause")
+        #expect(h.card.previousButton.accessibilityLabel() == "Previous Track")
+        #expect(h.card.nextButton.accessibilityLabel() == "Next Track")
+        #expect(!h.card.scrubber.isHidden && h.card.scrubber.accessibilityRole() == .slider, "no scrubber")
+        for view in [h.card.titleLabel, h.card.artistLabel, h.card.artworkView, h.card.scrubber,
+                     h.card.previousButton, h.card.playPauseButton, h.card.nextButton] as [NSView] {
+            #expect(h.card.bounds.contains(view.frame) && !view.frame.isEmpty, "\(type(of: view)) at \(view.frame) is not on the card")
+        }
+    }
+
+    @Test func theControlsAndTheScrubberReachTheSource() async throws {
+        let h = await make()
+        defer { h.close() }
+        try #require(!h.card.isHidden, "no Now Playing card while a track plays")
+        h.card.playPauseButton.performClick(nil)
+        h.card.nextButton.performClick(nil)
+        h.card.previousButton.performClick(nil)
+        // A click a quarter of the way along the scrubber seeks to a quarter of the track.
+        let scrubber = h.card.scrubber
+        let point = scrubber.convert(NSPoint(x: scrubber.bounds.width / 4, y: scrubber.bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: h.window.windowNumber, context: nil, eventNumber: 0,
+                                                        clickCount: 1, pressure: 1))
+            if type == .leftMouseDown { scrubber.mouseDown(with: event) } else { scrubber.mouseUp(with: event) }
+        }
+        let commands = h.source.commands
+        #expect(Array(commands.prefix(3)) == [.playPause, .next, .previous], "the source got \(commands)")
+        guard commands.count == 4, case .seek(let seconds) = commands[3] else {
+            Issue.record("the scrubber did not seek: \(commands)")
+            return
+        }
+        #expect(abs(seconds - 120) < 2, "a quarter of 480 s is 120 s, the scrubber asked for \(seconds)")
+    }
+
+    @Test func theCardDrawsInTheTerminalTheme() async throws {
+        let scope = try ThemedOverlayColorsTests.purpleRoom()
+        let h = await make(scope: scope)
+        defer { h.close() }
+        try #require(!h.card.isHidden, "no Now Playing card while a track plays")
+        let (primary, secondary) = scope.perform { (Palette.textPrimary, Palette.textSecondary) }
+        func same(_ a: NSColor?, _ b: NSColor) -> Bool {
+            guard let a = a?.usingColorSpace(.sRGB), let b = b.usingColorSpace(.sRGB) else { return false }
+            return [a.redComponent - b.redComponent, a.greenComponent - b.greenComponent, a.blueComponent - b.blueComponent,
+                    a.alphaComponent - b.alphaComponent].allSatisfy { abs($0) < 0.01 }
+        }
+        #expect(same(h.card.titleLabel.textColor, primary), "the title is \(String(describing: h.card.titleLabel.textColor)), not the theme's text \(primary)")
+        #expect(same(h.card.artistLabel.textColor, secondary), "the artist is not the theme's secondary text \(secondary)")
+        #expect(h.card.subviews.first is CardSurfaceView, "the card is not on the sidebar cards' surface")
+    }
+
+    @Test func nothingOnTheCardMovesUnderReduceMotion() throws {
+        _ = NSApplication.shared
+        let card = SidebarNowPlayingCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNowPlayingCardView.height(for: Self.track())))
+        let window = NSWindow(contentRect: card.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = card
+        window.orderFrontRegardless()
+        func running() -> [String] {
+            func animated(_ layer: CALayer) -> [String] { (layer.animationKeys() ?? []) + (layer.sublayers ?? []).flatMap(animated) }
+            func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+            return views(card).compactMap(\.layer).flatMap(animated)
+        }
+        // Synchronous from here to the reset: the override is process-wide.
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        card.configure(Self.track())
+        card.isHidden = false
+        card.layoutSubtreeIfNeeded()
+        #expect(running().isEmpty, "under Reduce Motion the playing card still animates: \(running())")
+        // The scrubber still shows where the track is: an eighth of the way.
+        let fraction = card.scrubber.fill.bounds.width / max(1, card.scrubber.bounds.width)
+        #expect(abs(fraction - 0.125) < 0.02, "the scrubber shows \(fraction) of the track, not 60 s of 480 s")
+    }
+
+    @Test func theCardIsThereOnlyWhileThePreviewIsOn() async throws {
+        let h = await make(previewOn: false)
+        defer { h.close() }
+        for _ in 0..<20 { await Task.yield() }
+        h.sidebar.layoutSubtreeIfNeeded()
+        #expect(h.card.isHidden || h.card.frame.isEmpty, "the card shows with labs.previewFeatures off")
+        #expect(CmuxConfigSnapshot.previewFeaturesDefault == false, "the preview is on by default")
+        h.flag.on = true
+        await h.cardShows()
+        #expect(!h.card.isHidden && !h.card.frame.isEmpty, "turning the preview on shows no card")
+        h.source.nowPlaying = nil
+        await h.cardShows(false)
+        #expect(h.card.isHidden || h.card.frame.isEmpty, "the card stays after the source stops")
+    }
+}
