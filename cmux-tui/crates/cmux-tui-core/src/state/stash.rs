@@ -119,9 +119,12 @@ impl Mux {
                     (store::workspace_tabs(connection, workspace)?, Some(workspace.clone()))
                 }
             };
-            let mut tabs = Vec::new();
+            let mut pages = Vec::new();
             let mut skipped = Vec::new();
             let mut first_workspace = workspace;
+            // Each tab once, in the order named.
+            let mut seen = HashSet::new();
+            let candidates = candidates.into_iter().filter(|tab| seen.insert(tab.clone()));
             for tab in candidates {
                 match store::stash_member(connection, &tab)? {
                     Ok(member) if workspace_form(source) && member_pinned(&member) => {
@@ -131,12 +134,20 @@ impl Mux {
                         if first_workspace.is_none() {
                             first_workspace = member["workspace_id"].as_str().map(str::to_string);
                         }
-                        tabs.push(tab);
+                        pages.push((tab, member));
                     }
                     Err(_) if workspace_form(source) => skipped.push(tab),
                     Err(why) => return Err(refusal(&tab, &why)),
                 }
             }
+            // Restore order: ascending position per pane (as closed history
+            // records a close), so each tab goes back to its own index after
+            // the lower ones are in place.
+            pages.sort_by(|(_, left), (_, right)| {
+                (left["pane_id"].as_str(), left["index"].as_i64())
+                    .cmp(&(right["pane_id"].as_str(), right["index"].as_i64()))
+            });
+            let tabs = pages.into_iter().map(|(tab, _)| tab).collect::<Vec<_>>();
             let name = match &first_workspace {
                 Some(workspace) => store::workspace_name(connection, workspace)?,
                 None => None,
@@ -171,7 +182,7 @@ impl Mux {
             let change =
                 store::insert_stash(transaction, &stash_id, name.as_deref(), None, members)?;
             queue_change(transaction, &change)?;
-            store::mark_capture(transaction)
+            store::mark_capture(transaction, &tabs)
         };
         // The space-delete close carries a write before its patch; a stash
         // uses it for its own group (no space is involved).
@@ -261,6 +272,11 @@ impl Mux {
     /// One new workspace named after the stash holding `restore` in order.
     /// It starts with a shell (every new workspace does), which closes once
     /// the pages are in, unrecorded (`session_end`).
+    ///
+    /// Known limitation: the starter close commits under a key derived from
+    /// the request's, before the restore's own commit. A retry after a
+    /// failure between the two creates another workspace whose starter close
+    /// conflicts with the first one's receipt.
     fn restore_in_new_workspace(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
@@ -307,6 +323,9 @@ impl Mux {
         members: Option<&[usize]>,
     ) -> anyhow::Result<StateCommit> {
         const OPERATION: &str = "stash.delete";
+        // Never while a restore of the same stash is between its read and
+        // its commit.
+        let _serial = REOPEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let fingerprint = json!({"operation": OPERATION, "stash": stash_id, "members": members});
         self.commit_state(
             mutation,
@@ -358,6 +377,9 @@ impl Mux {
             "operation": OPERATION, "source": source, "engine": engine,
             "groups": format!("{:x}", hasher.finalize()),
         });
+        // A group's own time, never later than now (a future or
+        // out-of-range time is now).
+        let now = crate::workspace_registry::unix_epoch_ms()?;
         self.commit_state(
             mutation,
             OPERATION,
@@ -394,7 +416,7 @@ impl Mux {
                         transaction,
                         &id,
                         group.name.as_deref(),
-                        group.created_ms,
+                        Some(group.created_ms.map_or(now, |created| created.min(now))),
                         members,
                     )?);
                     ids.push(id);

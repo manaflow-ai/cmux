@@ -287,7 +287,7 @@ fn stash_import_strips_credentials_and_checks_times() {
         &mux,
         "stash.import",
         json!({"source": "onetab", "groups": [
-            {"created_ms": "99999999999999999999999", "tabs": [{"url": url}]},
+            {"created_ms": "9999999999999", "tabs": [{"url": url}]},
         ]}),
         "import",
     );

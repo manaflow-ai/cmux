@@ -10,8 +10,11 @@
 //!
 //! A stash closes its tabs through the batch close path with closed history
 //! recording on (so every other close-side effect runs), and
-//! [`mark_capture`] tells `capture_closed` that this close's group lives
-//! here instead: [`take_capture_mark`] is read and cleared there.
+//! [`mark_capture`] names the stashed tabs: `capture_closed` takes them
+//! ([`take_capture_mark`]) and leaves them out of the closed group, which
+//! still keeps any workspace or screen the stash emptied (without the
+//! pages). The batch close clears the mark after its patch
+//! ([`clear_capture_mark`]), so it never outlives its transaction.
 
 use std::collections::HashSet;
 
@@ -37,8 +40,8 @@ pub(crate) fn create_stash_schema(transaction: &Transaction<'_>) -> anyhow::Resu
            created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0),
            record_json TEXT NOT NULL
          );
-         CREATE TABLE IF NOT EXISTS stash_capture_mark (
-           id INTEGER PRIMARY KEY CHECK(id = 1)
+         CREATE TABLE IF NOT EXISTS stash_capture_tabs (
+           tab_id TEXT PRIMARY KEY NOT NULL
          );",
     )?;
     Ok(())
@@ -48,16 +51,33 @@ pub(crate) fn new_stash_id() -> String {
     format!("stash_{}", new_uuid_v4().replace('-', ""))
 }
 
-/// The close in this transaction is a stash: `capture_closed` records no
-/// closed-history group for it.
-pub(crate) fn mark_capture(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    transaction.execute("INSERT OR IGNORE INTO stash_capture_mark(id) VALUES(1)", [])?;
+/// The close in this transaction stashes `tabs`: `capture_closed` records
+/// none of them in the closed history.
+pub(crate) fn mark_capture(transaction: &Transaction<'_>, tabs: &[String]) -> anyhow::Result<()> {
+    clear_capture_mark(transaction)?;
+    for tab in tabs {
+        transaction
+            .execute("INSERT OR IGNORE INTO stash_capture_tabs(tab_id) VALUES(?1)", [tab])?;
+    }
     Ok(())
 }
 
-/// True (and cleared) when this transaction's close is a stash.
-pub(crate) fn take_capture_mark(transaction: &Transaction<'_>) -> anyhow::Result<bool> {
-    Ok(transaction.execute("DELETE FROM stash_capture_mark WHERE id = 1", [])? > 0)
+/// The tabs this transaction's close stashes (none for any other close),
+/// cleared as they are read.
+pub(crate) fn take_capture_mark(transaction: &Transaction<'_>) -> anyhow::Result<HashSet<String>> {
+    let tabs = {
+        let mut statement = transaction.prepare("SELECT tab_id FROM stash_capture_tabs")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    clear_capture_mark(transaction)?;
+    Ok(tabs)
+}
+
+pub(crate) fn clear_capture_mark(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute("DELETE FROM stash_capture_tabs", [])?;
+    Ok(())
 }
 
 /// Why a tab cannot be stashed.

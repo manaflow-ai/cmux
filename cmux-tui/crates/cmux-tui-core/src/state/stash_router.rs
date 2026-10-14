@@ -43,27 +43,45 @@ fn indexes(fields: &Map<String, Value>, name: &str) -> Option<Vec<usize>> {
     })
 }
 
-fn import_groups(fields: &Map<String, Value>) -> Vec<ImportGroup> {
+/// A group's `created_ms`: decimal digits (more than fit is the far
+/// future, which the import clamps to now); anything else is refused.
+fn created_ms(group: &Value) -> Result<Option<u64>, ResourceError> {
+    match group.get("created_ms") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(text))
+            if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            Ok(Some(text.parse().unwrap_or(u64::MAX)))
+        }
+        Some(_) => Err(ResourceError::validation_invalid(
+            Some("groups"),
+            "created_ms must be a decimal number of milliseconds",
+        )),
+    }
+}
+
+fn import_groups(fields: &Map<String, Value>) -> Result<Vec<ImportGroup>, ResourceError> {
     fields
         .get("groups")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .map(|group| ImportGroup {
-            name: group["name"].as_str().map(str::to_string),
-            // A decimal string (catalog `decimal`).
-            created_ms: group["created_ms"].as_str().and_then(|value| value.parse().ok()),
-            tabs: group["tabs"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|tab| {
-                    Some((
-                        tab["url"].as_str()?.to_string(),
-                        tab["title"].as_str().map(str::to_string),
-                    ))
-                })
-                .collect(),
+        .map(|group| {
+            Ok(ImportGroup {
+                name: group["name"].as_str().map(str::to_string),
+                created_ms: created_ms(group)?,
+                tabs: group["tabs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|tab| {
+                        Some((
+                            tab["url"].as_str()?.to_string(),
+                            tab["title"].as_str().map(str::to_string),
+                        ))
+                    })
+                    .collect(),
+            })
         })
         .collect()
 }
@@ -129,7 +147,7 @@ pub(crate) fn dispatch(
             &mutation,
             &string(fields, "source").unwrap_or_default(),
             fields.get("engine").and_then(Value::as_str),
-            &import_groups(fields),
+            &import_groups(fields)?,
         ),
         other => {
             return Err(ResourceError::validation_invalid(
