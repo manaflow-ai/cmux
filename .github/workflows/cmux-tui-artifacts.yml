@@ -96,6 +96,7 @@ on:
       - "backend/packages/home-core/conformance/conversation-search-cases.json"
       - "mux/packages/brain/conformance/chief-cases.json"
       - "plans/cmux-next/action-surfaces.json"
+      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
       - "schemas/chief-home/vectors.json"
       - "schemas/agent-url-policy/vectors.json"
       - "schemas/chief-cmux-target/vectors.json"
@@ -112,6 +113,7 @@ on:
       - "schemas/remote-tab/scroll-writer.json"
       - "schemas/remote-tab/session.json"
       - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "scripts/cmux-next/cmux-tui.pin"
       - "skills/cmux-browser/SKILL.md"
@@ -1738,7 +1740,9 @@ jobs:
   macos-cross-runtime-x86_64:
     name: macOS cross-compile run-time check (Intel, compare only)
     needs: [macos-cross-shadow]
-    if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled'
+    # The same-repository gate is on every job of this pull_request_target workflow (the fork runner
+    # routing guard reads it per job): always() alone would let a fork-started run reach this runner.
+    if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image
     timeout-minutes: 20
     continue-on-error: true
@@ -1798,14 +1802,19 @@ jobs:
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && needs.cmux-next-daemon-tests.result == 'success' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    needs: [build-ok, publish, cmux-next-daemon-tests]
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    # Independent of the daemon tests (chief 2026-10-13, hq-11): their macOS
+    # runner queues up to ~1 h, and every dev build waited for the tree. A
+    # published tree no longer means the daemon tests passed: publish-tree-tested
+    # writes tree/<key>/daemon-tests.json when they do, and nightly-next
+    # promotion (request-nightly-next.sh) requires it.
+    needs: [tree-preflight, build-ok, publish]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Ownership is elected before expensive work; publication stays per run
     # and the write-once uploader makes a rare election race safe.
     concurrency:
-      group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}
+      group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
       cancel-in-progress: false
     permissions:
       # actions: write dispatches cmux-next's same-tree mode and removes the
@@ -1873,8 +1882,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          KEY_V2: ${{ needs.cmux-next-daemon-tests.outputs.key }}
-          LEGACY_KEY: ${{ needs.cmux-next-daemon-tests.outputs.legacy_key }}
+          KEY_V2: ${{ needs.tree-preflight.outputs.key }}
+          LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
         run: |
           set -euo pipefail
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
@@ -1936,6 +1945,9 @@ jobs:
               "run": built_by,
               "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{built_by}",
               "binaries": {name: manifest["binaries"][name] for name in names},
+              # The tree is published before the daemon tests end; a passing
+              # run writes tree/<key>/daemon-tests.json (publish-tree-tested).
+              "daemonTests": "separate",
           }, indent=2))
           PY
             source_args=(--source-file tree/source.json --publish-source)
@@ -1993,8 +2005,8 @@ jobs:
 
       - name: Verify the tree publication
         env:
-          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
-          LEGACY_KEY: ${{ needs.cmux-next-daemon-tests.outputs.legacy_key }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
         run: |
           set -euo pipefail
           verify_tree() {
@@ -2027,8 +2039,61 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
         run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
+
+  # The daemon tests passed for this tree (chief 2026-10-13): one write-once
+  # marker per key, after publish-tree. request-nightly-next.sh promotes a tree
+  # whose source.json says daemonTests "separate" only when the marker exists.
+  publish-tree-tested:
+    environment: artifacts
+    name: mark the published tree as daemon-tested
+    needs: [tree-preflight, publish-tree, publish-pr-tree, cmux-next-daemon-tests]
+    if: ${{ !cancelled() && (needs.publish-tree.result == 'success' || needs.publish-pr-tree.result == 'success') && needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Write the daemon-tests marker
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          KEY_V2: ${{ needs.tree-preflight.outputs.key }}
+          LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
+        run: |
+          set -euo pipefail
+          mark() {
+            local key="$1"
+            if curl -fsSL --proto '=https' -o /dev/null "https://files.cmux.com/cmux-tui/tree/$key/daemon-tests.json?verify=$GITHUB_RUN_ID"; then
+              echo "tree $key already has a daemon-tests marker"
+              return 0
+            fi
+            python3 - "$key" > daemon-tests.json <<'PY'
+          import json, os, sys
+          print(json.dumps({
+              "key": sys.argv[1],
+              "commit": os.environ["GITHUB_SHA"],
+              "run": os.environ["GITHUB_RUN_ID"],
+              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "result": "success",
+          }, indent=2))
+          PY
+            python3 scripts/ci/upload-r2-object.py --file daemon-tests.json --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries --key "cmux-tui/tree/$key/daemon-tests.json" \
+              --cache-control "public, max-age=31536000, immutable" --content-type application/json --write-once
+            echo "marked tree $key as daemon-tested"
+          }
+          mark "$KEY_V2"
+          if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY_V2" ]]; then
+            mark "$LEGACY_KEY"
+          fi
 
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip
@@ -2046,8 +2111,8 @@ jobs:
     # on any other branch also asks, for the newest recent feat-cmux-next
     # commit that shares its key: the owner of a feat-cmux-next commit's key
     # is often the branch run of the same tree.
-    needs: [tree-preflight, tree-owner-wait, publish-tree]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' && ((github.ref == 'refs/heads/feat-cmux-next' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree.result == 'success')) || (github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree.result == 'success')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [tree-preflight, tree-owner-wait, publish-tree-tested]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' && ((github.ref == 'refs/heads/feat-cmux-next' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree-tested.result == 'success')) || (github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree-tested.result == 'success')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # One fetch of the branch's recent history plus a jobs lookup per candidate.
     timeout-minutes: 15
@@ -2099,15 +2164,17 @@ jobs:
   publish-pr-tree:
     environment: artifacts
     name: publish pull request tree-addressed cmux-tui
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.cmux-next-daemon-tests.result == 'success' && github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    needs: [build-ok, cmux-next-daemon-tests]
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    # Independent of the daemon tests, like publish-tree; they stay a check on
+    # the pull request.
+    needs: [tree-preflight, build-ok]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Per run (cx-73f2): a job group shared by one key holds one pending job
     # and GitHub replaces it with each newer same-key job, so a key group drops
     # publishes (run 38126073200's build, 08:50:25Z 2026-10-11).
     concurrency:
-      group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.run_id }}
+      group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}
       cancel-in-progress: false
     permissions:
       # actions: write and pull-requests: read: see publish-tree. The notify
@@ -2146,7 +2213,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
           SOURCE_COMMIT: ${{ github.event.pull_request.merge_commit_sha }}
           BASE_COMMIT: ${{ github.event.pull_request.base.sha }}
         run: |
@@ -2209,6 +2276,7 @@ jobs:
               "run": os.environ["GITHUB_RUN_ID"],
               "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
               "binaries": manifest["binaries"],
+              "daemonTests": "separate",
           }, indent=2))
           PY
           fi
@@ -2229,7 +2297,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
         run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
 
   # A run that took the build and ended without publishing its tree (a failed

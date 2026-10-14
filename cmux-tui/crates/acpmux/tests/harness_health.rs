@@ -337,9 +337,23 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     );
     assert_eq!(asked.lock().unwrap().len(), 5, "asked again: {:?}", asked.lock().unwrap());
 
-    // A remote WebSocket connection never gets it.
+    // A plain browser page (Web) reads the rows as last checked, the same rows
+    // the app just read, and runs nothing: no refresh, latest check or
+    // auto-update choice (the agent pane's dev host, cx-jlzsf). A peer gets none.
     let mut web = Client::open(&hub, Origin::Web);
-    web.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect_err("web origin");
+    let read = web.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("web reads");
+    assert_eq!(row(&read, "codex")["version"].as_str(), Some("0.4.0"), "{read}");
+    for params in [
+        json!({"refresh": true}),
+        json!({"rescan": true}),
+        json!({"checkLatest": true}),
+        json!({"autoUpdate": {"id": "codex", "on": true}}),
+    ] {
+        web.call(method::MUX_HARNESS_HEALTH, params.clone()).await.expect_err("web ran a check");
+    }
+    assert_eq!(asked.lock().unwrap().len(), 5, "web asked a source: {:?}", asked.lock().unwrap());
+    let mut peer = Client::open(&hub, Origin::Peer);
+    peer.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect_err("peer origin");
 
     let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
     let _ = std::fs::remove_dir_all(&root);

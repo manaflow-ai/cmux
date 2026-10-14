@@ -119,25 +119,32 @@ extension WindowRootView {
         }
     }
 
-    /// Insets the content host by the gutter on every side (beside the
-    /// sidebar, under the titlebar, from the window edges, also with the
-    /// sidebar hidden or in fullscreen), rounds it, and reshades the chrome.
-    /// A radius change alone moves no page, so Chromium pages are told to
-    /// re-read their clip.
+    /// Insets the content host by the gutter from the titlebar and the
+    /// window edges (also with the sidebar hidden or in fullscreen; beside a
+    /// shown sidebar the sidebar's row inset is the one gap), rounds it, and
+    /// reshades the chrome.
     func applyMainPane() {
         let gutter = Metrics.mainPaneGutter
         for constraint in mainPaneInsetConstraints {
+            // Beside the sidebar its row inset is the gap: no gutter on top.
+            if constraint.secondItem === sidebar {
+                constraint.constant = 0
+                continue
+            }
             switch constraint.firstAttribute {
             case .leading, .top: constraint.constant = gutter
             case .trailing, .bottom: constraint.constant = -gutter
             default: break
             }
         }
-        if contentHost.setCornerRadius(Metrics.mainPaneCornerRadius), let window {
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
-        }
         needsLayout = true
         updateMainPaneShade()
+    }
+
+    /// The main pane's corner radius in this window: concentric with the
+    /// window's own corners, which change with fullscreen.
+    var mainPaneCornerRadius: CGFloat {
+        Metrics.mainPaneCornerRadius(windowCornerRadius: window?.frameCornerRadius ?? 0)
     }
 
     /// The content host's edge constraints: top and bottom, and the
@@ -146,9 +153,15 @@ extension WindowRootView {
         (mainPaneEdges + sidePins.values.flatMap { $0 }).filter { $0.firstItem === contentHost }
     }
 
-    /// Redraws the shade around the content host's current frame.
+    /// Rounds the content host and redraws the shade around its current
+    /// frame. A radius change alone moves no page, so Chromium pages are
+    /// told to re-read their clip.
     func updateMainPaneShade() {
+        let radius = mainPaneCornerRadius
+        if contentHost.setCornerRadius(radius), let window {
+            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        }
         let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
-        mainPaneShade.update(card: contentHost.frame, radius: Metrics.mainPaneCornerRadius, alpha: alpha)
+        mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)
     }
 }

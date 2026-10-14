@@ -52,11 +52,6 @@ def check(ok, what):
         failures.append(what)
 
 
-def xfail(ok, what, bead):
-    """A known defect with its own bead: reported, not counted. Turn it into check() with the fix."""
-    print(("XPASS " if ok else "XFAIL ") + f"{what} ({bead})", flush=True)
-
-
 def call(method, params=None, timeout=30):
     try:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -254,12 +249,18 @@ try:
         print("after second click", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
         second = wait_for(lambda: (omnibar().get("selection") or [0, 1])[1] == 0 and omnibar(), "second click places the caret", 5) or omnibar()
         check(second.get("has_focus") and (second.get("selection") or [0, 1])[1] == 0, f"second click places the caret: {second.get('selection')}")
-        # cx-d0d.87: the second click enters editing, so one Escape does not blur yet.
-        print("second click phase", omnibar().get("phase"), flush=True)
-        xfail(omnibar().get("phase") == "focused", "the second click keeps the omnibar focused, not editing", "cx-d0d.87")
+        # cx-d0d.87: the second click shows the full address with the caret at the click; it is
+        # never an edit (phase editing), so one Escape returns to the page.
+        after = omnibar()
+        focused = after.get("phase") == "focused" and not after.get("elided") and after.get("text") == URL
+        check(focused, f"the second click keeps the omnibar focused on the full address, not editing: "
+                       f"{after.get('phase')} {after.get('text')!r} {after.get('selection')}")
+        if not focused:  # the state machine's last inputs (DEBUG builds), to name the input that edited
+            for line in (after.get("pointer") or {}).get("omnibar_trace") or []:
+                print("   trace", line, flush=True)
         key("escape")
         print("after Escape", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
-        xfail(bool(quiet_wait(lambda: not omnibar().get("has_focus"), 3)), "one Escape after the clicks returns to the page", "cx-d0d.87")
+        check(bool(wait_for(lambda: not omnibar().get("has_focus"), "one Escape blurs", 3)), "one Escape after the clicks returns to the page")
         blur()
         check(probe(center(text)) == ("text", "arrow"), f"arrow over the text after the omnibar blurs {probe(center(text))}")
 

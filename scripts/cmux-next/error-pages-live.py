@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
-"""Live check: a Chromium tab shows cmux's own error pages, as a WebKit tab does (cx-zjcq).
+"""Live check: a Chromium tab shows Chromium's own error pages, a WebKit tab cmux's (cx-zjcq).
 
   scripts/cmux-next/error-pages-live.py --tag <tag> [--out DIR] [--app PATH] [--engines chromium,webkit]
 
-Launches the tagged app (no activation, automation socket, empty config) and, for each
-engine, reads what the pane shows over the page (`debug.browser.page_status`):
+Lawrence 2026-10-13: Chromium tabs show Chrome's own pages. Launches the tagged app (no
+activation, automation socket, empty config) and, for each engine, samples what the pane
+shows over the page (`debug.browser.page_status`) every 0.1 s and what the page is
+(`browser.page.eval`):
 
-  1. a host that does not resolve shows cmux's error page (Chromium: with its
-     ERR_NAME_NOT_RESOLVED code), not Chromium's own error page;
-  2. a self-signed https server at 127.0.0.1 shows cmux's certificate warning, not
-     Chromium's interstitial; Proceed loads the page;
-  3. the same server as localhost (a name, which HSTS could cover) shows cmux's
-     warning too; Proceed loads the page in WebKit, and in Chromium hands the decision
-     to Chromium's own interstitial (it enforces HSTS, which cmux cannot see).
+Chromium tab: a host that does not resolve, a refused connection, a self-signed https
+server at 127.0.0.1 and https://expired.badssl.com show Chromium's own page (its net
+error page, its "Privacy error" certificate interstitial) and cmux's page shows at no
+sample (sampling, about every 0.1-0.3 s, cannot catch a one-frame flash; the window
+snapshots show the pages). The Chromium checks read the debug socket only: a
+browser.page.* call makes a tab agent-driven. An agent-driven tab shows cmux's
+certificate warning instead (only a person can Proceed there), and an agent's Proceed
+action does not load the page.
+
+WebKit tab (WebKit draws no error page): the same host, the self-signed server and
+expired.badssl.com show cmux's error page or certificate warning; Proceed loads the page.
 
 The test certificate is made with /usr/bin/openssl in a scratch directory. GUI host only
-(a capture mini). The app is quit and the tag's daemons stopped at the end. Exits 1 when
-a check fails.
+(cmux-lawrence-2). Window snapshots (kind main) go to --out. The app is quit and the
+tag's daemons stopped at the end. Exits 1 when a check fails.
 """
 import argparse, ssl, functools, glob, http.server, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time
 
@@ -103,10 +109,15 @@ def shown_error():
     return status.get("error") if isinstance(status.get("error"), str) and status.get("error") else None
 
 
-def open_tab(engine, url):
+def open_tab(engine, url, agent=False):
+    """A tab a person opens (origin remote), or, with `agent`, one an agent opens (origin
+    cli: agent-driven before its page exists)."""
     global TAB
     action = "openBrowser.chromium" if engine == "chromium" else "openBrowser.webkit"
-    TAB = (rpc("action.run", {"action": action, "args": {"url": url}, "focus": True}).get("created") or [None])[0]
+    params = {"action": action, "args": {"url": url}, "focus": True}
+    if not agent:
+        params["origin"] = "remote"
+    TAB = (rpc("action.run", params).get("created") or [None])[0]
 
 
 def close_tab():
@@ -143,53 +154,101 @@ def reached():
     return page("document.title") == "secure test"
 
 
-def nested_holes(status):
-    """Holes of the Chromium page window inside another one: an even-odd mask cancels them
-    (the page then covers cmux's view)."""
-    holes = json.loads(status.get("holes") or "[]")
-    inside = lambda a, b: a[0] >= b[0] and a[1] >= b[1] and a[0] + a[2] <= b[0] + b[2] and a[1] + a[3] <= b[1] + b[3]
-    return [a for i, a in enumerate(holes) for j, b in enumerate(holes) if i != j and inside(a, b)]
+def snap(name):
+    rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"{name}.png")}, timeout=60)
 
 
-def stays_shown(engine, what, predicate):
-    """cmux's page is still there after Chromium committed its own page under it."""
-    time.sleep(2)
+def cmux_page_shown(status):
+    return bool(status.get("error")) or status.get("certificate") == "1"
+
+
+def watch(seconds, done):
+    """Samples the pane every 0.1 s until `done()` or `seconds`; returns (done seconds or None,
+    cmux page seen at any sample)."""
+    start = time.monotonic()
+    seen_cmux = False
+    while time.monotonic() - start < seconds:  # bounded sampling of the app's own state
+        if cmux_page_shown(page_status()):
+            seen_cmux = True
+        if done():
+            return time.monotonic() - start, seen_cmux
+        time.sleep(0.1)
+    return None, seen_cmux
+
+
+def free_port():
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    return port
+
+
+def chromium_page(code, title):
+    """Chromium's own page for the failed load: the engine-page flag, the error code in the
+    tab's navigation events and the page's title. Read through the debug socket only: a
+    browser.page.* call would make the tab agent-driven."""
     status = page_status()
-    check(predicate(status), f"{engine}: {what} stays shown ({status})")
-    if engine == "chromium":
-        check(not nested_holes(status), f"{engine}: {what}: no page window hole is inside another ({status.get('holes')})")
+    return (status.get("enginePage") == "1" and f"loadError({code}," in (status.get("events") or "")
+            and (title is None or status.get("title") == title) and not cmux_page_shown(status))
 
 
-def run_engine(engine, port):
-    print(f"== {engine}", flush=True)
-
-    # 1. A host that does not resolve.
-    open_tab(engine, "http://cmux-zjcq-test.invalid/")
-    shown = quiet_wait(shown_error, 30)
-    check(bool(shown), f"{engine}: an unresolvable host shows cmux's error page ({page_status()})")
-    if engine == "chromium":
-        check(bool(shown) and "ERR_NAME_NOT_RESOLVED" in shown, f"{engine}: the error page names the error ({shown!r})")
-    if shown:
-        stays_shown(engine, "the error page", lambda status: bool(status.get("error")))
+def run_chromium(port):
+    print("== chromium", flush=True)
+    cases = [("nxdomain", "http://cmux-zjcq-test.invalid/", -105, None),
+             ("refused", f"http://127.0.0.1:{free_port()}/", -102, None),
+             ("self-signed", f"https://127.0.0.1:{port}/index.html", -202, "Privacy error"),
+             ("expired", "https://expired.badssl.com/", -201, "Privacy error")]
+    for name, url, code, title in cases:
+        open_tab("chromium", url)
+        took, seen_cmux = watch(15, lambda: chromium_page(code, title))
+        snap(f"chromium-{name}")
+        check(took is not None, f"chromium: {name} shows Chromium's own page (code {code}, title {title!r}): "
+              f"{'%.2f s' % took if took is not None else 'not shown'} ({page_status()})")
+        check(not seen_cmux, f"chromium: {name}: cmux's page never showed")
+        _, late = watch(2, lambda: False)
+        check(not late and page_status().get("enginePage") == "1", f"chromium: {name}: still Chromium's page 2 s later ({page_status()})")
+        close_tab()
+    # An agent-driven tab gets cmux's certificate warning: an agent's page script could
+    # press Proceed in Chromium's interstitial; only a person presses cmux's Proceed.
+    open_tab("chromium", f"https://127.0.0.1:{port}/index.html", agent=True)
+    took, seen_chromium = None, False
+    start = time.monotonic()
+    while time.monotonic() - start < 30:  # bounded sampling of the app's own state
+        status = page_status()
+        seen_chromium = seen_chromium or status.get("enginePage") == "1"
+        if status.get("certificate") == "1":
+            took = time.monotonic() - start
+            break
+        time.sleep(0.1)
+    snap("chromium-agent-driven-self-signed")
+    check(took is not None and not seen_chromium,
+          f"chromium: an agent-driven tab shows cmux's certificate warning, never Chromium's interstitial ({page_status()})")
+    reply = rpc("action.run", {"action": "browser.certificateWarning.proceed", "focus": True})
+    check("Only a person" in json.dumps(reply), f"chromium: an agent's Proceed is refused as a person-only action ({json.dumps(reply)[:300]})")
+    check(quiet_wait(reached, 5) is None, "chromium: the page does not load after an agent's Proceed")
     close_tab()
 
-    # 2. and 3. A self-signed certificate: an IP address, then a name.
-    for host in ["127.0.0.1", "localhost"]:
-        url = f"https://{host}:{port}/index.html"
-        open_tab(engine, url)
+
+def run_webkit(port):
+    print("== webkit", flush=True)
+    open_tab("webkit", "http://cmux-zjcq-test.invalid/")
+    shown = quiet_wait(shown_error, 30)
+    snap("webkit-nxdomain")
+    check(bool(shown), f"webkit: an unresolvable host shows cmux's error page ({page_status()})")
+    close_tab()
+    for name, url, proceeds in [("self-signed", f"https://127.0.0.1:{port}/index.html", True),
+                                ("expired", "https://expired.badssl.com/", False)]:
+        open_tab("webkit", url)
         warned = quiet_wait(lambda: page_status().get("certificate") == "1", 30)
-        check(bool(warned), f"{engine}: {host}'s untrusted certificate shows cmux's certificate warning ({page_status()})")
-        if warned:
-            stays_shown(engine, f"{host}'s certificate warning", lambda status: status.get("certificate") == "1")
+        snap(f"webkit-{name}")
+        check(bool(warned), f"webkit: {name} shows cmux's certificate warning ({page_status()})")
+        if warned and proceeds:
             # Proceed is a person's action (refused over action.run): press the button.
             reply = page_status(press="proceed")
-            check(reply.get("pressed") == "1", f"{engine}: Proceed runs on {host} ({reply})")
-            if engine == "chromium" and host == "localhost":
-                gone = quiet_wait(lambda: page_status().get("enginePage") == "1" and not shown_error(), 20)
-                check(bool(gone), f"{engine}: Proceed on a name hands over to Chromium's interstitial ({page_status()})")
-            else:
-                ok = quiet_wait(reached, 30)
-                check(bool(ok) and page_status() and not shown_error(), f"{engine}: Proceed on {host} loads the page ({page_status()})")
+            check(reply.get("pressed") == "1", f"webkit: Proceed runs ({reply})")
+            ok = quiet_wait(reached, 30)
+            check(bool(ok) and not shown_error(), f"webkit: Proceed loads the page ({page_status()})")
         close_tab()
 
 
@@ -225,7 +284,7 @@ try:
     wait_for(lambda: focused_pane(window), "a focused pane", 60)
     port = https_server()
     for engine in opts.engines.split(","):
-        run_engine(engine, port)
+        (run_chromium if engine == "chromium" else run_webkit)(port)
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:

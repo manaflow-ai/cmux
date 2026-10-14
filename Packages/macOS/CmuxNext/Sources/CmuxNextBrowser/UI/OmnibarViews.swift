@@ -167,7 +167,7 @@ final class OmnibarPillView: NSView {
 /// 6 pt past each side, rounded at the top only. The dropdown panel continues
 /// it below the bar, so bar and rows read as one card.
 final class OmnibarCardTopView: NSView {
-    private let card = CALayer()
+    let card = CALayer()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -176,9 +176,10 @@ final class OmnibarCardTopView: NSView {
         card.cornerRadius = OmnibarStyle.cardCornerRadius
         card.cornerCurve = .continuous
         card.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        card.shadowOpacity = 0.16
-        card.shadowRadius = 8
-        card.shadowOffset = CGSize(width: 0, height: -2)
+        // The one popup shadow (PopupStyle), as the panel of rows below.
+        card.shadowOpacity = Float(PopupStyle.standard.shadowAlpha)
+        card.shadowRadius = PopupStyle.standard.shadowBlur / 2 // CA radius ≈ half a CSS blur (PopupHostView)
+        card.shadowOffset = CGSize(width: 0, height: -PopupStyle.standard.shadowOffset)
         layer?.addSublayer(card)
         refresh()
     }
@@ -193,8 +194,8 @@ final class OmnibarCardTopView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         card.frame = bounds
-        // Extend the shadow shape down past the seam, where the panel's
-        // own shadow takes over, so no line shows between the two.
+        // Extend the shadow shape down past the seam, so no line shows
+        // between the two halves (the panel of rows casts no shadow of its own).
         let shape = CGRect(x: 0, y: -40, width: bounds.width, height: bounds.height + 40)
         card.shadowPath = CGPath(roundedRect: shape, cornerWidth: OmnibarStyle.cardCornerRadius, cornerHeight: OmnibarStyle.cardCornerRadius, transform: nil)
         CATransaction.commit()

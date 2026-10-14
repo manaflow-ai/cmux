@@ -47,7 +47,7 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     /// With items, the x opens this menu (the tip's Hide / Mute / Never)
     /// instead of dismissing; an item sends `noticeAction` with its id.
     public var dismissMenu: [Action]
-    /// An action the card sends once while it is on screen (a hint marks
+    /// An action the card sends once while it is on screen (a tip marks
     /// itself seen); nil sends none.
     public var shownAction: String?
     /// After `shownAction` was sent: the action sent when this notice leaves

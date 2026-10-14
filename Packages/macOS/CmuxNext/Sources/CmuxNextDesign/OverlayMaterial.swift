@@ -61,6 +61,7 @@ public final class ReduceTransparency {
     private let system: @MainActor () -> Bool
     private let changes: NotificationCenter
     private let surfaces = NSHashTable<OverlaySurfaceView>.weakObjects()
+    private let cards = NSHashTable<CardSurfaceView>.weakObjects()
     private var observer: (any NSObjectProtocol)?
 
     /// `system` reads the setting; `changes` posts
@@ -74,6 +75,16 @@ public final class ReduceTransparency {
     /// Makes `surface` follow this state until it is deallocated.
     func register(_ surface: OverlaySurfaceView) {
         surfaces.add(surface)
+        observeChanges()
+    }
+
+    /// Makes a sidebar card's surface follow this state until it is deallocated.
+    func register(_ card: CardSurfaceView) {
+        cards.add(card)
+        observeChanges()
+    }
+
+    private func observeChanges() {
         guard observer == nil else { return }
         observer = changes.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: nil
@@ -85,6 +96,7 @@ public final class ReduceTransparency {
 
     private func refreshSurfaces() {
         for surface in surfaces.allObjects { surface.refreshMaterial() }
+        for card in cards.allObjects { card.needsDisplay = true }
     }
 }
 

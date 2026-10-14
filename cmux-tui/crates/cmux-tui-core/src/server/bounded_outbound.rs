@@ -535,15 +535,28 @@ pub(super) enum SinkControl {
 pub(super) struct SynchronizedTcpStream {
     pub(super) stream: TcpStream,
     pub(super) write_lock: Arc<Mutex<()>>,
+    /// Bytes already read from `stream` (the request head the listener read
+    /// to tell a page request from a WebSocket handshake), read first.
+    replay: VecDeque<u8>,
 }
 
 impl SynchronizedTcpStream {
+    #[cfg(test)]
     pub(super) fn new(stream: TcpStream) -> Self {
-        Self { stream, write_lock: Arc::new(Mutex::new(())) }
+        Self::with_replay(stream, Vec::new())
+    }
+
+    /// A stream whose reads return `replay` before reading `stream` again.
+    pub(super) fn with_replay(stream: TcpStream, replay: Vec<u8>) -> Self {
+        Self { stream, write_lock: Arc::new(Mutex::new(())), replay: replay.into() }
     }
 
     pub(super) fn try_clone(&self) -> std::io::Result<Self> {
-        Ok(Self { stream: self.stream.try_clone()?, write_lock: self.write_lock.clone() })
+        Ok(Self {
+            stream: self.stream.try_clone()?,
+            write_lock: self.write_lock.clone(),
+            replay: VecDeque::new(),
+        })
     }
 
     pub(super) fn try_clone_raw(&self) -> std::io::Result<TcpStream> {
@@ -608,6 +621,9 @@ pub(super) fn websocket_server_frame_header(opcode: u8, payload_len: usize) -> (
 
 impl Read for SynchronizedTcpStream {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if !self.replay.is_empty() {
+            return self.replay.read(buf);
+        }
         self.stream.read(buf)
     }
 }

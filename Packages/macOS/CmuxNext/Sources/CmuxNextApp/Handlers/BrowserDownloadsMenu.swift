@@ -39,7 +39,7 @@ enum BrowserDownloadsMenu {
     private static func row(_ download: BrowserDownload, list: BrowserDownloadList) -> NSMenuItem {
         let item = NSMenuItem(title: middleTruncated(download.filename), action: nil, keyEquivalent: "")
         if item.title != download.filename { item.toolTip = download.filename }
-        item.subtitle = status(download)
+        item.showSubtitle(status(download))
         let icon = NSWorkspace.shared.icon(for: UTType(filenameExtension: (download.filename as NSString).pathExtension) ?? .data)
         icon.size = NSSize(width: 16, height: 16)
         item.image = icon

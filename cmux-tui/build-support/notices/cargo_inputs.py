@@ -183,6 +183,58 @@ class Sources:
                     continue
                 if name:
                     self.path_packages.setdefault(name, []).append((manifest.parent, root))
+        self._follow_path_dependencies()
+
+    def _follow_path_dependencies(self) -> None:
+        """Add the crates that the scanned manifests name by `path = ...` but that live outside every
+        --workspace (2026-10-13: the diff sidecar's `cmux-git = { path = "../../cmux-tui/crates/cmux-git" }`
+        failed the nightly notices with "0 matching manifests"). Followed transitively; each such crate
+        is located with its own enclosing workspace, so `*.workspace = true` fields resolve."""
+        known = {d.resolve() for entries in self.path_packages.values() for d, _ in entries}
+        queue = sorted(known)
+        while queue:
+            crate_dir = queue.pop()
+            manifest = crate_dir / "Cargo.toml"
+            try:
+                data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, tomllib.TOMLDecodeError):
+                continue
+            tables = [data.get(k, {}) for k in ("dependencies", "dev-dependencies", "build-dependencies")]
+            tables += [t.get(k, {}) for t in data.get("target", {}).values() for k in ("dependencies", "build-dependencies")]
+            tables.append(data.get("workspace", {}).get("dependencies", {}))
+            for table in tables:
+                for spec in table.values():
+                    if not isinstance(spec, dict) or not isinstance(spec.get("path"), str):
+                        continue
+                    dep_dir = (crate_dir / spec["path"]).resolve()
+                    if dep_dir in known or not (dep_dir / "Cargo.toml").is_file():
+                        continue
+                    try:
+                        name = tomllib.loads((dep_dir / "Cargo.toml").read_text(encoding="utf-8")).get("package", {}).get("name")
+                    except tomllib.TOMLDecodeError:
+                        continue
+                    known.add(dep_dir)
+                    queue.append(dep_dir)
+                    if not name:
+                        continue
+                    root = self._enclosing_workspace(dep_dir) or dep_dir
+                    self.path_packages.setdefault(name, []).append((dep_dir, root))
+
+    def _enclosing_workspace(self, crate_dir: Path) -> Path | None:
+        """The nearest ancestor (or the crate itself) whose Cargo.toml has a [workspace] table; it is
+        registered so workspace_for() resolves the crate's inherited fields."""
+        for parent in [crate_dir, *crate_dir.parents]:
+            manifest = parent / "Cargo.toml"
+            if not manifest.is_file():
+                continue
+            try:
+                table = tomllib.loads(manifest.read_text(encoding="utf-8")).get("workspace")
+            except tomllib.TOMLDecodeError:
+                continue
+            if table is not None:
+                self.workspace_tables.setdefault(parent.resolve(), table)
+                return parent.resolve()
+        return None
 
     def workspace_for(self, crate_dir: Path) -> dict | None:
         for root, table in self.workspace_tables.items():

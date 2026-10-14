@@ -117,7 +117,7 @@ nonisolated extension ActionSurfaceCatalog {
         "layout.undo", "bookmark.addPage", "bookmark.addAllTabs", "bookmark.add", "bookmark.newFolder",
         "bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll", "bookmark.edit",
         "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export",
-        "bookmark.setIcon", "bookmark.clearIcon",
+        "bookmark.setIcon", "bookmark.clearIcon", "machine.setIcon", "machine.clearIcon",
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
@@ -166,7 +166,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extensions.webStore", "browser.extension.options", "browserProfile.manageExtensions",
             "toggleSidebar", "toggleRightSidebar", "switchRightSidebarToFiles", "switchRightSidebarToFind",
             "switchRightSidebarToSessions", "switchRightSidebarToFeed", "switchRightSidebarToDock",
-            "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView", "agent.openSessionWorkspace",
+            "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView",
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.searchShortcuts", "agentPane.searchChats",

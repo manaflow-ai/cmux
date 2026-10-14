@@ -220,6 +220,8 @@ impl Mux {
             #[cfg(test)]
             terminal_move_before_projection: Mutex::new(None),
             #[cfg(test)]
+            tab_changed_after_decorations: Mutex::new(None),
+            #[cfg(test)]
             client_rollback_before_wait: Mutex::new(None),
             #[cfg(test)]
             workspace_close_before_empty_check: Mutex::new(None),

@@ -221,7 +221,7 @@ declare namespace Cmux {
   type LaunchKeyRotation = { kid: string }
   type LayoutBulkResult = { tab_ids: Array<string /* tab_… */>; pane_ids: Array<string /* pane_… */>; screen_ids: Array<string /* screen_… */>; workspace_ids: Array<string /* workspace_… */> }
   type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; dock?: Cmux.LayoutColumnDock | null }
-  type LayoutColumnDock = { edge: "left" | "right" | "top" | "bottom"; mode: "docked" | "overlay" }
+  type LayoutColumnDock = { edge: "left" | "right" | "top" | "bottom"; mode: "docked" | "overlay"; role?: "agent_chat"; permanent?: boolean }
   type LayoutDocument = { version: number; screen_id: string /* screen_… */; active_pane_id: string /* pane_… */; zoomed_pane_id: string /* pane_… */ | null; root: Cmux.LayoutNode; extra?: Record<string, Cmux.JsonValue> }
   type LayoutLeaf = { kind: "leaf"; pane_id: string /* pane_… */; tab_ids: Array<string /* tab_… */>; active_tab_id?: string /* tab_… */ }
   type LayoutNode = unknown

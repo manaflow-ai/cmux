@@ -199,11 +199,12 @@ public actor DaemonConnection {
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
+            let raw = configuration.role == .pageRelay
             transport.start(
                 onEvent: { [weak self] name, line, index in
                     let envelope = DaemonEventEnvelope(
                         sequence: DaemonEventEnvelope.sequence(serial: serial, index: index),
-                        event: DaemonEvent.decode(name: name, line: line))
+                        event: raw ? DaemonEvent.raw(name: name, line: line) : DaemonEvent.decode(name: name, line: line))
                     if case .sessionState(let item) = envelope.event, item.endsStream {
                         // task-owner: hop onto the actor; a stale serial is ignored there
                         Task { await self?.sessionStreamEvent(item, serial: serial) }

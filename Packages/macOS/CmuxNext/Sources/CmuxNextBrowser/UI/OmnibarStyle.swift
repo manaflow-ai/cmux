@@ -59,10 +59,10 @@ enum OmnibarStyle {
 
     // MARK: Popup
 
-    /// The popup card: radius 12, reaching 3 pt above the bar and 6 pt past
-    /// each side so the bar sits inside it (6 keeps the card off the
-    /// reload button with cmux's 6 pt gap).
-    static let cardCornerRadius: CGFloat = 12
+    /// The popup card: the one popup corner (`PopupStyle`, cx-iif6y),
+    /// reaching 3 pt above the bar and 6 pt past each side so the bar sits
+    /// inside it (6 keeps the card off the reload button with cmux's 6 pt gap).
+    static var cardCornerRadius: CGFloat { PopupStyle.standard.cornerRadius }
     static let cardTopOutset: CGFloat = basePadding
     static let cardSideOutset: CGFloat = 2 * basePadding
     /// Rows: bar height, inset 4 at the sides, 2 between rows, 4 at the end.
@@ -70,7 +70,8 @@ enum OmnibarStyle {
     static let rowSideInset: CGFloat = 4
     static let rowGap: CGFloat = 2
     static let cardBottomPadding: CGFloat = 4
-    static let rowCornerRadius: CGFloat = 8
+    /// The popup's row corner (`PopupStyle`), inside the card's 4 pt inset.
+    static var rowCornerRadius: CGFloat { PopupStyle.standard.rowCornerRadius }
     static var rowDetailFont: NSFont { font }
 
     // MARK: Colors

@@ -295,8 +295,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "permissions", "tcc"], category: .agents, symbol: "record.circle",
                 surfaces: [.palette], cliName: "agent grant-screen-recording-access"
             ),
-            // The Home Chief's subagents (optchat-chief spawn): a workspace
-            // whose tab is an existing acpmux session's chat. Automation only.
+            // The Home Chief's subagents (optchat-chief spawn) and scripts
+            // (`cmux agent open SESSION`): a workspace whose tab is an existing
+            // acpmux session's chat.
             ActionDescriptor(
                 id: "agent.openSessionWorkspace",
                 title: String(localized: "action.agent.openSessionWorkspace", defaultValue: "Open Agent Session in New Workspace", bundle: .module),
@@ -314,11 +315,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                     ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
                                    kind: .string, isRequired: false),
                 ],
+                cliName: "agent open",
                 // It starts the workspace's terminal: action.run waits the
                 // terminal start deadline, not 2 s, so the caller's run ends
                 // once the workspace exists (it renames it later by key).
                 startsTerminal: true,
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .exempt(.noObject), contextMenuExemption: .noObject)
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
             ),
             // The Home Chief's settings sidebar (the header's name pill does the same).
             ActionDescriptor(

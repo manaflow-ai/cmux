@@ -32,3 +32,54 @@ async fn claude_subagents_carry_their_kind() {
     assert!(mux.iter().any(|m| m.get("subagent") == Some(&spawn["id"])), "{mux:?}");
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// A background Claude subagent still running after its parent's turn ended
+/// asks for permission: the ask reaches the person and the answer reaches the
+/// subagent (cx-jo8yo).
+#[tokio::test]
+async fn a_claude_subagent_asking_after_the_turn_ended_reaches_the_person() {
+    let root = std::env::temp_dir().join(format!("acpmux-late-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    hub.set_policy(&hub.resolve(&id).unwrap(), PermissionPolicy::Ask).await;
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "late-agent-ask"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    // The ask came in while the prompt's own response was on its way, so it
+    // is read from the session's log; the chat waits on the person after its
+    // turn ended, not ready.
+    let session = hub.resolve(&id).unwrap();
+    let asked = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .rfind(|e| e.kind == "permission_request")
+        .unwrap_or_else(|| panic!("the late ask never reached the person"));
+    let pid = asked.msg["permissionId"].as_str().unwrap().to_owned();
+    assert_eq!(hub.session_summary(&session)["status"], "waiting");
+    // This client is not the person, so it rejects (an allow needs the app's
+    // decision proof): the person's answer, not a cancel, reaches the subagent.
+    c.request(
+        method::MUX_PERMISSION_RESPOND,
+        json!({"sessionId": id, "permissionId": pid, "optionId": "reject_once"}),
+    )
+    .await
+    .unwrap();
+    let decision = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .rfind(|e| e.kind == "permission_decision")
+        .expect("a decision");
+    assert_eq!(decision.msg["outcome"]["outcome"], "selected", "{}", decision.msg);
+    assert_eq!(decision.msg["outcome"]["optionId"], "reject_once");
+    let said = super::super::transcript_events::late_chunk(&hub, &id, |m| {
+        m.pointer("/params/_meta/acpmux/subagent").is_some()
+    })
+    .await;
+    assert_eq!(said["params"]["update"]["content"]["text"], "late deny", "{said}");
+    assert_eq!(hub.session_summary(&session)["status"], "ready");
+    let _ = std::fs::remove_dir_all(root);
+}

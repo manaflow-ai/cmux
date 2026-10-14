@@ -6,7 +6,8 @@ import WebKit
 /// the cmux error page's title and message ("" while hidden), `certificate`
 /// "1" when it is the certificate warning, `gone` "1" while the sad tab shows,
 /// `enginePage` "1" while the engine's own page shows for the failed load
-/// (Chromium's certificate interstitial), and `holes` the Chromium page
+/// (Chromium's net error page or certificate interstitial), `title` the
+/// tab's title, and `holes` the Chromium page
 /// window's holes, where the pane's own views show (`[[x, y, w, h], ...]`),
 /// and `events` its last navigation events (`CEFEventTrace`).
 /// `unresponsive` is "1" while the "Page unresponsive" card shows.
@@ -15,6 +16,8 @@ import WebKit
 /// or `exit` (the card's Wait and Exit page); `pressed` says whether there was
 /// one to press. `gone_text` is the sad tab's title, message and button;
 /// `page_pid` a WebKit tab's WebContent process (crash e2e, cx-d0d.2).
+/// `can_go_back` and `can_go_forward` are "1" while the toolbar offers Back
+/// and Forward (restore journey).
 @MainActor
 public struct PageStatusDebug {
     public let fields: [String: String]
@@ -35,6 +38,8 @@ public struct PageStatusDebug {
         }
         fields = [
             "pressed": pressed ? "1" : "0",
+            "can_go_back": chrome.tab.state.canGoBack ? "1" : "0",
+            "can_go_forward": chrome.tab.state.canGoForward ? "1" : "0",
             "unresponsive": status.unresponsiveView.isHidden ? "0" : "1",
             "gone_text": goneText,
             "page_pid": (chrome.tab as? WebKitTab).flatMap { Self.webProcess($0.webView) }.map(String.init) ?? "",
@@ -42,6 +47,7 @@ public struct PageStatusDebug {
             "certificate": !status.errorView.isHidden && status.errorView.isCertificateInterstitial ? "1" : "0",
             "gone": gone ? "1" : "0",
             "enginePage": chrome.tab.state.loadError?.engineShowsPage == true ? "1" : "0",
+            "title": chrome.tab.state.title ?? "",
             "holes": "\(((chrome.tab as? CEFTab)?.pageWindowHoles ?? []).map { [$0.minX, $0.minY, $0.width, $0.height] })",
             "events": CEFEventTrace.recent((chrome.tab as? CEFTab)?.browserID).joined(separator: " | "),
         ]

@@ -15,9 +15,12 @@
 //!
 //! Every delete of page visits keeps a backup and answers its restore id
 //! (RECOVERABLE-BY-DEFAULT); only `history.backups.purge`, a user-origin
-//! operation, deletes a backup before the 90-day retention does. Every
-//! committed change emits `history-changed`.
+//! operation, deletes a backup before the 90-day retention does. A remove or
+//! clear of closed items deletes them through the closed-history store
+//! (`closed.delete`, permanent; closed.rs). Every committed change emits
+//! `history-changed`.
 
+mod closed;
 mod hidden_doc;
 mod journal_feed;
 mod ledger;

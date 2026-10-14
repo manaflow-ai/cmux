@@ -437,12 +437,28 @@ impl Hub {
         self.load_live_cache().await;
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
-        if login_env && crate::login_env::import().await {
-            // `CLAUDE_CONFIG_DIR` / `CODEX_HOME` may come from the login shell only.
-            self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
-            match self.reload_catalog().await {
-                Ok(_) => reloaded = true,
-                Err(e) => tracing::warn!("catalog reload after login env: {e}"),
+        if login_env {
+            // A cache whose fingerprint matches applies at once; the shell
+            // runs only when needed, and agent spawns wait for it (at most
+            // `login_env::TIMEOUT`) only when nothing else can stand in.
+            let plan = tokio::task::spawn_blocking(crate::login_env::begin)
+                .await
+                .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });
+            let cached = crate::login_env::outcome() == crate::login_env::Outcome::Cached;
+            if cached {
+                reloaded = self.after_login_env().await;
+            }
+            if plan.run_shell && plan.wait {
+                if crate::login_env::import().await {
+                    reloaded = self.after_login_env().await || reloaded;
+                }
+            } else if plan.run_shell {
+                let hub = self.clone();
+                tokio::spawn(async move {
+                    if crate::login_env::import().await {
+                        hub.after_login_env().await;
+                    }
+                });
             }
         }
         self.verify_launchers().await;
@@ -458,6 +474,19 @@ impl Hub {
         // A catalog reload already started fresh probes.
         if !reloaded {
             self.probe_models().await;
+        }
+    }
+
+    /// The login environment changed: `CLAUDE_CONFIG_DIR` / `CODEX_HOME`
+    /// and harnesses on the login PATH may come from it only.
+    async fn after_login_env(self: &Arc<Self>) -> bool {
+        self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
+        match self.reload_catalog().await {
+            Ok(_) => true,
+            Err(e) => {
+                tracing::warn!("catalog reload after login env: {e}");
+                false
+            }
         }
     }
 

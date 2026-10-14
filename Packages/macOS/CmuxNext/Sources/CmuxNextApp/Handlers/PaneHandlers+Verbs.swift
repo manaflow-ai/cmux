@@ -52,13 +52,11 @@ extension PaneHandlers {
             let screens = ctx.services.machines.daemons.lazy.flatMap(\.store.workspaces).flatMap(\.screens)
             let others = (screens.first { $0.panes.contains { $0 === pane } }?.panes ?? []).filter { $0 !== pane }
             guard !others.isEmpty else { return ctx.refuse(HandlerStrings.noOtherPanes) }
-            for other in others {
-                if let controller = ctx.services.paneController(for: other) {
-                    CloseUndoToasts.close(in: controller, controller.stripModel.orderedTabs.map(\.id))
-                } else {
-                    let handle = other.handle
-                    ctx.send("close-pane") { try await $0.closePane(handle) }
-                }
+            // One gesture: one question and one toast decision over every closing tab (cx-lb4al).
+            CloseUndoToasts.close(others.compactMap { ctx.services.paneController(for: $0) }.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
+            for other in others where ctx.services.paneController(for: other) == nil {
+                let handle = other.handle
+                ctx.send("close-pane") { try await $0.closePane(handle) }
             }
         })
         registry.bind("renamePane", invoke: { invocation in
