@@ -310,3 +310,13 @@ Findings:
   `kWaitingForTouch`, the phone too. Not the network, not cmux's request handling, not Bluetooth TCC.
   Next proof: the same run with the key unplugged. Fork candidate: moving to the hybrid sheet while a
   security key holds the PIN step must start the request over.
+
+### 11.2 Decision: one bundle id (Lawrence, 2026-10-14)
+
+"plan is to use same bundle ID we will sunset cmux-classic and only ship cmux-next in the future".
+cmux-next ships as `com.cmuxterm.app` (and `com.cmuxterm.app.nightly` for nightly) with the
+existing passkey entitlement and profiles; no new App ID and no Apple request for
+`com.cmuxterm.app.next`. The interim cmux NEXT identity (`com.cmuxterm.app.nightly.cmux-next`)
+stays without platform passkeys until it goes away; its NIGHTLY-identity copy (cx-x7hwx) is the
+signed build where Touch ID / iCloud Keychain passkeys are checked. The hybrid race fix ships in CEF
+`cef-154.0.28-cmux.25` (cmux CEF fork branch `cmux/8037-cmux25-rc`).
