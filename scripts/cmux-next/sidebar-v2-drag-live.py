@@ -308,10 +308,15 @@ try:
     else:
         record("pinned tile into the list at the drop index", False, f"pinned={pinned} loose={[r.get('title') for r in loose]}")
 
-    # 5. A link item into the main list.
-    print(toast(perform="sidebar.item.add", arguments={"item": "https://example.com", "section": "Pinned"}), flush=True)
-    time.sleep(1.0)  # test harness: let the item show
-    link = next((i for i in items() if i.get("ref_kind") == "url"), None)
+    # 5. A link item (url body with a favicon) into the main list. The app's sidebar.item.add takes no links, so the
+    # link goes in through the daemon (sidebar.apply item.add), as another client would add it.
+    link_op = {"op": "item.add", "to": {"section": "sec_pinned"},
+               "item": {"body": {"type": "url", "url": "https://github.com", "title": "GitHub",
+                                 "icon_url": "https://github.com/favicon.ico"}}}
+    added = cli("raw", "operation", "sidebar.apply", "--mutation", "--params-json",
+                json.dumps({"ops": [link_op], "idempotency_key": f"live-link-{int(time.time() * 1000)}"}))
+    print("link add:", added[:400], flush=True)
+    link = wait(lambda: next((i for i in section_items("sec_pinned") if i.get("ref_kind") == "url"), None), 10)
     alpha = by_title("Alpha")
     if link and alpha:
         drag(center(link["window_frame"]), (alpha["window_frame"]["x"] + 40, alpha["window_frame"]["y"] + 2), "v2-5-link-into-list",
@@ -320,12 +325,17 @@ try:
         record("link item into the list lists as a row", bool(row) and not any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")),
                f"row={row and (row.get('key'), row.get('window_frame'))} items={[(i.get('section'), i.get('ref_kind')) for i in items()]}")
         if row:
+            key = row.get("key")
+            icon = wait(lambda: next((r.get("icon") for r in window().get("rows", []) if r.get("key") == key and r.get("icon") == "favicon"), None), 15)
+            shot("v2-5-link-row")
+            record("link row draws its favicon", icon == "favicon", f"row {key} icon={icon}")
             rpc("debug.mouse", {"x": center(row["window_frame"])[0], "y": center(row["window_frame"])[1], "action": "click"})
-            opened = wait(lambda: "example.com" in json.dumps(rpc("debug.surfaces") or {}), 15)
+            opened = wait(lambda: "github.com" in json.dumps(rpc("debug.surfaces") or {}), 15)
             shot("v2-5-link-opened")
-            record("link row in the list opens its page", bool(opened), "debug.surfaces names example.com" if opened else "no example.com surface")
+            record("link row in the list opens its page", bool(opened), "debug.surfaces names github.com" if opened else "no github.com surface")
+            undo("link item into the list", lambda: any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")))
     else:
-        record("link item into the list", False, f"no url item after sidebar.item.add (link={link})", skip=link is None)
+        record("link item into the list", False, f"no url item in Pinned after sidebar.apply item.add (cli: {added[:300]}; link={link})")
 
     # 6. Cross-machine drop: needs a second machine section.
     machines = [r for r in window().get("rows", []) if str(r.get("key", "")).startswith("section")]
