@@ -172,6 +172,11 @@ pub struct SpawnSpec {
     pub cwd: PathBuf,
     /// Present when the harness speaks Claude stream-json.
     pub translator: Option<TranslatorSpec>,
+    /// The harness is `codex app-server`, bridged in the host
+    /// (`codex_app_server.rs`). Decided from the profile's command line
+    /// before its CODEX_PATH picks the binary, whatever that binary is named.
+    #[serde(default)]
+    pub codex_bridge: bool,
     /// Directory for the record, socket fallback aside.
     pub hosts_dir: PathBuf,
     pub socket: PathBuf,
