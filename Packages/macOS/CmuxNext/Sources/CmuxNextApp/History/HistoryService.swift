@@ -208,9 +208,9 @@ final class HistoryService {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
         let since = range.start(now: Date())
         if daemonHistory != nil {
-            // The daemon removes page visits and hides agents; closed items age out in their
-            // owners; the trail is the app's; terminal commands are deleted as rows in each daemon.
-            let appOwned: Set<HistoryEntry.Kind> = [.location, .command]
+            // The daemon removes page visits and trail entries and hides agents; terminal commands
+            // are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
+            let appOwned: Set<HistoryEntry.Kind> = [.command]
             let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
             if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, range: range) } }
             if wants(.command) { commands.delete(since: since) }
@@ -256,9 +256,11 @@ final class HistoryService {
     func remove(_ entry: HistoryEntry) {
         // Pages keep the app path: the omnibox removes the URL and its persistence (the daemon when
         // it serves history-v1) removes every visit of it.
-        if daemonHistory != nil, entry.kind != .location, entry.kind != .page, entry.kind != .command {
+        if daemonHistory != nil, entry.kind != .page, entry.kind != .command {
             let id = entry.id
             daemonMutation { try await $0.remove(ids: [id]) }
+            // The daemon removes every trail entry of the place; so do the app's Back/Forward steps.
+            if case .location(let location, _) = entry.payload { services.locationTrail.remove(location.key) }
             onChange?()
             return
         }

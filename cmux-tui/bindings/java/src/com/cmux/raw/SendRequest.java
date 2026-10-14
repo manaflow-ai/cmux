@@ -14,14 +14,15 @@ import java.util.Objects;
 public final class SendRequest implements WireValue {
     private final Field<Bytes> bytes;
     private final Field<Boolean> paste;
-    private final UInt64 surface;
+    private final Field<UInt64> surface;
+    private final Field<String> terminalId;
     private final Field<String> text;
 
     private SendRequest(Builder builder) {
         this.bytes = builder.bytes;
         this.paste = builder.paste;
-        if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
-        this.surface = Wire.nonNull(builder.surface, "surface");
+        this.surface = builder.surface;
+        this.terminalId = builder.terminalId;
         this.text = builder.text;
     }
 
@@ -29,7 +30,8 @@ public final class SendRequest implements WireValue {
 
     public Field<Bytes> bytes() { return bytes; }
     public Field<Boolean> paste() { return paste; }
-    public UInt64 surface() { return surface; }
+    public Field<UInt64> surface() { return surface; }
+    public Field<String> terminalId() { return terminalId; }
     public Field<String> text() { return text; }
 
     public static SendRequest fromWire(Object value) {
@@ -43,8 +45,14 @@ public final class SendRequest implements WireValue {
         if (!Wire.isMissing(rawPaste)) {
             builder.paste(Wire.bool(rawPaste, "SendRequest.paste"));
         }
-        Object rawSurface = Wire.required(object, "surface");
-        builder.surface(Wire.uint64(rawSurface, "SendRequest.surface"));
+        Object rawSurface = Wire.optional(object, "surface");
+        if (!Wire.isMissing(rawSurface)) {
+            builder.surface(rawSurface == null ? null : Wire.uint64(rawSurface, "SendRequest.surface"));
+        }
+        Object rawTerminalId = Wire.optional(object, "terminal_id");
+        if (!Wire.isMissing(rawTerminalId)) {
+            builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "SendRequest.terminal_id"));
+        }
         Object rawText = Wire.optional(object, "text");
         if (!Wire.isMissing(rawText)) {
             builder.text(rawText == null ? null : Wire.string(rawText, "SendRequest.text"));
@@ -58,6 +66,7 @@ public final class SendRequest implements WireValue {
         Wire.put(object, "bytes", bytes);
         Wire.put(object, "paste", paste);
         Wire.put(object, "surface", surface);
+        Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "text", text);
         return Collections.unmodifiableMap(object);
     }
@@ -65,11 +74,11 @@ public final class SendRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SendRequest that)) return false;
-        return Objects.equals(bytes, that.bytes) && Objects.equals(paste, that.paste) && Objects.equals(surface, that.surface) && Objects.equals(text, that.text);
+        return Objects.equals(bytes, that.bytes) && Objects.equals(paste, that.paste) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(text, that.text);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(bytes, paste, surface, text); }
+    public int hashCode() { return Objects.hash(bytes, paste, surface, terminalId, text); }
 
     @Override
     public String toString() { return "SendRequest" + toWire(); }
@@ -77,8 +86,8 @@ public final class SendRequest implements WireValue {
     public static final class Builder {
         private Field<Bytes> bytes = Field.omitted();
         private Field<Boolean> paste = Field.omitted();
-        private UInt64 surface;
-        private boolean surfaceSet;
+        private Field<UInt64> surface = Field.omitted();
+        private Field<String> terminalId = Field.omitted();
         private Field<String> text = Field.omitted();
 
         public Builder bytes(Bytes value) {
@@ -90,8 +99,11 @@ public final class SendRequest implements WireValue {
             return this;
         }
         public Builder surface(UInt64 value) {
-            this.surface = value;
-            this.surfaceSet = true;
+            this.surface = Field.ofNullable(value);
+            return this;
+        }
+        public Builder terminalId(String value) {
+            this.terminalId = Field.ofNullable(value);
             return this;
         }
         public Builder text(String value) {

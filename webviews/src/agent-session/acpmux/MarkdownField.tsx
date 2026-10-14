@@ -269,6 +269,15 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 latest.current.onCompositionChange?.(false);
                 return false;
               },
+              // A paste of only files (images) has no text for the field: the composer attaches them
+              // (its document paste listener). ProseMirror would move focus to a stand-in element
+              // for 50 ms to capture it, and the keys typed then came back stripped of spaces.
+              paste: (_view, event) => {
+                const data = event.clipboardData;
+                if (!data?.files.length || data.getData("text/plain") || data.getData("text/html")) return false;
+                event.preventDefault();
+                return true;
+              },
             },
             handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
             handlePaste: (editorView, _event, slice) =>

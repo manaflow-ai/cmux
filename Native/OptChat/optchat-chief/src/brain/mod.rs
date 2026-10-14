@@ -300,6 +300,8 @@ pub struct Settings {
     /// The turns' current TTL, shared with the compactor: its nodes take the
     /// same TTL on the same route.
     pub shared_ttl: crate::prompt::SharedTtl,
+    /// Reads the person's Home workspace for each turn (`home_view`); None: no block.
+    pub home_view: Option<crate::home_view::HomeView>,
 }
 
 /// The longest a turn waits for view lines that are still building

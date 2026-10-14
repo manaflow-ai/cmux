@@ -137,6 +137,11 @@
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
 .nt-cards[data-variant="list"] .nt-card-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* Capped only to leave a preview its room: a title alone runs to the time column (Leo 2026-10-13). */
+.nt-cards[data-variant="list"] .nt-card-title:not(:last-child) {
   flex: none;
   max-width: 45%;
 }
@@ -244,3 +249,14 @@
   width: 24px;
   height: 24px;
 }
+/* The style switch (StyleSwitch.tsx): the style names in one quiet row under the page, the current
+   one on a small fill that slides to a new pick. Out of the flow, in the pages' bottom padding, so
+   the pages lay out (and scroll) as without it. */
+.nt-style{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);margin:0;padding:0;border:0;min-width:0;font-family:system-ui;-webkit-font-smoothing:antialiased}
+.nt-style-options{position:relative;display:flex;gap:2px}
+.nt-style-mark{position:absolute;top:0;left:0;height:100%;border-radius:5px;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent);pointer-events:none}
+.nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out),width var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out)}
+.nt-style-option{position:relative;padding:3px 8px;border-radius:5px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default;transition:color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
+.nt-style-option:hover,.nt-style-option:has(:checked){color:var(--agent-text)}
+.nt-style-option:has(:focus-visible){outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent));outline-offset:-1px}
+@media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option{transition:none}}
