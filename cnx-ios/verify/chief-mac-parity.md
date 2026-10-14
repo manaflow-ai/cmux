@@ -141,3 +141,69 @@ avatar, name and trailing button at `ChiefSettingsView`, a native sheet:
     tinting over about 6 frames, the native `UISwitch` animation.
   - simctl cannot inject touches, so the tap itself is a hand check.
 - **Live:** see `## Live run` below.
+
+## Live run (2026-10-13)
+
+**Setup**
+
+- **Mac:** `cmux DEV cnx-chief-dev`, a real cmux-next app, fleet job
+  `f0a796f8d401e021b7579bd0`. It was built from `feat-cnx-ios-chieflive-mac`
+  (fafff32f), which is `feat-cnx-ios-machost` merged with this branch. It
+  bundles the new cnx-hostd.
+  - It ran on `mini-cmuxs-mac-mini-2` in the `cmux` GUI session.
+  - It signed in with the dev Stack test account from the DEBUG credential
+    file, and Settings > Mobile was on (`CMUX_NEXT_CONFIG_FILE`).
+  - The Chief home was `~/.cmux/chief/default` (owner
+    `cmux-chief-b902d10e`). The OptChat brain was already running there from
+    another DEV build.
+- **Phone:** simulator `cnx-chf2-ios26` (iOS 26.5, headless), Debug build,
+  signed in with the same account. The phone was pointed at that Mac. Taps
+  were real HID touches (`axe`).
+
+**Results**
+
+- **Channel:** hostd logged `channel opened service="chief"`. The phone
+  showed the Mac's own Chief conversation (`conv_01M4W6…`, `user_local` and
+  `agent_mux`, created by the Mac at 03:17Z). The phone created nothing.
+- **First message:** sent from the phone, it was Delivered, then Read by
+  Chief, with Chief's typing bubble. The brain started a real turn
+  (`turn.start` in its trace).
+  - The turn failed on the mini's inference gateway: "API Error: 503 no
+    accounts available", from the subrouter at 127.0.0.1:31415.
+  - Chief posted that failure into the conversation, and the phone showed
+    it.
+- **Settings:**
+  - The settings sheet loaded `chief.engine.get` from the brain: harness
+    Claude, effort Default (Medium), the codex model list (GPT-6.1 Sol and
+    others), and recent turns ("claude · error · 2m 57s").
+  - Picking Effort High, then Harness Codex, wrote the brain's `engine.json`
+    on the Mac (`{"harness":"codex","effort":"high"}`).
+  - The next message from the phone was answered by Chief on Codex: "Hi,
+    you're now on Codex." The phone showed the reply.
+- **Switches:** real taps on Hide Alerts and Send Read Receipts.
+  - Both values persisted (`cnx.chief.<conversation>.muted/.receipts`).
+  - The recording, frame by frame, shows the native iOS 26 switch animation:
+    the glass knob lifts, slides and settles while the track tints. It takes
+    about 25 frames, with no jump.
+- **Read receipts:** with receipts off, the owner's `user_local` cursor
+  still advanced. The op ledger shows it was set twice per message, by the
+  two Mac Homes (two DEV builds) that share this Chief and also act as
+  `user_local`. The live run cannot tell the phone apart from them. The unit
+  test `receiptsOffKeepsTheReadPositionOnThePhone` covers the phone side.
+- **Cleanup:** the brain's engine was restored with `chief.engine.set
+  harness/effort default` (`engine.json` is `{}` again). The app was quit,
+  `~/cnx-ios-e2e/chieflive` was removed, and the simulator was deleted.
+- **Evidence:** `verify/evidence/2026-10-13/chief-live/` (git-ignored):
+  `toggles.mp4`, `sheetA.png`, `codex-reply.png`, `settings-codex.png`,
+  `models.png`.
+
+**Not verified live**
+
+- **Release build:** the production Release build of the same ref (fleet job
+  `56b6e9cff7206595daa4174f`, `--release --production`) failed in a
+  `swift-frontend` crash while compiling `CmuxNextDesign` with whole-module
+  optimization on Xcode 26.6. That target is untouched here; it comes from
+  the machost/feat-cmux-next base. Release builds also do not start the
+  Chief brain.
+- **Alerts:** banners need the app off the Chief screen while a reply
+  arrives. They were not exercised live.
