@@ -16,12 +16,20 @@
 mod journey_support;
 
 use std::fs;
+use std::io::{BufRead as _, BufReader, Write as _};
+use std::net::TcpStream;
 use std::os::unix::fs::PermissionsExt as _;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::Command;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use journey_support::*;
-use serde_json::json;
+use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::{self, Message, client::IntoClientRequest};
+
+/// An app page's WebSocket origin (`cmux-page://cmux.<page>`).
+const PAGE_ORIGIN: &str = "cmux-page://cmux.home-channels";
 
 /// A short folder under /tmp (a socket path must stay under SUN_LEN),
 /// canonical (macOS's /tmp is a symlink): acpmux tells the install's channel
@@ -37,6 +45,11 @@ fn journey_root(tag: &str) -> (PathBuf, Cleanup) {
 /// A machine whose acpmux runs the outdated `fake` harness at
 /// `~/.local/bin/claude` (2.0.5; the newest is 2.0.9).
 fn machine(root: &Path) -> Machine {
+    machine_with(root, "")
+}
+
+/// [`machine`], whose updater first runs the shell of `before_update`.
+fn machine_with(root: &Path, before_update: &str) -> Machine {
     let dir = root.join("machine");
     for sub in ["home/work", "home/.local/bin", "home/.local/share/claude/versions", "acpmux"] {
         fs::create_dir_all(dir.join(sub)).unwrap();
@@ -50,7 +63,7 @@ fn machine(root: &Path) -> Machine {
     fs::write(
         &script,
         format!(
-            "#!/bin/sh\ncase \"$1\" in\n  --version) cat '{installed}' ;;\n  update) echo run >> '{runs}'; echo '2.0.9 (Claude Code)' > '{installed}'; echo updated ;;\n  *) FAKE_HARNESS_VERSION=\"$(cat '{installed}')\" exec python3 '{FAKE_AGENT}' \"$@\" ;;\nesac\n",
+            "#!/bin/sh\ncase \"$1\" in\n  --version) cat '{installed}' ;;\n  update) {before_update}echo run >> '{runs}'; echo '2.0.9 (Claude Code)' > '{installed}'; echo updated ;;\n  *) FAKE_HARNESS_VERSION=\"$(cat '{installed}')\" exec python3 '{FAKE_AGENT}' \"$@\" ;;\nesac\n",
             installed = installed.display(),
             runs = runs.display(),
         ),
@@ -206,4 +219,96 @@ fn agent_update_apply_of_an_unknown_harness_runs_nothing() {
     assert!(!machine.dir.join("update-runs").exists(), "an update ran");
     let bad = machine.rpc(json!({"id": 2, "cmd": "agent-update-plan", "ids": ["fake"]}));
     assert_eq!(bad["error_code"], "agent_update.bad_request", "{bad}");
+}
+
+/// A WebSocket client (an app page with the listener's credential) is not a
+/// trusted local connection: both verbs are refused and nothing runs.
+#[test]
+fn agent_update_refuses_a_websocket_client() {
+    let (root, _cleanup) = journey_root("aws");
+    let machine = machine(&root);
+    start_acpmux(&machine);
+    let opened = machine.rpc(json!({"id": 1, "cmd": "ws-listen", "allow_origin": PAGE_ORIGIN}));
+    assert_eq!(opened["ok"], true, "{opened}");
+    let mut name = machine.socket.file_name().unwrap().to_os_string();
+    name.push(".websocket.json");
+    let credential: Value =
+        serde_json::from_slice(&fs::read(machine.socket.with_file_name(name)).unwrap()).unwrap();
+    let url = credential["url"].as_str().unwrap();
+    let addr = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
+    let token = credential["token"].as_str().unwrap();
+    for request in [
+        json!({"id": 2, "cmd": "agent-update-plan"}),
+        json!({"id": 3, "cmd": "agent-update-apply", "ids": ["fake"], "continue_threads": true}),
+    ] {
+        let reply = over_websocket(addr, token, &request);
+        assert_eq!(reply["error_code"], "agent_update.not_trusted", "{reply}");
+    }
+    assert!(!machine.dir.join("update-runs").exists(), "a WebSocket apply ran the update");
+}
+
+/// One apply at a time: while an apply's updater runs, a second apply is
+/// `agent_update.busy` and runs nothing; the first then answers, and the
+/// slot is free again.
+#[test]
+fn agent_update_apply_is_busy_while_another_runs() {
+    let (root, _cleanup) = journey_root("abz");
+    // The updater says it started, then waits for the test to let it go.
+    let (started, gate) = (root.join("started"), root.join("gate"));
+    for fifo in [&started, &gate] {
+        let made = Command::new("mkfifo").arg(fifo).output().unwrap();
+        assert!(made.status.success(), "mkfifo: {}", String::from_utf8_lossy(&made.stderr));
+    }
+    let before =
+        format!("echo started > '{}'; cat '{}' > /dev/null; ", started.display(), gate.display());
+    let machine = machine_with(&root, &before);
+    start_acpmux(&machine);
+    let apply = json!({"id": 1, "cmd": "agent-update-apply", "ids": ["fake"]});
+    let stream = UnixStream::connect(&machine.socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+    let mut first = BufReader::new(stream);
+    writeln!(first.get_mut(), "{apply}").unwrap();
+    assert_eq!(fs::read_to_string(&started).unwrap().trim(), "started");
+
+    let second = machine.rpc(json!({"id": 2, "cmd": "agent-update-apply", "ids": ["fake"]}));
+    assert_eq!(second["error_code"], "agent_update.busy", "{second}");
+
+    fs::write(&gate, "go").unwrap();
+    let answer = loop {
+        let mut line = String::new();
+        assert_ne!(first.read_line(&mut line).unwrap(), 0, "the daemon closed the connection");
+        let message: Value = serde_json::from_str(&line).unwrap();
+        if message.get("event").is_none() {
+            break message;
+        }
+    };
+    assert_eq!(
+        answer["data"]["results"],
+        json!([{"id": "fake", "ok": true, "version": "2.0.9"}]),
+        "{answer}"
+    );
+    let again = machine.rpc(json!({"id": 3, "cmd": "agent-update-apply", "ids": ["fake"]}));
+    assert_eq!(again["ok"], true, "{again}");
+    let runs = fs::read_to_string(machine.dir.join("update-runs")).unwrap();
+    assert_eq!(runs.lines().count(), 1, "one update run");
+}
+
+/// Opens the daemon's WebSocket as an app page, presents `token` and sends
+/// `request`; its answer.
+fn over_websocket(addr: &str, token: &str, request: &Value) -> Value {
+    let stream = TcpStream::connect(addr).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    let mut handshake = format!("ws://{addr}/").into_client_request().unwrap();
+    handshake.headers_mut().insert("Origin", PAGE_ORIGIN.parse().unwrap());
+    let (mut socket, _) = tungstenite::client(handshake, stream).unwrap();
+    socket.send(Message::Text(json!({"auth": {"token": token}}).to_string().into())).unwrap();
+    socket.send(Message::Text(request.to_string().into())).unwrap();
+    loop {
+        if let Message::Text(text) = socket.read().unwrap() {
+            let value: Value = serde_json::from_str(&text).unwrap();
+            if value.get("event").is_none() && value["id"] == request["id"] {
+                return value;
+            }
+        }
+    }
 }

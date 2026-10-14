@@ -8400,7 +8400,7 @@ no harness and no thread: a plan never starts acpmux.
 
 `{id, cmd:"agent-update-apply", ids, continue_threads?}` updates the named
 harnesses (at most 64 ids) and answers
-`{results:[{id, ok, version?, error?}], threads_restarted, threads_after_turn}`.
+`{results:[{id, ok, version?, error?}], threads_restarted, threads_after_turn, threads_error?}`.
 acpmux checks its harnesses again, runs now the update of each named one that
 is still outdated (one at a time, each command once, whatever its
 auto-update choice), waits for it (each may take 15 minutes) and checks
@@ -8411,13 +8411,21 @@ without a run. With `continue_threads: true` every live chat (as counted by
 the plan) of a harness that ended `ok` then restarts its agent process on
 the installed version and resumes the same conversation: a chat between
 turns now (`threads_restarted`), a chat in a turn when that turn ends
-(`threads_after_turn`; the turn is never cancelled). When nothing listens on
-the acpmux socket the daemon starts acpmux as `agent-session-start` does
-(`agent_update.acpmux_unavailable` if it cannot). When the running acpmux is
-another build than this daemon's binary, or does not know the update, the
-daemon first hands it off to its own build: acpmux stops with its agents
-kept running (`cmux acp daemon shutdown --keep-agents`) and the binary's
-acpmux starts and adopts them. One apply runs at a time per daemon
+(`threads_after_turn`; the turn is never cancelled). When that restart
+fails the answer still carries `results`, with `threads_error` (a string
+saying why) and both counts 0; clients ignore the field when absent. When
+nothing listens on the acpmux socket the daemon starts acpmux as
+`agent-session-start` does (`agent_update.acpmux_unavailable` if it cannot).
+Only when the running acpmux does not know the update method (JSON-RPC
+-32601, a build from before it) does the daemon hand it off to the installed
+binary's build: acpmux stops with its agents kept running (`cmux acp daemon
+shutdown --keep-agents`) and the installed binary's acpmux starts, under the
+same lock as the daemon's other acpmux starts, and adopts them; if that
+acpmux does not answer or still does not know the method the apply is
+`agent_update.acpmux_unavailable`. A running acpmux of another build that
+knows the method is used as it is, so an apply never moves acpmux to an
+older build. The update call waits 15 minutes per named id plus a margin,
+at most two hours. One apply runs at a time per daemon
 (`agent_update.busy`); `agent_update.timeout` and `agent_update.refused`
 report an acpmux that did not answer or refused.
 

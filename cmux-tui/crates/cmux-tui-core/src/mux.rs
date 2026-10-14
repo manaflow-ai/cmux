@@ -719,10 +719,6 @@ pub struct Mux {
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
-    /// Update Everything's agent CLI updates (`agent-update-v1`,
-    /// server/agent_update.rs).
-    #[cfg(unix)]
-    pub(crate) agent_updates: crate::server::agent_update::AgentUpdates,
     /// A Cloud machine's agents' requests for files of the person's Mac
     /// (`access-request-v1`, server/agent_transfer/access_requests.rs).
     #[cfg(unix)]

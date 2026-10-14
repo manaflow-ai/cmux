@@ -16,18 +16,23 @@
 //!   peer and the Home Chief's. With nothing on the acpmux socket it answers
 //!   no harness and no thread: a plan never starts acpmux.
 //! - `agent-update-apply {ids, continue_threads}` answers `{results: [{id,
-//!   ok, version?, error?}], threads_restarted, threads_after_turn}`:
+//!   ok, version?, error?}], threads_restarted, threads_after_turn,
+//!   threads_error?}`:
 //!   acpmux's `_acpmux/harness/update {ids}` (each named harness that is
 //!   still outdated, updated now and waited for), then with
 //!   `continue_threads` its `_acpmux/sessions/restart_harness` for the
 //!   harnesses that ended up current: their chats restart on the new
 //!   version and resume the same conversation, a chat in a turn when the
-//!   turn ends. When acpmux is not running it is started (as
-//!   `agent-session-start` starts it). When the running acpmux is another
-//!   build than this binary's, or does not know the update method, it is
-//!   first handed off to this binary's build: stopped with its agents kept
-//!   running (`acp daemon shutdown --keep-agents`), then started again, so
-//!   the new acpmux adopts every agent. One apply at a time.
+//!   turn ends; when that restart fails the updates still answer, with
+//!   `threads_error` and no thread counted. When acpmux is not running it is
+//!   started (as `agent-session-start` starts it). Only when the running
+//!   acpmux does not know the update method (an acpmux from before it) is it
+//!   handed off to the installed binary's build: stopped with its agents kept
+//!   running (`acp daemon shutdown --keep-agents`), then started again under
+//!   the start lock, so the new acpmux adopts every agent; one that still
+//!   does not know the method is `agent_update.acpmux_unavailable`. Another
+//!   build that knows the method is used as it runs, so an apply never moves
+//!   acpmux to an older build. One apply at a time.
 //!
 //! Who: trusted local (Unix) connections only, as `agent-session-attach`.
 //! The remote relay (`remote_relay/gate.rs`, the conversations-only
@@ -43,16 +48,16 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
-use super::agent_session_attach::agent_session_start;
-use super::responses::send_response;
-use super::{MessageWriter, Response};
 use crate::mux::Mux;
+use crate::server::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
+use crate::server::agent_session_attach::agent_session_start;
+use crate::server::responses::send_response;
+use crate::server::{MessageWriter, Response};
 
 pub const AGENT_UPDATE_CAPABILITY: &str = "agent-update-v1";
 
-/// Replaces this machine's acpmux with the binary's own build, keeping its
-/// agents running for the new one to adopt (blocking).
+/// Replaces this machine's acpmux with the installed binary's build, keeping
+/// its agents running for the new one to adopt (blocking).
 pub type AcpmuxHandoff = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 
 const PLAN: &str = "agent-update-plan";
@@ -63,18 +68,21 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 /// acpmux's first health check runs every harness's `--version` and sign-in
 /// check.
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(60);
-/// Each updater may run 15 minutes (acpmux `harness_health/auto.rs`).
-const UPDATE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// Each updater may run 15 minutes (acpmux `harness_health/auto.rs`), one
+/// after another; a margin for acpmux's own checks around them, and a cap.
+const UPDATE_PER_ID: Duration = Duration::from_secs(15 * 60);
+const UPDATE_MARGIN: Duration = Duration::from_secs(5 * 60);
+const UPDATE_CAP: Duration = Duration::from_secs(2 * 60 * 60);
 /// Every idle chat's harness spawns and loads its conversation again.
 const RESTART_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// Programs that raise rights (acpmux `harness_health/auto.rs` ELEVATING).
 const ELEVATING: [&str; 4] = ["sudo", "doas", "su", "pkexec"];
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
-/// This binary's acpmux build and its handoff, and whether an apply runs.
+/// The binary's acpmux handoff, and whether an apply runs.
 #[derive(Default)]
 pub(crate) struct AgentUpdates {
-    handoff: Mutex<Option<(String, AcpmuxHandoff)>>,
+    handoff: Mutex<Option<AcpmuxHandoff>>,
     applying: AtomicBool,
 }
 
@@ -83,7 +91,7 @@ struct ApplySlot(Arc<Mux>);
 
 impl Drop for ApplySlot {
     fn drop(&mut self) {
-        self.0.agent_updates.applying.store(false, Ordering::Release);
+        self.0.agent_transfers.updates.applying.store(false, Ordering::Release);
     }
 }
 
@@ -157,14 +165,14 @@ impl Failure {
             LinkError::Closed => Self::AcpmuxUnavailable,
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Busy,
-            LinkError::Rpc(..) => Self::Refused,
+            LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
         }
     }
 }
 
 /// Handles an `agent-update-*` frame of a local connection; `None` for any
 /// other frame. Remote-relay connections never get here.
-pub(super) fn try_handle(
+pub(in crate::server) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
     message: &str,
@@ -202,7 +210,7 @@ pub(super) fn try_handle(
     let slot = match verb {
         Verb::Plan => None,
         Verb::Apply(_) => {
-            if mux.agent_updates.applying.swap(true, Ordering::AcqRel) {
+            if mux.agent_transfers.updates.applying.swap(true, Ordering::AcqRel) {
                 return Some(reply(writer, id, Err(Failure::Busy)));
             }
             Some(ApplySlot(mux.clone()))
@@ -339,27 +347,26 @@ fn is_chief(summary: &Value) -> bool {
 // MARK: Apply
 
 fn apply(mux: &Arc<Mux>, socket: &Path, params: ApplyParams) -> Result<Value, Failure> {
-    let link = agent_session_start::connect(mux, socket).map_err(|_| Failure::AcpmuxUnavailable)?;
-    let handoff = mux.agent_updates.handoff.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let (mut link, mut handed) = (link, false);
-    if let Some((build, run)) = &handoff {
-        let status = link.call("_acpmux/status", json!({}), CALL_TIMEOUT).map_err(Failure::of)?;
-        if status.get("build").and_then(Value::as_str) != Some(build.as_str()) {
-            link = hand_off(link, socket, run)?;
-            handed = true;
-        }
-    }
+    let mut link =
+        agent_session_start::connect(mux, socket).map_err(|_| Failure::AcpmuxUnavailable)?;
+    let timeout = update_timeout(params.ids.len());
     let ids = json!({"ids": params.ids});
-    let mut answer = link.call("_acpmux/harness/update", ids.clone(), UPDATE_TIMEOUT);
-    // An acpmux from before the update method (acpmux `RpcError::method_not_found`).
-    let unknown = matches!(&answer, Err(LinkError::Rpc(message, _))
-        if message.starts_with("Method not found"));
-    if unknown
-        && !handed
-        && let Some((_, run)) = &handoff
-    {
-        link = hand_off(link, socket, run)?;
-        answer = link.call("_acpmux/harness/update", ids, UPDATE_TIMEOUT);
+    let mut answer = link.call("_acpmux/harness/update", ids.clone(), timeout);
+    // Only an acpmux from before the update method is handed off: one of
+    // another build that knows it is used as it runs (never a downgrade).
+    if matches!(answer, Err(LinkError::MethodNotFound(_))) {
+        let handoff =
+            mux.agent_transfers.updates.handoff.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let run = handoff.ok_or(Failure::AcpmuxUnavailable)?;
+        // The link closes before the old acpmux stops.
+        link.close();
+        link = agent_session_start::restart_with(mux, socket, &*run)
+            .ok_or(Failure::AcpmuxUnavailable)?;
+        answer = link.call("_acpmux/harness/update", ids, timeout);
+        // The restarted acpmux must know the method.
+        if matches!(answer, Err(LinkError::MethodNotFound(_))) {
+            return Err(Failure::AcpmuxUnavailable);
+        }
     }
     let answer = answer.map_err(Failure::of)?;
     let results: Vec<Value> = answer
@@ -379,48 +386,37 @@ fn apply(mux: &Arc<Mux>, socket: &Path, params: ApplyParams) -> Result<Value, Fa
         .collect();
     let current: Vec<&Value> =
         results.iter().filter(|result| result["ok"] == true).map(|result| &result["id"]).collect();
-    let (mut restarted, mut after_turn) = (0, 0);
+    let mut out = json!({"results": results, "threads_restarted": 0, "threads_after_turn": 0});
     if params.continue_threads && !current.is_empty() {
-        let moved = link
-            .call(
-                "_acpmux/sessions/restart_harness",
-                json!({"harnesses": current}),
-                RESTART_TIMEOUT,
-            )
-            .map_err(Failure::of)?;
-        restarted = moved["restarted"].as_u64().unwrap_or(0);
-        after_turn = moved["after_turn"].as_u64().unwrap_or(0);
+        // The updates happened: a restart that fails is reported beside them.
+        match link.call(
+            "_acpmux/sessions/restart_harness",
+            json!({"harnesses": current}),
+            RESTART_TIMEOUT,
+        ) {
+            Ok(moved) => {
+                out["threads_restarted"] = json!(moved["restarted"].as_u64().unwrap_or(0));
+                out["threads_after_turn"] = json!(moved["after_turn"].as_u64().unwrap_or(0));
+            }
+            Err(error) => out["threads_error"] = json!(Failure::of(error).message()),
+        }
     }
-    Ok(json!({
-        "results": results,
-        "threads_restarted": restarted,
-        "threads_after_turn": after_turn,
-    }))
+    Ok(out)
 }
 
-/// Stops the running acpmux with its agents kept and starts this binary's
-/// build, which adopts them; a link to the new one.
-fn hand_off(
-    link: Arc<AcpmuxLink>,
-    socket: &Path,
-    run: &AcpmuxHandoff,
-) -> Result<Arc<AcpmuxLink>, Failure> {
-    // Dropping the link closes it before the old acpmux stops.
-    drop(link);
-    run().map_err(|error| {
-        eprintln!("cmux-tui: acpmux handoff for an agent update failed: {error}");
-        Failure::AcpmuxUnavailable
-    })?;
-    AcpmuxLink::connect(socket, |_| {}).map_err(|_| Failure::AcpmuxUnavailable)
+/// The update call's bound for `ids` updaters run one after another.
+fn update_timeout(ids: usize) -> Duration {
+    let count = u32::try_from(ids.max(1)).unwrap_or(u32::MAX);
+    UPDATE_PER_ID.saturating_mul(count).saturating_add(UPDATE_MARGIN).min(UPDATE_CAP)
 }
 
 impl Mux {
-    /// This binary's acpmux build (acpmux `BUILD`) and how it hands the
-    /// machine's acpmux off to it (`cmux acp daemon shutdown --keep-agents`,
-    /// then `cmux acp daemon start`). Without one an apply uses the acpmux
-    /// that runs, whatever its build.
-    pub fn set_acpmux_handoff(&self, handoff: Option<(String, AcpmuxHandoff)>) {
-        *self.agent_updates.handoff.lock().unwrap_or_else(|e| e.into_inner()) = handoff;
+    /// How the machine's acpmux is handed off to the installed binary's
+    /// build (`cmux acp daemon shutdown --keep-agents`, then `cmux acp daemon
+    /// start`) when it does not know the update method. Without one such an
+    /// acpmux is `agent_update.acpmux_unavailable`.
+    pub fn set_acpmux_handoff(&self, handoff: Option<AcpmuxHandoff>) {
+        *self.agent_transfers.updates.handoff.lock().unwrap_or_else(|e| e.into_inner()) = handoff;
     }
 
     /// True when the daemon serves `agent-update-v1`: as attach, an acpmux

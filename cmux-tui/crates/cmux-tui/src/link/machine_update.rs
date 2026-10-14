@@ -13,7 +13,10 @@
 //!    acpmux configured, is not told apart: there is no version order to
 //!    compare yet.) With `--to-bundled` (Update Everything, cx-1mbnu) any
 //!    machine whose daemon reports another build than this client's own (or
-//!    none) is updated, so every machine runs the build the app bundles. It
+//!    none) is updated, so every machine runs the build the app bundles.
+//!    Two apps of different builds that share a machine therefore each move
+//!    it to their own build, also back to an older one; accepted, as Update
+//!    Everything only runs when a person asks for it in that app. It
 //!    must serve `fs-v1` and `detached-terminals-v1`, and run the daemon from
 //!    `<home>/.cmux/bin/cmux-tui`, the binary its supervisor restarts.
 //! 2. The new build is this client's own Linux build, pinned by the signed
@@ -106,7 +109,8 @@ pub(super) fn run(args: &[String]) -> i32 {
 }
 
 /// `to_bundled`: update whenever the machine runs another build than this
-/// client's own, not only when it lacks one of [`NEEDED`].
+/// client's own, not only when it lacks one of [`NEEDED`] (also to an older
+/// build: two apps that share a machine each move it to their own).
 fn update(socket: &Path, to_bundled: bool) -> Result<Value, Failed> {
     let before = machine_gate::identify(socket)
         .ok_or_else(|| Failed::new("machine_unreachable", "the machine daemon did not answer"))?;

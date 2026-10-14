@@ -368,8 +368,6 @@ impl Mux {
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]
-            agent_updates: Default::default(),
-            #[cfg(unix)]
             access_requests: Default::default(),
             activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
