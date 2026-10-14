@@ -406,23 +406,34 @@ def first_trigger_since_dispatch(runs: list[dict], at: dt.datetime) -> dt.dateti
     return min(triggers, default=at)
 
 
-def superseded(runs: list[dict], run_id: int | str | None) -> bool:
-    """A newer pull_request or push run of the workflow exists, and it takes over the wait.
-    The older run then exits 0: a cancelled run would read red on its pull request."""
+def superseded(runs: list[dict], run_id: int | str | None, repo: str | None = None,
+               page: int = 60) -> bool:
+    """A newer pull_request or push run whose debounce job runs exists, and it takes over the wait.
+    The older run then exits 0: a cancelled run would read red on its pull request. A fork's run
+    or a next-batch/ head's skips the job (the workflow's `if`), so it never takes over."""
     try:
         mine = int(run_id or 0)
     except ValueError:
         return False
-    if not any(run.get("id") == mine for run in runs):
-        return False  # this run is not listed yet, so nothing newer is either
-    return any(run.get("event") in {"pull_request", "push"} and (run.get("id") or 0) > mine for run in runs)
+
+    def waits(run: dict) -> bool:
+        head = (run.get("head_repository") or {}).get("full_name") or repo
+        return (run.get("event") in {"pull_request", "push"} and head == repo
+                and not str(run.get("head_branch") or "").startswith("next-batch/"))
+
+    ids = [run.get("id") or 0 for run in runs]
+    if mine not in ids:
+        # a full listing that no longer reaches this run holds `page` newer ones; a shorter one
+        # means this run is not listed yet, so nothing newer is either
+        return len(runs) >= page and mine < min(ids)
+    return any(waits(run) and (run.get("id") or 0) > mine for run in runs)
 
 
 def cmd_debounce(args: argparse.Namespace) -> int:
     gh = GitHub(args.repo)
     me = os.environ.get("GITHUB_RUN_ID")
     runs = gh.runs(WORKFLOW, "per_page=60")
-    if superseded(runs, me):
+    if superseded(runs, me, args.repo):
         log("a newer event's run waits instead; nothing to do")
         return 0
     at = now()
@@ -430,7 +441,7 @@ def cmd_debounce(args: argparse.Namespace) -> int:
     wait = debounce_wait(at, first)
     log(f"first event since the last batch at {first.isoformat()}; waiting {wait}s for quiet")
     time.sleep(wait)
-    if superseded(gh.runs(WORKFLOW, "per_page=60"), me):
+    if superseded(gh.runs(WORKFLOW, "per_page=60"), me, args.repo):
         log("an event arrived during the wait; its run dispatches instead")
         return 0
     gh.dispatch(WORKFLOW, BASE, {"mode": "batch", "reason": args.reason or "debounced events"})
