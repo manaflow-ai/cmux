@@ -385,7 +385,14 @@ export const PENDING_PREFIX = "pending:";
 /** My pending sends of one conversation as messages after the window (seq after `afterSeq`), so
  * the timeline and the thread tree place them like owner messages. */
 export function pendingMessages(
-  pending: readonly { key: string; conversation: string; text: string; threadRoot?: string; replyTo?: string; createdAt: number }[],
+  pending: readonly {
+    key: string;
+    conversation: string;
+    text: string;
+    threadRoot?: string;
+    replyTo?: string;
+    createdAt: number;
+  }[],
   conversation: string | undefined,
   me: string | undefined,
   afterSeq: number,
