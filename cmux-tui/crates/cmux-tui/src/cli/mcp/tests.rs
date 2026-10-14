@@ -768,7 +768,12 @@ fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
         "the chat draws the call; no owner is asked"
     );
 
-    for arguments in [json!({"html": "  "}), json!({}), json!({"html": page, "url": "x"})] {
+    for arguments in [
+        json!({"html": "  "}),
+        json!({}),
+        json!({"html": page, "url": "x"}),
+        json!({"html": page, "title": "t".repeat(201)}),
+    ] {
         let refused = call(&mut server, "render", arguments.clone());
         assert_eq!(refused["isError"], true, "{arguments}");
         assert_eq!(refused["structuredContent"]["state"], "not_run");

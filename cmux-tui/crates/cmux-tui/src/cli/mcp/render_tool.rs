@@ -10,8 +10,10 @@
 use serde_json::{Map, Value, json};
 
 pub(super) const NAME: &str = "render";
-/// The largest page the tool takes.
+/// The largest page the tool takes, in UTF-8 bytes.
 const MAX_HTML_BYTES: usize = 1 << 20;
+/// The longest card heading, in characters.
+const MAX_TITLE_CHARS: usize = 200;
 
 pub(super) fn descriptor() -> Value {
     json!({
@@ -23,8 +25,8 @@ pub(super) fn descriptor() -> Value {
             "additionalProperties": false,
             "required": ["html"],
             "properties": {
-                "html": {"type": "string", "minLength": 1, "maxLength": MAX_HTML_BYTES},
-                "title": {"type": "string"}
+                "html": {"type": "string", "minLength": 1, "description": "At most 1 MiB of UTF-8."},
+                "title": {"type": "string", "maxLength": MAX_TITLE_CHARS}
             }
         },
         "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
@@ -46,6 +48,9 @@ pub(super) fn receipt(arguments: &Map<String, Value>) -> Result<Value, String> {
     }
     let title = match arguments.get("title") {
         None | Some(Value::Null) => None,
+        Some(Value::String(title)) if title.chars().count() > MAX_TITLE_CHARS => {
+            return Err(format!("render title is longer than {MAX_TITLE_CHARS} characters"));
+        }
         Some(Value::String(title)) => Some(title.trim()).filter(|title| !title.is_empty()),
         Some(_) => return Err("render title must be a string".into()),
     };
