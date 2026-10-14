@@ -142,8 +142,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${chat}`);
     return page;
   }
-  const state = (page: Page) =>
-    page.evaluate(() => (window as any).cmuxAcpmuxDebug.chatState() as Record<string, any>);
+  const state = (page: Page) => page.evaluate(() => (window as any).cmuxAcpmuxDebug.chatState() as Record<string, any>);
 
   test("a chat opens after the newest page of a long session list, and the rest arrives behind it", async () => {
     holdPages();
@@ -177,9 +176,13 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     );
     release();
 
-    await page.waitForFunction((count) => (window as any).cmuxAcpmuxDebug.chatState().sessions.length >= count, COUNT - 1, {
-      timeout: 60_000,
-    });
+    await page.waitForFunction(
+      (count) => (window as any).cmuxAcpmuxDebug.chatState().sessions.length >= count,
+      COUNT - 1,
+      {
+        timeout: 60_000,
+      },
+    );
     await page.waitForTimeout(300);
     const final = await state(page);
     const ids: string[] = final.sessions.map((session: { sessionId: string }) => session.sessionId);

@@ -32,6 +32,7 @@ import { translate } from "./i18n";
 import { experimentArm } from "../../experiments/experiment";
 import { sessionOffer as sessionOfferExperiment } from "./offer/sessionOffer.experiment";
 import { errorMessage } from "./transportErrors";
+import { SessionPager } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
@@ -539,6 +540,8 @@ export class AcpmuxDirectClient {
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
   private sessions: Session[] = [];
+  /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
+  private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
   private selectedSessionId?: string;
@@ -805,8 +808,14 @@ export class AcpmuxDirectClient {
             .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
             .filter((peer: string | undefined): peer is string => Boolean(peer))
         : [];
-      const watched = await this.request("_acpmux/watch", { enabled: true });
-      this.sessions = this.reread(watched?.sessions);
+      const first = await this.sessionPages.first();
+      this.sessions = first.sessions;
+      let laterPages = first.next;
+      if (laterPages && this.selectedSessionId && !this.holdsSession(this.selectedSessionId)) {
+        // A linked chat older than the first page: read on before calling it missing.
+        await this.sessionPages.rest(laterPages, () => this.sessions, this.addSessions);
+        laterPages = undefined;
+      }
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         // A linked session the daemon lacks is refused, never replaced by the most recent chat.
         if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
@@ -839,6 +848,7 @@ export class AcpmuxDirectClient {
         sessions: this.sessions.length,
       });
       this.emit("connected");
+      if (laterPages) void this.readLaterSessions(laterPages);
     } catch (error) {
       this.wire.lifecycle("connect failed", {
         message: error instanceof Error ? error.message : String(error),
@@ -1008,8 +1018,13 @@ export class AcpmuxDirectClient {
   /// A selection made while the request was out is newer than the list.
   private async refreshSessions(): Promise<void> {
     const generation = this.selectionGeneration;
-    const watched = await this.request("_acpmux/watch", { enabled: true });
-    this.sessions = this.reread(watched?.sessions);
+    const first = await this.sessionPages.first();
+    let list = first.sessions;
+    const add = (more: Session[]) => {
+      list = [...list, ...more];
+    };
+    if (first.next && !(await this.sessionPages.rest(first.next, () => list, add))) return;
+    this.sessions = list;
     const missing =
       this.selectedSessionId !== undefined &&
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
@@ -1029,10 +1044,19 @@ export class AcpmuxDirectClient {
     if (this.selectedSessionId) void this.attach(this.selectedSessionId, generation).catch(() => undefined);
   }
 
-  /// A full session list from `_acpmux/watch`. acpmux owns `unread` (cx-n8ou): the pane only
-  /// tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
-  private reread(sessions: Session[] | undefined): Session[] {
-    return (sessions ?? []).filter((session) => session.sessionId);
+  /// The pages after the first, read once the chat is open. acpmux owns `unread` (cx-n8ou): the
+  /// pane only tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
+  private async readLaterSessions(cursor: string): Promise<void> {
+    await this.sessionPages.rest(cursor, () => this.sessions, this.addSessions).catch(() => undefined);
+  }
+
+  private addSessions = (more: Session[]): void => {
+    this.sessions = [...this.sessions, ...more];
+    if (this.hasConnected) this.emit("session changed");
+  };
+
+  private holdsSession(sessionId: string): boolean {
+    return this.sessions.some((session) => session.sessionId === sessionId);
   }
 
   /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
@@ -1311,6 +1335,7 @@ export class AcpmuxDirectClient {
   private sessionChanged(params: any): void {
     const session = params?.session;
     if (params?.kind === "purged" && session?.sessionId) {
+      this.sessionPages.purgedSession(session.sessionId);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
         this.selectFallbackSession("session purged");
@@ -2633,6 +2658,7 @@ export class AcpmuxDirectClient {
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
     this.closed = true;
+    this.sessionPages.stop();
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
