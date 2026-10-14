@@ -47,7 +47,7 @@ public struct AppRoot: View {
             switch model.phase {
             case .restoring, .signedOut:
                 SignInView(controller: model.signIn, initialMode: Self.debugSignInMode, initialEmail: Self.debugSignInEmail,
-                           notice: model.signInNotice)
+                           notice: model.signInNotice, appearance: model.preferences.appearance.colorScheme)
                     .transition(SignInView.exitTransition)
                     .zIndex(1)
             case .loadingHosts:
@@ -67,6 +67,9 @@ public struct AppRoot: View {
                 .transition(.opacity)
             }
         }
+        // Phase changes cross-fade two translucent roots; paint the app
+        // background under them so the window's black never shows through.
+        .background(Color.cn(\.background).ignoresSafeArea())
         // Leaving sign-in uses its longer exit; other phase changes fade.
         .animation(model.phase == .restoring || model.phase == .signedOut ? CNTheme.shared.motion.fade : SignInView.exitAnimation,
                    value: model.phase)
