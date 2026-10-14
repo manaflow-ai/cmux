@@ -6,9 +6,9 @@
 /// A workspace is the user's to name while it has a title or a name the
 /// daemon did not give (`NewWorkspaceName.isDefaultWorkspaceName`): the rule
 /// never names it then.
-nonisolated struct WorkspaceAutoName: Equatable {
+public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// What the rule reads of the workspace's front tab.
-    enum Front: Equatable {
+    public enum Front: Equatable, Sendable {
         /// A browser tab: its page title as the sidebar showed it before
         /// (the tab's user name, else its page title, else its host).
         /// `offTheRecord` for an incognito page, whose title never reaches
@@ -25,13 +25,18 @@ nonisolated struct WorkspaceAutoName: Equatable {
     }
 
     /// `workspaces.autoName`: off turns both variants off.
-    var enabled: Bool
-    var variant: WorkspaceAutoNameVariant
+    public var enabled: Bool
+    public var variant: WorkspaceAutoNameVariant
+
+    public init(enabled: Bool, variant: WorkspaceAutoNameVariant) {
+        self.enabled = enabled
+        self.variant = variant
+    }
 
     /// The name the sidebar row shows for a workspace named `name` (titled
     /// `title`) whose front tab is `front`; nil keeps the workspace's own
     /// name. Both variants show it.
-    func label(name: String, title: String?, front: Front?) -> String? {
+    public func label(name: String, title: String?, front: Front?) -> String? {
         guard enabled, !Self.isUserNamed(name: name, title: title), let front else { return nil }
         return Self.derived(front)
     }
@@ -42,7 +47,7 @@ nonisolated struct WorkspaceAutoName: Equatable {
     /// workspace is never renamed, so two Macs never race). `alreadyRenamed`:
     /// this app renamed (or asked to rename) the workspace before, so it
     /// never does again.
-    func persistedName(name: String, title: String?, front: Front?, isLocalMachine: Bool, alreadyRenamed: Bool) -> String? {
+    public func persistedName(name: String, title: String?, front: Front?, isLocalMachine: Bool, alreadyRenamed: Bool) -> String? {
         guard enabled, variant == .persist, isLocalMachine, !alreadyRenamed, !Self.isUserNamed(name: name, title: title) else { return nil }
         // Only a chat's real title lasts: a first prompt, a terminal's title (`vim foo`, a folder) or a
         // page's title is transient, so those stay live labels.
@@ -52,17 +57,17 @@ nonisolated struct WorkspaceAutoName: Equatable {
 
     /// Whether a rename decided earlier may still go out now that the
     /// workspace is named `currentName` and titled `currentTitle`.
-    func confirmsRename(currentName: String, currentTitle: String?) -> Bool {
+    public func confirmsRename(currentName: String, currentTitle: String?) -> Bool {
         !Self.isUserNamed(name: currentName, title: currentTitle)
     }
 
     /// Whether the user named the workspace: a title, or a name the daemon did not give.
-    static func isUserNamed(name: String, title: String?) -> Bool {
+    public static func isUserNamed(name: String, title: String?) -> Bool {
         !(title ?? "").isEmpty || !NewWorkspaceName.isDefaultWorkspaceName(name)
     }
 
     /// The name `front` gives, one line and at most `NewWorkspaceName.maxLength` characters.
-    static func derived(_ front: Front) -> String? {
+    public static func derived(_ front: Front) -> String? {
         switch front {
         case let .browser(title, _): NewWorkspaceName.clean(title)
         case let .chat(userName, title, _): NewWorkspaceName.clean(userName) ?? NewWorkspaceName.clean(title)

@@ -5,28 +5,39 @@ import Foundation
 /// that was dragged out"). Pure, so every case is tested; the one shared
 /// path `TabMoves.toNewWorkspace` (drag, tear-off, palette, CLI, Move Pane)
 /// and `TabGroupMoves.toNewWorkspace` apply it.
-nonisolated enum NewWorkspaceName {
+public nonisolated struct NewWorkspaceName {
+    public init() {}
+
     /// What the rule reads from one tab.
-    struct Tab: Equatable {
-        enum Kind: Equatable { case terminal, browser, remoteTerminal }
-        var kind: Kind
+    public struct Tab: Equatable, Sendable {
+        public enum Kind: Equatable, Sendable { case terminal, browser, remoteTerminal }
+        public var kind: Kind
         /// The name the user gave the tab.
-        var userName: String?
+        public var userName: String?
         /// The terminal's live title (OSC 0/2), or the browser record's title.
-        var title: String?
+        public var title: String?
         /// A browser's live page title (the page the app renders).
-        var pageTitle: String?
-        var url: String?
-        var cwd: String?
+        public var pageTitle: String?
+        public var url: String?
+        public var cwd: String?
+
+        public init(kind: Kind, userName: String?, title: String?, pageTitle: String?, url: String?, cwd: String?) {
+            self.kind = kind
+            self.userName = userName
+            self.title = title
+            self.pageTitle = pageTitle
+            self.url = url
+            self.cwd = cwd
+        }
     }
 
-    static let maxLength = 80
+    public static let maxLength = 80
 
     /// The name for a workspace made from `tab`, or nil to keep the
     /// daemon's default. Order: the tab's user name, then a browser's page
     /// title (else its host), or a terminal's live title (a bare shell name
     /// such as "zsh" reads as the directory instead), then the directory.
-    static func forTab(_ tab: Tab) -> String? {
+    public static func forTab(_ tab: Tab) -> String? {
         if let name = clean(tab.userName) { return name }
         switch tab.kind {
         case .browser:
@@ -46,7 +57,7 @@ nonisolated enum NewWorkspaceName {
     /// The name for a workspace made from the last tab of another one
     /// (coordinator decision 2026-10-03): the old workspace's name when the
     /// user named it, else the tab's name.
-    static func forLastTab(workspaceName: String, workspaceTitle: String?, tab: Tab) -> String? {
+    public static func forLastTab(workspaceName: String, workspaceTitle: String?, tab: Tab) -> String? {
         if let title = clean(workspaceTitle) { return title }
         if !isDefaultWorkspaceName(workspaceName), let name = clean(workspaceName) { return name }
         return forTab(tab)
@@ -55,7 +66,7 @@ nonisolated enum NewWorkspaceName {
     /// True for a name the daemon gave (`workspace-N`, its default).
     /// A user could name a workspace `workspace-7` by hand; the daemon
     /// records no "named by the user" flag, so that name reads as default.
-    static func isDefaultWorkspaceName(_ name: String) -> Bool {
+    public static func isDefaultWorkspaceName(_ name: String) -> Bool {
         guard name.hasPrefix("workspace-") else { return false }
         let number = name.dropFirst("workspace-".count)
         return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
@@ -63,7 +74,7 @@ nonisolated enum NewWorkspaceName {
 
     /// The name for a workspace made from a tab group: its name, else its
     /// first tab's.
-    static func forGroup(name: String?, firstTab: Tab?) -> String? {
+    public static func forGroup(name: String?, firstTab: Tab?) -> String? {
         clean(name) ?? firstTab.flatMap(forTab)
     }
 
@@ -77,7 +88,7 @@ nonisolated enum NewWorkspaceName {
 
     /// One line, trimmed, at most `maxLength` characters; nil when empty
     /// (`WorkspaceAutoName` names a workspace with it too).
-    static func clean(_ raw: String?) -> String? {
+    public static func clean(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let line = raw.split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         return line.isEmpty ? nil : String(line.prefix(maxLength))

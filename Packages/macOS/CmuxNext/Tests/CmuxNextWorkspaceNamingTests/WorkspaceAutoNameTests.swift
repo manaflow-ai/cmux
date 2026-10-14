@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+@testable import CmuxNextWorkspaceNaming
 import Testing
 
 /// A workspace the user never named takes its front tab's name (hq#1957):
