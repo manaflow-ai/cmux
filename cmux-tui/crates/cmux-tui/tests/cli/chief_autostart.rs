@@ -14,11 +14,22 @@ args = sys.argv[1:]
 sock_path = args[args.index("--daemon-socket") + 1]
 home = args[args.index("--mux-home") + 1]
 os.makedirs(os.path.join(home, "state"), exist_ok=True)
-lock = open(os.path.join(home, "state", "host.lock"), "a+")
-try:
-    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except OSError:
-    sys.exit(0)
+inherited = os.environ.get("FAKE_BRAIN_LOCK_FD")
+if inherited:
+    # The app's restart of a brain that exited (FAKE_BRAIN_RESTART): the
+    # lock passes to the new brain with no gap.
+    lock = os.fdopen(int(inherited), "a+")
+else:
+    lock = open(os.path.join(home, "state", "host.lock"), "a+")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit(0)
+# The holder's pid first, as optchat-chief's lock.rs writes it.
+lock.seek(0)
+lock.truncate()
+lock.write("%d\n1\nflock\n" % os.getpid())
+lock.flush()
 with open(os.path.join(home, "brain-starts.log"), "a") as log:
     log.write("%d\n" % os.getpid())
 # The names (never the values) of the environment the brain got.
@@ -28,6 +39,19 @@ with open(os.path.join(home, "brain.pid"), "w") as pid:
     pid.write(str(os.getpid()))
 with open(os.path.join(home, "daemon-socket"), "w") as where:
     where.write(sock_path)
+if inherited:
+    while True:
+        time.sleep(1)
+if os.environ.get("FAKE_BRAIN_RESTART") == "1":
+    import signal, subprocess
+    # The app (ChiefBrainWatch) starts a new brain when one exits, also
+    # after a SIGTERM; this stand-in does it once.
+    def restart(signum, frame):
+        env = dict(os.environ, FAKE_BRAIN_LOCK_FD=str(lock.fileno()))
+        subprocess.Popen([sys.executable] + sys.argv, env=env, pass_fds=(lock.fileno(),),
+                         start_new_session=True)
+        os._exit(0)
+    signal.signal(signal.SIGTERM, restart)
 conn = socket.socket(socket.AF_UNIX)
 conn.connect(sock_path)
 reader = conn.makefile("r")
@@ -332,4 +356,35 @@ fn a_cli_started_brain_gets_the_harness_environment_an_app_started_one_gets() {
         assert!(names.contains(&wanted), "{wanted} did not reach the brain: {names:?}");
     }
     assert!(!names.contains(&"NOT_FOR_THE_BRAIN"), "only the allowlist passes");
+}
+
+/// cosmic-gray 2026-10-14 (cg-steward): `cmux chief shutdown` timed out after
+/// 40 s and left the session daemon running, so the Chief kept its old code
+/// across an upgrade. The app restarts a brain that exits, so the home lock
+/// never came free: the CLI waited for the lock, gave up, and never stopped
+/// the daemon. Shutdown stops the brain it signalled, the one started in its
+/// place, and the session daemon.
+#[test]
+fn chief_shutdown_stops_a_restarted_brain_and_the_session_daemon() {
+    let sandbox = Sandbox::new("chief-shutdown-restart");
+    let home = sandbox.isolated();
+    let home_arg = home.to_str().unwrap();
+    let restart = [("FAKE_BRAIN_RESTART", "1")];
+    let output = sandbox.chief_with(&["--chief-home", home_arg, "-p", "hello"], &restart);
+    assert_success(&output);
+    let socket = PathBuf::from(fs::read_to_string(home.join("daemon-socket")).unwrap());
+    assert!(UnixStream::connect(&socket).is_ok(), "the session daemon runs");
+
+    let shutdown = sandbox.chief_with(&["shutdown", "--chief-home", home_arg], &restart);
+    let brains: Vec<u32> = fs::read_to_string(home.join("brain-starts.log"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .collect();
+    let brains_gone = wait_for_processes_to_exit(&brains, Duration::from_secs(10));
+    let daemon_gone = UnixStream::connect(&socket).is_err();
+    assert_success(&shutdown);
+    assert_eq!(brains.len(), 2, "the stand-in restarted once: {brains:?}");
+    assert!(brains_gone, "both brains stopped: {brains:?}");
+    assert!(daemon_gone, "the session daemon stopped; stderr: {}", stderr_of(&shutdown));
 }
