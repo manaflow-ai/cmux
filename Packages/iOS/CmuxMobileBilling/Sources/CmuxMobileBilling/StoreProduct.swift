@@ -15,6 +15,10 @@ public struct StoreProduct: Sendable, Equatable, Hashable, Identifiable {
     public let displayPrice: String
     /// The localized renewal period, such as `month`; nil when unknown.
     public let periodUnitName: String?
+    /// The numeric price in ``currencyCode``, for analytics; nil when unknown.
+    public let price: Decimal?
+    /// The ISO 4217 currency code of ``price``, such as `USD`; nil when unknown.
+    public let currencyCode: String?
 
     /// Creates a product value.
     /// - Parameters:
@@ -23,17 +27,23 @@ public struct StoreProduct: Sendable, Equatable, Hashable, Identifiable {
     ///   - productDescription: The description.
     ///   - displayPrice: The localized price.
     ///   - periodUnitName: The localized renewal period, when known.
+    ///   - price: The numeric price, when known.
+    ///   - currencyCode: The ISO 4217 currency code of `price`, when known.
     public init(
         id: String,
         displayName: String,
         productDescription: String,
         displayPrice: String,
-        periodUnitName: String? = nil
+        periodUnitName: String? = nil,
+        price: Decimal? = nil,
+        currencyCode: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
         self.productDescription = productDescription
         self.displayPrice = displayPrice
         self.periodUnitName = periodUnitName
+        self.price = price
+        self.currencyCode = currencyCode
     }
 }

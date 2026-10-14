@@ -44,7 +44,12 @@ struct BillingRig {
         ])
         #expect(rig.model.purchase == .completed(.pro))
         #expect(await rig.store.purchaseTokens == [BillingFixtures.token])
-        #expect(rig.analytics.names == ["ios_purchase_started"])
+        #expect(rig.analytics.names == [
+            "ios_products_loaded",
+            "ios_purchase_started",
+            "ios_purchase_succeeded",
+            "ios_products_loaded",
+        ])
     }
 
     @Test func serverRejectionKeepsTransactionUnfinishedUntilRetrySucceeds() async throws {
@@ -188,7 +193,7 @@ struct BillingRig {
 
         #expect(rig.model.purchase == .idle)
         #expect(await rig.api.submitted.isEmpty)
-        #expect(rig.analytics.names == ["ios_purchase_started", "ios_purchase_cancelled"])
+        #expect(rig.analytics.names == ["ios_products_loaded", "ios_purchase_started", "ios_purchase_cancelled"])
     }
 
     @Test func storeKitCancellationErrorCountsAsCancel() async throws {
@@ -307,7 +312,12 @@ struct BillingRig {
         #expect(await rig.store.syncCount == 1)
         #expect(await rig.api.submitted == ["jws-21"])
         #expect(rig.model.restore == .completed(acceptedCount: 1))
-        #expect(rig.analytics.names == ["ios_restore_started", "ios_restore_completed"])
+        #expect(rig.analytics.names == [
+            "ios_products_loaded",
+            "ios_restore_started",
+            "ios_products_loaded",
+            "ios_restore_completed",
+        ])
         #expect(rig.analytics.events.last?.1["restored_count"] == .int(1))
     }
 

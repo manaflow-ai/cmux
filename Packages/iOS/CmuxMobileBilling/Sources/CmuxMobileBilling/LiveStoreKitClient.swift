@@ -92,6 +92,10 @@ public actor LiveStoreKitClient: StoreKitClient {
         }
     }
 
+    public func storefrontCountryCode() async -> String? {
+        await Storefront.current?.countryCode
+    }
+
     public func finish(transactionID: UInt64) async {
         if let transaction = heldTransactions.removeValue(forKey: transactionID) {
             await transaction.finish()
@@ -128,7 +132,8 @@ public actor LiveStoreKitClient: StoreKitClient {
                 id: transaction.id,
                 productID: transaction.productID,
                 jwsRepresentation: verification.jwsRepresentation,
-                appAccountToken: transaction.appAccountToken
+                appAccountToken: transaction.appAccountToken,
+                environment: Self.environmentName(transaction.environment)
             ))
         case .unverified(let transaction, _):
             return .unverified(transactionID: transaction.id, productID: transaction.productID)
@@ -141,8 +146,19 @@ public actor LiveStoreKitClient: StoreKitClient {
             displayName: product.displayName,
             productDescription: product.description,
             displayPrice: product.displayPrice,
-            periodUnitName: product.subscription.map { $0.subscriptionPeriod.unit.localizedDescription }
+            periodUnitName: product.subscription.map { $0.subscriptionPeriod.unit.localizedDescription },
+            price: product.price,
+            currencyCode: product.priceFormatStyle.currencyCode
         )
+    }
+
+    private static func environmentName(_ environment: AppStore.Environment) -> String? {
+        switch environment {
+        case .production: "Production"
+        case .sandbox: "Sandbox"
+        case .xcode: "Xcode"
+        default: nil
+        }
     }
 
     private static func normalized(_ error: any Error) -> StoreKitClientError {

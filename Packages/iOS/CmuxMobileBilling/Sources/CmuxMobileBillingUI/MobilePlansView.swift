@@ -111,13 +111,20 @@ public struct MobilePlansView: View {
     @ViewBuilder
     private func offersSection(_ account: BillingAccount) -> some View {
         if billing.offers.isEmpty {
-            Section {
-                if let failure = billing.offersFailure {
+            if let failure = billing.offersFailure {
+                Section {
                     Text(BillingFailureCopy(failure: failure).message)
                         .foregroundStyle(.secondary)
-                } else {
+                    Button(L10n.string("mobile.billing.retry", defaultValue: "Try Again")) {
+                        Task { await billing.refresh() }
+                    }
+                }
+                .accessibilityIdentifier("BillingOffersUnavailable")
+            } else {
+                Section {
                     ProgressView()
                 }
+                .accessibilityIdentifier("BillingOffersLoading")
             }
         } else {
             let applePlan = account.currentPlan.source == .apple ? account.currentPlan.planID : nil
@@ -238,7 +245,7 @@ public struct MobilePlansView: View {
             // billing (App Review Guideline 3.1.1).
             L10n.string(
                 "mobile.billing.ineligible.web",
-                defaultValue: "You subscribe on the web. Manage your plan at cmux.com."
+                defaultValue: "You subscribe on the web."
             )
         case .teamBilling:
             L10n.string(

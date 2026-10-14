@@ -9,6 +9,14 @@ public struct BillingAnalyticsEvent: Sendable, Equatable, Hashable {
 
     /// The plans screen appeared.
     public static let paywallViewed = BillingAnalyticsEvent(name: "ios_paywall_viewed")
+    /// StoreKit returned at least one product the server sells to this
+    /// bundle. Properties: `product_ids` (comma-separated), `storefront`,
+    /// `count`.
+    public static let productsLoaded = BillingAnalyticsEvent(name: "ios_products_loaded")
+    /// An eligible account has no product to buy: StoreKit failed, returned
+    /// none of the server's products, or the server listed none. Properties:
+    /// `reason`, `storefront`.
+    public static let productsFailed = BillingAnalyticsEvent(name: "ios_products_failed")
     /// The user tapped a plan's purchase button.
     public static let purchaseStarted = BillingAnalyticsEvent(name: "ios_purchase_started")
     /// The user dismissed the App Store purchase sheet.
@@ -16,6 +24,11 @@ public struct BillingAnalyticsEvent: Sendable, Equatable, Hashable {
     /// The purchase failed before the App Store completed it, or StoreKit
     /// could not verify it.
     public static let purchaseFailed = BillingAnalyticsEvent(name: "ios_purchase_failed")
+    /// The App Store charged the user and StoreKit verified the transaction.
+    /// `delivery` is `accepted` when the server applied the plan, `deferred`
+    /// when the server step is retried later. Properties: `product_id`,
+    /// `plan_id`, `price`, `currency`, `environment`, `delivery`.
+    public static let purchaseSucceeded = BillingAnalyticsEvent(name: "ios_purchase_succeeded")
     /// The purchase waits for approval (Ask to Buy).
     public static let purchasePending = BillingAnalyticsEvent(name: "ios_purchase_pending")
     /// The user tapped Restore Purchases.

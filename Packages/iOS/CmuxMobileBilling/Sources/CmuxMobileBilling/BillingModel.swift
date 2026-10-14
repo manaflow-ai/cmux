@@ -140,6 +140,7 @@ public final class BillingModel {
             switch await deliver(transaction) {
             case .accepted(let receipt):
                 purchase = .completed(receipt.planID)
+                capturePurchaseSucceeded(offer, transaction, delivery: "accepted")
                 await loadAccount()
             case .rejected(let failure):
                 fail(failure, properties: properties)
@@ -149,6 +150,7 @@ public final class BillingModel {
                 // server also learns of it from App Store Server
                 // Notifications, so this is not a failed purchase.
                 purchase = .awaitingServer(productID: offer.product.id)
+                capturePurchaseSucceeded(offer, transaction, delivery: "deferred")
             }
         }
     }
@@ -279,9 +281,17 @@ public final class BillingModel {
     }
 
     private func loadOffers(for account: BillingAccount, generation: Int) async {
-        guard account.eligible, !account.products.isEmpty else {
+        guard account.eligible else {
             offers = []
             offersFailure = nil
+            return
+        }
+        guard !account.products.isEmpty else {
+            // Eligible, but the server sells nothing to this bundle: show
+            // the unavailable state, not an endless spinner.
+            offers = []
+            offersFailure = .productUnavailable
+            await captureProductsFailed(reason: "no_server_products", generation: generation)
             return
         }
         let products: [StoreProduct]
@@ -289,7 +299,11 @@ public final class BillingModel {
             products = try await store.products(for: account.products.map(\.productID))
         } catch {
             guard generation == accountGeneration else { return }
-            offersFailure = BillingFailure(error)
+            let failure = BillingFailure(error)
+            // Offers from an earlier load stay on screen; the failure shows
+            // only when there is nothing to buy.
+            offersFailure = failure
+            await captureProductsFailed(reason: failure.analyticsReason, generation: generation)
             return
         }
         guard generation == accountGeneration else { return }
@@ -297,7 +311,45 @@ public final class BillingModel {
         offers = account.products
             .compactMap { reference in byID[reference.productID].map { BillingOffer(planID: reference.planID, product: $0) } }
             .sorted { $0.planID < $1.planID }
-        offersFailure = offers.isEmpty ? .productUnavailable : nil
+        if offers.isEmpty {
+            offersFailure = .productUnavailable
+            await captureProductsFailed(reason: BillingFailure.productUnavailable.analyticsReason, generation: generation)
+        } else {
+            offersFailure = nil
+            let loadedIDs = offers.map(\.product.id)
+            let storefront = await store.storefrontCountryCode()
+            guard generation == accountGeneration else { return }
+            capture(.productsLoaded, [
+                "product_ids": .string(loadedIDs.joined(separator: ",")),
+                "storefront": .string(storefront ?? "unknown"),
+                "count": .int(loadedIDs.count),
+            ])
+        }
+    }
+
+    private func captureProductsFailed(reason: String, generation: Int) async {
+        let storefront = await store.storefrontCountryCode()
+        guard generation == accountGeneration else { return }
+        capture(.productsFailed, [
+            "reason": .string(reason),
+            "storefront": .string(storefront ?? "unknown"),
+        ])
+    }
+
+    private func capturePurchaseSucceeded(_ offer: BillingOffer, _ transaction: StoreTransaction, delivery: String) {
+        var properties: [String: AnalyticsValue] = [
+            "product_id": .string(transaction.productID),
+            "plan_id": .string(offer.planID.rawValue),
+            "environment": .string(transaction.environment ?? "unknown"),
+            "delivery": .string(delivery),
+        ]
+        if let price = offer.product.price {
+            properties["price"] = .double(NSDecimalNumber(decimal: price).doubleValue)
+        }
+        if let currency = offer.product.currencyCode {
+            properties["currency"] = .string(currency)
+        }
+        capture(.purchaseSucceeded, properties)
     }
 
     private func fail(_ failure: BillingFailure, properties: [String: AnalyticsValue]) {
