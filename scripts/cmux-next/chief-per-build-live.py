@@ -97,7 +97,7 @@ class App:
         the bundle alone (no app terminal env), else None. Never starts one."""
         env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_", "XDG_RUNTIME"))}
         try:
-            run = subprocess.run([self.cli, "--json", "server", "status"], env=env,
+            run = subprocess.run([self.cli, "--json", "daemon", "status"], env=env,
                                  capture_output=True, text=True, timeout=30)
             self.owner_said = f"exit {run.returncode}: {run.stdout.strip()[:300]} {run.stderr.strip()[-300:]}"
             status = json.loads(run.stdout)
@@ -382,7 +382,7 @@ try:
     others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY))
     a_owner = wait(a.owner, 60)
     say(f"step 1: NIGHTLY brain {a_brain} on default; the owner's Chief DM holds M0: {bool(shown_m0)}; memory has M0 {count}x; other homes {others}")
-    say(f"step 1: A owner daemon (session, pid) {a_owner}; control socket {a.socket}; server status said {a.owner_said}")
+    say(f"step 1: A owner daemon (session, pid) {a_owner}; control socket {a.socket}; daemon status said {a.owner_said}")
     if not (a_brain and shown_m0 and count == 1 and not others and a_acpmux
             and a_owner and a_owner[0] == f"cmux-app-{TAG}" and a_owner[1]):
         failed = failed or 1
@@ -420,7 +420,7 @@ try:
     b_owner = wait(b.owner, 60)
     a_owner_2 = a.owner()
     b_state = os.path.join(B_STATE, "tui")
-    say(f"step 2: B server status said {b.owner_said}")
+    say(f"step 2: B daemon status said {b.owner_said}")
     say(f"step 2: B owner {b_owner} (want session {B_SESSION}); B control socket {B_SOCKET} answers:"
         f" {b.answers()}; B state dir {b_state} exists {os.path.isdir(b_state)};"
         f" A owner now {a_owner_2} (was {a_owner})")
@@ -458,7 +458,7 @@ finally:
         # B's own owner daemon (its per-key session, absent before B started), if
         # quitEndSessions left it, and the state it wrote under its key.
         env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
-        subprocess.run([b.cli, "server", "stop", "--session", B_SESSION, "--end-terminals"], env=env,
+        subprocess.run([b.cli, "daemon", "stop", "--session", B_SESSION, "--end-terminals"], env=env,
                        capture_output=True, timeout=60)
         if b_state_new:
             shutil.rmtree(B_STATE, ignore_errors=True)
