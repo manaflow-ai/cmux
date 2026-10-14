@@ -166,6 +166,19 @@ import Testing
 
 /// The Mac's 42-row screen on the bottom of a 151-row mirror (offset 109).
 @Suite struct TerminalRowShiftTests {
+    /// User report (2026-10-14): Codex CLI prints its history with a scroll
+    /// region from the screen's top (`ESC[1;Nr` then `\r\n` per line). On the
+    /// Mac those lines go to the scrollback; shifted, the region started
+    /// below the mirror's top and every line was discarded. The region keeps
+    /// the mirror's first row as its top.
+    @Test func aRegionFromTheTopKeepsTheMirrorsTop() {
+        var shift = TerminalRowShift()
+        let out = String(decoding: shift.filter(Data("\u{1B}[1;30r".utf8), offset: 109, remoteRows: 42), as: UTF8.self)
+        #expect(out == "\u{1B}[1;139r")
+        // A region below the top is still shifted whole.
+        #expect(String(decoding: shift.filter(Data("\u{1B}[31;42r".utf8), offset: 109, remoteRows: 42), as: UTF8.self) == "\u{1B}[140;151r")
+    }
+
     private func run(_ chunks: [String], offset: Int = 109, rows: Int = 42) -> String {
         var shift = TerminalRowShift()
         return chunks.map { String(decoding: shift.filter(Data($0.utf8), offset: offset, remoteRows: rows), as: UTF8.self) }.joined()
