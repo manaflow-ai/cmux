@@ -29,6 +29,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
 parser.add_argument("--cua", default=os.path.expanduser("~/.local/bin/cua-driver"))
+parser.add_argument("--env", action="append", default=[], help="K=V passed to the app (repeatable)")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="omnibar-real-"))
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -137,7 +138,7 @@ def move(point):
     pos = (at.get("x"), at.get("y")) if isinstance(at, dict) else at
     probe_report = (rpc("debug.omnibar", {"window": WINDOW, "probe_x": point[0], "probe_y": point[1]}) or {}).get("pointer") or {}
     report = (omnibar().get("pointer") or {})
-    print(f"   region {probe_report.get('probe_region')}; move to window {tuple(round(v) for v in point)} = screen ({x:.0f}, {y:.0f}); pointer at {pos}; "
+    print(f"   t={time.monotonic():.3f} region {probe_report.get('probe_region')}; move to window {tuple(round(v) for v in point)} = screen ({x:.0f}, {y:.0f}); pointer at {pos}; "
           f"row set {report.get('tracked_cursor')}, bar hover {report.get('bar_hovering')}, buttons {report.get('hovered_buttons')}",
           flush=True)
 
@@ -153,7 +154,9 @@ def click(point):
 
 def cursor_at(point, want):
     move(point)
-    return quiet_wait(lambda: probe("cursor") == want and want, 2) or probe("cursor")
+    got = quiet_wait(lambda: probe("cursor") == want and want, 2) or probe("cursor")
+    print(f"   t={time.monotonic():.3f} screen cursor {got}", flush=True)
+    return got
 
 
 def windows_report():
@@ -193,7 +196,7 @@ if os.path.exists(SOCKET):
 app = subprocess.Popen([BINARY], env={
     "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-    "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"},
+    "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **dict(kv.split("=", 1) for kv in opts.env)},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
 print(f"app pid {app.pid}, out {opts.out}, screen height {SCREEN_H}, scale {SCALE}", flush=True)
 

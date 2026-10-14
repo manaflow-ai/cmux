@@ -32,6 +32,9 @@ public class ArrowCursorView: NSView {
         // may answer with the arrow (an input-host run with `.cursorUpdate` showed the arrow
         // past the end of the text in a window that was not key).
         guard cursorArea == nil else { return }
+        #if DEBUG
+        CursorTrace.install()
+        #endif
         cursorTracker.row = self
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
                                   owner: cursorTracker)
