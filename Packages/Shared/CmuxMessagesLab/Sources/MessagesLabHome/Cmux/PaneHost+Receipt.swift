@@ -3,8 +3,8 @@ import AppKit
 // cmux: MessagesLab 64af10f Host.swift's `prefetchNextReceipt` (not vendored), for the pane controller.
 
 extension ChatController {
-    /// The next receipt row of my newest message, drawn ahead on RowBitmaps' loader queue (off the
-    /// main thread): "Delivered" once it is sent, "Read <this minute>" once it is delivered. When the
+    /// The next receipt row of my newest message, drawn ahead on RowBitmaps' loader queue (the
+    /// glyphs rasterize off the main thread; the request itself is made on main): "Delivered" once it is sent, "Read <this minute>" once it is delivered. When the
     /// status comes (Home: HomeDiff's status from HomeStore), the cell finds the bitmap in the cache;
     /// before, the cell drew it on the main thread in that commit (rig take 511: 0.35 to 0.5 ms of
     /// glyph rasterization on the receipt's frame). The spec is the one Layout makes for the row
@@ -28,10 +28,16 @@ extension ChatController {
             if !RowBitmaps.shared.has(spec, scale: scale) { RowBitmaps.shared.request(spec, scale: scale) }
         }
         if step == 0 { ask(.receipt(bold: Strings.delivered, rest: "")); return }
-        // The time text (ICU, 0.1 to 0.3 ms) is made off the main thread too.
+        // The time text (ICU, 0.1 to 0.3 ms) is made off the main thread too. cmux: the request is
+        // made only while this is still the newest message's next step (a newer message or status
+        // in between would make it a request nothing reads).
+        let id = m.id
         DispatchQueue.global(qos: .userInitiated).async {
             let rest = "\u{00A0}" + Format.time(now)
-            DispatchQueue.main.async { ask(.receipt(bold: Strings.read, rest: rest)) }
+            DispatchQueue.main.async { [weak self] in
+                guard let a = self?.receiptAhead, a.0 == id, a.1 == 1 else { return }
+                ask(.receipt(bold: Strings.read, rest: rest))
+            }
         }
     }
 }

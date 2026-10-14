@@ -57,6 +57,7 @@ let package = Package(
             dependencies: [
                 "MessagesLabHome",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),

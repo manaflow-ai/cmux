@@ -18,6 +18,8 @@ extension ChatController {
             DisplayScale.current = s  // the process fallback (code with no view), as Host.swift
             CATransaction.begin(); CATransaction.setDisableActions(true)
             func walk(_ l: CALayer) { if l.delegate is NSView { return }; l.contentsScale = s; l.sublayers?.forEach(walk); l.mask.map(walk) }
+            // cmux: threadHost holds the window view's thread layer (PaneHost+ThreadLayer.swift), out of `below`'s tree.
+            // Its delegate is the vendored UIView shim, an NSObject (not an NSView), so the walk enters it.
             [host.below.root, host.threadHost.root, host.morphHost.root, host.composeHost.root, host.above.root].forEach(walk)
             CATransaction.commit()
             ScaleKeeper.shared.setNeedsApply()

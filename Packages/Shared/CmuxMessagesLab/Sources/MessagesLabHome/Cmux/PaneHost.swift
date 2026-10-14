@@ -54,6 +54,8 @@ final class HostView: NSView {
     /// cmux: the window view's thread layer (ThreadBackdrop and the thread's rows), over the header
     /// (PaneHost+ThreadLayer.swift).
     let threadHost = LayerHostView()
+    /// The window view's thread layer view whose layer `threadHost` holds (PaneHost+ThreadLayer.swift).
+    weak var liftedThread: UIView?
     /// `--scroll-trace` uses a scroll view that takes the probe's posted
     /// events (README: responsive scrolling).
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
@@ -157,6 +159,7 @@ final class HostView: NSView {
         // in the window can change with no size change of the window view (RowCell.windowPlace).
         refreshWindowPlace()
         CATransaction.commit()
+        if let demo { liftThreadLayer(demo) }  // cmux: the thread layer stays over the header
         placeNativeViews()
     }
 
@@ -356,6 +359,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var menuHighlight: MenuHighlight?
     /// The menu input that chose my tapback, until HomeStore commits it (PaneTapback.swift).
     var tapbackChoice: TapbackChoice?
+    /// The overlay scroller is hidden for an open thread or reply view (afterEngine).
+    private var scrollerHiddenForThread = false
     /// The receipt row drawn ahead for my newest message: its id and step (PaneHost+Receipt.swift).
     var receiptAhead: (ID, Int)?
     /// Press and hold on a message (MessagesLab 7f1a811).
@@ -549,13 +554,22 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func afterEngine() {
         ScaleKeeper.shared.setNeedsApply()
         host.scrollView.syncFromModel()
-        if !selection.isEmpty { selection.refresh() }
+        // A text selection or a selected bubble follows the rows (as NativeScroll does on a scroll).
+        if selection.showsHighlight { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
         // The overlay scroller sits above the thread view's blur; real Messages blurs it
         // with the transcript, so it hides while a thread or reply view is open (Host.swift).
+        // cmux: hidden once its fade ends, so a scroll or hover in the open view (SequenceScroller
+        // sets its own alpha) cannot show it again; shown again before the close's fade in.
         let threadOpen = store?.state.ui.openThread != nil
-        if let sc = host.scrollView.verticalScroller, (sc.alphaValue == 0) != threadOpen {
-            NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.28; sc.animator().alphaValue = threadOpen ? 0 : 1 }
+        if let sc = host.scrollView.verticalScroller, scrollerHiddenForThread != threadOpen {
+            scrollerHiddenForThread = threadOpen
+            if !threadOpen { sc.isHidden = false }
+            NSAnimationContext.runAnimationGroup({ ctx in ctx.duration = 0.28; sc.animator().alphaValue = threadOpen ? 0 : 1 },
+                                                 completionHandler: { [weak self, weak sc] in
+                guard self?.scrollerHiddenForThread == true else { return }
+                sc?.isHidden = true
+            })
         }
         prefetchNextReceipt()
         scheduleWake()
@@ -622,10 +636,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     /// Real Messages (double-click references): with no thread or reply view open, Esc clears a
     /// transcript text selection and the field's caret comes back (27 ms after the key). True
-    /// when it did (Host.swift escape).
+    /// when it did (Host.swift escape). cmux: a selected bubble too (Messages takes it off with
+    /// the same Esc; Host.swift's TranscriptAccess bd65bbf checks only the text).
     private func clearSelectionOnEscape() -> Bool {
-        guard store?.state.ui.openThread == nil, !selection.isEmpty else { return false }
+        guard store?.state.ui.openThread == nil, selection.showsHighlight else { return false }
         selection.clear()
+        selection.deselectBubble()
         focusCompose()
         return true
     }
@@ -706,29 +722,41 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { return }
         // MessagesLab 0fffbd2 (Host.swift clicked): "Show all N lines" on a folded long message
         // expands it in place, "Show less" folds it again.
-        if demo.longTextBandHit(p) { return }
+        if demo.longTextBandHit(p) {
+            // The band's own bubble changes shape: a selection on it would keep the old outline.
+            selection.deselectBubble()
+            return
+        }
         if let hit = demo.hit(p) {
+            // cmux: a link or an attachment acts and selects nothing; the caret stays where it is
+            // (Host.swift selects the bubble first; in Home these clicks open something, as before
+            // the selection port). Any selected bubble is taken off, as by a click elsewhere.
+            if clickedContent(hit, at: p) { selection.deselectBubble(); return }
             // Real Messages (click references, Host.swift clicked): a click on a bubble selects its
             // message (the bubble brightens or darkens) and takes the focus from the field (typing
             // still goes to the field: TranscriptDocumentView.keyDown).
             selection.selectBubble(hit.key, outgoing: hit.row.outgoing)
             focusTranscript()
-            // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
-            if openLink(hit, at: p) { return }
-            switch hit.row.part {
-            // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
-            // cmux: a video plays or pauses in its bubble (opening it in an
-            // app is in the context menu); other attachments open.
-            case let .attachment(a) where a.kind == "video": intents?.toggleVideo(hit.row.ref, a.id)
-            case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id)
-            default: break
-            }
             return
         }
         // A click elsewhere takes the bubble selection off (Host.swift).
         selection.deselectBubble()
         // cmux: a click on empty transcript space gives the field the keyboard.
         focusCompose()
+    }
+
+    /// A click on a bubble's link or attachment: true when it acted.
+    private func clickedContent(_ hit: MessagesWindowView.Hit, at p: CGPoint) -> Bool {
+        // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
+        if openLink(hit, at: p) { return true }
+        switch hit.row.part {
+        // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
+        // cmux: a video plays or pauses in its bubble (opening it in an
+        // app is in the context menu); other attachments open.
+        case let .attachment(a) where a.kind == "video": intents?.toggleVideo(hit.row.ref, a.id); return true
+        case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id); return true
+        default: return false
+        }
     }
 
     /// Real Messages (click references): a click on a bubble takes the focus from the field (its
