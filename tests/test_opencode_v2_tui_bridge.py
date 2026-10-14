@@ -152,11 +152,13 @@ const routeA = liveA.ui.router.current;
 const tabsA = liveA.ui.tabs.list;
 liveA.ui.router.current = () => ({ type: "home" });
 liveA.ui.tabs.list = () => [];
-setTimeout(() => {
-  liveA.ui.router.current = routeA;
-  liveA.ui.tabs.list = tabsA;
-}, 0);
 liveA.emit({ details: { type: "session.created", data: { sessionID: "child-a", location: { directory: "/tmp/a" } }, location: { directory: "/tmp/a" } } });
+liveA.ui.router.current = routeA;
+liveA.ui.tabs.list = tabsA;
+// An owned event must not cancel a queued session-start before the route
+// subscription announces that the restored tab is ready.
+liveA.emit({ details: { type: "session.status", data: { sessionID: "child-a", status: { type: "busy" } } } });
+liveA.refresh?.();
 await Promise.race([
   waitForObserved((event) => event.hook_event_name === "SessionStart" && event.cwd === "/tmp/a"),
   new Promise((_, reject) => setTimeout(() => reject(new Error("restored OpenCode session-start was dropped before TUI route became visible")), 2000)),

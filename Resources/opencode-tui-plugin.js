@@ -79,12 +79,16 @@ export function sessionBelongsToTUI(ctx, id) {
   return visibleRoots(ctx).has(rootFor(ctx, id));
 }
 
-function createOwnership(ctx) {
+function createOwnership(ctx, onChange) {
   let roots = new Set();
-  const refresh = () => {
+  const refreshRoots = () => {
     roots = visibleRoots(ctx);
   };
-  refresh();
+  const refresh = () => {
+    refreshRoots();
+    onChange?.();
+  };
+  refreshRoots();
   const disposers = [];
   for (const owner of [ctx?.ui?.router, ctx?.ui?.tabs]) {
     for (const name of ["onChange", "subscribe", "listen"]) {
@@ -102,7 +106,7 @@ function createOwnership(ctx) {
     // notification. Refresh on the event boundary so a session removed from
     // a background tab, or a closed starter surface, cannot retain ownership.
     belongs: (id) => {
-      refresh();
+      refreshRoots();
       return Boolean(id && roots.has(rootFor(ctx, id)));
     },
     refresh,
@@ -190,12 +194,6 @@ function reportError(ctx, _error) {
   } catch (_) {}
 }
 
-// OpenCode can publish the session lifecycle event while the restored TUI is
-// still moving its route/tab state into place. Retry only session-start events
-// during that short window; approval and completion events remain fail-closed
-// when their session is not currently owned by this TUI.
-const SESSION_START_RETRY_DELAYS_MS = [0, 10, 25, 50, 100, 250, 500, 1_000];
-
 async function deliverEvent(ctx, feed, event, id, environment) {
   const hook = sessionEventName(event);
   if (hook) {
@@ -218,55 +216,62 @@ async function handleEvent(ctx, ownership, feed, details, environment, retrySess
   if (!id) return;
   if (hook === "session-end") retrySessionStart?.cancel(id);
   if (!ownership.belongs(id)) {
-    if (hook === "session-start") retrySessionStart?.retry(event, id);
+    if (hook === "session-start") retrySessionStart?.enqueue(event, id);
     return;
   }
-  retrySessionStart?.cancel(id);
+  if (hook === "session-start") retrySessionStart?.cancel(id);
   await deliverEvent(ctx, feed, event, id, environment);
 }
 
 export async function createCMUXTUIBridge(ctx, options = {}) {
   const environment = { ...process.env, ...options.environment };
-  const ownership = createOwnership(ctx);
   let disposed = false;
+  // Keep missed session-start events until the TUI reports a route/tab change.
+  // The nested map lets session-end and delivery cancel one session in O(1).
   const pending = new Map();
   const cancelPending = (id) => {
-    for (const [key, timer] of pending) {
-      if (!key.startsWith(`${id}:`)) continue;
-      clearTimeout(timer);
-      pending.delete(key);
+    pending.delete(id);
+  };
+  let feed;
+  const flushPending = () => {
+    if (disposed || !feed) return;
+    for (const [id, events] of pending) {
+      if (!ownership.belongs(id)) continue;
+      pending.delete(id);
+      for (const event of events.values()) {
+        void handleEvent(ctx, ownership, feed, event, environment, {
+          cancel: cancelPending,
+          enqueue: enqueueSessionStart,
+        }).catch((error) => reportError(ctx, error));
+      }
     }
   };
-  const feed = await CMUXFeed(ctx, {
+  const ownership = createOwnership(ctx, flushPending);
+  feed = await CMUXFeed(ctx, {
     tui: true,
     ownsSession: ownership.belongs,
     locationForSession: () => ctx?.location,
     environment,
   });
-  const retrySessionStart = (event, id, attempt = 0) => {
-    if (disposed || attempt >= SESSION_START_RETRY_DELAYS_MS.length) return;
-    const key = `${id}:${event.type}`;
-    if (pending.has(key)) return;
-    const timer = setTimeout(() => {
-      pending.delete(key);
-      if (disposed) return;
-      void handleEvent(ctx, ownership, feed, event, environment, {
-        cancel: cancelPending,
-        retry: (nextEvent, nextID) => retrySessionStart(nextEvent, nextID, attempt + 1),
-      }).catch((error) => reportError(ctx, error));
-    }, SESSION_START_RETRY_DELAYS_MS[attempt]);
-    pending.set(key, timer);
+  function enqueueSessionStart(event, id) {
+    if (disposed) return;
+    let events = pending.get(id);
+    if (!events) {
+      events = new Map();
+      pending.set(id, events);
+    }
+    if (!events.has(event.type)) events.set(event.type, event);
   };
   const onEvent = ({ details, event }) => {
     void handleEvent(ctx, ownership, feed, details || event, environment, {
       cancel: cancelPending,
-      retry: (nextEvent, nextID) => retrySessionStart(nextEvent, nextID),
+      enqueue: enqueueSessionStart,
     }).catch((error) => reportError(ctx, error));
   };
   const stop = ctx.data.listen(onEvent);
+  flushPending();
   return () => {
     disposed = true;
-    for (const timer of pending.values()) clearTimeout(timer);
     pending.clear();
     stop?.();
     feed.dispose?.();
