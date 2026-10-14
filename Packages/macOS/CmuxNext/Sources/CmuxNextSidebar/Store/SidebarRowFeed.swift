@@ -10,9 +10,12 @@ import Observation
 /// it gets the last mapped row (or a stub for a new one) and reads nothing
 /// observable, so it does not observe any row's status. After the pass,
 /// outside its tracking, `fill` maps the new rows under their own
-/// observation and refreshes the others with the pass's new inputs. A change
-/// a row read marks it dirty; one flush per main-actor turn maps the dirty
-/// rows again and hands the changed ones to `onChange`.
+/// observation. A known row is already current: anything it read would have
+/// marked it dirty. Only when the pass's by-value inputs change (`beginPass`)
+/// is every row mapped and observed again. A change a row read marks it
+/// dirty; one flush per main-actor turn maps the dirty rows again (each
+/// observation fires once and is armed again, so none piles up) and hands
+/// the changed ones to `onChange`.
 @MainActor
 public final class SidebarRowFeed {
     /// Maps one row from its store; runs on the main actor (the feed and its callers are main-actor).
@@ -37,6 +40,9 @@ public final class SidebarRowFeed {
     private var dirty: Set<WorkspaceID> = []
     private var flushScheduled = false
     private var pass: UInt64 = 0
+    /// The by-value inputs of the last pass, and whether a pass since the last `fill` changed them.
+    private var inputs: AnyHashable?
+    private var inputsChanged = false
     /// Rows mapped again since the last structural pass (the next `fill` maps only new rows).
     private var named: [WorkspaceID] = []
     /// Changed rows, at most once per main-actor turn.
@@ -45,9 +51,22 @@ public final class SidebarRowFeed {
     public init() {}
 
     /// Starts a structural pass (call first in the pass's tracked closure).
-    public func beginPass() {
+    /// `inputs` are the values the pass hands every row's mapping by value
+    /// (the muted set, the New Tab pages, whether unread shows): when they
+    /// change, `fill` maps and observes every row again. Everything else a
+    /// mapping needs it must read itself, so its own observation covers it.
+    public func beginPass(inputs: AnyHashable) {
         pass &+= 1
         named.removeAll(keepingCapacity: true)
+        if inputs != self.inputs { inputsChanged = true }
+        self.inputs = inputs
+    }
+
+    /// Forgets every row and stops reporting (the window closed).
+    public func reset() {
+        onChange = nil
+        entries.removeAll()
+        dirty.removeAll()
     }
 
     /// The row of `id` for the structural pass: the last mapped row, or a
@@ -65,11 +84,11 @@ public final class SidebarRowFeed {
         return stub
     }
 
-    /// `sections` with every row the last pass named mapped now: a new row
-    /// under its own observation, a known one again with the pass's inputs
-    /// (muted set, page faces, tab selection). Forgets rows the pass did not
-    /// name. Each row keeps its row state from `sections`. Call outside any
-    /// observation tracking.
+    /// `sections` with every row the last pass named filled in: a new row
+    /// mapped under its own observation, a known one as last mapped (all of
+    /// them again when the pass's inputs changed). Forgets rows the pass did
+    /// not name. Each row keeps its row state from `sections`. Call outside
+    /// any observation tracking.
     public func fill(_ sections: [SidebarSection]) -> [SidebarSection] {
         SidebarPerfCounters.add(.rebuilds)
         return SidebarPerfCounters.timed { fillNow(sections) }
@@ -79,9 +98,11 @@ public final class SidebarRowFeed {
         for (id, entry) in entries where entry.pass != pass { entries[id] = nil }
         var rows: [SidebarWorkspace] = []
         rows.reserveCapacity(named.count)
+        let remap = inputsChanged
+        inputsChanged = false
         for id in named {
             guard let entry = entries[id] else { continue }
-            entry.row = entry.armed ? entry.make() : arm(id, entry)
+            if remap || !entry.armed { entry.row = arm(id, entry) }
             rows.append(entry.row)
         }
         dirty.subtract(named)

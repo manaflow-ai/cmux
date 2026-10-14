@@ -16,24 +16,25 @@ nonisolated struct SidebarRowIndex: Sendable {
         var member: Int?
     }
 
-    private var paths: [WorkspaceID: Path] = [:]
+    /// Every place a workspace is listed (a launch can list a saved row beside its live one).
+    private var paths: [WorkspaceID: [Path]] = [:]
 
     init(_ sections: [SidebarSection]) {
         for (s, section) in sections.enumerated() {
             for (n, node) in section.nodes.enumerated() {
                 switch node {
                 case let .workspace(ws):
-                    if paths[ws.id] == nil { paths[ws.id] = Path(section: s, node: n, member: nil) }
+                    paths[ws.id, default: []].append(Path(section: s, node: n, member: nil))
                 case let .group(group):
-                    for (m, ws) in group.workspaces.enumerated() where paths[ws.id] == nil {
-                        paths[ws.id] = Path(section: s, node: n, member: m)
+                    for (m, ws) in group.workspaces.enumerated() {
+                        paths[ws.id, default: []].append(Path(section: s, node: n, member: m))
                     }
                 }
             }
         }
     }
 
-    func path(of id: WorkspaceID) -> Path? { paths[id] }
+    func paths(of id: WorkspaceID) -> [Path] { paths[id] ?? [] }
 
     static func workspace(at path: Path, in sections: [SidebarSection]) -> SidebarWorkspace {
         switch sections[path.section].nodes[path.node] {
@@ -88,8 +89,9 @@ extension SidebarListView {
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
         SidebarPerfCounters.add(.rowPatches, patched.count)
-        // A height change lays the list out again (outside the timed patch: `reload` times itself).
-        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { reload(animated: true) }
+        // A height change lays the list out again (outside the timed patch: `reload` times itself);
+        // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
+        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { reload(animated: !model.sections.contains(where: \.hasProvisionalRows)) }
     }
 
     /// Patches each row in place; true when one row's height changed.
@@ -100,10 +102,15 @@ extension SidebarListView {
         for ws in patched {
             workspaces[ws.id] = ws
             for tab in ws.tabs { tabs[tab.id] = tab }
-            if let path = model.rowIndex?.path(of: ws.id) {
+            for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
                 sections[section.id] = section
-                if path.member != nil, case let .group(group) = section.nodes[path.node] { groups[group.id] = group }
+                // A group header draws its members' activity and unread total when
+                // collapsed, where the member has no row: configure it whatever shows.
+                if path.member != nil, case let .group(group) = section.nodes[path.node] {
+                    groups[group.id] = group
+                    reconfigure(.group(group.id))
+                }
             }
             if shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else { continue }
@@ -117,7 +124,6 @@ extension SidebarListView {
             }
             displayed.setContent(content, for: row.key)
             reconfigure(row.key)
-            if let group = row.group { reconfigure(.group(group)) }
             for tab in ws.tabs { reconfigure(.tab(ws.id, tab.id)) }
         }
         return heightChanged

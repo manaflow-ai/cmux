@@ -20,6 +20,8 @@ public final class SidebarModel {
             return storedSections
         }
         set {
+            // An unchanged set is no structural change (an intent that edits nothing).
+            guard newValue != storedSections else { return }
             withMutation(keyPath: \.sections) {
                 storedSections = newValue
                 sectionsRevision &+= 1
@@ -256,7 +258,7 @@ public final class SidebarModel {
             let collapsed = collapsedSections.contains(shown[index].id)
             if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
         }
-        if storedSections != shown { sections = shown }
+        sections = shown // the setter skips an unchanged list
     }
 
     /// Row content of workspaces already listed (status, title, unread,
@@ -273,13 +275,19 @@ public final class SidebarModel {
         var patched: [SidebarWorkspace] = []
         var writes: [(SidebarRowIndex.Path, SidebarWorkspace)] = []
         for var row in rows {
-            guard let path = index.path(of: row.id) else { continue }
+            let paths = index.paths(of: row.id)
+            guard let path = paths.first else { continue }
             let old = SidebarRowIndex.workspace(at: path, in: storedSections)
             row.rowState = old.rowState
             row.machineID = old.machineID
             guard row != old else { continue }
             guard !Self.movesRows(from: old, to: row, groupsByFolder: groupsByFolder, listsTabs: showWorkspaceTabs) else { return false }
-            writes.append((path, row))
+            for path in paths {
+                // Each listed copy keeps its own row state (a saved stale row beside the live one).
+                var copy = row
+                copy.rowState = SidebarRowIndex.workspace(at: path, in: storedSections).rowState
+                writes.append((path, copy))
+            }
             patched.append(row)
         }
         for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }

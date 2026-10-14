@@ -87,6 +87,7 @@ final class SidebarBridge {
 
     func teardown() {
         observation?.cancel()
+        rowFeed.reset()
         selectionObservation?.cancel()
         widthObservation?.cancel()
         sectionsObservation?.cancel()
@@ -118,10 +119,12 @@ final class SidebarBridge {
             // The band's layout comes with the rows it projects too (cx-odqn):
             // a pinned workspace leaves the list in the turn it joins the band.
             for await (sections, launching, failed, profiles, active, shown, creating) in ObservationStream({
-                feed.beginPass() // rows come from the feed: this pass reads no row's status
+                // Rows come from the feed: this pass reads no row's status; a row reads its tab selection itself.
+                let pages = Self.newTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
+                feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
                 let (sections, launching, failed) = Self.liveSections(
                     machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
-                    newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
+                    newTabPages: pages, muted: muted,
                     top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                     tabTitle: Self.tabTitle(services), rows: feed.rowSource)
                 return (sections, launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
@@ -271,11 +274,11 @@ final class SidebarBridge {
     /// `selection` is the window's tab selection: each row's type glyph shows its selected tab.
     /// `newTabPages` are the New Tab page tabs (`AgentTabs.pageTabs`); `muted` rows draw the muted mark.
     static func sections(_ machines: MachineRegistry, members: [String],
-                         profile: ProfileID, hidesHome: Bool = true, selection: TabSelectionMemory = .init(),
+                         profile: ProfileID, hidesHome: Bool = true, selection: @autoclosure @escaping () -> TabSelectionMemory = .init(),
                          newTabPages: Set<String> = [], muted: Set<String> = [], top: SidebarTopProjection = .legacy,
                          pageFace: @escaping PageFace = { _, _ in nil }, tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
-        let filtered = SidebarRowSection.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection, newTabPages: newTabPages,
+        let filtered = SidebarRowSection.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection(), newTabPages: newTabPages,
                                                          muted: muted, pageFace: pageFace, tabTitle: tabTitle, rows: rows),
                                                 members: Set(visible))
         return top.apply(to: filtered, machines: machines)
@@ -306,11 +309,12 @@ final class SidebarBridge {
     /// One section per machine: the local daemon, then each Cloud machine
     /// (empty while it connects), with the workspaces and groups of
     /// `profile` (all of them on a machine without that profile).
+    /// `selection` is read by each row's mapping (lazily), so a tab switch re-maps rows, not the sidebar.
     static func sections(_ machines: MachineRegistry, profile: ProfileID, hidesHome: Bool = true,
-                         selection: TabSelectionMemory = .init(), newTabPages: Set<String> = [], muted: Set<String> = [],
+                         selection: @autoclosure @escaping () -> TabSelectionMemory = .init(), newTabPages: Set<String> = [], muted: Set<String> = [],
                          pageFace: @escaping PageFace = { _, _ in nil }, tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
-        let selectedTab = { (pane: PaneModel) in selection.selection(in: pane.id) }
+        let selectedTab = { (pane: PaneModel) in selection().selection(in: pane.id) }
         let groupIcon = IconAssetImages.shared.sidebarIcon(owner: machines.local)
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),

@@ -78,7 +78,8 @@ public final class SidebarView: NSView {
     private var lastSections: [SidebarSection] = []
     /// The bands' inputs changed since `updateBands` last ran (it runs in `layout`, only then).
     var bandsDirty = true
-    private var bandsWidth: CGFloat = -1
+    /// The size the bands were laid out for (app sections take a share of the height).
+    private var bandsSize: CGSize?
     /// App section contributions the bands showed at the last update (`releaseAppSections`).
     var shownAppContributions: Set<String> = []
     /// The `sidebar.*` settings this sidebar draws from (tests give their own).
@@ -269,8 +270,8 @@ public final class SidebarView: NSView {
         // Amendment 3: at the bottom the dots share the footer band's row
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
-        if bandsDirty || bandsWidth != b.width {
-            (bandsDirty, bandsWidth) = (false, b.width)
+        if bandsDirty || bandsSize != b.size {
+            (bandsDirty, bandsSize) = (false, b.size)
             updateBands()
         }
         let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
