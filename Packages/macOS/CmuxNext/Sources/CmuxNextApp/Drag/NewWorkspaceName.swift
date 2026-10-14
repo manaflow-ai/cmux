@@ -75,8 +75,9 @@ nonisolated enum NewWorkspaceName {
         bareShells.contains(title.hasPrefix("-") ? String(title.dropFirst()) : title)
     }
 
-    /// One line, trimmed, at most `maxLength` characters; nil when empty.
-    private static func clean(_ raw: String?) -> String? {
+    /// One line, trimmed, at most `maxLength` characters; nil when empty
+    /// (`WorkspaceAutoName` names a workspace with it too).
+    static func clean(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let line = raw.split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         return line.isEmpty ? nil : String(line.prefix(maxLength))
