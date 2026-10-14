@@ -450,10 +450,14 @@ try:
     summary["ticking_terminals"] = len(terms)
     note(len(terms) >= opts.ticking, f"{len(terms)} ticking terminals")
     # The wheel moves the list (untraced sweep).
-    summary["wheel_moves_list"] = find_wheel()
-    note(summary["wheel_moves_list"], f"the wheel moves the list ({summary['wheel_variants'][-1]})")
-    if not summary["wheel_moves_list"]:
-        sys.exit("FAIL the wheel does not move the list: no gesture to measure")
+    # HID-tap wheel events. The accessibility row titles proved unreliable as a move check (their count changes
+    # between reads), so a run counts as a scroll only when the app commits at least 30 frames a second during
+    # the gesture (idle with 50 ticking rows: about 11 a second).
+    WHEEL.clear()
+    WHEEL.update({"hid": True})
+    row_titles()
+    sweep("down", 6)
+    sweep("up", 6)
     # CPU per tick, no input (10 s).
     pid = Target.pid
     cpu0 = cpu_ns(pid)
@@ -473,7 +477,8 @@ try:
             time.sleep(2)  # harness: settle between runs
     summary["runs"] = runs
     for mode, rs in runs.items():
-        valid = [r for r in rs if "total_ms" in r and r.get("app_updates", 0) > 0 and not r.get("wheel_errors")]
+        valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
+                 and r.get("app_updates", 0) >= 30 * r.get("gesture_s", 0)]
         totals = [r["total_ms"] for r in valid]
         summary[mode] = {"valid": len(valid), "hitch_total_ms": totals,
                          "median_ms": statistics.median(totals) if totals else None,
