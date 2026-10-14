@@ -383,10 +383,13 @@ fn seqs(page: &Value) -> Vec<u64> {
 /// segment that cannot be read at all: pages that never reach it still load.
 #[tokio::test]
 async fn tail_pages_read_only_the_newest_segments() {
-    let (hub, mut c, dir) = setup_segmented(512).await;
+    // Segments roll at 64 KiB at the least (LocalStore), so each prompt carries 70 KB: one segment a turn.
+    let (hub, mut c, dir) = setup_segmented(64 * 1024).await;
     let id = new_session(&mut c, "long").await;
+    let filler = "x".repeat(70_000);
     for n in 0..12 {
-        c.request(method::SESSION_PROMPT, prompt(&id, &format!("turn {n}"), None)).await.unwrap();
+        let text = format!("turn {n} {filler}");
+        c.request(method::SESSION_PROMPT, prompt(&id, &text, None)).await.unwrap();
     }
     let session = hub.resolve("long").unwrap();
     let transcript = seqs(
