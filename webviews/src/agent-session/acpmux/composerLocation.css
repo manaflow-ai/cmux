@@ -396,17 +396,11 @@
 }
 
 /* The composer is one material surface. The location scope is quiet metadata at its lower edge,
-   so it cannot read as a second box over wallpaper or add a full-width divider. */
+   so it cannot read as a second box over wallpaper or add a full-width divider. Its only edge is
+   the --acpmux-composer-edge hairline (styles.css), clear under appearance.borders = none: no drop
+   shadow, no rim (hq#1957 border hunt). */
 .acpmux-composer-box {
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
-  box-shadow:
-    0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
-    inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 16%, transparent);
-}
-.acpmux-composer-box:focus-within {
-  box-shadow:
-    0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 38%, transparent);
 }
 /* The footer's 22 px controls sit in a 30 px line plus the bar's 6 px padding on the card's edge
    side: 10 px inside the card's bottom edge, the bar's own vertical inset, at the bar's 12 px
@@ -449,13 +443,14 @@
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 50%, var(--acpmux-base));
 }
 
-/* Permission cards use the same quiet material language as the composer. The icon and title form
+/* Permission cards use the same quiet material language as the composer: the composer's hairline,
+   clear under appearance.borders = none, and no shadow. The icon and title form
    one readable header, while coverage and request count stay secondary metadata. */
 .acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface {
-  border: .5px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border: .5px solid var(--acpmux-composer-edge);
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-surface-elevated));
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--agent-shadow, #000) 10%, transparent);
+  box-shadow: none;
 }
 .acpmux-permission-card-heading { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
 .acpmux-permission-card-heading strong { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-title); }

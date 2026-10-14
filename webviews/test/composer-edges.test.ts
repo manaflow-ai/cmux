@@ -91,7 +91,12 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
   });
 
   const surfaces = [
-    { name: "composer card", entry: "agent-pane.composer-row", variant: "claude-auto", selector: ".acpmux-composer-box" },
+    {
+      name: "composer card",
+      entry: "agent-pane.composer-row",
+      variant: "claude-auto",
+      selector: ".acpmux-composer-box",
+    },
     {
       name: "permission card",
       entry: "agent-pane.permission-panel",
