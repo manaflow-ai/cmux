@@ -38,7 +38,7 @@ extension AppDelegate {
     func handleKeyboardNavigationMode(event: NSEvent) -> Bool? {
         guard event.type == .keyDown else { return nil }
         guard NSApp.modalWindow == nil,
-              event.window.map { isMainTerminalWindow($0) } ?? true else {
+              event.window.map({ isMainTerminalWindow($0) }) ?? true else {
             return nil
         }
 
