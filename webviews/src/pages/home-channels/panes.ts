@@ -2,7 +2,7 @@
 // page's own width it shows ONE pane, the list or the open conversation, never both squeezed side
 // by side. The page URL's hash says which: `#/conversation/<id>[/...]` is the conversation (and
 // what is open in it), anything else (`#/`, no hash) the list. A row opens its conversation by
-// setting the hash; Back, Escape and Cmd-[ set `#/`. Above the width both panes show as before.
+// setting the hash; Back, Escape and Cmd-[ return to `#/` (backToList). Above the width both panes show as before.
 import { useEffect, useState, useSyncExternalStore, type RefObject } from "react";
 
 /** Below this page width (px, the page's own box, not the window) one pane shows at a time. */
@@ -24,16 +24,31 @@ export function hashConversation(hash: string): string | undefined {
   return /^#\/conversation\/([A-Za-z0-9_]+)\/?$/.exec(hash)?.[1];
 }
 
-/** Sets the page hash. `replace` keeps one history entry (a keyboard move); the page's hash
- * listeners hear it either way. */
+/** The history entry's mark: the entry before it is this page's list (`#/`), so Back may go
+ * back in history instead of adding an entry. */
+const FROM_LIST = "cmuxHomeFromList";
+
+const isListHash = (hash: string) => hash === "" || hash === "#" || hash === "#/";
+
+const url = (hash: string) => `${window.location.pathname}${window.location.search}${hash}`;
+
+/** Sets the page hash. `replace` keeps one history entry (a keyboard move) and its mark; a new
+ * entry is marked when it leaves the list. The page's hash listeners hear it either way. */
 export function setHash(hash: string, replace = false): void {
   if (typeof window === "undefined" || window.location.hash === hash) return;
-  if (!replace) {
-    window.location.hash = hash;
-    return;
-  }
-  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${hash}`);
+  if (replace) window.history.replaceState(window.history.state, "", url(hash));
+  else window.history.pushState({ [FROM_LIST]: isListHash(window.location.hash) }, "", url(hash));
   window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
+/** Back to the list: back in history when the entry before is the list (`#/`), else the current
+ * entry becomes `#/` (a direct link never leaves the page). */
+export function backToList(): void {
+  if (typeof window === "undefined" || isListHash(window.location.hash)) return;
+  const state: unknown = window.history.state;
+  if (typeof state === "object" && state !== null && (state as Record<string, unknown>)[FROM_LIST] === true)
+    window.history.back();
+  else setHash("#/", true);
 }
 
 const subscribe = (listener: () => void) => {
