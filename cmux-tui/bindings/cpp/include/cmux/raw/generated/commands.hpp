@@ -76,6 +76,8 @@ public:
     [[nodiscard]] Result<WorkspaceMutationResult> close_workspace(const CloseWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_history(const CloudConversationHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_op(const CloudConversationOpRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_run(const CloudConversationRunRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_runs(const CloudConversationRunsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_snapshot(const CloudConversationSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_subscribe(const CloudConversationSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_thread(const CloudConversationThreadRequest& request, RequestOptions options = {});

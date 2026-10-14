@@ -143,6 +143,19 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // A Cloud Chief's run change, like a local one, only to a
+                // connection that asked for runs (`conversation-runs-v1`).
+                MuxEvent::CloudConversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::cloud_conversations::CloudEvent::RunChanged { .. }
+                    ) && !event_mux.control_clients.supports_capability(
+                        client,
+                        super::conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+                    ) =>
+                {
+                    continue;
+                }
                 MuxEvent::PairingRequested(challenge) => json!({
                     "event": "pairing-requested",
                     "request": challenge.id,

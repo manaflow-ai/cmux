@@ -731,11 +731,14 @@ export class HomeChannelsStore {
         const read = await this.client.call<HomeRunPage>(HomeOps.run, {
           conversation: run.conversation,
           run: run.id,
+          // A Cloud owner keys the read by the Chief and pages by seq; the local one by revision.
+          agent: run.author,
           afterRev,
+          afterSeq: afterRev,
         });
         latest = read.run;
         steps.push(...read.steps);
-        afterRev = Math.max(afterRev, ...read.steps.map((step) => step.rev));
+        afterRev = Math.max(afterRev, ...read.steps.map((step) => step.rev || step.seq));
         if (!read.hasMore || read.steps.length === 0) break;
       }
       this.runs.setSteps(latest, steps, true);

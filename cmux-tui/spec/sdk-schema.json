@@ -21885,6 +21885,108 @@
     "Trusted local connections only. Needs cloud-conversations-v1 too. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "cloud-conversation-runs": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversation-runs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "agent": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "before_started_at": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections and the person's authenticated page (ws-cloud-conversations-v1). The Cloud owner's runs of Chief agent in the conversation, newest first, limit 1-100. See spec/commands.md."
+   ]
+  },
+  "cloud-conversation-run": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversation-runs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "agent": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "run": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "after_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections and the person's authenticated page (ws-cloud-conversations-v1). One run of Chief agent and its steps after after_seq; a hidden run answers not_found. See spec/commands.md."
+   ]
+  },
   "cloud-conversation-op": {
    "authority": "local-admin",
    "since": 12,
@@ -27099,6 +27201,63 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-conversation-run-changed": {
+   "since": 12,
+   "capability": "cloud-conversation-runs-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-conversation-run-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "run": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "steps": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "JsonValue"
+       }
+      },
+      "presence": "required",
+      "nullable": false
      },
      "account": {
       "type": {

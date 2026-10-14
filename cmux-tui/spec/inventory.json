@@ -546,6 +546,8 @@
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",
+      "cloud-conversation-runs",
+      "cloud-conversation-run",
       "cloud-conversation-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
@@ -663,6 +665,12 @@
     },
     {
       "name": "conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-run-changed",
       "streams": [
         "subscribe"
       ]

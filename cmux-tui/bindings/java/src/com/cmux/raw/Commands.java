@@ -45,6 +45,8 @@ public final class Commands {
     public static final CommandMetadata CLOSE_WORKSPACE = new CommandMetadata("close-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L), Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1"), Map.entry("if_empty", "close-workspace-if-empty-v1"), Map.entry("key", "workspace-registry-v1"), Map.entry("reason", "close-reason-v1")));
     public static final CommandMetadata CLOUD_CONVERSATION_HISTORY = new CommandMetadata("cloud-conversation-history", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_OP = new CommandMetadata("cloud-conversation-op", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_CONVERSATION_RUN = new CommandMetadata("cloud-conversation-run", Authority.LOCAL_ADMIN, 12, "cloud-conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_CONVERSATION_RUNS = new CommandMetadata("cloud-conversation-runs", Authority.LOCAL_ADMIN, 12, "cloud-conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_SNAPSHOT = new CommandMetadata("cloud-conversation-snapshot", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_SUBSCRIBE = new CommandMetadata("cloud-conversation-subscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_THREAD = new CommandMetadata("cloud-conversation-thread", Authority.LOCAL_ADMIN, 12, "conversation-thread-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -309,6 +311,8 @@ public final class Commands {
         values.put("close-workspace", CLOSE_WORKSPACE);
         values.put("cloud-conversation-history", CLOUD_CONVERSATION_HISTORY);
         values.put("cloud-conversation-op", CLOUD_CONVERSATION_OP);
+        values.put("cloud-conversation-run", CLOUD_CONVERSATION_RUN);
+        values.put("cloud-conversation-runs", CLOUD_CONVERSATION_RUNS);
         values.put("cloud-conversation-snapshot", CLOUD_CONVERSATION_SNAPSHOT);
         values.put("cloud-conversation-subscribe", CLOUD_CONVERSATION_SUBSCRIBE);
         values.put("cloud-conversation-thread", CLOUD_CONVERSATION_THREAD);

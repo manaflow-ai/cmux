@@ -1673,6 +1673,8 @@ enum Command {
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
+    CloudConversationRuns(cloud_conversations::RunsParams),
+    CloudConversationRun(cloud_conversations::RunParams),
     CloudConversationOp(cloud_conversations::OpParams),
     CloudInboxSubscribe,
     CloudInboxUnsubscribe,
@@ -3551,6 +3553,8 @@ fn handle_command_with_cancellation(
         Command::CloudConversationThread(params) => {
             cloud_conversations::thread(mux, client, params)
         }
+        Command::CloudConversationRuns(params) => cloud_conversations::runs(mux, client, params),
+        Command::CloudConversationRun(params) => cloud_conversations::run(mux, client, params),
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
         Command::CloudMuxSubscribe(_) => cloud_conversations::mux_subscribe(mux, client),

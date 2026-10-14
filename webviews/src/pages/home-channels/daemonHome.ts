@@ -41,6 +41,8 @@ const TAPBACK_EMOJI: Record<string, string> = {
 const MAX_PAGE = 200;
 /** Agent runs (`conversation-run*`, the `conversation-run-changed` event for a page that asks). */
 const RUNS_CAPABILITY = "conversation-runs-v1";
+/** A Cloud Chief's runs through the daemon (`cloud-conversation-run*`). */
+const CLOUD_RUNS_CAPABILITY = "cloud-conversation-runs-v1";
 
 const time = (value: unknown): number => (typeof value === "string" ? Date.parse(value) || 0 : 0);
 const num = (value: unknown): number => (typeof value === "number" ? value : 0);
@@ -533,7 +535,8 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.runs: {
         const id = str(params, "conversation");
-        if (!this.cloud.owns(id) && !(await this.capable(RUNS_CAPABILITY))) return { runs: [], hasMore: false };
+        if (this.cloud.owns(id)) return this.cloudRuns(id, params);
+        if (!(await this.capable(RUNS_CAPABILITY))) return { runs: [], hasMore: false };
         const turns = ((params.turns as unknown[] | undefined) ?? []).filter(
           (turn): turn is string => typeof turn === "string" && turn.length > 0 && turn.length <= 128,
         );
@@ -548,11 +551,19 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.run: {
         const id = str(params, "conversation");
-        const page = await this.read("conversation-run", id, {
-          conversation: id,
-          run: str(params, "run", 128),
-          after_rev: Math.max(0, num(params.afterRev)),
-        });
+        // A Cloud Chief's run is read from its brain by agent, steps after a seq (no revisions).
+        const page = this.cloud.owns(id)
+          ? await this.cloud.read("cloud-conversation-run", {
+              conversation: id,
+              agent: str(params, "agent", 128),
+              run: str(params, "run", 128),
+              after_seq: Math.max(0, num(params.afterSeq)),
+            })
+          : await this.read("conversation-run", id, {
+              conversation: id,
+              run: str(params, "run", 128),
+              after_rev: Math.max(0, num(params.afterRev)),
+            });
         return {
           run: run(page.run as Json),
           steps: ((page.steps as Json[] | undefined) ?? []).map(runStep),
@@ -564,6 +575,27 @@ export class DaemonHomeClient implements PageClient {
       default:
         throw pageError("cmux.protocol.unknown_op", op);
     }
+  }
+
+  /** A Cloud conversation's runs: each Chief of it keeps its own (the Cloud brain's reads, by
+   * agent), merged newest first. A daemon without the proxy answers nothing. */
+  private async cloudRuns(id: string, params: Json): Promise<{ runs: HomeRun[]; hasMore: boolean }> {
+    if (!(await this.capable(CLOUD_RUNS_CAPABILITY))) return { runs: [], hasMore: false };
+    const agents = (this.cloud.summary(id)?.participants ?? [])
+      .filter((participant) => participant.kind === "agent")
+      .map((participant) => participant.id)
+      .slice(0, 8);
+    const limit = Math.min(bounded(params.limit, 20), 100);
+    const lists = await Promise.all(
+      agents.map((agent) =>
+        this.cloud
+          .read("cloud-conversation-runs", { conversation: id, agent, limit })
+          .then((found) => ((found.runs as Json[] | undefined) ?? []).map(run))
+          .catch(() => [] as HomeRun[]),
+      ),
+    );
+    const runs = lists.flat().sort((a, b) => b.startedAt - a.startedAt);
+    return { runs, hasMore: false };
   }
 
   /** A channel of the local user and known local participants (the Chief when none is named);
@@ -629,6 +661,11 @@ export class DaemonHomeClient implements PageClient {
           if (cloud.removed?.length) (batch.removed ??= []).push(...cloud.removed);
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
+          if (cloud.run)
+            (batch.runs ??= []).push({
+              run: run(cloud.run.run),
+              steps: cloud.run.steps.map(runStep),
+            });
         });
       } else if (event.event === "conversation-changed") {
         const change = (event.change ?? {}) as Json;
