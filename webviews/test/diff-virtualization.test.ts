@@ -208,7 +208,15 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
               if (inner == null || inner === hit) break;
               hit = inner;
             }
-            return hit?.closest("[data-type='item']")?.getAttribute("data-item-path")?.endsWith(`/${name}`) === true;
+            // Climb out of any shadow root inside the row (an icon element) to the row itself.
+            for (let node: Element | null = hit; node != null;) {
+              if (node.getAttribute("data-type") === "item") {
+                return node.getAttribute("data-item-path")?.endsWith(`/${name}`) === true;
+              }
+              const root = node.getRootNode();
+              node = node.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+            }
+            return false;
           },
           [name, point.x, point.y] as const,
         );

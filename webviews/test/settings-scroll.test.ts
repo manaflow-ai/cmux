@@ -52,19 +52,18 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
     );
     base = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 60_000;
-    while (Date.now() < deadline) {
+    let listening = false;
+    while (!listening && Date.now() < deadline) {
       try {
-        if ((await fetch(`${base}/`)).ok) {
-          await warmDevServer(base, "/");
-          return;
-        }
+        listening = (await fetch(`${base}/`)).ok;
       } catch {
         // Not listening yet.
       }
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (!listening) await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    throw new Error("settings dev server did not start");
-  });
+    if (!listening) throw new Error("settings dev server did not start");
+    await warmDevServer(base, "/");
+  }, 180_000);
 
   afterAll(() => {
     if (server?.pid) process.kill(-server.pid, "SIGTERM");
