@@ -1331,7 +1331,8 @@ fn start(
     });
     // A default Chief that could not read its record at start reads it each
     // time the link comes up, until it has it (zoom and date only until then).
-    let sink = crate::chief_profile::read_record_on_up(chief_tools.clone(), sink, brain_log.clone());
+    let sink =
+        crate::chief_profile::read_record_on_up(chief_tools.clone(), sink, brain_log.clone());
     match source {
         Source::Local { token_file } => {
             let (display_name, title) = LinkConfig::names_from_env();
