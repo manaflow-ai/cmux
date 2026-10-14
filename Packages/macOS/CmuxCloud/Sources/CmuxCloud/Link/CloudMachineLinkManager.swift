@@ -566,7 +566,6 @@ public actor CloudMachineLinkManager {
                     route: endpoint.route,
                     for: machineID
                 )
-                paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
                 carrier = true
             } else {
                 carrier = knownFingerprint == CloudTuiClientPaths.carrierDeviceMarker
