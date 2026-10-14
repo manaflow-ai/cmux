@@ -24,7 +24,10 @@ enum AgentPaneHarnessCard {
                 if let error = row?["error"] as? String { value["error"] = error }
                 return AgentPaneReply.success(value)
             case .harnessRestart:
-                guard let session = sessionId else { return AgentPaneReply.failure(code: "harness.unavailable", message: unavailableMessage) }
+                // Only a chat this pane started or shows: the page can adopt any id (`chat.persistSession`).
+                guard let session = sessionId, transport.sessions.contains(session) else {
+                    return AgentPaneReply.failure(code: "harness.not_this_chat", message: unavailableMessage)
+                }
                 let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/sessions/restart_harness",
                                                                params: ["sessions": [session]], deadline: .seconds(300), detailed: true)
                 return AgentPaneReply.success(["restarted": result["restarted"] as? Int ?? 0, "after_turn": result["after_turn"] as? Int ?? 0])
