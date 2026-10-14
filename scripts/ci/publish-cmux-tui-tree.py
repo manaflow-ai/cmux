@@ -66,10 +66,12 @@ class PublicationError(RuntimeError):
 
 
 class PublicationConflict(PublicationError):
-    """Another publisher wrote a write-once tree object first, with other bytes.
+    """Another publisher wrote this tree's source.json first, with other bytes.
 
-    Raised only with --conflict-exit-code: the caller then waits for that
-    publication to complete and keeps it (two runs of one tree key at once).
+    Raised only with --conflict-exit-code, and only for source.json, which a
+    publication writes first: the caller then waits for that publication to
+    complete and keeps it (two runs of one tree key at once). A conflict on
+    any later object stays a hard failure.
     """
 
 
@@ -291,7 +293,6 @@ def publish_tree(
                 bucket=bucket,
                 key=f"{prefix}/{name}",
                 cache_control=cache,
-                conflict_exit_code=conflict_exit_code,
             )
             checksum = temporary_dir / f"{name}.sha256"
             checksum.write_text(f"{digest}  {name}\n")
@@ -302,7 +303,6 @@ def publish_tree(
                 bucket=bucket,
                 key=f"{prefix}/{name}.sha256",
                 cache_control=cache,
-                conflict_exit_code=conflict_exit_code,
             )
 
         def write_completion(
@@ -325,7 +325,6 @@ def publish_tree(
                 bucket=bucket,
                 key=f"{prefix}/{name}",
                 cache_control=cache,
-                conflict_exit_code=conflict_exit_code,
             )
 
         if windows_digests and windows_source_commit is not None:
@@ -369,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bucket", required=True)
     parser.add_argument("--conflict-exit-code", type=int,
                         help="exit with this code, with no immutable-r2-conflict annotation, when another "
-                             "publisher wrote a tree object first; the caller waits for that publication")
+                             "publisher wrote source.json first; the caller waits for that publication")
     args = parser.parse_args(argv)
     try:
         digests = publish_tree(

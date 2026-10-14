@@ -370,6 +370,34 @@ class TwoRunsOfOneCommitAtOnce(unittest.TestCase):
         self.assertEqual(mine, other)
         self.assertEqual(json.loads(mine[f"{prefix}/source.json"])["ref"], "refs/heads/lane-branch")
 
+    def test_a_conflict_after_source_json_stays_a_hard_failure(self) -> None:
+        # Only source.json is a race between two publishers; another object of
+        # the tree with other bytes is damage, and waiting would hide it.
+        names = subprocess.check_output(
+            ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), "--list-companions"], text=True
+        ).split()
+        commit = self.box.r2 / "cmux-tui" / self.box.sha
+        commit.mkdir(parents=True)
+        for n in names:
+            (commit / n).write_text(f"{n} build 1\n")
+        (commit / "manifest.json").write_text(json.dumps({
+            "commit": self.box.sha,
+            "attestationUrl": "https://github.com/manaflow-ai/cmux/actions/runs/1",
+            "binaries": {n: sha256(commit / n) for n in names},
+        }))
+        tree = self.box.repo / "assets" / "tree"
+        tree.mkdir(parents=True)
+        key = "a" * 40
+        damaged = self.box.r2 / "cmux-tui" / "tree" / key / names[0]
+        damaged.parent.mkdir(parents=True)
+        damaged.write_text("other bytes\n")
+        script = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        result = self.box.run(script, KEY_V2=key, LEGACY_KEY="")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("immutable-r2-conflict", result.stdout + result.stderr)
+        self.assertFalse((self.box.root / "sleep.log").exists())
+        self.assertEqual(damaged.read_text(), "other bytes\n")
+
 
 if __name__ == "__main__":
     unittest.main()

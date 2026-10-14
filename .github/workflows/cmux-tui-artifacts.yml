@@ -407,8 +407,11 @@ jobs:
           # starts two runs that each build it. The builds are not
           # byte-identical, so the later commit-addressed upload hit the
           # write-once objects (immutable-r2-conflict) and that run never
-          # published its tree. Any branch's oldest active run of this commit
-          # owns it; main keeps its own build for latest/. Active means not
+          # published its tree; the publish job now keeps the other run's
+          # publication instead (cx-a1q4d). Any branch's oldest active run of
+          # this commit owns it; main keeps its own build for latest/. A
+          # feat-cmux-next push still builds when that owner is a branch run
+          # (tree-owner-wait). Active means not
           # completed: a run whose jobs already run can still read queued or
           # pending (two runs pushed together each saw the other that way).
           if [[ "$claimed" != true && "$tree_ready" != true && "$EVENT_NAME" == push &&
@@ -556,8 +559,8 @@ jobs:
             # A run that defers leaves a cmux-tui-tree-deferred-<key> artifact;
             # an owner that ends without publishing re-runs one deferred run
             # (notify-unpublished-tree), which then wins the claim and builds.
-            # Taking over from a live owner would build the key twice and hit
-            # the write-once commit objects.
+            # Taking over from a live owner builds the key twice; it is done
+            # only for a feat-cmux-next push whose owner is a branch run (below).
             poll=$((poll + 1))
             owner_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
@@ -1379,7 +1382,7 @@ jobs:
           published_before() {
             local status=0
             curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 60 -o /dev/null \
-              "https://files.cmux.com/$1/manifest.json?earlier=$GITHUB_RUN_ID" 2>/dev/null || status=$?
+              "https://files.cmux.com/$1/manifest.json?earlier=$GITHUB_RUN_ID${2:+-$2}" 2>/dev/null || status=$?
             case "$status" in
               0) echo "::notice title=commit already published::keeping the earlier publication at https://files.cmux.com/$1/"; return 0 ;;
               22) return 1 ;;
@@ -1422,9 +1425,11 @@ jobs:
           # upload that never completes fails after CMUX_R2_ADOPT_WAIT_SECONDS.
           adopt_after_conflict() {
             local directory="$1" prefix="$2" waited=0
-            local limit="${CMUX_R2_ADOPT_WAIT_SECONDS:-1800}"
+            # Below the job's 15-minute timeout, so the failure is annotated.
+            local limit="${CMUX_R2_ADOPT_WAIT_SECONDS:-480}"
             echo "Another run is publishing https://files.cmux.com/$prefix/; waiting for it to complete."
-            until published_before "$prefix"; do
+            # A new query each time: the edge can cache a 404.
+            until published_before "$prefix" "$waited"; do
               if (( waited >= limit )); then
                 echo "::error title=immutable-r2-conflict::$prefix: another run wrote it first and did not complete it within ${limit}s; repair the prefix deliberately"
                 exit 1
@@ -2132,11 +2137,12 @@ jobs:
           else
             echo "::warning title=tree without Windows::tree $KEY is published without the Windows daemon (the optional Windows build made none); a later republication adds it"
           fi
-          # Two runs of one tree key at once (cx-a1q4d) race on the
-          # write-once source.json, which each writes first: the run that
-          # loses it waits for the other run's completion.json (written last)
-          # and keeps that tree. It never overwrites.
-          local status=0 waited=0 limit="${CMUX_R2_ADOPT_WAIT_SECONDS:-1800}"
+          # Two runs of one tree key at once (two commits that share the key,
+          # cx-a1q4d) race on the write-once source.json, which each writes
+          # first: the run that loses it (exit 75, source.json only) waits for
+          # the other run's completion.json (written last) and keeps that
+          # tree. It never overwrites; any other conflict fails as before.
+          local status=0 waited=0 limit="${CMUX_R2_ADOPT_WAIT_SECONDS:-480}"
           python3 scripts/ci/publish-cmux-tui-tree.py \
             --key "$KEY" \
             --source-commit "$source_commit" \
@@ -2150,7 +2156,8 @@ jobs:
             --conflict-exit-code 75 || status=$?
           if [[ "$status" == 75 ]]; then
             echo "Another run is publishing tree $KEY; waiting for its completion.json."
-            until fetch "$base/completion.json" tree/completion-other.json 2>/dev/null; do
+            until curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 \
+                "$base/completion.json?adopt=$GITHUB_RUN_ID-$waited" -o tree/completion-other.json 2>/dev/null; do
               if (( waited >= limit )); then
                 echo "::error title=immutable-r2-conflict::tree $KEY: another run wrote it first and did not complete it within ${limit}s; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
                 exit 1
