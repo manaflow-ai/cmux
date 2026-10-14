@@ -32,6 +32,14 @@ struct AgentChatScreen: View {
     /// clamped in one frame (the transcript jumps). The floor keeps the rows
     /// still; new rows and streaming text fill the space.
     @State private var contentFloor: CGFloat = 0
+    /// While the card's inset animates away, the bottom inset it is heading
+    /// to. Until the scroll view reports that inset, size changes come from
+    /// the floor and the shrinking inset, not new text, so the pinned follow
+    /// stays still.
+    @State private var cardExitTargetInset: CGFloat?
+    /// The permission whose exit was already held (the tap path), so the
+    /// pending-change path does not raise the floor a second time.
+    @State private var heldPermissionId: String?
     /// Latest scroll metrics, unobserved (written every scroll frame).
     @State private var latest = LatestMetrics()
     @State private var position = ScrollPosition(edge: .bottom)
@@ -181,7 +189,8 @@ struct AgentChatScreen: View {
         }
         .onScrollGeometryChange(for: ScrollMetrics.self) { g in
             ScrollMetrics(offset: g.contentOffset.y, content: g.contentSize.height,
-                          inset: g.contentInsets.bottom, container: g.containerSize.height)
+                          inset: g.contentInsets.bottom, container: g.containerSize.height,
+                          topInset: g.contentInsets.top)
         } action: { old, m in
             latest.value = m
             let near = m.maxOffset - m.offset < 48
@@ -190,6 +199,10 @@ struct AgentChatScreen: View {
             if followingSend, m.offset >= m.maxOffset - 0.5 { followingSend = false }
             if contentGrew || framed {
                 // Size changed (reply text, keyboard, composer, a new row).
+                if let target = cardExitTargetInset {
+                    if m.inset < target + 1 || userScrolling { cardExitTargetInset = nil }
+                    return
+                }
                 guard pinned, !userScrolling else { return }
                 // A pinned reader follows growth with an eased scroll (a glide
                 // per new line, never a snap) until they scroll away.
@@ -200,7 +213,7 @@ struct AgentChatScreen: View {
                     // `.bottom` edge position is ignored.
                     let first = old.content < 1 || old.container < 1
                     let animation: Animation? = reduceMotion || first ? nil : followingSend ? motion.move : .smooth(duration: 0.3)
-                    withAnimation(animation) { position.scrollTo(y: m.maxOffset) }
+                    withAnimation(animation) { position.scrollTo(y: m.scrollTarget) }
                 }
             } else if userScrolling {
                 // Only the reader's own scrolling pins or unpins.
@@ -216,6 +229,7 @@ struct AgentChatScreen: View {
             pinned = true
             followingSend = true
             contentFloor = 0
+            cardExitTargetInset = nil
         }
     }
 
@@ -245,7 +259,7 @@ struct AgentChatScreen: View {
         Button {
             Haptics.select()
             pinned = true
-            withAnimation(motion.move) { position.scrollTo(y: latest.value.maxOffset) }
+            withAnimation(motion.move) { position.scrollTo(y: latest.value.scrollTarget) }
         } label: {
             Image(systemName: "arrow.down")
                 .font(.system(size: 15, weight: .semibold))
@@ -266,7 +280,7 @@ struct AgentChatScreen: View {
         return VStack(spacing: 8) {
             if let pending {
                 PermissionCard(pending: pending, allowOnMac: model.allowRequiresMac(pending.item)) { option in
-                    holdTranscriptForCardExit()
+                    holdTranscriptForCardExit(pending.item.id)
                     withAnimation(motion.move) { model.answer(pending.item, option: option) }
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 + 8 }
@@ -307,7 +321,7 @@ struct AgentChatScreen: View {
         .animation(reduceMotion ? nil : motion.move, value: pending?.item.id)
         // Resolved elsewhere (the Mac, a host echo): hold the rows the same way.
         .onChange(of: pending?.item.id) { old, new in
-            if old != nil, new == nil { holdTranscriptForCardExit() }
+            if let old, new == nil { holdTranscriptForCardExit(old) }
         }
         .animation(motion.appear, value: pending.map { model.allowRequiresMac($0.item) })
         .animation(motion.appear, value: slash.count)
@@ -317,10 +331,14 @@ struct AgentChatScreen: View {
 
     /// Raises the transcript's minimum height by the card about to leave, so
     /// the inset shrink cannot clamp the scroll offset (no jump).
-    private func holdTranscriptForCardExit() {
-        guard cardHeight > 0 else { return }
+    private func holdTranscriptForCardExit(_ permissionId: String) {
+        guard cardHeight > 0, heldPermissionId != permissionId else { return }
+        heldPermissionId = permissionId
         let content = latest.value.content - 4 // the stack's top padding
-        contentFloor = max(contentFloor, content + cardHeight)
+        let floor = content + cardHeight
+        guard floor > contentFloor + 0.5 else { return }
+        contentFloor = floor
+        cardExitTargetInset = latest.value.inset - cardHeight
     }
 
     private var placeholder: String {
@@ -448,7 +466,7 @@ struct TranscriptLayout: Layout {
 }
 
 final class LatestMetrics {
-    var value = ScrollMetrics(offset: 0, content: 0, inset: 0, container: 0)
+    var value = ScrollMetrics(offset: 0, content: 0, inset: 0, container: 0, topInset: 0)
 }
 
 struct ScrollMetrics: Equatable {
@@ -456,7 +474,16 @@ struct ScrollMetrics: Equatable {
     var content: CGFloat
     var inset: CGFloat
     var container: CGFloat
-    var maxOffset: CGFloat { content + inset - container }
+    var topInset: CGFloat
+    /// The bottom-most `contentOffset.y`. `containerSize` excludes both
+    /// insets and `contentOffset` is the raw offset (it reads −topInset at
+    /// the top), so the bottom is content − visible height − top inset.
+    var maxOffset: CGFloat { content - container - topInset }
+    /// The bottom in `ScrollPosition(y:)` terms, which measure from below the
+    /// top inset (unlike the raw `contentOffset`). Exactly the bottom, never
+    /// past it: the position remembers its y, and an overshoot is re-applied
+    /// in one frame as soon as content grows (a jump on the next send).
+    var scrollTarget: CGFloat { maxOffset + topInset }
 }
 
 #if DEBUG
