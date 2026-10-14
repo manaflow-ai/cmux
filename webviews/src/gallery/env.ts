@@ -69,6 +69,8 @@ export type GalleryEnv = {
   density: Density;
   /** Interface scale (WKWebView pageZoom, DesignSettings.uiScale). */
   scale: number;
+  /** Labs chrome token multiplier, independent of document zoom. */
+  interfaceScale: number;
   /** A named width or a number of px. */
   width: WidthName | number;
   /** Px; 0 fits the state's own height. */
@@ -97,6 +99,7 @@ export const DEFAULT_ENV: GalleryEnv = {
   fontSize: 0,
   density: "comfortable",
   scale: 1,
+  interfaceScale: 1,
   width: "normal",
   height: 0,
   reducedMotion: false,
@@ -139,6 +142,7 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   env.fontSize = finite(params.get("fontSize"), 0, 0, 40);
   if (params.get("density") === "compact") env.density = "compact";
   env.scale = finite(params.get("scale"), 1, 0.5, 3);
+  env.interfaceScale = finite(params.get("interfaceScale"), 1, 0.9, 1.25);
   const width = params.get("width");
   if (width && width in WIDTHS) env.width = width as WidthName;
   else if (width && /^\d+$/.test(width)) env.width = Math.min(Math.max(Number(width), 240), 3000);

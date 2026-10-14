@@ -240,7 +240,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -254,6 +254,8 @@ public final class AgentPaneView: NSView {
         } else {
             webView.pageZoom = scale
         }
+        let chromeScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
+        webView.evaluateJavaScript("document.documentElement.style.setProperty('--cmux-interface-scale', '\(chromeScale)')", completionHandler: nil)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
