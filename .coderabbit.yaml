@@ -17,8 +17,10 @@ reviews:
       instructions: |
         Apply `.github/review-bot-rules/familiar-intent.md`. When a changed hunk
         touches `@intent ... stability=familiar`, warn and @-mention the marker's
-        owner unless the pull-request body contains a non-placeholder
-        `Intent-Delta:` line (`Intent-Delta: none` is the template placeholder).
+        owner unless the description or diff shows whether the region's familiar
+        behavior is kept; an optional `Intent-Delta:` line settles it, and a
+        missing line or `Intent-Delta: none` is no stated delta. Never ask the
+        author to add a template field.
         This is warning-only and must never request changes or block the PR.
     - path: "**/*"
       instructions: |

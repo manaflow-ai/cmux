@@ -21,7 +21,7 @@ DELTA = re.compile(r"(?im)^\s*Intent-Delta\s*:\s*(?P<value>\S.*)$")
 
 
 def has_intent_delta(body: str) -> bool:
-    """The template's ``Intent-Delta: none`` is a placeholder, not a delta."""
+    """An optional ``Intent-Delta:`` line names the delta; a missing line, or ``none``, names none."""
     return any(match.group("value").strip().lower() != "none" for match in DELTA.finditer(body or ""))
 
 

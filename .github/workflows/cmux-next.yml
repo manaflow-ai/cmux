@@ -137,7 +137,6 @@ on:
       - .github/workflows/cmux-next.yml
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
-      - .github/pull_request_template.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -274,7 +273,6 @@ on:
       - .github/workflows/cmux-next.yml
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
-      - .github/pull_request_template.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml

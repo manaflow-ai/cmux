@@ -5,11 +5,6 @@
 
 <!-- The concrete problem, and what a user or API caller can do after this change. Explain as much of the mechanism as a reviewer needs to assess it; link deeper design or implementation detail. If this closes an issue, say `Fixes #1234` here. -->
 
-Intent-Delta: none
-
-<!-- For a changed `@intent ... stability=familiar` region, replace `none` with
-preserved, modified(...), retired(...), or new(...). -->
-
 ## Testing
 
 <!--

@@ -36,7 +36,13 @@ class FamiliarIntentWarningTests(unittest.TestCase):
             [{"owner": "lawrence", "path": "Packages/macOS/CmuxNext/Sources/Chrome.swift"}],
         )
 
-    def test_template_placeholder_does_not_suppress_warning(self) -> None:
+    def test_a_missing_or_none_delta_does_not_suppress_warning(self) -> None:
+        missing = MODULE.inspect(
+            "Changes the sidebar.\n",
+            patch("@@ -1,2 +1,2 @@\n // @intent owner=lawrence stability=familiar\n-old\n+new\n"),
+        )
+        self.assertFalse(missing["intent_delta"])
+        self.assertTrue(missing["warnings"])
         result = MODULE.inspect(
             "Intent-Delta: none\n",
             patch("@@ -1,2 +1,2 @@\n // @intent owner=lawrence stability=familiar\n-old\n+new\n"),
