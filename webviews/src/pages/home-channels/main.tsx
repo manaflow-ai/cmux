@@ -5,7 +5,8 @@
 //   listener, same origin (spec transports.md "App listener and page files");
 // - `?daemon=ws://host:port`: any other server of the page bundle (the gallery live server);
 // - in the app (cmux-page://cmux.home-channels/): the host verb `cmux.host.credential.load` hands
-//   the endpoint and the daemon's credential. No Swift serves Home data.
+//   the endpoint and the daemon's credential, and `owner` for this build's Chief conversations
+//   (DaemonGate). No Swift serves Home data.
 // In the gallery and dev loop (`?mock`) the in-memory mock provider stands in.
 import "../shared/desktop";
 import { useState } from "react";
@@ -61,9 +62,9 @@ export function mountDaemonHomeChannelsPage(
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <DaemonGate source={source} strings={strings}>
-        {(daemon) => (
+        {(daemon, _pages, owner) => (
           <div className="hc-daemon">
-            <DaemonHome daemon={daemon} strings={strings} carry={carry} />
+            <DaemonHome daemon={daemon} owner={owner} strings={strings} carry={carry} />
           </div>
         )}
       </DaemonGate>
@@ -72,8 +73,19 @@ export function mountDaemonHomeChannelsPage(
 }
 
 /** One store per daemon connection (a render never makes a second one). */
-function DaemonHome({ daemon, strings, carry }: { daemon: DaemonSocket; strings: Strings; carry: PendingCarry }) {
-  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon), carry));
+function DaemonHome({
+  daemon,
+  owner,
+  strings,
+  carry,
+}: {
+  daemon: DaemonSocket;
+  /** This build's Chief home's owner, when it serves the local conversations. */
+  owner?: DaemonSocket;
+  strings: Strings;
+  carry: PendingCarry;
+}) {
+  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry));
   // Web links: homeLinks.ts sends them to workspace.open_url, but the daemon takes that operation
   // from a page only with the person's confirmation (page-router gesture list), which this
   // WebSocket cannot present yet. Until the host relays the click with a confirmation

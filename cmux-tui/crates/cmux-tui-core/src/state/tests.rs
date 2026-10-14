@@ -88,13 +88,26 @@ pub(super) fn error_code(result: Result<Value, ResourceError>) -> String {
     result.expect_err("request unexpectedly succeeded").code
 }
 
-/// Every change of every resource batch after `revision`.
+/// The changes after `revision` as a connection without `placement-shift-v1`
+/// reads them: each batch's placement shift restated from the current state
+/// (server/session_event_stream.rs `delta_item`).
 pub(super) fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
     mux.resource_events_after(revision)
         .unwrap()
         .batches
         .into_iter()
-        .flat_map(|batch| batch.changes.as_array().cloned().unwrap_or_default())
+        .flat_map(|batch| {
+            let mut changes = batch.changes.as_array().cloned().unwrap_or_default();
+            if let Some(shift) = batch
+                .placement_shift
+                .as_ref()
+                .and_then(super::placement_shift::PlacementShift::from_value)
+            {
+                let all = mux.read_registry_state(super::placement_shift::all_changes).unwrap();
+                changes.extend(super::placement_shift::restatement(&all, shift));
+            }
+            changes
+        })
         .collect()
 }
 
