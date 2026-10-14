@@ -4,10 +4,11 @@
 import { STATUS_GLYPHS, type StatusGlyphName } from "./statusGlyphs.generated";
 
 /** Whether a glyph `size` px wide takes the 1x pixel art at the window's pixel ratio: the same rule as
- * the app's `StaticStatusGlyph.usesHinting` (10 device pixels, or an odd multiple of 10). */
+ * the app's `StaticStatusGlyph.usesHinting`: exactly 10 device pixels. Larger squares (3x, 5x) draw
+ * the master's curves; the art blown up would draw in coarse blocks. */
 export function usesPixelArt(size: number, pixelRatio: number): boolean {
   const pixels = size * pixelRatio;
-  return Number.isInteger(pixels) && pixels % 20 === 10;
+  return pixels === 10;
 }
 
 export function StatusGlyph({
