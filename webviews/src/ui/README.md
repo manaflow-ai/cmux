@@ -149,5 +149,5 @@ Rules:
   ones sit in `scripts/cmux-next/type-scale-baseline.tsv`, which may only go down. Each component moves
   to the tokens in its UI-tournament round.
 - The app's Swift has the same ratchet: `scripts/cmux-next/check-swift-type-scale.py` (cmux-next checks)
-  warns on a new literal font size or a weight other than `TypeScale.regular` and `TypeScale.emphasis`.
+  fails on a new literal font size or a weight other than `TypeScale.regular` and `TypeScale.emphasis`.
   `scripts/cmux-next/type-inventory.py` prints each surface's sizes and weights, native and web.
