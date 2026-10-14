@@ -41,6 +41,9 @@ struct SubagentBeside {
             },
             again: { request in
                 _ = SubagentBeside(services: services, session: session, how: request.how).open(request.agent, beside: request.chat)
+            },
+            close: { key in
+                _ = services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabs.resolve(key)), origin: .script))
             }))
     }
 
@@ -67,23 +70,42 @@ struct SubagentBeside {
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat), origin: .user)
         invocation.besideCaller = true
         invocation.newColumnBeside = true
-        let placed = beside == nil ? AgentBesidePlacement.placed(invocation, in: chatController, then: nil) : nil
-        guard let pending = try? tabs.open(in: target.pane.handle, of: target.daemon, session: session) else { return false }
+        // The next open waits for the move (or the dock), so it finds the pane right of the chat.
+        let (moves, moved) = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let placement = beside == nil ? AgentBesidePlacement.placement(invocation, pane: chatPane, controller: chatController,
+                                                                         services: services, then: nil, done: { moved.yield($0) }) : nil
+        guard let pending = try? tabs.open(in: target.pane.handle, of: target.daemon, session: session) else {
+            placement?.cancel()
+            return false
+        }
         beside?.selectWhenReportedKeepingFocus(surface: pending.surface)
         // task-owner: one tab creation, then its placement beside the chat
         Task { @MainActor in
-            guard let tab = try? await pending.value(), await TabMirror.reaches(tab.key, in: tabs.locate) else { return finished(false) }
-            placed?(tab.surface)
+            guard let tab = try? await pending.value(), await TabMirror.reaches(tab.key, in: tabs.locate) else {
+                placement?.cancel()
+                return finished(false)
+            }
+            placement?.place(tab.surface)
             created(tab.key)
-            finished(true)
+            guard placement != nil else { return finished(true) }
+            var done = moves.makeAsyncIterator()
+            finished(await done.next() ?? false)
         }
         return true
     }
 
     /// A tiled pane: a split right of `anchor` (the chat), or below it (`down`, the newest tiled pane).
+    /// With a pane right of the chat already (a row's click put one there and docked the chat), the
+    /// first one goes below that pane instead, so the stack stays right of the chat.
     private func tile(beside anchor: String, down: Bool, created: @escaping @MainActor (String) -> Void,
                       finished: @escaping @MainActor (Bool) -> Void) -> Bool {
         let services = self.services, session = self.session, tabs = services.agentTabs
+        var anchor = anchor, down = down
+        if !down, let (_, chatPane) = services.locateTab(tabs.resolve(anchor)),
+           let beside = ChatBeside.besidePane(of: chatPane, in: services.daemon(for: chatPane).store)?.tabs.first {
+            anchor = beside.id
+            down = true
+        }
         return tabs.openBeside(anchor, direction: down ? "down" : "right", origin: how.focus ? .user : .script,
                                open: { pane, daemon in try tabs.open(in: pane, of: daemon, session: session) },
                                created: created, finished: { moved in
@@ -99,18 +121,14 @@ struct SubagentBeside {
             target: ActionTargetRef(kind: .tab, id: key), arguments: ["name": .string(title)], origin: .script))
     }
 
-    /// Equalizes the splits of session `session`'s tiled stack, then again each time one of its
-    /// panes leaves the layout, until none is left.
+    /// Equalizes the splits of session `session`'s tiled stack, then again each time the stack's
+    /// panes in the layout change (one leaves, or one the layout listed late joins), until none is left.
     static func balance(_ session: String, services: AppServices) {
         let tracker = AgentSubagentPanes.session(session)
-        let panes = tracker.tiled(isOpen: { services.agentTabs.locate($0) != nil })
-            .compactMap { services.locateTab(services.agentTabs.resolve($0))?.1 }
-        guard let content = panes.first.flatMap(services.paneController(for:))?.workspace else {
+        guard let (model, stack) = self.stack(session, services: services), !stack.isEmpty else {
             tracker.balancing = nil
             return
         }
-        let stack = Set(panes.map { LayoutPaneID($0.id) })
-        let model = content.layoutModel
         for tree in trees(model) {
             for split in tree.splits {
                 guard let node = tree.node(for: split), (node.a.panes + node.b.panes).allSatisfy(stack.contains) else { continue }
@@ -120,15 +138,24 @@ struct SubagentBeside {
         // task-owner: the stack's watch, replaced by the next balance and ended with the stack (its
         // panes left the layout, or its tabs closed with their workspace)
         tracker.balancing = Task { @MainActor in
-            let left = ObservationStream {
-                tracker.tiled(isOpen: { services.agentTabs.locate($0) != nil }).isEmpty ? 0
-                    : SubagentBeside.trees(model).flatMap(\.panes).filter(stack.contains).count
-            }
-            for await count in left where count < stack.count {
-                if count > 0 { SubagentBeside.balance(session, services: services) } else { tracker.balancing = nil }
+            for await now in ObservationStream({ SubagentBeside.stack(session, services: services)?.panes ?? [] }) where now != stack {
+                if now.isEmpty { tracker.balancing = nil } else { SubagentBeside.balance(session, services: services) }
                 return
             }
         }
+    }
+
+    /// The tiled stack's panes in the layout of its first pane's workspace: a pane of a tiled tab,
+    /// unless it also holds a chat that isn't tiled (the chat's own pane). A tiled tab moved to
+    /// another workspace, or a pane the layout doesn't list yet, is left out.
+    private static func stack(_ session: String, services: AppServices) -> (LayoutModel, Set<LayoutPaneID>)? {
+        let tabs = services.agentTabs
+        let keys = AgentSubagentPanes.session(session).tiled(isOpen: { tabs.locate($0) != nil }).map { tabs.resolve($0) }
+        let panes = keys.compactMap { services.locateTab($0)?.1 }
+        guard let model = panes.first.flatMap(services.paneController(for:))?.workspace?.layoutModel else { return nil }
+        let shown = Set(trees(model).flatMap(\.panes))
+        let stack = panes.filter { pane in pane.tabs.allSatisfy { keys.contains($0.id) || !ChatColumnPlacement.isChat($0, services: services) } }
+        return (model, Set(stack.map { LayoutPaneID($0.id) }).intersection(shown))
     }
 
     private static func trees(_ model: LayoutModel) -> [SplitNode] {

@@ -65,14 +65,18 @@ public final class AgentSubagentPanes {
     }
 
     /// Starts opening subagent `agent` for chat tab `chat`; false when another open runs (the
-    /// request waits for ``finish()``; a repeat that asks for focus keeps that) or this one already runs.
+    /// request waits for ``finish()``; a repeat that asks for focus or a tile keeps that) or this one
+    /// already runs (a tile request for it still waits: the running open may be a tab).
     public func begin(_ agent: String, how: Open, chat: String) -> Bool {
         guard let opening else {
             self.opening = agent
             return true
         }
-        if let index = queue.firstIndex(where: { $0.agent == agent }) { queue[index].how.focus = queue[index].how.focus || how.focus }
-        else if opening != agent { queue.append(Request(agent: agent, how: how, chat: chat)) }
+        if let index = queue.firstIndex(where: { $0.agent == agent }) {
+            queue[index].how.focus = queue[index].how.focus || how.focus
+            queue[index].how.tile = queue[index].how.tile || how.tile
+            queue[index].how.title = how.title ?? queue[index].how.title
+        } else if opening != agent || how.tile { queue.append(Request(agent: agent, how: how, chat: chat)) }
         return false
     }
 
@@ -95,27 +99,32 @@ public final class AgentSubagentPanes {
                            _ finished: @escaping @MainActor (Bool) -> Void) -> Bool
         /// Runs a waiting request.
         public var again: (Request) -> Void
+        /// Closes tab `key`: a subagent's tab that a tiled pane replaces.
+        public var close: (_ key: String) -> Void
 
         public init(isOpen: @escaping (String) -> Bool, show: @escaping (String, Bool) -> Void,
                     place: @escaping (String, Bool, @escaping @MainActor (String) -> Void, @escaping @MainActor (Bool) -> Void) -> Bool,
-                    again: @escaping (Request) -> Void) {
+                    again: @escaping (Request) -> Void, close: @escaping (String) -> Void = { _ in }) {
             self.isOpen = isOpen
             self.show = show
             self.place = place
             self.again = again
+            self.close = close
         }
     }
 
     /// Shows subagent `agent` for chat tab `chat`: shows its open tab, or opens one as `how` asks (in
     /// the pane right of the chat, or tiled: right of the chat, or below the newest tiled pane); one
     /// open at a time. An unfocused open moves the tab with the daemon's `keep_focus` (cx-3hw0i), so
-    /// the chat keeps focus throughout. False when nothing opened.
+    /// the chat keeps focus throughout. A tiled open of one open as a tab (a row's click) closes that
+    /// tab for the pane, so a subagent keeps one view. False when nothing opened.
     public func open(_ agent: String, how: Open, chat: String, hooks: Hooks) -> Bool {
-        if let open = tab(for: agent, isOpen: hooks.isOpen) {
+        if let open = tab(for: agent, isOpen: hooks.isOpen), !how.tile || order.contains(open) {
             hooks.show(open, how.focus)
             return true
         }
         guard begin(agent, how: how, chat: chat) else { return true }
+        if let plain = tabs.removeValue(forKey: agent) { hooks.close(plain) }
         let next: @MainActor (Bool) -> Void = { [weak self] _ in
             if let request = self?.finish() { hooks.again(request) }
         }
