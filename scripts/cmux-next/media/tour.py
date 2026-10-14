@@ -67,6 +67,9 @@ WINDOW_TIMEOUT = 20.0
 # A window snapshot paints each shown page too, so it can take a few seconds.
 SNAPSHOT_TIMEOUT = 20.0
 APP_WINDOW_MODE = "app window (debug.window_snapshot)"
+# Each app-window frame is a main-thread snapshot of the app being recorded:
+# fewer of them keep its motion from stalling on the capture.
+APP_WINDOW_FRAME_INTERVAL = 1.0
 # scripts/release-media/host_agent.py on main looks in the same places.
 HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
                      Path("/Applications/CuaSshScreenCapture.app"))
@@ -340,8 +343,13 @@ class Screen:
         return (done.stderr or done.stdout).strip() or "sips wrote no image"
 
 
+def frame_interval(session: Session) -> float:
+    """Seconds between video frames for the session's capture route."""
+    return APP_WINDOW_FRAME_INTERVAL if session.capture_mode == APP_WINDOW_MODE else FRAME_INTERVAL
+
+
 class Recorder(threading.Thread):
-    """Frames of the screen rectangle about every FRAME_INTERVAL seconds, tagged with the step."""
+    """Frames of the screen rectangle about every `interval` seconds, tagged with the step."""
 
     def __init__(self, screen: Screen, directory: Path) -> None:
         super().__init__(daemon=True)
@@ -352,6 +360,7 @@ class Recorder(threading.Thread):
         self.error: str | None = None
         self.stopping = threading.Event()
         self.lock = threading.Lock()
+        self.interval = frame_interval(screen.session)
 
     def run(self) -> None:
         while not self.stopping.is_set():
@@ -372,7 +381,7 @@ class Recorder(threading.Thread):
                     self.error = problem
                 else:
                     self.frames.append({"file": f"frames/{path.name}", "step": self.step})
-            self.stopping.wait(max(0.0, FRAME_INTERVAL - (time.monotonic() - started)))
+            self.stopping.wait(max(0.0, self.interval - (time.monotonic() - started)))
 
     def stop(self) -> list[dict[str, Any]]:
         """Stop recording; the frames kept, which nothing appends to afterwards."""
@@ -583,7 +592,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     shots = session.shareable(directory / "shots")
     frames = session.shareable(directory / "frames")
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
-                                "frame_interval": FRAME_INTERVAL, "console_user": session.user,
+                                "frame_interval": frame_interval(session), "console_user": session.user,
                                 "capture_mode": session.capture_mode}
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
     app = App(app_path, session, workdir, fresh_state=fresh_state)
