@@ -52,8 +52,11 @@ import Testing
         row.highlightOverride = true
 
         // AppKit's Return on the highlighted item sends the item's action; the row also takes
-        // Return itself. One press runs the action once, whichever reaches it first.
-        menu.performActionForItem(at: 0)
+        // Return itself. One press runs the action once, whichever reaches it first. (Sent as
+        // AppKit sends it: `performActionForItem` on a menu that is not open is AppKit's tracking
+        // path, which can stop the test helper's main run loop.)
+        let item = menu.items[0]
+        NSApplication.shared.sendAction(try #require(item.action), to: item.target, from: item)
         #expect(row.performKeyEquivalent(with: try Self.returnKey()))
         // The row's run waits for the menu's tracking loop to end: let it.
         Self.drainRunLoop { false }
@@ -82,9 +85,8 @@ import Testing
     }
 
     /// A row of a menu that is not open still runs its action, and never stops the main run loop:
-    /// `cancelTracking()` on a menu that is not tracking stops the thread's current run loop, and on
-    /// the main thread outside any tracking loop that is the process's own (the Swift Testing
-    /// helper's async main ended there and exited 0 mid-run on the macOS 27 lane).
+    /// the Swift Testing helper's async main runs in `CFRunLoopRun()`, and exits 0 mid-run when
+    /// that run is stopped (it did, after these tests, on the macOS 27 lane).
     @Test func aRowOfAClosedMenuNeverStopsTheMainRunLoop() throws {
         let counter = Counter()
         let menu = Self.menu(counter)

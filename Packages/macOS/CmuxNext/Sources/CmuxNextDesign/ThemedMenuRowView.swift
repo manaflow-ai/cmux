@@ -124,8 +124,9 @@ public final class ThemedMenuRowView: NSView {
     /// once the tracking loop has ended (the run loop is back in its default mode), so an action
     /// that opens a field, popover or another menu never does it inside the closing one. Rows with
     /// a submenu open it instead (AppKit does that). Only an open menu (the row on screen in its
-    /// menu window) is closed: `cancelTracking()` on a menu that is not tracking stops the thread's
-    /// current run loop, and on the main thread outside a tracking loop that is the app's own.
+    /// menu window) is closed, and the action is sent straight to its target rather than through
+    /// the menu: AppKit's tracking calls on a menu that is not open can stop the main run loop,
+    /// which ends a process whose main thread runs `CFRunLoopRun()` (the Swift Testing helper).
     func activate() {
         guard let item = enclosingMenuItem, Self.runs(item), let menu = item.menu else { return }
         if window?.isVisible == true {
@@ -139,9 +140,9 @@ public final class ThemedMenuRowView: NSView {
     }
 
     @objc private func runPendingItem() {
-        guard let item = pendingItem, let menu = item.menu else { return }
+        guard let item = pendingItem, let action = item.action else { return }
         pendingItem = nil
-        menu.performActionForItem(at: menu.index(of: item))
+        NSApplication.shared.sendAction(action, to: item.target, from: item)
     }
 
     /// An item a click or Return runs: enabled, with an action, no submenu.
