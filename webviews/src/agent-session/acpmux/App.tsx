@@ -103,7 +103,7 @@ import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { pendingToolCalls } from "./summary/SubagentStatusList";
-import { useSummaryCard } from "./summary/cardState";
+import { useSummaryCard, useSummaryRoom } from "./summary/cardState";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -156,6 +156,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
+  forkablePrompts,
   forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
@@ -195,14 +196,7 @@ import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import {
-  SUBAGENT_OF,
-  SUBAGENT_ROW,
-  type SubagentRows,
-  childView,
-  isSubagentGroup,
-  subagentRowsFrom,
-} from "./subagents/subagentRows";
+import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
 import {
   SubagentGroupHeader,
@@ -2558,12 +2552,9 @@ function AcpmuxPane() {
   }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns]);
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
-  // A subagent's pane keeps its own card choice, hidden at first: the chat's pane shows the card.
-  const summaryCard = useSummaryCard(
-    subagentPane.current && shownSessionId ? `${shownSessionId}#subagent` : shownSessionId,
-    hasSubagents && !subagentPane.current,
-  );
+  // The summary's card makes room beside a chat where the pane has it (an open artifact takes that
+  // place; a new chat has nothing to sum up), else it lies over the chat (summary/cardState.ts).
+  const summaryCard = useSummaryCard(useSummaryRoom(artifact !== undefined || freshView));
   const askedToolCalls = useMemo(
     () => pendingToolCalls(snapshot),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the asks' inputs, not the whole snapshot
@@ -4253,9 +4244,20 @@ function AcpmuxPane() {
     t,
   );
   opensSideChat.current = sideChat !== undefined;
+  // New terminal and New browser (the chat menu, the summary panel): another one beside the chat on
+  // every click, whatever the header's Terminal and Browser buttons do.
+  const newTerminal = () => runSplitAction(HEADER_ACTIONS.terminal, localCwd, "open");
+  const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
-    const copy = copyRow({ link, rows: snapshot.rows }, (text) => ignoreFailure(copyText(text)), t);
+    const copy = copyRow(
+      { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
+      (text) => ignoreFailure(copyText(text)),
+      t,
+    );
+    // Fork › From here (the last turn), then, for a harness that forks at any turn, the earlier
+    // prompts, newest first (ChatGPT's "from a message"); otherwise one Fork row.
+    const forkPrompts = forksAnyTurn(summary?.family) ? forkablePrompts(snapshot.rows).slice(1, 9) : [];
     const fork: ChatMenuItem[] =
       forkable && lastForkSeq !== undefined
         ? [
@@ -4263,10 +4265,31 @@ function AcpmuxPane() {
               key: "fork",
               label: t("chatMenu.fork"),
               icon: "agent.fork",
-              onSelect: () => turnActions.fork?.(lastForkSeq),
+              ...(forkPrompts.length > 0
+                ? {
+                    children: [
+                      {
+                        key: "forkHere",
+                        label: t("chatMenu.forkFromHere"),
+                        onSelect: () => turnActions.fork?.(lastForkSeq),
+                      },
+                      ...forkPrompts.map((prompt) => ({
+                        key: `fork-${prompt.seq}`,
+                        label: prompt.text,
+                        onSelect: () => turnActions.fork?.(prompt.seq),
+                      })),
+                    ],
+                  }
+                : { onSelect: () => turnActions.fork?.(lastForkSeq) }),
             },
           ]
         : [];
+    // New side chat, New terminal and New browser: something new beside the chat, every time.
+    const opensBeside: ChatMenuItem[] = [
+      ...(sideChat ? [sideChat] : []),
+      { key: "newTerminal", label: t("chatMenu.newTerminal"), icon: "terminal", onSelect: newTerminal },
+      { key: "newBrowser", label: t("chatMenu.newBrowser"), icon: "browser", onSelect: newBrowser },
+    ];
     const continueIn: ChatMenuItem[] =
       snapshot.canHandoff && handoffTargets.length > 0
         ? [
@@ -4350,7 +4373,7 @@ function AcpmuxPane() {
           onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
         },
       ],
-      [...(sideChat ? [sideChat] : []), ...fork, ...continueIn],
+      [...opensBeside, ...fork, ...continueIn],
       copy ? [copy] : [],
       [
         {
@@ -5040,10 +5063,31 @@ function AcpmuxPane() {
       </ShortcutsContext.Provider>
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
+  // A side view (replay, the Inspector, diff review) or the Harnesses screen takes the card's place.
+  const summaryCovered = Boolean(replaying) || inspectorOpen || Boolean(diffFiles) || harnessesOpen;
+  const summaryPanel = (
+    <SummaryCard
+      // Another chat closes this one's gallery, as it does the image viewer.
+      key={snapshot.sessionId}
+      card={summaryCard}
+      rows={snapshot.rows}
+      changes={lastChanges}
+      onOpenChanges={toggleLastChanges}
+      onOpenOutput={openOutput}
+      onOpenImage={openImage}
+      subagents={cardSubagents}
+      actions={{ terminal: newTerminal, browser: newBrowser }}
+    />
+  );
   return (
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
-        <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
+        <div
+          className="acpmux-main"
+          data-new-chat={freshView && !showNewTab ? "" : undefined}
+          // The chat's column moves left of the open card (summary.css).
+          data-summary={summaryCard.shown && summaryCard.push && !summaryCovered ? "push" : undefined}
+        >
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's style, under it; a pick shows in place at once.
             <StyleSwitch
@@ -5255,7 +5299,7 @@ function AcpmuxPane() {
                           configureQuickActions({ quickActions: before }),
                         );
                       }}
-                      summary={<SummaryButton card={summaryCard} />}
+                      summary={<SummaryButton card={summaryCard} covered={summaryCovered} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}
@@ -5263,17 +5307,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                <SummaryCard
-                  // Another chat closes this one's gallery, as it does the image viewer.
-                  key={snapshot.sessionId}
-                  card={summaryCard}
-                  rows={snapshot.rows}
-                  changes={quick ? undefined : lastChanges}
-                  onOpenChanges={toggleLastChanges}
-                  onOpenOutput={quick ? undefined : openOutput}
-                  onOpenImage={quick ? undefined : openImage}
-                  subagents={cardSubagents}
-                />
+                {!summaryCovered && summaryPanel}
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">
