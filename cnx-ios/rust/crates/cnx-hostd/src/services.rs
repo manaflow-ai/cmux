@@ -278,6 +278,8 @@ async fn splice(
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
+    // The daemon lane: a phone's new terminal opens in its pane's folder (with_pane_folder).
+    let terminal_folders = matches!(policy, LinePolicy::Daemon(_)).then(|| path.to_path_buf());
     let socket = UnixStream::connect(path)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {label}: {e}")))?;
@@ -324,12 +326,18 @@ async fn splice(
                 }
                 match verdict {
                     Verdict::Forward => {
+                        if let Some(path) = &terminal_folders {
+                            line = with_pane_folder(path, line).await;
+                        }
                         line.push(b'\n');
                         if daemon_write.write_all(&line).await.is_err() {
                             return;
                         }
                     }
                     Verdict::Rewrite(mut line) => {
+                        if let Some(path) = &terminal_folders {
+                            line = with_pane_folder(path, line).await;
+                        }
                         line.push(b'\n');
                         if daemon_write.write_all(&line).await.is_err() {
                             return;
@@ -636,29 +644,7 @@ async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal>
         .default_socket
         .clone()
         .unwrap_or_else(|| config.tui_socket_dir.join(format!("{}.sock", config.default_session)));
-    let unavailable = |e: &dyn std::fmt::Display| Refusal::new("unavailable", format!("cmux-tui: {e}"));
-    let read = async {
-        let socket = UnixStream::connect(&path).await.map_err(|e| unavailable(&e))?;
-        let (read, mut write) = socket.into_split();
-        write
-            .write_all(b"{\"cmd\":\"list-workspaces\",\"id\":\"cnx-upload\"}\n")
-            .await
-            .map_err(|e| unavailable(&e))?;
-        let mut reader = BufReader::new(read);
-        loop {
-            let mut line = Vec::new();
-            if reader.read_until(b'\n', &mut line).await.map_err(|e| unavailable(&e))? == 0 {
-                return Err(unavailable(&"closed"));
-            }
-            let Ok(value) = serde_json::from_slice::<Value>(&line) else { continue };
-            if value.get("id").and_then(Value::as_str) == Some("cnx-upload") {
-                return Ok(value);
-            }
-        }
-    };
-    let reply = tokio::time::timeout(std::time::Duration::from_secs(5), read)
-        .await
-        .map_err(|_| unavailable(&"timed out"))??;
+    let reply = list_workspaces(&path).await?;
     let data = reply.get("data").unwrap_or(&reply);
     let mut folders = Vec::new();
     let empty = Vec::new();
@@ -679,6 +665,80 @@ async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal>
         }
     }
     Ok(folders)
+}
+
+/// The daemon at `path`'s `list-workspaces` reply (at most 5 s).
+async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
+    let unavailable = |e: &dyn std::fmt::Display| Refusal::new("unavailable", format!("cmux-tui: {e}"));
+    let read = async {
+        let socket = UnixStream::connect(&path).await.map_err(|e| unavailable(&e))?;
+        let (read, mut write) = socket.into_split();
+        write
+            .write_all(b"{\"cmd\":\"list-workspaces\",\"id\":\"cnx-upload\"}\n")
+            .await
+            .map_err(|e| unavailable(&e))?;
+        let mut reader = BufReader::new(read);
+        loop {
+            let mut line = Vec::new();
+            if reader.read_until(b'\n', &mut line).await.map_err(|e| unavailable(&e))? == 0 {
+                return Err(unavailable(&"closed"));
+            }
+            let Ok(value) = serde_json::from_slice::<Value>(&line) else { continue };
+            if value.get("id").and_then(Value::as_str) == Some("cnx-upload") {
+                return Ok(value);
+            }
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), read)
+        .await
+        .map_err(|_| unavailable(&"timed out"))?
+}
+
+/// The folder a phone's new terminal in `pane` opens in, chosen by the Mac (a phone
+/// never sends `cwd`): the folder of the pane's active tab, else another tab of that
+/// pane, else of its workspace. None for no such tab, a folder that is gone, `/`, the
+/// home folder or a folder above it (the daemon's default, home, then stands).
+pub fn pane_folder(reply: &Value, pane: u64, home: Option<&Path>) -> Option<String> {
+    let data = reply.get("data").unwrap_or(reply);
+    let empty = Vec::new();
+    let list = |value: &Value, key: &str| value.get(key).and_then(Value::as_array).unwrap_or(&empty).clone();
+    let cwd = |tab: &Value| {
+        tab.get("cwd").and_then(Value::as_str).filter(|c| c.starts_with('/')).map(str::to_owned)
+    };
+    for workspace in list(data, "workspaces") {
+        let panes: Vec<Value> = list(&workspace, "screens").iter().flat_map(|s| list(s, "panes")).collect();
+        let Some(target) = panes.iter().find(|p| p.get("id").and_then(Value::as_u64) == Some(pane)) else {
+            continue;
+        };
+        let tabs = list(target, "tabs");
+        let active =
+            target.get("active_tab").and_then(Value::as_u64).and_then(|i| tabs.get(usize::try_from(i).ok()?));
+        let chosen = active
+            .and_then(cwd)
+            .or_else(|| tabs.iter().find_map(cwd))
+            .or_else(|| panes.iter().flat_map(|p| list(p, "tabs")).find_map(|t| cwd(&t)))?;
+        let folder = std::fs::canonicalize(&chosen).ok().filter(|f| f.is_dir())?;
+        if folder.parent().is_none() || home.is_some_and(|h| h.starts_with(&folder)) {
+            return None;
+        }
+        return folder.to_str().map(str::to_owned);
+    }
+    None
+}
+
+/// A phone's `new-tab` (no `cwd`: the policy refuses one) gets the Mac's choice of
+/// folder for `pane` ([`pane_folder`]); any other line passes as is.
+async fn with_pane_folder(path: &Path, line: Vec<u8>) -> Vec<u8> {
+    let Ok(Value::Object(mut object)) = serde_json::from_slice::<Value>(&line) else { return line };
+    if object.get("cmd").and_then(Value::as_str) != Some("new-tab") || object.contains_key("cwd") {
+        return line;
+    }
+    let Some(pane) = object.get("pane").and_then(Value::as_u64) else { return line };
+    let Ok(reply) = list_workspaces(path).await else { return line };
+    let home = std::env::var_os("HOME").and_then(|h| std::fs::canonicalize(h).ok());
+    let Some(folder) = pane_folder(&reply, pane, home.as_deref()) else { return line };
+    object.insert("cwd".into(), Value::String(folder));
+    serde_json::to_vec(&Value::Object(object)).unwrap_or(line)
 }
 
 /// The folder an `upload` writes to. With `cwd` (a folder of one of the
@@ -848,6 +908,62 @@ async fn receive_upload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// End to end through a fake daemon: the phone's `new-tab` leaves with the pane's
+    /// folder; a line that names one, or another command, is untouched.
+    #[tokio::test]
+    async fn a_phones_new_tab_line_gets_the_macs_folder() {
+        let base = tempfile::tempdir().unwrap();
+        let project = std::fs::canonicalize(base.path()).unwrap().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let socket = base.path().join("d.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let folder = project.to_str().unwrap().to_owned();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                use std::io::{BufRead, Write};
+                let mut out = conn.try_clone().unwrap();
+                let mut line = String::new();
+                if std::io::BufReader::new(conn).read_line(&mut line).is_ok() {
+                    let reply = serde_json::json!({"id": "cnx-upload", "data": {"workspaces": [{"screens": [{"panes": [
+                        {"id": 3, "active_tab": 0, "tabs": [{"cwd": folder}]}]}]}]}});
+                    let _ = writeln!(out, "{reply}");
+                }
+            }
+        });
+        let line =
+            with_pane_folder(&socket, br#"{"id":1,"cmd":"new-tab","pane":3,"cols":80,"rows":24}"#.to_vec())
+                .await;
+        let sent: Value = serde_json::from_slice(&line).unwrap();
+        assert_eq!(sent["cwd"].as_str(), project.to_str());
+        let own = br#"{"id":2,"cmd":"new-tab","pane":3,"cwd":"/x"}"#.to_vec();
+        assert_eq!(with_pane_folder(&socket, own.clone()).await, own);
+        let other = br#"{"id":3,"cmd":"select-tab","surface":1}"#.to_vec();
+        assert_eq!(with_pane_folder(&socket, other.clone()).await, other);
+    }
+
+    #[test]
+    fn a_phones_new_terminal_opens_in_its_panes_folder() {
+        let base = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(base.path()).unwrap();
+        let (project, other) = (root.join("project"), root.join("other"));
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let reply = serde_json::json!({"data": {"workspaces": [{"screens": [{"panes": [
+            {"id": 7, "active_tab": 1, "tabs": [{"cwd": other}, {"cwd": project}]},
+            {"id": 8, "active_tab": 0, "tabs": [{"kind": "browser"}]},
+            {"id": 9, "active_tab": 0, "tabs": [{"cwd": "/"}]},
+        ]}]}]}});
+        let at = |pane| pane_folder(&reply, pane, Some(&root.join("home")));
+        // The active tab's folder; a pane without one takes the workspace's.
+        assert_eq!(at(7).as_deref(), project.to_str());
+        assert_eq!(at(8).as_deref(), other.to_str());
+        // Never `/` or home (or above): the daemon's default stands.
+        assert_eq!(at(9), None);
+        assert_eq!(pane_folder(&reply, 7, Some(&project.join("me"))), None);
+        // An unknown pane: nothing.
+        assert_eq!(at(42), None);
+    }
 
     #[test]
     fn browser_tabs_are_a_capability_only_with_a_browser_host() {
