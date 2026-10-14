@@ -477,6 +477,10 @@ struct Warm {
     ice: Mutex<Vec<(String, Arc<IceCache>)>>,
     /// Warm sockets, newest last (a few: one per team and device in use).
     sockets: tokio::sync::Mutex<Vec<Arc<WarmSocket>>>,
+    /// Held while a socket opens, so a dial that starts while `prewarm` is
+    /// opening one waits for it instead of opening a second (the service
+    /// keeps one socket per device and would close the first).
+    opening: tokio::sync::Mutex<()>,
 }
 
 /// How many warm sockets are kept (the oldest goes first).
@@ -488,6 +492,7 @@ fn warm() -> &'static Warm {
         http: ApiClient::http_client(),
         ice: Mutex::new(Vec::new()),
         sockets: tokio::sync::Mutex::new(Vec::new()),
+        opening: tokio::sync::Mutex::new(()),
     })
 }
 
@@ -521,8 +526,37 @@ impl Warm {
         pool.iter().rev().find(|s| s.key == *key && s.client.closed_reason().is_none()).cloned()
     }
 
+    /// The pooled socket for `key` (true), else a new one (false), waiting
+    /// for one already opening.
+    async fn pooled_or_open(
+        &self,
+        key: &SocketKey,
+        token: &str,
+        timeline: &Timeline,
+    ) -> Result<(Arc<WarmSocket>, bool), CnxError> {
+        if let Some(socket) = self.pooled(key).await {
+            return Ok((socket, true));
+        }
+        let _opening = self.opening.lock().await;
+        if let Some(socket) = self.pooled(key).await {
+            timeline.mark("signaling_joined");
+            return Ok((socket, true));
+        }
+        Ok((self.open_locked(key, token, timeline).await?, false))
+    }
+
     /// A new socket for `key`, now the pooled one.
     async fn open(
+        &self,
+        key: &SocketKey,
+        token: &str,
+        timeline: &Timeline,
+    ) -> Result<Arc<WarmSocket>, CnxError> {
+        let _opening = self.opening.lock().await;
+        self.open_locked(key, token, timeline).await
+    }
+
+    async fn open_locked(
         &self,
         key: &SocketKey,
         token: &str,
@@ -567,9 +601,8 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
                 timeline.mark("signaling_stale");
                 warm().evict(&socket).await;
             }
-            if let Err(error) = warm().open(&key, &token, &timeline).await {
+            if warm().pooled_or_open(&key, &token, &timeline).await.is_err() {
                 timeline.mark("signaling_failed");
-                let _ = error;
             }
         };
         tokio::join!(warm().ice_servers(&base_url, &token, &timeline), socket);
@@ -610,20 +643,16 @@ async fn dial(
         device_id: request.device_id.clone(),
     };
     // ICE servers and the signaling socket are independent: get both at once.
-    let pooled = warm().pooled(&key).await;
-    let reused = pooled.is_some();
     let socket = async {
-        match pooled {
-            Some(socket) => {
-                timeline.mark("signaling_reused");
-                Ok(socket)
-            }
-            None => warm().open(&key, &request.token, timeline).await,
+        let (socket, reused) = warm().pooled_or_open(&key, &request.token, timeline).await?;
+        if reused {
+            timeline.mark("signaling_reused");
         }
+        Ok::<_, CnxError>((socket, reused))
     };
     let (ice_servers, socket) =
         tokio::join!(warm().ice_servers(&request.base_url, &request.token, timeline), socket);
-    let socket = socket?;
+    let (socket, reused) = socket?;
     let options = DialOptions {
         ice_servers,
         include_loopback: request.include_loopback,

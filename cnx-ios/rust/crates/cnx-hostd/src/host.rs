@@ -112,7 +112,8 @@ pub async fn run(config: HostConfig) -> Result<()> {
                 // A socket that was up for a while and then reset (every Worker
                 // deploy resets all sockets) comes back at once, so a phone
                 // dialing now finds the Mac; quick repeated failures back off.
-                backoff = if started.elapsed() > LONG_LIVED { QUICK_RECONNECT } else { Duration::from_secs(1) };
+                backoff =
+                    if started.elapsed() > LONG_LIVED { QUICK_RECONNECT } else { Duration::from_secs(1) };
                 reason
             }
             Err(error) => {

@@ -265,3 +265,23 @@ async fn a_closed_warm_socket_is_replaced() {
     second.close();
     drop(usurper);
 }
+
+/// A dial that starts while `prewarm` is still opening the socket waits for
+/// that socket instead of opening a second one (the service keeps one per
+/// device and would close the first).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dial_during_prewarm_joins_its_socket() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let device = uuid::Uuid::new_v4().to_string();
+    let (warmed, handle) = tokio::join!(
+        cnx_ffi::prewarm(server.base_url.clone(), "user:alice".into(), "team".into(), device.clone()),
+        connect_inner(request(&server, &device, &mac_id), None),
+    );
+    let handle = handle.expect("connect");
+    let opened = names(&warmed).contains(&"signaling_open") as usize
+        + names(&handle.timings()).contains(&"signaling_open") as usize;
+    assert_eq!(opened, 1, "prewarm {warmed:?} dial {:?}", handle.timings());
+    handle.close();
+}
