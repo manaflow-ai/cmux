@@ -413,7 +413,7 @@ try:
             return bool(frame and 0 <= frame.get("y", -1) < 800 and pinned and all(i.get("window_frame") for i in pinned))
         # Focus Alpha first (the list reveals the selected row), then wheel up in trackpad phases (hitch8: plain 4000 px
         # wheel events did not move the list).
-        focused = cli("workspace", row_id(rows().get("Alpha")), "focus")
+        focused = ""  # the CLI takes ws_ ids, not the row's UUID (hitch9: no workspace matches)
         for attempt in range(40):
             if at_top():
                 break
@@ -422,7 +422,10 @@ try:
             if not anchor:
                 break
             point = {"x": center(anchor["window_frame"])[0], "y": center(anchor["window_frame"])[1], "action": "scroll"}
-            for phase, dy in (("began", 0), ("changed", 600), ("changed", 600), ("ended", 0)):
+            # Toward Alpha: hitch9 found it below the window (y 1218), so the list must move up (negative dy), not down.
+            alpha_y = ((rows().get("Alpha") or {}).get("window_frame") or {}).get("y", -1)
+            step = -600 if alpha_y >= 800 else 600
+            for phase, dy in (("began", 0), ("changed", step), ("changed", step), ("ended", 0)):
                 reply = rpc("debug.mouse", {**point, "dy": dy, "phase": phase})
             if attempt < 2:
                 print("scroll", attempt, "reply", reply, "anchor y", anchor["window_frame"]["y"], flush=True)
