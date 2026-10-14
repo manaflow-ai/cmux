@@ -389,9 +389,15 @@ public final class AddressBarView: NSView {
         // NSTextField left focus and selection to AppKit's text tracking,
         // which sometimes ended with a caret and no select-all (nxdog96 N4).
         controller.send(.fieldMouseDown(clickCount: event.clickCount, button: .left, word: nil))
-        pendingFocusSource = .mouse
-        window?.makeFirstResponder(field)
-        pendingFocusSource = nil
+        if let editor = field.editor, window?.firstResponder === editor {
+            // The field still edits (the state machine had let go): focus it
+            // in place, as `focus()` does, without an end-editing round trip.
+            controller.send(.focusGained(.mouse))
+        } else {
+            pendingFocusSource = .mouse
+            window?.makeFirstResponder(field)
+            pendingFocusSource = nil
+        }
         controller.send(.fieldMouseUp)
     }
 

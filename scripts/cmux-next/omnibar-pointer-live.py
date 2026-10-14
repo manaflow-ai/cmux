@@ -190,10 +190,17 @@ try:
     reload = frames.get(reload_id) if reload_id else None
     chip = frames.get("chip")
     page = (bar[0] + bar[2] / 2, bar[1] + bar[3] + 200) if bar else None
+    # The frames at rest (the star shows only at rest), so the points below miss the badges.
+    frames = (pointer().get("frames") or frames) if blur() else frames
+    bar, text, toolbar = frames.get("bar"), frames.get("text"), frames.get("toolbar")
     text_area = frames.get("text_area")
     above_text = (text[0] + text[2] / 2, bar[1] + 1.5) if bar and text else None
     # Past the end of the short address, inside the text area (left of the star or the bar's end).
     past_text = (text_area[0] + text_area[2] - 4, bar[1] + bar[3] / 2) if bar and text_area else None
+    star = frames.get("star")
+    if past_text and star and star[0] <= past_text[0] <= star[0] + star[2]:
+        check(False, f"the point past the text lands on the star: {past_text} {star}")
+        past_text = None
     check(bool(text_area), f"the pointer report has the text area: {text_area}")
 
     # 1. Cursor at rest.
