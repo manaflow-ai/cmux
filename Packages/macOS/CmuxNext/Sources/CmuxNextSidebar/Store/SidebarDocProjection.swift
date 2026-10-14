@@ -67,7 +67,13 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                 machineSections[session] = record.id
                 if !placedList {
                     placedList = true
-                    sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list, content: .workspaces))
+                    // The workspace list stands for the machine sections: it shows the first one's alignment and spacing
+                    // (a band edit of the list writes them to every machine section).
+                    var spacing = SectionArrangement.list
+                    spacing.align = record.arrangement.align
+                    spacing.gap = record.arrangement.gap
+                    sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list,
+                                                  arrangement: spacing, content: .workspaces))
                 }
                 Self.place(row, session: session, records: records, into: &machines, items: &items, unplaced: &unplaced)
                 continue

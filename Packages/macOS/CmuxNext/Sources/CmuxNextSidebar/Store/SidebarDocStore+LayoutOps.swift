@@ -108,7 +108,16 @@ private struct LayoutOpPlanner {
             // A workspace has one item: out of a band it goes back to its machine section at its place
             // (the document's item.remove_ref would drop the item, and the workspace would draw at the section's end).
             if let workspace = matching.first(where: { $0.body.workspace != nil }) { return remove(workspace) }
-            // Anything else: the document's own op removes every item that shows the ref, in one change.
+            // A group or an unknown body has no document ref (the client names it by item id): remove it by id.
+            if matching.contains(where: { record in
+                if case .group = record.body { return true }
+                if case .other = record.body { return true }
+                return false
+            }) {
+                return matching.sorted(by: { $0.id < $1.id }).flatMap { drop($0.id, op: ["op": "item.remove", "id": $0.id]) }
+            }
+            // Anything else: the document's own op removes every item that shows the ref, in one change. It also
+            // removes a group it leaves empty, which the planner does not follow: it must be the batch's last op.
             let gone = Set(matching.map(\.id))
             for key in siblings.keys { siblings[key]?.removeAll { gone.contains($0) } }
             return [["op": "item.remove_ref", "ref": ["kind": ref.kind, "value": ref.value]]]
@@ -116,7 +125,8 @@ private struct LayoutOpPlanner {
             guard records.items[id.rawValue] != nil else { throw .unknownItem }
             return [["op": "item.update", "id": id.rawValue, "patch": ["shows_label": showsLabel]]]
         case .reset:
-            // The default sections again; the daemon's inverse makes it one undo step.
+            // The default sections again; the daemon's inverse makes it one undo step. The planner does not follow
+            // the reset (records and shown stay as they were): it must be the batch's last op.
             siblings = [:]
             return [["op": "reset"]]
         }
