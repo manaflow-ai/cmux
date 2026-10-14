@@ -55,6 +55,19 @@ opacity, dot size, pulse low opacity, native steps. Style precedence: Debug over
 hint (`--style`) when its source is honored (`appearance.statusIndicator.honorStatusStyle`: true by default,
 false, or a list of sources such as `["explicit", "run"]`), then the setting.
 
+Static look (cx-sya4n, Leo 2026-10-13: Austin gets headaches from blinking and pulsing lights; "what if they
+were just colors or symbols or some text"): `appearance.statusIndicator.animation` (`animated`, the default, or
+`static`; Settings > Appearance > Loading Indicator > Status Indicators). Static, and always under Reduce Motion
+(`StatusIndicatorConfig.isStatic`), nothing animates and every state draws its own shape whatever the Debug icon
+set (`StatusIndicatorPlan.stillPlan`): working a solid accent dot; waiting the kind marks (hand for permission,
+? bubble for a question, key for sign-in, ! for plain); error an x in a ring; done a check; paused an empty
+ring; busy the style's still glyph (an open arc for `arc` and `dot`, the native spokes, the first braille
+frame); known progress keeps the ring. A tab's needs-input, done and failed badge draws the same marks in place
+of its colored dot. Every indicator's tooltip and VoiceOver label is the state's short name
+(`StatusIndicatorState.shortLabel`: Working, Loading, Paused, Waiting, Needs permission, Question, Sign-in
+needed, Error, Done). No surface shows it as visible text: the sidebar is being redone (Lawrence 2026-10-13),
+so the static look only swaps glyphs in the same slot and size.
+
 Behavior settings (`status.*`, Settings > Appearance > Loading Indicator and Settings > Notifications):
 `status.inferCommandBusy` (false since cx-ag5.6.5, Lawrence 2026-10-13: htop looked loading) and
 `status.inferCommandBusyAfter` (3 s): when on, a plain shell command shows as busy once it has run that long;

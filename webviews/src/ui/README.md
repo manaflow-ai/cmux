@@ -141,3 +141,17 @@ Rules:
   (`font-size: 12px`, a `font:` shorthand with a size, `fontSize: 12`, Tailwind `text-[12px]`); the old
   ones sit in `scripts/cmux-next/type-scale-baseline.tsv`, which may only go down. Each component moves
   to the tokens in its UI-tournament round.
+
+## Late content (motion.ts, motion.css)
+
+Content that arrives late settles in instead of popping. Motion stays small and local: a fade, a
+few pixels of rise, a crossfade in place, never a whole pane travelling.
+
+- `reveal(element, index)` or `.ui-reveal` (with `--ui-reveal-index`): a 167 ms fade with a 3 px rise
+  on the native `appear` spring.
+- `.ui-crossfade`: the new child fades in over the old one (`data-leaving`) in the same cell.
+- `stagger(i)`: 25 ms per item for the first four items; later items arrive with the fourth.
+- Reduce Motion: a reveal is a plain fade, nothing rises, `stagger` returns 0.
+
+Tokens (`--motion-ease-move|appear|settle`, `--motion-move|appear|settle|fade`) mirror the native
+springs; plans/cmux-next/motion.md "Late content" lists the native side.

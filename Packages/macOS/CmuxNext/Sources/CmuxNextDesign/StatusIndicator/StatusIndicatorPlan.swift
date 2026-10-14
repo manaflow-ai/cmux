@@ -73,9 +73,12 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
     /// (`Motion.animatesLoops`): then nothing animates and the static glyph
     /// stays, so an indicator never costs a frame it cannot be seen in.
     /// `set` restyles the attention and working marks (`StatusIconSet`);
-    /// the default `current` is the drawing above, unchanged.
+    /// the default `current` is the drawing above, unchanged. `isStatic`
+    /// (`StatusIndicatorConfig.isStatic`) draws the still look whatever the
+    /// set (`stillPlan`).
     public static func make(_ state: StatusIndicatorState, style: StatusIndicatorStyle, animates: Bool,
-                            set: StatusIconSet = .current) -> StatusIndicatorPlan {
+                            set: StatusIconSet = .current, isStatic: Bool = false) -> StatusIndicatorPlan {
+        if isStatic { return stillPlan(state, style: style) }
         var plan = set.plan(for: state) ?? staticPlan(state, style: style)
         if !animates { plan.animation = nil }
         return plan
