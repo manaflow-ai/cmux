@@ -139,7 +139,7 @@ public final class ControlSocketServer: Sendable {
         }
         router.setTransportInfo(socketPath: path, accessMode: configuration.accessMode.rawValue)
         source.resume()
-        let watch = ControlSocketPathWatch(path: path, queue: acceptQueue) { [weak self] in self?.restoreSocket() }
+        let watch = ControlSocketPathWatch(path: path, queue: acceptQueue) { [weak self] in self?.restoreSocket() ?? true }
         pathWatch.withLock { $0 = watch }
         watch.start()
     }
@@ -174,29 +174,37 @@ public final class ControlSocketServer: Sendable {
     }
 
     /// Binds a new listener at the path ``ControlSocketPathWatch`` found
-    /// missing. The bind's `RENAME_EXCL` loses to anyone who created the path
-    /// meanwhile, so another server's socket or a file is never replaced.
-    private func restoreSocket() {
-        guard isRunning, let made = try? makeListener() else { return }
+    /// missing and returns whether the socket is back. The bind's
+    /// `RENAME_EXCL` loses to anyone who created the path meanwhile, so another
+    /// server's socket or a file is never replaced. Runs on `acceptQueue`, the
+    /// queue of the old listener's accept handler, so the swap never races an
+    /// accept pausing on descriptor exhaustion.
+    private func restoreSocket() -> Bool {
+        guard isRunning else { return true }
+        guard let made = try? makeListener() else { return false }
         let (source, identity) = made
         let old: (any DispatchSourceRead)? = state.withLock { state in
             guard let old = state.listener else { return nil }  // stopped meanwhile
             if state.acceptSuspended { old.resume() }  // a suspended source never runs its cancel handler
             state.acceptSuspended = false
             state.acceptBackoff.reset()
+            // Resumed before it is published: stop() may cancel it from another
+            // thread, and an inactive source must never be cancelled or released.
+            source.resume()
             state.listener = source
             state.socketIdentity = identity
             return old
         }
         guard let old else {
+            source.resume()  // never resumed above; cancel needs an active source to close the fd
             source.cancel()
             Self.unlinkIfOwn(configuration.path, identity)
-            return
+            return true
         }
         acceptRetry.cancel()
         WakeupLedger.shared.record("ControlSocketServer.restore", reason: "socket file restored")
-        source.resume()
         old.cancel()
+        return true
     }
 
     /// Stops accepting, closes every connection, and removes the socket file
