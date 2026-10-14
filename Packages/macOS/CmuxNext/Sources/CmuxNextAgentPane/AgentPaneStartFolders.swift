@@ -93,6 +93,35 @@ public final class AgentPaneStartFolders {
         return Self.answerHome(home, confirm: confirm, transport: transport)
     }
 
+    /// A new chat on another machine (cx-1bhjj): that machine's store decides its folder by the
+    /// same rules, against its own home folder, so a home or above-home seed never starts there by
+    /// itself. Its agent-home folder is this app's to make, so a chat there gets no folder yet.
+    func applyRemote(to handshake: inout AgentPaneHandshake, model: AgentPaneModel) async {
+        guard model.sessionId == nil, let resolve, let answer = await resolve(handshake.cwd) else { return }
+        self.answer = answer
+        handshake.cwd = answer.kind == .agentHome ? nil : answer.cwd
+    }
+
+    /// `workspace.useFolder` in a chat on another machine: the same answers as on this Mac, from
+    /// that machine's store (its home folder is asked about first; `/` and above are refused). A
+    /// store without the rules uses the folder; that machine's acpmux still checks it.
+    func useRemote(_ path: String, confirm: Bool, transport: AgentPaneTransport) async -> [String: Any] {
+        guard let resolve, let answer = await resolve(path) else { return AgentPaneReply.success(["status": "ok", "cwd": path]) }
+        switch answer.skipped?.reason {
+        case .home:
+            // Use Home Folder on that machine: asked first; the answer spends its click's gesture.
+            let home = answer.skipped?.cwd ?? path
+            if transport.remoteHomeChosen.contains(home) { return AgentPaneReply.success(["status": "ok", "cwd": home]) }
+            guard confirm else { return AgentPaneReply.success(["status": "confirm", "reason": "home", "cwd": home]) }
+            guard transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+            transport.remoteHomeChosen.insert(home)
+            return AgentPaneReply.success(["status": "ok", "cwd": home])
+        case .aboveHome: return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": path])
+        case .missing: return AgentPaneModel.transportFailure(.pathInvalid)
+        case .agentHome, nil: return AgentPaneReply.success(["status": "ok", "cwd": answer.kind == .seed ? answer.cwd ?? path : path])
+        }
+    }
+
     /// The home folder the user picked: asked about first; the answer (on its click) makes it a
     /// root of this pane, so the chat starts there at once.
     private static func answerHome(_ home: String, confirm: Bool, transport: AgentPaneTransport) -> [String: Any] {

@@ -53,6 +53,7 @@ nonisolated enum ObjectMenuLabels {
 
     // The sidebar's Options submenu.
     static var densityCompact: String { text("menu.sidebar.densityCompact", "Compact Rows") }
+    static var densityComfortable: String { text("menu.sidebar.densityComfortable", "Comfortable Rows") }
     static var densityExpanded: String { text("menu.sidebar.densityExpanded", "Expanded Rows") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
