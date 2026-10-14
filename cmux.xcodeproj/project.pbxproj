@@ -29,6 +29,7 @@
 		D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */; };
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
+		2BA53AD928B8026FE8A0D3A9 /* AgentAcknowledgedTurnNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6A2754CDC4A872BCEFD3EA /* AgentAcknowledgedTurnNotificationTests.swift */; };
 		06DC4DD731DBDF26D8745640 /* AgentAutoResumeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C3AC76ACCBE9F64AA3F526 /* AgentAutoResumeCoordinator.swift */; };
 		8EA083841777B442E3FA7E72 /* AgentAutoResumeScreenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB6ECEBC1833C9D1E53FCF5 /* AgentAutoResumeScreenTests.swift */; };
 		5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */; };
@@ -4749,6 +4750,7 @@
 		D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsWindowController.swift; sourceTree = "<group>"; };
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
+		6F6A2754CDC4A872BCEFD3EA /* AgentAcknowledgedTurnNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentAcknowledgedTurnNotificationTests.swift"; sourceTree = "<group>"; };
 		E7C3AC76ACCBE9F64AA3F526 /* AgentAutoResumeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAutoResumeCoordinator.swift; sourceTree = "<group>"; };
 		1BB6ECEBC1833C9D1E53FCF5 /* AgentAutoResumeScreenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentAutoResumeScreenTests.swift"; sourceTree = "<group>"; };
 		5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatChildRunTests.swift; sourceTree = "<group>"; };
@@ -13854,6 +13856,7 @@
 				220FD07E397B72CAE8025EC7 /* CloudWelcomePresentationTests.swift */,
 				DA688992ADFE3696B36EEC3D /* CloudStaleInventoryMaterializationTests.swift */,
 				BB0DDF5F330E26DA03118A56 /* ClaudeTranscriptlessRestoreTests.swift */,
+				6F6A2754CDC4A872BCEFD3EA /* AgentAcknowledgedTurnNotificationTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17749,6 +17752,7 @@
 				49A07E13506067E94820A5CE /* AccountMacDirectoryClientTests.swift in Sources */,
 				9707E1A30E96E4DDD19BE85C /* AccountMacDirectoryTests.swift in Sources */,
 				A5C01700000000000000000F /* AccountSignInModelTests.swift in Sources */,
+				2BA53AD928B8026FE8A0D3A9 /* AgentAcknowledgedTurnNotificationTests.swift in Sources */,
 				8EA083841777B442E3FA7E72 /* AgentAutoResumeScreenTests.swift in Sources */,
 				5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */,
 				C7A540000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift in Sources */,
