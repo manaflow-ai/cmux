@@ -14,6 +14,8 @@ public nonisolated enum TabTunables {
 
     public static let compactTabWidth = points("compactTabWidth", "Compact style tab width", help: "Width of every unpinned tab in compact style. Default: 3/4 of the max width.",
                                                range: 40...400) { (Metrics.tabMaxWidth * 3 / 4).rounded() }
+    public static let minFitTabWidth = points("minFitTabWidth", "Shortest fitted tab", help: "Narrowest a tab sized to its title gets while the strip has room. Default: half the max width.",
+                                              range: 32...400) { (Metrics.tabMaxWidth / 2).rounded() }
     public static let pinnedGroupGap = points("pinnedGroupGap", "Pinned gap", help: "Extra space after the last pinned tab.") { Metrics.space2 }
     public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button from a tab's trailing edge.") { Metrics.space2 }
     public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button.") { Metrics.space6 }
@@ -28,7 +30,6 @@ public nonisolated enum TabTunables {
                                                      range: 0...200) { 4 * Metrics.space6 + Metrics.space2 }
     public static let titleMinVisibleWidth = points("titleMinVisibleWidth", "Shortest title", help: "Narrowest title fragment worth showing after the icon.") { Metrics.space5 }
     public static let scrollFadeWidth = points("scrollFadeWidth", "Strip scroll fade", help: "Length of the fade on a scrolled strip edge (also the drag autoscroll zone).") { Metrics.space6 + Metrics.space4 }
-    public static let separatorHeight = points("separatorHeight", "Separator height", help: "Height of the separator between tabs. Default: half the tab height.") { Metrics.tabHeight / 2 }
     public static let groupChipPadding = points("groupChipPadding", "Group chip padding", help: "Horizontal padding inside a tab group chip.") { Metrics.space3 }
     public static let groupUnderlineHeight = points("groupUnderlineHeight", "Group underline", help: "Height of the line under a tab group's tabs.", range: 0...8) { Metrics.space1 }
 
@@ -53,9 +54,9 @@ public nonisolated enum TabTunables {
         "tabs.hoverCard.maximumDelay", .hover, "Hover card delay (wide tabs)", help: "Delay over full-width tabs.",
         default: 0, range: 0...3, step: 0.05, unit: .seconds, code: "TabTunables.hoverCardMaximumDelay")
     public static var all: [TunableDescriptor] {
-        [compactTabWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
+        [compactTabWidth, minFitTabWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
-         separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
+         groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [groupJoinHysteresis.descriptor, autoscrollGain.descriptor]
             + [hoverCardMinimumDelay, hoverCardMaximumDelay].map(\.descriptor)
     }

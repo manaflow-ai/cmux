@@ -133,6 +133,8 @@ pub(super) fn clear_history(
         .map(KeyInput::try_from)
         .transpose()
         .map_err(DeliveryClassifiedError::known_not_delivered)?;
+    // Bytes queued for this terminal while it was being created go before the clear or its key.
+    mux.wait_for_creating_input_flush(&surface);
     surface
         .clear_history_or_encode_key_classified(fallback_key.as_ref())
         .map_err(DeliveryClassifiedError::from)?;
