@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextMobile
 @testable import CmuxNextMobileHost
 import Foundation
@@ -59,6 +60,23 @@ import Testing
         }
         #expect(host.answerPairRequest(id: "phone-1", allow: true) == false)
         #expect(IPhoneHostService.pairDialogIdentifier == "cmux.dialog.iphonePair")
+    }
+
+    /// The pairing prompt is a sheet on a cmux window on screen, never a floating
+    /// window: with no window, or a hidden one, it waits for one.
+    @Test func thePairingPromptAttachesToAVisibleWindowOrWaits() {
+        #expect(IPhoneHostService.pairScope(window: nil) == nil)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        #expect(IPhoneHostService.pairScope(window: window) == nil)
+        window.orderFrontRegardless()
+        defer { window.close() }
+        if window.isVisible {
+            #expect(IPhoneHostService.pairScope(window: window)?.kind == "window")
+            window.miniaturize(nil)
+            if window.isMiniaturized { #expect(IPhoneHostService.pairScope(window: window) == nil) }
+        }
     }
 
     @Test func theRegistrationDateReadsTodayYesterdayOrADate() throws {

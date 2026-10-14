@@ -1,3 +1,4 @@
+public import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 public import CmuxNextMobile
@@ -84,6 +85,10 @@ public final class IPhoneHostService {
     @ObservationIgnored public var pairNotices: IPhonePairNotices?
     /// The Dock bounce of the waiting requests, cancelled once they are answered.
     @ObservationIgnored var attentionRequest: Int?
+    /// The frontmost cmux main window, which the pairing prompt attaches to as a sheet.
+    @ObservationIgnored public var pairWindow: (@MainActor () -> NSWindow?)?
+    /// Observers that show a waiting prompt once a cmux window is on screen.
+    @ObservationIgnored var pairWindowWatch: [any NSObjectProtocol] = []
     @ObservationIgnored var approverSync: CnxApproverSync?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// The one reconcile in flight; each waits for the previous one.
