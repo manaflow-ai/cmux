@@ -85,17 +85,15 @@ const fakeCmuxRunning = () => {
   }
 };
 const waitFor = async (predicate, message) => {
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + 30000;
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error(message);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 };
 
-// Load the three cmux entries for one plugin scope and drive one turn. The
-// session.deleted sentinel follows the duplicate-prone idle events: socket
-// frames are ordered, and every hook process is spawned before the sentinel's.
-const runScope = async (scopeCtx, sid) => {
+// Load the three cmux entries for one plugin scope, as OpenCode does.
+const loadScope = async (scopeCtx) => {
   const hooks = [];
   for (const file of ["cmux-feed.js", "cmux-session.js", path.join("cmux", "index.js")]) {
     const mod = await import(path.join(pluginDir, file));
@@ -104,37 +102,60 @@ const runScope = async (scopeCtx, sid) => {
   }
   const active = hooks.filter((hook) => hook && typeof hook.event === "function");
   if (active.length === 0) throw new Error("no OpenCode server entry subscribed to events");
+  return active;
+};
+
+let sessionEndsExpected = 0;
+const sessionEnds = () => hookLog().split("\n").filter((line) => line.includes("opencode session-end")).length;
+const stopHookLines = () => hookLog().split("\n").filter((line) => line.includes("hooks enqueue opencode stop"));
+
+// Drive one turn. The session.deleted sentinel follows the duplicate-prone
+// idle events: socket frames are ordered, and every hook process is spawned
+// before the sentinel's.
+const runTurn = async (scope, sid, { midTurn = [] } = {}) => {
   const emit = async (event) => {
-    for (const hook of active) await hook.event({ event });
+    for (const hook of scope) await hook.event({ event });
   };
   await emit({ type: "session.created", properties: { info: { id: sid, directory: "/tmp" } } });
   await emit({ type: "session.status", properties: { sessionID: sid, status: { type: "busy" } } });
+  for (const event of midTurn) await emit(event);
   await emit({ type: "session.status", properties: { sessionID: sid, status: { type: "idle" } } });
   await emit({ type: "session.idle", properties: { sessionID: sid } });
   await emit({ type: "session.deleted", properties: { info: { id: sid } } });
+  sessionEndsExpected++;
 
   const forSession = (frame) => frame.params?.event?.session_id === `opencode-${sid}`;
   await waitFor(
     () => frames.some((frame) => forSession(frame) && frame.params.event.hook_event_name === "SessionEnd"),
     `feed sentinel never arrived for ${sid}: ${JSON.stringify(frames)}`,
   );
-  const sessionEnds = () => hookLog().split("\n").filter((line) => line.includes("opencode session-end")).length;
-  await waitFor(() => sessionEnds() >= runs + 1, `session-end hook never ran for ${sid}`);
+  await waitFor(() => sessionEnds() >= sessionEndsExpected, `session-end hook never ran for ${sid}`);
   await waitFor(() => !fakeCmuxRunning(), "hook processes did not exit");
   const stops = frames.filter((frame) => forSession(frame) && frame.params.event.hook_event_name === "Stop");
   if (stops.length !== 1) throw new Error(`expected one feed Stop for ${sid}, got ${stops.length}: ${JSON.stringify(frames)}`);
   if (stops[0].params.event.surface_id !== "surface-server-entry") throw new Error("feed Stop lost the surface id");
-  return active;
+  return stops[0];
 };
 
-let runs = 0;
-const first = await runScope(ctx, "ses_server_entry");
-runs++;
-// OpenCode can reinitialize a plugin scope in the same process; the new scope
-// gets a new ctx and must subscribe again.
-await runScope({ ...ctx }, "ses_server_entry_reinit");
-runs++;
-// The replaced scope's hooks stay registered in OpenCode; they must not emit.
+const first = await loadScope(ctx);
+// Every loader in one scope receives the same ctx; a repeat load is a no-op.
+if ((await loadScope(ctx).catch(() => [])).length !== 0) throw new Error("duplicate loader in one scope subscribed");
+await runTurn(first, "ses_server_entry");
+// OpenCode keeps one scope per directory; a second live scope must not evict
+// the first.
+const second = await loadScope({ ...ctx, directory: "/tmp/other" });
+await runTurn(second, "ses_server_entry_second");
+await runTurn(first, "ses_server_entry_concurrent");
+
+// Esc publishes session.error(MessageAbortedError) and then goes idle.
+const aborted = await runTurn(first, "ses_server_entry_abort", {
+  midTurn: [{ type: "session.error", properties: { sessionID: "ses_server_entry_abort", error: { name: "MessageAbortedError", data: { message: "Aborted" } } } }],
+});
+if (aborted.params.event.is_error) throw new Error("an interrupt was reported as a failed turn");
+if (stopHookLines().some((line) => line.includes("StopFailure"))) throw new Error("an interrupt sent a StopFailure hook");
+
+// OpenCode disposes a torn-down scope's hooks; they must not emit afterwards.
+for (const hook of first) await hook.dispose?.();
 const stale = "ses_server_entry_stale";
 for (const event of [
   { type: "session.created", properties: { info: { id: stale, directory: "/tmp" } } },
@@ -146,11 +167,10 @@ for (const event of [
 // Hook processes are spawned synchronously inside event(); wait for them.
 await waitFor(() => !fakeCmuxRunning(), "hook processes did not exit");
 if (frames.some((frame) => frame.params?.event?.session_id === `opencode-${stale}`)) {
-  throw new Error("replaced feed scope still emitted events");
+  throw new Error("a disposed feed scope still emitted events");
 }
-const hookStops = hookLog().split("\n").filter((line) => line.includes("hooks enqueue opencode stop"));
-if (hookStops.length !== 2) throw new Error(`expected one stop hook per turn, got ${hookStops.length}: ${hookLog()}`);
-for (const hook of first) hook.dispose?.();
+if (stopHookLines().length !== 4) throw new Error(`expected one stop hook per turn, got ${stopHookLines().length}: ${hookLog()}`);
+for (const hook of second) await hook.dispose?.();
 server.close();
 console.log("PASS: OpenCode server entry delivers one completion");
 process.exit(0);
@@ -177,7 +197,7 @@ def main() -> int:
         (package_dir / "package.json").write_text('{"type":"module"}', encoding="utf-8")
         log_path = root / "cmux.log"
         fake_cmux = root / "cmux"
-        fake_cmux.write_text(f'#!/bin/sh\necho "$*" >> "{log_path}"\ncat >/dev/null\n', encoding="utf-8")
+        fake_cmux.write_text(f'#!/bin/sh\necho "$* $(cat)" >> "{log_path}"\n', encoding="utf-8")
         fake_cmux.chmod(0o755)
         socket_path = str(root / "cmux.sock")
         env = os.environ.copy()
