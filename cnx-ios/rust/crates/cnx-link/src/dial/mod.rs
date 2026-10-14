@@ -81,8 +81,15 @@ pub struct DialOptions {
     /// Network privacy answers for LAN peers).
     #[doc(hidden)]
     pub refuse_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Measurement support: keep webrtc-rs's stock nomination waits
+    /// (srflx 500 ms, prflx 1 s, relay 2 s) for before/after comparisons.
+    #[doc(hidden)]
+    pub stock_ice_waits: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
+    /// Where the dial or answer records its steps (`offer_sent`,
+    /// `ice_connected`, `dtls_connected`, `channel_open`, ...).
+    pub timeline: crate::Timeline,
 }
 
 impl Default for DialOptions {
@@ -94,7 +101,9 @@ impl Default for DialOptions {
             relay_only: false,
             drop_outbound_udp: false,
             refuse_udp_to: None,
+            stock_ice_waits: false,
             timeout: Duration::from_secs(25),
+            timeline: crate::Timeline::new(),
         }
     }
 }
@@ -242,6 +251,7 @@ pub async fn connect(
     let session_id = uuid::Uuid::new_v4().to_string();
     let events = SessionEvents::subscribe(signaling, &session_id);
     let dialer = kind.dialer();
+    options.timeline.mark("dial_start");
     let result =
         tokio::time::timeout(options.timeout, dialer.dial(signaling, mac, &session_id, events, options))
             .await;
@@ -259,6 +269,7 @@ pub async fn connect(
         }
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    options.timeline.mark("link_ready");
     Ok(Connected { link, transport: kind, path: dialed.path, session_id })
 }
 
@@ -291,6 +302,7 @@ pub async fn answer(
         }
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
+    options.timeline.mark("link_ready");
     Ok(Connected { link, transport: kind, path: dialed.path, session_id })
 }
 

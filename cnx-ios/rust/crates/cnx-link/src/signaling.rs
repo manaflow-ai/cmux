@@ -188,11 +188,23 @@ pub enum SignalingError {
 enum Outgoing {
     Text(String),
     Binary(Vec<u8>),
+    Ping,
     Close,
 }
 
+/// How often an idle socket is pinged, and how long it may stay silent
+/// (no frame at all, pongs included) before it counts as dead. A socket
+/// kept warm across dials must not be a half-open TCP connection (a phone
+/// that slept, a NAT that forgot it), or the next dial would wait out its
+/// whole timeout.
+pub const KEEPALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+pub const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(40);
+
 struct Shared {
     device_id: String,
+    /// Counts inbound frames (any kind); `probe` waits for it to move.
+    inbound: tokio::sync::watch::Sender<u64>,
+    opened: std::time::Instant,
     out: mpsc::UnboundedSender<Outgoing>,
     sessions: Mutex<HashMap<String, mpsc::UnboundedSender<SessionEvent>>>,
     events: broadcast::Sender<SignalingEvent>,
@@ -262,16 +274,20 @@ impl SignalingClient {
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
             device_id: device_id.to_owned(),
+            inbound: tokio::sync::watch::channel(0).0,
+            opened: std::time::Instant::now(),
             out: out_tx,
             sessions: Mutex::new(HashMap::new()),
             events: broadcast::channel(256).0,
             closed: Mutex::new(None),
         });
+        let pinger = shared.out.clone();
         tokio::spawn(async move {
             while let Some(message) = out_rx.recv().await {
                 let message = match message {
                     Outgoing::Text(text) => Message::Text(text.into()),
                     Outgoing::Binary(bytes) => Message::Binary(bytes.into()),
+                    Outgoing::Ping => Message::Ping(Vec::new().into()),
                     Outgoing::Close => break,
                 };
                 if sink.send(message).await.is_err() {
@@ -283,12 +299,29 @@ impl SignalingClient {
         let reader_shared = Arc::clone(&shared);
         tokio::spawn(async move {
             let shared = reader_shared;
+            let mut keepalive = tokio::time::interval(KEEPALIVE_INTERVAL);
+            keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            keepalive.tick().await;
+            let mut last_inbound = tokio::time::Instant::now();
             let reason = loop {
-                let message = match source.next().await {
+                let next = tokio::select! {
+                    next = source.next() => next,
+                    _ = keepalive.tick() => {
+                        if last_inbound.elapsed() >= KEEPALIVE_TIMEOUT {
+                            let _ = pinger.send(Outgoing::Close);
+                            break "signaling keepalive timed out".to_owned();
+                        }
+                        let _ = pinger.send(Outgoing::Ping);
+                        continue;
+                    }
+                };
+                let message = match next {
                     Some(Ok(message)) => message,
                     Some(Err(error)) => break format!("signaling read failed: {error}"),
                     None => break "signaling socket closed".to_owned(),
                 };
+                last_inbound = tokio::time::Instant::now();
+                shared.inbound.send_modify(|count| *count += 1);
                 match message {
                     Message::Text(text) => shared.dispatch_text(&text, &incoming_tx),
                     Message::Binary(bytes) => shared.dispatch_relay(&bytes),
@@ -319,6 +352,27 @@ impl SignalingClient {
 
     pub fn device_id(&self) -> &str {
         &self.shared.device_id
+    }
+
+    /// When the socket opened.
+    pub fn opened_at(&self) -> std::time::Instant {
+        self.shared.opened
+    }
+
+    /// Whether the socket still answers: sends a WebSocket ping and waits
+    /// up to `timeout` for any inbound frame. A socket that already closed
+    /// is `false` at once.
+    pub async fn probe(&self, timeout: std::time::Duration) -> bool {
+        if self.closed_reason().is_some() {
+            return false;
+        }
+        let mut inbound = self.shared.inbound.subscribe();
+        inbound.borrow_and_update();
+        if self.shared.out.send(Outgoing::Ping).is_err() {
+            return false;
+        }
+        matches!(tokio::time::timeout(timeout, inbound.changed()).await, Ok(Ok(())))
+            && self.closed_reason().is_none()
     }
 
     /// `Some(reason)` once the socket closed.

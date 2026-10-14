@@ -749,6 +749,7 @@ impl Dialer for WireGuardDialer {
             if let Some(turn) = &turn {
                 endpoints.push(turn.relayed.to_string());
             }
+            options.timeline.mark("endpoints_gathered");
             let (private_key, public_key) = keypair();
             signaling
                 .send_signal(
@@ -761,11 +762,13 @@ impl Dialer for WireGuardDialer {
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
+            options.timeline.mark("wg_init_sent");
             let mut early_relay = Vec::new();
             let (peer_key, peer_endpoints, peer_ip) = loop {
                 match events.next().await? {
                     SessionEvent::Signal(envelope) => match envelope.payload {
                         SignalPayload::WgResp { public_key, endpoints, overlay_ip } => {
+                            options.timeline.mark("wg_resp_received");
                             let ip: Ipv4Addr = overlay_ip
                                 .parse()
                                 .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
