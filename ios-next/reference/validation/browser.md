@@ -769,3 +769,58 @@ changes:
 
 A pinch that backs off below 0.90 hides the titles again.
 `CardChromeTests` covers both triggers and the unchanged curves.
+
+## Round 12: the terminal zoom blink (P0 dogfood)
+
+**Aziz's recording.** `~/nxios-ref/dogfood/terminal-zoom-blink.mp4`: iPhone
+17 Pro Max, build 393e4700aaca, Mac terminals on cmux15. I split it with
+real `pts_time` (`browser-tools/winsheet.py`, `blinkcheck.py`).
+
+- **Blank frames on the page around the tabs tap:** the terminal's text
+  disappears at 2.000–2.050 s and 2.150–2.183 s, then at 9.000–9.050 s and
+  9.200–9.217 s.
+- **Opening a terminal from a card:** at 1.423 → 1.440 s the zooming card
+  jumps from the card image to a live view with a different layout (the
+  prompt mid-screen).
+- **Shrinking:** the zoom draws a fresh view, then hands off to the card
+  image.
+
+**Root cause.** The page drew a `TerminalContent` and the zoom overlay drew
+another one for the same handle, and SwiftUI swapped them in one update.
+`TerminalSurfaceRepresentable` reuses the handle's controller only when it has
+no parent. At that moment the old one still had one, so every page ↔ grid zoom
+built a second Ghostty controller. It started blank (attaching, replaying) and
+at a different layout size (`pageBottom` vs `safeBottom`). Swapping back built
+yet another one.
+
+**Fix.** One `TerminalContent` for the active terminal stays mounted above the
+grid in every phase:
+- it is laid out once at the full page size and only scaled, clipped and
+  offset;
+- on the page it is full screen; during the zoom it follows the zoom's rect,
+  with the zooming card's close button;
+- on the settled grid it sits on its own card, live and following the scroll,
+  with a tappable close button, and the grid's own card for it stays hidden.
+
+A terminal opened from a card keeps its card image over the live view until
+the renderer has drawn the host's output (`TerminalHandle.isLive`). The pool
+never releases a renderer that is on screen or in a window
+(`TerminalRendererCap`, unit-tested). CmuxTabsKit now does the same on its
+settled grid, and its data sources get `isContentReady`.
+
+**Verification.** `blinkcheck.py` flags runs of up to 8 frames whose
+text-pixel count dips below 80% of the frames on both sides (blank or flash),
+and one-frame content swaps. On Aziz's recording it flags the 2.150 s blank;
+its threshold misses the more gradual ones (2.000 s, 9.000 s), which the
+frame sheets show.
+
+| Recording | Transitions | Flagged |
+|---|---|---|
+| Aziz, build 393e4700aaca | 3 opens, 3 shrinks | 2.150 blank, plus the visible swaps |
+| Ours, mock (`CMUX_NEXT_MOCK_TERMINAL_MIRROR=104x40`, `CMUX_NEXT_BROWSER_AUTO=3`, `CMUX_NEXT_BROWSER_AUTO_TERMINAL=1`) | 3 opens, 2 shrinks | 0 of 426 frames |
+| Ours, live on cmux15 (test login, Tabs shell) | 3 opens, 2 shrinks | 0 of 906 frames |
+| CmuxTabsKit demo, grid open | 1 | 0 of 147 frames |
+
+The frame sheets show the same text in every frame: from the card image to
+the live view when opening (the first open waits for the first draw), and
+from the page to the live card when shrinking.
