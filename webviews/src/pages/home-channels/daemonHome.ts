@@ -169,7 +169,8 @@ export function conversation(raw: Json, me: string): HomeConversation {
     result.lastAuthor = String(last.author);
     const work = ((last.parts as Json[] | undefined) ?? []).find((item) => item.type === "work");
     const status = work && String(work.status);
-    if (status === "running" || status === "waiting" || status === "done" || status === "failed") result.lastWork = status;
+    if (status === "running" || status === "waiting" || status === "done" || status === "failed")
+      result.lastWork = status;
   }
   return result;
 }
