@@ -83,6 +83,7 @@ enum AppActions {
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
+        StashHandlers.bind(into: registry, context: context)
         IconMenuVisibility.install(registry, context: context)
         TopPages.installTabTargetReasons(services)
         HomeRules.install(services)

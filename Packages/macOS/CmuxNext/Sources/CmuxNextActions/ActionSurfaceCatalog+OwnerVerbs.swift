@@ -14,5 +14,7 @@ nonisolated extension ActionSurfaceCatalog {
     static let ownerVerbActions: [ActionID] = [
         "space.new", "newTab", "closeWorkspace", "closeTab", "screen.new", "screen.close", "closePane",
         "browserBack", "browserForward",
+        // Stash is the daemon's (`cmux stash create|restore|delete|import`, stash-v1).
+        "tab.stash", "tab.stashToRight", "tab.stashOthers", "workspace.stash",
     ]
 }

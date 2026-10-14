@@ -21,6 +21,8 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     // and menus, and stored layouts drop them (`retiredItemOps`).
     /// Search Chats: the command palette's agent chats page.
     case searchChats = "search_chats"
+    /// Stashed Tabs: the Stashed page (stash-v1).
+    case stashed
 }
 
 /// What an item points at: a kind and a string value. Kinds this client

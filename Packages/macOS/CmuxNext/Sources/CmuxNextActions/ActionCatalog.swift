@@ -127,6 +127,7 @@ public nonisolated enum ActionCatalog {
         HibernationActionCatalog.self,
         LayoutActionCatalog.self,
         HistoryActionCatalog.self,
+        StashActionCatalog.self,
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
         AppStoreActionCatalog.self,

@@ -18,6 +18,8 @@ import CmuxNextRemoteBrowser
 /// it survives relaunch like any tab.
 final class HistoryPageService: HistoryPageSource {
     private unowned let services: AppServices
+    /// The Stashed page's stashes (stash-v1), History's sibling page.
+    private(set) lazy var stash = StashService(services: services)
 
     init(services: AppServices) {
         self.services = services

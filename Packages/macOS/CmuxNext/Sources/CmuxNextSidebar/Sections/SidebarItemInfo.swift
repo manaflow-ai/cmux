@@ -116,6 +116,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: "bubble.left.and.text.bubble.right"
         case .customize: "paintbrush"
         case .searchChats: "magnifyingglass"
+        case .stashed: "tray.full"
         }
     }
 
@@ -134,6 +135,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: .agentChatNew
         case .customize: .theme
         case .searchChats: .search
+        case .stashed: .tabgroupSave
         }
     }
 
@@ -157,6 +159,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: SectionStrings.newAgentChat
         case .customize: SectionStrings.customize
         case .searchChats: SectionStrings.searchChats
+        case .stashed: SectionStrings.stashed
         }
     }
 
