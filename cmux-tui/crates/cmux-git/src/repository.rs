@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::MAX_SMALL_OUTPUT_BYTES;
-use crate::parse;
 use crate::run::{
     DEADLINE, GitFailure, GitOutput, Override, run_git_records_within, run_git_within,
 };
@@ -262,9 +261,13 @@ pub fn main_root(common_dir: &Path) -> Option<&Path> {
 }
 
 /// A filter driver runs a program on file contents (`clean`, `smudge`,
-/// `process`), and diffing the working tree would run it. A read never needs
-/// one, so every configured driver is blanked: an empty command is no filter,
-/// and nothing is required.
+/// `process`), and diffing the working tree would run it. A read blanks
+/// every driver repository config defines (`.git/config`, `config.worktree`
+/// and the files they include), or redefines any key of: an empty command is
+/// no filter, and nothing is required. A driver only the user's global or
+/// system config defines, such as git-lfs's, is the user's own program,
+/// which no repository can write, so it still runs and a diff shows what git
+/// would.
 pub fn filter_overrides(root: &Path) -> Result<Vec<Override>, GitFailure> {
     filter_overrides_within(root, DEADLINE)
 }
@@ -277,7 +280,7 @@ fn remaining(deadline: Option<Instant>) -> Duration {
 
 fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<Override>, GitFailure> {
     let pattern = r"^filter\..*\.(clean|smudge|process|required)$";
-    let arguments = ["config", "--null", "--name-only", "--get-regexp", pattern];
+    let arguments = ["config", "--null", "--show-scope", "--name-only", "--get-regexp", pattern];
     let output = match run_git_within(root, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, deadline) {
         Ok(output) if output.truncated => {
             return Err(GitFailure::Exit("too many filter drivers configured".to_string()));
@@ -287,9 +290,15 @@ fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<Overri
         Err(GitFailure::Exit(stderr)) if stderr.is_empty() => return Ok(Vec::new()),
         Err(failure) => return Err(failure),
     };
-    let drivers = parse::file_list(&output.stdout)
-        .into_iter()
-        .filter_map(|key| {
+    // `scope NUL key NUL` pairs. Anything but the user's own files counts
+    // as the repository's, an include from `.git/config` (scope `local`)
+    // among them.
+    let fields = output.stdout.split(|byte| *byte == 0).collect::<Vec<_>>();
+    let drivers = fields
+        .chunks_exact(2)
+        .filter(|pair| !matches!(pair[0], b"global" | b"system"))
+        .filter_map(|pair| {
+            let key = String::from_utf8_lossy(pair[1]);
             let (driver, _) = key.strip_prefix("filter.")?.rsplit_once('.')?;
             Some(driver.to_string())
         })
