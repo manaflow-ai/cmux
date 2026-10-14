@@ -9,10 +9,9 @@ import CmuxNextIcons
 /// one short detail of up to two lines, an optional progress bar, up to
 /// two buttons (the call to action filled, the others quiet) with an
 /// optional shortcut beside them, and an x. Rows a notice does not use take
-/// no room. Hidden without a notice. It floats on Liquid Glass with the
-/// theme's glass tint, like the other cmux-next overlays (cx-367y); under
-/// Reduce Transparency the same `OverlaySurfaceView` draws an opaque theme
-/// fill with a hairline.
+/// no room. Hidden without a notice. It sits on the composer's surface
+/// (`CardSurfaceView`, Leo 2026-10-13), as every sidebar card does: the
+/// theme's text tint over the wallpaper, opaque under Reduce Transparency.
 final class SidebarNoticeCardView: NSView {
     /// A button: the notice's id and the action's id.
     var onAction: ((String, String) -> Void)?
@@ -30,8 +29,8 @@ final class SidebarNoticeCardView: NSView {
     private let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
-    /// The card's material: Liquid Glass, or opaque under Reduce Transparency.
-    let surface: OverlaySurfaceView
+    /// The card's surface: the composer's, opaque under Reduce Transparency.
+    let surface: CardSurfaceView
     /// The lines and buttons, flipped, over the surface.
     private let content = SidebarNoticeCardContent()
     /// The notice whose `shownAction` was sent (once per notice id), and its
@@ -40,14 +39,10 @@ final class SidebarNoticeCardView: NSView {
     private var occlusionObserver: NSObjectProtocol?
 
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared) {
-        surface = OverlaySurfaceView(interactive: true, cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
+        surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
         super.init(frame: frame)
-        surface.translatesAutoresizingMaskIntoConstraints = true
-        // The lines sit in a sibling view above the material, not inside the glass's own content
-        // view: a build against the macOS 26 SDK drew the card empty on macOS 27 (nxdog75).
         addSubview(surface)
         addSubview(content)
-        content.material = { [weak surface] in surface?.material ?? .liquidGlass }
         for label in [eyebrowLabel, titleLabel, shortcutLabel] {
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
@@ -305,7 +300,7 @@ final class SidebarNoticeCardView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
-        surface.applyTheme()
+        surface.needsDisplay = true
     }
 
     override func viewDidMoveToWindow() {
@@ -330,12 +325,8 @@ final class SidebarNoticeCardView: NSView {
     }
 }
 
-/// The notice card's lines, flipped, over the glass: a light theme veil
-/// keeps them legible over a bright backdrop image; the opaque fill needs none.
+/// The notice card's lines and buttons, flipped, over its surface.
 private final class SidebarNoticeCardContent: NSView {
-    /// The card's material (the surface beneath); the veil is for glass only.
-    var material: () -> OverlayMaterial = { .liquidGlass }
-
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -345,13 +336,4 @@ private final class SidebarNoticeCardContent: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
-
-    override func updateLayer() {
-        performWithTheme {
-            layer?.backgroundColor = material() == .opaque
-                ? NSColor.clear.cgColor
-                : Palette.elevatedBackground.withAlphaComponent(0.32).cgColor
-        }
-    }
 }
