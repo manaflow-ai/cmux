@@ -60,6 +60,9 @@ fn respond(
     else {
         return stream.write_all(&plain(404, "Not Found"));
     };
+    if link.cloud {
+        return respond_cloud(stream, head, mux, &link);
+    }
     // A zero-length read checks the participant and the record, and names
     // the variant's type and size.
     let Ok(probe) = mux.with_conversations(|store| store.attachment_link_read(&link, 0, 0)) else {
@@ -115,6 +118,90 @@ fn respond(
         }
         stream.write_all(&slice.data)?;
         offset += slice.data.len() as u64;
+    }
+    Ok(())
+}
+
+/// A cloud conversation's attachment through the owner's signed URL, with
+/// the lease the app set (the link's minter was the person's own client).
+fn respond_cloud(
+    stream: &mut TcpStream,
+    head: &RequestHead,
+    mux: &Mux,
+    link: &Link,
+) -> std::io::Result<()> {
+    // The app's lease, of the same person the link was made for.
+    let Some(service) = mux.cloud_conversations().filter(|service| {
+        service.app_holds_lease()
+            && super::cloud_attachments::lease_identity(service)
+                .is_ok_and(|lease| lease == link.lease)
+    }) else {
+        return stream.write_all(&plain(404, "Not Found"));
+    };
+    let read = |offset: u64, length: u64| {
+        super::cloud_attachments::cloud_range(
+            mux,
+            service,
+            &link.conversation,
+            &link.hash,
+            link.piece,
+            offset,
+            length,
+        )
+    };
+    // One byte names the size and the type.
+    let Ok(probe) = read(0, 1) else { return stream.write_all(&plain(404, "Not Found")) };
+    let Some(total) = probe.total else { return stream.write_all(&plain(502, "Bad Gateway")) };
+    let content_type = probe.content_type.unwrap_or_else(|| "application/octet-stream".into());
+    let mut mime = content_type.split(';').next().unwrap_or("").trim().to_string();
+    // Only a type on the allow list keeps its name (text types come back as
+    // text/plain); anything else downloads as bytes.
+    if cmux_conversation::attachment_class(&mime).is_none() && mime != "text/plain" {
+        mime = "application/octet-stream".into();
+    }
+    let range = match head.values("range").first() {
+        None => None,
+        Some(value) => match parse_range(value, total) {
+            Range::Satisfiable(start, end) => Some((start, end)),
+            Range::Ignore => None,
+            Range::Unsatisfiable => {
+                let mut reply = plain(416, "Range Not Satisfiable");
+                let split = reply.windows(4).position(|w| w == b"\r\n\r\n").unwrap_or(0);
+                reply.splice(split..split, format!("\r\nContent-Range: bytes */{total}").bytes());
+                return stream.write_all(&reply);
+            }
+        },
+    };
+    let (start, end) = range.unwrap_or((0, total.saturating_sub(1)));
+    let length = if total == 0 { 0 } else { end - start + 1 };
+    let mut response = if range.is_some() {
+        format!("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{end}/{total}\r\n")
+    } else {
+        "HTTP/1.1 200 OK\r\n".to_owned()
+    };
+    response.push_str(&format!(
+        "Content-Type: {}\r\nContent-Length: {length}\r\nAccept-Ranges: bytes\r\n\
+         Content-Disposition: {}\r\nX-Content-Type-Options: nosniff\r\n\
+         Content-Security-Policy: sandbox; default-src 'none'\r\n\
+         Cache-Control: private, max-age=600\r\nReferrer-Policy: no-referrer\r\n\
+         Cross-Origin-Resource-Policy: cross-origin\r\nConnection: close\r\n\r\n",
+        served_content_type(&mime),
+        content_disposition(&mime, link),
+    ));
+    stream.write_all(response.as_bytes())?;
+    if head.method == "HEAD" || length == 0 {
+        return Ok(());
+    }
+    let mut offset = start;
+    while offset <= end {
+        let want = (end - offset + 1).min(MAX_CHUNK_BYTES as u64);
+        let Ok(slice) = read(offset, want) else { return Ok(()) };
+        if slice.body.is_empty() {
+            return Ok(());
+        }
+        let take = slice.body.len().min(usize::try_from(want).unwrap_or(usize::MAX));
+        stream.write_all(&slice.body[..take])?;
+        offset += take as u64;
     }
     Ok(())
 }
