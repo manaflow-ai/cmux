@@ -16,21 +16,23 @@ enum JoystickDirection: Sendable, Equatable {
     }
 }
 
-/// The joystick's state machine (SPEC 10.3): the thumb follows the finger within
-/// 28 pt; direction is quantized to 4 ways; distance picks the gear:
-/// 8-16 pt repeats every 160 ms, 16-24 pt every 80 ms, beyond 24 pt every 30 ms.
-/// The first key fires on crossing 8 pt. Haptics per key in gears 1-2 and every
-/// 4th key in gear 3.
+/// The joystick's state machine (SPEC 10.3, Codex QA F5): direction is
+/// quantized to 4 ways; the first key fires on crossing the 8 pt dead zone,
+/// and a hold repeats like a held key (`JoystickRepeat`). A haptic per key.
 @MainActor
 @Observable
 final class JoystickEngine {
     static let radius: CGFloat = 28
-    static let deadZone: CGFloat = 8
+    static let deadZone: CGFloat = JoystickRepeat.deadZone
+    /// The thumb's lowest point: inside the 44 pt key bar, above the keyboard.
+    static let maxDownwardThumb: CGFloat = 14
 
     private(set) var thumb: CGSize = .zero
     private(set) var gear = 0
     private(set) var direction: JoystickDirection?
     private(set) var keysSent = 0
+    /// The finger's distance from the center now (the repeat rate follows it).
+    private var distance: CGFloat = 0
     var send: (JoystickDirection) -> Void = { _ in }
 
     @ObservationIgnored private var repeatTask: Task<Void, Never>?
@@ -67,9 +69,14 @@ final class JoystickEngine {
     /// The finger moved to `translation` from the center.
     func update(_ translation: CGSize) {
         let distance = hypot(translation.width, translation.height)
+        self.distance = distance
         // The thumb follows the finger past the circle, so the finger does
-        // not cover it (user note 2026-10-14); the floating copy draws it.
-        thumb = JoystickGeometry().thumbOffset(for: translation)
+        // not cover it (user note 2026-10-14); the floating copy draws it,
+        // never lower than the key bar's bottom: the keyboard window is above
+        // the page and would hide it (Codex QA F6).
+        var offset = JoystickGeometry().thumbOffset(for: translation)
+        offset.height = min(offset.height, Self.maxDownwardThumb)
+        thumb = offset
         let newGear = Self.gear(for: distance)
         let newDirection = newGear == 0 ? nil : Self.direction(for: translation)
         let crossed = gear == 0 && newGear > 0
@@ -119,16 +126,19 @@ final class JoystickEngine {
     private func fire(_ direction: JoystickDirection) {
         keysSent += 1
         send(direction)
-        if gear < 3 || keysSent % 4 == 0 { impact.impactOccurred(intensity: 0.6) }
+        impact.impactOccurred(intensity: 0.6)
     }
 
+    /// One arrow already went; held, it repeats after 400 ms at the rate
+    /// the distance gives (`JoystickRepeat`, iOS key repeat).
     private func restartRepeat() {
         repeatTask?.cancel()
         repeatTask = Task { @MainActor [weak self] in
+            guard let clock = self?.clock else { return }
+            do { try await clock.sleep(for: JoystickRepeat.initialDelay) } catch { return }
             while let self, !Task.isCancelled, let direction = self.direction {
-                do { try await self.clock.sleep(for: Self.interval(gear: self.gear)) } catch { return }
-                guard !Task.isCancelled, self.direction == direction else { continue }
                 self.fire(direction)
+                do { try await self.clock.sleep(for: JoystickRepeat().interval(distance: self.distance)) } catch { return }
             }
         }
     }
