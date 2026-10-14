@@ -206,11 +206,15 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   opacity: 1;
 }
 /* The card's rim is --acpmux-card-ring (styles.css draws it; under a location strip
-   composerLocation.css draws it around the strip's seam). Focus in the composer: its rounded edge takes one step toward the theme accent (the text color
-   under the default neutral accent), as the New Tab box does (newtab/screen.css). The prompt
-   itself draws no ring (desktop.css, cx-ncc.57). */
+   composerLocation.css draws it around the strip's seam). Focus is quiet, as the New Tab box's
+   (Lawrence, Leo 10-14): the same one-device-pixel rim, its tone one 8% step toward the text, never a
+   wider ring or the accent, and clear with appearance.borders none. Shell mode takes its own accent,
+   the mode's mark. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
 .acpmux-composer-box:focus-within {
-  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--agent-accent, var(--agent-text)) 40%, var(--acpmux-composer-edge));
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-edge));
+}
+:root[data-borders="none"] .acpmux-composer-box {
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) transparent;
 }
 .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);

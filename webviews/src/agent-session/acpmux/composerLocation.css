@@ -359,8 +359,8 @@
 /* The composer is one material surface; the location strip on its top edge shares its fill and
    edge (.acpmux-composer-strip), so it cannot read as a second box over wallpaper. Its only edge is
    the --acpmux-composer-edge hairline (styles.css), one device pixel (--cmux-hairline, #20481) and
-   clear under appearance.borders = none. Its shadow is the composer's (composerStates.css):
-   --elevation-1 in a light theme, none in a dark one. */
+   clear under appearance.borders = none, focused or not. Focus is quiet (composerStates.css). Its
+   shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one. */
 .acpmux-composer-box {
   background: var(--acpmux-composer-surface);
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
