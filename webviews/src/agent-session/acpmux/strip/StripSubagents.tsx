@@ -1,7 +1,7 @@
 // The composer strip's subagents (ComposerStrip.tsx): each running one as a compact chip, its name,
 // its status glyph and its time; a click shows it (the chat's `onSubagent`: its own pane right of
 // the chat). More than two, or a strip short of room (`collapsed`), show one chip naming how many,
-// whose popover lists them.
+// whose popover lists them; shorter still (`compact`), that chip shows the count alone.
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -33,10 +33,12 @@ const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
 export function StripSubagents({
   entries,
   collapsed,
+  compact = false,
   onOpen,
 }: {
   entries: readonly StripSubagent[];
   collapsed: boolean;
+  compact?: boolean;
   onOpen?: (id: string) => void;
 }) {
   const t = useT();
@@ -70,14 +72,16 @@ export function StripSubagents({
   };
   if (!collapsed && entries.length <= SHOWN)
     return <span className="acpmux-strip-agents">{entries.map((entry) => chip(entry))}</span>;
-  return <SubagentsMenu entries={entries} chip={chip} />;
+  return <SubagentsMenu entries={entries} chip={chip} compact={compact} />;
 }
 
 function SubagentsMenu({
   entries,
   chip,
+  compact,
 }: {
   entries: readonly StripSubagent[];
+  compact: boolean;
   chip: (entry: StripSubagent, inMenu: boolean, close: () => void) => React.ReactNode;
 }) {
   const t = useT();
@@ -104,7 +108,7 @@ function SubagentsMenu({
         <span className="acpmux-strip-glyph" data-status={status}>
           <Icon name={GLYPH[status]} size={12} />
         </span>
-        <span className="acpmux-strip-label">{label}</span>
+        <span className="acpmux-strip-label">{compact ? count : label}</span>
         <span className="ui-ghost-icon" aria-hidden="true">
           <ChevronIcon />
         </span>

@@ -49,7 +49,7 @@ export function ComposerStrip({
   return (
     <span ref={items} className="acpmux-strip-items" data-empty={prs.length + entries.length === 0 ? "" : undefined}>
       <StripPullRequests prs={prs} compact={level >= 2} onDismiss={dismiss} />
-      <StripSubagents entries={entries} collapsed={level >= 1} onOpen={onSubagent} />
+      <StripSubagents entries={entries} collapsed={level >= 1} compact={level >= 2} onOpen={onSubagent} />
     </span>
   );
 }

@@ -339,18 +339,20 @@ await requireBrowserLane("composer-strip-variants.test.ts", async () => {
     const page = await open("one-agent", "flat", { width: 420 });
     await deliver(page, stripChat(3, AGENTS.slice(0, 2)));
     await page.locator(".acpmux-strip-agents-summary").waitFor();
-    const narrow = await page.evaluate(() => ({
-      agents: document.querySelectorAll(".acpmux-strip-agent").length,
-      overflow: (() => {
-        const row = document.querySelector(".acpmux-composer-strip .acpmux-composer-context")!;
-        const strip = document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect();
-        return [...row.querySelectorAll(".acpmux-strip-chip")].some(
-          (chip) => chip.getBoundingClientRect().right > strip.right + 0.5,
-        );
-      })(),
-    }));
+    const narrow = await page.evaluate(() => {
+      const strip = document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect();
+      return {
+        agents: document.querySelectorAll(".acpmux-strip-agent").length,
+        title: document.querySelectorAll(".acpmux-strip-pr-title").length,
+        items: document.querySelector(".acpmux-strip-items")!.getBoundingClientRect().right <= strip.right + 0.5,
+        leading: document.querySelector(".acpmux-location-leading")!.getBoundingClientRect().width,
+      };
+    });
     await page.close();
     expect(narrow.agents).toBe(0);
-    expect(narrow.overflow).toBe(false);
+    expect(narrow.title).toBe(0);
+    expect(narrow.items).toBe(true);
+    // The folder and machine keep a readable width.
+    expect(narrow.leading).toBeGreaterThanOrEqual(100);
   });
 });

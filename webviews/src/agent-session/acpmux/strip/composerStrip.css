@@ -296,5 +296,16 @@
   }
 }
 
-/* The items follow the folder and machine at once; the branch keeps the strip's far end. */
-.acpmux-composer[data-composer-strip] .acpmux-composer-context > .acpmux-location-leading { flex: 0 1 auto; }
+/* The items follow the folder and machine at once; the branch keeps the strip's far end. In a
+   strip too narrow even for the collapsed items, the folder and machine keep a readable width and
+   the items give up the rest, clipped at the strip's end (a 2px margin keeps a focus ring whole). */
+.acpmux-composer[data-composer-strip] .acpmux-composer-context > .acpmux-location-leading {
+  flex: 0 1 auto;
+  min-width: min(120px, 35%);
+}
+.acpmux-composer[data-composer-strip] .acpmux-strip-items {
+  flex: 0 1 auto;
+  margin: 0 -2px;
+  padding: 0 2px;
+  overflow: hidden;
+}

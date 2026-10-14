@@ -9,7 +9,8 @@
 //
 // Fit: when the items would leave the folder and machine less than LEADING_MIN, the
 // lower-priority items collapse first: the subagents to one "N subagents" chip (level 1), then the
-// pull request chip drops its title (level 2). The folder and machine keep their own truncation.
+// pull request chip drops its title and the subagents chip its word (level 2). The folder and
+// machine keep their own truncation and a readable minimum (composerStrip.css).
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { ComposerStripVariant } from "./composerStrip.experiment";
 
