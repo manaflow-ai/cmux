@@ -1,10 +1,10 @@
 // l10n-allow-file: gallery fixtures (sample prompts, subagent names and tasks), not shipped UI.
 // A batch of subagents inline in the transcript (SubagentGroup.tsx): the group row in each state,
 // as the snapshot rows the pane receives after direct.ts folds a session's subagent updates; an
-// open group's list (SubagentListRow), opened by a click; and the summary card at the pane's top
-// right (summary/SummaryCard.tsx), which shows itself for a chat with subagents and lists them with
-// their live state from the same groups. It is not a popover: a click elsewhere leaves it open. A
-// list line opens that subagent's own view (the child view): a "Subagent of" pill naming its
+// open group's list (SubagentListRow), opened by a click; and the chat's summary
+// (summary/SummaryCard.tsx), which lists them with their live state from the same groups. At the
+// gallery's normal width it is the narrow pane's popover, opened by the header's summary button; a
+// wide pane docks it beside the chat (test/agent-pane-summary-panel.test.ts). A list line opens that subagent's own view (the child view): a "Subagent of" pill naming its
 // parent, then its rows, nested groups included.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -166,8 +166,10 @@ const WAITING = {
   },
 };
 
-/** The summary card, which shows itself for a chat with subagents; waits for its Subagents list. */
+/** Opens the summary from the header's button and waits for its Subagents list. */
 const openSummary = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-button"));
+  if (!ctx.document.querySelector(".acpmux-summary-card")) await ctx.click({ selector: ".acpmux-summary-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"));
 };
 
@@ -342,7 +344,7 @@ export default agentPaneEntry({
       },
     },
     summary: {
-      note: "The summary card at the top right: every subagent with its state and time: waiting, then running, then ended.",
+      note: "The summary at the top right: every subagent with its state and time: waiting, then running, then ended.",
       snapshot: MIXED,
       play: openSummary,
     },
@@ -366,31 +368,16 @@ export default agentPaneEntry({
       },
     },
     "card-outside-click": {
-      note: "A click in the transcript, then in the composer: the card stays (it is not a popover).",
+      note: "In a narrow pane the summary is a popover: a click in the transcript closes it.",
       snapshot: MIXED,
       play: async (ctx) => {
         await openSummary(ctx);
         await ctx.click({ selector: ".acpmux-scroll" });
-        await ctx.click({ selector: ".acpmux-composer" });
-        if (!ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"))
-          throw new Error("a click outside the summary card closed it");
-      },
-    },
-    "card-collapsed": {
-      note: "The card folded to its header: the subagents' live counts stay in view.",
-      snapshot: MIXED,
-      play: async (ctx) => {
-        await openSummary(ctx);
-        await ctx.click({ selector: ".acpmux-summary-card__fold" });
-        await ctx.waitFor(
-          () =>
-            !ctx.document.querySelector(".acpmux-summary-card__body") &&
-            ctx.document.querySelector(".acpmux-summary-card__counts"),
-        );
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-summary-card"));
       },
     },
     "card-closed": {
-      note: "The card's close button hides it; the header's summary button shows it again.",
+      note: "The summary's close button hides it; the header's summary button shows it again.",
       snapshot: MIXED,
       play: async (ctx) => {
         await openSummary(ctx);
