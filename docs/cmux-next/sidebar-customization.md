@@ -48,7 +48,8 @@ The manifest names the render function:
 | `facts` | `[{kind, text, sinceMs}]`, most useful first |
 
 Fact kinds: `needsInput` (why it waits, in the program's words), `notification` (the unread
-notification's text, which a row shows only with Latest Notification on), `agent` (agent and model),
+notification's text, which a row shows only with Latest Notification on), `unread` (how many items
+are unread, when no notification text came), `agent` (agent and model),
 `task` (the agent's prompt, or what a working program says it does), `lastReply`, `presence`
 (what the agent edits or reads now), `command` (the running shell command; `sinceMs` is its
 start), `folder`, `branch`, `pullRequest`, `machine`, `status` (a reported status entry), `more`.

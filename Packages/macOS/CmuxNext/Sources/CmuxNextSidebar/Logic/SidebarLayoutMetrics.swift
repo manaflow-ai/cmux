@@ -136,6 +136,7 @@ nonisolated extension SidebarLayoutOptions {
         guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
         var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
         content.detail = nil
+        content.badgeTime = nil
         return content
     }
 }
