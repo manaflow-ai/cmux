@@ -327,7 +327,8 @@ fn a_chief_brain_finds_claude_on_the_persons_login_path() {
     fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
     let chief_home = files.join("h");
     fs::create_dir_all(&chief_home).unwrap();
-    let login_path = format!("{}:/usr/bin:/bin", tools.display());
+    // A relative entry is dropped (a file planted in a project never runs).
+    let login_path = format!(".:relative/bin:{}:/usr/bin:/bin", tools.display());
     let brains = json!({
         "executable": stub,
         "home": chief_home,
@@ -350,6 +351,7 @@ fn a_chief_brain_finds_claude_on_the_persons_login_path() {
     let path = env_of(&scout_home.join("env.1")).get("PATH").cloned().unwrap_or_default();
     assert_eq!(found.trim(), claude.display().to_string(), "PATH={path}");
     assert!(path.starts_with("/opt/cmux-test/bin:"), "the bundle's bin stays first: {path}");
+    assert!(path.split(':').all(|d| d.starts_with('/')), "absolute entries only: {path}");
 
     let daemon = i32::try_from(owned.child.id()).unwrap();
     // SAFETY: the test's own daemon child.

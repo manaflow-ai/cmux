@@ -107,7 +107,9 @@ fn brains_value(home: &ChiefHome) -> Option<String> {
     let executable = std::path::absolute(brain_binary()?).ok()?;
     let bin_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
     // The person's PATH (a login shell's): the brains find the harnesses
-    // this terminal finds.
+    // this terminal finds. Whoever first starts the owner sets it for every
+    // brain until the owner restarts (a venv or direnv entry included); the
+    // daemon keeps only absolute entries.
     let path = std::env::var("PATH").ok().filter(|p| !p.is_empty());
     let value = serde_json::json!({"executable": executable, "home": home.root,
                                    "app": {"bin_dir": bin_dir, "path": path}});

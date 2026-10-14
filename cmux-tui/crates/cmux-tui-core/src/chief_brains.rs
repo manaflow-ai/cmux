@@ -164,7 +164,13 @@ pub fn brain_environment(
     };
     let mut path: Vec<String> = app.bin_dir.iter().map(|d| d.display().to_string()).collect();
     path.extend(
-        app.path.iter().flat_map(|p| p.split(':')).filter(|d| !d.is_empty()).map(str::to_owned),
+        // Absolute entries only: a relative one (`.`, `node_modules/.bin`)
+        // would run a file planted in the project a turn works in.
+        app.path
+            .iter()
+            .flat_map(|p| p.split(':'))
+            .filter(|d| d.starts_with('/'))
+            .map(str::to_owned),
     );
     path.extend(
         ["bin", ".local/bin", ".bun/bin", ".cargo/bin"].map(|d| format!("{user_home}/{d}")),
@@ -173,7 +179,7 @@ pub fn brain_environment(
         ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
             .map(str::to_owned),
     );
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = BTreeSet::new();
     path.retain(|d| seen.insert(d.clone()));
     put("PATH", path.join(":"));
     put("HOME", user_home);
