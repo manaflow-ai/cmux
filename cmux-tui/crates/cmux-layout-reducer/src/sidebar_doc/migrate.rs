@@ -21,8 +21,8 @@
 //!   its first member's; members of another machine stay loose in their
 //!   own machine section (a group is one machine).
 //! - Another machine's personal row has no public workspace id in this
-//!   store: it is placed by its workspace key (`workspace_key`,
-//!   `unresolved`) and resolved by the first `adopt` that names that key.
+//!   store: it is placed by its placement reference (`workspace_ref`,
+//!   `unresolved`) and resolved by the first `adopt` that names it.
 
 use std::collections::HashSet;
 
@@ -56,7 +56,7 @@ impl LegacyWorkspace {
             Some(id) => WorkspaceRef::new(&self.session_id, id),
             None => {
                 let mut reference = WorkspaceRef::new(&self.session_id, &self.workspace_key);
-                reference.extra.insert("workspace_key".into(), self.workspace_key.clone().into());
+                reference.extra.insert("workspace_ref".into(), self.workspace_key.clone().into());
                 reference.extra.insert("unresolved".into(), Value::Bool(true));
                 reference
             }
@@ -280,10 +280,10 @@ fn section_from_layout(section: &sidebar_layout::Section, kind: SectionKind) -> 
     new
 }
 
-/// The document the old stores describe (revision 1).
+/// The document the old stores describe (revision 0: the first change is 1).
 pub fn migrate(input: &LegacyInput) -> Doc {
     let mut builder = Builder {
-        doc: Doc { revision: 1, sections: Vec::new(), items: Vec::new() },
+        doc: Doc { revision: 0, sections: Vec::new(), items: Vec::new() },
         placed: HashSet::new(),
         machines: Vec::new(),
     };

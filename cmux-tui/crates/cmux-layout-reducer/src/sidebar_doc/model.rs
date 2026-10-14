@@ -41,9 +41,10 @@ pub fn group_item_id(group_id: &str) -> ItemId {
     format!("itm_g_{group_id}")
 }
 
-/// A workspace on one machine. `workspace_key` (in `extra`) names a
+/// A workspace on one machine. `workspace_ref` (in `extra`) names a
 /// workspace whose public id was not known when it was placed (another
-/// machine's row from the old personal store); `adopt` resolves it.
+/// machine's row from the old personal store, by the same reference a
+/// `workspace_placement` snapshot carries); `adopt` resolves it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceRef {
     pub session_id: String,
@@ -66,8 +67,10 @@ impl WorkspaceRef {
         self.session_id == other.session_id && self.workspace_id == other.workspace_id
     }
 
-    pub fn workspace_key(&self) -> Option<&str> {
-        self.extra.get("workspace_key").and_then(Value::as_str)
+    /// The placement reference of an item placed before its public id was
+    /// known.
+    pub fn placement_ref(&self) -> Option<&str> {
+        self.extra.get("workspace_ref").and_then(Value::as_str)
     }
 }
 
@@ -619,7 +622,7 @@ pub enum Op {
     #[serde(rename = "group.ungroup")]
     GroupUngroup { id: ItemId },
     /// Place live workspaces that have no item yet, at `to` (default: the
-    /// end of each one's machine section). A ref whose `workspace_key`
+    /// end of each one's machine section). A ref whose `workspace_ref`
     /// matches an unresolved item resolves that item in place.
     #[serde(rename = "adopt")]
     Adopt {

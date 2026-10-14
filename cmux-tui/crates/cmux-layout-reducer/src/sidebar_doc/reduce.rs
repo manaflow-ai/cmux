@@ -554,10 +554,10 @@ fn adopt(doc: &mut Doc, refs: &[WorkspaceRef], to: Option<&Target>) -> Result<()
             continue;
         }
         // Resolve an item placed by workspace key before its id was known.
-        if let Some(key) = reference.workspace_key()
+        if let Some(key) = reference.placement_ref()
             && let Some(item) = doc.items.iter_mut().find(|item| {
                 item.body.workspace().is_some_and(|placed| {
-                    placed.session_id == reference.session_id && placed.workspace_key() == Some(key)
+                    placed.session_id == reference.session_id && placed.placement_ref() == Some(key)
                 })
             })
         {
@@ -566,16 +566,20 @@ fn adopt(doc: &mut Doc, refs: &[WorkspaceRef], to: Option<&Target>) -> Result<()
             item.body = Body::Workspace { reference: resolved };
             continue;
         }
-        let section = ensure_machine_section(doc, &reference.session_id);
+        let section = match to {
+            Some(to) => to.section.clone(),
+            None => ensure_machine_section(doc, &reference.session_id),
+        };
         let item = Item::workspace(reference.clone(), &section);
         if doc.item(&item.id).is_some() {
             continue;
         }
-        adopted.push(item.id.clone());
+        let id = item.id.clone();
         doc.items.push(item);
         if to.is_none() {
-            place(doc, &[adopted[adopted.len() - 1].clone()], &Target::end(&section))?;
+            place(doc, std::slice::from_ref(&id), &Target::end(&section))?;
         }
+        adopted.push(id);
     }
     if let Some(to) = to {
         place(doc, &adopted, to)?;

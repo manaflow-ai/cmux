@@ -141,6 +141,20 @@ pub(crate) fn place_created_workspaces_at(
     created: &CreatedWorkspaces,
     placement: NewWorkspacePlacement,
 ) -> anyhow::Result<()> {
+    place_created_rows(transaction, created, placement)?;
+    if !created.keys.is_empty() {
+        // sidebar-doc-v1: the new workspaces are adopted into their machine
+        // section at the place their personal rows got.
+        super::sidebar_doc_legacy::sync_from_legacy(transaction)?;
+    }
+    Ok(())
+}
+
+fn place_created_rows(
+    transaction: &Transaction<'_>,
+    created: &CreatedWorkspaces,
+    placement: NewWorkspacePlacement,
+) -> anyhow::Result<()> {
     if created.keys.is_empty() || !super::store::state_tables_ready(transaction)? {
         return Ok(());
     }
