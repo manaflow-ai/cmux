@@ -43,7 +43,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     nonisolated static let campaignAppVersions: Set<String> = ["0.65.1", "0.65.2"]
     nonisolated static let seenVersionDefaultsKey = "cmux.cloud.welcome.seenVersion"
 
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
     private let nextStep: @MainActor () -> CloudWelcomeNextStep
     private let performNextStep: @MainActor (CloudWelcomeNextStep, (@MainActor () -> Void)?) -> Void
 
@@ -71,7 +71,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// Launch presentation is considered once, at the first main window. A
     /// window opened later (Cmd+N an hour in) must not pop the welcome up just
     /// because MDM policy changed since; an unseen welcome waits for next launch.
-    private var didConsiderLaunchPresentation = false
+    var didConsiderLaunchPresentation = false
 
     /// Cloud's on/off setting does not affect the announcement. Only managed
     /// DisableCloud policy excludes users from this one-time release campaign,
@@ -161,33 +161,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         return true
     }
 
-    #if DEBUG
-    /// Debug previews deliberately bypass the gate, but still count as seen.
-    func presentForDebug(
-        over parent: NSWindow?,
-        posterShowsTitle: Bool = true,
-        posterShowsIcon: Bool = true,
-        showsNewBadge: Bool = false,
-        footerHasNotNow: Bool = false
-    ) {
-        Self.markCampaignSeen(in: defaults)
-        show(
-            over: parent,
-            posterShowsTitle: posterShowsTitle,
-            posterShowsIcon: posterShowsIcon,
-            showsNewBadge: showsNewBadge,
-            footerHasNotNow: footerHasNotNow
-        )
-    }
-
-    func resetForDebug() {
-        dismiss()
-        defaults.removeObject(forKey: Self.seenVersionDefaultsKey)
-        didConsiderLaunchPresentation = false
-    }
-    #endif
-
-    private func show(
+    func show(
         over parent: NSWindow?,
         sliderShowsFeatureList: Bool = true,
         sliderListUsesDots: Bool = false,
