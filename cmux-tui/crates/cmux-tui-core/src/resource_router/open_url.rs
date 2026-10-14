@@ -22,12 +22,15 @@
 //!    `frontend-browser-tabs-v1`: the cmux app), the daemon makes a frontend
 //!    browser tab through the `new-frontend-browser-tab` commit (selected,
 //!    right after the pane's selected tab), and reuse takes only frontend
-//!    tabs. Else `tab.create_browser` makes a cmux-browser tab; a workspace
-//!    with no screen gets the screen that `tab.create_browser` makes for it.
+//!    tabs. Else `tab.create_browser` makes a cmux-browser tab. A workspace
+//!    with no screen (a fresh Home) gets the screen and pane that
+//!    `tab.create_browser` makes for it, holding a frontend tab when the app
+//!    renders browsers.
 //! 5. Else (only the dock) a browser in a new viewport column right of the
-//!    dock (`pane-browser-kind-v1`'s `pane.split`), and the focus goes back
-//!    to the pane that had it. The column rules keep a scrolling column
-//!    beside every dock, so this is a fallback for a layout that breaks them.
+//!    dock (`pane-browser-kind-v1`'s `pane.split`; a frontend tab when the
+//!    app renders browsers), and the focus goes back to the pane that had
+//!    it. A frontend tab made with its pane registers its record under the
+//!    create step's key first, as `new-frontend-browser-tab` does.
 //!
 //! The request's key records its result in the session's mutation ledger:
 //! a retry with the same key and request answers the first result (the
@@ -129,7 +132,8 @@ fn open(
     match (candidates.ranked.first(), candidates.dock.as_ref()) {
         (Some(pane), _) if frontend => call.create_frontend_browser(pane, &candidates, &steps),
         (Some(pane), _) => call.create_browser("pane", pane.id.as_str(), &steps),
-        (None, Some(dock)) => call.new_column(dock, candidates.focused.as_ref(), &steps),
+        (None, Some(dock)) => call.new_column(dock, candidates.focused.as_ref(), &steps, frontend),
+        (None, None) if frontend => call.create_frontend_in_workspace(&steps),
         (None, None) => call.create_browser("workspace", workspace.as_str(), &steps),
     }
 }
@@ -432,14 +436,7 @@ impl Call<'_> {
         side: &RightSide,
         steps: &StepKeys,
     ) -> Result<Value, ResourceError> {
-        let record = FrontendBrowserRecord {
-            engine: FRONTEND_ENGINE.to_string(),
-            url: self.url.to_string(),
-            title: None,
-            favicon_url: None,
-            profile_id: None,
-            owner: None,
-        };
+        let record = self.frontend_record();
         let placement = FrontendTabPlacement { activate: true, after: pane.active };
         let outcome = self
             .mux
@@ -470,14 +467,90 @@ impl Call<'_> {
         }))
     }
 
-    /// A browser in a new viewport column right of the lone dock pane.
+    fn frontend_record(&self) -> FrontendBrowserRecord {
+        FrontendBrowserRecord {
+            engine: FRONTEND_ENGINE.to_string(),
+            url: self.url.to_string(),
+            title: None,
+            favicon_url: None,
+            profile_id: None,
+            owner: None,
+        }
+    }
+
+    /// A frontend browser tab in a workspace with no screen: the screen and
+    /// pane that `tab.create_browser` makes for it.
+    fn create_frontend_in_workspace(&self, steps: &StepKeys) -> Result<Value, ResourceError> {
+        let selectors = ResourceSelectors {
+            machine: self.request.selectors.machine.clone(),
+            session: self.request.selectors.session.clone(),
+            workspace: Some(self.workspace.as_str().to_string()),
+            ..Default::default()
+        };
+        let fields = Map::from_iter([("url".to_string(), json!(self.url))]);
+        self.commit_create(ResourceOperation::TabCreateBrowser, selectors, fields, steps, true)
+    }
+
+    /// Commit the create step `operation` under its key. With `frontend`,
+    /// the browser it makes is a frontend tab whose record is registered
+    /// under the step's key first (`new-frontend-browser-tab`'s keyed path),
+    /// and the value is that tab's place.
+    fn commit_create(
+        &self,
+        operation: ResourceOperation,
+        selectors: ResourceSelectors,
+        fields: Map<String, Value>,
+        steps: &StepKeys,
+        frontend: bool,
+    ) -> Result<Value, ResourceError> {
+        let mutation = crate::WorkspaceMutation::new(
+            steps.create.clone(),
+            "resource-api",
+            self.request.actor.clone(),
+        )
+        .map_err(resource_operation_error)?;
+        let commit = |fields| {
+            self.mux
+                .resource_topology_operation(operation, selectors, fields, None, &mutation)
+                .map(|commit| commit.result)
+        };
+        if !frontend {
+            let mut value = commit(fields).map_err(resource_operation_error)?;
+            value["reused"] = json!(false);
+            return Ok(value);
+        }
+        let fingerprint = json!({
+            "operation": OPERATION,
+            "step": super::operation_name(operation),
+            "workspace": self.workspace.as_str(),
+            "url": self.url,
+        });
+        self.mux
+            .keyed_frontend_browser(&steps.create, self.frontend_record(), fingerprint, |id| {
+                let mut fields = fields;
+                fields.insert("frontend_browser_id".to_string(), json!(id.as_str()));
+                commit(fields)
+            })
+            .map_err(resource_operation_error)?;
+        frontend_created_before(self.mux, steps, self.workspace)?.ok_or_else(|| {
+            ResourceError::operation_failed(
+                OPERATION,
+                "the new browser tab is not placed",
+                json!({}),
+            )
+        })
+    }
+
+    /// A browser in a new viewport column right of the lone dock pane; with
+    /// `frontend`, a frontend browser tab.
     fn new_column(
         &self,
         dock: &PanePublicId,
         focused: Option<&PanePublicId>,
         steps: &StepKeys,
+        frontend: bool,
     ) -> Result<Value, ResourceError> {
-        if let Some(error) = self.mux.browser_engine_unavailable(OPERATION) {
+        if !frontend && let Some(error) = self.mux.browser_engine_unavailable(OPERATION) {
             return Err(error);
         }
         let selectors = ResourceSelectors {
@@ -491,24 +564,8 @@ impl Call<'_> {
             ("viewport_width".to_string(), json!(NEW_COLUMN_WIDTH)),
             (PANE_BROWSER_URL_FIELD.to_string(), json!(self.url)),
         ]);
-        let mutation = crate::WorkspaceMutation::new(
-            steps.create.clone(),
-            "resource-api",
-            self.request.actor.clone(),
-        )
-        .map_err(resource_operation_error)?;
-        let commit = self
-            .mux
-            .resource_topology_operation(
-                ResourceOperation::PaneSplit,
-                selectors,
-                fields,
-                None,
-                &mutation,
-            )
-            .map_err(resource_operation_error)?;
-        let mut value = commit.result;
-        value["reused"] = json!(false);
+        let value =
+            self.commit_create(ResourceOperation::PaneSplit, selectors, fields, steps, frontend)?;
         // A new pane takes the focus; it goes back to the pane that had it.
         if let Some(focused) = focused.filter(|pane| value["pane_id"] != pane.as_str()) {
             self.inner(
