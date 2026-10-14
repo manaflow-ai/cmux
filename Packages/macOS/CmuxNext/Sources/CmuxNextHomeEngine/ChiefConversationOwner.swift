@@ -43,11 +43,14 @@ public final class ChiefConversationOwner {
 
     /// The owner's process environment: the app's, plus the brain host's
     /// tools socket, so `chief.engine.*` and `chief.stop` reach this home's
-    /// brain (cmux-tui forwards them there, as chief-inspect). An owner that
-    /// another build already started keeps its environment until it restarts.
+    /// brain (cmux-tui forwards them there, as chief-inspect), and the
+    /// values the owner needs to run the other Chiefs' brains
+    /// (`brainsValue`). An owner that another build already started keeps
+    /// its environment until it restarts.
     static func ownerEnvironment(home: ChiefHome, process: [String: String]) -> [String: String] {
         var environment = process
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
+        environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process)
         return environment
     }
 
