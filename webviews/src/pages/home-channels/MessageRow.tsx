@@ -137,9 +137,7 @@ export const MessageRow = memo(function MessageRow({
           canEdit={canEdit}
           canDelete={own && onRetract !== undefined}
           onReact={(value) => onReact(message, value)}
-          onReply={
-            onReply ? () => onReply(message) : onOpenThread ? () => onOpenThread(message.id) : undefined
-          }
+          onReply={onReply ? () => onReply(message) : onOpenThread ? () => onOpenThread(message.id) : undefined}
           replyLabel={onReply ? t("action.replyTo") : undefined}
           onCopyLink={onCopyLink ? () => onCopyLink(message) : undefined}
           onEdit={() => onEditStart?.(message)}
