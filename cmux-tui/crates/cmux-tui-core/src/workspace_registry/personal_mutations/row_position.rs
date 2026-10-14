@@ -7,6 +7,10 @@
 //! one place, or the dense positions an older binary wrote) does the whole
 //! list get evenly spaced positions again, in one statement.
 //!
+//! Every lookup here is a range scan of the order index
+//! `personal_workspaces_order (position, session_id, workspace_key)`, made
+//! at open with the sidebar document's triggers.
+//!
 //! Group slots (`personal_groups.top_position`, `personal-mixed-order-v1`)
 //! are positions too: a group shows right before the first row at or after
 //! its slot. A move keeps the old rule: groups that were right before the
@@ -20,6 +24,9 @@ use super::mixed_order;
 /// The space between two rows after a renumbering, and after the last row
 /// for a new one.
 pub(crate) const GAP: i64 = 1 << 16;
+/// The position of the first row after a renumbering (and of the first row
+/// of an empty list): room for 2^24 moves to the top before the next one.
+pub(crate) const FIRST: i64 = 1 << 40;
 
 /// `(position, session_id, workspace_key)`: one row's place in the order.
 type Place = (i64, String, String);
@@ -85,26 +92,34 @@ fn last_other(tx: &Transaction<'_>, session: &str, key: &str) -> anyhow::Result<
         .optional()?)
 }
 
-/// The first row after `place` other than `(session, key)`.
+/// The first row after `place` (from the start: None) other than
+/// `(session, key)`. Each form is a range scan of the order index
+/// (`personal_workspaces_order`).
 fn next_other(
     tx: &Transaction<'_>,
     session: &str,
     key: &str,
     place: Option<&Place>,
 ) -> anyhow::Result<Option<Place>> {
-    let mut statement = tx.prepare(
-        "SELECT position, session_id, workspace_key FROM personal_workspaces
-         WHERE NOT (session_id = ?1 AND workspace_key = ?2)
-           AND (?3 IS NULL OR (position, session_id, workspace_key) > (?3, ?4, ?5))
-         ORDER BY position, session_id, workspace_key LIMIT 1",
-    )?;
-    let (position, after_session, after_key) = match place {
-        Some((position, s, k)) => (Some(*position), s.as_str(), k.as_str()),
-        None => (None, "", ""),
-    };
-    Ok(statement
-        .query_row(params![session, key, position, after_session, after_key], read_place)
-        .optional()?)
+    Ok(match place {
+        Some((position, after_session, after_key)) => tx
+            .prepare(
+                "SELECT position, session_id, workspace_key FROM personal_workspaces
+                 WHERE (position, session_id, workspace_key) > (?3, ?4, ?5)
+                   AND NOT (session_id = ?1 AND workspace_key = ?2)
+                 ORDER BY position, session_id, workspace_key LIMIT 1",
+            )?
+            .query_row(params![session, key, position, after_session, after_key], read_place)
+            .optional()?,
+        None => tx
+            .prepare(
+                "SELECT position, session_id, workspace_key FROM personal_workspaces
+                 WHERE NOT (session_id = ?1 AND workspace_key = ?2)
+                 ORDER BY position, session_id, workspace_key LIMIT 1",
+            )?
+            .query_row(params![session, key], read_place)
+            .optional()?,
+    })
 }
 
 /// Move the row `(session, key)` to ordinal `index` among the other rows
@@ -148,7 +163,7 @@ fn move_between(
     let old = place_of(tx, session, key)?
         .ok_or_else(|| anyhow::anyhow!("no personal row for {session}/{key}"))?;
     let new = match (&low, &high) {
-        (None, None) => Some(0),
+        (None, None) => Some(FIRST),
         (Some((low, ..)), None) => low.checked_add(GAP),
         // Positions are never negative (a CHECK in the schema).
         (None, Some((high, ..))) if *high >= GAP => Some(high - GAP),
@@ -169,7 +184,7 @@ fn move_between(
             (Some((low, ..)), Some((high, ..))) => low + (high - low) / 2,
             (Some((low, ..)), None) => low + GAP,
             (None, Some((high, ..))) => (high - GAP).max(0),
-            (None, None) => 0,
+            (None, None) => FIRST,
         };
         let old = place_of(tx, session, key)?.unwrap_or(old);
         return finish_move(tx, session, key, old, new, low, high);
@@ -214,18 +229,18 @@ fn end_slot(tx: &Transaction<'_>, session: &str, key: &str, new: i64) -> anyhow:
     Ok(last.max(new).saturating_add(1))
 }
 
-/// Evenly spaced positions for every row, in the current order (one
-/// statement), with each group kept at its slot among the rows.
+/// Evenly spaced positions for every row from [`FIRST`], in the current
+/// order (one statement), with each group kept at its slot among the rows.
 fn respace(tx: &Transaction<'_>) -> anyhow::Result<()> {
     let slots = mixed_order::group_slots(tx, None)?;
     tx.execute(
-        "UPDATE personal_workspaces SET position = spaced.rank * ?1
+        "UPDATE personal_workspaces SET position = ?2 + (spaced.rank - 1) * ?1
          FROM (SELECT session_id, workspace_key,
                       ROW_NUMBER() OVER (ORDER BY position, session_id, workspace_key) AS rank
                FROM personal_workspaces) AS spaced
          WHERE spaced.session_id = personal_workspaces.session_id
            AND spaced.workspace_key = personal_workspaces.workspace_key",
-        [GAP],
+        params![GAP, FIRST],
     )?;
     mixed_order::restore_group_slots(tx, &slots, None)
 }

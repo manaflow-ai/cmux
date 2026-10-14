@@ -144,25 +144,6 @@ impl Mirror {
             .find_map(|marker| marker["idempotency_key"].as_str())
             .or_else(|| own("idempotency_key").and_then(Value::as_str))
             .map(str::to_string);
-        // The intent this batch confirms or refuses goes in every case: a
-        // stale or gapped batch still says the daemon decided it.
-        self.unwind();
-        let mut dropped = Vec::new();
-        if let Some(key) = &key
-            && self.pending.iter().any(|intent| intent.key == *key)
-        {
-            self.pending.retain(|intent| intent.key != *key);
-            dropped.push(key.clone());
-        }
-        let done = |mirror: &mut Mirror, mut dropped: Vec<String>, result: Value| {
-            dropped.extend(mirror.replay());
-            let mut result = result;
-            result["dropped"] = json!(dropped);
-            result
-        };
-        if batch["rejected"] == true {
-            return done(self, dropped, json!({"ok": true}));
-        }
         let (revision, previous) = if markers.is_empty() {
             (decimal(own("revision")), decimal(own("previous_revision")))
         } else {
@@ -171,46 +152,95 @@ impl Mirror {
                 decimal(markers.first().map(|m| &m["previous_revision"])),
             )
         };
-        let Some(revision) = revision else {
-            return done(self, dropped, json!({"ok": true, "ignored": true}));
+        // What the batch is: refused, not a sidebar batch, early, stale,
+        // gapped, or rows to apply.
+        let verdict = if batch["rejected"] == true {
+            Some(json!({"ok": true}))
+        } else if let Some(revision) = revision {
+            if !self.loaded {
+                Some(json!({"refetch": true}))
+            } else if revision <= self.confirmed.revision {
+                Some(json!({"ok": true, "stale": true}))
+            } else if previous.unwrap_or(revision - 1) != self.confirmed.revision {
+                Some(json!({"refetch": true}))
+            } else {
+                None
+            }
+        } else {
+            Some(json!({"ok": true, "ignored": true}))
         };
-        if !self.loaded {
-            return done(self, dropped, json!({"refetch": true}));
-        }
-        if revision <= self.confirmed.revision {
-            return done(self, dropped, json!({"ok": true, "stale": true}));
-        }
-        if previous.unwrap_or(revision - 1) != self.confirmed.revision {
-            return done(self, dropped, json!({"refetch": true}));
-        }
         let mut rows = Vec::new();
-        for change in &changes {
-            let resource = change["resource"].as_str().unwrap_or_default();
-            let id = change["id"].as_str().unwrap_or_default().to_string();
-            let op = match (change["kind"].as_str().unwrap_or_default(), resource) {
-                ("state_upsert", "sidebar_item") => {
-                    match serde_json::from_value::<Item>(change["value"].clone()) {
-                        Ok(item) => Op::ItemPut { item },
-                        Err(e) => return done(self, dropped, error(e)),
+        let mut bad_row = None;
+        if verdict.is_none() {
+            for change in &changes {
+                let resource = change["resource"].as_str().unwrap_or_default();
+                let id = change["id"].as_str().unwrap_or_default().to_string();
+                let op = match (change["kind"].as_str().unwrap_or_default(), resource) {
+                    ("state_upsert", "sidebar_item") => {
+                        match serde_json::from_value::<Item>(change["value"].clone()) {
+                            Ok(item) => Op::ItemPut { item },
+                            Err(e) => {
+                                bad_row = Some(error(e));
+                                break;
+                            }
+                        }
                     }
-                }
-                ("state_upsert", "sidebar_section") => {
-                    match serde_json::from_value::<Section>(change["value"].clone()) {
-                        Ok(section) => Op::SectionPut { section },
-                        Err(e) => return done(self, dropped, error(e)),
+                    ("state_upsert", "sidebar_section") => {
+                        match serde_json::from_value::<Section>(change["value"].clone()) {
+                            Ok(section) => Op::SectionPut { section },
+                            Err(e) => {
+                                bad_row = Some(error(e));
+                                break;
+                            }
+                        }
                     }
-                }
-                ("state_delete", "sidebar_item") => Op::ItemDelete { id },
-                ("state_delete", "sidebar_section") => Op::SectionDelete { id },
-                _ => continue,
-            };
-            rows.push(op);
+                    ("state_delete", "sidebar_item") => Op::ItemDelete { id },
+                    ("state_delete", "sidebar_section") => Op::SectionDelete { id },
+                    _ => continue,
+                };
+                rows.push(op);
+            }
         }
-        reduce::apply_rows(&mut self.confirmed, &rows);
-        reduce::apply_rows(&mut self.shown, &rows);
-        self.confirmed.revision = revision;
-        self.shown.revision = revision;
-        done(self, dropped, json!({"ok": true, "revision": revision.to_string()}))
+        // The intent this batch confirms or refuses goes in every case: a
+        // stale or gapped batch still says the daemon decided it. The shown
+        // document changes only when an intent goes or rows apply.
+        let confirms = key
+            .as_ref()
+            .is_some_and(|key| self.pending.iter().any(|intent| intent.key == *key));
+        let applies = verdict.is_none() && bad_row.is_none();
+        if !confirms && !applies {
+            let mut result = verdict.or(bad_row).unwrap_or_else(|| json!({"ok": true}));
+            result["dropped"] = json!(Vec::<String>::new());
+            return result;
+        }
+        if !self.loaded {
+            // Nothing is shown yet: drop the intent; `load` replays the rest.
+            self.pending.retain(|intent| Some(&intent.key) != key.as_ref());
+            let mut result = verdict.unwrap_or_else(|| json!({"refetch": true}));
+            result["dropped"] = json!(key.into_iter().collect::<Vec<_>>());
+            return result;
+        }
+        self.unwind();
+        let mut dropped = Vec::new();
+        if let Some(key) = key.filter(|_| confirms) {
+            self.pending.retain(|intent| intent.key != key);
+            dropped.push(key);
+        }
+        let mut result = match (verdict, bad_row) {
+            (Some(verdict), _) => verdict,
+            (None, Some(bad_row)) => bad_row,
+            (None, None) => {
+                let revision = revision.unwrap_or_default();
+                reduce::apply_rows(&mut self.confirmed, &rows);
+                reduce::apply_rows(&mut self.shown, &rows);
+                self.confirmed.revision = revision;
+                self.shown.revision = revision;
+                json!({"ok": true, "revision": revision.to_string()})
+            }
+        };
+        dropped.extend(self.replay());
+        result["dropped"] = json!(dropped);
+        result
     }
 
     pub fn apply_intent(&mut self, input: &[u8]) -> Value {

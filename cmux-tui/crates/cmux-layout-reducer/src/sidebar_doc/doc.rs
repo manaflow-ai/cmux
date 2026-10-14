@@ -126,15 +126,17 @@ fn placement_key(reference: &WorkspaceRef) -> Option<RefKey> {
 }
 
 impl Doc {
-    /// A document of these rows (any order; a later item with the same id
-    /// replaces an earlier one).
+    /// A document of these rows (any order; of two rows with one id the
+    /// first is kept).
     pub fn from_parts(revision: u64, mut sections: Vec<Section>, items: Vec<Item>) -> Doc {
         let mut seen = std::collections::HashSet::new();
         sections.retain(|section| seen.insert(section.id.clone()));
         sort_sections(&mut sections);
         let mut doc = Doc { revision, sections, ..Doc::default() };
         for item in items {
-            doc.replace_item(item);
+            if !doc.items.contains_key(&item.id) {
+                doc.replace_item(item);
+            }
         }
         doc
     }

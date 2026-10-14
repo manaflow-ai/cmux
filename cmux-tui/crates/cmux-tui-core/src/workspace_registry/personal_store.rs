@@ -693,8 +693,11 @@ pub(crate) fn read_terminals(connection: &Connection) -> anyhow::Result<Vec<Pers
 /// ([`super::personal_mutations::row_position`]).
 pub(crate) fn next_workspace_position(connection: &Connection) -> anyhow::Result<i64> {
     Ok(connection.query_row(
-        "SELECT COALESCE(MAX(position) + ?1, 0) FROM personal_workspaces",
-        [super::personal_mutations::row_position::GAP],
+        "SELECT COALESCE(MAX(position) + ?1, ?2) FROM personal_workspaces",
+        rusqlite::params![
+            super::personal_mutations::row_position::GAP,
+            super::personal_mutations::row_position::FIRST
+        ],
         |row| row.get::<_, i64>(0),
     )?)
 }

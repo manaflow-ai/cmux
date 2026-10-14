@@ -45,8 +45,8 @@ use super::sidebar_doc_legacy::mint_item_id;
 use super::sidebar_doc_store as store;
 use super::values::local_registry_id;
 
-/// The dirty table, its triggers and the position index the neighbor
-/// queries use. Run at every open (after the personal and presentation
+/// The dirty table, its triggers, the position index the neighbor queries
+/// use and the order index of personal row moves. Run at every open (after the personal and presentation
 /// tables exist); additive, so an older binary keeps working (and its own
 /// writes are marked too).
 pub(crate) fn create_triggers(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -59,6 +59,8 @@ pub(crate) fn create_triggers(transaction: &Transaction<'_>) -> anyhow::Result<(
          );
          CREATE INDEX IF NOT EXISTS sidebar_doc_personal_position
            ON personal_workspaces(position);
+         CREATE INDEX IF NOT EXISTS personal_workspaces_order
+           ON personal_workspaces(position, session_id, workspace_key);
          CREATE TRIGGER IF NOT EXISTS sidebar_doc_row_insert AFTER INSERT ON personal_workspaces
          BEGIN INSERT OR IGNORE INTO sidebar_doc_dirty(kind, a, b)
                VALUES('ws', NEW.session_id, NEW.workspace_key); END;
@@ -166,7 +168,12 @@ fn commit_applied(
     }
     let events =
         store::write_changes(transaction, previous_revision, revision, &applied.changes, None)?;
-    super::closed_history_store::queue_changes(transaction, &events)
+    // One row per change: the open path queues outside a journaled commit,
+    // so its rows wait for the next commit, which an older binary may run.
+    for event in &events {
+        super::closed_history_store::queue_change(transaction, event)?;
+    }
+    Ok(())
 }
 
 /// A personal row as the neighbor queries read it.

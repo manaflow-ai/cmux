@@ -198,7 +198,8 @@ pub(crate) fn queue_change(transaction: &Transaction<'_>, change: &Value) -> any
 
 /// Queue many changes as one row (a JSON array; [`drain_pending_changes`]
 /// flattens it), so a commit that restates every placement is not one
-/// insert per change.
+/// insert per change. Only inside a commit that journals (drains) them in
+/// the same transaction: an older binary drains one change per row.
 pub(crate) fn queue_changes(
     transaction: &Transaction<'_>,
     changes: &[Value],

@@ -580,6 +580,22 @@ def main() -> int:
         check("write-back: the old order of this machine's loose rows matches the document",
               old_loose == doc_loose and doc_loose[:1] == [keys["w3"]], {"old": old_loose, "doc": doc_loose})
         assert made["value"]["revision"]
+        # Gap positions: a personal move writes the moved row only.
+        def positions() -> dict:
+            with sqlite3.connect(f"file:{registry}?mode=ro", uri=True) as db:
+                return {(s, k): p for s, k, p in db.execute(
+                    "SELECT session_id, workspace_key, position FROM personal_workspaces")}
+        before_place = positions()
+        daemon.ok("workspace.place", {"workspace": ids["w6"], "index": 1}, mutate=True)
+        daemon.ok("workspace.place", {"workspace": ids["w1"], "index": 0}, mutate=True)
+        after_place = positions()
+        rewritten = sorted(k for k in before_place if before_place[k] != after_place.get(k))
+        check("workspace.place writes only the moved rows (no renumbering of the others)",
+              rewritten == sorted([(local, keys["w6"]), (local, keys["w1"])]), rewritten)
+        listed = daemon.raw({"cmd": "list-personal"})["workspaces"]
+        first = min(listed, key=lambda r: r["index"])
+        check("the moved row is first in the old personal order",
+              (first["session_id"], first["workspace_key"]) == (local, keys["w1"]), first)
         order = [w["id"] for w in daemon.ok("workspace.list", {"order": "personal"})]
         check("workspace.list personal order follows the document (Pinned first)",
               order.index(ids["w6"]) < order.index(ids["w3"]), order)

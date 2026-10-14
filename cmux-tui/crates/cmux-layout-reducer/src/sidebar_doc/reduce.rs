@@ -20,15 +20,6 @@ use super::order_key;
 
 pub use super::check::{check, diff, fit_title, repair};
 
-/// The result of [`apply`].
-#[derive(Debug, Clone, PartialEq)]
-pub struct Outcome {
-    pub doc: Doc,
-    pub changes: Changes,
-    /// Restores the document `apply` started from.
-    pub inverse: Vec<Op>,
-}
-
 /// The rows one apply changed.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Changes {
@@ -54,15 +45,6 @@ pub struct Applied {
     pub inverse: Vec<Op>,
     /// The old copy of each changed or deleted item (None: it was added).
     pub previous_items: HashMap<ItemId, Option<Item>>,
-}
-
-/// Apply `ops` to a copy of `doc` (the copy costs one clone; the daemon and
-/// the app's mirror use [`apply_in_place`]). `mint` makes the id of an item
-/// an op adds without one.
-pub fn apply(doc: &Doc, ops: &[Op], mint: &mut dyn FnMut() -> ItemId) -> Result<Outcome, Refusal> {
-    let mut next = doc.clone();
-    let applied = apply_in_place(&mut next, ops, mint)?;
-    Ok(Outcome { doc: next, changes: applied.changes, inverse: applied.inverse })
 }
 
 /// Apply `ops` to `doc` atomically: on a refusal `doc` is unchanged. The
@@ -103,11 +85,47 @@ pub fn apply_rows(doc: &mut Doc, ops: &[Op]) {
 /// Several op lists on one document, each atomic, finished as one change
 /// (one revision): the old-store sync applies one op per old row and skips
 /// the ones the document refuses.
+/// A batch dropped without [`Batch::finish`] (the caller stopped on an
+/// error) restores every row it changed, so the document is as before.
 pub struct Batch<'d> {
     doc: &'d mut Doc,
     start_revision: u64,
     items: HashMap<ItemId, Option<Item>>,
     sections: HashMap<SectionId, Option<Section>>,
+}
+
+impl Drop for Batch<'_> {
+    fn drop(&mut self) {
+        restore(self.doc, std::mem::take(&mut self.items), std::mem::take(&mut self.sections));
+    }
+}
+
+/// Put back the old copies of a journal's rows.
+fn restore(
+    doc: &mut Doc,
+    items: HashMap<ItemId, Option<Item>>,
+    sections: HashMap<SectionId, Option<Section>>,
+) {
+    for (id, old) in items {
+        match old {
+            Some(item) => {
+                doc.replace_item(item);
+            }
+            None => {
+                doc.remove_item(&id);
+            }
+        }
+    }
+    for (id, old) in sections {
+        match old {
+            Some(section) => {
+                doc.replace_section(section);
+            }
+            None => {
+                doc.remove_section(&id);
+            }
+        }
+    }
 }
 
 impl<'d> Batch<'d> {
@@ -148,12 +166,14 @@ impl<'d> Batch<'d> {
 
     /// The changed rows and the inverse; the revision advances by one when
     /// a row changed.
-    pub fn finish(self) -> Applied {
+    pub fn finish(mut self) -> Applied {
+        let items = std::mem::take(&mut self.items);
+        let sections = std::mem::take(&mut self.sections);
         let mut applied = Applied::default();
-        let mut section_ids: Vec<&SectionId> = self.sections.keys().collect();
+        let mut section_ids: Vec<&SectionId> = sections.keys().collect();
         section_ids.sort();
         for id in section_ids {
-            let old = &self.sections[id];
+            let old = &sections[id];
             let now = self.doc.section(id);
             if old.as_ref() == now {
                 continue;
@@ -167,10 +187,10 @@ impl<'d> Batch<'d> {
                 None => Op::SectionDelete { id: id.clone() },
             });
         }
-        let mut item_ids: Vec<&ItemId> = self.items.keys().collect();
+        let mut item_ids: Vec<&ItemId> = items.keys().collect();
         item_ids.sort();
         for id in item_ids {
-            let old = &self.items[id];
+            let old = &items[id];
             let now = self.doc.item(id);
             if old.as_ref() == now {
                 continue;
@@ -247,26 +267,7 @@ impl Tx<'_> {
     }
 
     fn rollback(self) {
-        for (id, old) in self.items {
-            match old {
-                Some(item) => {
-                    self.doc.replace_item(item);
-                }
-                None => {
-                    self.doc.remove_item(&id);
-                }
-            }
-        }
-        for (id, old) in self.sections {
-            match old {
-                Some(section) => {
-                    self.doc.replace_section(section);
-                }
-                None => {
-                    self.doc.remove_section(&id);
-                }
-            }
-        }
+        restore(self.doc, self.items, self.sections);
     }
 }
 
@@ -294,14 +295,7 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
         Op::SectionUpdate { id, patch } => update_section(tx, id, patch),
         Op::SectionMove { id, place } => {
             let mut section = tx.doc.section(id).cloned().ok_or(Refusal::UnknownSection)?;
-            let old_region = section.region.clone();
             place_section(tx, &mut section, place)?;
-            if section.region != old_region
-                && section.scroll == Scroll::default_for(&section.kind, &old_region)
-            {
-                // A scroll the user never changed follows the region.
-                section.scroll = Scroll::default_for(&section.kind, &section.region);
-            }
             tx.put_section(section);
             Ok(())
         }
@@ -862,9 +856,15 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
 }
 
 /// Give `section` its region and order key among the other sections of
-/// its region (renumbering them when no key fits).
+/// its region (renumbering them when no key fits). A scroll that is the
+/// old region's default (the user never changed it) follows the region.
 fn place_section(tx: &mut Tx, section: &mut Section, place: &SectionPlace) -> Result<(), Refusal> {
-    if let Some(region) = &place.region {
+    if let Some(region) = &place.region
+        && *region != section.region
+    {
+        if section.scroll == Scroll::default_for(&section.kind, &section.region) {
+            section.scroll = Scroll::default_for(&section.kind, region);
+        }
         section.region = region.clone();
     }
     let mut siblings: Vec<(SectionId, String)> = tx
