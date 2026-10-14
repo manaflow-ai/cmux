@@ -4,6 +4,8 @@
 // moment and then fades it; a pick is saved as `tabs.newTabTemplate` (`newTab.setTemplate`) and
 // shown in place. Terminal is not offered: New Tab never opens a terminal by itself.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -100,6 +102,34 @@ test("the New Tab page offers its five styles as named dots, the current one che
   await act(() => new Promise<void>((done) => setTimeout(done, 1600)));
   expect(name().hasAttribute("data-shown")).toBe(false);
   await act(async () => root.unmount());
+});
+
+// cg-design-judge: every style showed a browser-default radio dot. The pane does not load
+// src/ui/ui.css, so its .ui-sr-only never applied; the page's own stylesheet hides the inputs. Each
+// radio fills its 24px dot target, unseen, so a click anywhere on the target picks the style.
+test("the style radios draw no native dot: the page's own stylesheet hides them", async () => {
+  const style = window.document.createElement("style");
+  style.textContent = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/newtab/screen.css"), "utf8");
+  window.document.head.append(style);
+  const host = window.document.getElementById("root")!;
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(createElement(StyleSwitch, { current: "default", onPick() {}, onCancel() {} }));
+  });
+  const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
+  expect(radios).toHaveLength(5);
+  for (const radio of radios) {
+    const drawn = window.getComputedStyle(radio);
+    expect([radio.value, drawn.position, drawn.width, drawn.height, drawn.opacity]).toEqual([
+      radio.value,
+      "absolute",
+      "100%",
+      "100%",
+      "0",
+    ]);
+  }
+  await act(async () => root.unmount());
+  style.remove();
 });
 
 test("a style picked on the page is saved as tabs.newTabTemplate and shown in place", () => {

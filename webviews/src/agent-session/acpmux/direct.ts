@@ -2365,7 +2365,7 @@ export class AcpmuxDirectClient {
         this.emit();
         return;
       }
-      this.adoptFailed(error instanceof Error && error.message ? `: ${error.message}` : "");
+      this.adoptFailed(error instanceof Error && error.message ? error.message : undefined);
       return;
     }
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
@@ -2376,7 +2376,7 @@ export class AcpmuxDirectClient {
       return;
     }
     if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
-    this.adoptFailed(": this acpmux can't resume chats");
+    this.adoptFailed(translate("notice.resumeUnsupported"));
   }
   /// Adopts the chat acpmux refused as live elsewhere anyway: `open` resumes it as it is (two
   /// processes then write one conversation), `fork` starts a new chat from it. Once; a second
@@ -2395,7 +2395,7 @@ export class AcpmuxDirectClient {
     this.rows.set(id, { id, version: 1, at, kind: "notice", text });
     this.emit();
   }
-  private adoptFailed(reason: string): void {
+  private adoptFailed(reason?: string): void {
     const at = Date.now();
     const id = noticeId("notice-adopt");
     this.rows.set(id, {
@@ -2403,7 +2403,7 @@ export class AcpmuxDirectClient {
       version: 1,
       at,
       kind: "notice",
-      text: `Couldn't resume this chat${reason}`,
+      text: reason ? translate("notice.resumeFailedReason", { reason }) : translate("notice.resumeFailed"),
     });
     this.emit();
   }
@@ -2423,14 +2423,14 @@ export class AcpmuxDirectClient {
     } catch (error) {
       if (generation === this.selectionGeneration) {
         const at = Date.now();
-        const reason = error instanceof Error && error.message ? `: ${error.message}` : "";
+        const reason = error instanceof Error && error.message ? error.message : undefined;
         const id = noticeId("notice-fork");
         this.rows.set(id, {
           id,
           version: 1,
           at,
           kind: "notice",
-          text: `Couldn't fork this chat${reason}`,
+          text: reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
         });
         this.emit("fork failed");
       }
