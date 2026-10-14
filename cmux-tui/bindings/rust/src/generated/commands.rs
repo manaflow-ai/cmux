@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b18c74d45c19743aac182ef9d622608ac8b17ac47c2bc5e18a08fd000fa6b90f.
+// cmux-tui mux protocol 12, IR 2aa331c20b3e6ca393f281f5bf1ff219ba1c48d5e9ffceb4cca2b82ef05e14f5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -777,6 +777,8 @@ pub type CloudMuxUnsubscribeResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudParticipantAvatarGetRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
     pub participant_id: String,
 }
 

@@ -45201,6 +45201,13 @@
               "kind": "ref",
               "name": "ParticipantId"
             }
+          },
+          "conversation": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
           }
         },
         "extra": false
@@ -45265,7 +45272,7 @@
       },
       "errors": [
         "auth.forbidden",
-        "unknown_participant",
+        "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:UserDO",
@@ -45291,13 +45298,16 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "A participant's avatar with its bytes, or null. Any signed-in caller may read it (like a display name).",
+      "docs": "A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
         "properties": {
           "participant_id": {
             "$ref": "#/$defs/ParticipantId"
+          },
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
           }
         },
         "required": [
@@ -45309,6 +45319,11 @@
             "type": "string",
             "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
             "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "A conversation the caller and the participant are both in; needed unless the caller is the participant or the Chief's owner."
           }
         }
       },
