@@ -456,6 +456,8 @@ fn run_ensure(
         // The app's Chief owner: the brain tools socket this client was
         // started with (taken out of its environment at start).
         chief_tools_socket: crate::startup_env::chief_tools_socket(),
+        // ...and the Chief brains the app gave it (taken out at start too).
+        chief_brains: cmux_tui_core::chief_brains::taken(),
         websocket,
     };
     let replaced = if replace_unresponsive {

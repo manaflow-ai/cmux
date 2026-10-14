@@ -1652,6 +1652,7 @@ enum Command {
     ConversationHistory(conversations::HistoryParams),
     ConversationThread(conversations::ThreadParams),
     ConversationLinkResolve(conversations::LinkResolveParams),
+    ConversationInboxOp(conversations::InboxOpParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -1677,6 +1678,7 @@ enum Command {
     CloudConversationRuns(cloud_conversations::RunsParams),
     CloudConversationRun(cloud_conversations::RunParams),
     CloudConversationOp(cloud_conversations::OpParams),
+    CloudInboxOp(cloud_conversations::InboxOpParams),
     CloudInboxSubscribe,
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
@@ -3533,6 +3535,7 @@ fn handle_command_with_cancellation(
         Command::ConversationLinkResolve(params) => {
             conversations::link_resolve(mux, client, params)
         }
+        Command::ConversationInboxOp(params) => conversations::inbox_op(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
@@ -3558,6 +3561,7 @@ fn handle_command_with_cancellation(
         Command::CloudConversationRuns(params) => cloud_conversations::runs(mux, client, params),
         Command::CloudConversationRun(params) => cloud_conversations::run(mux, client, params),
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
+        Command::CloudInboxOp(params) => cloud_conversations::inbox_op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
         Command::CloudMuxSubscribe(_) => cloud_conversations::mux_subscribe(mux, client),
         Command::CloudMuxUnsubscribe(_) => cloud_conversations::mux_unsubscribe(mux, client),

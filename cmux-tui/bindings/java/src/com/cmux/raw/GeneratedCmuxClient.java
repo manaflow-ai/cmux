@@ -223,6 +223,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudInboxOp(CloudInboxOpRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_INBOX_OP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudInboxSubscribe() throws CmuxException {
         Object result = execute(Commands.CLOUD_INBOX_SUBSCRIBE, Map.of());
         return Wire.immutableJson(result);
@@ -306,6 +311,11 @@ public abstract class GeneratedCmuxClient {
     public final ConversationImportResult conversationImport(ConversationImportRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_IMPORT, request.toWire());
         return ConversationImportResult.fromWire(result);
+    }
+
+    public final ConversationInboxOpResult conversationInboxOp(ConversationInboxOpRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_INBOX_OP, request.toWire());
+        return ConversationInboxOpResult.fromWire(result);
     }
 
     public final ConversationLinkResolveResult conversationLinkResolve(ConversationLinkResolveRequest request) throws CmuxException {
