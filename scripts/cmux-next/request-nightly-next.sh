@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
     --tree-ready) sha="${2:-}"; mode=tree-ready; shift 2 ;;
     --repo) repo="${2:-}"; shift 2 ;;
     --release-compile-green) mode=release-compile-green; shift ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "error: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -119,8 +119,10 @@ if line="$(git ls-remote origin refs/heads/nightly-next 2>/dev/null)" \
   promoted="${line%%[[:space:]]*}"
 fi
 already_promoted() { # <sha>
-  [[ -n "$promoted" ]] && git cat-file -e "$promoted^{commit}" 2>/dev/null \
-    && git merge-base --is-ancestor "$1" "$promoted" 2>/dev/null
+  # Equality needs no history: cmux-next.yml checks out one commit.
+  [[ -n "$promoted" ]] || return 1
+  [[ "$1" != "$promoted" ]] || return 0
+  git cat-file -e "$promoted^{commit}" 2>/dev/null && git merge-base --is-ancestor "$1" "$promoted" 2>/dev/null
 }
 
 # request <sha>: 0 = requested or already on nightly-next, 1 = not promotable
@@ -190,7 +192,7 @@ fi
 # replaced), and that green commit must not be lost. Without nightly-next in
 # this history the bound falls back to <sha>. One fetch of the branch's recent history covers every
 # candidate (a fetch per commit took over 5 minutes in run 37820762809); a
-# commit it does not reach is older than <sha> or off the branch.
+# commit it does not reach is older than the lower bound or off the branch.
 git fetch -q --no-tags --depth="$((window * 4))" origin refs/heads/feat-cmux-next 2>/dev/null \
   || echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
 # One page holds the window (at most 99): paginating walked every push run ever made.
