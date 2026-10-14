@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409.
+// cmux-tui mux protocol 12, IR e3818e4d91fbf0e9efe4b2fa31fcca6dfda15682357aba8bf8bc4e81963f2a3f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -89,6 +89,12 @@ pub struct BrowserStateEvent {
     pub surface: T::Id,
     pub title: String,
     pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefProfileChangedEvent {
+    pub avatar: Nullable<String>,
 }
 
 #[rustfmt::skip]
@@ -858,6 +864,7 @@ pub enum Event {
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
+    ChiefProfileChanged(ChiefProfileChangedEvent),
     ClientAttached(ClientAttachedEvent),
     ClientChanged(ClientChangedEvent),
     ClientDetached(ClientDetachedEvent),
@@ -941,6 +948,7 @@ impl Event {
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
+            Self::ChiefProfileChanged(_) => Some("chief-profile-changed"),
             Self::ClientAttached(_) => Some("client-attached"),
             Self::ClientChanged(_) => Some("client-changed"),
             Self::ClientDetached(_) => Some("client-detached"),
@@ -1023,6 +1031,7 @@ impl Event {
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
+            Self::ChiefProfileChanged(_) => Some(&CHIEF_PROFILE_CHANGED_EVENT_METADATA),
             Self::ClientAttached(_) => Some(&CLIENT_ATTACHED_EVENT_METADATA),
             Self::ClientChanged(_) => Some(&CLIENT_CHANGED_EVENT_METADATA),
             Self::ClientDetached(_) => Some(&CLIENT_DETACHED_EVENT_METADATA),
@@ -1144,6 +1153,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("browser-state") => match serde_json::from_value::<BrowserStateEvent>(raw.clone()) {
             Ok(event) => Event::BrowserState(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("chief-profile-changed") => match serde_json::from_value::<ChiefProfileChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ChiefProfileChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

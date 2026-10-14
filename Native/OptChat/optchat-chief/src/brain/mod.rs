@@ -210,6 +210,8 @@ pub enum EngineRequest {
         effort: Option<String>,
         speed: Option<String>,
         compactor_speed: Option<String>,
+        /// The avatar text in profile.json (`crate::profile`); "" clears it.
+        avatar: Option<String>,
     },
 }
 

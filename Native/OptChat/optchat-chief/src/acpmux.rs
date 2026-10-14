@@ -203,7 +203,8 @@ pub trait AgentPort: Send + Sync {
     }
 
     /// The models acpmux offers for `harness` (`_acpmux/models`), each
-    /// `{"id", "name"}`, in its order: what an engine set may pick.
+    /// `{"id", "name"}` (and `catalog_default: true` on the curated
+    /// catalog's default), in its order: what an engine set may pick.
     fn offered_models(&self, _harness: &str) -> Result<Vec<Value>, String> {
         Ok(Vec::new())
     }
@@ -973,15 +974,26 @@ impl AgentPort for Acpmux {
             .into_iter()
             .flatten()
             .find(|h| h["harness"] == harness)
-            .and_then(|h| h["models"].as_array())
-            .into_iter()
-            .flatten()
-            .filter_map(|m| {
-                let id = m["id"].as_str()?;
-                let name = m["name"].as_str().unwrap_or(id);
-                Some(json!({"id": id, "name": name}))
+            .map(|h| {
+                // The curated catalog's default model for the harness (what
+                // "default" runs when the harness reports nothing better).
+                let default = h["catalog"]["defaultModel"].as_str();
+                h["models"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|m| {
+                        let id = m["id"].as_str()?;
+                        let name = m["name"].as_str().unwrap_or(id);
+                        let mut model = json!({"id": id, "name": name});
+                        if Some(id) == default {
+                            model["catalog_default"] = json!(true);
+                        }
+                        Some(model)
+                    })
+                    .collect()
             })
-            .collect())
+            .unwrap_or_default())
     }
 
     fn harness_catalog(&self) -> Result<Value, String> {

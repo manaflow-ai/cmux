@@ -30419,6 +30419,49 @@ Result<BrowserStateEvent> Codec<BrowserStateEvent>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<ChiefProfileChangedEvent>::encode(const ChiefProfileChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("chief-profile-changed")));
+    if (value.avatar) {
+        auto encoded = encode_value(*value.avatar);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("avatar", std::move(encoded).value());
+    } else {
+        object.emplace("avatar", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<ChiefProfileChangedEvent> Codec<ChiefProfileChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ChiefProfileChangedEvent result{};
+    const Json* field_avatar = value.find("avatar");
+    if (!field_avatar) {
+        return make_error(ErrorCode::decode, "missing required field 'avatar'");
+    }
+    if (field_avatar) {
+        if (field_avatar->is_null()) {
+            result.avatar.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_avatar);
+            if (!decoded) return std::move(decoded).error();
+            result.avatar = std::move(decoded).value();
+        }
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("chief-profile-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<ClientAttachedEvent>::encode(const ClientAttachedEvent& value) {
     (void)value;
     Json::Object object;
@@ -36865,6 +36908,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "chief-profile-changed") {
+        auto decoded = decode_value<ChiefProfileChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "client-attached") {
         auto decoded = decode_value<ClientAttachedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -37678,13 +37726,14 @@ constexpr std::array<CommandMetadata, 257> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 76> kEvents{{
+constexpr std::array<EventMetadata, 77> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"bookmarks-changed", 12U, "bookmarks-v1", "subscribe", "emitted"},
     {"browser-state", 6U, "", "attach-browser", "emitted"},
+    {"chief-profile-changed", 12U, "chief-profile-events-v1", "subscribe", "emitted"},
     {"client-attached", 6U, "", "subscribe", "emitted"},
     {"client-changed", 6U, "", "subscribe", "emitted"},
     {"client-detached", 6U, "", "subscribe", "emitted"},

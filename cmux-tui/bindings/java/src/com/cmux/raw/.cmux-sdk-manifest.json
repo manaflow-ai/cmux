@@ -306,6 +306,11 @@
       "size": 3161
     },
     {
+      "path": "ChiefProfileChangedEvent.java",
+      "sha256": "a799fe3df22e876e48b3fc79f0fc92f2c084aed6c5a23f0b183eefaebc79ec7b",
+      "size": 2377
+    },
+    {
       "path": "ClearHistoryRequest.java",
       "sha256": "ffc80cfcdf28e7c70a8caf1416776000f2dcb237635c9d163101d65868dd9c8f",
       "size": 2798
@@ -1002,8 +1007,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "af53c9b3737c79a62b7de3eed45849a80afa34c9a5cba50cdbfcbe60e44d12f0",
-      "size": 15613
+      "sha256": "5734a72e47363ca5ea5c93daa726038fe37f3e8040e7f1a948299d19d44ab00d",
+      "size": 15846
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1787,8 +1792,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "7ccff9626edae2bf8f255df28be474d416efeaa03475c1bc238399b8ec38750a",
-      "size": 6485
+      "sha256": "95c4bd219c0aae8cd2c1df54bdb7797f7dfdaa4e190482ac8e2bffc493f98edf",
+      "size": 6571
     },
     {
       "path": "ProtocolEvent.java",
@@ -3047,7 +3052,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409",
+  "ir_sha256": "e3818e4d91fbf0e9efe4b2fa31fcca6dfda15682357aba8bf8bc4e81963f2a3f",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

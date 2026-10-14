@@ -107,6 +107,12 @@ pub enum MuxEvent {
         personal_revision: u64,
     },
     BookmarksChanged(personal::BookmarksChange),
+    /// The Chief's avatar text changed through `chief.engine.set` (the
+    /// brain's profile.json; None: cleared or a picture). The owner's clients
+    /// (a phone's Chief header) update without re-reading the engine.
+    ChiefProfileChanged {
+        avatar: Option<String>,
+    },
     /// The history module committed a change (`history-v1`): the history
     /// revision and the entry kinds that changed. Consumers re-read
     /// `history.entries.list`.

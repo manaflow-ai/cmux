@@ -121,6 +121,10 @@ pub(super) fn subscribe_command(
                 MuxEvent::Conversation(_) if !conversation_client => {
                     continue;
                 }
+                // The Chief's avatar: the owner's own clients, as its conversation.
+                MuxEvent::ChiefProfileChanged { .. } if !conversation_client => {
+                    continue;
+                }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
                 MuxEvent::CloudConversation(_) if !conversation_client => {
@@ -327,6 +331,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         }),
         MuxEvent::Conversation(event) => event.wire_json(),
         MuxEvent::CloudConversation(event) => event.wire_json(),
+        MuxEvent::ChiefProfileChanged { avatar } => json!({
+            "event": "chief-profile-changed",
+            "avatar": avatar,
+        }),
         MuxEvent::BookmarksChanged(change) => json!({
             "event": "bookmarks-changed",
             "browser_profile_id": change.browser_profile_id,

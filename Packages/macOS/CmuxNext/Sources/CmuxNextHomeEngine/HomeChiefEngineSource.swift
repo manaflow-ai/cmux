@@ -58,6 +58,17 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
     }
 }
 
+extension HomeChiefLocalEngine {
+    /// The avatar text through the brain (`chief.engine.set {avatar}`; "" clears it),
+    /// so the owner's other clients (a phone's Chief header) hear `chief-profile-changed`.
+    /// False when the brain did not take it (not running, an older brain): the caller
+    /// writes profile.json itself.
+    public func setAvatar(_ text: String) async -> Bool {
+        guard let connection = await connection() else { return false }
+        return (try? await ChiefControlClient(connection).setChiefEngine(avatar: text)) != nil
+    }
+}
+
 /// One `chief.engine.set` of one field ("default" clears it), for the local
 /// and the paired-server brain alike.
 nonisolated enum HomeChiefEngineSet {

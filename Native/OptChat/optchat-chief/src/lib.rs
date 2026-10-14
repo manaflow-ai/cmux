@@ -40,6 +40,7 @@ pub mod native;
 pub mod pacing;
 pub mod paths;
 pub mod persist;
+pub mod profile;
 pub mod prompt;
 pub mod report;
 pub mod rpc;

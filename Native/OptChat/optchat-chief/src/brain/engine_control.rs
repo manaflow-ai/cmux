@@ -6,10 +6,20 @@
 //! effort no harness takes) and refused with a typed error, never saved
 //! for a silent fallback at the next turn.
 //!
-//! Answer: `{"engine": {harness, model, effort, compactor_harness,
-//! compactor_model}, "choice": <engine.json>, "last_turn": <turn.end>|null,
-//! "recent": [<turn.end>...], "offered": {"models": [{id, name}...],
+//! Answer: `{"engine": {harness, model, model_is_default, effort,
+//! compactor_harness, compactor_model}, "choice": <engine.json>, "avatar":
+//! <text>|null, "last_turn": <turn.end>|null, "recent": [<turn.end>...],
+//! "offered": {"models": [{id, name}...], "default_model": {id, name}|null,
 //! "efforts": [...]}}`, or `{"error": {"code", "message"}}`.
+//!
+//! `engine.model` is the model turns run: the chosen one, else what the
+//! default resolves to (the last turn on this harness, else the curated
+//! catalog's default), with `model_is_default` true; null when unknown. The
+//! offered `default` entry names it too ("Default (GPT-6.1 Sol)").
+//!
+//! `avatar` is profile.json's text (`crate::profile`), null for none or a
+//! picture (only the Mac shows pictures). A set with `avatar` writes it; ""
+//! clears it.
 
 use serde_json::{Value, json};
 
@@ -43,14 +53,21 @@ impl Brain {
             );
         };
         let mut choice = crate::engine::load(&file);
+        let profile = crate::profile::path_beside(&file);
         if let EngineRequest::Set {
             harness,
             model,
             effort,
             speed,
             compactor_speed,
+            avatar,
         } = request
         {
+            let avatar = match avatar.as_deref().map(crate::profile::check_avatar) {
+                Some(Err(reason)) => return error("invalid_avatar", reason),
+                Some(Ok(text)) => Some(text),
+                None => None,
+            };
             // A speed the target harness has (the turns' after this set;
             // the compactor's when acpmux says its family).
             let s = &self.settings;
@@ -115,6 +132,15 @@ impl Brain {
             if let Err(e) = crate::engine::save(&file, &choice) {
                 return error("write_failed", format!("{}: {e}", file.display()));
             }
+            if let Some(text) = avatar.as_deref() {
+                if let Err(e) = crate::profile::save_avatar(&profile, text) {
+                    return error("write_failed", format!("{}: {e}", profile.display()));
+                }
+                (self.log)(&format!(
+                    "avatar set: {}",
+                    if text.is_empty() { "cleared" } else { "text" }
+                ));
+            }
             (self.log)(&format!(
                 "engine set: {}",
                 serde_json::to_string(&choice).unwrap_or_default()
@@ -125,34 +151,50 @@ impl Brain {
                 (self.log)(&format!("engine set: asking acpmux to probe {h}: {e}"));
             }
         }
-        self.engine_answer(&choice)
+        let mut answer = self.engine_answer(&choice);
+        answer["avatar"] = json!(crate::profile::avatar_text(&profile));
+        answer
     }
 
     fn engine_answer(&self, choice: &EngineChoice) -> Value {
         let s = &self.settings;
         let engine = resolve(choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
-        let ends: Vec<Value> = s
+        let events: Vec<Value> = s
             .trace_dir
             .as_deref()
             .and_then(|dir| crate::report::read(dir, 0).ok())
-            .unwrap_or_default()
-            .into_iter()
+            .unwrap_or_default();
+        let ends: Vec<Value> = events
+            .iter()
             .filter(|e| e["ev"] == "turn.end")
+            .cloned()
             .collect();
         let recent: Vec<Value> = ends.iter().rev().take(RECENT).map(turn_summary).collect();
         // The picker's lists: acpmux's models for the turn harness (none
         // when it does not answer; the panel then keeps the current one).
-        let models = self
+        let mut models = self
             .agents
             .offered_models(&engine.harness)
             .unwrap_or_else(|e| {
                 (self.log)(&format!("engine answer: acpmux models: {e}"));
                 Vec::new()
             });
+        let default_model = engine
+            .model
+            .is_none()
+            .then(|| resolve_default(&engine.harness, &events, &mut models))
+            .flatten();
+        let model = engine.model.clone().or_else(|| {
+            default_model
+                .as_ref()
+                .and_then(|m| m["id"].as_str())
+                .map(str::to_owned)
+        });
         json!({
             "engine": {
                 "harness": engine.harness,
-                "model": engine.model,
+                "model": model,
+                "model_is_default": engine.model.is_none(),
                 "effort": engine.effort,
                 "compactor_harness": choice.compactor_harness,
                 "compactor_model": choice.compactor_model,
@@ -162,7 +204,7 @@ impl Brain {
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),
             "recent": recent,
-            "offered": {"models": models, "efforts": EFFORTS},
+            "offered": {"models": models, "default_model": default_model, "efforts": EFFORTS},
         })
     }
 
@@ -190,6 +232,45 @@ impl Brain {
 }
 
 /// The fields of a `turn.end` an engine panel shows.
+/// What the default model runs on `harness`: the model the provider reported
+/// for the newest default-model turn on it (its `request` events: what the
+/// harness really picked), else the curated catalog's default
+/// (`catalog_default`). Names the offered `default` entry after it
+/// ("Default (GPT-6.1 Sol)", `resolves_to` its id). None: unknown.
+fn resolve_default(harness: &str, events: &[Value], models: &mut [Value]) -> Option<Value> {
+    let on_default = |e: &&Value| {
+        e["ev"] == "turn.end"
+            && e["model"].is_null()
+            && (e["harness"] == harness || e["harness_profile"] == harness)
+    };
+    let ran = events.iter().rev().filter(on_default).find_map(|end| {
+        events
+            .iter()
+            .rev()
+            .filter(|e| e["ev"] == "request" && e["turn"] == end["turn"])
+            .find_map(|e| e["model"].as_str().map(str::trim).filter(|m| !m.is_empty()))
+            .map(str::to_owned)
+    });
+    let id = ran.or_else(|| {
+        models
+            .iter()
+            .find(|m| m["catalog_default"] == true)
+            .and_then(|m| m["id"].as_str())
+            .map(str::to_owned)
+    })?;
+    let name = models
+        .iter()
+        .find(|m| m["id"] == id.as_str())
+        .and_then(|m| m["name"].as_str())
+        .unwrap_or(&id)
+        .to_owned();
+    for entry in models.iter_mut().filter(|m| m["id"] == "default") {
+        entry["name"] = json!(format!("Default ({name})"));
+        entry["resolves_to"] = json!(id);
+    }
+    Some(json!({"id": id, "name": name}))
+}
+
 fn turn_summary(end: &Value) -> Value {
     json!({
         "turn": end["turn"],

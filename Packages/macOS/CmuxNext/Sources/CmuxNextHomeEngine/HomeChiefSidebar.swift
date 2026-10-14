@@ -189,8 +189,12 @@ public final class HomeChiefSidebar: NSView {
         guard text != shownAvatar else { return }
         shownAvatar = text
         let files = HomeChiefFiles(muxHome: muxHome)
-        // task-owner: one file write off the main actor; ends with it
-        Task.detached { files.writeAvatar(text) }
+        let local = source as? HomeChiefLocalEngine
+        // task-owner: one set through this Mac's brain (it tells a phone), else one file write off the main actor
+        Task {
+            if let local, await local.setAvatar(text) { return }
+            await Task.detached { files.writeAvatar(text) }.value
+        }
         onAvatar(text.isEmpty ? nil : text)
     }
 
