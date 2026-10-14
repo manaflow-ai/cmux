@@ -15,7 +15,9 @@ private final class StageManagerRightSidebarResponder: NSView, FeedKeyboardFocus
     override var acceptsFirstResponder: Bool { true }
 }
 
+/// Test window whose miniaturized state can be restored without AppKit UI.
 private final class EnsureFocusMiniaturizedTestWindow: NSWindow {
+    /// The simulated miniaturized state exposed to the focus policy.
     var miniaturizedForTesting = true
 
     /// Supplies deterministic miniaturized state without changing AppKit state.
