@@ -1292,6 +1292,9 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
 /// name a safe local spawn directory, so callers should fall back to the
 /// surface's original working directory when this returns `None`.
 pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    if let Some(path) = kitty_shell_cwd_to_local_path(value) {
+        return Some(path);
+    }
     // Hosted surfaces never trust hostless OSC 7 values. Their authenticated
     // spawn CWD is the only safe fallback when no local host is identified.
     let mut url = url::Url::parse(value).ok()?;
@@ -1323,6 +1326,9 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     let plain = Path::new(value);
     if terminal_pwd_path_is_safe(plain) {
         return Some(plain.to_owned());
+    }
+    if let Some(path) = kitty_shell_cwd_to_local_path(value) {
+        return Some(path);
     }
 
     let mut url = url::Url::parse(value).ok()?;
@@ -1385,6 +1391,24 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
         difference |= left ^ right;
     }
     difference == 0
+}
+
+/// Ghostty's shell integration follows a prompt's `file://` report with
+/// `kitty-shell-cwd://HOST/PATH`, so that is the value a terminal keeps. Its
+/// path is raw bytes, not percent-encoded, and it needs the same local-host
+/// check as a `file://` report.
+fn kitty_shell_cwd_to_local_path(value: &str) -> Option<PathBuf> {
+    const SCHEME: &str = "kitty-shell-cwd://";
+    let rest = value
+        .get(..SCHEME.len())
+        .filter(|scheme| scheme.eq_ignore_ascii_case(SCHEME))
+        .map(|_| &value[SCHEME.len()..])?;
+    let (host, path) = rest.split_at(rest.find('/')?);
+    if host.is_empty() || !terminal_pwd_host_is_local(host) || path.contains('\0') {
+        return None;
+    }
+    let path = PathBuf::from(path);
+    terminal_pwd_path_is_safe(&path).then_some(path)
 }
 
 fn terminal_pwd_path_is_safe(path: &Path) -> bool {
