@@ -242,6 +242,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_build_only_keeps_tagged_app.sh
 
+      - name: Validate reload refuses DEV tags a shipped build owns
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_refuses_shipped_tags.sh
+
       - name: Validate reload --release builds the Release configuration
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_release_configuration.sh
@@ -638,6 +642,10 @@ jobs:
       - name: Validate agent pane frame pacing app requests
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_app_rpc.py
+
+      - name: Validate the golden interactions judge
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_frame_pacing_golden.py
 
       - name: Validate the dispatch runner pool's auto pick
         if: ${{ matrix.group == 'ci' }}

@@ -42,7 +42,10 @@ await requireBrowserLane("worktree-creating.test.ts", async () => {
     await page.goto(
       `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.start-folder&variant=worktree-creating`,
     );
-    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+    // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+      timeout: 90_000,
+    });
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,
       report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
