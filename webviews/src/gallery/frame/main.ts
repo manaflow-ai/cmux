@@ -85,8 +85,10 @@ bootstrap.remove();
 (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
   webThemePayload(tokens, deriveAppTheme(theme, env.accent)),
 );
-// Interface scale: the app sets WKWebView.pageZoom (DesignSettings.uiScale).
+// Document scale and Labs chrome scale are separate. The app sets pageZoom for the former and
+// this token for the latter; gallery exposes both so each sheet is reproducible.
 if (env.scale !== 1) root.style.zoom = String(env.scale);
+root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
 
