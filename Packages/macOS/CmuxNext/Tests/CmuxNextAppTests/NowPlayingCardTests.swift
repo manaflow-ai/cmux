@@ -152,7 +152,6 @@ import Testing
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.contentView = card
-        window.orderFrontRegardless()
         /// Every animation on the card that slides (anything but a discrete step) or repeats.
         func sliding() -> [String] {
             func animated(_ layer: CALayer) -> [String] {
