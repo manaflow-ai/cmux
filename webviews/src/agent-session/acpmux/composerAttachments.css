@@ -132,7 +132,7 @@
   color: var(--agent-accent, var(--agent-text));
   /* Part of the sheet drawing: it scales with the sheet, from the body step. */
   font-size: calc(var(--text-body) * 6 / 13);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.03em;
 }
 .acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-mark {

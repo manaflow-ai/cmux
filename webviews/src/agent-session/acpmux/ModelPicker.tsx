@@ -749,7 +749,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     <AgentMark agent={entry.mark ?? entry.id} size={16} />
                   ) : (
                     // A harness without a mark: its initial, never an empty tab.
-                    <span aria-hidden="true" className="text-control font-medium">
+                    <span aria-hidden="true" className="text-control font-semibold">
                       {entry.name.trim().charAt(0).toUpperCase()}
                     </span>
                   )}
