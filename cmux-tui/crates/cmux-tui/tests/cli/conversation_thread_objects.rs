@@ -99,11 +99,11 @@ fn a_thread_has_a_title_an_owner_and_a_status_that_a_chief_resolves_and_a_reply_
     let channel = page.create_channel("objects-channel", "release");
     // The Chief (agent_mux) acts on its own bound connection.
     let mut home = Unix::open(&server.socket);
-    let token = home.request("conversation-agent-token", json!({"participant": "agent_mux"}))
-        ["token"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let token =
+        home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
     let mut chief = Unix::open(&server.socket);
     chief.request("conversation-bind", json!({"participant": "agent_mux", "token": token}));
 

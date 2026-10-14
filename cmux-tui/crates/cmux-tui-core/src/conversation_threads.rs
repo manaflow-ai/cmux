@@ -132,11 +132,7 @@ fn summary(
     Ok(summary)
 }
 
-fn stats(
-    connection: &Connection,
-    conversation: &str,
-    root: &str,
-) -> anyhow::Result<ThreadSummary> {
+fn stats(connection: &Connection, conversation: &str, root: &str) -> anyhow::Result<ThreadSummary> {
     let (count, last_seq): (i64, Option<i64>) = connection.query_row(
         "SELECT count(*), max(seq) FROM message
          WHERE conversation = ?1 AND json_extract(message_json, '$.thread_root') = ?2
