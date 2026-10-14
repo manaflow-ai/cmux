@@ -25,6 +25,8 @@ final class SidebarItemListRowView: SidebarRowView {
     }
 
     override var debugIcon: String? { hasIcon ? "favicon" : nil }
+    override var debugIconAddress: String? { hasIcon ? iconAddress : nil }
+    private var iconAddress: String?
     override var titleFrame: NSRect { title.frame }
     override var titleFont: NSFont { title.font ?? SidebarStyle.titleFont }
 
@@ -38,6 +40,7 @@ final class SidebarItemListRowView: SidebarRowView {
         title.stringValue = item.title
         title.font = SidebarStyle.titleFont
         hasIcon = favicon != nil
+        iconAddress = item.iconAddress
         icon.configure(icon: favicon.map(WorkspaceIcon.favicon))
         icon.isHidden = !hasIcon
         setAccessibilityElement(true)

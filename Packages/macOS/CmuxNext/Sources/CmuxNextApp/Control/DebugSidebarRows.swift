@@ -41,7 +41,7 @@ enum DebugSidebarRows {
 
     private static func rows(services: AppServices) -> JSONValue {
         // `doc`: the sidebar document path is on, and the mirror's FFI calls so far (two per drag: drag_begin, the drop).
-        .object(["doc": .object(["active": .bool(SidebarDocStore.current?.isActive == true), "ffi_calls": .object(SidebarMirror.calls.mapValues { .number(Double($0)) })]),
+        .object(["open_tab_favicons": .array(services.openTabFaviconPairs().map(JSONValue.string)), "doc": .object(["active": .bool(SidebarDocStore.current?.isActive == true), "ffi_calls": .object(SidebarMirror.calls.mapValues { .number(Double($0)) })]),
                  "windows": .array(services.windows.controllers.map { controller in
             let sidebar = controller.sidebar.container.sidebarView
             let (rows, selection, dragging) = sidebar.debugRows()
@@ -71,7 +71,7 @@ enum DebugSidebarRows {
                         "view_alpha": row.viewAlpha.map { .number(Double($0)) } ?? .null,
                         "in_list": .bool(row.inList), "suppressed": .bool(row.suppressed), "selected": .bool(row.selected),
                         "muted": .bool(row.muted), "activity": row.activity.map(JSONValue.string) ?? .null,
-                        "icon": row.icon.map(JSONValue.string) ?? .null,
+                        "icon": row.icon.map(JSONValue.string) ?? .null, "icon_address": row.iconAddress.map(JSONValue.string) ?? .null,
                         "shown_frame": row.shownFrame.map(rect) ?? .null, "clips": .bool(row.clips),
                         "group": row.group.map(JSONValue.string) ?? .null,
                         "detail": row.detail.map(JSONValue.string) ?? .null,

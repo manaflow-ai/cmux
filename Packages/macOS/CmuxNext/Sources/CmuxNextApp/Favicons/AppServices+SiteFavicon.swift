@@ -19,6 +19,15 @@ extension AppServices {
         return open?.faviconURL ?? origin + "/favicon.ico"
     }
 
+    /// Each open (not incognito) browser tab's page and favicon address, so a reader that stores favicon
+    /// addresses (sidebar links) reacts when a tab's favicon address changes, also when its image is cached already.
+    func openTabFaviconPairs() -> [String] {
+        machines.local.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
+            guard tab.kind == .browser, let favicon = tab.faviconURL, !cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
+            return (tab.url ?? "") + " " + favicon
+        }
+    }
+
     /// The favicon address an open tab on the site of page `page` shows; nil without one (a sidebar link stores it).
     func openTabFaviconAddress(_ page: String) -> String? {
         guard let origin = URL(string: page).flatMap(BookmarkURL.faviconKey(for:)) else { return nil }

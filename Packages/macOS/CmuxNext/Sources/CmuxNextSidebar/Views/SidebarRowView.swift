@@ -115,6 +115,8 @@ class SidebarRowView: NSView {
     /// The leading icon the row's view draws now for debug.sidebar_rows `icon`
     /// (`symbol`, `swatch`, `emoji`, `favicon`, `agentMark`); nil when it draws none.
     var debugIcon: String? { nil }
+    /// The address of the favicon the row draws (a link row), for proofs.
+    var debugIconAddress: String? { nil }
 
     /// Counts the times this row started opening its slot (clipped): an
     /// earlier open's completion, run early when a later update reopens the

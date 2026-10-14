@@ -22,6 +22,8 @@ public struct SidebarDebugRow: Sendable {
     /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace and
     /// tab rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
     public var icon: String? = nil
+    /// The address of the favicon a link row draws.
+    public var iconAddress: String? = nil
     /// The view's frame as drawn now (its presentation, mid-animation), and
     /// whether it clips its content (an opening or closing row).
     public var shownFrame: CGRect? = nil
@@ -177,6 +179,7 @@ extension SidebarView {
                                    activity: activity, icon: view?.debugIcon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
                                    detail: row.content?.detail)
             var drawn = debugRow.drawn(by: view)
+            drawn.iconAddress = view?.debugIconAddress
             if case let .workspace(id) = row.key { drawn.unread = byID[id].map { String(describing: $0.unread) } }
             (drawn.progress, drawn.showsWorking) = (row.content?.progress != nil, row.content?.showsWorking == true)
             return drawn

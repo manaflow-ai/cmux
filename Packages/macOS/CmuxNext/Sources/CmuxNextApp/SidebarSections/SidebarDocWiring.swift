@@ -32,7 +32,8 @@ enum SidebarDocWiring {
         SidebarModel.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
         // task-owner: the app's services (live for the app); event-driven (Observation)
         Task { [weak services] in
-            for await _ in ObservationStream({ (services?.favicons.revision, store.version) }) {
+            // An open tab's favicon address can change while its image is cached already (no favicon revision): watch the addresses too.
+            for await _ in ObservationStream({ (services?.favicons.revision, store.version, services?.openTabFaviconPairs()) }) {
                 NotificationCenter.default.post(name: SidebarModel.itemFaviconsChanged, object: nil)
                 store.storeIconURLs { page in services?.openTabFaviconAddress(page) }
             }
