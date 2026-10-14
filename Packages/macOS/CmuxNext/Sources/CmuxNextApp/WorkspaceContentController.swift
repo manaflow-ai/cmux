@@ -171,6 +171,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         updateEmptyState()
         repairIfEmpty()
         sendTopology()
+        // The topology can land focus in this apply (a split's or new tab's pane): this frame
+        // rings that pane, not the old one at its new frame for a turn (Leo 2026-10-14).
+        layoutView.syncWithModel()
     }
 
     /// A workspace with no pane shows its title; Return creates the first
