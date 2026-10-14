@@ -526,6 +526,40 @@ test("Add harness… shows only where the Harnesses page can open (never in the 
   act(() => unregister());
 });
 
+// Review of #20606: with no model row left, Add harness… was current by default, so Return on a
+// search with no match left the chat for the Harnesses page.
+test("Return on a search with no match stays put; an arrow onto Add harness… then opens it", async () => {
+  const { registerHarnessesPage } = await import("../src/agent-session/acpmux/harnesses/harnessesPage");
+  const opened: string[] = [];
+  const unregister = registerHarnessesPage(() => opened.push("harnesses"));
+  try {
+    await mountNewTab({ harness: "claude" });
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    });
+    const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
+    const key = (name: string) =>
+      act(async () => {
+        search.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
+      });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "zzz");
+      search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    expect(rows()).toEqual([]);
+    const add = host.querySelector<HTMLButtonElement>(".acpmux-mp-add-harness")!;
+    expect(add.getAttribute("aria-selected")).not.toBe("true");
+    await key("Enter");
+    expect(opened).toEqual([]);
+    await key("ArrowDown");
+    expect(add.getAttribute("aria-selected")).toBe("true");
+    await key("Enter");
+    expect(opened).toEqual(["harnesses"]);
+  } finally {
+    act(() => unregister());
+  }
+});
+
 async function pickOnNewTab(from: string, provider: string, id: string, folder?: string) {
   await mountNewTab({ harness: from, ...(folder ? { folder } : {}) });
   await openOn(provider);
