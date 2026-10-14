@@ -6,10 +6,13 @@ import CmuxNextIcons
 /// reads as the workspace's child by indent alone, no bars: a grouped
 /// workspace's line is the only bar in a hierarchy (cx-ai79). It draws no
 /// kind or agent glyph; only a browser tab's page favicon (Lawrence
-/// 2026-10-14, cx-im75u).
+/// 2026-10-14, cx-im75u). An unread tab shows a small muted unread dot
+/// at its trailing edge; its title keeps the primary color and regular weight.
 final class SidebarTabRowView: SidebarRowView {
     private let icon = NSImageView()
     private let title = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    /// The unread dot: a workspace row's dot (`UnreadBadgeView`, same shape and size) in the quiet, muted look.
+    private let unreadDot = UnreadBadgeView()
     /// Activates this tab from an accessibility AXPress.
     var onSelect: (() -> Void)?
 
@@ -21,7 +24,8 @@ final class SidebarTabRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        [icon, title].forEach(addSubview)
+        [icon, title, unreadDot].forEach(addSubview)
+        unreadDot.fixedLook = .quiet
     }
 
     override var debugIcon: String? { icon.isHidden ? nil : "favicon" }
@@ -41,6 +45,7 @@ final class SidebarTabRowView: SidebarRowView {
         let side = SidebarStyle.tabIconSize
         icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: side, height: side)) }
         icon.isHidden = icon.image == nil
+        unreadDot.configure(tab.isUnread ? .dot : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         let workspaceIdentifier = row.workspace?.rawValue ?? "unknown"
@@ -73,7 +78,14 @@ final class SidebarTabRowView: SidebarRowView {
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
         // Without a favicon the title takes the icon's place.
         let textX = icon.isHidden ? iconX - SidebarStyle.labelCellPadding : icon.frame.maxX + Metrics.space2
+        // The dot sits where a workspace row's dot does: its slot at the row's trailing inset.
+        var trailing = b.width - SidebarStyle.horizontalInset
+        if unreadDot.state.isUnread {
+            let side = SidebarStyle.dotSize
+            unreadDot.frame = NSRect(x: trailing - side - Metrics.space2, y: (b.height - side) / 2, width: side, height: side)
+            trailing = unreadDot.frame.minX - Metrics.space2
+        }
         title.frame = NSRect(x: textX, y: (b.height - title.intrinsicContentSize.height) / 2,
-                             width: max(0, b.width - textX - Metrics.space3), height: title.intrinsicContentSize.height)
+                             width: max(0, trailing - textX), height: title.intrinsicContentSize.height)
     }
 }
