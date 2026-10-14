@@ -135,11 +135,11 @@ async fn dispatch_request(
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
-                    method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
+                    method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_KILL,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
-                ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "toolInventory"], "trustGate": true}}
+                ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "toolInventory", "promptWithdraw", "processes"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -833,6 +833,14 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
             let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
+        }
+        method::MUX_PROMPT_WITHDRAW => {
+            // The unix socket only; `remote_guard.rs` refuses every other origin first.
+            if conn.origin != Origin::Local {
+                return Err(crate::prompt_provenance::withdraw_origin_refused());
+            }
+            let s = hub.resolve(session_key(&params)?)?;
+            hub.prompt_withdraw(&s, &params).await
         }
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;

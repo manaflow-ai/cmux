@@ -142,6 +142,10 @@ pub enum ResourceOperation {
     ChiefProfileAvatarSet,
     #[serde(rename = "chief.profile.avatar.get")]
     ChiefProfileAvatarGet,
+    #[serde(rename = "participant.avatar.set")]
+    ParticipantAvatarSet,
+    #[serde(rename = "participant.avatar.get")]
+    ParticipantAvatarGet,
     #[serde(rename = "credential.verify")]
     CredentialVerify,
     #[serde(rename = "credential.mint")]
@@ -386,6 +390,8 @@ pub enum ResourceOperation {
     AgentMessageList,
     #[serde(rename = "agent.message.mark")]
     AgentMessageMark,
+    #[serde(rename = "agent.message.release")]
+    AgentMessageRelease,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
