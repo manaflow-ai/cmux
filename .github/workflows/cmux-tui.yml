@@ -992,6 +992,11 @@ jobs:
             cargo test -p cmux-tui-core --doc --locked
             exit 0
           fi
+          # optchat_chief selects the optchat-chief job (its own Cargo workspace), no cmux-tui test.
+          if [[ "$TEST_FILTER" == "optchat_chief" ]]; then
+            echo "test_filter optchat_chief: the optchat-chief job runs those tests"
+            exit 0
+          fi
           # The same script runs the filter on macOS (`macos` job), cx-jcfoz.
           ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER"
 
