@@ -6,15 +6,20 @@ long test run. Clients can list it, tail it and kill it. It runs past the
 turn that started it and past the chat being closed, until it exits, someone
 stops it, or the session's resource budget stops it.
 
-Status 2026-10-14: design. What exists already:
+Status 2026-10-14: partly built. What exists:
 
+- Lifted harness limits (`harness_limits.rs`, #20585).
 - Claude's `background_task_update`: `running` when a shell goes to the
-  background, then `completed`, `failed` or `stopped` when it ends.
-- The idle reaper never ends a chat with a running shell.
-- Each session's memory and CPU budget (`hub/budget.rs`).
-- Lifted harness limits (`harness_limits.rs`).
+  background, then `completed`, `failed` or `stopped` when it ends (#20585).
+- The registry for Claude Code's shells (`hub/processes.rs`,
+  `server/processes.rs`, #20724): `process/list`, `process/kill` and
+  `process_update`. The idle reaper asks it whether anything runs.
 
-The registry below builds on those. The NEXT GUI (op-next-launch) is built
+Not built yet: `process/tail` and `process/watch`, Codex, and the
+per-session resource valve. The valve was dropped from #20585 because it
+read `ps` and `/proc`, and cmux-next never scans processes
+(`plans/cmux-next/pty-holder.md` §4). It comes back without scanning in
+cx-v9s8g. The NEXT GUI (op-next-launch) is built
 on the wire contract in this document. The decision to stay on ACP and extend
 it rather than fork is recorded in cmuxterm-hq#2014.
 
@@ -50,12 +55,18 @@ Process {
   startedAt, endedAt?
   state         // running | exited | failed | killed | lost
   exitCode?, signal?
-  reason?       // why it stopped: "person", "agent", "budget_memory",
-                // "harness_time_limit", "harness_exit"
+  reason?       // why it stopped: "person", "agent", "harness_exit";
+                // later "budget_memory", "harness_time_limit"
+  detail?       // the harness's own words on its end (Claude's summary)
   origin        // background | auto_backgrounded | user_backgrounded
-  outputBytes
+  outputBytes   // null until tail lands
 }
 ```
+
+As built (#20724), `subagentSessionId` names the subagent whose call started
+it, and a task id a later harness reuses gets `-2`, `-3`. Each change is
+logged once as a mux `process_update` record, which is how a daemon rebuilds
+the table.
 
 `lost` means the process ended without anyone seeing how, for example when the
 harness itself exited. Its last output is kept and its command is shown with
@@ -86,28 +97,31 @@ harness itself exited. Its last output is kept and its command is shown with
 - Codex caps a session at 64 unified-exec processes; that cap is compiled
   in.
 
-**Fallback for any harness:** when the harness is gone, the agent host
-signals the process tree by the pid and start time it recorded
-(`agent_host/tree.rs`).
+**Fallback for any harness:** when the harness is gone, its holder signals
+the harness's process group; nothing walks the process tree (cx-t2sqm.3
+replaces `agent_host/tree.rs`'s `ps` walk).
 
 ## Wire
 
-All requests are `_acpmux/*`. Each needs the session's own client, and the
-remote relay keeps denying them until the relay analysis is done.
+All requests are `_acpmux/*`. Like `_acpmux/kill`, they are local: the unix
+socket and the local app may call them (the socket is the same-user trust
+boundary), and Web and Peer connections are refused before routing, so a
+process's command line and its kill never leave the machine.
 
 | Message | Params | Result |
 | --- | --- | --- |
-| `_acpmux/process/list` (request) | `{sessionId?}` (none: every session on this daemon) | `{processes: [Process]}` |
+| `_acpmux/process/list` (request, built) | `{sessionId?}` (none: every chat whose processes this daemon has read since it started) | `{processes: [Process]}` |
 | `_acpmux/process/tail` (request) | `{processId, fromByte?, maxBytes?}` (default: the last 64 KiB) | `{data (base64), fromByte, nextByte, eof}` |
 | `_acpmux/process/watch` (request) | `{processId}` | `{}`; then `_acpmux/process/output` notifications `{processId, data (base64), atByte}`, the same shape as v2's `terminal_output_chunk`, until `unwatch` or the process ends |
-| `_acpmux/process/kill` (request) | `{processId, signal?: "term" \| "kill"}` | `{}`; the outcome arrives as a `process_update` |
-| `_acpmux/process_update` (notification) | `{process: Process}` | |
+| `_acpmux/process/kill` (request, built) | `{processId, signal?: "term" \| "kill"}` | `{}`; the outcome arrives as a `process_update` |
+| `_acpmux/process_update` (notification, built) | `{process: Process}` | |
 
 **Migration:**
 
 - `process_update` replaces the non-spec `background_task_update` session
-  update. Both are sent for one release, then the old one is dropped. Its
-  `running` state is what feeds the idle reaper today.
+  update. Both are sent now (#20724); the old one is dropped once the GUI
+  reads `process_update`. A shell left running at Claude's exit keeps its
+  update unchanged and adds `_meta.acpmux.endedBy: "harness_exit"`.
 - Clients that declare JetBrains AIR's `asyncTasks` capability also get the
   lifecycle as `async_task_*`, and may stop a process with
   `_session/async_task/stop`.
@@ -118,11 +132,11 @@ remote relay keeps denying them until the relay analysis is done.
 | --- | --- |
 | Turn end | Keeps running. |
 | Chat closed, no client attached | Keeps running: a running process blocks the idle reap. |
-| Over the session's memory budget | The largest process under the harness is killed: `killed`, reason `budget_memory`. |
-| Over the CPU budget | Reniced, not killed. |
+| Over the session's memory budget (cx-v9s8g) | Enforced by the kernel, not by acpmux measuring: on Linux the session's cgroup scope (`MemoryMax`); `killed`, reason `budget_memory`. |
+| Over the CPU budget (cx-v9s8g) | Lower priority, not killed: the cgroup's `CPUWeight` on Linux, `setpriority(PRIO_PGRP)` on macOS. |
 | Harness time limit (Claude's `timeout`; acpmux lifts the ceiling to about 24.8 days) | `killed`, reason `harness_time_limit`. |
-| Daemon restart | Keeps running (the agent host owns the harness); the list is rebuilt from the records and the harness's live set. |
-| Harness or host exit, app update relaunch | `lost`, with the last output kept and Run again offered. A real reattach needs Claude Code's background sessions (`claude agents`, 2.1.196); evaluated separately. |
+| Daemon restart | Keeps running (the agent host owns the harness); the list is rebuilt from the `process_update` records. A process still `running` there stays so until its harness reports its end. |
+| Harness or host exit, app update relaunch | `lost` (built), with the last output kept and Run again offered. A real reattach needs Claude Code's background sessions (`claude agents`, 2.1.196); evaluated separately. |
 | Quit cmux | Open question (below). |
 
 ## Client contract for the GUI (op-next-launch)
@@ -138,11 +152,13 @@ remote relay keeps denying them until the relay analysis is done.
 
 ## Tests (behavior, at the hub boundary)
 
-- The fake Claude reports a background task. `process/list` shows it running,
-  `process/tail` returns its output file's bytes, and `process/kill` sends
-  `stop_task`, after which a `process_update` says `killed`.
-- After a daemon restart, an adopted host's processes are listed again.
-- A harness exit marks the session's running processes `lost`.
+- Built (`tests/hub_integration/processes.rs`): the fake Claude reports a
+  background task, a subagent's included; `process/list` shows it running;
+  `process/kill` sends `stop_task`, after which a `process_update` says
+  `killed` by the person; a harness exit marks running processes `lost`; Web
+  and Peer connections are refused.
+- To build: `process/tail` returns the output file's bytes; after a daemon
+  restart an adopted host's processes are listed again.
 - The fake Codex app-server: a completed exec item with a live `processId`
   is listed, and `process/kill` calls `backgroundTerminals/terminate`.
 
@@ -152,6 +168,6 @@ remote relay keeps denying them until the relay analysis is done.
   argues for leaving them and marking `lost` only those that really died.
 - Interactive stdin (Codex `write_stdin`; Claude Code has none): out of scope
   for this design; tail and kill cover servers and watchers.
-- Whether `process/list` without a sessionId belongs to the person-only
-  surface (`hub/person.rs`). Any person.rs change goes to the coordinator
-  first.
+- Decided (coordinator, 2026-10-14): `process/list` stays symmetric with
+  `_acpmux/kill`, with no `hub/person.rs` change. A person-only list across
+  all chats is bead cx-r6tvw.
