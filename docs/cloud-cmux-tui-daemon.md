@@ -109,6 +109,11 @@ restores from the journal checkpoint after a daemon restart. Running processes
 do not survive a restart, and clients see the generation change instead of a
 silent new shell.
 
+Public `cmux vm exec` commands use the same provider-selected account as the
+terminals and derive `HOME` from that account's passwd entry on every invocation.
+This repairs the stale `/home/ubuntu` environment found on older uid-1000 images
+without requiring a machine reboot; commands that need root should use `sudo`.
+
 Machines created from an image baked before that work user existed have no
 `cmux` account and carry their binary, daemon and state under `/root`. The
 install command, the pin check, the daemon launch and every driver-side
