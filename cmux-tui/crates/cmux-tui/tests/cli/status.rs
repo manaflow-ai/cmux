@@ -413,9 +413,8 @@ fn status_set_from_a_terminal_at_its_first_command_reaches_its_workspace() {
         let printed = fs::read_to_string(&log).unwrap_or_default();
         assert_eq!(exit, "0", "status set in new terminal {terminal} failed: {printed}");
         let key = format!("race-{index}");
-        let set = entry(&server, &workspace, &key).unwrap_or_else(|| {
-            panic!("{key} from {terminal} is not in its workspace: {printed}")
-        });
+        let set = entry(&server, &workspace, &key)
+            .unwrap_or_else(|| panic!("{key} from {terminal} is not in its workspace: {printed}"));
         assert_eq!(set["text"], format!("Ready {index}"), "{set}");
     }
 }
