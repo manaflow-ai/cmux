@@ -44,7 +44,7 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
       viewport: { width: Math.round(width / scale), height: Math.round(560 / scale) },
       deviceScaleFactor: scale,
     });
-    for (;;) {
+    for (let attempt = 1; ; attempt++) {
       await page.goto(stageURL(variant));
       try {
         await page.waitForFunction(() => {
@@ -54,7 +54,7 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
         break;
       } catch (error) {
         // Vite's dependency optimizer can reload the first page while it compiles.
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+        if (attempt === 3 || !/context was destroyed|navigat/i.test(String(error))) throw error;
       }
     }
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));

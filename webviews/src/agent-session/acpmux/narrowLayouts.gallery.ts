@@ -129,6 +129,9 @@ export function narrowProblems(document: Document): string[] {
           problems.push(`${name}: “${text.textContent.trim()}” is cut off`);
       }
     }
+  // Effort has no other control (the model picker has no effort row): it may shrink, never go.
+  for (const effort of document.querySelectorAll(".acpmux-effort"))
+    if (!visible(effort)) problems.push("the Effort chip is hidden");
   // The turn's own controls never shrink: a squeezed Send is the first thing a narrow pane breaks.
   for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-steer", ".acpmux-mic"])
     for (const control of document.querySelectorAll(selector)) {
@@ -179,6 +182,9 @@ export default agentPaneEntry({
     },
     "model-menu": {
       note: "Play: open the model picker from the icon-only chip; it stays inside the pane, unclipped.",
+      checks: {
+        popupLayer: { value: true, reason: "A chip's menu renders inside the chip row; a clipping row hides it." },
+      },
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Model" });
@@ -188,6 +194,9 @@ export default agentPaneEntry({
     },
     "access-menu": {
       note: "Play: open the access menu from its icon-only chip.",
+      checks: {
+        popupLayer: { value: true, reason: "A chip's menu renders inside the chip row; a clipping row hides it." },
+      },
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Mode" });
