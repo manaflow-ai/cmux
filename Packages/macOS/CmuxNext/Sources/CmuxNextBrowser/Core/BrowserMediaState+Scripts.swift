@@ -60,7 +60,8 @@ nonisolated extension BrowserMediaState {
               muted: element.muted || element.volume === 0, video: element.tagName === 'VIDEO', tabMuted, actions,
             };
             // The position leaves the key: the heartbeat carries it on, and a seek reports at once.
-            const key = JSON.stringify(state) + (seeked ? '#' + Math.round(element.currentTime) : '');
+            const key = JSON.stringify(state) + '#' + (isFinite(element.duration) ? Math.round(element.duration) : '')
+              + (seeked ? '#' + Math.round(element.currentTime) : '');
             seeked = false;
             state.position = element.currentTime;
             state.duration = isFinite(element.duration) ? element.duration : null;

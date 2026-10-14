@@ -57,19 +57,21 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
     }
 
     /// The state a tab keeps after `report`: the earlier one when the report
-    /// only says the position moved on as expected (the page's heartbeat), so
-    /// a playing tab does not change state every few seconds.
+    /// changes nothing but a position that moved on as expected (the page's
+    /// heartbeat), so a playing tab does not change state every few seconds;
+    /// else the report, whole (a pause, a resume or a speed change takes its
+    /// own position and time).
     public static func settled(_ earlier: BrowserMediaState?, _ report: BrowserMediaState?) -> BrowserMediaState? {
-        guard let earlier, var report else { return report }
+        guard let earlier, let report else { return report }
         let onCourse = switch (earlier.position(at: report.positionDate), report.position) {
         case (nil, nil): true
         case let (expected?, reported?): abs(reported - expected) < 1.5
         default: false
         }
-        guard onCourse else { return report }
-        report.position = earlier.position
-        report.positionDate = earlier.positionDate
-        return report == earlier ? earlier : report
+        var same = report
+        same.position = earlier.position
+        same.positionDate = earlier.positionDate
+        return onCourse && same == earlier ? earlier : report
     }
 
     /// The script's report: an object, or null when the page stopped

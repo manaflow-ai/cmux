@@ -141,10 +141,10 @@ final class SidebarNowPlayingCardView: NSView {
 }
 
 /// The card's scrubber: a thin track with the played part filled. A click
-/// or a drag seeks; VoiceOver reads it as a slider that steps by ten
-/// seconds. While playing, the fill grows by itself as a linear Core
-/// Animation to the end (no timer in the app); under Reduce Motion it
-/// holds still and moves only when the source reports.
+/// or a drag seeks; VoiceOver reads it as a slider (the position now) that
+/// steps by ten seconds. While playing, the fill runs to the end as one
+/// Core Animation, so the app sets no timer: a steady glide, or under
+/// Reduce Motion a step every few seconds, with no sliding in between.
 final class SidebarNowPlayingScrubber: NSView {
     static let height: CGFloat = 12
     private static let barHeight: CGFloat = 3
@@ -214,21 +214,33 @@ final class SidebarNowPlayingScrubber: NSView {
         let position = dragged ?? nowPlaying.position(at: Date()) ?? 0
         fill.position = .zero
         fill.bounds = CGRect(x: 0, y: 0, width: width * position / duration, height: bar)
-        setAccessibilityValue(spoken(position, of: duration))
-        guard dragged == nil, nowPlaying.isPlaying, nowPlaying.rate > 0, Motion.animatesMovement, window != nil, width > 0 else { return }
-        // motion-allow: playback progress runs on the track's clock, not a UI motion token; gated on Motion.animatesMovement above.
-        let run = CABasicAnimation(keyPath: "bounds.size.width")
-        run.fromValue = fill.bounds.width
-        run.toValue = width
-        run.duration = max(0, duration - position) / nowPlaying.rate
-        run.timingFunction = CAMediaTimingFunction(name: .linear) // motion-allow: the track plays at a constant rate.
-        run.fillMode = .forwards
-        run.isRemovedOnCompletion = false
-        fill.add(run, forKey: Self.progressKey)
+        guard dragged == nil, nowPlaying.isPlaying, nowPlaying.rate > 0, window != nil, width > 0, position < duration else { return }
+        let remaining = (duration - position) / nowPlaying.rate
+        fill.add(Self.progress(from: fill.bounds.width, to: width, over: remaining, glides: Motion.animatesMovement), forKey: Self.progressKey)
     }
 
-    private func spoken(_ position: TimeInterval, of duration: TimeInterval) -> String {
-        [position, duration].compactMap { formatter.string(from: $0) }.joined(separator: " / ")
+    /// The fill running to the end of the track: a linear glide, or (Reduce
+    /// Motion) discrete steps every `step` seconds of playback.
+    static func progress(from start: CGFloat, to end: CGFloat, over seconds: TimeInterval, glides: Bool) -> CAAnimation {
+        // motion-allow: playback progress runs on the track's clock, not a UI motion token.
+        let run = CAKeyframeAnimation(keyPath: "bounds.size.width")
+        if glides {
+            run.values = [start, end]
+            run.timingFunction = CAMediaTimingFunction(name: .linear) // motion-allow: the track plays at a constant rate.
+        } else {
+            let steps = max(1, min(720, Int((seconds / 5).rounded(.up))))
+            run.values = (0...steps).map { start + (end - start) * CGFloat($0) / CGFloat(steps) }
+            run.calculationMode = .discrete
+        }
+        run.duration = seconds
+        run.fillMode = .forwards
+        run.isRemovedOnCompletion = false
+        return run
+    }
+
+    override func accessibilityValue() -> Any? {
+        guard let nowPlaying, let duration = nowPlaying.duration, let position = dragged ?? nowPlaying.position(at: Date()) else { return nil }
+        return [position, duration].compactMap { formatter.string(from: $0) }.joined(separator: " / ")
     }
 
     private func seconds(at event: NSEvent) -> TimeInterval? {
@@ -251,7 +263,9 @@ final class SidebarNowPlayingScrubber: NSView {
 
     override func mouseUp(with event: NSEvent) {
         guard dragged != nil, let seconds = seconds(at: event) ?? dragged else { return }
-        dragged = seconds
+        // A seek close to where it plays changes nothing the source reports: run on from there.
+        let expected = nowPlaying?.position(at: Date())
+        dragged = expected.map { abs($0 - seconds) < 1.5 } == true ? nil : seconds
         update()
         onSeek?(seconds)
     }

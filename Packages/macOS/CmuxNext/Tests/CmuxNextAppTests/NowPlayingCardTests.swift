@@ -152,8 +152,16 @@ import Testing
         defer { window.close() }
         window.contentView = card
         window.orderFrontRegardless()
-        func running() -> [String] {
-            func animated(_ layer: CALayer) -> [String] { (layer.animationKeys() ?? []) + (layer.sublayers ?? []).flatMap(animated) }
+        /// Every animation on the card that slides (anything but a discrete step) or repeats.
+        func sliding() -> [String] {
+            func animated(_ layer: CALayer) -> [String] {
+                let own = (layer.animationKeys() ?? []).filter { key in
+                    guard let animation = layer.animation(forKey: key) else { return false }
+                    let steps = (animation as? CAKeyframeAnimation)?.calculationMode == .discrete
+                    return !steps || animation.repeatCount > 0 || animation.autoreverses
+                }
+                return own + (layer.sublayers ?? []).flatMap(animated)
+            }
             func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
             return views(card).compactMap(\.layer).flatMap(animated)
         }
@@ -163,17 +171,22 @@ import Testing
         card.configure(Self.track())
         card.isHidden = false
         card.layoutSubtreeIfNeeded()
-        #expect(running().isEmpty, "under Reduce Motion the playing card still animates: \(running())")
+        #expect(sliding().isEmpty, "under Reduce Motion the playing card slides or loops: \(sliding())")
         // The scrubber still shows where the track is: an eighth of the way.
         let fraction = card.scrubber.fill.bounds.width / max(1, card.scrubber.bounds.width)
         #expect(abs(fraction - 0.125) < 0.02, "the scrubber shows \(fraction) of the track, not 60 s of 480 s")
+        // VoiceOver hears where it is now, not where it was when the card last changed.
+        let spoken = card.scrubber.accessibilityValue() as? String ?? ""
+        #expect(spoken.contains("1:00") && spoken.hasSuffix("8:00"), "VoiceOver hears \(spoken)")
     }
 
     @Test func theCardIsThereOnlyWhileThePreviewIsOn() async throws {
         let h = await make(previewOn: false)
         defer { h.close() }
-        for _ in 0..<20 { await Task.yield() }
+        // Long enough for the feed's first pass (the same feed shows the card within milliseconds when on).
+        try await Task.sleep(for: .milliseconds(300))
         h.sidebar.layoutSubtreeIfNeeded()
+        #expect(h.model.nowPlaying == nil, "the feed passed the track on with labs.previewFeatures off")
         #expect(h.card.isHidden || h.card.frame.isEmpty, "the card shows with labs.previewFeatures off")
         #expect(CmuxConfigSnapshot.previewFeaturesDefault == false, "the preview is on by default")
         h.flag.on = true
