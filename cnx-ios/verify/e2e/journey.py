@@ -65,8 +65,14 @@ class Journey:
             hang = {"where": where, "kind": "main thread busy, no accessibility", "cpu": cpu, "sample": os.path.basename(path)}
             self.sim.shot(f"hang-{len(self.hangs)+1}-{where}")
         self.hangs.append(hang)
+        try:
+            self.sim.launch(BUNDLE)
+        except RuntimeError as err:
+            # Not installed yet (a new simulator before fresh_install): nothing hung.
+            self.hangs.pop()
+            self.log(f"    app not launchable before {where} ({str(err)[:80]}); continuing")
+            return None
         self.log(f"    HANG after {where}: {hang}; relaunching the app")
-        self.sim.launch(BUNDLE)
         time.sleep(4)
         return hang
 

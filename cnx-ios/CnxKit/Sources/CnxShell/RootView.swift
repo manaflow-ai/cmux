@@ -377,10 +377,6 @@ struct ShellView: View {
             shell.tab = .settings
             shell.settingsPath = [page]
         }
-        // Back to the workspace and tab that were open (P10), before the
-        // first frame so Home does not flash. A tapped notification decides
-        // where the app opens instead.
-        if options.restoresLastLocation, NotificationRouter.shared.pending == nil { shell.beginRestore() }
         _shell = State(initialValue: shell)
         self.options = options
         self.live = live
@@ -435,6 +431,14 @@ struct ShellView: View {
         }
         // Design/terminal P10: remember where the user is; finish a launch
         // restore once the workspace is listed (or its Mac says it is gone).
+        // Back to the workspace and tab that were open (P10), once, on the
+        // model SwiftUI keeps. Not from `init`: RootView re-creates this view
+        // (and a throwaway model) on every update, and a restore there wrote
+        // the shared store from each one: an endless update loop at launch.
+        // A tapped notification decides where the app opens instead.
+        .onAppear {
+            if options.restoresLastLocation, NotificationRouter.shared.pending == nil { shell.beginRestore() }
+        }
         .onChange(of: shell.lastOpenLocation) { _, location in
             shell.locationChanged(location)
         }

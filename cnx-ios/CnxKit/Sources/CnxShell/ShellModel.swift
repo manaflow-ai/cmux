@@ -65,6 +65,8 @@ final class ShellModel {
     @ObservationIgnored let lastOpen: LastOpenMemory
     /// A launch restore still waiting for its workspace to be listed.
     @ObservationIgnored private var pendingRestore: LastOpenLocation?
+    /// One launch restore per model.
+    @ObservationIgnored private var restoreAttempted = false
 
     struct ShareItem: Identifiable {
         let id = UUID()
@@ -192,6 +194,8 @@ final class ShellModel {
     /// At launch: go back to the saved workspace and tab, now or once its
     /// Mac lists it (`continueRestore`).
     func beginRestore() {
+        guard !restoreAttempted else { return }
+        restoreAttempted = true
         guard pendingRestore == nil, let saved = lastOpen.load() else { return }
         pendingRestore = saved
         continueRestore()
