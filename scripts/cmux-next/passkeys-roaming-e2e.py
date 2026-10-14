@@ -18,8 +18,12 @@ Real PIN entry, a real touch and a real phone need a person (checklist.md).
 The script attaches to the app through its socket and never launches or quits it. Screenshots
 go through the capture helper when --capture and --pid are given (nx-remote: $NX_CAPTURE).
 
+`--real` (a person at the Mac, real key or phone): Register and Authenticate with no virtual
+authenticator; `say` tells the person when to touch the key or type the PIN; a picture every 3 s.
+
 Usage: passkeys-roaming-e2e.py --socket SOCK [--pid PID --capture HELPER] [--out DIR]
        [--transports usb,usb-u2f,nfc,ble,cable] [--site https://webauthn.io] [--no-dialogs]
+       [--real [--real-seconds 120]]
 Writes roaming.json to --out. Exit 0 when every judged transport passes.
 """
 import argparse, json, os, socket, subprocess, sys, time, uuid
@@ -32,6 +36,8 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--transports", default="usb,usb-u2f,nfc,ble,cable")
 parser.add_argument("--site", default="https://webauthn.io")
 parser.add_argument("--no-dialogs", action="store_true")
+parser.add_argument("--real", action="store_true", help="a real key or phone and a person; no virtual authenticator")
+parser.add_argument("--real-seconds", type=int, default=120, help="--real: how long each step waits for the person")
 opts = parser.parse_args()
 
 AUTHENTICATORS = {
@@ -203,6 +209,46 @@ def dialogs(tab):
     load_site(tab)
 
 
+def say(text):
+    """`--real` only: the person at the Mac hears what to do (macOS `say`)."""
+    print(f"SAY {text}", flush=True)
+    subprocess.run(["say", text], timeout=30)
+
+
+def real_key(tab):
+    """A real security key or phone, no virtual authenticator: a person touches the key, types
+    the PIN in Chromium's dialog, or scans the QR code. Pictures every 3 s while a sheet is up."""
+    if not load_site(tab):
+        return "FAIL", f"{opts.site} did not load"
+    devtools("WebAuthn.disable")
+    username = f"cmux-real-{uuid.uuid4().hex[:8]}"
+    steps = []
+    for step, button, done, prompt in (
+        ("register", "register-button", lambda: "Success" in alert_text(tab) or "failed" in alert_text(tab).lower(),
+         "Passkey test. Touch the security key now. If cmux asks for a PIN, type the PIN and press return."),
+        ("sign-in", "login-button", lambda: js(tab, "location.pathname") == "/profile" or "failed" in alert_text(tab).lower(),
+         "Touch the security key again to sign in. Type the PIN if cmux asks."),
+    ):
+        if step == "register":
+            fill(tab, username, "cross_platform")
+        click(tab, button)
+        say(prompt)
+        began, index = time.time(), 0
+        while time.time() - began < opts.real_seconds and not done():
+            if index % 3 == 0:
+                shot(f"real-{step}-{index:03d}")
+            index += 1
+            time.sleep(1)  # test harness: a person acts at their own pace
+        result = alert_text(tab) or js(tab, "location.pathname")
+        steps.append(f"{step}: {result!r} after {time.time() - began:.0f} s")
+        shot(f"real-{step}-done")
+        if not done() or "failed" in str(result).lower():
+            say("The passkey test failed. Thank you.")
+            return "FAIL", f"{username}: " + "; ".join(steps)
+    say("The passkey test passed. Thank you.")
+    return "PASS", f"{username}: " + "; ".join(steps)
+
+
 def main():
     os.makedirs(opts.out, exist_ok=True)
     if not wait(lambda: "error" not in (rpc("system.identify") or {"error": 1}), 90):
@@ -215,6 +261,10 @@ def main():
         row("(setup)", "FAIL", f"{opts.site} did not load in a CEF tab: {opened}")
     else:
         row("probe", "NOTE", js(tab, "JSON.stringify({ua: navigator.userAgent, secure: isSecureContext, focused: document.hasFocus()})"))
+        if opts.real:
+            status, detail = real_key(tab)
+            row("webauthn.io real key", status, detail)
+            opts.transports, opts.no_dialogs = "", True
         for transport in [t for t in opts.transports.split(",") if t]:
             status, detail = ceremony(tab, transport)
             row(f"webauthn.io {transport}", status, detail)
