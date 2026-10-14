@@ -37,6 +37,10 @@ export interface ContextMenuProps {
   targets?: "own";
 }
 
+/** The control a closed menu gives focus back to. */
+const RETURN_FOCUS =
+  "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])";
+
 /** Inline, as the placement is: the agent pane does not load ui.css. */
 const MENU_ICON = {
   display: "inline-flex",
@@ -56,7 +60,9 @@ const MENU_ICON = {
  * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Closing attempts to
  * restore the invoking control when it remains connected at the close turn; navigation actions
  * own any later focus changes. Like a native menu, it opens down and right of the pointer and
- * flips up or left where that would leave the window.
+ * flips up or left where that would leave the window. The keyboard opens it too: Shift-F10 or the
+ * context-menu key on a focused control inside the host opens it at that control's bottom start
+ * corner, so every surface with a right-click menu has a keyboard path.
  */
 export function ContextMenu({ items, children, className, selection, onOpen, ignore, targets }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
@@ -139,9 +145,29 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
       run(enabled[active]);
     }
   };
+  /** Opens at `point` for the control at `target` (focus returns to it when the menu closes). */
+  const openAt = (target: Element | null, at: { x: number; y: number }) => {
+    onOpen?.();
+    setActive(0);
+    returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
+    setPoint(at);
+  };
   return (
     <div
       className={cx("ui-context-menu-host", className)}
+      onKeyDown={(event) => {
+        if (event.defaultPrevented || items.length === 0) return;
+        if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return;
+        const target = event.target instanceof Element ? event.target : null;
+        // A key in the open menu (a portal, so React passes it up here) is the menu's own.
+        if (!target || menu.current?.contains(target)) return;
+        if (targets === "own" && !event.currentTarget.contains(target)) return;
+        if (ignore && target.closest(ignore)) return;
+        event.preventDefault();
+        const rect = target.getBoundingClientRect();
+        const rtl = getComputedStyle(target).direction === "rtl";
+        openAt(target, { x: rtl ? rect.right : rect.left, y: rect.bottom });
+      }}
       onContextMenu={(event) => {
         // A menu inside this host already took the right-click (its own item's Hide, inside a
         // row's Show); a host with no items keeps the default.
@@ -150,14 +176,7 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
         if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
         if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
         event.preventDefault();
-        onOpen?.();
-        setActive(0);
-        const target = event.target instanceof Element ? event.target : null;
-        returnFocus.current =
-          target?.closest<HTMLElement>(
-            "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])",
-          ) ?? null;
-        setPoint({ x: event.clientX, y: event.clientY });
+        openAt(event.target instanceof Element ? event.target : null, { x: event.clientX, y: event.clientY });
       }}
     >
       {children}

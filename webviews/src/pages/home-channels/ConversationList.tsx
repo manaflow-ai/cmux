@@ -6,7 +6,7 @@
 // bright name; mentions show a count. A right-click on a row, or Shift-F10 / the context-menu key
 // on a focused row, opens its menu: Pin or Unpin, Mark as Read or Unread, Copy Link. The list is
 // transparent over the window.
-import { useMemo, type KeyboardEvent } from "react";
+import { useMemo } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import type { Strings } from "../shared/i18n";
 import { Avatar, ChannelMark } from "./Avatar";
@@ -190,7 +190,6 @@ function ListRow({
         data-name={label}
         data-pinned={row.pinned ? "" : undefined}
         onClick={() => onSelect(row.id)}
-        onKeyDown={openMenuFromKeyboard}
       >
         {unread && <span className="lg-unread-dot" aria-hidden="true" />}
         <span className="lg-row-mark">
@@ -224,22 +223,5 @@ function ListRow({
         )}
       </button>
     </ContextMenu>
-  );
-}
-
-/** Shift-F10 or the context-menu key on a focused row opens its menu, as a right-click would, at
- * the row's start edge. */
-function openMenuFromKeyboard(event: KeyboardEvent<HTMLButtonElement>) {
-  if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return;
-  event.preventDefault();
-  const rect = event.currentTarget.getBoundingClientRect();
-  const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
-  event.currentTarget.dispatchEvent(
-    new MouseEvent("contextmenu", {
-      bubbles: true,
-      cancelable: true,
-      clientX: rtl ? rect.right - 16 : rect.left + 16,
-      clientY: rect.bottom,
-    }),
   );
 }
