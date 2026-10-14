@@ -557,6 +557,12 @@ impl Supervisor {
         if is_default(&record) {
             return;
         }
+        // A brain this daemon did not start (one an earlier owner left)
+        // holds the lock: keep it; a new token would only end its binding.
+        if lock_held(&brain_home(&self.config.home, chief).join("state/host.lock")) {
+            eprintln!("cmux-tui: Chief brain {chief} already runs (its lock is held)");
+            return;
+        }
         match self.launch(&mux, &record) {
             Ok((pid, reaped)) => {
                 let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
@@ -651,6 +657,24 @@ impl Supervisor {
                 Err(_) => return,
             }
         }
+    }
+}
+
+/// Whether a process holds `lock` (`flock`, as optchat-chief's lock.rs
+/// takes it). A missing file means no brain.
+fn lock_held(lock: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        let Ok(file) = std::fs::OpenOptions::new().read(true).open(lock) else { return false };
+        // SAFETY: flock on a descriptor this function owns; it is released
+        // when `file` drops.
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) != 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = lock;
+        false
     }
 }
 
