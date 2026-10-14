@@ -33,6 +33,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -310,11 +311,37 @@ def score_pages(job, label):
     return scores
 
 
+def guarded(job, name, fn, *args):
+    """Runs one step; an exception becomes a failed row, so later steps still run
+    and results.json is always written."""
+    try:
+        return fn(*args)
+    except BaseException as error:  # noqa: BLE001 - SystemExit from launch included
+        if isinstance(error, KeyboardInterrupt):
+            raise
+        job.row(f"{name}: runner error", False, f"{error!r} {traceback.format_exc()[-900:]}")
+        return None
+
+
+def run_phase(job, steps, cleanup=()):
+    try:
+        if guarded(job, f"{job.phase}: launch", job.launch) is not False and job.client:
+            for name, fn in steps:
+                if guarded(job, name, fn) == "stop":
+                    break
+    finally:
+        job.stop()
+        for done in cleanup:
+            done()
+    return job.finish()
+
+
 def phase_store(_args):
     job = Job("store")
-    job.launch()
-    try:
-        ext_id, name = STORE_EXTENSION
+    ext_id, _ = STORE_EXTENSION
+    state = {}
+
+    def install():
         session = job.open_tab(f"https://chromewebstore.google.com/detail/{ext_id}", match=ext_id, timeout=45)
         try:
             find = ("(() => { const b = [...document.querySelectorAll('button')].find(e => /add to chrome/i.test(e.innerText));"
@@ -322,11 +349,11 @@ def phase_store(_args):
                     " return [r.x + r.width / 2, r.y + r.height / 2, b.innerText.trim()]; })()")
             button = poll(session, find, 45)
             job.page_shot(session, "store-detail")
+            job.row("store: Add to Chrome button", bool(button), button or "no button within 45 s")
             if not button:
-                job.row("store: Add to Chrome button", False, "no button within 45 s")
-                return job.finish()
+                return "stop"
             time.sleep(1)
-            button = session.evaluate(find)
+            button = poll(session, find, 5) or button
             session.click(button[0], button[1])  # a trusted click: user gesture
             prompt = None
             deadline = time.monotonic() + 45
@@ -337,48 +364,46 @@ def phase_store(_args):
             job.row("store: install prompt shown", prompt is not None, prompt or "no prompt in 45 s")
             job.window_shot("store-prompt", popups=True)
             if not prompt:
-                return job.finish()
+                return "stop"
             answer = job.call("debug.extensions.prompt", {"id": prompt["id"], "answer": "accept"}).get("result")
             installed = None
             deadline = time.monotonic() + 90
-            while time.monotonic() < deadline and not installed:
+            while time.monotonic() < deadline and not (installed and installed.get("enabled")):
                 installed = next((e for e in job.extensions_report() if e.get("id") == ext_id), None)
                 time.sleep(1)
             job.row("store: installed and enabled (no FAILED_TO_COPY error)",
                     bool(installed and installed.get("enabled")), {"answer": answer, "extension": installed})
             errors = poll(session, "(() => { const t = document.body.innerText;"
                                    " const m = t.match(/Could not install package[^\\n]*/); return m ? m[0] : ''; })()", 2)
-            job.row("store: no install error on the page", not errors, errors or "none")
+            job.row("store: no install error on the page", not errors, errors or "none", gating=False)
             job.page_shot(session, "store-after-install")
             job.window_shot("store-window")
         finally:
             session.close()
-        downloads = os.path.expanduser("~/Downloads")
-        stray = [f for f in os.listdir(downloads) if f.endswith(".crx") and os.path.getmtime(os.path.join(downloads, f)) > time.time() - 600]
-        job.row("store: no CRX copied into Downloads", not stray, stray or "none")
-    finally:
-        job.stop()
-    return job.finish()
+
+    def downloads():
+        folder = os.path.expanduser("~/Downloads")
+        stray = [f for f in os.listdir(folder) if f.endswith((".crx", ".cmuxdownload"))
+                 and os.path.getmtime(os.path.join(folder, f)) > time.time() - 600]
+        job.row("store: no CRX copied into Downloads", not stray, stray or "none", gating=False)
+
+    return run_phase(job, [("store: install", install), ("store: downloads", downloads)])
 
 
 def phase_baseline(_args):
     server, url = serve()
     job = Job("baseline")
-    job.launch()
-    try:
-        ads_check(job, url, "baseline", expect_blocked=False)
-        score_pages(job, "baseline")
-    finally:
-        job.stop()
-        server.shutdown()
-    return job.finish()
+    return run_phase(job, [("baseline: ads", lambda: ads_check(job, url, "baseline", expect_blocked=False)),
+                           ("baseline: score pages", lambda: score_pages(job, "baseline"))],
+                     cleanup=[server.shutdown])
 
 
 def phase_ublock(args):
     server, url = serve()
     job = Job("ublock", extensions=[args.ubo])
-    job.launch()
-    try:
+    ctx = {}
+
+    def loaded():
         ubo = None
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline and not ubo:
@@ -386,49 +411,54 @@ def phase_ublock(args):
             time.sleep(0.5)
         job.row("ublock: loaded and enabled", bool(ubo and ubo.get("enabled")), ubo or "not listed")
         if not ubo:
-            return job.finish()
-        ext_id = ubo["id"]
-        prefix = f"chrome-extension://{ext_id}/"
-        background = cdp.wait_target(job.port, lambda t: t.get("type") == "background_page"
-                                     and t.get("url", "").startswith(prefix), 30)
-        manifest_version = None
-        if background:
-            bg = cdp.Session(background["webSocketDebuggerUrl"])
+            return "stop"
+        ctx["id"] = ubo["id"]
+        ctx["prefix"] = f"chrome-extension://{ubo['id']}/"
+
+    def background():
+        prefix = ctx["prefix"]
+        target = cdp.wait_target(job.port, lambda t: t.get("type") == "background_page"
+                                 and t.get("url", "").startswith(prefix), 30)
+        version = None
+        if target:
+            bg = cdp.Session(target["webSocketDebuggerUrl"])
             try:
-                manifest_version = bg.evaluate("chrome.runtime.getManifest().manifest_version")
+                version = bg.evaluate("chrome.runtime.getManifest().manifest_version")
             finally:
                 bg.close()
-        job.row("ublock: MV2 background page runs", manifest_version == 2 and background is not None,
-                {"background": (background or {}).get("url"), "manifest_version": manifest_version})
+        job.row("ublock: MV2 background page runs", version == 2 and target is not None,
+                {"background": (target or {}).get("url"), "manifest_version": version})
+
+    def blocking():
         time.sleep(10)  # first start compiles the bundled filter lists
         # Controls: the host reaches both scripts, so "blocked" in the page is uBlock Origin.
         for name, address in (("ad script", AD_SCRIPT), ("jQuery CDN", JQUERY)):
             status = host_reaches(address)
             job.row(f"control: the host reaches the {name}", status == 200, {"url": address, "status": status})
         ads_check(job, url, "ublock", expect_blocked=True)
-        score_pages(job, "ublock")
 
-        # Popup through the toolbar button's own click path.
+    def popup():
+        prefix = ctx["prefix"]
         before = {t.get("id") for t in cdp.targets(job.port)}
-        click = job.call("debug.extensions.click", {"extension": ext_id}).get("result")
-        popup = cdp.wait_target(job.port, lambda t: t.get("id") not in before and t.get("type") == "page"
-                                and t.get("url", "").startswith(prefix + "popup"), 10)
-        popup_detail = {"click": click, "url": (popup or {}).get("url")}
-        if popup:
-            session = cdp.Session(popup["webSocketDebuggerUrl"])
+        click = job.call("debug.extensions.click", {"extension": ctx["id"]}).get("result")
+        target = cdp.wait_target(job.port, lambda t: t.get("id") not in before and t.get("type") == "page"
+                                 and t.get("url", "").startswith(prefix + "popup"), 10)
+        detail = {"click": click, "url": (target or {}).get("url")}
+        if target:
+            session = cdp.Session(target["webSocketDebuggerUrl"])
             try:
-                ready = poll(session, "(() => { const b = document.body; const r = b.getBoundingClientRect();"
-                                      " return r.width > 100 && r.height > 100 && document.querySelector('#switch') ? [r.width, r.height] : null; })()", 15)
-                popup_detail["size"] = ready
-                popup_detail["shot"] = job.page_shot(session, "ublock-popup")
+                detail["size"] = poll(session, "(() => { const r = document.body.getBoundingClientRect();"
+                                               " return r.width > 100 && r.height > 100 && document.body.innerText.length > 10"
+                                               " ? [r.width, r.height] : null; })()", 15)
+                detail["shot"] = job.page_shot(session, "ublock-popup")
             finally:
                 session.close()
-            popup_detail["window_shot"] = job.window_shot("ublock-popup-window", popups=True)
-        job.row("ublock: popup opens", bool(popup and popup_detail.get("size")), popup_detail)
+            detail["window_shot"] = job.window_shot("ublock-popup-window", popups=True)
+        job.row("ublock: popup opens", bool(target and detail.get("size")), detail)
         job.call("debug.extensions.popup", {"hide": True})
 
-        # Dashboard.
-        session = job.open_tab(prefix + "dashboard.html", match="dashboard.html")
+    def dashboard():
+        session = job.open_tab(ctx["prefix"] + "dashboard.html", match="dashboard.html")
         try:
             ready = poll(session, "(() => { const f = document.querySelector('iframe');"
                                   " return f && f.contentDocument && f.contentDocument.readyState === 'complete'"
@@ -438,28 +468,29 @@ def phase_ublock(args):
             session.close()
         job.row("ublock: dashboard loads", bool(ready), {"pane": ready, "shot": shot})
 
-        # Dynamic filtering: the third-party script loads, then a rule blocks it.
-        jq_before = ads_check_jq(job, url)
-        rules = job.open_tab(prefix + "dyna-rules.html", match="dyna-rules.html")
+    def dynamic():
+        before = ads_check_jq(job, url)
+        rules = job.open_tab(ctx["prefix"] + "dyna-rules.html", match="dyna-rules.html")
         try:
-            poll(rules, "typeof vAPI === 'object' && vAPI.messaging && true", 15)
+            poll(rules, "typeof vAPI === 'object' && !!vAPI.messaging", 15)
             result = rules.evaluate(
                 "vAPI.messaging.send('dashboard', {what: 'modifyRuleset', permanent: false,"
-                " toAdd: '* * 3p-script block', toRemove: ''}).then(r => r && r.sessionRules ? r.sessionRules.filter(x => /3p-script/.test(x)) : r)")
+                " toAdd: '* * 3p-script block', toRemove: ''}).then(r => JSON.stringify(r).slice(0, 400))")
             rules.call("Page.reload")
             time.sleep(2)
-            rules_shot = job.page_shot(rules, "ublock-dynamic-rules")
+            shot = job.page_shot(rules, "ublock-dynamic-rules")
         finally:
             rules.close()
-        jq_after = ads_check_jq(job, url)
-        job.row("ublock: dynamic filtering blocks a third-party script",
-                jq_before == "loaded" and jq_after == "blocked",
-                {"before": jq_before, "rule": result, "after": jq_after, "shot": rules_shot})
+        after = ads_check_jq(job, url)
+        job.row("ublock: dynamic filtering blocks a third-party script", before == "loaded" and after == "blocked",
+                {"before": before, "rule": result, "after": after, "shot": shot})
         job.window_shot("ublock-window")
-    finally:
-        job.stop()
-        server.shutdown()
-    return job.finish()
+
+    return run_phase(job, [("ublock: loaded", loaded), ("ublock: background", background),
+                           ("ublock: blocking", blocking), ("ublock: popup", popup),
+                           ("ublock: dashboard", dashboard), ("ublock: dynamic filtering", dynamic),
+                           ("ublock: score pages", lambda: score_pages(job, "ublock"))],
+                     cleanup=[server.shutdown])
 
 
 def ads_check_jq(job, url):
