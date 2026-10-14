@@ -55,17 +55,22 @@ fn own_bundle_cli(dir: &Path) -> PathBuf {
     cli
 }
 
-/// `cli <args>` in a terminal of the other app: its three variables, and
-/// nothing else that could pick an app, daemon or Chief.
-fn in_other_apps_terminal(cli: &Path, user_home: &Path, other_socket: &Path, args: &[&str]) -> Output {
+/// `cli <args>` in a terminal of the other app, with what such a terminal
+/// carries: the app's `CMUX_BUNDLE_ID`, `CMUX_TAG` and `CMUX_SOCKET_PATH`,
+/// its daemon's `CMUX_TUI_SOCKET` (daemon_env.rs), its Chief's
+/// `CMUX_CHIEF_HOME` (AppEnvironment.swift) and an agent's `ACPMUX_HOME`,
+/// all under `other` (the other app's Chief home is the one under
+/// `user_home`); nothing else that could pick an app, daemon or Chief.
+fn in_other_apps_terminal(cli: &Path, user_home: &Path, other: &Path, args: &[&str]) -> Output {
     let mut command = Command::new(cli);
     command.args(args).env("LC_ALL", "C").env("HOME", user_home);
     for key in [
-        "CMUX_TUI_SOCKET",
         "CMUX_MUX_SOCKET",
         "CMUX_TUI_SESSION",
+        "CMUX_APP_DAEMON_SOCKET",
+        "CMUX_CHIEF_OWNER_SOCKET",
         "XDG_RUNTIME_DIR",
-        "CMUX_CHIEF_HOME",
+        "ACPMUX_SOCKET",
         "CMUX_NEXT_CHIEF_HOME",
         "CMUX_NEXT_MUX_HOME",
         "CMUX_NEXT_CHIEF_ROOT",
@@ -82,7 +87,10 @@ fn in_other_apps_terminal(cli: &Path, user_home: &Path, other_socket: &Path, arg
     command
         .env("CMUX_BUNDLE_ID", OTHER_BUNDLE)
         .env("CMUX_TAG", "s4other")
-        .env("CMUX_SOCKET_PATH", other_socket)
+        .env("CMUX_SOCKET_PATH", other.join("other-app.sock"))
+        .env("CMUX_TUI_SOCKET", other.join("other-daemon.sock"))
+        .env("CMUX_CHIEF_HOME", user_home.join(".cmux/chief").join(OTHER_BUNDLE))
+        .env("ACPMUX_HOME", other.join("other-acpmux"))
         .stdin(Stdio::null())
         .output()
         .unwrap()
@@ -101,16 +109,31 @@ fn a_bundled_cmux_in_another_apps_terminal_reaches_its_own_app() {
     let user_home = dir.join("home");
     fs::create_dir_all(&user_home).unwrap();
     let cli = own_bundle_cli(&dir);
-    let other_socket = dir.join("other-app.sock");
-    let output = in_other_apps_terminal(&cli, &user_home, &other_socket, &["--json", "identify"]);
+    let output = in_other_apps_terminal(&cli, &user_home, &dir, &["--json", "identify"]);
     let text = text_of(&output);
     let _ = fs::remove_dir_all(&dir);
     assert!(!output.status.success(), "an app answered: {text}");
     assert!(
-        !text.contains(other_socket.to_str().unwrap()),
+        !text.contains("other-app.sock") && !text.contains("other-daemon.sock"),
         "the CLI of {OWN_BUNDLE} tried the other app's socket: {text}"
     );
-    assert!(text.contains("s4own"), "the CLI did not try its own app's socket: {text}");
+    assert!(text.contains("cmux-debug-s4own.sock"), "the CLI did not try its own app's socket: {text}");
+    assert!(warns_of_both(&text), "no warning naming both builds: {text}");
+}
+
+/// A daemon command (`cmux workspace list`) never goes to the other app's
+/// daemon (`CMUX_TUI_SOCKET` of its terminal), and warns.
+#[test]
+fn a_bundled_cmux_in_another_apps_terminal_never_reaches_that_apps_daemon() {
+    let dir = unique_temp_dir("daemon");
+    let user_home = dir.join("home");
+    fs::create_dir_all(&user_home).unwrap();
+    let cli = own_bundle_cli(&dir);
+    let output = in_other_apps_terminal(&cli, &user_home, &dir, &["--json", "workspace", "list"]);
+    let text = text_of(&output);
+    let _ = fs::remove_dir_all(&dir);
+    assert!(!output.status.success(), "a daemon answered: {text}");
+    assert!(!text.contains("other-daemon.sock"), "the CLI of {OWN_BUNDLE} tried the other app's daemon: {text}");
     assert!(warns_of_both(&text), "no warning naming both builds: {text}");
 }
 
@@ -140,7 +163,7 @@ fn stand_in_brain(lock: &Path) -> Child {
 }
 
 /// `cmux chief shutdown` stops its own build's Chief, never the Chief of the
-/// app whose terminal it runs in.
+/// app whose terminal it runs in (named there by `CMUX_CHIEF_HOME` too).
 #[test]
 fn a_bundled_cmux_in_another_apps_terminal_never_stops_that_apps_chief() {
     let dir = unique_temp_dir("chief");
@@ -148,7 +171,7 @@ fn a_bundled_cmux_in_another_apps_terminal_never_stops_that_apps_chief() {
     let lock = user_home.join(".cmux/chief").join(OTHER_BUNDLE).join("state/host.lock");
     let mut brain = stand_in_brain(&lock);
     let cli = own_bundle_cli(&dir);
-    let output = in_other_apps_terminal(&cli, &user_home, &dir.join("other-app.sock"), &["chief", "shutdown"]);
+    let output = in_other_apps_terminal(&cli, &user_home, &dir, &["chief", "shutdown"]);
     // A shutdown returns once the lock is free; give a wrong one time to end it.
     let deadline = Instant::now() + Duration::from_secs(3);
     let mut status = brain.try_wait().unwrap();
