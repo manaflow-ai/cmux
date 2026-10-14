@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { SignIn } from "./signIn";
 import { sessionModels } from "./modelCatalog";
 import {
   isDefaultChoice,
@@ -122,6 +123,8 @@ type Props = {
   /// Add harness… (see ModelPickerProps.onAddAgent): the picker's last row, and the whole chip
   /// once acpmux has listed no harness at all.
   onAddAgent?(): void;
+  /// The harnesses this Mac's acpmux found signed out, and their Log In (see ModelPickerProps.signedOut).
+  signIn?: SignIn;
   /// acpmux has answered with its harnesses: only then does an empty catalog mean none is installed.
   harnessesListed?: boolean;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
@@ -148,6 +151,7 @@ export function ComposerPickers({
   onHarnessHint,
   onHarnessEnable,
   onAddAgent,
+  signIn,
   harnessesListed = false,
   folder,
   settleMs = RECENT_SETTLE_MS,
@@ -471,6 +475,7 @@ export function ComposerPickers({
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
+          {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           fastMode={fastMode}
           catalogRefresh={catalogRefresh}
           harnessNotes={
@@ -1147,6 +1152,18 @@ export const SlashIcon = () => (
 );
 
 /// Level names the pane writes itself, whatever the agent calls them ("Xhigh" reads Extra High).
+/// The signed-out harnesses the picker blocks: never the one a started chat runs on, whose session
+/// already signed in (a stale or wrong health row must not lock the person out of their chat).
+function pickableSignedOut(
+  signedOut: Readonly<Record<string, string>>,
+  summary: AcpmuxSnapshot["summary"],
+): Readonly<Record<string, string>> {
+  const running = summary?.sessionId ? summary.harness : undefined;
+  if (!running || !(running in signedOut)) return signedOut;
+  const { [running]: _running, ...rest } = signedOut;
+  return rest;
+}
+
 const LEVEL_KEYS: Record<string, StringKey> = {
   low: "effort.level.low",
   medium: "effort.level.medium",
