@@ -570,9 +570,8 @@ fn open_url_in_an_empty_home_makes_a_frontend_tab() {
     let home = v2(&server, "workspace.ensure_home", json!({}), Some("open-url-fresh-home"));
     let home = value(&home)["workspace_id"].as_str().unwrap().to_string();
 
-    let open = |url: &str, key: &str| {
-        v2(&server, "workspace.open_url", json!({"url": url}), Some(key))
-    };
+    let open =
+        |url: &str, key: &str| v2(&server, "workspace.open_url", json!({"url": url}), Some(key));
     let opened = open("https://example.com/home", "open-url-fresh-home-1");
     let first = value(&opened).clone();
     assert_eq!(first["kind"], "browser", "{opened}");
