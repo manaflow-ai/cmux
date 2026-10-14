@@ -31,16 +31,18 @@ impl Hub {
     /// allowlist again) and its system prompt file (checked against its
     /// recorded sha256) are appended here, at every spawn; a remote-origin
     /// session never gets either. The approval digest of the preset contents
-    /// read here is noted on the session (`hub/start_gate/preset_bind.rs`).
+    /// read here goes with the profile, and only a cold start records it
+    /// (`Hub::ensure_child`, `hub/start_gate/preset_bind.rs`): a request that
+    /// finds the agent running spawns nothing and records nothing.
     pub(super) async fn spawn_profile(
         &self,
         session: &Session,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
-    ) -> Result<HarnessProfile, RpcError> {
-        let (p, digest) = self.spawn_profile_read(&session.meta(), profile, defaults_env).await?;
-        self.note_preset_spawned(session, digest);
-        Ok(p)
+    ) -> Result<Spawn, RpcError> {
+        let (profile, preset_digest) =
+            self.spawn_profile_read(&session.meta(), profile, defaults_env).await?;
+        Ok(Spawn { profile, preset_digest })
     }
 
     /// `spawn_profile` for a session's meta, also before the session exists
@@ -126,6 +128,20 @@ impl Hub {
             p.argv.push(file.to_string_lossy().into_owned());
         }
         Ok((p, digest))
+    }
+}
+
+/// A session's spawn: the profile as it is spawned, and the approval digest
+/// of the preset contents that profile was built from (under one config read).
+pub(super) struct Spawn {
+    pub profile: HarnessProfile,
+    pub preset_digest: Option<String>,
+}
+
+impl std::ops::Deref for Spawn {
+    type Target = HarnessProfile;
+    fn deref(&self) -> &HarnessProfile {
+        &self.profile
     }
 }
 

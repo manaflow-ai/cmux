@@ -8,7 +8,6 @@ use super::*;
 
 mod preset_bind;
 pub(crate) use preset_bind::StartGrant;
-pub(in crate::hub) use preset_bind::fresh_applied;
 
 /// The env var that carries a session's caller token to its harness (and
 /// so to the acpmux CLI its agent runs).

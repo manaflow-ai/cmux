@@ -303,7 +303,7 @@ impl Hub {
     pub(super) async fn ensure_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        profile: &HarnessProfile,
+        profile: &super::spawn::Spawn,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
@@ -339,7 +339,7 @@ impl Hub {
 
         self.record_launch_roots(session, profile).await;
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
-        super::start_gate::fresh_applied(session);
+        self.fresh_agent(session, profile.preset_digest.clone());
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {

@@ -119,10 +119,14 @@
 //!   records the digest of what it used, and the start counts the approval
 //!   only when the resolve's and the spawn's digests are the approved one
 //!   (`hub/start_gate/preset_bind.rs`), so an edit that is put back between
-//!   reads gains nothing. Such a preset never takes a pooled harness. The
-//!   session records the approved digest; a later spawn from other
+//!   reads gains nothing. The spawn's digest is recorded only by the cold
+//!   start of the agent, under the session's spawn lock, for the profile it
+//!   actually started; a request that finds the agent running or re-adopts
+//!   its host records nothing. Such a preset never takes a pooled harness.
+//!   The session records the approved digest; a later cold start from other
 //!   contents (an edit, then a respawn) starts in the harness's own mode
-//!   instead of replaying the approved one. Bound to the
+//!   instead of replaying the approved one, and a running agent keeps the
+//!   mode it runs, which its saved mode keeps saying. Bound to the
 //!   contents, not cleared on a write, so every way the preset can change
 //!   (a `_acpmux/presets` write from any client, a hand edit of config.json
 //!   and a reload, a future write path) drops it without having to know
@@ -151,6 +155,11 @@
 //!   so this daemon's prompts (whose proofs it can make) never arrive with
 //!   a peer's text. Binding the proof to the prompt's text would need the
 //!   app to hash what it shows; not done.
+//!   Residual: the run a peer names at its handshake is a claim. A peer can
+//!   name a third daemon's run (one the app enrolled directly, say over
+//!   ssh) and re-send that daemon's prompt with other text; this daemon
+//!   cannot tell. The app has to refuse to prove a `via: "peer"` prompt whose
+//!   `personInstance` is a daemon it enrolled directly (an app follow-up).
 //!
 //! The default start mode (`hub/start_mode.rs`, cx-wx93i) is not a request:
 //! with no `mode` asked, a new chat starts in the person's latest pick, else
