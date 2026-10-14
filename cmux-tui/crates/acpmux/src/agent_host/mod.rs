@@ -414,14 +414,16 @@ pub fn liveness(_dir: &Path, _session_id: &str, _start_nonce: &str) -> Liveness 
 }
 
 /// End a host without speaking its protocol: the path for a host this build
-/// cannot adopt, frozen across versions. Signals only the host, and only with
-/// proof that the recorded PID is this session's live host: the exact lock
-/// its record names (`<session>.<start nonce>.live`) is held. A host ends its
+/// cannot adopt, frozen across versions. Signals the host only with proof
+/// that the recorded PID is this session's live host: the exact lock its
+/// record names (`<session>.<start nonce>.live`) is held. A host ends its
 /// harness group on SIGTERM while that group is still its own (it alone knows
 /// whether the leader was reaped), then exits. If it does not exit within
-/// `TERM_GRACE` it is killed; the dropped lock is the death proof.
-/// `Ok(true)` when no such host runs any more. Blocks up to about twice
-/// `TERM_GRACE`: call it off the async runtime.
+/// `TERM_GRACE` it is killed, and the processes that ran under it (taken by
+/// pid and start time before the kill) are killed too; the dropped lock is
+/// the death proof. `Ok(true)` when no such host runs any more. Blocks up to
+/// about twice `TERM_GRACE` plus two process-table reads: call it off the
+/// async runtime.
 #[cfg(unix)]
 pub fn terminate_unadoptable(
     dir: &Path,
@@ -453,7 +455,7 @@ pub fn terminate_unadoptable(
         // its harness: take the processes under it (by pid and start time)
         // while the lock still proves `pid` is the host, and end them after
         // it, so no harness runs on without an owner.
-        let under = tree::descendants(&[host_pid.unwrap_or_default()]);
+        let under = tree::descendants(&[pid as u32]);
         // SAFETY: as above, re-proven just now.
         unsafe { libc::kill(pid, libc::SIGKILL) };
         let dead = dead_within(TERM_GRACE);
@@ -535,13 +537,13 @@ pub fn promote(from: &Path, to: &Path, record: &HostRecord) -> Result<()> {
 }
 
 /// A host started in the pool directory `dir` may have been promoted: end
-/// the promoted lock, and the promoted record when it is still this host's.
+/// the promoted record when it is still this host's, then the promoted lock
+/// (last, as in [`remove_own_artifacts`]: its absence is the death proof).
 pub fn remove_promoted(dir: &Path, record: &HostRecord) {
     if dir.file_name().and_then(|n| n.to_str()) != Some(POOL_DIR_NAME) {
         return;
     }
     let Some(hosts) = dir.parent() else { return };
-    let _ = std::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
     let path = record_path(hosts, &record.session_id);
     let ours = std::fs::read(&path)
         .ok()
@@ -550,6 +552,7 @@ pub fn remove_promoted(dir: &Path, record: &HostRecord) {
     if ours {
         let _ = std::fs::remove_file(&path);
     }
+    let _ = std::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
 }
 
 /// Write `value` to `path` through a temporary file and a rename.
