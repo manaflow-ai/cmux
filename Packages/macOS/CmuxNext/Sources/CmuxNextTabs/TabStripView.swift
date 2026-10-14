@@ -92,7 +92,11 @@ public final class TabStripView: NSView {
     /// A tab opened right after `anchor` that this strip waits for (`expectInsertion(after:)`).
     var inserting: (anchor: TabID, since: CFTimeInterval)?
     /// Newcomers shown right after their anchor (and its group) until the model puts them there.
-    var placed: [TabID: (anchor: TabID, since: CFTimeInterval)] = [:]
+    /// `others`: the model's other (non-provisional) tabs when it was placed; a change there is
+    /// another mover, and the model's order rules again.
+    var placed: [TabID: (anchor: TabID, since: CFTimeInterval, others: [TabID])] = [:]
+    /// Provisional tabs (`TabItem.isProvisional`) and when this strip first listed them.
+    var provisionalSince: [TabID: CFTimeInterval] = [:]
     var isAnimating: Bool { motionClock?.isRunning(self) ?? false }
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?

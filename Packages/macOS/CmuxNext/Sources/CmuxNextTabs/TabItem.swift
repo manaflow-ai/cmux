@@ -41,9 +41,12 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// app tab's record keeps about:blank while its page shows a site).
     public var isNewTabPage = false
     /// The App's stand-in for a tab the store is still creating: the first
-    /// tab this strip has not shown takes its cell in place
+    /// tab of its kind this strip has not shown takes its cell in place
     /// (`TabStripView.adoptReplacements`), so a new tab is one element.
     public var isProvisional = false
+    /// The tab's kind as the App names it (terminal, browser, conversation):
+    /// a provisional tab pairs only with a store tab of the same kind.
+    public var kindKey: String?
     /// Group this tab belongs to. Ignored for pinned tabs and
     /// for ids missing from `TabStripModel.groups`.
     public var groupID: TabGroupID?

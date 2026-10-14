@@ -215,6 +215,13 @@ def run_config(name, settings):
                 time.sleep(0.6)  # test harness wait
                 key("w", ["command"])
                 time.sleep(0.6)  # test harness wait
+    # hq-4e review item 1: a tab drag while a CLI new tab lands keeps the drag's springs.
+    if not opts.base:
+        terminal_tab()
+        results["gestures"].append(strip("drag-new", os.path.join(out, "drag-new"), "t", ["command"], gesture="drag_new"))
+        time.sleep(0.8)  # test harness wait
+        key("w", ["command"])
+        time.sleep(0.6)  # test harness wait
     # After current (tabs.newTabPosition afterCurrent): Cmd-T on tab 1 of three shows the page in
     # slot 2 from its first frame; submitting it (`!ls`, Return) puts the terminal in that slot.
     if not opts.base:

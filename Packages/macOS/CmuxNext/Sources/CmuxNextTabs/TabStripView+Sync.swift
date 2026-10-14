@@ -49,11 +49,16 @@ extension TabStripView {
         // A new tab grows into its slot while its neighbours slide, on one clock, and a closed one
         // gives its room back; with `ui.animations.newTab` off (the default), or under Reduce
         // Motion, the whole strip takes its new places in one step (no crossfade standing in for
-        // the motion, DESIGN P6). Reorders and drags keep their motion.
+        // the motion, DESIGN P6). A tab that comes or goes during a person's gesture (a drag, a
+        // group drag, a drop settling) appears or leaves at once while every other spring of the
+        // gesture keeps running. Reorders and drags keep their motion.
         let adding = ordered.contains { cells[$0.id] == nil }
         let shownIDs = Set(ordered.map(\.id))
         let removing = cells.keys.contains { !shownIDs.contains($0) && !dying.contains($0) }
-        let animated = hasSynced && !reduceMotion && animating && (!(adding || removing) || Motion.animates(.newTab))
+        let structureAnimates = !(adding || removing) || Motion.animates(.newTab)
+        let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
+        let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
+        let cellsAnimate = animated && structureAnimates
         let ids = Set(ordered.map(\.id))
         if MotionTrace.isEnabled {
             let shownBefore = displayed.map(\.id)
@@ -68,7 +73,7 @@ extension TabStripView {
             removeTab(page)
         }
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) {
-            if animated {
+            if cellsAnimate {
                 dying.insert(id)
                 motion[id]?.width.target = 0
                 motion[id]?.alpha.target = 0
@@ -89,7 +94,7 @@ extension TabStripView {
                 _ = makeCell(item, animated: false)
                 motion[item.id] = geometry
             } else {
-                added.insert(makeCell(item, animated: animated))
+                added.insert(makeCell(item, animated: cellsAnimate))
             }
         }
         added.formUnion(syncChips(ordered, animated: animated))
@@ -113,7 +118,7 @@ extension TabStripView {
             needsLayout = true
         }
 
-        relayout(animated: animated || (styleChanged && !reduceMotion), added: added)
+        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate)
 
         let selected = model.selectedID
         if let selected, selected != lastSelectedID || added.contains(selected) {

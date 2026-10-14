@@ -55,13 +55,15 @@ enum NewTabSlot {
     /// The page's left neighbour is read now, as the page closes meanwhile,
     /// from the order the strip shows: a page opened after the current tab
     /// shows in its slot before the model moves it there (`expectInsertion`),
-    /// and a submit in that window keeps that slot, not the model's end.
+    /// and a submit in that window keeps that slot, not the model's end. A
+    /// neighbour the pane does not list (a provisional tab of a Cmd-T just
+    /// before) is skipped for the next one left of it.
     static func placing(replacing page: String, services: AppServices,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard let located = services.locateTab(page), case let (tab, pane) = located else { return then }
         let shown = services.paneController(for: pane)?.view.stripView.displayedOrder ?? pane.tabs.map { StripTabID($0.id) }
         guard let index = shown.firstIndex(of: StripTabID(tab.id)), index + 1 < shown.count else { return then } // shown last: it appends
-        let before = index > 0 ? pane.tabs.first { StripTabID($0.id) == shown[index - 1] } : nil
+        let before = shown[..<index].reversed().lazy.compactMap { id in pane.tabs.first { StripTabID($0.id) == id } }.first
         return { surface in
             then?(surface)
             place(in: { [weak pane] in pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { others in
@@ -101,7 +103,10 @@ enum NewTabSlot {
             bound.cancel()
             guard found, let located = locate(), case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
                   pane.tabs.firstIndex(where: { $0 === tab }) != final else { return nil }
-            TabMoves.move(tab, to: pane, index: final, services: services)
+            // A refused move ends the strip's showing it in the slot at once (no 10 s hold, then a jump).
+            TabMoves.move(tab, to: pane, index: final, services: services) { moved in
+                if !moved { services.paneController(for: pane)?.view.stripView.endPlacement(of: StripTabID(tab.id)) }
+            }
             return nil
         })
     }
