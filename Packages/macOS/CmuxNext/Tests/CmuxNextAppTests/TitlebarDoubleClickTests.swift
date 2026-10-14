@@ -43,6 +43,35 @@ import Testing
                                         windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: 1))
     }
 
+    /// The sidebar's resize handle reaches into the top row: a press on it resizes the sidebar and
+    /// never moves the window (Leo, cosmic-gray 2026-10-13: a top-row handle took its neighbors'
+    /// clicks and moved the window under its own drag).
+    @Test func aPressOnTheSidebarResizeHandleInTheTopRowStaysWithTheHandle() throws {
+        _ = NSApplication.shared
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
+        let window = ShellWindow(contentRect: root.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                 backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        window.contentView = root
+        root.layoutSubtreeIfNeeded()
+        defer { window.close() }
+        let views = sequence(state: [NSView](arrayLiteral: root.sidebar)) { stack -> NSView? in
+            guard !stack.isEmpty else { return nil }
+            let view = stack.removeLast()
+            stack.append(contentsOf: view.subviews)
+            return view
+        }
+        let handle = try #require(views.first { String(describing: type(of: $0)) == "SidebarResizeHandle" }, "the shown sidebar has a resize handle")
+        let frame = handle.convert(handle.bounds, to: nil)
+        let band = TitlebarDragPolicy.bandRect(in: window)
+        let point = CGPoint(x: frame.midX, y: band.midY)
+        let frameView = try #require(window.contentView?.superview)
+        try #require(frameView.hitTest(frameView.convert(point, from: nil)) === handle, "the handle is under the top-row point")
+
+        #expect(TitlebarDragPolicy.decide(at: point, in: window) == .staysPut)
+    }
+
     @Test(.enabled(if: NSScreen.main != nil)) func aDoubleClickOnTheSidebarHeaderZoomsTheWindowOnce() throws {
         // The host's own titlebar setting does not decide the test: zoom, in this process only.
         let defaults = UserDefaults.standard
