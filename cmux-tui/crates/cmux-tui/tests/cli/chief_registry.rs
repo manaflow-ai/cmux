@@ -3,6 +3,7 @@
 //! delete`; a Chief, on its own bound connection, changes its own picture and
 //! only the fields the person allowed; other agents are refused.
 
+use super::super::conversation_tree::{TOKEN, Ws, ws_addr};
 use super::*;
 use serde_json::{Value, json};
 
@@ -522,7 +523,7 @@ fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
 }
 
 /// The Chief and the change of the next `chief-changed` event on the page's WebSocket.
-fn next_chief_change(page: &mut super::super::conversation_tree::Ws) -> (String, String) {
+fn next_chief_change(page: &mut Ws) -> (String, String) {
     loop {
         let event = page.events.pop_front().unwrap_or_else(|| page.read());
         if event["event"] == "chief-changed" {
@@ -534,7 +535,6 @@ fn next_chief_change(page: &mut super::super::conversation_tree::Ws) -> (String,
 
 #[test]
 fn every_chief_change_reaches_the_subscribers_that_asked() {
-    use super::super::conversation_tree::{TOKEN, Ws, ws_addr};
     use base64::Engine as _;
     // cx-ebm.60.4: Home and the Channels page redraw their Chiefs on an
     // event, not by polling chief.profile.list.
@@ -583,7 +583,7 @@ fn every_chief_change_reaches_the_subscribers_that_asked() {
     let refused = v2(&mut home, "chief.profile.delete", json!({"chief": "agent_mux"}), Some("x"));
     assert_eq!(refused["ok"], false, "{refused}");
     ok(&v2(&mut home, "chief.profile.delete", json!({"chief": scout}), Some("changed-delete")));
-    assert_eq!(next_chief_change(&mut page), (scout.clone(), "deleted".to_owned()));
+    assert_eq!(next_chief_change(&mut page), (scout, "deleted".to_owned()));
 
     quiet.request("identify", json!({}));
     assert!(
