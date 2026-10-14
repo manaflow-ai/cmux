@@ -8,17 +8,22 @@ public import Foundation
 ///   opacity changes stay as a short crossfade (hover feedback is
 ///   instant); loops stop.
 /// - `normal`: every time constant is 1.5x the `fast` token.
+/// - A live resize (a window edge under the pointer): movement is instant,
+///   so each frame lays out at the window's size and nothing springs toward
+///   a size the next frame replaces; fades and loops run as usual.
 public nonisolated struct MotionPolicy: Sendable, Equatable {
     public var speed: MotionSpeed
     public var reduceMotion: Bool
+    public var liveResize: Bool
 
-    public init(speed: MotionSpeed, reduceMotion: Bool) {
+    public init(speed: MotionSpeed, reduceMotion: Bool, liveResize: Bool = false) {
         self.speed = speed
         self.reduceMotion = reduceMotion
+        self.liveResize = liveResize
     }
 
     /// Position, size, scale and scroll animate. When false, snap.
-    public var animatesMovement: Bool { speed != .off && !reduceMotion }
+    public var animatesMovement: Bool { speed != .off && !reduceMotion && !liveResize }
     /// Opacity and color changes animate. When false, apply at once.
     public var animatesFades: Bool { speed != .off }
     /// Repeating indicators (spinner, pulse) run.

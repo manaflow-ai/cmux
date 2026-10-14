@@ -26,6 +26,9 @@ public struct Motion {
     /// (`NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`).
     public static let reduceMotionDidChange = Notification.Name("CmuxNextDesign.Motion.reduceMotionDidChange")
 
+    /// Posted on the main actor when `ui.animationSpeed` (`DesignSettings.animationSpeed`) changes.
+    public static let speedDidChange = Notification.Name("CmuxNextDesign.Motion.speedDidChange")
+
     /// System Reduce Motion (Accessibility > Display), or the test override.
     public static var reduceMotion: Bool {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -33,7 +36,7 @@ public struct Motion {
 
     public static var speed: MotionSpeed { DesignSettings.shared.animationSpeed }
 
-    public static var policy: MotionPolicy { MotionPolicy(speed: speed, reduceMotion: reduceMotion) }
+    public static var policy: MotionPolicy { MotionPolicy(speed: speed, reduceMotion: reduceMotion, liveResize: isLiveResizing) }
 
     /// Position, size, scale and scroll animate. When false, snap.
     public static var animatesMovement: Bool { policy.animatesMovement }

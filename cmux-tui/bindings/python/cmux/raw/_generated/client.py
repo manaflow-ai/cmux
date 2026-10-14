@@ -111,11 +111,26 @@ class GeneratedClientMixin:
     def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING, if_empty: Union[bool, MissingType] = MISSING, reason: Union[CloseReason, None, MissingType] = MISSING) -> WorkspaceMutationResult:
         return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, end_terminals=end_terminals, if_empty=if_empty, reason=reason))
 
+    def cloud_attachment_link(self, conversation: str, hash: str, *, name: Union[str, None, MissingType] = MISSING, variant: Union[str, None, MissingType] = MISSING) -> CloudAttachmentLinkResult:
+        return self._invoke_command('cloud-attachment-link', CloudAttachmentLinkRequest(conversation=conversation, hash=hash, name=name, variant=variant))
+
+    def cloud_attachment_read(self, conversation: str, hash: str, *, length: Union[int, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, variant: Union[str, None, MissingType] = MISSING) -> CloudAttachmentReadResult:
+        return self._invoke_command('cloud-attachment-read', CloudAttachmentReadRequest(conversation=conversation, hash=hash, length=length, offset=offset, variant=variant))
+
+    def cloud_attachment_upload(self, op: str, *, byte_count: Union[int, None, MissingType] = MISSING, conversation: Union[str, None, MissingType] = MISSING, data: Union[str, None, MissingType] = MISSING, duration_ms: Union[int, None, MissingType] = MISSING, height: Union[int, None, MissingType] = MISSING, mime_type: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, piece: Union[str, None, MissingType] = MISSING, poster: Union[JsonValue, None, MissingType] = MISSING, preview: Union[JsonValue, None, MissingType] = MISSING, sha256: Union[str, None, MissingType] = MISSING, upload: Union[str, None, MissingType] = MISSING, width: Union[int, None, MissingType] = MISSING) -> CloudAttachmentUploadResult:
+        return self._invoke_command('cloud-attachment-upload', CloudAttachmentUploadRequest(op=op, byte_count=byte_count, conversation=conversation, data=data, duration_ms=duration_ms, height=height, mime_type=mime_type, name=name, offset=offset, piece=piece, poster=poster, preview=preview, sha256=sha256, upload=upload, width=width))
+
     def cloud_conversation_history(self, before_seq: int, conversation: str, limit: int) -> JsonValue:
         return self._invoke_command('cloud-conversation-history', CloudConversationHistoryRequest(before_seq=before_seq, conversation=conversation, limit=limit))
 
     def cloud_conversation_op(self, idempotency_key: str, op: Union[JsonValue, None], *, conversation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-conversation-op', CloudConversationOpRequest(idempotency_key=idempotency_key, op=op, conversation=conversation, origin=origin))
+
+    def cloud_conversation_run(self, agent: str, conversation: str, run: str, *, after_seq: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-conversation-run', CloudConversationRunRequest(agent=agent, conversation=conversation, run=run, after_seq=after_seq))
+
+    def cloud_conversation_runs(self, agent: str, conversation: str, *, before_started_at: Union[int, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-conversation-runs', CloudConversationRunsRequest(agent=agent, conversation=conversation, before_started_at=before_started_at, limit=limit))
 
     def cloud_conversation_snapshot(self, conversation: str, tail: int) -> JsonValue:
         return self._invoke_command('cloud-conversation-snapshot', CloudConversationSnapshotRequest(conversation=conversation, tail=tail))
@@ -132,6 +147,9 @@ class GeneratedClientMixin:
     def cloud_inbox_list(self, *, include_archived: Union[bool, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-inbox-list', CloudInboxListRequest(include_archived=include_archived, limit=limit))
 
+    def cloud_inbox_op(self, conversation: str, idempotency_key: str, op: Union[JsonValue, None]) -> JsonValue:
+        return self._invoke_command('cloud-inbox-op', CloudInboxOpRequest(conversation=conversation, idempotency_key=idempotency_key, op=op))
+
     def cloud_inbox_subscribe(self) -> JsonValue:
         return self._invoke_command('cloud-inbox-subscribe', CloudInboxSubscribeRequest())
 
@@ -147,6 +165,9 @@ class GeneratedClientMixin:
     def cloud_mux_unsubscribe(self) -> JsonValue:
         return self._invoke_command('cloud-mux-unsubscribe', CloudMuxUnsubscribeRequest())
 
+    def cloud_participant_avatar_get(self, participant_id: str) -> JsonValue:
+        return self._invoke_command('cloud-participant-avatar-get', CloudParticipantAvatarGetRequest(participant_id=participant_id))
+
     def cloud_session_clear(self) -> JsonValue:
         return self._invoke_command('cloud-session-clear', CloudSessionClearRequest())
 
@@ -158,6 +179,9 @@ class GeneratedClientMixin:
 
     def conversation_agent_token(self, participant: str) -> ConversationAgentTokenResult:
         return self._invoke_command('conversation-agent-token', ConversationAgentTokenRequest(participant=participant))
+
+    def conversation_attachment_link(self, conversation: str, hash: str, *, name: Union[str, None, MissingType] = MISSING, variant: Union[str, None, MissingType] = MISSING) -> ConversationAttachmentLinkResult:
+        return self._invoke_command('conversation-attachment-link', ConversationAttachmentLinkRequest(conversation=conversation, hash=hash, name=name, variant=variant))
 
     def conversation_attachment_read(self, conversation: str, hash: str, *, length: Union[int, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, variant: Union[str, None, MissingType] = MISSING) -> ConversationAttachmentReadResult:
         return self._invoke_command('conversation-attachment-read', ConversationAttachmentReadRequest(conversation=conversation, hash=hash, length=length, offset=offset, variant=variant))
@@ -180,6 +204,9 @@ class GeneratedClientMixin:
     def conversation_import(self, conversation: str, messages: List[ConversationImportMessage]) -> ConversationImportResult:
         return self._invoke_command('conversation-import', ConversationImportRequest(conversation=conversation, messages=messages))
 
+    def conversation_inbox_op(self, conversation: str, op: Union[JsonValue, None]) -> ConversationInboxOpResult:
+        return self._invoke_command('conversation-inbox-op', ConversationInboxOpRequest(conversation=conversation, op=op))
+
     def conversation_link_resolve(self, url: str) -> ConversationLinkResolveResult:
         return self._invoke_command('conversation-link-resolve', ConversationLinkResolveRequest(url=url))
 
@@ -188,6 +215,15 @@ class GeneratedClientMixin:
 
     def conversation_op(self, conversation: str, idempotency_key: str, op: Union[JsonValue, None], *, actor: Union[str, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> ConversationOpResult:
         return self._invoke_command('conversation-op', ConversationOpRequest(conversation=conversation, idempotency_key=idempotency_key, op=op, actor=actor, transaction=transaction))
+
+    def conversation_run(self, conversation: str, run: str, *, after_rev: Union[int, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> ConversationRunResult:
+        return self._invoke_command('conversation-run', ConversationRunRequest(conversation=conversation, run=run, after_rev=after_rev, limit=limit))
+
+    def conversation_run_append(self, conversation: str, run: Union[JsonValue, None], *, steps: Union[List[JsonValue], MissingType] = MISSING) -> ConversationRunAppendResult:
+        return self._invoke_command('conversation-run-append', ConversationRunAppendRequest(conversation=conversation, run=run, steps=steps))
+
+    def conversation_runs(self, conversation: str, *, before_started_at: Union[int, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING, turns: Union[List[str], None, MissingType] = MISSING) -> ConversationRunsResult:
+        return self._invoke_command('conversation-runs', ConversationRunsRequest(conversation=conversation, before_started_at=before_started_at, limit=limit, turns=turns))
 
     def conversation_search(self, limit: int, query: str) -> ConversationSearchResult:
         return self._invoke_command('conversation-search', ConversationSearchRequest(limit=limit, query=query))
@@ -411,14 +447,14 @@ class GeneratedClientMixin:
     def move_tab_group_to_split(self, pane: PaneRef, edge: str, group: str, *, ratio: Union[float, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> TabGroupOutcome:
         return self._invoke_command('move-tab-group-to-split', MoveTabGroupToSplitRequest(pane=pane, edge=edge, group=group, ratio=ratio, transaction=transaction))
 
-    def move_tab_to_column(self, surface: Id, *, pane: Union[Id, None, MissingType] = MISSING, screen: Union[Id, None, MissingType] = MISSING, after_column: Union[Id, None, MissingType] = MISSING, dock: Union[ColumnPin, None, MissingType] = MISSING, respawn: Union[SplitRespawn, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('move-tab-to-column', MoveTabToColumnRequest(surface=surface, pane=pane, screen=screen, after_column=after_column, dock=dock, respawn=respawn, transaction=transaction, width=width))
+    def move_tab_to_column(self, surface: Id, *, pane: Union[Id, None, MissingType] = MISSING, screen: Union[Id, None, MissingType] = MISSING, after_column: Union[Id, None, MissingType] = MISSING, dock: Union[ColumnPin, None, MissingType] = MISSING, keep_focus: Union[bool, MissingType] = MISSING, respawn: Union[SplitRespawn, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('move-tab-to-column', MoveTabToColumnRequest(surface=surface, pane=pane, screen=screen, after_column=after_column, dock=dock, keep_focus=keep_focus, respawn=respawn, transaction=transaction, width=width))
 
     def move_tab_to_new_workspace(self, surface: Id, *, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('move-tab-to-new-workspace', MoveTabToNewWorkspaceRequest(surface=surface, group=group, index=index, name=name, transaction=transaction))
 
-    def move_tab_to_split(self, surface: Id, pane: Id, edge: str, *, ratio: Union[float, None, MissingType] = MISSING, respawn: Union[SplitRespawn, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('move-tab-to-split', MoveTabToSplitRequest(surface=surface, pane=pane, edge=edge, ratio=ratio, respawn=respawn, transaction=transaction))
+    def move_tab_to_split(self, surface: Id, pane: Id, edge: str, *, keep_focus: Union[bool, MissingType] = MISSING, ratio: Union[float, None, MissingType] = MISSING, respawn: Union[SplitRespawn, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('move-tab-to-split', MoveTabToSplitRequest(surface=surface, pane=pane, edge=edge, keep_focus=keep_focus, ratio=ratio, respawn=respawn, transaction=transaction))
 
     def move_tab_to_workspace(self, surface: Id, *, workspace: Union[Id, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('move-tab-to-workspace', MoveTabToWorkspaceRequest(surface=surface, workspace=workspace, transaction=transaction))
@@ -471,8 +507,8 @@ class GeneratedClientMixin:
     def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING, source: Union[NotificationSource, None, MissingType] = MISSING) -> NotifyResult:
         return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface, source=source))
 
-    def page_credential(self) -> JsonValue:
-        return self._invoke_command('page-credential', PageCredentialRequest())
+    def page_credential(self, *, page: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('page-credential', PageCredentialRequest(page=page))
 
     def pairing_response(self, request: int, approve: bool) -> EmptyResult:
         return self._invoke_command('pairing-response', PairingResponseRequest(request=request, approve=approve))
@@ -817,22 +853,30 @@ GeneratedClientMixin.close_tab_group.__cmux_command__ = COMMANDS['close-tab-grou
 GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
 GeneratedClientMixin.close_terminal.__cmux_command__ = COMMANDS['close-terminal']
 GeneratedClientMixin.close_workspace.__cmux_command__ = COMMANDS['close-workspace']
+GeneratedClientMixin.cloud_attachment_link.__cmux_command__ = COMMANDS['cloud-attachment-link']
+GeneratedClientMixin.cloud_attachment_read.__cmux_command__ = COMMANDS['cloud-attachment-read']
+GeneratedClientMixin.cloud_attachment_upload.__cmux_command__ = COMMANDS['cloud-attachment-upload']
 GeneratedClientMixin.cloud_conversation_history.__cmux_command__ = COMMANDS['cloud-conversation-history']
 GeneratedClientMixin.cloud_conversation_op.__cmux_command__ = COMMANDS['cloud-conversation-op']
+GeneratedClientMixin.cloud_conversation_run.__cmux_command__ = COMMANDS['cloud-conversation-run']
+GeneratedClientMixin.cloud_conversation_runs.__cmux_command__ = COMMANDS['cloud-conversation-runs']
 GeneratedClientMixin.cloud_conversation_snapshot.__cmux_command__ = COMMANDS['cloud-conversation-snapshot']
 GeneratedClientMixin.cloud_conversation_subscribe.__cmux_command__ = COMMANDS['cloud-conversation-subscribe']
 GeneratedClientMixin.cloud_conversation_thread.__cmux_command__ = COMMANDS['cloud-conversation-thread']
 GeneratedClientMixin.cloud_conversation_unsubscribe.__cmux_command__ = COMMANDS['cloud-conversation-unsubscribe']
 GeneratedClientMixin.cloud_inbox_list.__cmux_command__ = COMMANDS['cloud-inbox-list']
+GeneratedClientMixin.cloud_inbox_op.__cmux_command__ = COMMANDS['cloud-inbox-op']
 GeneratedClientMixin.cloud_inbox_subscribe.__cmux_command__ = COMMANDS['cloud-inbox-subscribe']
 GeneratedClientMixin.cloud_inbox_unsubscribe.__cmux_command__ = COMMANDS['cloud-inbox-unsubscribe']
 GeneratedClientMixin.cloud_mux_ack.__cmux_command__ = COMMANDS['cloud-mux-ack']
 GeneratedClientMixin.cloud_mux_subscribe.__cmux_command__ = COMMANDS['cloud-mux-subscribe']
 GeneratedClientMixin.cloud_mux_unsubscribe.__cmux_command__ = COMMANDS['cloud-mux-unsubscribe']
+GeneratedClientMixin.cloud_participant_avatar_get.__cmux_command__ = COMMANDS['cloud-participant-avatar-get']
 GeneratedClientMixin.cloud_session_clear.__cmux_command__ = COMMANDS['cloud-session-clear']
 GeneratedClientMixin.cloud_session_set.__cmux_command__ = COMMANDS['cloud-session-set']
 GeneratedClientMixin.cloud_session_status.__cmux_command__ = COMMANDS['cloud-session-status']
 GeneratedClientMixin.conversation_agent_token.__cmux_command__ = COMMANDS['conversation-agent-token']
+GeneratedClientMixin.conversation_attachment_link.__cmux_command__ = COMMANDS['conversation-attachment-link']
 GeneratedClientMixin.conversation_attachment_read.__cmux_command__ = COMMANDS['conversation-attachment-read']
 GeneratedClientMixin.conversation_attachment_upload.__cmux_command__ = COMMANDS['conversation-attachment-upload']
 GeneratedClientMixin.conversation_bind.__cmux_command__ = COMMANDS['conversation-bind']
@@ -840,9 +884,13 @@ GeneratedClientMixin.conversation_create.__cmux_command__ = COMMANDS['conversati
 GeneratedClientMixin.conversation_draft.__cmux_command__ = COMMANDS['conversation-draft']
 GeneratedClientMixin.conversation_history.__cmux_command__ = COMMANDS['conversation-history']
 GeneratedClientMixin.conversation_import.__cmux_command__ = COMMANDS['conversation-import']
+GeneratedClientMixin.conversation_inbox_op.__cmux_command__ = COMMANDS['conversation-inbox-op']
 GeneratedClientMixin.conversation_link_resolve.__cmux_command__ = COMMANDS['conversation-link-resolve']
 GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation-list']
 GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-op']
+GeneratedClientMixin.conversation_run.__cmux_command__ = COMMANDS['conversation-run']
+GeneratedClientMixin.conversation_run_append.__cmux_command__ = COMMANDS['conversation-run-append']
+GeneratedClientMixin.conversation_runs.__cmux_command__ = COMMANDS['conversation-runs']
 GeneratedClientMixin.conversation_search.__cmux_command__ = COMMANDS['conversation-search']
 GeneratedClientMixin.conversation_snapshot.__cmux_command__ = COMMANDS['conversation-snapshot']
 GeneratedClientMixin.conversation_thread.__cmux_command__ = COMMANDS['conversation-thread']

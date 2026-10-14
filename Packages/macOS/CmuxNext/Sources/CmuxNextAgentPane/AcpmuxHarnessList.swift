@@ -62,7 +62,7 @@ extension AcpmuxEnvironment {
     }
 
     /// The shell line that runs this app's acpmux with `arguments` against this daemon's home
-    /// (a tagged build's `~/.acpmux/tags/<tag>`), each word single-quoted: Settings types it
+    /// (a build's own `~/.acpmux/builds/<key>`), each word single-quoted: Settings types it
     /// into a terminal tab for `harness login` and `harness registry`. Nil when a word holds a
     /// quote, a backslash or a control character: single quotes then mean different things in
     /// bash, zsh and fish, so no typed line is safe.

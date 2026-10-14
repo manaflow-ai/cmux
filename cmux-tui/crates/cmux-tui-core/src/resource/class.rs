@@ -51,6 +51,10 @@ impl ResourceOperation {
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
                 | Self::ChiefEngineGet
+                | Self::ChiefProfileList
+                | Self::ChiefProfileGet
+                | Self::ChiefProfileAvatarGet
+                | Self::ParticipantAvatarGet
                 | Self::CredentialVerify
                 | Self::CredentialMint
                 | Self::ConversationList

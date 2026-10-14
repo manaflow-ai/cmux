@@ -49,6 +49,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneBorderWidth: CGFloat?
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
     public var inactivePaneDimming: CGFloat = 0.14
+    /// The Ghostty config's unfocused-pane dim; when it dims, it replaces
+    /// `inactivePaneDimming` on every unfocused pane.
+    public var unfocusedPaneDim = UnfocusedPaneDim()
     /// Debug Settings `focus.ringAlpha`: the ring's foreground share in place
     /// of `focusRing.contrast`; nil follows the setting. Read here, in the
     /// observed style, so a slider move repaints the ring at once.
@@ -117,6 +120,7 @@ extension LayoutStyle {
         style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
         style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
         style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
+        style.unfocusedPaneDim = DesignSettings.shared.unfocusedPaneDim
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {
             // No outlines: the focused pane is marked by the others' dim

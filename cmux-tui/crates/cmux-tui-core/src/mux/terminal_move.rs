@@ -212,6 +212,7 @@ impl Mux {
             pane.active_tab = pane.tabs.len() - 1;
             pane.active_at = active_at;
             state.resource_indexes.tab_pane.insert(surface, target_pane);
+            state.register_placed_tab_identity(surface);
             fence_layout_undo_for_tab_membership(state, &[target_pane]);
         }
         restore_focus_identity(state, preserved_focus);

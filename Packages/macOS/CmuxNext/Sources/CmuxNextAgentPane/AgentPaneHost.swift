@@ -150,8 +150,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     /// The pane's endpoint from `_acpmux/status` read on a connection whose server peer is the
     /// acpmux this app runs (cx-fcaq review P3-1): a squatter on the unix socket cannot point the
-    /// pane at another daemon's WebSocket. Another cmux install's daemon (NIGHTLY and Release
-    /// share `~/.acpmux`) is accepted under ``AcpmuxServerPeer``'s rules 1 and 2; it is never
+    /// pane at another daemon's WebSocket. Another cmux install's daemon (NIGHTLY shares
+    /// `~/.acpmux` with older builds) is accepted under ``AcpmuxServerPeer``'s rules 1 and 2; it is never
     /// enrolled, so its allows stay refused. (The pane also checks the port's listener and the
     /// accepted end before its first frame.)
     private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
@@ -171,6 +171,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool) async throws -> AcpmuxWebEndpoint {
         do {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+            // A daemon of another acpmux home answers on this socket: it is another app's or
+            // tag's. Never hand it off, stop it or use it.
+            guard status.serves(home: environment.home) else {
+                logger.error("acpmux socket=\(environment.socketPath, privacy: .public) serves home=\(status.home ?? "", privacy: .public), not this app's home=\(environment.home.path, privacy: .public)")
+                throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
+            }
             // After an update the daemon may be the previous build's: hand it
             // off (its agents keep running under their hosts) and start ours.
             // A reconnect never stops or starts a daemon. It still gives a daemon that restarted
@@ -199,6 +205,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         } catch is AgentPaneDeadlineExceeded {
             logger.error("acpmux status timed out socket=\(environment.socketPath, privacy: .public)")
             throw AgentPaneHostError.timedOut
+        } catch let error as AgentPaneHostError {
+            throw error
         } catch {
             logger.error("acpmux status failed error=\(String(describing: error), privacy: .public)")
             throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)

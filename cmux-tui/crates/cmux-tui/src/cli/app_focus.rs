@@ -108,7 +108,7 @@ pub(super) fn focus_in_app(
     }
 }
 
-fn is_not_found(error: &Value) -> bool {
+pub(super) fn is_not_found(error: &Value) -> bool {
     matches!(error.get("code").and_then(Value::as_str), Some("not_found" | "target.not_found"))
 }
 
@@ -166,7 +166,7 @@ pub(super) fn overlay_focused(value: &mut Value, shown: &str) -> bool {
 }
 
 /// The id a focus op's reply names (`value.id`, else `id`).
-fn reply_id(result: &Value) -> Option<String> {
+pub(super) fn reply_id(result: &Value) -> Option<String> {
     result
         .pointer("/value/id")
         .or_else(|| result.get("id"))

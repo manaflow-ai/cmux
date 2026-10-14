@@ -127,7 +127,7 @@ import Testing
     static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
 
     /// The header's more button opens the group editor (cx-rcby): the name, the color
-    /// dots and Lawrence's rows in order; the right-click menu stays for a right-click.
+    /// dots and Lawrence's rows in order; a right-click on the header opens it too.
     @Test(.enabled("the editor bubble is a window on screen") { await Self.hasDisplay() })
     func theMoreButtonOpensTheGroupEditorWithItsRowsInOrder() throws {
         let (sidebar, ids) = try Self.sidebar([.red])

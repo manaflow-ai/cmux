@@ -131,8 +131,8 @@ enum RowDraw {
     /// macOS 27 only: the macOS 26 fits (MESSAGESLAB_OS_FIT=26) keep the frame. The only macOS 26 reference, the
     /// original recording (HEVC 4:2:0), has no still multi-line outgoing balloon, and with the inset its flying
     /// bubble's bottom edge error got worse (motion-gate capture26 parity: edge_B_rms 1.36 -> 1.67 px).
-    static func balloon(_ body: CGRect, row p: PartRow) -> CGRect {
-        insetApplies(p) ? insetBalloon(body) : body
+    static func balloon(_ body: CGRect, row p: PartRow, scale: CGFloat = Fixture.renderScale) -> CGRect {
+        insetApplies(p) ? insetBalloon(body, scale: scale) : body
     }
 
     /// An outgoing text part on macOS 27 (Catalyst / AppKit): its balloon is drawn inside its frame (`balloon`) and its
@@ -147,8 +147,8 @@ enum RowDraw {
     }
 
     /// `balloon`'s measured rule without the part check.
-    static func insetBalloon(_ body: CGRect) -> CGRect {
-        let s = Fixture.renderScale
+    static func insetBalloon(_ body: CGRect, scale: CGFloat = Fixture.renderScale) -> CGRect {
+        let s = scale
         let multi = body.height > 38 // 30 pt for 1 line, 46 for 2
         let out: CGFloat = multi ? 0.04 : 0.023, inset: CGFloat = multi ? 0.419 : 0.106
         let left = floor(body.minX * s + 0.001) / s
@@ -282,8 +282,17 @@ enum PartRenderer {
         switch p.part {
         case .text:
             let lines = p.text.map { tl in tl.lines.map { _ in "" } } ?? []
-            BubbleView.drawBubble(ctx, body: RowDraw.balloon(body, row: p), lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY,
-                                  cornersOf: body.size, circularEnds: RowDraw.circularEnds(p))
+            // A copy with a window y (thread view, captures) fills my balloon through the cell's soft mask
+            // (SoftBalloon.clip, cx-3cb soft-copies); without a window y the cell's gradient layer fills it.
+            ctx.saveGState()
+            if p.outgoing, !windowY.isNaN, SoftBalloon.clip(ctx, frame: body, row: p) {
+                ctx.drawLinearGradient(Fixture.outgoingGradient, start: CGPoint(x: 0, y: -windowY),
+                                       end: CGPoint(x: 0, y: Fixture.gradientHeight - windowY), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            } else {
+                BubbleView.drawBubble(ctx, body: RowDraw.balloon(body, row: p), lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY,
+                                      cornersOf: body.size, circularEnds: RowDraw.circularEnds(p))
+            }
+            ctx.restoreGState()
             _ = lines
             if let md = p.markdown {
                 // Every block, at its scroll offset (thread view, morph and menu copies of the row are
@@ -327,8 +336,15 @@ enum PartRenderer {
         }
         if highlight {
             UIColor(white: 1, alpha: 0.12).setFill()
-            BubblePath.make(body: RowDraw.balloon(body, row: p), outgoing: p.outgoing, tail: p.tail, cornersOf: body.size,
-                            circularEnds: RowDraw.circularEnds(p)).fill()
+            ctx.saveGState()
+            // My text balloon's highlight has its soft edge (SoftBalloon.clip), as the balloon under it.
+            if p.outgoing, SoftBalloon.clip(ctx, frame: body, row: p) {
+                ctx.fill(ctx.boundingBoxOfClipPath)
+            } else {
+                BubblePath.make(body: RowDraw.balloon(body, row: p), outgoing: p.outgoing, tail: p.tail, cornersOf: body.size,
+                                circularEnds: RowDraw.circularEnds(p)).fill()
+            }
+            ctx.restoreGState()
         }
         if p.failed {
             let c = CGPoint(x: body.minX - 14, y: body.midY)
@@ -859,12 +875,16 @@ enum TapbackGlyph {
     }
 }
 
-/// Off-main rendering of static rows into bitmaps, with a bounded cache.
+/// Off-main rendering of static rows into bitmaps, with a bounded cache. One cache for every window view: a bitmap is
+/// keyed by its row and the scale it is drawn at (`Key`), so two views at two backing scales (cmux Home: windows on a
+/// 2x and a 1x display) share the cache and never show each other's bitmaps. Every call takes the caller's scale
+/// (default `Fixture.renderScale`: inside a view's `Fixture.withRenderScale`, the view's).
 final class RowBitmaps {
     static let shared = RowBitmaps()
-    private var cache: [RowSpec: CGImage] = [:]
-    private var order: [RowSpec] = []
-    private var waiters: [RowSpec: [(CGImage) -> Void]] = [:]
+    struct Key: Hashable { var spec: RowSpec; var scale: CGFloat }
+    private var cache: [Key: CGImage] = [:]
+    private var order: [Key] = []
+    private var waiters: [Key: [(CGImage) -> Void]] = [:]
     private let queue: OperationQueue = {
         let q = OperationQueue()
         q.maxConcurrentOperationCount = 3
@@ -880,23 +900,26 @@ final class RowBitmaps {
     /// (RowDraw.widthInvariant), so a divider drag or live resize shows the bitmap drawn at the
     /// previous width instead of drawing the same pixels again (the visible rows' bitmaps were
     /// about 6 % of main in a divider drag).
-    static func key(_ spec: RowSpec) -> RowSpec {
-        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return spec }
+    static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> Key {
+        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return Key(spec: spec, scale: scale) }
         var k = spec
         k.width = 0
-        return k
+        return Key(spec: k, scale: scale)
     }
-    func image(for spec: RowSpec) -> CGImage? { cache.value(for: RowBitmaps.key(spec)) } // dictionary read
-    func has(_ spec: RowSpec) -> Bool { TiledBubble.applies(spec) || cache.keys.contains(RowBitmaps.key(spec)) || waiters.keys.contains(spec) }
+    func image(for spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> CGImage? { cache.value(for: RowBitmaps.key(spec, scale: scale)) } // dictionary read
+    func has(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> Bool {
+        TiledBubble.applies(spec) || cache.keys.contains(RowBitmaps.key(spec, scale: scale)) || waiters.keys.contains(Key(spec: spec, scale: scale))
+    }
 
-    /// Main thread: get the bitmap now or when it is rendered.
-    func request(_ spec: RowSpec, _ done: ((CGImage) -> Void)? = nil) {
+    /// Main thread: get the bitmap now or when it is rendered (at `scale`, the asking view's).
+    func request(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale, _ done: ((CGImage) -> Void)? = nil) {
         // Long text rows are tiles (TiledBubble.swift): no bitmap, and no spec (with its text) held here.
         // without the empty image (allocation failed) a tiled row has no bitmap to report.
         if TiledBubble.applies(spec) { if let empty = TiledBubble.emptyImage { done?(empty) }; return }
-        if let img = cache[RowBitmaps.key(spec)] { done?(img); return }
-        if waiters[spec] != nil { if let done { waiters[spec]?.append(done) }; return } // no force unwrap
-        waiters[spec] = done.map { [$0] } ?? []
+        if let img = cache[RowBitmaps.key(spec, scale: scale)] { done?(img); return }
+        let w = Key(spec: spec, scale: scale)
+        if waiters[w] != nil { if let done { waiters[w]?.append(done) }; return } // no force unwrap
+        waiters[w] = done.map { [$0] } ?? []
         let gen = Fixture.paletteGeneration
         // Newest first: older pending renders drop a priority step (a fling's rows that left
         // the screen render after the rows now on it).
@@ -904,11 +927,12 @@ final class RowBitmaps {
             switch op.queuePriority { case .veryHigh: op.queuePriority = .high; case .high: op.queuePriority = .normal
             case .normal: op.queuePriority = .low; default: op.queuePriority = .veryLow }
         }
-        enqueue(spec, gen, prefetch: done == nil)
+        enqueue(w, gen, prefetch: done == nil)
     }
 
-    private func enqueue(_ spec: RowSpec, _ gen: Int, prefetch: Bool) {
+    private func enqueue(_ w: Key, _ gen: Int, prefetch: Bool) {
         let asked = CACurrentMediaTime()
+        let spec = w.spec
         let op = BlockOperation {
             // Rows that left the screen before their turn are not drawn (no decode, no
             // idle backlog after a fling): a cell still waits for it, or it is a fresh prefetch.
@@ -916,18 +940,18 @@ final class RowBitmaps {
                 DispatchQueue.main.async {
                     RowBitmaps.skipped += 1
                     // A cell may have asked again meanwhile: render for it, else forget the waiters.
-                    if self.isWanted(spec), self.waiters[spec] != nil { self.enqueue(spec, gen, prefetch: false) }
-                    else { self.waiters[spec] = nil }
+                    if self.isWanted(spec), self.waiters[w] != nil { self.enqueue(w, gen, prefetch: false) }
+                    else { self.waiters[w] = nil }
                 }
                 return
             }
             // a bitmap that could not be allocated is not delivered; the waiters are dropped
             // and the row shows no bitmap (BitmapFailure logged it).
-            guard let img = RowBitmaps.render(spec) else {
-                DispatchQueue.main.async { self.waiters[spec] = nil }
+            guard let img = RowBitmaps.render(spec, scale: w.scale) else {
+                DispatchQueue.main.async { self.waiters[w] = nil }
                 return
             }
-            self.deliver(spec, img, gen)
+            self.deliver(w, img, gen)
         }
         op.queuePriority = .veryHigh
         queue.addOperation(op)
@@ -948,11 +972,11 @@ final class RowBitmaps {
     /// Finished bitmaps reach the main thread in batches: one main-queue
     /// block applies everything rendered since the last one.
     private let pendingLock = NSLock()
-    private var pending: [(RowSpec, CGImage, Int)] = []
-    private func deliver(_ spec: RowSpec, _ img: CGImage, _ gen: Int) {
+    private var pending: [(Key, CGImage, Int)] = []
+    private func deliver(_ w: Key, _ img: CGImage, _ gen: Int) {
         pendingLock.lock()
         let first = pending.isEmpty
-        pending.append((spec, img, gen))
+        pending.append((w, img, gen))
         pendingLock.unlock()
         guard first else { return }
         DispatchQueue.main.async {
@@ -970,7 +994,7 @@ final class RowBitmaps {
     /// holds them during each page slide, so rows slide in without text and the bench's empty-row
     /// check must find them.
     static var testHold = false
-    private var held: [(RowSpec, CGImage, Int)] = []
+    private var held: [(Key, CGImage, Int)] = []
     func releaseHeld() {
         guard !held.isEmpty else { return }
         let batch = held
@@ -978,23 +1002,23 @@ final class RowBitmaps {
         apply(batch)
     }
 
-    private func apply(_ batch: [(RowSpec, CGImage, Int)]) {
-        for (spec, img, gen) in batch {
+    private func apply(_ batch: [(Key, CGImage, Int)]) {
+        for (w, img, gen) in batch {
             // Rendered with an older palette: drop it and render again.
             guard gen == Fixture.paletteGeneration else {
-                let w = waiters.removeValue(forKey: spec) ?? []
-                for d in w { request(spec, d) }
-                if w.isEmpty { request(spec) }
+                let ws = waiters.removeValue(forKey: w) ?? []
+                for d in ws { request(w.spec, scale: w.scale, d) }
+                if ws.isEmpty { request(w.spec, scale: w.scale) }
                 continue
             }
-            store(spec, img)
-            waiters.removeValue(forKey: spec)?.forEach { $0(img) }
+            store(w.spec, img, scale: w.scale)
+            waiters.removeValue(forKey: w)?.forEach { $0(img) }
         }
     }
 
-    private func store(_ s: RowSpec, _ img: CGImage) {
+    private func store(_ s: RowSpec, _ img: CGImage, scale: CGFloat) {
         if TiledBubble.applies(s) { return }
-        let spec = RowBitmaps.key(s)
+        let spec = RowBitmaps.key(s, scale: scale)
         if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
         cache.updateValue(img, forKey: spec) // dictionary write
         bytes += img.bytesPerRow * img.height
@@ -1027,27 +1051,31 @@ final class RowBitmaps {
         order.removeAll()
     }
 
-    /// Bitmaps rendered ahead of time (loader queue), inserted on main.
-    func insert(_ items: [(RowSpec, CGImage)]) { items.forEach { store($0.0, $0.1) } }
+    /// Bitmaps rendered ahead of time (loader queue) at `scale`, inserted on main.
+    func insert(_ items: [(RowSpec, CGImage)], scale: CGFloat = Fixture.renderScale) { items.forEach { store($0.0, $0.1, scale: scale) } }
 
     /// Test hook (`--scroller-control`): no bitmaps rendered ahead (pager prerender, scroll
     /// prefetch), so a check for rows without bitmaps has something to find.
     static var prerenderEnabled = true
-    /// Render the rows that will be on screen first (loader queue).
-    static func prerender(_ specs: ArraySlice<RowSpec>) -> [(RowSpec, CGImage)] {
+    /// Render the rows that will be on screen first (loader queue), at `scale` (insert them with the same scale).
+    static func prerender(_ specs: ArraySlice<RowSpec>, scale: CGFloat = Fixture.renderScale) -> [(RowSpec, CGImage)] {
         guard prerenderEnabled else { return [] }
         return specs.compactMap { spec in
-            switch spec.kind { case .receipt, .typing: return nil; default: return render(spec).map { (spec, $0) } } // unallocated rows are skipped
+            switch spec.kind { case .receipt, .typing: return nil; default: return render(spec, scale: scale).map { (spec, $0) } } // unallocated rows are skipped
         }
     }
 
-    static func render(_ spec: RowSpec) -> CGImage? { // nil when allocation fails
+    /// Thread safe. The drawing runs with `Fixture.renderScale` = `scale` on this thread (the balloon inset, the soft
+    /// edge and image decodes read it).
+    static func render(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> CGImage? { // nil when allocation fails
         if TiledBubble.applies(spec) { return TiledBubble.emptyImage }
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
-        return WideBitmap.make(size: size, scale: Fixture.renderScale, opaque: false) { ctx in
-            ctx.translateBy(x: -span.lowerBound, y: 0)
-            RowDraw.drawStatic(spec, ctx, windowY: .nan)
+        return Fixture.withRenderScale(scale) {
+            WideBitmap.make(size: size, scale: scale, opaque: false) { ctx in
+                ctx.translateBy(x: -span.lowerBound, y: 0)
+                RowDraw.drawStatic(spec, ctx, windowY: .nan)
+            }
         }
     }
 }

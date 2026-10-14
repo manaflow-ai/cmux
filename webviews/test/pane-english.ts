@@ -2,8 +2,9 @@
 // sources instead of its string table (acpmux/i18n.ts, Localizable.xcstrings). It parses each file
 // with the TypeScript compiler and reports string literals that render: JSX text, string values of
 // text attributes (placeholder, aria-label, title, label, alt), text fields of UI objects (label,
-// title, placeholder, hint, description, userMessage), the text shown when an error has no
-// message, any text in a label table (a constant named *_LABELS, *_TITLES, *_TEXT or *_MESSAGES,
+// title, name, text, rule, placeholder, hint, description, userMessage and the like), a function's
+// result (`return "text"` or `() => "text"`: a label helper's text renders wherever it is called,
+// unless it is a class list), the text shown when an error has no message, any text in a label table (a constant named *_LABELS, *_TITLES, *_TEXT or *_MESSAGES,
 // or a camelCase *Strings table), a sentence given to a call or as a `message` parameter's
 // default, and sentences given to an Error's constructor. Template literals count by their fixed
 // text. A line (or the comment line above it) marked `l10n-allow: <reason>` is exempt, and so is
@@ -15,7 +16,23 @@ import * as ts from "typescript";
 export const PANE = path.resolve(import.meta.dir, "../src/agent-session/acpmux");
 
 const TEXT_ATTRIBUTES = new Set(["placeholder", "aria-label", "title", "label", "alt", "aria-description"]);
-const TEXT_FIELDS = new Set(["label", "title", "placeholder", "hint", "description", "userMessage"]);
+const TEXT_FIELDS = new Set([
+  "label",
+  "title",
+  "placeholder",
+  "hint",
+  "description",
+  "userMessage",
+  "text",
+  "name",
+  "rule",
+  "detail",
+  "subtitle",
+  "tooltip",
+  "caption",
+  "summary",
+  "heading",
+]);
 /** Files that are not shipped pane UI: the dev loop, fixtures, measurement and automation. */
 const SKIP =
   /\.test\.|\.d\.ts$|^(mock|mockFixture|mockFiles|mockGit|devHost|devRecents|dev|synthetic|workedTurn|debug|automation|perf|streamDebug|promptFieldTesting)\.tsx?$/;
@@ -75,6 +92,21 @@ function valueRoot(node: ts.Node): ts.Node {
   )
     current = current.parent;
   return current;
+}
+
+/** A function's result: `return "text"`, `() => "text"`, or one branch of either. A label helper
+ * such as `toolCalls(n)` or `optionLabel(option)` hands its text straight to the UI. */
+function returned(node: ts.Node): boolean {
+  const current = valueRoot(node);
+  return (
+    ts.isReturnStatement(current.parent) || (ts.isArrowFunction(current.parent) && current.parent.body === current)
+  );
+}
+
+/** A class list (`"bg-transparent hover:bg-hover"`): lowercase tokens, one with `-`, `:` or `_`. */
+function classList(value: string): boolean {
+  const tokens = value.trim().split(/\s+/);
+  return tokens.every((token) => /^[a-z0-9:_\-[\]/.{}%!]+$/.test(token)) && tokens.some((token) => /[-:_]/.test(token));
 }
 
 /** A string rendered as a JSX child: `{"text"}` or `{cond ? "a" : "b"}`. */
@@ -159,7 +191,8 @@ export function scan(): Finding[] {
             parent.arguments?.includes(node as ts.Expression)) ||
           fallsBackForMessage(node) ||
           messageArgument(node, value) ||
-          inLabelTable(node, text)
+          inLabelTable(node, text) ||
+          (returned(node) && !classList(value))
         )
           report(node, value);
       }

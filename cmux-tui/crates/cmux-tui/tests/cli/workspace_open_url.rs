@@ -8,8 +8,8 @@
 //! the create path fails with the same `engine_unavailable` error that
 //! `tab.create_browser` returns. With a stand-in provider that publishes no
 //! target, a created tab stays `starting`: the first link creates it, and the
-//! second link reuses that tab (its `browser.navigate` answers that the
-//! browser is still starting) instead of a second tab.
+//! second link reuses that tab (its navigation waits for the browser to
+//! attach) instead of a second tab.
 #![cfg(unix)]
 
 use serde_json::{Value, json};
@@ -261,7 +261,9 @@ fn focus(server: &HeadlessServer, pane: &Value, key: &str) {
 #[test]
 fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
     let server = HeadlessServer::start("open-url-dock");
-    let _provider = browser_provider(&server);
+    let (endpoint, navigations) = wedged_cdp_endpoint("https://example.com/one");
+    let mut provider = Line::open(&server);
+    register_provider(&mut provider, 1, &endpoint, json!([]));
     let (workspace, dock, right_panes) = docked_workspace(
         &server,
         "open-url-dock",
@@ -316,22 +318,39 @@ fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
     assert_eq!(value(&replayed)["tab_id"], first_open["tab_id"], "{replayed}");
     assert_eq!(tab_count(&screen(&server, &workspace)), tab_count(&after), "a replay made a tab");
 
-    // The next link reuses that browser tab: it navigates it (the stand-in
-    // provider never gives it a page, so the navigation answers that the
-    // browser is still starting) and makes no second tab.
-    let again = v2(
-        &server,
-        "workspace.open_url",
-        json!({"workspace": workspace, "url": "https://example.com/two"}),
-        Some("open-url-dock-2"),
-    );
-    let refusal = error(&again);
-    assert_eq!(refusal["code"], "operation.failed", "{again}");
-    assert_eq!(refusal["details"]["operation"], "browser.navigate", "{again}");
-    assert_eq!(refusal["details"]["extra"]["status"], "starting", "{again}");
+    // The next links reuse that browser tab while it is still starting (the
+    // provider has not published its page): each navigation is queued, no
+    // second tab is made, and the newer link supersedes the older one.
+    for (url, key) in [
+        ("https://example.com/two", "open-url-dock-2"),
+        ("https://example.com/three", "open-url-dock-3"),
+    ] {
+        let again = v2(
+            &server,
+            "workspace.open_url",
+            json!({"workspace": workspace, "url": url}),
+            Some(key),
+        );
+        assert_eq!(value(&again)["reused"], true, "{again}");
+        assert_eq!(value(&again)["tab_id"], first_open["tab_id"], "{again}");
+    }
     let last = screen(&server, &workspace);
-    assert_eq!(tab_count(&last), tab_count(&after), "the second link made a tab: {last}");
+    assert_eq!(tab_count(&last), tab_count(&after), "a later link made a tab: {last}");
     assert_eq!(last["active_pane"], dock["id"], "the keyboard focus left the chat: {last}");
+
+    // The provider publishes the page: the browser attaches and loads the
+    // newest pending link, never the superseded one.
+    let tab = first_open["tab_id"].clone();
+    register_provider(
+        &mut provider,
+        2,
+        &endpoint,
+        json!([{"tab_id": tab, "target_id": "target-1"}]),
+    );
+    wait_live(&server, &workspace, &tab);
+    assert_eq!(next_navigation(&navigations), "https://example.com/three");
+    let later = navigations.recv_timeout(Duration::from_millis(500)).ok();
+    assert_ne!(later.as_deref(), Some("https://example.com/two"), "a superseded link loaded");
 }
 
 /// A left-edge dock without the agent chat role is not the right side either.
@@ -419,4 +438,308 @@ fn the_home_channels_page_opens_a_link_only_on_a_gesture() {
     ));
     assert_eq!(error(&opened)["code"], "origin.forbidden", "{opened}");
     assert_eq!(error(&opened)["details"]["reason"], "gesture_required", "{opened}");
+}
+
+/// The tree tab with public id `tab` in `screen`.
+fn tab_by_resource<'a>(screen: &'a Value, tab: &Value) -> &'a Value {
+    screen["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|pane| pane["tabs"].as_array().unwrap())
+        .find(|candidate| candidate["tab_resource_id"] == *tab)
+        .unwrap_or_else(|| panic!("no tab {tab}: {screen}"))
+}
+
+fn selected_tab(screen: &Value, pane: &Value) -> Value {
+    let pane = pane_by_resource(screen, pane);
+    let active = pane["active_tab"].as_u64().unwrap() as usize;
+    pane["tabs"][active]["tab_resource_id"].clone()
+}
+
+/// In a session whose frontend renders browser tabs (the cmux app declares
+/// `frontend-browser-tabs-v1`), a link makes a frontend browser tab on the
+/// right side through the daemon's frontend tab path (no browser engine is
+/// needed), the next link navigates that tab through the frontend record,
+/// and a retry with the same key answers the first result even after the
+/// selection changed.
+#[test]
+fn open_url_uses_the_frontend_browser_path_when_the_app_renders_browsers() {
+    let server = HeadlessServer::start("open-url-frontend");
+    // The app's connection: it stays open and declares that it renders
+    // browser tabs. No cmux-browser provider is registered.
+    let mut app = Line::open(&server);
+    let info = app.send(&json!({"id": 1, "cmd": "set-client-info", "name": "app",
+                                "capabilities": ["frontend-browser-tabs-v1"]}));
+    assert_eq!(info["ok"], true, "{info}");
+    let (workspace, dock, right_panes) = docked_workspace(
+        &server,
+        "open-url-frontend",
+        json!({"edge": "left", "mode": "docked", "role": "agent_chat"}),
+    );
+    let recent = right_panes[1].clone();
+    let other = right_panes[0].clone();
+    focus(&server, &recent, "open-url-frontend-focus-recent");
+    focus(&server, &dock, "open-url-frontend-focus-chat");
+    let before = screen(&server, &workspace);
+
+    let open = |url: &str, key: &str| {
+        v2(&server, "workspace.open_url", json!({"workspace": workspace, "url": url}), Some(key))
+    };
+    let opened = open("https://example.com/one", "open-url-frontend-1");
+    let first = value(&opened).clone();
+    assert_eq!(first["kind"], "browser", "{opened}");
+    assert_eq!(first["reused"], false, "{opened}");
+    assert_eq!(
+        first["pane_id"], recent["resource_id"],
+        "not the right-side pane used last: {opened}"
+    );
+    let tab = first["tab_id"].clone();
+    assert!(tab.as_str().is_some_and(|id| id.starts_with("tab_")), "{opened}");
+    assert!(first["browser_id"].as_str().is_some_and(|id| id.starts_with("browser_")), "{opened}");
+    let after = screen(&server, &workspace);
+    let created = tab_by_resource(&after, &tab);
+    assert_eq!(created["browser_renderer"], "frontend", "not a frontend browser tab: {after}");
+    assert_eq!(created["url"], "https://example.com/one", "{after}");
+    assert_eq!(selected_tab(&after, &recent["resource_id"]), tab, "not selected: {after}");
+    assert_eq!(after["active_pane"], dock["id"], "the keyboard focus left the chat: {after}");
+    assert_eq!(
+        pane_by_resource(&after, &dock["resource_id"])["tabs"].as_array().unwrap().len(),
+        1,
+        "a browser tab went into the agent chat dock: {after}"
+    );
+    assert_eq!(tab_count(&after), tab_count(&before) + 1, "{after}");
+
+    // The next link reuses that tab: the frontend record gets the new URL.
+    let again = open("https://example.com/two", "open-url-frontend-2");
+    let second = value(&again).clone();
+    assert_eq!(second["reused"], true, "{again}");
+    assert_eq!(second["tab_id"], tab, "{again}");
+    assert_eq!(second["browser_id"], first["browser_id"], "{again}");
+    let reused = screen(&server, &workspace);
+    assert_eq!(tab_by_resource(&reused, &tab)["url"], "https://example.com/two", "{reused}");
+    assert_eq!(tab_count(&reused), tab_count(&after), "the second link made a tab: {reused}");
+    assert_eq!(reused["active_pane"], dock["id"], "the keyboard focus left the chat: {reused}");
+
+    // The page then goes on to another URL (the app reports it), and the
+    // person selects another browser tab in the other right-side pane.
+    let created_surface = created["surface"].clone();
+    let navigated = raw(
+        &server,
+        json!({"cmd": "update-frontend-browser-tab", "surface": created_surface,
+               "url": "https://example.com/three"}),
+    );
+    assert_eq!(navigated["url"], "https://example.com/three", "{navigated}");
+    let other_browser = raw(
+        &server,
+        json!({"cmd": "new-frontend-browser-tab", "pane": other["id"], "engine": "webkit",
+               "url": "https://example.com/other"}),
+    );
+    let other_tab = other_browser["tab_resource_id"].clone();
+    focus(&server, &other, "open-url-frontend-focus-other");
+    focus(&server, &dock, "open-url-frontend-focus-chat-2");
+    let moved = screen(&server, &workspace);
+
+    // A retry of each request answers its first result: no second tab and
+    // no second navigation, although the selection changed.
+    let retried = open("https://example.com/one", "open-url-frontend-1");
+    assert_eq!(value(&retried), &first, "{retried}");
+    let retried = open("https://example.com/two", "open-url-frontend-2");
+    assert_eq!(value(&retried), &second, "{retried}");
+    let replayed = screen(&server, &workspace);
+    assert_eq!(tab_count(&replayed), tab_count(&moved), "a retry made a tab: {replayed}");
+    assert_eq!(tab_by_resource(&replayed, &tab)["url"], "https://example.com/three", "{replayed}");
+    assert_eq!(
+        tab_by_resource(&replayed, &other_tab)["url"],
+        "https://example.com/other",
+        "a retry navigated another tab: {replayed}"
+    );
+    // The same key with another link is a conflict.
+    let conflict = open("https://example.com/four", "open-url-frontend-2");
+    assert_eq!(error(&conflict)["code"], "idempotency.conflict", "{conflict}");
+
+    // A new link reuses the browser tab the person looked at last.
+    let third = open("https://example.com/five", "open-url-frontend-3");
+    assert_eq!(value(&third)["reused"], true, "{third}");
+    assert_eq!(value(&third)["tab_id"], other_tab, "{third}");
+    let last = screen(&server, &workspace);
+    assert_eq!(tab_by_resource(&last, &other_tab)["url"], "https://example.com/five", "{last}");
+    assert_eq!(tab_by_resource(&last, &tab)["url"], "https://example.com/three", "{last}");
+    assert_eq!(last["active_pane"], dock["id"], "the keyboard focus left the chat: {last}");
+    drop(app);
+}
+
+/// The app's connection: it stays open and declares that it renders
+/// browser tabs.
+fn frontend_app(server: &HeadlessServer) -> Line {
+    let mut app = Line::open(server);
+    let info = app.send(&json!({"id": 1, "cmd": "set-client-info", "name": "app",
+                                "capabilities": ["frontend-browser-tabs-v1"]}));
+    assert_eq!(info["ok"], true, "{info}");
+    app
+}
+
+/// With the app attached, a link in a home workspace that has no screen yet
+/// (a fresh Home) gets the workspace's first screen with a frontend browser
+/// tab; a retry answers the first result and the next link reuses the tab.
+#[test]
+fn open_url_in_an_empty_home_makes_a_frontend_tab() {
+    let server = HeadlessServer::start("open-url-frontend-home");
+    let _app = frontend_app(&server);
+    let home = v2(&server, "workspace.ensure_home", json!({}), Some("open-url-fresh-home"));
+    let home = value(&home)["workspace_id"].as_str().unwrap().to_string();
+
+    let open =
+        |url: &str, key: &str| v2(&server, "workspace.open_url", json!({"url": url}), Some(key));
+    let opened = open("https://example.com/home", "open-url-fresh-home-1");
+    let first = value(&opened).clone();
+    assert_eq!(first["kind"], "browser", "{opened}");
+    assert_eq!(first["reused"], false, "{opened}");
+    assert_eq!(first["workspace_id"], home, "{opened}");
+    let made = screen(&server, &home);
+    let tab = tab_by_resource(&made, &first["tab_id"]);
+    assert_eq!(tab["browser_renderer"], "frontend", "not a frontend browser tab: {made}");
+    assert_eq!(tab["url"], "https://example.com/home", "{made}");
+    assert_eq!(made["panes"].as_array().unwrap().len(), 1, "{made}");
+    assert_eq!(pane_by_resource(&made, &first["pane_id"])["resource_id"], first["pane_id"]);
+
+    let retried = open("https://example.com/home", "open-url-fresh-home-1");
+    assert_eq!(value(&retried), &first, "{retried}");
+    assert_eq!(tab_count(&screen(&server, &home)), 1, "a retry made a tab");
+    let again = open("https://example.com/home-2", "open-url-fresh-home-2");
+    assert_eq!(value(&again)["reused"], true, "{again}");
+    assert_eq!(value(&again)["tab_id"], first["tab_id"], "{again}");
+    assert_eq!(tab_count(&screen(&server, &home)), 1, "the second link made a tab");
+}
+
+/// The page the wedged browser below shows when it attaches.
+const WEDGED_PAGE: &str = "https://example.com/wedged";
+
+/// A stand-in cmux-browser endpoint whose page shows `page` when it attaches
+/// and never answers `Page.navigate` (a slow site, or a stuck renderer): it
+/// answers the attach steps, holds every navigation and reports its URL.
+fn wedged_cdp_endpoint(page: &'static str) -> (String, mpsc::Receiver<String>) {
+    let (navigations, reported) = mpsc::channel();
+    use tokio_tungstenite::tungstenite::{self, Message};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let navigations = navigations.clone();
+            std::thread::spawn(move || {
+                let Ok(mut socket) = tungstenite::accept(stream) else { return };
+                let mut held = Vec::new();
+                loop {
+                    let request: Value = match socket.read() {
+                        Ok(Message::Text(text)) => serde_json::from_str(&text).unwrap_or_default(),
+                        Ok(Message::Close(_)) | Err(_) => return,
+                        Ok(_) => continue,
+                    };
+                    let id = request["id"].clone();
+                    let result = match request["method"].as_str().unwrap_or_default() {
+                        "Page.navigate" => {
+                            let url = request["params"]["url"].as_str().unwrap_or_default();
+                            let _ = navigations.send(url.to_string());
+                            held.push(id);
+                            continue;
+                        }
+                        "Target.attachToTarget" => json!({"sessionId": "session-1"}),
+                        "Page.getFrameTree" => json!({"frameTree": {"frame": {
+                            "id": "main-frame", "loaderId": "loader-1", "url": page,
+                        }}}),
+                        _ => json!({}),
+                    };
+                    let reply = json!({"id": id, "result": result}).to_string();
+                    if socket.send(Message::Text(reply.into())).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (format!("ws://{address}/devtools/browser/wedged"), reported)
+}
+
+/// The next navigation the endpoint reports, within 10 seconds.
+fn next_navigation(navigations: &mpsc::Receiver<String>) -> String {
+    navigations.recv_timeout(Duration::from_secs(10)).expect("no Page.navigate reached the page")
+}
+
+/// `register-browser-provider` for `endpoint` on the provider's connection
+/// (its lease lasts as long as the connection), publishing `targets`.
+fn register_provider(provider: &mut Line, id: u64, endpoint: &str, targets: Value) {
+    let reply = provider.send(&json!({"id": id, "cmd": "register-browser-provider",
+                                      "provider_id": "open-url-cdp", "endpoint": endpoint,
+                                      "authentication": "none", "targets": targets}));
+    assert_eq!(reply["ok"], true, "{reply}");
+}
+
+/// Wait until the browser tab `tab` of `workspace` is live.
+fn wait_live(server: &HeadlessServer, workspace: &str, tab: &Value) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let shown = screen(server, workspace);
+        if tab_by_resource(&shown, tab)["browser_status"] == "live" {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the browser never went live: {shown}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A link into a daemon-rendered browser tab whose page never answers a
+/// navigation: `cmux workspace open-url` answers at once (the tab is
+/// reused and loads the link), instead of waiting on the page until the
+/// CLI gives up with no answer.
+#[test]
+fn open_url_into_a_browser_whose_page_never_answers_returns_at_once() {
+    let server = HeadlessServer::start("open-url-wedged");
+    let (endpoint, navigations) = wedged_cdp_endpoint(WEDGED_PAGE);
+    let mut provider = Line::open(&server);
+    register_provider(&mut provider, 1, &endpoint, json!([]));
+    let created = v2(
+        &server,
+        "workspace.create",
+        json!({"initial_content": "terminal", "name": "wedged"}),
+        Some("open-url-wedged-ws"),
+    );
+    let workspace = value(&created)["workspace_id"].as_str().unwrap().to_string();
+    let open = |url: &str| {
+        let started = Instant::now();
+        let output = json_cli(&server, &["workspace", &workspace, "open-url", "--url", url]);
+        (output, started.elapsed())
+    };
+
+    let (first, _) = open(WEDGED_PAGE);
+    assert_success(&first);
+    let first = json_output(&first)["value"].clone();
+    assert_eq!(first["reused"], false, "{first}");
+    let tab = first["tab_id"].clone();
+    // The provider publishes the tab's page: the browser goes live.
+    register_provider(
+        &mut provider,
+        2,
+        &endpoint,
+        json!([{"tab_id": tab, "target_id": "target-1"}]),
+    );
+    wait_live(&server, &workspace, &tab);
+
+    let (second, elapsed) = open("https://example.com/next");
+    assert!(
+        second.status.success(),
+        "the second link failed after {elapsed:?}: {}{}",
+        String::from_utf8_lossy(&second.stdout),
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(elapsed < Duration::from_secs(5), "the second link took {elapsed:?}");
+    let second = json_output(&second)["value"].clone();
+    assert_eq!(second["reused"], true, "{second}");
+    assert_eq!(second["tab_id"], tab, "{second}");
+    // The link reaches the page.
+    assert_eq!(next_navigation(&navigations), "https://example.com/next");
+    // The daemon still answers.
+    let listed = json_cli(&server, &["workspace", "list"]);
+    assert_success(&listed);
+    drop(provider);
 }

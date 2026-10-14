@@ -21,7 +21,7 @@ const inProject = noChat([session({ sessionId: "cmux", title: "Fix the sidebar",
 const newWorktree: Play = async (ctx) => {
   await ctx.click({ selector: '[aria-label="Folder"]' });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
-  await ctx.click({ role: "menuitem", name: "New Worktree" });
+  await ctx.click({ role: "option", name: "New Worktree" });
 };
 
 const fresh = noChat(
@@ -63,7 +63,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Folder"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
-        await ctx.click({ role: "menuitemradio", name: /\/Users\/you$/ });
+        await ctx.click({ role: "option", name: /\/Users\/you$/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-start-folder-ask"));
       },
     },
@@ -75,7 +75,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Folder"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
-        await ctx.click({ role: "menuitemradio", name: /\/Users\/you$/ });
+        await ctx.click({ role: "option", name: /\/Users\/you$/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-start-folder-ask"));
       },
     },
@@ -113,14 +113,14 @@ export default agentPaneEntry({
         await ctx.click({ selector: '[aria-label="Folder"]' });
         await new Promise((resolve) => setTimeout(resolve, 500));
         const folder = ctx.document.querySelector('[aria-label="Folder"]');
-        const items = [
-          ...ctx.document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [role="option"]'),
-        ].map((item) => `${item.getAttribute("role")}:${item.textContent?.trim()}`);
-        if (!items.includes("menuitem:New Worktree"))
+        const items = [...ctx.document.querySelectorAll(".acpmux-location-menu .acpmux-location-action")].map((item) =>
+          item.textContent?.trim(),
+        );
+        if (!items.includes("New Worktree"))
           throw new Error(
             `the folder control (${folder?.tagName} ${folder?.className}) offers ${JSON.stringify(items)}`,
           );
-        await ctx.click({ role: "menuitem", name: "New Worktree" });
+        await ctx.click({ role: "option", name: "New Worktree" });
         await ctx.waitFor(() =>
           ctx.document.querySelector(".acpmux-worktree-creating")?.textContent?.includes("Creating worktree"),
         );
