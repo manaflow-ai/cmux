@@ -212,7 +212,7 @@ fn registered_caller_workspace(
     socket: &SocketRoute<'_>,
 ) -> Result<String, Failure> {
     match caller_workspace(reader, route, terminal) {
-        Err(Failure::Resource(error)) if is_missing(&error) => {}
+        Err(Failure::Resource(error)) if is_missing(&error, terminal) => {}
         settled => return settled,
     }
     let deadline = Instant::now() + CALLER_TERMINAL_WAIT;
@@ -220,7 +220,7 @@ fn registered_caller_workspace(
     loop {
         let changed = events.as_mut().is_some_and(|events| next_event(events, deadline));
         match caller_workspace(reader, route, terminal) {
-            Err(Failure::Resource(error)) if is_missing(&error) => {
+            Err(Failure::Resource(error)) if is_missing(&error, terminal) => {
                 if !changed {
                     return Err(unregistered_terminal(terminal));
                 }
@@ -230,8 +230,12 @@ fn registered_caller_workspace(
     }
 }
 
-fn is_missing(error: &Value) -> bool {
+/// The lookup found no placed `terminal`; any other miss (an unknown
+/// `--machine`, say) is reported as it is.
+fn is_missing(error: &Value, terminal: &str) -> bool {
+    let details = &error["details"];
     error.get("code").and_then(Value::as_str) == Some("selector.not_found")
+        && (details["selector"] == terminal || details["terminal"] == terminal)
 }
 
 fn unregistered_terminal(terminal: &str) -> Failure {
