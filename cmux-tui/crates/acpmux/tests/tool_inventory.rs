@@ -1,9 +1,13 @@
 //! The tools a chat has (cx-thur3): every session's summary and
 //! `_acpmux/info` list cmux's own tools (`agent_tools.rs`) and, for Claude
 //! Code, the MCP servers, skills and plugins its system/init reports, as
-//! `tools` rows with `toolsMutable`. `_acpmux/set_tools` turns one MCP server
-//! on or off through Claude Code's `mcp_toggle`; a harness that cannot change
-//! its tools mid-session, or a row that cannot change, is refused.
+//! `tools` rows with `toolsMutable`. `_acpmux/set_tools` records the chat's
+//! choice for one MCP server: Claude Code then starts with
+//! `--disallowedTools mcp__<server>` for each server that is off (restarted
+//! and resumed now when no turn runs), at every later start too. It never
+//! sends `mcp_toggle`, which Claude Code writes into `~/.claude.json` for
+//! every session in the folder. A harness that cannot change its tools, or a
+//! row that cannot change, is refused.
 //!
 //! One test function: the tools are read from this process's environment,
 //! which every test of a binary shares.
@@ -40,12 +44,13 @@ fn claude_init() -> Value {
     })
 }
 
-fn hub() -> Arc<Hub> {
+fn hub(control_log: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
-                           "env": {"FAKE_CLAUDE_INIT": claude_init().to_string()}},
+                           "env": {"FAKE_CLAUDE_INIT": claude_init().to_string(),
+                                   "FAKE_CLAUDE_CONTROL_LOG": control_log}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -108,6 +113,25 @@ impl Client {
         said
     }
 
+    /// The text streamed for request `id` (sent raw) until its reply.
+    async fn reply(&mut self, id: i64) -> String {
+        let mut text = String::new();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
+                .await
+                .expect("no reply")
+                .unwrap();
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v.get("id") == Some(&json!(id)) {
+                assert!(v.get("error").is_none(), "{v}");
+                return text;
+            }
+            if let Some(t) = v.pointer("/params/update/content/text").and_then(Value::as_str) {
+                text.push_str(t);
+            }
+        }
+    }
+
     /// The first `_acpmux/session_changed` of `kind` for `session`.
     async fn changed(&mut self, session: &str, kind: &str) -> Value {
         loop {
@@ -163,6 +187,19 @@ fn row(
     (id.into(), kind.into(), source.into(), enabled, toggle)
 }
 
+/// The fake Claude Code's argv, which it replies with.
+fn argv(said: &str) -> Vec<String> {
+    serde_json::from_str(said).unwrap_or_else(|e| panic!("{e}: {said}"))
+}
+
+/// The values of each `--disallowedTools`, sorted.
+fn disallowed(args: &[String]) -> Vec<String> {
+    let mut out: Vec<String> =
+        args.windows(2).filter(|w| w[0] == "--disallowedTools").map(|w| w[1].clone()).collect();
+    out.sort();
+    out
+}
+
 fn reason(e: &Value) -> &str {
     e.pointer("/data/reason").and_then(Value::as_str).unwrap_or_default()
 }
@@ -185,7 +222,8 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         std::env::remove_var("ACPMUX_AGENT_TOOLS");
         std::env::remove_var("ACPMUX_SECRET_TOOLS");
     }
-    let hub = hub();
+    let control_log = root.join("claude-controls.log");
+    let hub = hub(&control_log);
     let mut local = client(&hub, Origin::Local);
     let mut watcher = client(&hub, Origin::Local);
     watcher.call("_acpmux/watch", json!({"enabled": true})).await.expect("watch");
@@ -222,11 +260,21 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         .await
         .expect_err("an ACP harness cannot change its tools");
     assert_eq!(reason(&refused), "tools.immutable", "{refused}");
+    // Refused from the harness alone: an idle ACP chat is not started for it.
+    local.call("session/close", json!({"sessionId": acp})).await.expect("close");
+    let refused = local
+        .call("_acpmux/set_tools", json!({"sessionId": acp, "id": "mcp:cmux", "enabled": false}))
+        .await
+        .expect_err("an idle ACP chat cannot change its tools either");
+    assert_eq!(reason(&refused), "tools.immutable", "{refused}");
+    let info = local.call("_acpmux/info", json!({"sessionId": acp})).await.unwrap();
+    assert_eq!(info["status"], json!("closed"), "not started to be refused: {info}");
 
     // Claude Code: cmux's servers and skills, then what its init reports
     // (cmux's own server and skill and plugin once, the user's after them).
+    // linear is off in the user's own Claude config: cmux cannot turn it on.
     let claude = local.new_session("fakeclaude").await;
-    local.ask(&claude, "hi").await;
+    assert!(!argv(&local.ask(&claude, "hi").await).contains(&"--disallowedTools".to_owned()));
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
     assert_eq!(info["toolsMutable"], json!(true), "{info}");
     assert_eq!(
@@ -237,15 +285,15 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             row("skill:cmux:cmux-browser", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-cua", "cmux", "cmux", true, false),
             row("mcp:github", "mcp", "claude", true, true),
-            row("mcp:linear", "mcp", "claude", false, true),
+            row("mcp:linear", "mcp", "claude", false, false),
             row("plugin:reviewer", "plugin", "claude", true, false),
             row("skill:pdf", "skill", "claude", true, false),
         ],
         "{info}"
     );
 
-    // Turn the user's github server off: Claude Code gets mcp_toggle, the row
-    // flips, and watchers hear it.
+    // Turn the user's github server off in an idle chat: the row flips,
+    // watchers hear it, and Claude Code restarts now (resumed) without it.
     let set = local
         .call(
             "_acpmux/set_tools",
@@ -253,29 +301,58 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         )
         .await
         .expect("set_tools");
-    let github = |tools: &Value| rows(tools).into_iter().find(|r| r.0 == "mcp:github").unwrap();
-    assert_eq!(github(&set["tools"]), row("mcp:github", "mcp", "claude", false, true), "{set}");
-    let toggles: Value = serde_json::from_str(&local.ask(&claude, "toggles-probe").await).unwrap();
-    assert_eq!(toggles, json!([{"serverName": "github", "enabled": false}]));
+    assert_eq!(set["applied"], json!("now"), "{set}");
+    let tool = |tools: &Value, id: &str| rows(tools).into_iter().find(|r| r.0 == id).unwrap();
+    assert_eq!(tool(&set["tools"], "mcp:github"), row("mcp:github", "mcp", "claude", false, true));
     // The first `tools` change is Claude Code's init; then the set's.
-    while github(&watcher.changed(&claude, "tools").await["session"]["tools"]).3 {}
+    while tool(&watcher.changed(&claude, "tools").await["session"]["tools"], "mcp:github").3 {}
+    let args = argv(&local.ask(&claude, "hi").await);
+    assert_eq!(disallowed(&args), ["mcp__github"], "{args:?}");
+    assert!(args.contains(&"--resume".to_owned()), "the chat resumes: {args:?}");
+    // The new process's init reports github connected: the chat's choice stays.
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
-    assert!(!github(&info["tools"]).3, "{info}");
+    assert!(!tool(&info["tools"], "mcp:github").3, "{info}");
 
-    // A skill cannot be turned off mid-session, and an unknown id is not found.
-    let fixed = local
-        .call(
-            "_acpmux/set_tools",
-            json!({"sessionId": claude, "id": "skill:cmux:cmux-browser", "enabled": false}),
-        )
-        .await
-        .expect_err("a skill is fixed");
-    assert_eq!(reason(&fixed), "tools.fixed", "{fixed}");
+    // A skill, or a server the user's own config turned off, cannot be
+    // changed here, and an unknown id is not found.
+    for id in ["skill:cmux:cmux-browser", "mcp:linear"] {
+        let fixed = local
+            .call("_acpmux/set_tools", json!({"sessionId": claude, "id": id, "enabled": true}))
+            .await
+            .expect_err("a fixed row");
+        assert_eq!(reason(&fixed), "tools.fixed", "{id}: {fixed}");
+    }
     let unknown = local
         .call("_acpmux/set_tools", json!({"sessionId": claude, "id": "mcp:nope", "enabled": true}))
         .await
         .expect_err("no such tool");
     assert_eq!(unknown["code"], json!(-32002), "{unknown}");
+
+    // During a turn the choice is recorded and applies at the next start.
+    let mut app = client(&hub, Origin::LocalApp);
+    let gate = root.join("turn-gate");
+    let hold = format!("hold: {}", gate.display());
+    let held = json!({"sessionId": claude, "prompt": [{"type": "text", "text": hold}]});
+    local.0.send(Message::request(900, "session/prompt", held).to_line()).await.unwrap();
+    while app.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap()["turn"].is_null() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let set = app
+        .call("_acpmux/set_tools", json!({"sessionId": claude, "id": "mcp:cmux", "enabled": false}))
+        .await
+        .expect("set_tools during a turn");
+    assert_eq!(set["applied"], json!("nextStart"), "{set}");
+    assert!(!tool(&set["tools"], "mcp:cmux").3, "{set}");
+    std::fs::write(&gate, "").unwrap();
+    let said = local.reply(900).await;
+    assert_eq!(disallowed(&argv(&said)), ["mcp__github"], "the turn's process ran on: {said}");
+
+    // Both choices survive a respawn.
+    local.call("session/close", json!({"sessionId": claude})).await.expect("close");
+    let args = argv(&local.ask(&claude, "hi").await);
+    assert_eq!(disallowed(&args), ["mcp__cmux", "mcp__github"], "{args:?}");
+    let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
+    assert!(!tool(&info["tools"], "mcp:cmux").3 && !tool(&info["tools"], "mcp:github").3);
 
     // The app's pane may set them; a remote browser may not (turning an MCP
     // server on runs the command it names on this machine).
@@ -285,11 +362,16 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         .await
         .expect_err("a remote browser cannot set tools");
     assert_eq!(reason(&remote), "tools.remote", "{remote}");
-    let set = client(&hub, Origin::LocalApp)
-        .call("_acpmux/set_tools", on)
-        .await
-        .expect("the app's pane turns it back on");
-    assert!(github(&set["tools"]).3, "{set}");
+    let set = app.call("_acpmux/set_tools", on).await.expect("the app's pane turns it back on");
+    assert_eq!(set["applied"], json!("now"), "{set}");
+    assert!(tool(&set["tools"], "mcp:github").3, "{set}");
+    let args = argv(&local.ask(&claude, "hi").await);
+    assert_eq!(disallowed(&args), ["mcp__cmux"], "{args:?}");
+
+    // Claude Code was never sent mcp_toggle (it persists to ~/.claude.json).
+    let controls = std::fs::read_to_string(&control_log).unwrap();
+    assert!(controls.lines().any(|c| c == "initialize"), "{controls}");
+    assert!(!controls.lines().any(|c| c == "mcp_toggle"), "{controls}");
 
     // The daemon's switch: a new session lists none of cmux's tools.
     // SAFETY: as above; no session is starting concurrently.

@@ -22,8 +22,9 @@ then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
 ~/.claude) and replies with what it found as JSON, or fails the turn with
 Claude Code's own "Not logged in · Please run /login".
 FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
-`skills`, ...); every `mcp_toggle` control request is kept, and
-"toggles-probe" replies with them as JSON.
+`skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
+control request is appended to that file, one per line. Any plain prompt
+replies with the process's argv (spawn flags such as `--disallowedTools`).
 """
 import json
 import os
@@ -58,7 +59,6 @@ if STORE:
             SESSION = sys.argv[sys.argv.index(flag) + 1]
             if flag == "--resume":
                 RESUME = SESSION
-TOGGLES = []
 
 for line in sys.stdin:
     try:
@@ -80,8 +80,9 @@ for line in sys.stdin:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}})
             continue
-        if request.get("subtype") == "mcp_toggle":
-            TOGGLES.append({"serverName": request.get("serverName"), "enabled": request.get("enabled")})
+        if os.environ.get("FAKE_CLAUDE_CONTROL_LOG"):
+            with open(os.environ["FAKE_CLAUDE_CONTROL_LOG"], "a") as f:
+                f.write(str(request.get("subtype")) + "\n")
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
         if request.get("subtype") == "initialize":
             init = {"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
@@ -168,8 +169,6 @@ for line in sys.stdin:
             text = json.dumps({"prompts": [r["message"]["content"] for r in records
                                            if r.get("type") == "user" and r["message"]["content"] != "history-probe"],
                                "sessions": sorted({r["sessionId"] for r in records})})
-        if said.strip() == "toggles-probe":
-            text = json.dumps(TOGGLES)
         documents = [b for b in content if isinstance(b, dict) and b.get("type") == "document"]
         if said.strip() == "document-probe":
             text = json.dumps({
