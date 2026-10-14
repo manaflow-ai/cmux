@@ -14,9 +14,10 @@ import CCmuxLayoutReducerFFI
 /// sidebar then keeps its older path.
 @MainActor
 public final class SidebarMirror {
-    /// FFI calls this process made, for `debug.sidebar_rows` (a drag is two:
-    /// `drag_begin` and the drop's intent).
-    public private(set) static var calls = 0
+    /// FFI calls this process made, by entry (`load`, `batch`, `intent`,
+    /// `view`, `drag_begin`), for `debug.sidebar_rows`: a drag adds one
+    /// `drag_begin` and one `intent`, nothing per mouse-move.
+    public private(set) static var calls: [String: Int] = [:]
 
     /// Why an intent was not applied (`cross_machine`, `provider_owned`, ...).
     public struct Refusal: Error, Hashable, Sendable {
@@ -42,19 +43,19 @@ public final class SidebarMirror {
     private typealias Entry = (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?
 
     /// One call: JSON in, the reply's JSON out (a string the FFI allocates and this frees).
-    private func call(_ entry: Entry, _ request: Data) -> Data? {
-        Self.calls += 1
+    private func call(_ name: String, _ entry: Entry, _ request: Data) -> Data? {
+        Self.calls[name, default: 0] += 1
         let reply = request.withUnsafeBytes { input in entry(handle, input.bindMemory(to: UInt8.self).baseAddress, request.count) }
         guard let reply else { return nil }
         defer { cmux_sidebar_mirror_string_free(reply) }
         return Data(String(cString: reply).utf8)
     }
 
-    private func load(raw: Data) -> Data? { call(cmux_sidebar_mirror_load, raw) }
-    private func applyBatch(raw: Data) -> Data? { call(cmux_sidebar_mirror_apply_batch, raw) }
-    private func applyIntent(raw: Data) -> Data? { call(cmux_sidebar_mirror_apply_intent, raw) }
-    private func view(raw: Data) -> Data? { call(cmux_sidebar_mirror_view, raw) }
-    private func dragBegin(raw: Data) -> Data? { call(cmux_sidebar_mirror_drag_begin, raw) }
+    private func load(raw: Data) -> Data? { call("load", cmux_sidebar_mirror_load, raw) }
+    private func applyBatch(raw: Data) -> Data? { call("batch", cmux_sidebar_mirror_apply_batch, raw) }
+    private func applyIntent(raw: Data) -> Data? { call("intent", cmux_sidebar_mirror_apply_intent, raw) }
+    private func view(raw: Data) -> Data? { call("view", cmux_sidebar_mirror_view, raw) }
+    private func dragBegin(raw: Data) -> Data? { call("drag_begin", cmux_sidebar_mirror_drag_begin, raw) }
     #else
     public static func make() -> SidebarMirror? { nil }
 

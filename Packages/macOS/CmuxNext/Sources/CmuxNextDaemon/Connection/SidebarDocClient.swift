@@ -86,10 +86,3 @@ public struct SidebarDocMutation: Sendable, Hashable {
         }
     }
 }
-
-extension JSONValue {
-    /// The elements of an array value, else nil.
-    public var arrayValue: [JSONValue]? {
-        if case .array(let values) = self { values } else { nil }
-    }
-}
