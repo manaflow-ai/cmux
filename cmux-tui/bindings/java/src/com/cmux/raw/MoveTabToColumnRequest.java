@@ -14,6 +14,7 @@ import java.util.Objects;
 public final class MoveTabToColumnRequest implements WireValue {
     private final Field<UInt64> afterColumn;
     private final Field<ColumnPin> dock;
+    private final Field<Boolean> keepFocus;
     private final Field<UInt64> pane;
     private final Field<SplitRespawn> respawn;
     private final Field<UInt64> screen;
@@ -24,6 +25,7 @@ public final class MoveTabToColumnRequest implements WireValue {
     private MoveTabToColumnRequest(Builder builder) {
         this.afterColumn = builder.afterColumn;
         this.dock = builder.dock;
+        this.keepFocus = builder.keepFocus;
         this.pane = builder.pane;
         this.respawn = builder.respawn;
         this.screen = builder.screen;
@@ -37,6 +39,7 @@ public final class MoveTabToColumnRequest implements WireValue {
 
     public Field<UInt64> afterColumn() { return afterColumn; }
     public Field<ColumnPin> dock() { return dock; }
+    public Field<Boolean> keepFocus() { return keepFocus; }
     public Field<UInt64> pane() { return pane; }
     public Field<SplitRespawn> respawn() { return respawn; }
     public Field<UInt64> screen() { return screen; }
@@ -54,6 +57,10 @@ public final class MoveTabToColumnRequest implements WireValue {
         Object rawDock = Wire.optional(object, "dock");
         if (!Wire.isMissing(rawDock)) {
             builder.dock(rawDock == null ? null : ColumnPin.fromWire(rawDock));
+        }
+        Object rawKeepFocus = Wire.optional(object, "keep_focus");
+        if (!Wire.isMissing(rawKeepFocus)) {
+            builder.keepFocus(Wire.bool(rawKeepFocus, "MoveTabToColumnRequest.keep_focus"));
         }
         Object rawPane = Wire.optional(object, "pane");
         if (!Wire.isMissing(rawPane)) {
@@ -85,6 +92,7 @@ public final class MoveTabToColumnRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "after_column", afterColumn);
         Wire.put(object, "dock", dock);
+        Wire.put(object, "keep_focus", keepFocus);
         Wire.put(object, "pane", pane);
         Wire.put(object, "respawn", respawn);
         Wire.put(object, "screen", screen);
@@ -97,11 +105,11 @@ public final class MoveTabToColumnRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof MoveTabToColumnRequest that)) return false;
-        return Objects.equals(afterColumn, that.afterColumn) && Objects.equals(dock, that.dock) && Objects.equals(pane, that.pane) && Objects.equals(respawn, that.respawn) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction) && Objects.equals(width, that.width);
+        return Objects.equals(afterColumn, that.afterColumn) && Objects.equals(dock, that.dock) && Objects.equals(keepFocus, that.keepFocus) && Objects.equals(pane, that.pane) && Objects.equals(respawn, that.respawn) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction) && Objects.equals(width, that.width);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(afterColumn, dock, pane, respawn, screen, surface, transaction, width); }
+    public int hashCode() { return Objects.hash(afterColumn, dock, keepFocus, pane, respawn, screen, surface, transaction, width); }
 
     @Override
     public String toString() { return "MoveTabToColumnRequest" + toWire(); }
@@ -109,6 +117,7 @@ public final class MoveTabToColumnRequest implements WireValue {
     public static final class Builder {
         private Field<UInt64> afterColumn = Field.omitted();
         private Field<ColumnPin> dock = Field.omitted();
+        private Field<Boolean> keepFocus = Field.omitted();
         private Field<UInt64> pane = Field.omitted();
         private Field<SplitRespawn> respawn = Field.omitted();
         private Field<UInt64> screen = Field.omitted();
@@ -123,6 +132,10 @@ public final class MoveTabToColumnRequest implements WireValue {
         }
         public Builder dock(ColumnPin value) {
             this.dock = Field.ofNullable(value);
+            return this;
+        }
+        public Builder keepFocus(Boolean value) {
+            this.keepFocus = Field.of(value);
             return this;
         }
         public Builder pane(UInt64 value) {

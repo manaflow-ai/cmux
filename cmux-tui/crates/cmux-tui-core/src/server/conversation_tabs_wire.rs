@@ -210,16 +210,19 @@ pub(super) fn create(
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = record_of(mux, conversation, owner, agent_session, page, route)?;
-    let outcome =
-        mux.new_conversation_tab_as(&actor, target, record.clone(), mutation.as_ref(), size)?;
+    // The creation's own `tab-added` carries `transaction`: one delta per
+    // tab. A replay emits nothing and echoes it in the result only.
+    let outcome = mux.new_conversation_tab_as(
+        &actor,
+        target,
+        record.clone(),
+        mutation.as_ref(),
+        size,
+        transaction.as_deref(),
+    )?;
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);
-    if let Some(transaction) = transaction.as_deref()
-        && !outcome.replayed
-    {
-        mux.emit_tab_added_for_transaction(outcome.surface.id, Arc::from(transaction));
-    }
     let mut result = json!({
         "surface": outcome.surface.id,
         "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
