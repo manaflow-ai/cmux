@@ -9,7 +9,7 @@ extension CmuxConfigSnapshot {
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum LabsSettingsSchema {
-    /// Settings > Advanced > Labs: surfaces still being shaped, off by default.
+    /// Settings > Experimental > Labs: new looks and behaviors that a person turns on; each row is a LabsFlag.
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.labs", "Labs")
         return [
@@ -24,5 +24,49 @@ nonisolated enum LabsSettingsSchema {
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
             ),
         ]
+    }
+}
+
+/// The Labs flags (schemas/settings/source/labs.json): read one with
+/// `CmuxConfigSnapshot.lab(_:)`, never its key path.
+public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
+    case previewFeatures
+
+    /// The cmux.json key: `labs.<name>`.
+    public var key: String { "labs." + rawValue }
+
+    /// Who answers for the flag (a lane or a person).
+    public var owner: String {
+        switch self {
+        case .previewFeatures: "leo"
+        }
+    }
+
+    /// The one line Settings shows: what turning it on changes.
+    public var intent: String {
+        switch self {
+        case .previewFeatures: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+        }
+    }
+
+    /// YYYY-MM-DD.
+    public var created: String {
+        switch self {
+        case .previewFeatures: "2026-10-03"
+        }
+    }
+
+    /// YYYY-MM-DD: past it, gen-settings-sources.py warns until the flag is promoted, extended or deleted.
+    public var expires: String {
+        switch self {
+        case .previewFeatures: "2026-10-27"
+        }
+    }
+
+    /// Who has it on with nothing in cmux.json.
+    public var cohort: LabsCohort {
+        switch self {
+        case .previewFeatures: .off
+        }
     }
 }

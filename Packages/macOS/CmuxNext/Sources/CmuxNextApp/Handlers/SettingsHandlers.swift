@@ -30,6 +30,7 @@ enum SettingsHandlers {
         registry.bind("browser.defaultEngine.chromium", run: { _ in try setDefaultEngine(.chromium, context) })
         registry.bind("browser.defaultEngine.webkit", run: { _ in try setDefaultEngine(.webkit, context) })
         registry.bind("sendFeedback", run: { _ in try context.open(StaticURL.feedback.url) })
+        registry.bind("help.featureFlags", run: { _ in try context.services.settingsWindow.show(section: nil, setting: LabsFlag.allCases.first?.key) })
         registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         registry.bind("app.shareCmux", run: { [weak services = context.services] _ in services.map(ShareCmuxPresenter.present) })
@@ -45,7 +46,6 @@ enum SettingsHandlers {
         let unbuilt: [(ActionID, String)] = [
             ("palette.restartSocketListener", "control-socket-restart"),
             ("palette.pro.upgrade", "account-billing"),
-            ("help.featureFlags", "feature-flags"),
         ]
         for (id, feature) in unbuilt {
             registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))

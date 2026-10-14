@@ -22,7 +22,7 @@ extension SettingsSchema {
     }
     /// Keys an agent may set and reset: the table below plus every
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
-    public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
+    public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(LabsFlag.allCases.map(\.key)).union(BrowserLinkClickSchema.agentSettableKeys)
         .union(OmnibarSettingsSchema.agentSettableKeys)
         // What sidebar rows show (looks only, SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
         .union(WorkspaceRowSetting.keys)
@@ -156,7 +156,6 @@ extension SettingsSchema {
         "notifications.attention.moveToTop",
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
-        "labs.previewFeatures",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",

@@ -74,6 +74,9 @@ export function newTabScreenActions(deps: {
     // Its dismissal: the app keeps it for every later page, also after a relaunch.
     onDismissHarnessHint: () => ignore(callNative("newTab.remember", { harnessHint: "dismissed" })),
     onTouched: () => ignore(callNative("newTab.touched")),
+    // Labs (team builds): the app saves the toggle and answers with a new `data-labs`.
+    onSetLab: (flag, on) => ignore(callNative("newTab.setLab", { flag, on })),
+    onShowLabs: () => ignore(callNative("action.run", { id: "help.featureFlags" })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
     onCreate: (kind) =>
       ignore(
