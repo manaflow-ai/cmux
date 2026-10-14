@@ -30,7 +30,7 @@ Checks per scenario (CHECKS.json and stdout PASS/FAIL):
   card (the echo changes nothing on screen);
 - work: the main-thread drag update stays under 4 ms (p95).
 """
-import argparse, json, os, shutil, socket, subprocess, sys, tempfile, threading, time
+import argparse, json, os, shutil, socket, subprocess, sys, tempfile, threading, time, atexit
 
 from sidebar_v2_motion_checks import analyse
 
@@ -250,13 +250,51 @@ def check(name, frames, dragged, dropped_key=None, refused=False):
 TRACE = {}
 
 
+TRACE_TMP = []
+
+
+TRACE_STARTED = []
+
+
+def drop_trace_tmp():
+    """Deletes the recorder's Instruments intermediates (the exported .trace and XML stay). If Instruments ignored TMPDIR,
+    it also deletes instruments*.ktrace files in the user's temp dir that appeared after this run's trace started and that
+    no process has open (another run's file is older, or open)."""
+    while TRACE_TMP:
+        shutil.rmtree(TRACE_TMP.pop(), ignore_errors=True)
+    if not TRACE_STARTED:
+        return
+    since = TRACE_STARTED[0]
+    tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    import glob
+    for name in glob.glob(os.path.join(tmp, "instruments*.ktrace")):
+        try:
+            born = os.stat(name).st_birthtime
+        except OSError:
+            continue
+        if born >= since and not subprocess.run(["lsof", "-t", name], capture_output=True, text=True).stdout.strip():
+            try:
+                os.remove(name)
+            except OSError:
+                pass
+
+
+atexit.register(drop_trace_tmp)
+
+
 def trace_start():
     if not opts.trace:
         return None
     path = os.path.join(opts.out, "hitches.trace")
     shutil.rmtree(path, ignore_errors=True)
+    # Instruments writes its instruments*.ktrace intermediates (1-12 GB each) to TMPDIR and leaves them when a recording is
+    # interrupted: give it its own directory and delete it once the .trace is exported (TRACE_TMP, trace_stop, atexit).
+    TRACE_STARTED.append(time.time())
+    scratch = tempfile.mkdtemp(prefix="sbv2-xctrace-")
+    TRACE_TMP.append(scratch)
     proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Animation Hitches", "--attach", str(Target.pid or app_pid()),
-                             "--output", path, "--time-limit", "120s"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                             "--output", path, "--time-limit", "120s"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            env={**os.environ, "TMPDIR": scratch + "/"})
     time.sleep(4)  # test harness: xctrace attaches before the first drag
     return proc, path
 
@@ -272,6 +310,7 @@ def trace_stop(handle):
         proc.kill()
         log = "timeout"
     open(os.path.join(opts.out, "xctrace.log"), "w").write(log or "")
+    drop_trace_tmp()  # the recording is finalized into hitches.trace (or failed): its intermediates are no longer needed
     try:
         toc = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--toc"], capture_output=True, text=True, timeout=300).stdout
     except subprocess.TimeoutExpired:
