@@ -70,6 +70,7 @@ and render-server field animation, blurred header and native scrolling.
 | RowDrawing | file, audio, contact and voice memo rows on my side use the theme's sent text colour (white by default; a light accent showed white text) |
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
 | Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space |
+| Compose, Transcript, SidebarDrawing (sidebar) | Reduce Motion (cx-sya4n: nothing loops): the caret holds solid, the typing dots stand at one phase and the typing bubble does not breathe (`MessagesLabHomeView.reduceMotionOverride` / `CmuxSidebarView.reduceMotionOverride`: cmux-next mirrors its `Motion.reduceMotionOverride`; nil reads the system setting) |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Layout | `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's |
