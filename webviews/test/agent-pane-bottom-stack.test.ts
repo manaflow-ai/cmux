@@ -194,8 +194,8 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
 
   type Box = { name: string; top: number; bottom: number; left: number; right: number };
   /// The drawn boxes of the bottom stack's parts, the transcript and the chat column.
-  const layout = (page: Page) =>
-    page.evaluate(() => {
+  const layout = (page: Page, strip = ".acpmux-composer-strip") =>
+    page.evaluate((strip) => {
       const box = (name: string, selector: string) => {
         const node = document.querySelector(selector);
         if (!node) return undefined;
@@ -209,7 +209,7 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
           box("ask", ".acpmux-asks-stack"),
           box("dock", ".acpmux-pr-dock"),
           box("queue", ".acpmux-composer-queue"),
-          box("strip", ".acpmux-composer-strip"),
+          box("strip", strip),
           box("card", ".acpmux-composer-box"),
         ].filter((part) => part !== undefined),
         queueScrolls: (() => {
@@ -217,11 +217,14 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
           return queue ? queue.scrollHeight > queue.clientHeight + 1 : false;
         })(),
       };
-    });
+    }, strip);
 
   /// Every part drawn, inside the chat column, below the transcript, and over no other part.
-  function expectStacked({ main, transcript, parts }: { main: Box; transcript: Box; parts: Box[] }) {
-    expect(parts.map((part) => part.name)).toEqual(["ask", "dock", "queue", "strip", "card"]);
+  function expectStacked(
+    { main, transcript, parts }: { main: Box; transcript: Box; parts: Box[] },
+    names = ["ask", "dock", "queue", "strip", "card"],
+  ) {
+    expect(parts.map((part) => part.name)).toEqual(names);
     for (const part of parts) {
       expect({ part: part.name, clipped: part.top < main.top - 0.5 || part.bottom > main.bottom + 0.5 }).toEqual({
         part: part.name,
@@ -263,4 +266,28 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     expect(drawn.queueScrolls).toBe(true);
     await page.close();
   });
+  // The composer strip's variants (strip/ComposerStrip.tsx): the pull requests move from the dock
+  // into the strip, which keeps its own place between the queue and the card. The tray runs under
+  // the card's top edge by design, so its row (the chips) is what must stay clear of the card.
+  for (const arm of ["flat", "tab", "gooey", "tray"] as const)
+    for (const height of [760, 480])
+      test(`${arm} strip at ${height} px: the question, the queue, the strip and the card stack without overlapping`, async () => {
+        const page = await browser!.newPage({ viewport: { width: 900, height } });
+        await page.addInitScript((value) => {
+          (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "composer-strip": value };
+        }, arm);
+        await page.goto(url());
+        await page.getByText("Three PRs open.").waitFor();
+        await page.locator(".acpmux-composer-strip .acpmux-strip-pr").waitFor({ timeout: 10_000 });
+        await page.locator(".acpmux-queued", { hasText: "sixth" }).waitFor();
+        const drawn = await layout(
+          page,
+          arm === "tray" ? ".acpmux-composer-strip > .acpmux-composer-context" : ".acpmux-composer-strip",
+        );
+        const pr = await page.locator(".acpmux-composer-strip .acpmux-strip-pr .acpmux-strip-number").textContent();
+        await page.close();
+        expectStacked(drawn, ["ask", "queue", "strip", "card"]);
+        expect(pr).toBe("#43");
+        if (height === 480) expect(drawn.transcript.bottom - drawn.transcript.top).toBeGreaterThanOrEqual(96);
+      });
 });
