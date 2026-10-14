@@ -132,6 +132,28 @@ fn builtin_login(family: &str) -> Option<&'static str> {
     })
 }
 
+/// Sign-in evidence for a harness with no `auth.check` (one acpmux found on
+/// PATH): Codex answers `codex login status` (exit 0 signed in, also behind
+/// codex-acp); Claude's sign-in sources (`claude_auth`) only ever prove a
+/// sign-in, so none found stays unknown, never a guess from a missing file.
+fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
+    match s.family.as_str() {
+        "codex" => {
+            let check = ["codex", "login", "status"].map(String::from);
+            match probe::auth_check(&check, &s.env, &s.family) {
+                Ok(true) => Some((Auth::SignedIn, Some("`codex login status` passed".into()))),
+                Ok(false) => Some((Auth::SignedOut, Some("`codex login status` failed".into()))),
+                Err(_) => None,
+            }
+        }
+        "claude" => {
+            let found = crate::claude_auth::find(&s.env, true);
+            found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
+        }
+        _ => None,
+    }
+}
+
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
     regex::Regex::new(r"(?i)\b(not (logged|signed) in|log ?in|sign ?in|unauthenticated|authentication required|auth required|unauthorized)\b")
         .expect("sign-in pattern") // crash-allow: constant pattern
@@ -274,6 +296,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
             }
         }
         Some(e) if SIGN_IN.is_match(e) => (Auth::SignedOut, Some(e.clone())),
+        _ if found.is_some() => builtin_auth(&s).unwrap_or((Auth::Unknown, None)),
         _ => (Auth::Unknown, None),
     };
     HarnessHealth {
