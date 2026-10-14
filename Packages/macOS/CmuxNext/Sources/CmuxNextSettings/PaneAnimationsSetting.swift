@@ -4,9 +4,10 @@
 /// panes"): a split, close, move, swap, zoom, column reveal or screen switch
 /// applies in one frame. On restores the springs. `ui.animationSpeed` "off"
 /// and Reduce Motion still snap them.
-nonisolated enum PaneAnimationsSetting {
-    static let configPath = ["ui", "paneAnimations"]
-    static let fallback = false
+public nonisolated struct PaneAnimationsSetting {
+    public nonisolated init() {}
+    public static let configPath = ["ui", "paneAnimations"]
+    public static let fallback = false
 
     /// Absent is off; a value that is not a bool is off plus a diagnostic.
     static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
