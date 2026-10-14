@@ -26,7 +26,12 @@ class ResizeSocket:
         self.result = result or {}
         self.list_error = list_error
         self.resize_error = resize_error
-        self.limits = limits or {}
+        self.limits = limits or {
+            "planId": "max",
+            "maxVcpus": 32,
+            "maxMemoryMb": 64 * 1024,
+            "maxDiskMb": 256 * 1024,
+        }
         self.machines = machines or []
         self.requests: list[dict] = []
         self.errors: list[Exception] = []
@@ -161,14 +166,13 @@ class VMResizeTests(unittest.TestCase):
     def test_invalid_arguments_do_not_send_a_resize_request(self) -> None:
         cases = [
             [], ["existing-vm"], ["", "--disk", "64"],
-            ["existing-vm", "--disk"], ["existing-vm", "--disk", "66"],
-            ["existing-vm", "--disk", "0"], ["existing-vm", "--disk", "260"],
-            ["existing-vm", "--disk", "128 GiB"], ["existing-vm", "--disk", "66G"],
-            ["existing-vm", "--disk", "260G"],
+            ["existing-vm", "--disk"],
+            ["existing-vm", "--disk", "0"],
+            ["existing-vm", "--disk", "128 GiB"],
             ["existing-vm", "--disk", "64.5"], ["existing-vm", "--disk", "64", "extra"],
-            ["existing-vm", "--cpu", "0"], ["existing-vm", "--cpu", "33"],
+            ["existing-vm", "--cpu", "0"],
             ["existing-vm", "--cpu", "1.5"], ["existing-vm", "--cpu", "-1"],
-            ["existing-vm", "--memory", "0"], ["existing-vm", "--memory", "65"],
+            ["existing-vm", "--memory", "0"],
             ["existing-vm", "--memory", "4.5"], ["existing-vm", "--unknown", "64"],
         ]
         for arguments in cases:
@@ -199,7 +203,7 @@ class VMResizeTests(unittest.TestCase):
             with self.subTest(cpu=cpu), ResizeSocket(limits=limits) as server:
                 result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--cpu", str(cpu)])
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("cmux Pro plan", result.stderr)
+                self.assertIn("pro plan", result.stderr)
                 self.assertEqual([request["method"] for request in server.requests], ["vm.list"])
 
     def test_list_failure_fails_closed_without_resize_mutation(self) -> None:
