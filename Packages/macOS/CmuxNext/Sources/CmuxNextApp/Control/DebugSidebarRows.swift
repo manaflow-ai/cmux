@@ -56,6 +56,11 @@ enum DebugSidebarRows {
                 "sections": .array(controller.sidebar.container.sidebarView.debugSectionHeaders().map { header in
                     .object(["id": .string(header.id), "title": header.title.map(JSONValue.string) ?? .null, "window_frame": rect(header.frame)])
                 }),
+                // Every shown section's arrangement (align, gap) and item count: reads alignment, spacing and reset edits back.
+                "layout_sections": .array(sidebar.debugLayoutSections().map { section in
+                    .object(["id": .string(section.id), "title": section.title.map(JSONValue.string) ?? .null, "align": .string(section.align),
+                             "gap": section.gap.map { .number(Double($0)) } ?? .null, "items": .number(Double(section.items))])
+                }),
                 "status_glyphs": .array(sidebar.debugStatusGlyphs().map(statusGlyph)),
                 "new_button": sidebar.debugNewButtonFrame().map(rect) ?? .null,
                 "rows": .array(rows.map { row in

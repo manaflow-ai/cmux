@@ -359,6 +359,49 @@ try:
     after = (list_titles(), [i.get("ref") for i in section_items("sec_pinned")])
     shot("v2-7-relaunched")
     record("order survives relaunch", before == after, f"before={before} after={after}")
+
+    # 8. Band edits that go to the sidebar document (doc slice 4): alignment, spacing, Remove from Sidebar and
+    # Reset each change the shown layout, and Cmd-Z puts it back.
+    def layout_section(section_id):
+        return next((s for s in window().get("layout_sections", []) if s.get("id") == section_id), None)
+
+    def section_edit(step, action, arguments, check, back):
+        refusals = len(toast().get("refusals") or [])
+        performed = toast(perform=action, target_kind="sidebar-section", target_id="sec_pinned", arguments=arguments).get("performed")
+        ok = wait(check, 5)
+        new_refusals = (toast().get("refusals") or [])[refusals:]
+        record(step, bool(performed and ok) and not new_refusals,
+               f"performed={performed} pinned={layout_section('sec_pinned')} refusals={new_refusals}")
+        undo(step, back)
+
+    if layout_section("sec_pinned"):
+        section_edit("alignment goes to the document", "sidebar.section.setAlignment", {"align": "center"},
+                     lambda: (layout_section("sec_pinned") or {}).get("align") == "center",
+                     lambda: (layout_section("sec_pinned") or {}).get("align") == "leading")
+        section_edit("spacing goes to the document", "sidebar.section.setGap", {"gap": 12},
+                     lambda: (layout_section("sec_pinned") or {}).get("gap") == 12,
+                     lambda: (layout_section("sec_pinned") or {}).get("gap") is None)
+    else:
+        record("alignment goes to the document", False, f"no sec_pinned in layout_sections={window().get('layout_sections')}")
+
+    toast(perform="sidebar.item.add", arguments={"item": "https://example.org", "section": "Pinned"})
+    added = wait(lambda: next((i for i in items() if "example.org" in str(i.get("ref"))), None), 5)
+    if added:
+        toast(perform="sidebar.item.removeEverywhere", target_kind="sidebar-item", target_id=added["id"])
+        gone = wait(lambda: not any("example.org" in str(i.get("ref")) for i in items()), 5)
+        record("Remove from Sidebar goes to the document", bool(gone), f"item={added.get('id')} items={[i.get('ref') for i in items()]}")
+        undo("Remove from Sidebar", lambda: any("example.org" in str(i.get("ref")) for i in items()))
+    else:
+        record("Remove from Sidebar goes to the document", False, f"no example.org item after sidebar.item.add: {[i.get('ref') for i in items()]}")
+
+    # Reset: the default sections again (the example.org link and any custom section go); Cmd-Z brings them back.
+    before_reset = [s.get("id") for s in window().get("layout_sections", [])]
+    performed = toast(perform="sidebar.layout.reset").get("performed")
+    reset_ok = wait(lambda: not any("example.org" in str(i.get("ref")) for i in items())
+                    and not any(s.get("title") == "Work" for s in window().get("layout_sections", [])), 5)
+    record("Reset goes to the document", bool(performed and reset_ok),
+           f"before={before_reset} after={[s.get('id') for s in window().get('layout_sections', [])]}")
+    undo("Reset", lambda: [s.get("id") for s in window().get("layout_sections", [])] == before_reset)
 finally:
     refusals = toast().get("refusals")
     print("refusals:", refusals, flush=True)

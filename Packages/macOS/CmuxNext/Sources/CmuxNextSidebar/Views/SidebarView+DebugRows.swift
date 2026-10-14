@@ -125,6 +125,12 @@ extension SidebarView {
         }
     }
 
+    /// Every section of the shown layout with its arrangement fields, so a
+    /// proof reads an alignment, spacing or reset edit back.
+    public func debugLayoutSections() -> [(id: String, title: String?, align: String, gap: Int?, items: Int)] {
+        model.layout.sections.map { ($0.id.rawValue, $0.title, $0.arrangement.align.rawValue, $0.arrangement.gap, $0.items.count) }
+    }
+
     /// The new-workspace button (+) in window points from the top-left, so a
     /// proof clicks it (`debug.mouse`); nil while it is hidden.
     public func debugNewButtonFrame() -> CGRect? {
