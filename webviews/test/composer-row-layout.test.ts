@@ -5,7 +5,7 @@
 //   - the controls are two clusters: + model effort access on the left, mic and Send (or Stop)
 //     on the right; the row's free space sits only between the two;
 //   - the row is compact and calm (hq#1957 item 15 compact row): the left cluster's controls sit
-//     8 to 12 px apart, evenly (within 1 px); no context ring or spinner in the row; one lock at
+//     4 to 12 px apart (composer-row-rhythm.test.ts: one gap per group); no ring or spinner; one lock at
 //     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of at
 //     most 12 px;
 //   - no label is cut while the row has free space, and a short row cuts by priority: the
@@ -228,16 +228,13 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       test(`${variant} at ${width} px: a compact, calm row`, async () => {
         const measured = await row(variant, width);
         const problems: string[] = [];
-        // Even gaps in the left cluster: each 8 to 12 px, none more than 1 px off another.
-        const gaps = measured.left.slice(1).map((control, index) => ({
-          between: `${measured.left[index]!.name}-${control.name}`,
-          gap: control.rect.left - measured.left[index]!.rect.right,
-        }));
-        for (const { between, gap } of gaps)
-          if (gap < 7.5 || gap > 12.5) problems.push(`${between} ${gap.toFixed(1)} px apart`);
-        const sizes = gaps.map(({ gap }) => gap);
-        if (sizes.length > 1 && Math.max(...sizes) - Math.min(...sizes) > 1)
-          problems.push(`uneven gaps ${gaps.map(({ between, gap }) => `${between} ${gap.toFixed(1)}`).join(", ")}`);
+        // The left cluster's spacing (one gap inside a group, one between groups) is
+        // composer-row-rhythm.test.ts's; here no two of its controls touch or sit far apart.
+        for (const [index, control] of measured.left.slice(1).entries()) {
+          const gap = control.rect.left - measured.left[index]!.rect.right;
+          if (gap < 3.5 || gap > 12.5)
+            problems.push(`${measured.left[index]!.name}-${control.name} ${gap.toFixed(1)} px apart`);
+        }
         if (measured.spinners.length > 0)
           problems.push(`a ring or spinner in the row: ${measured.spinners.join(", ")}`);
         if (measured.locks > 1) problems.push(`${measured.locks} locks in the row`);
