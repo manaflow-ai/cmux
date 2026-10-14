@@ -307,7 +307,13 @@ public struct WebMarkdownView: View {
                 if let measured { onContentHeight?(measured) }
             }
         }
-        .onChange(of: markdown) { measured = nil }
+        // Streaming text changes every tick: keep the last measured height until the new
+        // one arrives (a cached one if known) instead of an estimate, so no blank gap opens.
+        .onChange(of: markdown) {
+            if let cached = WebMarkdownRenderer.shared.cachedHeight(markdown: markdown, style: style, width: width) {
+                measured = cached
+            }
+        }
         // A Dynamic Type change re-renders at the new size; hold the old height until the
         // new one is known instead of falling back to an estimate.
         .onChange(of: dynamicTypeSize) {

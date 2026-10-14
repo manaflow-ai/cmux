@@ -133,6 +133,7 @@ struct MarkdownTableView: View {
             .padding(.horizontal, margin - 12)
         }
         .scrollIndicators(.hidden)
+        .trailingOverflowFade()
         .padding(.horizontal, -margin)
         .contextMenu {
             Button("Copy Table", systemImage: "doc.on.doc") { UIPasteboard.general.string = table.plainText }

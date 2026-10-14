@@ -341,22 +341,7 @@ public struct AgentChatTranscript: View {
         // UIKit owns the safe areas and the keyboard (the controller docks
         // the stack to the keyboard layout guide).
         .ignoresSafeArea()
-        .overlay(alignment: .top) {
-            // Under foreign chrome (a workspace tab) there is no navigation
-            // bar to draw the scroll edge effect, and text ran under the
-            // status bar's clock. Fade it out the way the bar would.
-            if let topInset {
-                LinearGradient(stops: [
-                    .init(color: Color.cnxBackground, location: 0),
-                    .init(color: Color.cnxBackground, location: 0.6),
-                    .init(color: Color.cnxBackground.opacity(0), location: 1),
-                ], startPoint: .top, endPoint: .bottom)
-                .frame(height: topInset + 16)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-        }
+        // The soft top edge under the status bar or bar is the controller's TopFadeView.
         .navigationDestination(item: $surface.diffRoute) { route in
             if let file = route.fileID {
                 DiffFileScreen(changeSet: route.changes, fileID: file)
@@ -736,7 +721,8 @@ struct StreamingMarkdown: View {
     let isStreaming: Bool
 
     var body: some View {
-        MarkdownView(MarkdownDocument(parsing: markdown), isStreaming: isStreaming)
+        // While streaming, an emphasis or code marker that has not closed yet is hidden.
+        MarkdownView(MarkdownDocument(parsing: isStreaming ? MarkdownStreamTail(markdown).displayed : markdown), isStreaming: isStreaming)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
