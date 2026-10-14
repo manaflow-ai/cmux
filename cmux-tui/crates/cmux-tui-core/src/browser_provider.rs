@@ -26,11 +26,40 @@ impl BrowserProviderAuthentication {
     }
 }
 
+/// Who presents a provider's pages (`browser-provider-native-hosting-v1`).
+///
+/// `Daemon` is the original contract: the daemon sizes each attached target
+/// to its own viewer with `Emulation.setDeviceMetricsOverride` and mirrors it
+/// with a screencast. `Native` means the provider shows each page in its own
+/// native view at native geometry: the daemon never overrides the page's
+/// metrics, never brings a target to the front, and screencasts a target only
+/// while a frame viewer (an attached TUI or remote client) is attached.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum BrowserProviderHosting {
+    #[default]
+    Daemon,
+    Native,
+}
+
+impl BrowserProviderHosting {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Daemon => "daemon",
+            Self::Native => "native",
+        }
+    }
+
+    pub(crate) fn is_native(self) -> bool {
+        self == Self::Native
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct BrowserProviderRegistration {
     pub(crate) provider_id: String,
     pub(crate) endpoint: String,
     pub(crate) authentication: BrowserProviderAuthentication,
+    pub(crate) hosting: BrowserProviderHosting,
     pub(crate) targets: BTreeMap<TabPublicId, String>,
 }
 
@@ -39,6 +68,7 @@ pub(crate) struct BrowserProviderTargetLease {
     pub(crate) provider_id: String,
     pub(crate) endpoint: String,
     pub(crate) authentication: BrowserProviderAuthentication,
+    pub(crate) hosting: BrowserProviderHosting,
     pub(crate) tab_id: TabPublicId,
     pub(crate) target_id: String,
     pub(crate) revision: u64,
@@ -49,6 +79,7 @@ pub(crate) struct BrowserProviderSnapshot {
     pub(crate) provider_id: String,
     pub(crate) endpoint: String,
     pub(crate) authentication: BrowserProviderAuthentication,
+    pub(crate) hosting: BrowserProviderHosting,
     pub(crate) targets: BTreeMap<TabPublicId, String>,
     pub(crate) revision: u64,
     pub(crate) clients: usize,
@@ -88,8 +119,9 @@ impl BrowserProviderRegistry {
             );
             anyhow::ensure!(
                 existing.endpoint == registration.endpoint
-                    && existing.authentication == registration.authentication,
-                "cmux-browser provider clients disagree on the CDP endpoint or authentication"
+                    && existing.authentication == registration.authentication
+                    && existing.hosting == registration.hosting,
+                "cmux-browser provider clients disagree on the CDP endpoint, authentication or hosting"
             );
         }
 
@@ -180,6 +212,7 @@ impl BrowserProviderRegistry {
             provider_id: registration.provider_id.clone(),
             endpoint: registration.endpoint.clone(),
             authentication: registration.authentication.clone(),
+            hosting: registration.hosting,
             tab_id: tab_id.clone(),
             target_id: registration.targets.get(tab_id)?.clone(),
             revision: state.revision,
@@ -198,6 +231,7 @@ impl BrowserProviderRegistry {
             provider_id: first.provider_id.clone(),
             endpoint: first.endpoint.clone(),
             authentication: first.authentication.clone(),
+            hosting: first.hosting,
             targets,
             revision: state.revision,
             clients: state.registrations.len(),
