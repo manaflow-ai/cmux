@@ -103,6 +103,36 @@ import Testing
         #expect(shell.displayPairedMacs.map(\.macDeviceID) == ["test-mac"])
     }
 
+    @Test func pairingPublishesConnectedStateBeforeDurableComputerWrite() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inner = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let pairedStore = GatedUpsertStore(inner: inner)
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "test-mac", instanceTag: nil, displayName: "Legacy Studio"
+        )
+        let clock = TestClock()
+        let shell = makeShell(
+            store: pairedStore,
+            router: router,
+            userID: "user-1",
+            clock: clock
+        )
+
+        let pairing = Task { @MainActor in
+            await shell.connectPairingURL(
+                try! attachURL(for: makeTicket(clock: clock))
+            )
+        }
+        await pairedStore.waitUntilUpsertEntered()
+        #expect(shell.connectionState == .connected)
+        await pairedStore.release()
+        #expect(await pairing.value)
+    }
+
     @Test func explicitRegistryBCommitsOnlyAfterExactStatusAndDropsARouteFallbacks() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -294,7 +324,7 @@ import Testing
     }
 
     private func makeShell(
-        store: MobilePairedMacStore,
+        store: any MobilePairedMacStoring,
         router: LivenessHostRouter,
         userID: String,
         clock: TestClock = TestClock()
