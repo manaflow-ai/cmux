@@ -19,6 +19,7 @@ nonisolated extension ActionSurfaceCatalog {
         "renameWorkspace", "palette.clearWorkspaceName", "editWorkspaceDescription",
         "palette.clearWorkspaceDescription", "markWorkspaceDone", "palette.workspaceStatus",
         "palette.addWorkspaceChecklistItem", "palette.openWorkspaceTodoPane",         "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
+        "workspace.closeAll", "workspace.closeAllInAllWindows",
         "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
         "palette.workspaceColor", "palette.resetWorkspaceColor", "reconnectWorkspace", "disconnectWorkspace",
         "clearWorkspaceNotifications", "workspaceGroup.newWorkspace", "workspaceGroup.rename",

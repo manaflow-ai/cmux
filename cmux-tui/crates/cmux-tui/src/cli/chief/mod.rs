@@ -19,6 +19,7 @@ mod launch;
 mod link;
 mod messages;
 mod pipe;
+mod registry;
 mod render;
 mod shutdown;
 #[cfg(test)]
@@ -140,6 +141,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         return 130;
     }
     let m = messages();
+    if args.first().is_some_and(|word| registry::WORDS.contains(&word.as_str())) {
+        return registry::run(&global, args);
+    }
     let args = match parse_args(args) {
         Ok(args) => args,
         Err(error) => {
