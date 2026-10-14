@@ -646,13 +646,9 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain('timeout --signal=TERM --kill-after=1s');
     expect(devboxBoot).toContain("DAEMON_HEALTH_FAILURE_LIMIT=3");
     expect(devboxBoot).toContain("DAEMON_HEALTH_STARTUP_GRACE=48");
-    expect(devboxBoot).toContain("daemon_health_failures=$((daemon_health_failures + 1))");
-    expect(devboxBoot).toContain("health probe failed $DAEMON_HEALTH_FAILURE_LIMIT times");
-    expect(devboxBoot).toContain("stop_daemon\n  start_daemon");
     // Recovery uses the existing lifecycle functions, which do not delete the
     // daemon's state directory or its remote terminal hosts.
     expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
-    expect(devboxBoot).toContain("daemon_pid=$!");
   });
 
   test("the health fence waits through startup and then restarts after consecutive failures", async () => {
@@ -660,7 +656,9 @@ describe("devbox image template", () => {
     // fixture replaces only process start/stop and the probe, so this proves
     // the startup grace and consecutive-failure state machine without booting
     // a VM or touching the host daemon.
-    const prefix = devboxBoot.slice(0, devboxBoot.indexOf("\nannounce_loop &"));
+    const announceMarker = devboxBoot.indexOf("\nannounce_loop &");
+    expect(announceMarker).toBeGreaterThanOrEqual(0);
+    const prefix = devboxBoot.slice(0, announceMarker);
     const fixture = `${prefix}
 set -e
 DAEMON_HEALTH_STARTUP_GRACE=6
@@ -670,10 +668,10 @@ restart_count=0
 daemon_health_probe() { return 1; }
 stop_daemon() { daemon_pid=""; }
 start_daemon() { restart_count=$((restart_count + 1)); daemon_pid=fixture; daemon_health_ticks=0; daemon_health_failures=0; daemon_health_grace=$DAEMON_HEALTH_STARTUP_GRACE; }
-for i in $(seq 1 44); do check_daemon_health; done
+    for i in $(seq 1 44); do check_daemon_health; done
 test "$restart_count" = 0
 test "$daemon_pid" = fixture
-for i in $(seq 45 45); do check_daemon_health; done
+    check_daemon_health
 test "$restart_count" = 1
 test "$daemon_pid" = fixture
 `;

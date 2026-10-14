@@ -3990,6 +3990,20 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
             anyhow::bail!("workspace registry integrity check failed: {result}");
         }
     }
+    // History is validated incrementally when replayed. Touch only each
+    // table's newest indexed row during open so a corrupt tail page is caught
+    // without turning startup back into a full-journal scan.
+    for (table, order) in [
+        ("session_journal", "sequence"),
+        ("journal_subject_index", "sequence"),
+        ("journal_event_index", "sequence"),
+        ("journal_segments", "end_sequence"),
+        ("journal_checkpoints", "source_sequence"),
+        ("journal_content_blobs", "created_at_ms"),
+    ] {
+        let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
+        let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+    }
     Ok(())
 }
 

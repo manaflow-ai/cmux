@@ -652234,6 +652234,20 @@
           }
         }
       }
+    },
+    "cloud.link.requestTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Cloud machine did not answer the request in time. Check the connection and try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Cloud-Maschine hat nicht rechtzeitig geantwortet. Prüfen Sie die Verbindung und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La machine Cloud n’a pas répondu à temps. Vérifiez la connexion et réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لم تستجب آلة Cloud للطلب في الوقت المحدد. تحقق من الاتصال وحاول مرة أخرى." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La máquina Cloud no respondió a tiempo. Comprueba la conexión y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Cloud 機器未及時回應要求。請檢查連線後再試一次。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Cloud 机器未及时响应请求。请检查连接后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Cloud 머신이 시간 내에 요청에 응답하지 않았습니다. 연결을 확인하고 다시 시도하십시오." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cloud マシンが時間内に応答しませんでした。接続を確認してもう一度お試しください。" } }
+      }
     }
   },
   "version": "1.0"

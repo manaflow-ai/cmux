@@ -2758,7 +2758,7 @@ impl JournalSegmentSealPlan {
                         record.sequence
                     );
                     let sequence = record.sequence;
-                    kinds.insert(record.kind.clone());
+                    let kind = record.kind.clone();
                     let record = session_journal::journal_record_for_archive(&record);
                     let record_bytes = serde_json::to_vec(&record)?;
                     anyhow::ensure!(
@@ -2776,6 +2776,7 @@ impl JournalSegmentSealPlan {
                     {
                         break 'segment;
                     }
+                    kinds.insert(kind);
                     if separator != 0 {
                         uncompressed.push(b',');
                     }

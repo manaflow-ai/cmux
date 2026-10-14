@@ -7,7 +7,7 @@ import Foundation
 
 @MainActor
 extension CmuxTuiSurfaceProvider {
-    static func shouldShowRecoverableCloudFailure(observation: CloudVMStateObservation) -> Bool {
+    nonisolated static func shouldShowRecoverableCloudFailure(observation: CloudVMStateObservation) -> Bool {
         observation.freshness != .current
     }
 
@@ -347,6 +347,7 @@ extension CmuxTuiSurfaceProvider {
         ),
            let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
             restoredAttachTasks[panelID] = nil
+            materializedPanels.remove(panelID)
             workspace.failReservedCloudTerminalPane(
                 reservation,
                 error: CloudDiagnosticFailure.network
@@ -413,9 +414,12 @@ extension CmuxTuiSurfaceProvider {
                         SurfacePaneFactory.closeExited(panelID: panelID, in: reservation.workspaceID)
                         return
                     }
-                    let inventoryIsStale = self.catalog.cloudStateObservations[self.machine]?.freshness != .current
+                    let inventoryIsStale = Self.shouldShowRecoverableCloudFailure(
+                        observation: self.catalog.cloudStateObservations[self.machine] ?? .stale(reason: "missing")
+                    )
                     if inventoryIsStale {
                         self.restoredAttachTasks[panelID] = nil
+                        self.materializedPanels.remove(panelID)
                         workspace.failReservedCloudTerminalPane(reservation, error: error)
                         return
                     }
