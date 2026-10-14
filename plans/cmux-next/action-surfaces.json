@@ -19132,35 +19132,6 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "clipboard",
-      "cli_name" : "action agent-chat-copy-identifier",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "tab",
-        "agentChat",
-        "workspaceRow"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "agentChat.copyIdentifier",
-      "mcp" : "clipboard",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Copy Agent Identifier",
-      "title_key" : "action.agentChat.copyIdentifier",
-      "title_table" : "ActionCatalog"
-    },
-    {
       "cli" : "offered",
       "cli_name" : "agent add-harness",
       "context_menu" : "noObject",
@@ -24691,6 +24662,60 @@
       "title_table" : "HistoryActions"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action music-open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "music.open",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Play Music…",
+      "title_key" : "action.music.open",
+      "title_table" : "MusicActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action music-stop",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "music.stop",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stop Music",
+      "title_key" : "action.music.stop",
+      "title_table" : "MusicActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "bookmark add-page",
       "context_menu" : "offered",
@@ -27852,19 +27877,6 @@
           "id" : "agentPane.toggleInspector",
           "kind" : "action",
           "order" : 12,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "agentChat.copyIdentifier",
-          "kind" : "action",
-          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33816,19 +33828,6 @@
 
                     ]
                   }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "agentChat.copyIdentifier",
-                  "kind" : "action",
-                  "order" : 5,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
                 }
               ],
               "folder" : "copy",
@@ -36108,19 +36107,6 @@
                   "id" : "copyWorkspaceSSHError",
                   "kind" : "action",
                   "order" : 4,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "agentChat.copyIdentifier",
-                  "kind" : "action",
-                  "order" : 5,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
