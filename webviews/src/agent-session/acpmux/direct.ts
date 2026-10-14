@@ -31,6 +31,7 @@ import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
+import { WORKSPACE_CONTEXT } from "./workspaceContext";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -54,6 +55,9 @@ export type AcpmuxHostConfig = {
   prompt?: string;
   /** An outside Claude Code or Codex chat this pane resumes once it connects. */
   adopt?: AcpmuxAdopt;
+  /** A chat opened for its workspace (Cmd-I's chat dock): its first prompt carries the workspace
+   *  context (workspaceContext.ts), hidden from the transcript. */
+  workspaceContext?: boolean;
 };
 
 /** A harness's own session for acpmux to adopt (`_meta.acpmux.adopt`). */
@@ -1844,10 +1848,13 @@ export class AcpmuxDirectClient {
     if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
     let taken = false;
+    // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it.
+    const context = this.host.workspaceContext ? WORKSPACE_CONTEXT : undefined;
     const accept = () => {
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
+      if (context) this.host = { ...this.host, workspaceContext: undefined };
       accepted?.();
     };
     this.promptAccepts.set(promptId, accept);
@@ -1857,7 +1864,7 @@ export class AcpmuxDirectClient {
         sessionId,
         prompt: promptBlocks(input, attachments),
         _meta: {
-          acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}) },
+          acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}), ...(context ? { context } : {}) },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
       });
