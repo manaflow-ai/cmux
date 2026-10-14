@@ -21,8 +21,9 @@ daemon socket.
    (migrated from an old item's `extra.icon_url`, `item.update`, lifted on
    `item.add`, restated for old clients in `sidebar_layout`).
 5. Doc slice 3: a new workspace and a workspace.place send a reader that
-   echoed sidebar-doc-v1 only the new or moved placement, and an
-   old-protocol reader every placement the change shifted.
+   echoed placement-shift-v1 only the new or moved placement, and an
+   old-protocol reader (also one that echoes only sidebar-doc-v1) every
+   placement the change shifted.
 
 Usage: sidebar-doc-live.py --binary path/to/cmux-tui [--workdir DIR]
 Prints one PASS/FAIL line per check; exits 1 on any FAIL.
@@ -661,10 +662,13 @@ def main() -> int:
         check("workspace.list personal order follows the document (Pinned first)",
               order.index(ids["w6"]) < order.index(ids["w3"]), order)
         # Placement shift (doc3): a new top workspace or a move shifts the
-        # other rows' ordinals; a sidebar-doc-v1 reader gets only the new or
-        # moved placement, an old-protocol reader every shifted one.
-        doc_reader = EventStream(daemon, ["sidebar-doc-v1"])
+        # other rows' ordinals; a placement-shift-v1 reader gets only the new
+        # or moved placement, an old-protocol reader every shifted one, and a
+        # reader that echoes only sidebar-doc-v1 is an old-protocol reader.
+        check("capability placement-shift-v1 advertised", "placement-shift-v1" in caps)
+        doc_reader = EventStream(daemon, ["placement-shift-v1", "sidebar-doc-v1"])
         old_reader = EventStream(daemon)
+        doc_only_reader = EventStream(daemon, ["sidebar-doc-v1"])
         try:
             known = {(r["session_id"], r["workspace_key"])
                      for r in daemon.raw({"cmd": "list-personal"})["workspaces"]}
@@ -677,7 +681,11 @@ def main() -> int:
                         if r["index"] > w8_row["index"]}
             doc_batch = placements_of(doc_reader.delta_with("workspace_placement", w8_id))
             old_batch = placements_of(old_reader.delta_with("workspace_placement", w8_id))
-            check("create: a sidebar-doc-v1 reader gets only the new workspace's placement (no restatement)",
+            doc_only_batch = placements_of(doc_only_reader.delta_with("workspace_placement", w8_id))
+            check("create: a reader that echoes only sidebar-doc-v1 still gets every shifted placement",
+                  bool(expected) and all(doc_only_batch.get(pid) == index for pid, index in expected.items()),
+                  {"missing": sorted(set(expected) - set(doc_only_batch))[:5]})
+            check("create: a placement-shift-v1 reader gets only the new workspace's placement (no restatement)",
                   doc_batch == {w8_id: w8_row["index"]} and expected, {"doc": doc_batch, "shifted": len(expected)})
             check("create: an old-protocol reader still gets every shifted placement at its new index",
                   all(old_batch.get(pid) == index for pid, index in expected.items())
@@ -694,7 +702,7 @@ def main() -> int:
                        if w8_row["index"] <= r["index"] <= moved["index"]}
             doc_place = placements_of(doc_reader.delta_with("workspace_placement", w8_id, moved["index"]))
             old_place = placements_of(old_reader.delta_with("workspace_placement", w8_id, moved["index"]))
-            check("place: a sidebar-doc-v1 reader gets only the moved placement",
+            check("place: a placement-shift-v1 reader gets only the moved placement",
                   doc_place == {w8_id: moved["index"]}, doc_place)
             check("place: an old-protocol reader gets every placement between the old and new index",
                   len(between) > 1 and all(old_place.get(pid) == index for pid, index in between.items()),
@@ -703,6 +711,7 @@ def main() -> int:
         finally:
             doc_reader.close()
             old_reader.close()
+            doc_only_reader.close()
         final = daemon.ok("sidebar.get")
     finally:
         daemon.stop()
