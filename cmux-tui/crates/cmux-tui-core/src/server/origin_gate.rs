@@ -236,9 +236,8 @@ pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [Stri
     })
 }
 
-#[cfg(unix)]
-/// Gate A2 on the legacy `apps-*` door: `Err` unless `client` derives
-/// origin `user` (a verified cmux app connection).
+/// Gate A2 on the legacy `apps-*` door and `delete-browser-profile`: `Err`
+/// unless `client` derives origin `user` (a verified cmux app connection).
 pub(super) fn require_user(mux: &Mux, client: u64) -> Result<(), crate::apps::ApiError> {
     let derived = {
         let state =
