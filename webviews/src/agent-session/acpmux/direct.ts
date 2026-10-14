@@ -383,8 +383,6 @@ export function appendThought(items: AcpmuxActivity[], text: string): AcpmuxActi
 let notices = 0;
 const noticeId = (kind: string) => `${kind}-${(notices += 1)}`;
 
-/// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
-/// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
 /// The images a `user_message` names (`images: [{id, mimeType, name?}]`), malformed entries left out.
 function promptImages(value: unknown): PromptImage[] {
   if (!Array.isArray(value)) return [];
@@ -395,6 +393,8 @@ function promptImages(value: unknown): PromptImage[] {
   );
 }
 
+/// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
+/// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
 /// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
 /// the events seen when it was made, so later turns go below it; after a lag rebuild, which
 /// replays events older than it, it moves after them again.
