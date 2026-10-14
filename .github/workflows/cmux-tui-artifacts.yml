@@ -512,6 +512,7 @@ jobs:
           OWNER_RUN_ID: ${{ needs.tree-preflight.outputs.owner_run_id }}
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
           SERVER_URL: ${{ github.server_url }}
           # The REST API host; github.com/repos/... is a 404 page, which the
           # silent curls took for "no other run" (cmuxterm-hq#1279).
@@ -565,20 +566,48 @@ jobs:
               "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" 2>/dev/null || true)"
             owner_state="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("status", "unknown"), d.get("conclusion") or "")' "$owner_json" 2>/dev/null || echo unknown)"
             # A feat-cmux-next push never waits for a branch (or pull request)
-            # run that owns its key (cx-kfbom follow-up, hq-a3 2026-10-14):
-            # such an owner publishes only after its macOS daemon tests, which
-            # can queue for an hour. Unknown means not a trunk push.
-            owner_trunk_push="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print("true" if d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next" else "false")' "$owner_json" 2>/dev/null || echo false)"
+            # run that owns its key (cx-a1q4d, hq-a3 2026-10-14): such an
+            # owner publishes only after its macOS daemon tests, which can
+            # queue for an hour. Not for the owner's own commit: two builds of
+            # one commit race on its write-once commit prefix (the same-SHA
+            # election in tree-preflight). One feat-cmux-next run builds the
+            # key: it leaves a cmux-tui-tree-feat-builder-<key> artifact, and a
+            # later feat-cmux-next push of the key defers to that run while it
+            # is active. A lookup that fails keeps the old deferral.
+            branch_owner_takeover=false
+            if [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/feat-cmux-next ]] &&
+                python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and not (d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next") and d.get("head_sha") not in ("", None, sys.argv[2]) else 1)' "$owner_json" "${SHA:-}" 2>/dev/null; then
+              if builders="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                  -u "x-access-token:$GH_TOKEN" \
+                  -H 'Accept: application/vnd.github+json' \
+                  "$API_URL/repos/$REPOSITORY/actions/artifacts?name=cmux-tui-tree-feat-builder-$KEY&per_page=100" 2>/dev/null)" &&
+                  builder_ids="$(python3 -c 'import json,sys; [print(a["workflow_run"]["id"]) for a in json.loads(sys.argv[1]).get("artifacts", []) if not a.get("expired") and str(a["workflow_run"]["id"]) != sys.argv[2]]' "$builders" "$GITHUB_RUN_ID" 2>/dev/null)"; then
+                branch_owner_takeover=true
+                for builder in $builder_ids; do
+                  builder_state="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                    -u "x-access-token:$GH_TOKEN" \
+                    -H 'Accept: application/vnd.github+json' \
+                    "$API_URL/repos/$REPOSITORY/actions/runs/$builder" 2>/dev/null \
+                    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", "unknown"))' 2>/dev/null || echo unknown)"
+                  if [[ "$builder_state" != completed ]]; then
+                    echo "feat-cmux-next run $builder ($builder_state) already builds tree $KEY in place of branch owner $OWNER_RUN_ID; this run defers to it."
+                    branch_owner_takeover=false
+                    OWNER_RUN_ID="$builder"
+                    break
+                  fi
+                done
+              fi
+            fi
             owner_ended=false
             [[ "$owner_state" == completed* ]] && owner_ended=true
             if tree_ready; then
               echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
               takeover=false
-            elif [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/feat-cmux-next && "$owner_trunk_push" != true &&
-                    "$owner_state" != unknown && "$owner_ended" != true ]]; then
+            elif [[ "$branch_owner_takeover" == true ]]; then
+              feat_builder=true
               # Both may publish; the publish jobs keep whichever complete
               # commit and tree publication exists first (write-once objects).
-              echo "Owner run $OWNER_RUN_ID ($owner_state) is not a feat-cmux-next push; this feat-cmux-next run builds tree $KEY itself instead of waiting for that run's daemon tests."
+              echo "Owner run $OWNER_RUN_ID ($owner_state) is not a feat-cmux-next push; this feat-cmux-next head builds tree $KEY itself instead of waiting for that run's daemon tests."
             elif [[ "$owner_state" == in_progress* || "$owner_state" == queued* || "$owner_state" == waiting* || "$owner_state" == pending* ]]; then
               # A live owner builds; the claim is not asked, since an owner the
               # run-list fallback elected holds no claim to refuse a second one.
@@ -615,8 +644,28 @@ jobs:
           else
             echo "This run owns tree $KEY; building and publishing it."
           fi
-          echo "deferred=$deferred" >> "$GITHUB_OUTPUT"
-          echo "takeover=$takeover" >> "$GITHUB_OUTPUT"
+          {
+            echo "deferred=$deferred"
+            echo "feat_builder=${feat_builder:-false}"
+            echo "takeover=$takeover"
+          } >> "$GITHUB_OUTPUT"
+
+      # The marker a later feat-cmux-next push of this key reads, so only
+      # one feat-cmux-next run builds a key a branch run owns (cx-a1q4d).
+      - name: Mark this run as the key's feat-cmux-next builder
+        if: steps.wait.outputs.feat_builder == 'true'
+        continue-on-error: true
+        run: printf '%s\n' "$KEY" > "$RUNNER_TEMP/feat-builder-key"
+        env:
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+      - if: steps.wait.outputs.feat_builder == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-tree-feat-builder-${{ needs.tree-preflight.outputs.key }}
+          path: ${{ runner.temp }}/feat-builder-key
+          retention-days: 1
+          overwrite: true
 
       # The marker the key's owner reads if it ends without publishing.
       - name: Mark this run as deferred to the key's owner
