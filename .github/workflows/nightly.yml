@@ -3109,7 +3109,7 @@ jobs:
             feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
           done
           candidates="$(python3 scripts/ci/find-nightly-next-recovery.py \
-            --repo "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --limit 3 "${feeds[@]}")"
+            --repo "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --limit 5 "${feeds[@]}")"
           echo "candidates=$candidates" >> "$GITHUB_OUTPUT"
           if [ "$candidates" = "[]" ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
