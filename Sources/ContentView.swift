@@ -15741,7 +15741,7 @@ struct SidebarFooterButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if shows(.account) || shows(.mobileConnect) || shows(.help) {
+            if shows(.account) || shows(.mobileConnect) || shows(.help) || shows(.cloud) {
                 HStack(spacing: 0) {
                     if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
                         SidebarAccountMenuButton()
@@ -15751,6 +15751,10 @@ struct SidebarFooterButtons: View {
                     }
                     if shows(.help) {
                         SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+                    }
+                    // Right of Help and left of Upgrade, per the footer design.
+                    if shows(.cloud) {
+                        SidebarCloudButton()
                     }
                 }
             }
