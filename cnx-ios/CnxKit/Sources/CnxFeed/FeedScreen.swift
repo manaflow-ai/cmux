@@ -123,7 +123,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     Button {
                         withAnimation(.cnxSnap) { store.filter = filter }
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 10) {
                             Text(filter.rawValue)
                             if filter == .needsYou, store.needsYouCount > 0 {
                                 Text("\(store.needsYouCount)")
@@ -144,7 +144,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                         // Grows with Dynamic Type: at AX sizes the text and badge stay inside the capsule.
                         .frame(minHeight: 36)
                         .background(store.filter == filter ? Color.cnxFillSelected : Color.clear, in: .capsule)
-                        .contentShape(.capsule)
+                        // 44 pt target around the 36 pt capsule.
+                        .frame(minHeight: 44)
+                        .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(store.filter == filter ? .isSelected : [])
@@ -154,7 +156,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         }
         .scrollIndicators(.hidden)
         .trailingOverflowFade(width: 32)
-        .padding(.vertical, 6)
+        .padding(.vertical, 2)
         .sensoryFeedback(.selection, trigger: store.filter)
     }
 

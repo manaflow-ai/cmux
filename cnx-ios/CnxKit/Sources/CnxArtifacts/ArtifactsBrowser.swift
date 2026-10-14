@@ -137,13 +137,15 @@ public struct ArtifactsBrowser: View {
                             .padding(.horizontal, 14)
                             .frame(height: 34)
                             .background(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
-                            .contentShape(.capsule)
+                            // 44 pt target around the 34 pt capsule.
+                            .frame(minHeight: 44)
+                            .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(state.filter == item ? .isSelected : [])
                 }
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, 1)
         }
         .scrollIndicators(.hidden)
         .trailingOverflowFade(width: 24)
@@ -200,23 +202,30 @@ struct ArtifactTile: View {
                 .overlay { preview }
                 .background(Color(uiColor: .secondarySystemBackground))
                 .clipShape(.rect(cornerRadius: 16, style: .continuous))
-            Text(artifact.name).font(.footnote).lineLimit(2)
+            // The type glyph sits in the footer, next to the name, never on the content.
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Image(systemName: artifact.systemImage)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text(artifact.name).font(.footnote).lineLimit(2)
+            }
             if let detail = artifact.detail {
                 Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .accessibilityElement(children: .combine)
         .task(id: artifact) {
+            guard artifact.kind != .link else { return }
             thumbnail = await ArtifactThumbnailCache.shared.thumbnail(for: artifact, source: source)
         }
     }
 
-    /// The real thing when it renders (picture or excerpt); the type icon otherwise.
+    /// The real thing when it renders (picture or excerpt); a link's domain; the type icon otherwise.
     @ViewBuilder private var preview: some View {
         switch thumbnail {
         case .picture(let image)?:
             Image(uiImage: image).resizable().scaledToFill()
-                .overlay(alignment: .bottomLeading) { kindBadge }
         case .excerpt(let text)?:
             Text(text)
                 .font(.system(size: 8, design: .monospaced))
@@ -225,24 +234,29 @@ struct ArtifactTile: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(10)
                 .dynamicTypeSize(.large)
-                .overlay(alignment: .bottomLeading) { kindBadge }
                 .accessibilityHidden(true)
         case nil:
-            Image(systemName: artifact.systemImage)
-                .font(.system(size: 28))
-                .foregroundStyle(.secondary)
+            if artifact.kind == .link, let host = URL(string: artifact.reference)?.host() {
+                // No page fetch for a thumbnail: the domain under a link glyph.
+                VStack(spacing: 8) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 26))
+                        .foregroundStyle(.secondary)
+                    Text(host.hasPrefix("www.") ? String(host.dropFirst(4)) : host)
+                        .font(.footnote.weight(.semibold))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .minimumScaleFactor(0.7)
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                }
+                .padding(12)
+                .accessibilityHidden(true)
+            } else {
+                Image(systemName: artifact.systemImage)
+                    .font(.system(size: 28))
+                    .foregroundStyle(.secondary)
+            }
         }
-    }
-
-    /// The type glyph in a corner, so a thumbnail still says what it is.
-    private var kindBadge: some View {
-        Image(systemName: artifact.systemImage)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.primary)
-            .frame(width: 24, height: 24)
-            .background(.regularMaterial, in: .circle)
-            .padding(8)
-            .accessibilityHidden(true)
     }
 }
 #endif

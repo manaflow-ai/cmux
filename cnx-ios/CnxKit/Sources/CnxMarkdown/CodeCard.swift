@@ -92,8 +92,9 @@ public struct CodeCard: View {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     .font(.system(size: 15))
                     .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 32, height: 32)
+                    .frame(width: 44, height: 44)
                     .contentShape(.rect)
+                    .padding(-6)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(copied ? "Copied" : "Copy code")
