@@ -1,14 +1,22 @@
 @testable import CmuxNextDesign
 import Testing
 
-/// A pane that needs attention shows a steady ring by default, never a blink
-/// (Leo, 2026-10-14: blinking is not a default; `blink` and `pulse` stay options).
+/// A pane that needs attention draws no ring by default; the sidebar status glyph and the tab
+/// mark carry it (Lawrence via Leo, 2026-10-14: we may not want attention rings by default).
+/// The ring stays an opt-in setting: `steady` (clearly visible, one soft swell) or `blink`.
 @Suite struct AttentionDefaultTests {
-    @Test func defaultRingIsSteady() {
-        #expect(AttentionSettings().style == .steady)
+    @Test func noRingByDefault() {
+        #expect(AttentionSettings().style == .none)
     }
 
-    @Test func animatedStylesStayAvailable() {
+    @Test func theSidebarAndTheTabCarryAttention() {
+        let settings = AttentionSettings()
+        #expect(settings.showsOnSidebar)
+        #expect(settings.showsOnTab)
+    }
+
+    @Test func ringStylesStayAvailable() {
+        #expect(AttentionStyle.allCases.contains(.steady))
         #expect(AttentionStyle.allCases.contains(.blink))
         #expect(AttentionStyle.allCases.contains(.pulse))
     }
