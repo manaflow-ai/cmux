@@ -53,11 +53,16 @@ public final class WorkspaceTabsSource: TabsDataSource {
         self.workspaceID = workspaceID
         self.terminal = terminal
         self.sessions = sessions
+        // Reads only. SwiftUI builds a screen's source while it updates the
+        // view graph (a navigation destination re-runs on every change it
+        // read), so a write here notifies the update that is running and it
+        // re-runs forever: the workspace hang of verify/e2e-matrix.md #4.
+        // The writes (remember the tab, consume the focus request) wait for
+        // `opened()`, which the screen calls when it appears.
         if let workspace = store.workspace(id: workspaceID), let tab = store.openingTab(for: workspace) {
             selectedTabID = tab.id
-            store.noteOpened(tabID: tab.id, in: workspaceID)
         }
-        focusOnOpen = store.takeFocusOnOpen(workspaceID)
+        focusOnOpen = store.wantsFocusOnOpen(workspaceID)
         // Linked to a Mac, browser tabs stream from it; otherwise each has a web view.
         if !streamed.isLive {
             for tab in store.workspace(id: workspaceID)?.tabs ?? [] where tab.kind == .browser {
@@ -67,6 +72,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     public var workspace: Workspace? { store.workspace(id: workspaceID) }
+
+    /// The screen appeared (an action, outside any view update): remembers
+    /// the opening tab and consumes this workspace's focus request.
+    public func opened() {
+        if let activeTabID { store.noteOpened(tabID: activeTabID, in: workspaceID) }
+        if store.takeFocusOnOpen(workspaceID) { focusOnOpen = true }
+    }
 
     private var macName: String {
         guard let macID = workspace?.macID else { return "Mac" }

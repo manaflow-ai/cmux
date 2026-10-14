@@ -27,6 +27,10 @@ public struct WorkspacesList: View {
     var accountEmail: String?
     /// Links a Mac (live only): a Mac whose list the phone does not have.
     var reconnect: ((String) -> Void)?
+    /// Moves the link to a Mac (live only; nothing when it is already the
+    /// link's Mac). Called whenever the list is filtered to an online Mac or
+    /// one of its workspaces opens (`MacScope.macToLink`).
+    var linking: MacLinking?
     /// Pull to refresh (live only).
     var refresh: (() async -> Void)?
     /// Moves to another team (the empty state offers the team where a Mac is).
@@ -58,7 +62,8 @@ public struct WorkspacesList: View {
     @State private var scrollProxy: ScrollViewProxy?
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
-                reconnect: ((String) -> Void)? = nil, refresh: (() async -> Void)? = nil,
+                reconnect: ((String) -> Void)? = nil, linking: MacLinking? = nil,
+                refresh: (() async -> Void)? = nil,
                 switchTeam: ((String) -> Void)? = nil, openAccount: (() -> Void)? = nil,
                 filter: MacFilter = MacFilter(),
                 open: @escaping (Workspace) -> Void) {
@@ -66,6 +71,7 @@ public struct WorkspacesList: View {
         self.creator = creator
         self.accountEmail = accountEmail
         self.reconnect = reconnect
+        self.linking = linking
         self.refresh = refresh
         self.switchTeam = switchTeam
         self.openAccount = openAccount
@@ -112,6 +118,11 @@ public struct WorkspacesList: View {
                         create(start, directory: directory, on: target?.id)
                     }
                 }
+            }
+            // The chosen Mac is the linked Mac: on a choice, on launch with a
+            // remembered choice, and when the chosen Mac comes online.
+            .onChange(of: scope.macToLink(in: macs), initial: true) { _, id in
+                if let id { linking?.link(id) }
             }
             .task(id: isRefreshing) {
                 // Say "Updating…" only when a refresh is slow, not on every one.
@@ -166,8 +177,9 @@ public struct WorkspacesList: View {
         guard let team = store.activeTeam, value != scope else { return }
         theme.haptics.selection()
         withAnimation(theme.motion.smooth.animation) { filter.select(value, in: team.id) }
-        // Live: the phone links one Mac at a time; showing another links it.
-        if let id = value.macID, mac(id)?.isOnline == true, listState(id) == .notConnected {
+        // Live: the phone links one Mac at a time; showing another links it
+        // (the scope's onChange). A failed Mac is dialed again on a choice.
+        if let id = value.macID, mac(id)?.isOnline == true, case .failed = listState(id) {
             reconnect?(id)
         }
     }
@@ -195,6 +207,8 @@ public struct WorkspacesList: View {
             store.noteOpened(tabID: tab.id, in: ws.id)
         }
         store.markSeen(ws.id)
+        // Its tabs come from its Mac: opening a workspace links that Mac.
+        if let id = MacScope.macToLink(opening: ws, in: macs) { linking?.link(id) }
         open(ws)
     }
 
@@ -535,42 +549,7 @@ public struct WorkspacesList: View {
         if !query.trimmingCharacters(in: .whitespaces).isEmpty {
             ContentUnavailableView.search(text: query)
         } else if let mac = scopedMac {
-            if !mac.isOnline {
-                EmptyState(
-                    symbol: "moon.zzz",
-                    title: "\(mac.name) is offline",
-                    message: "\(RelativeStamp().presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
-                )
-                .accessibilityIdentifier("workspaces.empty.offline")
-            } else if case .failed(let reason) = listState(mac.id) {
-                EmptyState(
-                    symbol: "bolt.horizontal.circle",
-                    title: "Can't connect to \(mac.name)",
-                    message: "\(mac.name) is online, but this iPhone can't reach it: \(reason).",
-                    primaryTitle: reconnect == nil ? nil : "Retry",
-                    primary: reconnect.map { reconnect in { reconnect(mac.id) } }
-                )
-                .accessibilityIdentifier("workspaces.failed")
-            } else if listState(mac.id) == .notConnected {
-                EmptyState(
-                    symbol: "link",
-                    title: "\(mac.name) isn't connected",
-                    message: "This iPhone shows one Mac's workspaces at a time.",
-                    primaryTitle: reconnect == nil ? nil : "Connect",
-                    primary: reconnect.map { reconnect in { reconnect(mac.id) } }
-                )
-                .accessibilityIdentifier("workspaces.empty.not-connected")
-            } else {
-                let canCreate = target != nil
-                EmptyState(
-                    symbol: "macwindow",
-                    title: "No workspaces on \(mac.name)",
-                    message: canCreate ? "New workspaces open right away." : "\(mac.name) can't take new workspaces from this iPhone yet.",
-                    primaryTitle: canCreate ? "New Workspace" : nil,
-                    primary: canCreate ? { create(.terminal, directory: nil, on: mac.id) } : nil
-                )
-                .accessibilityIdentifier("workspaces.empty.mac")
-            }
+            scopedEmptyState(mac)
         } else if let target {
             EmptyState(
                 symbol: "macwindow",
@@ -587,6 +566,59 @@ public struct WorkspacesList: View {
                 message: "Wake a Mac or open cmux on it to see its workspaces."
             )
             .accessibilityIdentifier("workspaces.empty.asleep")
+        }
+    }
+
+    /// Filtered to an online Mac with no rows (`MacEmptyState`). Never
+    /// "can't take new workspaces" while the phone is still linking it.
+    @ViewBuilder private func scopedEmptyState(_ mac: MacDevice) -> some View {
+        let canCreate = target != nil
+        switch MacEmptyState.resolve(isOnline: mac.isOnline, list: listState(mac.id), connection: store.macConnection[mac.id],
+                                     tracksLive: store.tracksMacData, autoLinks: linking?.canLink(mac.id) == true, canCreate: canCreate) {
+        case .offline:
+            EmptyState(
+                symbol: "moon.zzz",
+                title: "\(mac.name) is offline",
+                message: "\(RelativeStamp().presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
+            )
+            .accessibilityIdentifier("workspaces.empty.offline")
+        case .failed(let reason):
+            EmptyState(
+                symbol: "bolt.horizontal.circle",
+                title: "Can't connect to \(mac.name)",
+                message: "\(mac.name) is online, but this iPhone can't reach it: \(reason).",
+                primaryTitle: reconnect == nil ? nil : "Retry",
+                primary: reconnect.map { reconnect in { reconnect(mac.id) } }
+            )
+            .accessibilityIdentifier("workspaces.failed")
+        case .notConnected:
+            EmptyState(
+                symbol: "link",
+                title: "\(mac.name) isn't connected",
+                message: "This iPhone shows one Mac's workspaces at a time.",
+                primaryTitle: reconnect == nil ? nil : "Connect",
+                primary: reconnect.map { reconnect in { reconnect(mac.id) } }
+            )
+            .accessibilityIdentifier("workspaces.empty.not-connected")
+        case .connecting:
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Connecting to \(mac.name)…")
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("workspaces.empty.connecting")
+        case .empty(let canCreate):
+            EmptyState(
+                symbol: "macwindow",
+                title: "No workspaces on \(mac.name)",
+                message: canCreate ? "New workspaces open right away." : "\(mac.name) can't take new workspaces from this iPhone yet.",
+                primaryTitle: canCreate ? "New Workspace" : nil,
+                primary: canCreate ? { create(.terminal, directory: nil, on: mac.id) } : nil
+            )
+            .accessibilityIdentifier("workspaces.empty.mac")
         }
     }
 

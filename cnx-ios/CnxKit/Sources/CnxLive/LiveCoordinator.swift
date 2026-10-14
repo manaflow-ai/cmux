@@ -423,10 +423,19 @@ public final class LiveCoordinator {
     }
 
 
+    /// Moves the link to a Mac and remembers it for the team (the next
+    /// launch dials it first). Nothing changes when it is already the link's
+    /// Mac, or for a Mac this phone may not dial.
     public func select(macID: String) {
-        guard let team = store.activeTeam else { return }
+        guard let team = store.activeTeam, canLink(macID: macID) else { return }
         UserDefaults.standard.set(macID, forKey: "cnx.live.mac.\(team.id)")
         retarget()
+    }
+
+    /// Whether this phone may dial the Mac: protocol v1 admits only the
+    /// Mac owner's own phones, so a teammate's Mac is listed, never dialed.
+    public func canLink(macID: String) -> Bool {
+        !othersMacs.contains(macID)
     }
 
     // MARK: Discovery across spaces
