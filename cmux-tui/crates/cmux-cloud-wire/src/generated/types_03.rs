@@ -4,6 +4,30 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    TeamJournalStream {
+        Tasks = "tasks",
+        Mail = "mail",
+        Memory = "memory",
+        Files = "files",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamMember {
+    pub user: UserId,
+    pub role: TeamRole,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicy {
+    pub version: i64,
+    pub values: TeamPolicyValues,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<String>,
+}
+
 /// Set keys of a team policy; an absent key means the product default and the user's choice.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValues {

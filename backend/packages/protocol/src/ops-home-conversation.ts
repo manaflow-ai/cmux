@@ -194,7 +194,8 @@ export const ThreadUpdate = def({
     root: MessageId,
     title: Schema.optionalKey(Title),
     status: Schema.optionalKey(ThreadStatus),
-    owner: Schema.optionalKey(Schema.Union([ParticipantId, Schema.Literal("")]))
+    // A participant id, or "" to clear the owner (the owner checks it is a current participant).
+    owner: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(128)))
   }),
   result: commit,
   errors: [...conversationErrors, "unknown_message", "invalid_thread_root", "invalid_thread_update", "invalid_thread_owner", "invalid_title"],
