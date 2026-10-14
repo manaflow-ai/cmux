@@ -190,6 +190,25 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       };
     });
     expect(chip).toEqual({ narrower: true, inside: true, titles: 0 });
+    // The dock takes its own space in the column (Leo, 2026-10-14: the PR chip sat over the chat):
+    // the transcript ends above it, its last line too when scrolled to the end, at any height.
+    for (const height of [760, 360]) {
+      await page.setViewportSize({ width: 900, height });
+      const overlap = await page.evaluate(async () => {
+        const scroller = document.querySelector(".acpmux-scroll")!;
+        scroller.scrollTop = scroller.scrollHeight;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const dock = document.querySelector(".acpmux-pr-dock")!.getBoundingClientRect();
+        const rows = [...scroller.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect());
+        const last = Math.max(...rows.map((row) => Math.min(row.bottom, scroller.getBoundingClientRect().bottom)));
+        return {
+          scroller: Math.max(0, Math.round(scroller.getBoundingClientRect().bottom - dock.top)),
+          lastLine: Math.max(0, Math.round(last - dock.top)),
+        };
+      });
+      expect(overlap).toEqual({ scroller: 0, lastLine: 0 });
+    }
+    await page.setViewportSize({ width: 900, height: 760 });
 
     await page.getByRole("button", { name: "Show 1 more" }).click();
     expect((await bars(page)).at(-1)).toEqual(["#41", "uploader", "Add retry to the uploader", "merged"]);
