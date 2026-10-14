@@ -41,6 +41,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
   });
 
   const elevated = "rgb(40, 41, 42)";
+  const elevatedLight = "rgb(250, 250, 250)";
 
   /** The composer-rim harness with a known dark theme and a blue accent, so a ring in the accent shows. */
   async function open(scale: number, theme: "dark" | "light" = "dark"): Promise<Page> {
@@ -49,16 +50,16 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/test/browser/composer-rim.html`);
     await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
     await page.evaluate(
-      ({ elevated, theme }) => {
+      ({ elevated, elevatedLight, theme }) => {
         const root = document.documentElement.style;
-        root.setProperty("--cmux-elevated-background", elevated);
+        root.setProperty("--cmux-elevated-background", theme === "dark" ? elevated : elevatedLight);
         root.setProperty("--cmux-surface-solid", theme === "dark" ? "rgb(30, 30, 30)" : "rgb(255, 255, 255)");
         const shell = (document.querySelector(".acpmux-shell") as HTMLElement).style;
         shell.setProperty("--agent-text", theme === "dark" ? "rgb(236, 236, 236)" : "rgb(20, 20, 20)");
         shell.setProperty("--agent-page-bg", "transparent");
         shell.setProperty("--agent-accent", "rgb(0, 122, 255)");
       },
-      { elevated, theme },
+      { elevated, elevatedLight, theme },
     );
     return page;
   }
@@ -97,9 +98,10 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     });
   }
 
-  /** A color's visible ink: each channel weighted by its alpha (over black). */
-  function ink([r, g, b, a]: Rim["rgba"]): number[] {
-    return [r * a, g * a, b * a];
+  /** A rim as it shows: its color over the box's fill (the elevated surface the harness sets). */
+  function ink([r, g, b, a]: Rim["rgba"], theme: "dark" | "light"): number[] {
+    const ground = theme === "dark" ? [40 / 255, 41 / 255, 42 / 255] : [250 / 255, 250 / 255, 250 / 255];
+    return [r, g, b].map((channel, index) => channel * a + ground[index] * (1 - a));
   }
 
   for (const theme of ["dark", "light"] as const) {
@@ -109,16 +111,17 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         const rest = await rims(page);
         expect(rest.length, "the box draws a rim").toBe(1);
         expect(rest[0].spread * scale, "rest rim in device px").toBe(1);
+        expect(rest[0].rgba[3], "the rim's color parsed and shows").toBeGreaterThan(0);
         await page.focus("#newtab-field");
         const focused = await rims(page);
         expect(focused.length, "focus draws one rim, no extra ring").toBe(1);
         expect(focused[0].spread, "focus keeps the rim's width").toBe(rest[0].spread);
-        const [r, g, b] = ink(focused[0].rgba);
+        const [r, g, b] = ink(focused[0].rgba, theme);
         expect(Math.max(Math.abs(r - g), Math.abs(g - b)), "the focused rim is neutral, not the accent").toBeLessThan(
           0.02,
         );
         const lift = Math.max(
-          ...ink(focused[0].rgba).map((value, index) => Math.abs(value - ink(rest[0].rgba)[index])),
+          ...ink(focused[0].rgba, theme).map((value, index) => Math.abs(value - ink(rest[0].rgba, theme)[index])),
         );
         expect(lift, "focus lifts the rim's tone at most slightly").toBeLessThan(0.08);
         await page.close();
