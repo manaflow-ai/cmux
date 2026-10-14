@@ -751,6 +751,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_tui_focused_filter_guard.py
 
+      - name: Validate cmux-tui macOS routes avoid the nightly label
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_tui_routes_avoid_nightly_label.py
+
       - name: Validate the tui publish dispatch budget
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_tui_publish_dispatch_budget.py

@@ -88,7 +88,7 @@ pub(super) fn error_code(result: Result<Value, ResourceError>) -> String {
     result.expect_err("request unexpectedly succeeded").code
 }
 
-/// The changes after `revision` as a connection without `sidebar-doc-v1`
+/// The changes after `revision` as a connection without `placement-shift-v1`
 /// reads them: each batch's placement shift restated from the current state
 /// (server/session_event_stream.rs `delta_item`).
 pub(super) fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {

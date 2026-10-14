@@ -210,9 +210,11 @@ Placement shift: `index` is an ordinal, so a new row or a moved row changes
 the `index` of the rows it passes, and nothing else of them. A commit
 does not restate those rows; its journal record carries `placement_shift
 {from_index, to_index}` (`to_index` null: through the last placement) beside
-`changes`. A connection that echoed `sidebar-doc-v1` in `set-client-info` or
-`client.metadata.update` reads the order from the sidebar document and gets
-the batch as stored: only the new or moved placement. Every other
+`changes`. A connection that echoed `placement-shift-v1` in `set-client-info`
+or `client.metadata.update` (it does not order by `index`, for example
+because it reads the order from the sidebar document) gets the batch as
+stored: only the new or moved placement. `sidebar-doc-v1` alone does not
+change placement delivery. Every other
 connection gets, at the end of that batch's `changes`, a
 `workspace_placement` upsert for each placement in the range, read from the
 state when the batch is sent (a later write that moves a row again sends it
