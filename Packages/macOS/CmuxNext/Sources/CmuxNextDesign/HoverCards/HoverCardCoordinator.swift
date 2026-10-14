@@ -71,10 +71,11 @@ public final class HoverCardCoordinator {
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismiss(.windowResignedKey) } // main-proof: observer on queue: .main
         })
-        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification] {
+            let ended = name == NSWindow.didEndLiveResizeNotification
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let number = (note.object as? NSWindow)?.windowNumber
-                MainActor.assumeIsolated { self?.windowGeometryChanged(number) } // main-proof: observer on queue: .main
+                MainActor.assumeIsolated { self?.windowGeometryChanged(number, liveResizeEnded: ended) } // main-proof: observer on queue: .main
             })
         }
     }
@@ -119,7 +120,13 @@ public final class HoverCardCoordinator {
     /// column scroll, an animation frame, tabs added, removed or
     /// reordered). The pointer may now be over another target, or none,
     /// without having moved. Cheap when idle and the pointer is elsewhere.
-    public func geometryChanged(in window: NSWindow?) {
+    /// Nothing during a live resize: the pointer is on the window's edge,
+    /// and every strip and list hit-tested again on every frame (resize
+    /// jank, Leo on cosmic-gray 2026-10-13). Its end hit-tests once.
+    public func geometryChanged(in window: NSWindow?) { geometryChanged(in: window, liveResizeEnded: false) }
+
+    private func geometryChanged(in window: NSWindow?, liveResizeEnded: Bool) {
+        if !liveResizeEnded, window?.inLiveResize == true { return }
         if machine.phase == .idle, machine.lastHit == nil {
             guard let window, window.frame.contains(currentPointer()) else { return }
         }
@@ -249,11 +256,11 @@ public final class HoverCardCoordinator {
 
     // MARK: Geometry
 
-    private func windowGeometryChanged(_ number: Int?) {
+    private func windowGeometryChanged(_ number: Int?, liveResizeEnded: Bool) {
         guard let number, number != panel?.windowNumber,
               let window = sources.values.lazy.compactMap({ $0.source?.hoverCardWindow }).first(where: { $0.windowNumber == number })
         else { return }
-        geometryChanged(in: window)
+        geometryChanged(in: window, liveResizeEnded: liveResizeEnded)
     }
 
     /// While shown, the card follows its target.

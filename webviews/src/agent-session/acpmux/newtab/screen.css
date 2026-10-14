@@ -82,11 +82,8 @@
 .nt-composer .acpmux-composer-strip {
   background: linear-gradient(var(--acpmux-composer-bg), var(--acpmux-composer-bg)), var(--cmux-surface-solid, var(--acpmux-base));
 }
-/* The card clips what it holds to its own corners in every template (its menus and the
-   suggestions open in portals, outside the card). */
-.nt-box {
-  overflow: hidden;
-}
+/* The card never clips: the model picker opens in the card, above or below its chip (a clipping
+   card cut it to its search field, Lawrence 2026-10-13). The location row is the strip above it. */
 /* Templates (cx-yabk, plans/cmux-next/new-tab-templates.md): the same screen, other sections and
    type. The theme's own tones only; no accent color. */
 .nt-prompt-glyph {
