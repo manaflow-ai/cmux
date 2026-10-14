@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// The tag naming the session whose agent started this one (`Hub::spawned_by`).
+pub const SPAWNED_BY_TAG: &str = "spawnedBy";
+
 /// The session's status dot, decided here once so every client draws the
 /// same one (cx-zlox). First match wins:
 ///
@@ -158,6 +161,19 @@ impl Hub {
         enforcement(m, self.config.try_read().ok().map(|c| c.permission_policy))
     }
 
+    /// The session whose agent started this one: its `spawnedBy` tag, which the acpmux client
+    /// sets after a `session/new` sent from inside a session (the caller's `ACPMUX_SESSION_ID`).
+    /// A child lists under it, never on its own in a chat list. Kept only while that session is
+    /// here, listed (not archived) and not a child itself: one level, so a loop of tags or a
+    /// parent nobody sees never hides a chat.
+    pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
+        let parent = live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned();
+        let session = self.sessions.lock().unwrap().get(&parent).cloned()?;
+        let tags = live_tags(&session.meta());
+        let listed = tags.get(SPAWNED_BY_TAG).is_none() && tags.get("archived").is_none();
+        (parent != m.id && listed).then_some(parent)
+    }
+
     pub fn session_summary(&self, session: &Session) -> Value {
         let m = session.meta();
         let turn = session.turn();
@@ -179,6 +195,7 @@ impl Hub {
             "parentId": m.parent_id,
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             "forkSeq": m.fork_seq,
+            "spawnedBy": self.spawned_by(&m),
             "title": m.title,
             "lastPrompt": m.last_prompt,
             "preview": m.preview.as_deref().map(|p| short_text(p, 160)),
