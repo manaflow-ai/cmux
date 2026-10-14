@@ -50,7 +50,8 @@ struct ConnectionsView: View {
                     }
                 }
             }
-            .navigationTitle("cmux VNC")
+            // The bundle's display name: "cmux VNC", or "cmux VNC Rust" for the Rust-host build.
+            .navigationTitle(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "cmux VNC")
             .toolbar {
                 Menu("Add", systemImage: "plus") {
                     Button("Pair a Mac over WebRTC", systemImage: "qrcode.viewfinder") { pairingLink = PairingLink(value: "") }
