@@ -399,6 +399,33 @@ impl Mux {
         )
     }
 
+    /// `workspace.open_url` reuses a browser tab: it becomes its pane's
+    /// selected tab, and the keyboard focus stays where it is (the person
+    /// keeps typing in the chat). Keyed by `mutation`, so a retry replays.
+    pub(crate) fn commit_tab_selection_keeping_focus(
+        self: &Arc<Self>,
+        selectors: ResourceSelectors,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let fingerprint = json!({
+            "operation":"workspace.open_url.select",
+            "selectors":&selectors,
+            "fields":{},
+        });
+        let commit = self.resource_select_tab_impl(
+            "workspace.open_url",
+            selectors,
+            false,
+            None,
+            mutation,
+            &fingerprint,
+        )?;
+        if !commit.replayed {
+            self.emit(MuxEvent::TreeChanged);
+        }
+        Ok(commit)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn resource_select_tab_impl(
         self: &Arc<Self>,
