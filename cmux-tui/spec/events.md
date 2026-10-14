@@ -1582,9 +1582,13 @@ object{
   session:string|null,
   agent?:string|null,
   updated_at_ms:uint64,
-  since_ms?:uint64
+  since_ms?:uint64,
+  last_prompt?:string|null
 }
 ```
+
+`last_prompt` is the agent's last prompt (at most 200 characters, memory only; see
+`list-agents`).
 
 Meaning: The current agent state for a surface changed. `agent` is the
 adapter identity when the producer knows it. `since_ms` is when the agent
