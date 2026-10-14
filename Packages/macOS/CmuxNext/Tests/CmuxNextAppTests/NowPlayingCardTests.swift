@@ -173,12 +173,16 @@ import Testing
         let source = BrowserTabsNowPlaying()
         source.artworkRetry = 0.2
         source.follow(sessions: { [NowPlayingSession(tab: tab.id, media: media)] }, tab: { _ in tab })
-        #expect(source.nowPlaying?.artwork == nil, "artwork before any fetch")
+        // Read the way the card is fed: the model reads the source again only when it changes.
+        let model = SidebarModel()
+        let following = model.followNowPlaying(source, enabled: { true })
+        defer { following.cancel() }
+        try await PasswordManagerRouteTests.until({ model.nowPlaying != nil }, within: .seconds(6)) { "the card never shows the tab's track" }
         try await Task.sleep(for: .seconds(1))
-        #expect(source.nowPlaying?.artwork == nil, "artwork from a fetch that cannot succeed")
+        #expect(model.nowPlaying?.artwork == nil, "artwork from a fetch that cannot succeed")
         // Now the image is there (a later fetch of the same URL gets it).
         _ = BrowserFaviconLoader.shared.store(Self.artwork(), at: art, profile: tab.profileID)
-        try await PasswordManagerRouteTests.until({ source.nowPlaying?.artwork != nil }, within: .seconds(6)) {
+        try await PasswordManagerRouteTests.until({ model.nowPlaying?.artwork != nil }, within: .seconds(6)) {
             "the card never shows the tab's artwork after its first fetch failed"
         }
     }
