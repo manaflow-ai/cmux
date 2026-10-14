@@ -67,14 +67,16 @@ extension Motion {
     }
 
     /// Whether a change of `view` can animate. A window with no screen (a
-    /// display unplugged or asleep, a screenless host, an offscreen window)
-    /// never advances an AppKit animation, so its final value and its
-    /// completion would wait for an indefinite time; such a change applies
-    /// at once. Decided per animation, from the animated view's window. A
-    /// view outside a window, or no view, animates as before.
+    /// display unplugged, a screenless host, an offscreen window) or on a
+    /// sleeping display (``DisplaySleep``) never advances an AppKit
+    /// animation, so its final value and its completion would wait for an
+    /// indefinite time; such a change applies at once. Decided per animation,
+    /// from the animated view's window. A view outside a window, or no view,
+    /// animates as before.
     public static func canAnimate(in view: NSView?) -> Bool {
         guard let window = view?.window else { return true }
-        return window.screen != nil
+        guard let screen = window.screen else { return false }
+        return !DisplaySleep.shared.isAsleep(screen)
     }
 
     /// The proxy to set a constraint through inside a Motion animation of
