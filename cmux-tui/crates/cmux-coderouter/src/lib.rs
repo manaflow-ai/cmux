@@ -517,14 +517,21 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Whether the router keeps its install secret for this run only instead of
+/// in the login Keychain: only a debug build (a DEV or test build), and only
+/// when `CMUX_ROUTER_TEST_EPHEMERAL_INSTALL_SECRET` is explicitly `1`, so the
+/// relay's own tests neither read nor write the host's Keychain (a headless CI
+/// host has none unlocked). A release build never does, whatever the
+/// environment says.
+pub fn ephemeral_install_secret(debug_build: bool, value: Option<&std::ffi::OsStr>) -> bool {
+    debug_build && value.is_some_and(|v| v == "1")
+}
+
 /// The install secret behind every minted key. macOS keeps it in the login
-/// Keychain; elsewhere a fresh random secret per run is equivalent. Debug
-/// builds also take `CMUX_ROUTER_TEST_EPHEMERAL_INSTALL_SECRET=1`, so the
-/// relay's own tests neither read nor write the host's Keychain (a headless
-/// CI host has none unlocked); release builds never read it.
+/// Keychain; elsewhere a fresh random secret per run is equivalent.
 fn install_secret_store() -> anyhow::Result<Arc<dyn InstallSecretStore>> {
-    #[cfg(debug_assertions)]
-    if std::env::var_os("CMUX_ROUTER_TEST_EPHEMERAL_INSTALL_SECRET").is_some_and(|v| v == "1") {
+    let requested = std::env::var_os("CMUX_ROUTER_TEST_EPHEMERAL_INSTALL_SECRET");
+    if ephemeral_install_secret(cfg!(debug_assertions), requested.as_deref()) {
         return Ok(Arc::new(RandomInstallSecretStore::new("default")?));
     }
     #[cfg(target_os = "macos")]
