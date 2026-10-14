@@ -481,20 +481,16 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     }
 }
 
-/// This Chief's record from the local owner's Chief registry, read once on
-/// its own bound connection. No registry (the cloud source, an older
-/// daemon) or no record for this participant (a Chief started before it had
-/// one, such as hq-ec's instruction-file VM Chiefs): every tool, no profile,
-/// as before records. Any other failure (the daemon away, a refused bind) is
-/// fatal for a Chief that is not the default one, so its grant never opens
-/// up because the daemon was briefly away (its supervisor starts it again);
-/// the default Chief starts as before.
+/// This Chief's record from the local owner's Chief registry, read on its
+/// own bound connection (chief_profile.rs `ChiefTools::start`: no registry
+/// or no record, every tool; the daemon away, a non-default Chief does not
+/// start and the default Chief has zoom and date only until the link is up).
 fn load_chief_tools(
     source: &Source,
     daemon_socket: &str,
     membership: &crate::membership::Membership,
 ) -> Result<crate::chief_profile::ChiefTools, String> {
-    use crate::chief_profile::{ChiefTools, LoadError, ProfileClient};
+    use crate::chief_profile::{ChiefTools, ProfileClient};
     let Source::Local { token_file } = source else {
         return Ok(ChiefTools::none());
     };
@@ -503,28 +499,9 @@ fn load_chief_tools(
         token_file.clone(),
         membership.participant.clone(),
     );
-    match ChiefTools::load(Some(client)) {
-        Ok(tools) => {
-            if let Some(p) = &tools.profile {
-                log(format!(
-                    "chief record: {} {:?} rev {}, tools {:?}, harnesses {:?}, self_edit {:?}",
-                    p.id, p.display_name, p.rev, tools.grant.tools, p.harnesses, p.self_edit
-                ));
-            }
-            Ok(tools)
-        }
-        Err(e @ (LoadError::NoRecord(_) | LoadError::NoRegistry(_))) => {
-            log(format!("chief record: {e}; every tool, no profile"));
-            Ok(ChiefTools::none())
-        }
-        Err(e) if membership.is_default() => {
-            log(format!(
-                "chief record: not read ({e}); every tool, no profile"
-            ));
-            Ok(ChiefTools::none())
-        }
-        Err(e) => Err(format!("reading this Chief's record: {e}")),
-    }
+    ChiefTools::start(Some(client), membership.is_default(), &|line: String| {
+        log(line)
+    })
 }
 
 fn start(
@@ -753,6 +730,7 @@ fn start(
         instructions: instructions.clone(),
         tools,
         user_env: session_dir::host_user_env(),
+        profile_tool: chief_tools.grant().allows("profile"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
@@ -1154,7 +1132,7 @@ fn start(
         )
         .with_trace(trace.clone())
         .with_pinned_harness(sub_set.is_some())
-        .with_harness_grant(chief_tools.grant.harnesses.clone())
+        .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone());
         let spawner = Arc::new(spawner);
@@ -1351,6 +1329,10 @@ fn start(
     let sink: Arc<dyn Fn(daemon::DaemonEvent) + Send + Sync> = Arc::new(move |event| {
         let _ = tx.send(Input::from(event));
     });
+    // A default Chief that could not read its record at start reads it each
+    // time the link comes up, until it has it (zoom and date only until then).
+    let sink =
+        crate::chief_profile::read_record_on_up(chief_tools.clone(), sink, brain_log.clone());
     match source {
         Source::Local { token_file } => {
             let (display_name, title) = LinkConfig::names_from_env();
