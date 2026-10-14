@@ -20148,6 +20148,10 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        // Web Inspector and other web views' responders are not page content.
+        let firstResponderIsPageContent = firstResponderWebView.map {
+            !$0.cmuxResponderBelongsToOtherWebContent(self.firstResponder)
+        } ?? false
         let firstResponderHasMarkedText = shortcutResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -20389,8 +20393,7 @@ private extension NSWindow {
         // The owning web view must receive Return so its native form handling runs.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil &&
-                !cmuxIsLikelyWebInspectorResponder(self.firstResponder),
+            firstResponderIsBrowser: firstResponderIsPageContent,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
@@ -20468,7 +20471,7 @@ private extension NSWindow {
         }
 
         if let firstResponderWebView,
-           !cmuxIsLikelyWebInspectorResponder(self.firstResponder),
+           firstResponderIsPageContent,
            AppDelegate.shared?.isBrowserFocusModeActive(for: firstResponderWebView) == true {
             let handled = firstResponderWebView.performKeyEquivalent(with: event)
 #if DEBUG

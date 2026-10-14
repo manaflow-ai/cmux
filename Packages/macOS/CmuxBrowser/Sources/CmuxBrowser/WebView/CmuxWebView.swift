@@ -811,7 +811,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        if window?.firstResponder?.cmuxIsInsideWebInspector != true,
+        if !cmuxResponderBelongsToOtherWebContent(window?.firstResponder),
            let decision = host?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,
