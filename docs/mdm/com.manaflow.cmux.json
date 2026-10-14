@@ -2501,7 +2501,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.notification" : {
-      "default" : true,
+      "default" : false,
       "description" : "The text of the workspace's newest unread notification.",
       "title" : "Latest Notification",
       "type" : "boolean"
