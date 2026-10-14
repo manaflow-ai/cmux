@@ -1504,15 +1504,6 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
         this.stopGaveUp = false;
-        // acpmux ended a turn whose agent did not answer Stop (`hub/turns.rs` cancel).
-        if (event.kind === "turn_result" && msg.cancelForced === true)
-          this.rows.set(`notice-stop-${event.seq}`, {
-            id: `notice-stop-${event.seq}`,
-            version: 1,
-            at: event.at,
-            kind: "notice",
-            text: translate("stop.forced"),
-          });
         this.pendingPermission = undefined;
         this.groupedPermissions.clear();
         this.openQuestions.clear();
@@ -1533,6 +1524,15 @@ export class AcpmuxDirectClient {
             status: String(msg.status ?? "completed"),
             error: msg.errorText,
             ...(checkpoint ? { checkpoint } : {}),
+          });
+        // acpmux ended a turn whose agent did not answer Stop (`hub/cancel.rs`). After the summary, so its fold never hides it.
+        if (event.kind === "turn_result" && msg.cancelForced === true)
+          this.rows.set(`notice-stop-${event.seq}`, {
+            id: `notice-stop-${event.seq}`,
+            version: 1,
+            at: event.at,
+            kind: "notice",
+            text: translate("stop.forced"),
           });
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
