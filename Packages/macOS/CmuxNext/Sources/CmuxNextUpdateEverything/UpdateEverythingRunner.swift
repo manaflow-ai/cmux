@@ -47,8 +47,8 @@ public final class UpdateEverythingRunner {
         let machines = plan.machines.filter { !$0.isUpToDate }
         var outcomes = await withTaskGroup(of: (Int, UpdateEverythingOutcome).self) { group in
             for (index, machine) in machines.enumerated() {
-                // Names the class, not `Self`: the 6.3 region checker rejects a captured dynamic Self.
-                group.addTask { @MainActor in (index, await UpdateEverythingRunner.update(machine, continueThreads: continueThreads, steps: steps)) }
+                // No `@MainActor in`: the 6.3 region checker rejects that closure here; update is main-actor anyway.
+                group.addTask { (index, await Self.update(machine, continueThreads: continueThreads, steps: steps)) }
             }
             var collected: [(Int, UpdateEverythingOutcome)] = []
             for await outcome in group { collected.append(outcome) }

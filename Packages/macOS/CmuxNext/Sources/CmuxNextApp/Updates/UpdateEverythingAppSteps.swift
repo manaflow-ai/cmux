@@ -32,7 +32,7 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
             + services.machines.cloud.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.machine.title, .cloud, $0.daemon) }
         var machines = await withTaskGroup(of: (Int, UpdateEverythingMachine).self) { group in
             for (index, (id, name, kind, daemon)) in targets.enumerated() {
-                group.addTask { @MainActor in (index, await self.machine(id: id, name: name, kind: kind, daemon: daemon, bundled: bundled)) }
+                group.addTask { (index, await self.machine(id: id, name: name, kind: kind, daemon: daemon, bundled: bundled)) }
             }
             var collected: [(Int, UpdateEverythingMachine)] = []
             for await machine in group { collected.append(machine) }
@@ -137,10 +137,7 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
         if condition() { return true }
         // concurrency-allow: the observation task exits on cancellation; this bounds a machine's reconnect
         return await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { @MainActor in
-                for await ready in ObservationStream({ condition() }) where ready { return true }
-                return false
-            }
+            group.addTask { await observe(condition) }
             group.addTask {
                 // wakeup-allow: one-shot deadline for a machine to answer after its update
                 try? await Task.sleep(for: limit)
@@ -149,5 +146,10 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
             defer { group.cancelAll() }
             return await group.next() ?? false
         }
+    }
+
+    private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+        for await ready in ObservationStream({ condition() }) where ready { return true }
+        return false
     }
 }
