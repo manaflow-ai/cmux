@@ -224,6 +224,43 @@ fn chief_starts_its_daemon_and_brain_when_none_runs() {
 }
 
 #[test]
+fn chief_opens_the_chief_of_the_app_build_it_belongs_to() {
+    // One Chief per build: the CLI in a DEV build's terminal (CMUX_BUNDLE_ID)
+    // starts that build's own Chief; NIGHTLY's CLI the shared home it keeps.
+    let sandbox = Sandbox::new("chief-per-build");
+    let chiefs = sandbox.dir.join("home/.cmux/chief");
+    let dev_home = chiefs.join("com.cmuxterm.app.debug.t1");
+    let nightly_home = chiefs.join("default");
+    let dev =
+        sandbox.chief_with(&["-p", "dev"], &[("CMUX_BUNDLE_ID", "com.cmuxterm.app.debug.t1")]);
+    let dev_ok = dev.status.success();
+    let dev_brains = brain_starts(&dev_home);
+    let nightly_before = nightly_home.exists();
+    let nightly =
+        sandbox.chief_with(&["-p", "nightly"], &[("CMUX_BUNDLE_ID", "com.cmuxterm.app.nightly")]);
+    let nightly_ok = nightly.status.success();
+    let nightly_brains = brain_starts(&nightly_home);
+    let dev_brains_after = brain_starts(&dev_home);
+    // Stop both stand-in brains before any assertion can fail.
+    for home in [&dev_home, &nightly_home] {
+        if let Ok(pid) = fs::read_to_string(home.join("brain.pid"))
+            && let Ok(pid) = pid.trim().parse::<i32>()
+        {
+            // SAFETY: kill(2) of a stand-in brain this test started.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    }
+    assert!(dev_ok, "{}", stderr_of(&dev));
+    assert_eq!(String::from_utf8_lossy(&dev.stdout), "echo: dev\n");
+    assert_eq!(dev_brains, 1, "the DEV build's CLI starts the DEV build's Chief");
+    assert!(!nightly_before, "the DEV build's CLI never touches NIGHTLY's home");
+    assert!(nightly_ok, "{}", stderr_of(&nightly));
+    assert_eq!(String::from_utf8_lossy(&nightly.stdout), "echo: nightly\n");
+    assert_eq!(nightly_brains, 1, "NIGHTLY's CLI starts the Chief of the shared home");
+    assert_eq!(dev_brains_after, 1, "never a second brain in the DEV home");
+}
+
+#[test]
 fn chief_starts_nothing_on_a_brain_socket() {
     let sandbox = Sandbox::new("chief-brain-socket");
     let socket = sandbox.dir.join("home/.cmux/brains/chief/daemon/cmux.sock");
