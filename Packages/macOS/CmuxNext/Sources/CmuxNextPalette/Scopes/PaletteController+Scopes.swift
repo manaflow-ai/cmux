@@ -11,6 +11,11 @@ extension PaletteController {
         configureScopes(entry: PaletteTunables.scopeEntry.value, chip: PaletteTunables.scopeChip.value,
                         itemActions: PaletteTunables.itemActions.value)
         applyRankSettings()
+        // A setting's write lands after its row's command returned: the open page shows it then.
+        sources.settings?.observeChanges { [weak self] in
+            guard let self, self.isVisible else { return }
+            self.model.reload()
+        }
     }
 
     /// Reads the user's aliases and pins (cmux.json) into the searcher. A change ranks the empty
