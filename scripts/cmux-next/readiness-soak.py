@@ -417,6 +417,14 @@ class Soak:
             ok = False
         return round((time.monotonic() - started) * 1000, 1), ok
 
+    def check_control(self):
+        """One system.ping and one snapshot.get; records a hang event when either fails or is slow."""
+        ping_ms, ping_ok = self.round_trip("system.ping")
+        snapshot_ms, snapshot_ok = self.round_trip("snapshot.get")
+        if not (ping_ok and snapshot_ok) or max(ping_ms, snapshot_ms) >= self.args.hang_after * 1000:
+            self.event("hang", f"control round trip ping {ping_ms} ms ({ping_ok}), snapshot {snapshot_ms} ms ({snapshot_ok})")
+        return ping_ms, snapshot_ms
+
     def crash_reports(self):
         """This copy's crash reports since the soak started (other builds' reports do not count)."""
         found = []
@@ -494,10 +502,7 @@ class Soak:
             for path in sorted(reports - seen_reports):
                 self.event("crash", f"crash report {os.path.basename(path)}")
             seen_reports = reports
-            ping_ms, ping_ok = self.round_trip("system.ping")
-            snapshot_ms, snapshot_ok = self.round_trip("snapshot.get")
-            if not (ping_ok and snapshot_ok) or max(ping_ms, snapshot_ms) >= self.args.hang_after * 1000:
-                self.event("hang", f"control round trip ping {ping_ms} ms ({ping_ok}), snapshot {snapshot_ms} ms ({snapshot_ok})")
+            ping_ms, snapshot_ms = self.check_control()
             statuses = self.acp.sessions()
             for session, entry in self.agents.items():
                 running = statuses.get(session) == "running"
