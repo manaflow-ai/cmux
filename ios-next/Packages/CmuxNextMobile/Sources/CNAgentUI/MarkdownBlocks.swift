@@ -167,3 +167,33 @@ struct MarkdownParser: Sendable {
         return nil
     }
 }
+
+/// Markdown reduced to one line of plain text, for previews and accessibility
+/// labels: code fences keep their code, headings, list and quote markers,
+/// emphasis, inline code ticks and link targets go, whitespace collapses.
+struct MarkdownPlainText: Sendable {
+    func callAsFunction(_ source: String) -> String {
+        var parts: [String] = []
+        for block in MarkdownParser().parse(source) {
+            switch block {
+            case .paragraph(let t), .quote(let t): parts.append(inline(t))
+            case .heading(_, let t): parts.append(inline(t))
+            case .code(_, let code, _): parts.append(code)
+            case .list(let items): parts.append(contentsOf: items.map { inline($0.text) })
+            case .table(let header, let rows):
+                parts.append(([header] + rows).map { $0.map(inline).joined(separator: " ") }.joined(separator: " "))
+            case .rule: break
+            }
+        }
+        return parts.joined(separator: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
+    private func inline(_ text: String) -> String {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace,
+                                                              failurePolicy: .returnPartiallyParsedIfPossible)
+        guard let parsed = try? AttributedString(markdown: text, options: options) else { return text }
+        return String(parsed.characters)
+    }
+}

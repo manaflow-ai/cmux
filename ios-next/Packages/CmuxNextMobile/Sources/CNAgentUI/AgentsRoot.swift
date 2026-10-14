@@ -169,7 +169,7 @@ struct AgentSessionRow: View {
             HarnessBadge(harnessId: session.harness, name: harness?.name ?? session.harness)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(session.title)
+                    Text(MarkdownPlainText()(session.title))
                         .font(.body.weight(unread ? .semibold : .medium))
                         .foregroundStyle(.cn(\.textPrimary))
                         .lineLimit(1)
@@ -180,7 +180,9 @@ struct AgentSessionRow: View {
                         .monospacedDigit()
                 }
                 HStack(alignment: .top, spacing: 6) {
-                    Text(session.preview ?? session.cwd)
+                    // Agent replies are Markdown; the preview (and the
+                    // VoiceOver label built from it) is plain text.
+                    Text(session.preview.map { MarkdownPlainText()($0) } ?? session.cwd)
                         .font(.subheadline)
                         .foregroundStyle(.cn(\.textSecondary))
                         .lineLimit(2)
