@@ -47,6 +47,8 @@ final class GroupHeaderRowView: SidebarRowView {
     private var collapsed = false
     /// Minimal mode: the name small beside a hairline, not the colored bar (`SidebarRow.isThinHeader`).
     private var thin = false
+    /// The prototype look (`sidebar.groupLook`); Zen draws no bar.
+    private var look: SidebarGroupLook = .chrome
     private var chevronFrame: CGRect = .zero
     private var chevronIcon: IconName = .disclosureExpanded
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
@@ -106,13 +108,15 @@ final class GroupHeaderRowView: SidebarRowView {
         var collapsed: Bool
         var fontSize: CGFloat
         var thin: Bool
+        var look: SidebarGroupLook
     }
 
     func configure(_ group: SidebarGroup, row: SidebarRow, animated: Bool) {
         let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed, fontSize: SidebarStyle.headerFont.pointSize,
-                              thin: row.isThinHeader)
+                              thin: row.isThinHeader, look: SidebarTunables.groupLook.value)
         guard needsConfigure(content) else { return }
         thin = row.isThinHeader
+        look = content.look
         tint = group.tint
         isEmpty = group.workspaces.isEmpty
         name.stringValue = group.name
@@ -179,6 +183,7 @@ final class GroupHeaderRowView: SidebarRowView {
             // the open editor and a drop take tonal steps over it.
             let tokens = themeTokens
             if thin { return paintThin(tokens) }
+            if look == .zen { return paintZen(tokens) }
             let chip = tint.headerChip
             var fill = chip.fill
             if isHovered || isEditing { fill = tokens.hoverFill.composited(over: fill) }
@@ -228,6 +233,29 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.commit()
     }
 
+    /// The Zen header: the name in primary ink beside a small square in the
+    /// group's color, no bar; the band behind the group (GroupLineView) holds
+    /// the color, and the chevron stays faint.
+    private func paintZen(_ tokens: ThemeTokens) {
+        let ink = tokens.textPrimary.nsColor
+        name.textColor = ink
+        glyph.symbolInk = tint.headerFill
+        pin.contentTintColor = tokens.textSecondary.nsColor
+        chevron.contentTintColor = tokens.textTertiary.nsColor
+        moreButton.tintOverride = tokens.textSecondary.nsColor
+        addButton.tintOverride = tokens.textSecondary.nsColor
+        dot.isHidden = hasIcon
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dot.backgroundColor = tint.headerFill.cgColor
+        pill.backgroundColor = nil
+        layer?.borderColor = tokens.focusRing.nsColor.cgColor
+        layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
+        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        CATransaction.commit()
+        paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered || isEditing ? tokens.hoverFill.nsColor : nil)
+    }
+
     /// The chevron and the space around it: a click here collapses or expands.
     var disclosureFrame: NSRect { chevronFrame.insetBy(dx: -Metrics.space1, dy: -Metrics.space2) }
 
@@ -252,6 +280,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let chevronSide = thin ? min(b.height, SidebarStyle.controlSize) : SidebarStyle.controlSize
         chevronFrame = CGRect(x: b.width - Metrics.space3 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
+        chevron.isHidden = look == .zen && !thin && !(isHovered || isKeyboardFocused || collapsed)
         let control = thin ? min(b.height, SidebarStyle.controlSize) : barHeight - Metrics.space1
         // The more button keeps a stable slot left of the chevron.
         moreButton.frame = NSRect(x: max(pad, chevronFrame.minX - Metrics.space1 - control), y: (b.height - control) / 2, width: control, height: control)
@@ -287,7 +316,9 @@ final class GroupHeaderRowView: SidebarRowView {
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
         glyph.isHidden = !hasIcon
         glyph.frame = NSRect(x: lead - Metrics.space1, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
-        let nx = lead + (hasIcon ? glyphSide : 0)
+        // Zen: a color square takes the icon's place when the group has none.
+        let zenSquare = look == .zen && !thin && !hasIcon
+        let nx = lead + (hasIcon ? glyphSide : zenSquare ? SidebarStyle.groupDotSize + Metrics.space2 : 0)
         let pinSide = Metrics.smallIconSize
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
         let nameWidth = min(titleIntrinsicWidth, max(0, trailing - pinRoom - nx))
@@ -302,6 +333,8 @@ final class GroupHeaderRowView: SidebarRowView {
             let start = (pinned ? pin.frame.maxX : min(name.frame.maxX, name.frame.minX + text)) + Metrics.space2
             pill.frame = NSRect(x: start, y: (b.height / 2).rounded(), width: max(0, trailing - start), height: Metrics.dividerThickness)
             pill.cornerRadius = 0
+        } else if look == .zen {
+            pill.frame = .zero
         } else {
             // The cx-rcby chip: one full-width rounded bar, a little inset top and bottom.
             pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
@@ -312,6 +345,11 @@ final class GroupHeaderRowView: SidebarRowView {
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
                            width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
+        if zenSquare {
+            // Small-radius square, never a capsule.
+            dot.frame = CGRect(x: lead, y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)
+            dot.cornerRadius = (dotSide * 0.28).rounded()
+        }
         // The members' line starts under this bar: one layer per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true

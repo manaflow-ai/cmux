@@ -36,6 +36,8 @@ final class SidebarGroupLineViews {
                 return view
             }()
             view.color = line.color
+            view.look = line.look
+            view.elbows = line.elbows
             moves.append((view, line.frame))
         }
         var leaving: [(GroupLineView, CGRect)] = []
@@ -72,16 +74,29 @@ final class SidebarGroupLineViews {
     }
 }
 
-/// One members' line: a rounded bar in its group's header color.
+/// One members' line: a rounded bar in its group's header color, or the
+/// prototype looks (`SidebarGroupLook`): a soft band, or a line with elbows.
 final class GroupLineView: NSView {
     var color: GroupTint = .palette(.grey) {
         didSet { if color != oldValue { needsDisplay = true } }
     }
+    var look: SidebarGroupLook = .chrome {
+        didSet { if look != oldValue { needsLayout = true; needsDisplay = true } }
+    }
+    var elbows: [CGFloat] = [] {
+        didSet { if elbows != oldValue { needsLayout = true } }
+    }
+    private let tree = CAShapeLayer()
 
     init() {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerCurve = .continuous
+        tree.fillColor = nil
+        tree.lineJoin = .round
+        tree.lineCap = .round
+        tree.actions = ["path": NSNull(), "strokeColor": NSNull(), "lineWidth": NSNull()]
+        layer?.addSublayer(tree)
     }
 
     @available(*, unavailable)
@@ -98,10 +113,46 @@ final class GroupLineView: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.width / 2
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        switch look {
+        case .chrome: layer?.cornerRadius = bounds.width / 2
+        case .zen: layer?.cornerRadius = 8
+        case .elbow: layer?.cornerRadius = 0
+        }
+        tree.isHidden = look != .elbow
+        guard look == .elbow else { return }
+        // A vertical line down to the last member's middle, and a stub with a
+        // rounded join into each member (the tree's └ and ├).
+        let w = SidebarStyle.groupElbowWidth, x = w / 2, r = min(4, SidebarStyle.groupElbowLength / 2)
+        let path = CGMutablePath()
+        // The view (and so its layer) is flipped: y runs down from the header.
+        guard let last = elbows.last, last > r else { tree.path = nil; return }
+        path.move(to: CGPoint(x: x, y: 0))
+        path.addLine(to: CGPoint(x: x, y: last - r))
+        path.addQuadCurve(to: CGPoint(x: x + r, y: last), control: CGPoint(x: x, y: last))
+        path.addLine(to: CGPoint(x: bounds.width, y: last))
+        for y in elbows.dropLast() where y > 0 {
+            path.move(to: CGPoint(x: x, y: y))
+            path.addLine(to: CGPoint(x: bounds.width, y: y))
+        }
+        tree.frame = bounds
+        tree.lineWidth = w
+        tree.path = path
     }
 
     override func updateLayer() {
-        performWithTheme { layer?.backgroundColor = color.headerFill.cgColor }
+        performWithTheme {
+            switch look {
+            case .chrome:
+                layer?.backgroundColor = color.headerFill.cgColor
+            case .zen:
+                layer?.backgroundColor = color.headerFill.withAlphaComponent(0.16).cgColor
+            case .elbow:
+                layer?.backgroundColor = nil
+                tree.strokeColor = color.headerFill.cgColor
+            }
+        }
     }
 }

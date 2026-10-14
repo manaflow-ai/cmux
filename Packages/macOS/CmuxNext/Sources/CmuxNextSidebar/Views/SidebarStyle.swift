@@ -78,7 +78,18 @@ enum SidebarStyle {
     /// A member row starts right of its group's line (cx-q5jw, the Edge
     /// group line): its hover and selection fills never cover the line, so
     /// the line runs unbroken from the header to the last member.
-    static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
+    /// Elbows (`SidebarGroupLook.elbow`) clear their stub; the Zen band has no line, only a small inset.
+    static var groupGutter: CGFloat {
+        switch SidebarTunables.groupLook.value {
+        case .chrome: groupBarX + groupBarWidth + Metrics.space1
+        case .zen: Metrics.space2
+        case .elbow: groupBarX + groupElbowLength + Metrics.space1
+        }
+    }
+    /// An elbow's stub, from the line into its member row (`SidebarGroupLook.elbow`).
+    static var groupElbowLength: CGFloat { (Metrics.sidebarRowHeight * 0.3).rounded() }
+    /// The elbow line's stroke.
+    static var groupElbowWidth: CGFloat { 1.5 }
     /// The group header's color dot, on the line's x (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }

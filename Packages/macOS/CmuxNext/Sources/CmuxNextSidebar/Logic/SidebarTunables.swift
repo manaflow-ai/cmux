@@ -43,7 +43,12 @@ public nonisolated enum SidebarTunables {
         help: "Adds sample rows with 1 to 7 pending items to the sidebar, to compare the row badges without real sessions.",
         default: false, code: "SidebarTunables.rowBadgePreview")
 
+    public static let groupLook = Tunable<SidebarGroupLook>.choice(
+        "sidebar.groupLook", .sidebar, "Group look",
+        help: "How groups draw: the Chrome bar and line, a Zen band, or elbow connectors into each member (prototype).",
+        default: .chrome, code: "SidebarTunables.groupLook")
+
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, SidebarRowBadgeStyle.tunable.descriptor, SidebarRowBadgeStackCap.tunable.descriptor, rowBadgePreview.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
+        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, groupLook.descriptor, SidebarRowBadgeStyle.tunable.descriptor, SidebarRowBadgeStackCap.tunable.descriptor, rowBadgePreview.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
     }
 }

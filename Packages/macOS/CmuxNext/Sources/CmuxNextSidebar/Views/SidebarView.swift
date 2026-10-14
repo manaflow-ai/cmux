@@ -329,6 +329,7 @@ public final class SidebarView: NSView {
         var transientTopItems: [SidebarTransientItem]
         var collapsedSections: Set<LayoutSectionID>
         var look: SectionsLookVariant
+        var groupLook: SidebarGroupLook
         var drawsLines: Bool
         var preferences: SidebarSectionsPreferences
         var suppressedApps: Set<String>
@@ -356,6 +357,7 @@ public final class SidebarView: NSView {
                     transientTopItems: model.transientTopItems,
                     collapsedSections: model.collapsedLayoutSections,
                     look: SidebarSectionTunables.currentLook,
+                    groupLook: SidebarTunables.groupLook.value,
                     drawsLines: Borders.drawsLines,
                     preferences: design.sidebarSections,
                     suppressedApps: model.suppressedApps,
@@ -382,6 +384,7 @@ public final class SidebarView: NSView {
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let listChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.selection != state.selection
             || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
+            || lastState?.groupLook != state.groupLook
             || state.preferences.changesList(from: lastState?.preferences)
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)

@@ -7,6 +7,9 @@ struct SidebarGroupLine: Equatable {
     var group: GroupID
     var frame: CGRect
     var color: GroupTint
+    var look: SidebarGroupLook = .chrome
+    /// Elbows only: each member's middle, from the frame's top.
+    var elbows: [CGFloat] = []
 }
 
 // The members' line (the Chrome tab group line): ONE view per open group
@@ -33,22 +36,38 @@ extension SidebarGroupLine {
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
     static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
         var headers: [(GroupID, SidebarRow)] = []
-        var last: [GroupID: SidebarRow] = [:]
+        var members: [GroupID: [SidebarRow]] = [:]
         for row in rows {
             switch row.key {
             case let .group(id): headers.append((id, row))
-            case .workspace, .tab: if let group = row.group { last[group] = row }
+            case .workspace, .tab: if let group = row.group { members[group, default: []].append(row) }
             default: break
             }
         }
+        let look = SidebarTunables.groupLook.value
         let width = SidebarStyle.groupBarWidth
         return headers.compactMap { id, header in
-            guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
+            guard !header.isCollapsed, let end = members[id]?.last, end.y > header.y else { return nil }
             let head = frame(header), tail = frame(end)
-            let top = head.midY, bottom = tail.maxY - Metrics.space1
-            guard bottom > top else { return nil }
-            return SidebarGroupLine(group: id, frame: CGRect(x: head.minX + SidebarStyle.groupBarX, y: top, width: width, height: bottom - top),
-                                    color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey))
+            let color = colors[id]?.tint ?? .palette(end.groupColor ?? .grey)
+            switch look {
+            case .chrome:
+                let top = head.midY, bottom = tail.maxY - Metrics.space1
+                guard bottom > top else { return nil }
+                return SidebarGroupLine(group: id, frame: CGRect(x: head.minX + SidebarStyle.groupBarX, y: top, width: width, height: bottom - top),
+                                        color: color)
+            case .zen:
+                // One band behind the header and every member, a little inset.
+                let band = CGRect(x: head.minX, y: head.minY + Metrics.space1 / 2, width: head.width, height: tail.maxY - head.minY - Metrics.space1)
+                return SidebarGroupLine(group: id, frame: band, color: color, look: .zen)
+            case .elbow:
+                let top = head.midY, rows = members[id] ?? []
+                let bottom = tail.midY + SidebarStyle.groupElbowWidth / 2
+                guard bottom > top else { return nil }
+                let x = head.minX + SidebarStyle.groupBarX + width / 2 - SidebarStyle.groupElbowWidth / 2
+                return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: SidebarStyle.groupElbowLength + SidebarStyle.groupElbowWidth, height: bottom - top),
+                                        color: color, look: .elbow, elbows: rows.map { frame($0).midY - top })
+            }
         }
     }
 }
