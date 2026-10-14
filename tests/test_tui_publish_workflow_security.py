@@ -325,7 +325,12 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert "group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}" in build
     assert "cancel-in-progress: false" in build
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
-    assert "group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in daemon
+    # Per commit, except the marker path (cx-qlilk): a feat-cmux-next push whose
+    # tree another run already published shares one group per key, because
+    # only the missing daemon-tests marker is at stake there, not the tree.
+    assert ("group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.event_name == 'push' && "
+            "github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true' && "
+            "'marker' || github.sha }}") in daemon
     assert "cancel-in-progress: false" in daemon
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in tree_publisher
@@ -2328,20 +2333,39 @@ if __name__ == "__main__":
 
 def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> None:
     # Chief 2026-10-13 (hq-11): the daemon tests' macOS runner queues up to ~1 h,
-    # so trees publish without them; nightly-next promotion still needs them,
-    # through the daemon-tests.json marker that publish-tree-tested writes.
+    # so feat-cmux-next trees publish without them; nightly-next promotion still
+    # needs them, through the daemon-tests.json marker that publish-tree-tested
+    # writes. Chief 2026-10-14 (cx-kfbom): any other ref (branch pushes, pull
+    # requests) publishes a shared tree key only after its daemon tests passed,
+    # with the marker written first, because a feat-cmux-next push that finds
+    # the key published does not run them (tree c77d397b3a9f).
     import yaml
     jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text())["jobs"]
+    marker_script = "scripts/ci/cmux-tui-mark-daemon-tested.sh"
     for name in ("publish-tree", "publish-pr-tree"):
-        assert "cmux-next-daemon-tests" not in jobs[name]["needs"], name
-        assert "cmux-next-daemon-tests" not in str(jobs[name]["if"]), name
-        assert "needs.cmux-next-daemon-tests.outputs" not in str(jobs[name]), name
+        job = jobs[name]
+        assert "cmux-next-daemon-tests" in job["needs"], name
+        assert "needs.cmux-next-daemon-tests.result == 'success'" in job["if"], name
+        assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in job["if"], name
+        names = [step.get("name", "") for step in job["steps"]]
+        mark = names.index("Mark the tree daemon-tested before publishing it")
+        publish = next(i for i, step in enumerate(names) if step.startswith("Publish the") and "trusted helper" in step)
+        assert mark < publish, name
+        assert marker_script in job["steps"][mark]["run"], name
+        # A pull_request_target run's github.ref is the base branch
+        # (feat-cmux-next): the PR publisher marks unconditionally.
+        expected_if = "${{ github.ref != 'refs/heads/feat-cmux-next' }}" if name == "publish-tree" else None
+        assert job["steps"][mark].get("if") == expected_if, name
+    # feat-cmux-next itself keeps publishing without waiting for the tests.
+    assert "github.ref == 'refs/heads/feat-cmux-next' || (needs.cmux-next-daemon-tests.result == 'success'" in jobs["publish-tree"]["if"]
     marker = jobs["publish-tree-tested"]
     assert {"publish-tree", "publish-pr-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
     assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
     assert marker["environment"] == "artifacts"
-    assert "daemon-tests.json" in str(marker["steps"])
-    assert "--write-once" in str(marker["steps"])
+    assert marker_script in str(marker["steps"])
+    script_text = (ROOT / marker_script).read_text()
+    assert "daemon-tests.json" in script_text
+    assert "--write-once" in script_text
     promote = jobs["request-nightly-next"]
     assert "publish-tree-tested" in promote["needs"]
     assert "needs.publish-tree.result" not in promote["if"]

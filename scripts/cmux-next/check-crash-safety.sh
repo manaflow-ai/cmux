@@ -18,7 +18,8 @@
 #                      clauses returns a tuple too. Swift 6.3 and 6.4 at -O never
 #                      write the first element on the success path
 #                      (swiftlang/swift#92698, #93118); a String there is garbage
-#                      and copying it crashed the nightly (cx-21wc5). Assign a
+#                      and copying it crashed the nightly (cx-21wc5). A catch
+#                      that returns nil (optional tuple) counts too. Assign a
 #                      local in the do/catch and return once, or return a struct.
 #                      Heuristic: a catch that returns the tuple through a call
 #                      (`return try await retry()`) is not seen.
@@ -91,6 +92,10 @@ for path in swift_sources():
 DO_OPEN = re.compile(r"\bdo(?:\s+throws\s*(?:\([^)]*\))?)?\s*\{")
 CATCH_OPEN = re.compile(r"(?:\s|//[^\n]*\n)*catch\b[^{]*\{")
 TUPLE_RETURN = re.compile(r"\breturn\s*\(")
+# The catch side also counts when it returns nil: the optional-tuple shape
+# (`(A, B)?` from the do, nil from the catch) is untested upstream; keep the
+# tuple out of the do/catch there too.
+CATCH_RETURN = re.compile(r"\breturn\s*(?:\(|nil\b)")
 
 def block_end(text, open_brace):
     depth = 0
@@ -116,7 +121,7 @@ def tuple_do_catch_hits(text):
             clause_end = block_end(text, clause.end() - 1)
             if clause_end < 0:
                 break
-            if TUPLE_RETURN.search(text[clause.end():clause_end]):
+            if CATCH_RETURN.search(text[clause.end():clause_end]):
                 yield text.count("\n", 0, match.start())
                 break
             cursor = clause_end + 1
