@@ -34,12 +34,8 @@ impl Mux {
         }
         let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(true) };
         let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(true) };
-        match durable.lifecycle {
-            TerminalLifecycle::Running => {}
-            // Keep a report from a terminal that is still starting pending;
-            // the running commit or the next graph change publishes it.
-            TerminalLifecycle::Launching | TerminalLifecycle::Adopting => return Ok(false),
-            _ => return Ok(true),
+        if durable.lifecycle != TerminalLifecycle::Running {
+            return Ok(true);
         }
         let topology = registry.resource_topology_snapshot()?;
         let content_id = ContentPublicId::Terminal(id.clone());

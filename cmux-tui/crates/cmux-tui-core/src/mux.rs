@@ -3994,9 +3994,6 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
-        // A cwd the shell reported while the host was still adopting waited
-        // for the running lifecycle; publish it now that the terminal is live.
-        self.publish_pending_terminal_directories();
         // Adoption makes the terminal's resource surface available. Retry
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
@@ -7910,9 +7907,6 @@ impl Mux {
         if !lifecycle_ready {
             return false;
         }
-        // Like adoption: a cwd reported while the host was reconnecting waited
-        // for the running lifecycle.
-        self.publish_pending_terminal_directories();
         #[cfg(debug_assertions)]
         if self
             .terminal_host_reconnect_completion_failures

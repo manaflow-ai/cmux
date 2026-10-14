@@ -1407,6 +1407,13 @@ fn kitty_shell_cwd_to_local_path(value: &str) -> Option<PathBuf> {
     if host.is_empty() || !terminal_pwd_host_is_local(host) || path.contains('\0') {
         return None;
     }
+    // `kitty-shell-cwd://host/C:/Users/me` keeps the URI's slash before a
+    // Windows drive, which a rooted Windows path does not have.
+    #[cfg(windows)]
+    let path = path
+        .strip_prefix('/')
+        .filter(|rest| windows_path_is_rooted_local_drive(rest))
+        .unwrap_or(path);
     let path = PathBuf::from(path);
     terminal_pwd_path_is_safe(&path).then_some(path)
 }
@@ -2106,6 +2113,16 @@ mod tests {
         // remote shell can emit one and otherwise redirect a local spawn.
         assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), None);
         assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn terminal_pwd_accepts_windows_drive_kitty_shell_cwd_reports() {
+        assert_eq!(
+            terminal_pwd_to_local_path("kitty-shell-cwd://localhost/C:/Users/me"),
+            Some(PathBuf::from("C:/Users/me"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost/Users/me"), None);
     }
 
     /// Ghostty's bash integration reports `kitty-shell-cwd://$HOSTNAME$PWD`
