@@ -514,13 +514,24 @@ struct CmuxVaultAgentRegistry: Sendable {
         hideClaudeSDKSessions || !sessionExclusions.isEmpty
     }
 
+    var compiledSessionExclusions: [CmuxVaultSessionExclusionMatcher] {
+        sessionExclusions.map(CmuxVaultSessionExclusionMatcher.init)
+    }
+
     func excludes(_ entry: SessionEntry) -> Bool {
+        excludes(entry, matchers: compiledSessionExclusions)
+    }
+
+    func excludes(
+        _ entry: SessionEntry,
+        matchers: [CmuxVaultSessionExclusionMatcher]
+    ) -> Bool {
         if hideClaudeSDKSessions,
            entry.agent == .claude,
            entry.entrypoint?.lowercased().hasPrefix("sdk-") == true {
             return true
         }
-        return sessionExclusions.contains { $0.matches(entry) }
+        return matchers.contains { $0.matches(entry) }
     }
 
     func mergingProjectConfig(

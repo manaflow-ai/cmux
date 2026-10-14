@@ -1559,30 +1559,24 @@ final class SessionIndexStore: ObservableObject {
             )
         }
 
-        // Read source pages from the beginning when exclusions are active. A
-        // filtered page cannot use the source offset directly: excluded recent
-        // sessions must not consume the requested result window.
-        let target = min(searchMaxFiles, safeOffset + safeLimit)
-        let pageSize = max(50, min(target, searchMaxFiles))
-        var sourceOffset = 0
-        var matches: [SessionEntry] = []
-        while matches.count < target, sourceOffset < searchMaxFiles {
-            if Task.isCancelled { return [] }
-            let page = await loadRawAgentEntries(
-                needle: needle,
-                agent: agent,
-                cwdFilter: cwdFilter,
-                offset: sourceOffset,
-                limit: pageSize,
-                errorBag: errorBag,
-                registry: registry,
-                ampSessionRepository: ampSessionRepository
-            )
-            guard !page.isEmpty else { break }
-            matches.append(contentsOf: page.filter { !registry.excludes($0) })
-            sourceOffset += page.count
-            if page.count < pageSize { break }
-        }
+        // Read one bounded source snapshot from the beginning when exclusions
+        // are active. A filtered page cannot use the source offset directly:
+        // excluded recent sessions must not consume the requested result window.
+        // Keeping this to one source load also avoids rescanning and resorting
+        // the same session files once per page of filtered results.
+        let sourcePage = await loadRawAgentEntries(
+            needle: needle,
+            agent: agent,
+            cwdFilter: cwdFilter,
+            offset: 0,
+            limit: searchMaxFiles,
+            errorBag: errorBag,
+            registry: registry,
+            ampSessionRepository: ampSessionRepository
+        )
+        if Task.isCancelled { return [] }
+        let exclusionMatchers = registry.compiledSessionExclusions
+        let matches = sourcePage.filter { !registry.excludes($0, matchers: exclusionMatchers) }
         return Array(matches.dropFirst(safeOffset).prefix(safeLimit))
     }
 

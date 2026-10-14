@@ -56,6 +56,13 @@ struct CmuxVaultSessionExclusion: Codable, Hashable, Sendable {
 
     /// Returns whether all matchers present in this rule match `entry`.
     func matches(_ entry: SessionEntry) -> Bool {
+        matches(entry, compiledLabelRegex: nil)
+    }
+
+    fileprivate func matches(
+        _ entry: SessionEntry,
+        compiledLabelRegex: NSRegularExpression?
+    ) -> Bool {
         if let agent {
             let matchesID = Self.globMatches(agent, value: entry.agent.rawValue, caseInsensitive: true)
             let matchesName = Self.globMatches(agent, value: entry.agent.displayName, caseInsensitive: true)
@@ -74,7 +81,7 @@ struct CmuxVaultSessionExclusion: Codable, Hashable, Sendable {
             }
         }
         if let labelPattern,
-           !Self.labelMatches(labelPattern, value: entry.title) {
+           !Self.labelMatches(labelPattern, value: entry.title, compiledRegex: compiledLabelRegex) {
             return false
         }
         return true
@@ -85,15 +92,20 @@ struct CmuxVaultSessionExclusion: Codable, Hashable, Sendable {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    private static func labelMatches(_ pattern: String, value: String) -> Bool {
+    private static func labelMatches(
+        _ pattern: String,
+        value: String,
+        compiledRegex: NSRegularExpression?
+    ) -> Bool {
         if globMatches(pattern, value: value, caseInsensitive: true) {
             return true
         }
         let expression = pattern.hasPrefix("re:") ? String(pattern.dropFirst(3)) : pattern
-        guard !expression.isEmpty,
-              let regex = try? NSRegularExpression(pattern: expression, options: [.caseInsensitive]) else {
+        guard !expression.isEmpty else {
             return false
         }
+        let regex = compiledRegex ?? (try? NSRegularExpression(pattern: expression, options: [.caseInsensitive]))
+        guard let regex else { return false }
         let range = NSRange(value.startIndex..<value.endIndex, in: value)
         return regex.firstMatch(in: value, options: [], range: range) != nil
     }
@@ -129,5 +141,31 @@ struct CmuxVaultSessionExclusion: Codable, Hashable, Sendable {
             patternIndex += 1
         }
         return patternIndex == patternScalars.count
+    }
+}
+
+/// The compiled form of one exclusion rule used while filtering a source page.
+/// `NSRegularExpression` is thread-safe for matching, so this value can cross
+/// the nonisolated search boundary without recompiling the rule for each entry.
+struct CmuxVaultSessionExclusionMatcher: Sendable {
+    private let exclusion: CmuxVaultSessionExclusion
+    private let labelRegex: NSRegularExpression?
+
+    init(_ exclusion: CmuxVaultSessionExclusion) {
+        self.exclusion = exclusion
+        if let labelPattern = exclusion.labelPattern {
+            let expression = labelPattern.hasPrefix("re:")
+                ? String(labelPattern.dropFirst(3))
+                : labelPattern
+            labelRegex = expression.isEmpty
+                ? nil
+                : try? NSRegularExpression(pattern: expression, options: [.caseInsensitive])
+        } else {
+            labelRegex = nil
+        }
+    }
+
+    func matches(_ entry: SessionEntry) -> Bool {
+        exclusion.matches(entry, compiledLabelRegex: labelRegex)
     }
 }
