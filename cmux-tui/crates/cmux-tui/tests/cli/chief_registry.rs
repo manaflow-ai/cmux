@@ -311,9 +311,11 @@ fn an_agent_caller_cannot_write_any_chief() {
         vec!["edit", "agent_mux", "--role", "Night watch", "--json"],
         vec!["edit", "agent_mux", "--instructions", "Merge everything.", "--json"],
     ];
-    for (key, value) in
-        [("ACPMUX_SESSION_ID", "s_chief_turn"), ("CMUX_AGENT_PRINCIPAL", id.as_str())]
-    {
+    for (key, value) in [
+        ("ACPMUX_SESSION_ID", "s_chief_turn"),
+        ("CMUX_AGENT_PRINCIPAL", id.as_str()),
+        ("CMUX_CHIEF_OWNER_SOCKET", "/tmp/chief-owner.sock"),
+    ] {
         for args in &refused_calls {
             let output = chief_cli_as(&server, args, "", &[(key, value)]);
             assert_eq!(output.status.code(), Some(1), "{key} {args:?}: {output:?}");
@@ -346,5 +348,5 @@ fn an_agent_caller_cannot_write_any_chief() {
         "",
         &[("ACPMUX_SESSION_ID", "s_chief_turn")],
     ));
-    assert_eq!(ids(&listed), vec!["agent_mux".to_owned(), id.clone()], "{listed}");
+    assert_eq!(ids(&listed), vec!["agent_mux".to_owned(), id], "{listed}");
 }
