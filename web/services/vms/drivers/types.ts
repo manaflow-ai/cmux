@@ -388,6 +388,12 @@ export type VMFileStat = {
 
 export type ExecOptions = {
   readonly timeoutMs?: number;
+  /**
+   * Run as root instead of the work user. Every exec ran as root before
+   * public `vm exec` moved to the work user (#16769); cmux's own guest
+   * maintenance that writes root-owned paths still needs it.
+   */
+  readonly asRoot?: boolean;
   /** Server-side metadata persisted with the VM row, used for durable-home routing. */
   readonly providerMetadata?: Record<string, unknown>;
 };
