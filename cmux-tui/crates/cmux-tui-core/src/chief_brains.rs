@@ -145,7 +145,7 @@ pub fn brain_environment(
             .map(str::to_owned),
     );
     put("PATH", path.join(":"));
-    put("HOME", user_home.clone());
+    put("HOME", user_home);
     put("MUX_HOME", mux_home.display().to_string());
     put("MUX_AGENT_TOKEN_FILE", mux_home.join("agent-token").display().to_string());
     put("MUX_HOST_LOG", mux_home.join("host.log").display().to_string());

@@ -10,16 +10,18 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 /// Records the start (`n`), its env, argv and pid in `$MUX_HOME`, then runs
-/// until SIGTERM. The first start exits 0 at once when the Chief home has
-/// an `exit-first` file.
+/// until SIGTERM. The first start exits 0 at once when the Chief home had
+/// an `exit-first` file before its pid file was written.
 const STUB: &str = r#"#!/bin/sh
 n=$(cat "$MUX_HOME/starts" 2>/dev/null || echo 0)
 n=$((n+1))
 echo "$n" > "$MUX_HOME/starts"
+quit=0
+if [ "$n" = 1 ] && [ -e "$CMUX_CHIEF_HOME/exit-first" ]; then quit=1; fi
 env > "$MUX_HOME/env.$n"
 echo "$@" > "$MUX_HOME/argv.$n"
 echo "$$" > "$MUX_HOME/pid.tmp" && mv "$MUX_HOME/pid.tmp" "$MUX_HOME/pid.$n"
-if [ "$n" = 1 ] && [ -e "$CMUX_CHIEF_HOME/exit-first" ]; then exit 0; fi
+if [ "$quit" = 1 ]; then exit 0; fi
 exec sleep 600
 "#;
 
