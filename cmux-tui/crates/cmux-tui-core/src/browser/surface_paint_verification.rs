@@ -258,6 +258,11 @@ impl BrowserSurface {
         session: &BrowserSession,
         deadline: Instant,
     ) -> anyhow::Result<u64> {
+        if self.screencast_paused() {
+            // No stream runs, so no earlier frame can race the capture; a
+            // new epoch is the barrier. Never start a screencast nobody views.
+            return Ok(self.frame_epoch.advance());
+        }
         let (width, height) = self.pixel_size();
         session.runtime.client.stop_screencast_before(&session.session_id, deadline)?;
         session.runtime.client.start_screencast_with_frame_barrier_before(

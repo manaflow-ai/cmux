@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextNowPlaying
 import MediaPlayer
 
 /// The playing Chromium tab in macOS Now Playing (Control Center, the lock
@@ -17,10 +18,7 @@ final class BrowserNowPlaying {
         case play, pause, toggle, next, previous
     }
 
-    nonisolated struct Session: Equatable, Sendable {
-        var tab: BrowserTabID
-        var media: BrowserMediaState
-    }
+    typealias Session = NowPlayingSession
 
     private weak var services: AppServices?
     private var observation: Task<Void, Never>?
@@ -72,10 +70,7 @@ final class BrowserNowPlaying {
     }
 
     private func update(_ sessions: [Session]) {
-        let shown = current.flatMap { current in sessions.first { $0.tab == current.tab } }
-        // The shown tab keeps Now Playing while it plays; another takes it only by playing aloud.
-        let next = (shown?.media.isAudible == true ? shown : nil) ?? sessions.first { $0.media.isAudible }
-            ?? shown ?? sessions.first { $0.media.isPlaying }
+        let next = Session.pick(after: current, from: sessions)
         guard next != current else { return }
         current = next
         publish()

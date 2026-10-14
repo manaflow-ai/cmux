@@ -839,6 +839,7 @@ fn browser_provider_is_owner_only_loopback_and_released_on_disconnect() {
             endpoint: "ws://127.0.0.1:9222/devtools/browser/one".into(),
             authentication: "bearer".into(),
             bearer_token: Some("secret-token".into()),
+            hosting: None,
             targets: vec![BrowserProviderTargetRequest {
                 tab_id: tab_id.into(),
                 target_id: "target-one".into(),
@@ -868,6 +869,7 @@ fn browser_provider_is_owner_only_loopback_and_released_on_disconnect() {
             endpoint: "ws://127.0.0.1:9222/devtools/browser/one".into(),
             authentication: "none".into(),
             bearer_token: None,
+            hosting: None,
             targets: vec![],
         },
         &remote_writer,

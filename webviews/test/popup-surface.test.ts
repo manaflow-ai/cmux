@@ -69,6 +69,7 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
       "icon-picker/styles.css",
       "pages/markdown/styles.css",
       "pages/home-channels/styles.css",
+      "pages/home-channels/ledger.css",
       "pages/editor/styles.css",
     ),
     body: `<div class="ui-positioner"><div class="ui-popup" id="menu">Menu</div></div>
@@ -78,7 +79,7 @@ ${tooltips}
 <div class="md-link-card" id="md-link-card">https://example.com</div>
 <div class="md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
-<div class="hc-switcher" id="hc-switcher">Switch channel</div>
+<div class="lg-palette" id="lg-palette">Search conversations</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     surfaces: [
       "menu",
@@ -89,7 +90,7 @@ ${tooltips}
       "md-link-card",
       "md-link-popover",
       "hc-msg-toolbar",
-      "hc-switcher",
+      "lg-palette",
       "editor-widget",
     ],
   };
@@ -121,7 +122,7 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup acpmux-access-menu" id="access">Full access</div></div>
 <div class="ui-positioner"><div class="ui-popup acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
 <div class="ui-positioner"><div class="acpmux-pr-status" id="pr-status">Checks</div></div>
-<div class="ui-positioner"><div class="acpmux-summary-popover" id="summary">Summary</div></div>
+<div class="acpmux-shell"><div class="acpmux-summary-card" id="summary">Summary</div></div>
 <div class="ui-positioner"><div class="ui-popup nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 ${tooltips}`,
     surfaces: [
