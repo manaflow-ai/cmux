@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextDaemon
 import Foundation
 
 /// Builds the control snapshot's Search Tabs facts from the App's owners:
@@ -43,8 +44,7 @@ enum TabSearchFactsBuilder {
     private static func closed(_ services: AppServices) -> [ControlClosedTab] {
         // Read inside the publisher's tracking: a close republishes.
         _ = services.closedTabs?.changes.revision
-        // Untouched New Tab pages are left out, as in Recently Closed (HistoryService.isWorthReopening).
-        return DaemonClosedHistory.entries([.tab], in: services).filter { HistoryService.isWorthReopening($0.item) }.map { entry in
+        return listed(DaemonClosedHistory.entries([.tab], in: services)) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = HistoryService.shownTab(item), daemon = entry.daemon
             let workspaceTitle = item.workspaceID.flatMap { daemon.store.workspace(resourceID: $0)?.displayName }
             let local = daemon.machineID == MachineRegistry.localID
@@ -59,5 +59,17 @@ enum TabSearchFactsBuilder {
                 machine: local ? nil : services.machines.machineName(daemon.machineID) ?? daemon.machineID,
                 closedAt: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), isAvailable: daemon.connection != nil)
         }
+    }
+
+    /// The closed tab items Search Tabs lists, of `closed` (newest first, each as its item and
+    /// machine). Untouched New Tab pages are left out, as in Recently Closed
+    /// (HistoryService.isWorthReopening).
+    static func listed<T>(_ closed: [T], _ item: (T) -> (item: ClosedItem, machine: String)) -> [T] {
+        closed.filter { HistoryService.isWorthReopening(item($0).item) }
+    }
+
+    /// The closed items Forget deletes for the row of `target`, among `closed`.
+    static func forgotten<T>(_ target: T, among closed: [T], _ item: (T) -> (item: ClosedItem, machine: String)) -> [T] {
+        [target]
     }
 }
