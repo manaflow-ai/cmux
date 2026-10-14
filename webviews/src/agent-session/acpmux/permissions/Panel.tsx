@@ -4,7 +4,9 @@ import { toolFiles } from "../diff";
 import { toolDiffs } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
+import { Icon } from "../icons/Icon";
 import type { PermissionClientState, PermissionDecision, PermissionGroup } from "./protocol";
+import { PermissionActionButton, PermissionCardFrame } from "../PermissionCard";
 
 const choices: Record<PermissionDecision, StringKey> = {
   allow_once: "permission.allowOnce",
@@ -78,6 +80,14 @@ function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSig
   );
 }
 
+function groupTitle(group: PermissionGroup, fallback: string): string {
+  if (group.items.length !== 1) return fallback;
+  const raw = group.items[0]?.request.toolCall;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
+  const title = (raw as Record<string, unknown>).title;
+  return typeof title === "string" && title.trim() ? title : fallback;
+}
+
 export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh }: Props) {
   const t = useT();
   const shortcuts = {
@@ -86,7 +96,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
     deny: useShortcut(SHORTCUT_ACTIONS.permissionDeny),
   } satisfies Record<PermissionDecision, string | undefined>;
   const retryShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRetry);
-  const revokeShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRevoke);
   const refreshShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRefresh);
   const expandShortcut = useShortcut(SHORTCUT_ACTIONS.permissionExpand);
   const [expandSignal, setExpandSignal] = useState(0);
@@ -143,7 +152,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   if (!state.supported) return null;
   const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
   const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
-  if (!pending.length && !receipt && !state.chatAllowance && !state.error) return null;
+  if (!pending.length && !receipt && !state.error) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
   return (
     <section
@@ -151,23 +160,19 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       aria-label={t("permission.title")}
       aria-busy={state.busy}
     >
-      <div className="acpmux-permission-coverage" title={t("permission.coverageDetail")}>
-        {t("permission.coverage")}
-      </div>
-      {state.chatAllowance && (
-        <div className="acpmux-permission-allowance">
-          <span>{t("permission.chatAllowed")}</span>
-          <button disabled={disabled} onClick={onRevoke}>
-            {withShortcut(t("permission.revoke"), revokeShortcut)}
-          </button>
-        </div>
-      )}
       {pending.map((group) => (
-        <div className="acpmux-permission-card" key={group.groupId}>
-          <strong>{t("permission.title")}</strong>
-          <p className="acpmux-permission-scope">
+        <PermissionCardFrame
+          title={groupTitle(group, t("permission.title"))}
+          leading={<Icon name="security.insecure" size={18} />}
+          className="acpmux-permission-surface"
+          key={group.groupId}
+        >
+          <div className="acpmux-permission-card-meta">
             {t(group.items.length === 1 ? "permission.count.one" : "permission.count.other", { n: group.items.length })}
-          </p>
+            <span className="acpmux-permission-coverage" title={t("permission.coverageDetail")}>
+              {t("permission.coverage")}
+            </span>
+          </div>
           {group.state === "pending" && (
             <button type="button" onClick={() => setExpandSignal((value) => value + 1)}>
               {withShortcut(t("permission.expand"), expandShortcut)}
@@ -186,19 +191,19 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
               )}
               <div className="acpmux-permission-buttons">
                 {group.decisions.map((decision) => (
-                  <button
+                  <PermissionActionButton
                     key={decision}
+                    label={t(choices[decision])}
+                    shortcut={shortcuts[decision]}
                     className={decision === "deny" ? "acpmux-permission-deny" : undefined}
                     disabled={disabled}
                     onClick={() => onRespond(group.groupId, group.revision, decision)}
-                  >
-                    {withShortcut(t(choices[decision]), shortcuts[decision])}
-                  </button>
+                  />
                 ))}
               </div>
             </>
           )}
-        </div>
+        </PermissionCardFrame>
       ))}
       {receipt && (
         <details className="acpmux-permission-receipt">
