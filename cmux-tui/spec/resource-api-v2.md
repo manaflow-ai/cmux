@@ -1149,7 +1149,10 @@ daemon forwards one line to the brain host's tools socket
 brain's JSON: the engine report (passed through unchanged) or `{stopped,
 subagents?, note?}`. `chief.engine.set` also takes `speed` and
 `compactor_speed` (`default` or `fast`, the codex priority tier; a Claude
-harness refuses `fast` with `invalid_speed`); `chief.stop` takes an optional
+harness refuses `fast` with `invalid_speed`), and `compactor_harness` and
+`compactor_model` (by default the compactor runs Claude Haiku on the turns'
+engine harness when it is a Claude one); the compactor fields apply at the
+next brain start. `chief.stop` takes an optional
 subagent `name` and then stops only that subagent.
 Only the owner's trusted connection may call them: a registered Unix client
 with no link peer record whose principal is `user_local`, which is a local
