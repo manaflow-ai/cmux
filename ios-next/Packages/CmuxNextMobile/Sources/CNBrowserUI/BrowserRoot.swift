@@ -130,6 +130,14 @@ struct BrowserScreen: View {
     /// the screen switches to it when the zoom settles, so the reply does not
     /// re-lay out the page and toolbar mid-zoom (a dropped frame).
     @State private var newTabCreated: String?
+    /// Where the running new-tab zoom grows from (centred, Safari's scale).
+    @State private var newTabZoom = NewTabZoom.plus
+    /// The zoom shows a new tab's start page growing from the screen's
+    /// centre (before and after the host listed the tab).
+    private var isNewTabZoom: Bool {
+        guard let id = zoomTabId else { return false }
+        return id == Self.newTabMarker || id == newTabCreated || (newTabSlot != nil && id == newTabSlot?.created(in: itemIds))
+    }
     private var itemIds: [String] { tabs.items.map(\.id) }
     /// The pending (+) item is a terminal.
     @State private var newTabIsTerminal = false
@@ -216,6 +224,7 @@ struct BrowserScreen: View {
     /// scroll position), or the layout at the last known offset before the
     /// grid has reported.
     private func zoomEndpoint() -> CGRect {
+        if isNewTabZoom { return newTabZoom.rect(in: fullRect) }
         let index: Int
         if zoomTabId == Self.newTabMarker {
             index = newTabSlot?.zoomIndex(in: itemIds) ?? tabs.items.count
@@ -308,6 +317,8 @@ struct BrowserScreen: View {
                     } else {
                         ScaledPage(image: content.image, topColor: content.topColor, startPage: content.startPage, tabs: model.tabs,
                                    pageSize: size, safeTop: safeTop, strip: g.strip, terminal: content.terminal)
+                            // Safari's new start page sharpens as it grows.
+                            .blur(radius: isNewTabZoom ? 8 * min(1, max(0, zoomState.progress)) : 0)
                     }
                 }
                     .frame(width: max(1, g.rect.width), height: max(1, g.rect.height))
@@ -504,7 +515,14 @@ struct BrowserScreen: View {
         }
         .onChange(of: tabs.items.isEmpty) { _, empty in
             // Closing the last tab opens a fresh start page, as Safari does.
-            if empty, tabs.loaded, !overviewVisible { Task { await tabs.newBrowserTab() } }
+            guard empty, tabs.loaded else { return }
+            if !overviewVisible {
+                Task { await tabs.newBrowserTab() }
+            } else if zoomState.phase == .overview {
+                // Safari never leaves an empty grid: a fresh start page
+                // grows in at once (0.95 -> 1 in about 200 ms).
+                newTab(zoom: .lastTabClosed)
+            }
         }
     }
 
@@ -907,15 +925,18 @@ struct BrowserScreen: View {
     /// (NewTabSlot), and the open start page becomes that tab's. A refused
     /// create zooms the start page back into its slot, which then leaves the
     /// grid, with a toast; it never opens some other tab instead.
-    private func newTabFromOverview() {
+    private func newTabFromOverview() { newTab(zoom: .plus) }
+
+    private func newTab(zoom: NewTabZoom) {
         guard zoomState.phase == .overview, !newTabPending else { return }
+        newTabZoom = zoom
         newTabIsTerminal = false
         newTabFailed = false
         newTabCreated = nil
         newTabSlot = NewTabSlot(baseline: itemIds)
         creatingTab = true
         zoomTabId = Self.newTabMarker
-        zoomDriver.openNewTab()
+        zoomDriver.openNewTab(spring: zoom.spring)
         Task {
             let id = await tabs.newBrowserTab(attach: false)
             guard let id else {

@@ -1,4 +1,5 @@
 @testable import CNBrowserUI
+import CoreGraphics
 import Testing
 
 struct TabZoomStateTests {
@@ -36,28 +37,40 @@ struct TabZoomStateTests {
         }
     }
 
-    /// (+) starts on the first frame and covers 50% / 85% / 99% of the way
-    /// within one 60 Hz frame of Safari's 66 / 157 / 300 ms (vid/newtab.mp4).
-    @Test func newTabMatchesSafarisTiming() {
+    private func timeTo(_ level: Double, _ s: inout TabZoomState) -> Double {
+        var t = 0.0
+        while s.progress > level, t < 1 {
+            s.step(1.0 / 600)
+            t += 1.0 / 600
+        }
+        return t * 1000
+    }
+
+    /// (+): Safari's start page grows on 0.34 / 0.97 from the first frame.
+    @Test func newTabUsesSafarisSpring() {
         var s = TabZoomState(overview: true)
         s.openNewTab()
         #expect(s.phase == .animating && s.spring == .newTab)
-        var t = 0.0
-        var marks: [Double] = []
-        for level in [0.5, 0.15, 0.01] {
-            while s.progress > level, t < 1 {
-                s.step(1.0 / 600)
-                t += 1.0 / 600
-            }
-            marks.append(t * 1000)
-        }
-        for (got, safari) in zip(marks, [66.0, 157, 300]) {
-            #expect(abs(got - safari) <= 1000.0 / 60, "\(got) ms vs Safari \(safari) ms")
-        }
-        // An existing tab opens on the slower toPage spring.
+        #expect(s.spring.response == 0.34 && s.spring.damping == 0.97)
+        // An existing tab opens on toPage.
         var o = TabZoomState(overview: true)
         o.go(toOverview: false)
         #expect(o.spring == .toPage)
+    }
+
+    /// The last tab closed: the fresh start page settles about 200 ms later.
+    @Test func lastTabStartPageSettlesInAboutTwoHundredMs() {
+        var s = TabZoomState(overview: true)
+        s.openNewTab(spring: .afterLastClose)
+        #expect(abs(timeTo(0.01, &s) - 200) <= 1000.0 / 60)
+    }
+
+    @Test func newTabGrowsFromTheCentre() {
+        let full = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let r = NewTabZoom.plus.rect(in: full)
+        #expect(abs(r.midX - 201) < 0.01 && abs(r.midY - 437) < 0.01)
+        #expect(abs(r.width / full.width - 0.7) < 0.001)
+        #expect(NewTabZoom.lastTabClosed.scale == 0.95)
     }
 
     /// Safari (browser-springs-verify.md): a one-frame jump toward the new
