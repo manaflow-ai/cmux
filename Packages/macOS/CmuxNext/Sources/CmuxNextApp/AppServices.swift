@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextPages
@@ -50,6 +51,7 @@ final class AppServices {
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
+    let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()

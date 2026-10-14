@@ -1,0 +1,866 @@
+//! Link services (PROTOCOL.md "Services"). Default deny: a service not
+//! listed here is closed with `unknown_service`.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use bytes::Bytes;
+use cnx_link::link::{ChannelReceiver, ChannelSender};
+use cnx_link::{ChannelEvent, IncomingChannel};
+use futures_util::{SinkExt, StreamExt};
+use serde_json::Value;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
+use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+use crate::chief_policy::ChiefPolicy;
+use crate::config::{AcpmuxTarget, ServiceConfig};
+use crate::control;
+use crate::policy::{DaemonPolicy, MAXIMUM_LINE_BYTES, Verdict};
+
+/// Who opened the channel.
+#[derive(Debug, Clone)]
+pub struct Peer {
+    pub device_id: String,
+    /// The link session (a UUID): one `upload` folder per session.
+    pub session_id: String,
+}
+
+/// Serve one incoming channel to completion.
+pub async fn serve(config: Arc<ServiceConfig>, peer: Peer, incoming: IncomingChannel) {
+    let IncomingChannel { service, args, lane, channel } = incoming;
+    let (sender, receiver) = channel.split();
+    tracing::info!(
+        service,
+        channel = sender.id(),
+        ?lane,
+        own_stream = sender.on_input_stream(),
+        peer = peer.device_id,
+        "channel opened"
+    );
+    let result = match service.as_str() {
+        "echo" => echo(&sender, receiver).await,
+        "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
+        "chief" => chief(&config, &sender, receiver).await,
+        "acpmux" => acpmux(&config, &sender, receiver).await,
+        "file" => file(&config, &args, &sender).await,
+        "upload" => upload(&config, &peer, &args, &sender, receiver).await,
+        "version" => version(&sender).await,
+        "browser" => crate::browser::serve(&config.browser, &peer, &args, &sender, receiver).await,
+        _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
+    };
+    match result {
+        Ok(()) => sender.close("eof", "").await,
+        Err(refusal) => {
+            tracing::info!(
+                service,
+                code = refusal.code,
+                reason = refusal.reason,
+                "channel refused or failed"
+            );
+            sender.close(refusal.code, &refusal.reason).await;
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Refusal {
+    pub code: &'static str,
+    pub reason: String,
+}
+
+impl Refusal {
+    pub(crate) fn new(code: &'static str, reason: impl Into<String>) -> Self {
+        Self { code, reason: reason.into() }
+    }
+}
+
+/// What the Mac side runs, so a phone can tell an outdated Mac (whose
+/// hostd refuses this service with `unknown_service`) and say so.
+pub const LINK_PROTOCOL: u32 = 2;
+
+async fn version(sender: &ChannelSender) -> Result<(), Refusal> {
+    let reply = serde_json::json!({
+        "hostd": env!("CARGO_PKG_VERSION"),
+        // 2: control frames ahead of data, any frame counts as life, the
+        // reader never stalls on one full channel, the `version` service.
+        "link": LINK_PROTOCOL,
+    });
+    let _ = sender.send(Bytes::from(reply.to_string())).await;
+    Ok(())
+}
+
+async fn echo(sender: &ChannelSender, mut receiver: ChannelReceiver) -> Result<(), Refusal> {
+    while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
+        if sender.send(bytes).await.is_err() {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn valid_session_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && !name.starts_with('.')
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+}
+
+/// The filter a spliced daemon line passes through.
+#[derive(Clone)]
+enum LinePolicy {
+    Daemon(DaemonPolicy),
+    Chief(ChiefPolicy),
+}
+
+impl LinePolicy {
+    /// The verdict, and for `Forward` the exact bytes to send: the daemon
+    /// lane sends the line as it came; the Chief lane sends the object it
+    /// checked, serialized again, so a duplicate key cannot mean one thing to
+    /// the filter and another to the owner.
+    fn evaluate(&self, line: &[u8]) -> (Verdict, Option<Vec<u8>>) {
+        match self {
+            Self::Daemon(policy) => (policy.evaluate(line), None),
+            Self::Chief(policy) => {
+                let verdict = policy.evaluate(line);
+                let canonical = matches!(verdict, Verdict::Forward)
+                    .then(|| {
+                        serde_json::from_slice::<Value>(line).ok().and_then(|v| serde_json::to_vec(&v).ok())
+                    })
+                    .flatten();
+                (verdict, canonical)
+            }
+        }
+    }
+
+    /// The daemon line the phone gets (`line` ends with its newline), or
+    /// nothing. The daemon lane forwards every line as it came.
+    fn reply(&self, line: Vec<u8>) -> Option<Vec<u8>> {
+        match self {
+            Self::Daemon(_) => Some(line),
+            Self::Chief(policy) => {
+                let body = line.strip_suffix(b"\n").unwrap_or(&line);
+                let mut out = policy.filter_reply(body)?;
+                out.push(b'\n');
+                Some(out)
+            }
+        }
+    }
+}
+
+/// `daemon`: splice to the cmux-tui session socket, filtering every phone
+/// request line through [`DaemonPolicy`]. The Chief's conversation owner
+/// (`cmux-chief-*`) is never reachable this way: only through `chief`.
+async fn daemon(
+    config: &ServiceConfig,
+    peer: &Peer,
+    args: &Value,
+    sender: &ChannelSender,
+    receiver: ChannelReceiver,
+) -> Result<(), Refusal> {
+    let named = args.get("session").and_then(Value::as_str);
+    let session = named.unwrap_or(&config.default_session);
+    // The Chief owner is reachable only through `chief` (the default macOS
+    // volume is case-insensitive, hence the lowercase test and the path check).
+    if !valid_session_name(session) || session.to_ascii_lowercase().starts_with("cmux-chief-") {
+        return Err(Refusal::new("bad_request", "invalid session name"));
+    }
+    // Supervised by the app: only the app's own daemon, never another channel's or tag's.
+    if config.default_socket.is_some() && named.is_some_and(|name| name != config.default_session) {
+        return Err(Refusal::new("forbidden", "only this app's session is shared"));
+    }
+    let path = match (named, &config.default_socket) {
+        (None, Some(socket)) => socket.clone(),
+        _ => config.tui_socket_dir.join(format!("{session}.sock")),
+    };
+    if let Some(chief) = &config.chief_socket
+        && path.to_string_lossy().eq_ignore_ascii_case(&chief.to_string_lossy())
+    {
+        return Err(Refusal::new("bad_request", "invalid session name"));
+    }
+    splice(
+        &path,
+        session,
+        LinePolicy::Daemon(
+            DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone()),
+        ),
+        sender,
+        receiver,
+    )
+    .await
+}
+
+/// `chief`: splice to the Chief's conversation owner (the cmux-tui session
+/// of the Mac's Chief home), every line both ways through [`ChiefPolicy`].
+async fn chief(
+    config: &ServiceConfig,
+    sender: &ChannelSender,
+    receiver: ChannelReceiver,
+) -> Result<(), Refusal> {
+    let Some(path) = config.chief_socket.clone() else {
+        return Err(Refusal::new("unavailable", "Chief is not set up on this Mac"));
+    };
+    splice(&path, "chief", LinePolicy::Chief(ChiefPolicy::new()), sender, receiver).await
+}
+
+/// Splices one phone channel to a daemon socket. Responses and refusals
+/// reach the phone as whole lines, never interleaved.
+async fn splice(
+    path: &Path,
+    label: &str,
+    policy: LinePolicy,
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+) -> Result<(), Refusal> {
+    let socket = UnixStream::connect(path)
+        .await
+        .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {label}: {e}")))?;
+    let (daemon_read, mut daemon_write) = socket.into_split();
+    let (lines_tx, mut lines_rx) = mpsc::channel::<Vec<u8>>(256);
+
+    // Daemon → phone, whole lines.
+    let daemon_lines = lines_tx.clone();
+    let reply_policy = policy.clone();
+    let mut from_daemon = tokio::spawn(async move {
+        let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
+        loop {
+            let mut line = Vec::new();
+            match reader.read_until(b'\n', &mut line).await {
+                Ok(0) | Err(_) => return,
+                Ok(_) => {
+                    let Some(line) = reply_policy.reply(line) else { continue };
+                    if daemon_lines.send(line).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+
+    // Phone → daemon, filtered.
+    let refusals = lines_tx;
+    let mut to_daemon = tokio::spawn(async move {
+        let mut pending: Vec<u8> = Vec::new();
+        while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
+            pending.extend_from_slice(&bytes);
+            while let Some(newline) = pending.iter().position(|&b| b == b'\n') {
+                let mut line: Vec<u8> = pending.drain(..=newline).collect();
+                line.pop();
+                if line.last() == Some(&b'\r') {
+                    line.pop();
+                }
+                if line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                let (verdict, canonical) = policy.evaluate(&line);
+                if let Some(canonical) = canonical {
+                    line = canonical;
+                }
+                match verdict {
+                    Verdict::Forward => {
+                        line.push(b'\n');
+                        if daemon_write.write_all(&line).await.is_err() {
+                            return;
+                        }
+                    }
+                    Verdict::Rewrite(mut line) => {
+                        line.push(b'\n');
+                        if daemon_write.write_all(&line).await.is_err() {
+                            return;
+                        }
+                    }
+                    Verdict::Refuse(answer) => {
+                        let mut answer = answer.into_bytes();
+                        answer.push(b'\n');
+                        if refusals.send(answer).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            }
+            if pending.len() > MAXIMUM_LINE_BYTES {
+                let mut answer =
+                    crate::policy::error_line(None, "too_large", "request exceeds 4 MiB").into_bytes();
+                answer.push(b'\n');
+                let _ = refusals.send(answer).await;
+                return;
+            }
+        }
+    });
+
+    loop {
+        tokio::select! {
+            line = lines_rx.recv() => match line {
+                Some(line) => {
+                    if sender.send(Bytes::from(line)).await.is_err() {
+                        break;
+                    }
+                }
+                None => break,
+            },
+            _ = &mut to_daemon => {
+                // The phone closed or broke policy; drain what the daemon
+                // already answered, briefly, then end.
+                while let Ok(Some(line)) = tokio::time::timeout(std::time::Duration::from_millis(200), lines_rx.recv()).await {
+                    let _ = sender.send(Bytes::from(line)).await;
+                }
+                break;
+            }
+            _ = &mut from_daemon => {
+                while let Ok(line) = lines_rx.try_recv() {
+                    let _ = sender.send(Bytes::from(line)).await;
+                }
+                break;
+            }
+        }
+    }
+    to_daemon.abort();
+    from_daemon.abort();
+    Ok(())
+}
+
+/// The acpmux WebSocket address and token.
+fn acpmux_endpoint(target: &AcpmuxTarget) -> Result<(String, Option<String>), Refusal> {
+    match target {
+        AcpmuxTarget::Fixed { url, token } => Ok((url.clone(), token.clone())),
+        AcpmuxTarget::Supplied(endpoint) => endpoint
+            .borrow()
+            .clone()
+            .ok_or_else(|| Refusal::new("unavailable", "acpmux is not running in the app")),
+        AcpmuxTarget::Home(home) => {
+            let path = home.join("config.json");
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| Refusal::new("unavailable", format!("acpmux config {}: {e}", path.display())))?;
+            let config: Value = serde_json::from_str(&text)
+                .map_err(|_| Refusal::new("unavailable", "acpmux config is not JSON"))?;
+            let websocket = config
+                .get("websocket")
+                .ok_or_else(|| Refusal::new("unavailable", "acpmux has no web listener"))?;
+            let listen = websocket
+                .get("listen")
+                .and_then(Value::as_str)
+                .ok_or_else(|| Refusal::new("unavailable", "acpmux web listener has no address"))?;
+            let token = websocket.get("token").and_then(Value::as_str).map(str::to_owned);
+            Ok((format!("ws://{listen}/"), token))
+        }
+    }
+}
+
+/// How long the `acpmux` service waits for the app to report a new endpoint.
+const ACPMUX_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+pub(crate) type AcpmuxSocket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// Opens the acpmux loopback WebSocket with its bearer token.
+pub(crate) async fn connect_acpmux(target: &AcpmuxTarget) -> Result<AcpmuxSocket, Refusal> {
+    let (url, token) = acpmux_endpoint(target)?;
+    let mut request = url.into_client_request().map_err(|e| Refusal::new("unavailable", e.to_string()))?;
+    if !request.uri().host().is_some_and(is_loopback_host) {
+        return Err(Refusal::new("forbidden", "acpmux listener is not on loopback"));
+    }
+    if let Some(token) = token {
+        request.headers_mut().insert(
+            "authorization",
+            format!("Bearer {token}").parse().map_err(|_| Refusal::new("unavailable", "bad acpmux token"))?,
+        );
+    }
+    let (socket, _) = tokio_tungstenite::connect_async(request)
+        .await
+        .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
+    Ok(socket)
+}
+
+/// `acpmux`: splice to the acpmux loopback WebSocket. One link data frame
+/// carries one WebSocket text message in each direction.
+async fn acpmux(
+    config: &ServiceConfig,
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+) -> Result<(), Refusal> {
+    let socket = match (connect_acpmux(&config.acpmux).await, &config.acpmux) {
+        (Ok(socket), _) => socket,
+        // Supervised: the app's acpmux may have restarted on another port.
+        // Ask the app once and retry with what it sends.
+        (Err(refusal), AcpmuxTarget::Supplied(endpoint)) if refusal.code == "unavailable" => {
+            let mut endpoint = endpoint.clone();
+            endpoint.borrow_and_update();
+            control::emit(&control::Event::NeedAcpmux);
+            let _ = tokio::time::timeout(ACPMUX_WAIT, endpoint.changed()).await;
+            connect_acpmux(&config.acpmux).await?
+        }
+        (Err(refusal), _) => return Err(refusal),
+    };
+    let (mut ws_sink, mut ws_source) = socket.split();
+    let mut message = MessageAssembler::default();
+    loop {
+        tokio::select! {
+            event = receiver.recv() => match event {
+                Some(ChannelEvent::Data(bytes)) => {
+                    let Some(text) = message.push(&bytes)? else { continue };
+                    if ws_sink.send(Message::Text(text.into())).await.is_err() {
+                        break;
+                    }
+                }
+                _ => break,
+            },
+            message = ws_source.next() => match message {
+                Some(Ok(Message::Text(text))) => {
+                    if sender.send(Bytes::copy_from_slice(text.as_bytes())).await.is_err() {
+                        break;
+                    }
+                }
+                Some(Ok(Message::Binary(bytes))) => {
+                    if sender.send(bytes).await.is_err() {
+                        break;
+                    }
+                }
+                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+                Some(Ok(_)) => {}
+            },
+        }
+    }
+    let _ = ws_sink.close().await;
+    Ok(())
+}
+
+/// The largest acpmux message a phone may send (a prompt with images).
+pub const MAXIMUM_ACPMUX_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
+
+/// Joins the link data frames of one acpmux message. The link splits a
+/// write above 256 KiB into several frames (PROTOCOL.md "Link"), so a
+/// prompt carrying an image arrives in pieces; a message is complete when
+/// the bytes so far parse as one JSON value.
+#[derive(Default)]
+pub struct MessageAssembler {
+    pending: Vec<u8>,
+}
+
+impl MessageAssembler {
+    /// The complete message, or None while more frames are needed.
+    pub fn push(&mut self, bytes: &[u8]) -> Result<Option<String>, Refusal> {
+        self.pending.extend_from_slice(bytes);
+        if self.pending.len() > MAXIMUM_ACPMUX_MESSAGE_BYTES {
+            return Err(Refusal::new("too_large", "acpmux message exceeds 32 MiB"));
+        }
+        match serde_json::from_slice::<serde::de::IgnoredAny>(&self.pending) {
+            Ok(_) => {
+                let text = String::from_utf8(std::mem::take(&mut self.pending))
+                    .map_err(|_| Refusal::new("bad_request", "acpmux frames are UTF-8 JSON"))?;
+                Ok(Some(text))
+            }
+            Err(error) if error.is_eof() => Ok(None),
+            Err(_) => Err(Refusal::new("bad_request", "acpmux frames are UTF-8 JSON")),
+        }
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    host == "localhost" || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// Resolve `requested` inside one of `roots`; symlinks may not escape.
+pub fn confine(roots: &[PathBuf], requested: &Path) -> Result<PathBuf, Refusal> {
+    if roots.is_empty() {
+        return Err(Refusal::new("forbidden", "no workspace roots are shared"));
+    }
+    if !requested.is_absolute() {
+        return Err(Refusal::new("bad_request", "path must be absolute"));
+    }
+    let resolved = std::fs::canonicalize(requested).map_err(|_| Refusal::new("not_found", "no such file"))?;
+    let inside = roots
+        .iter()
+        .filter_map(|root| std::fs::canonicalize(root).ok())
+        .any(|root| resolved.starts_with(&root));
+    if !inside {
+        return Err(Refusal::new("forbidden", "path is outside the workspace roots"));
+    }
+    Ok(resolved)
+}
+
+/// Largest file the `file` service streams (artifact previews, not transfers).
+pub const MAXIMUM_FILE_BYTES: u64 = 64 << 20;
+
+/// The open file's real path (`F_GETPATH`) must still be inside a root.
+#[cfg(target_vendor = "apple")]
+fn confine_open(roots: &[PathBuf], file: &tokio::fs::File) -> Result<(), Refusal> {
+    use std::os::fd::AsRawFd;
+    let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+    // SAFETY: the descriptor is open for the duration of the call and the buffer
+    // holds PATH_MAX bytes, as F_GETPATH requires.
+    let ok = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } != -1;
+    if !ok {
+        return Err(Refusal::new("forbidden", "cannot check the opened file"));
+    }
+    let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
+    let opened = PathBuf::from(String::from_utf8_lossy(&buffer[..end]).into_owned());
+    let inside = roots
+        .iter()
+        .filter_map(|root| std::fs::canonicalize(root).ok())
+        .any(|root| opened.starts_with(&root));
+    if inside { Ok(()) } else { Err(Refusal::new("forbidden", "path is outside the workspace roots")) }
+}
+
+/// Elsewhere hostd does not run (it serves Macs); the path check before the open stands alone.
+#[cfg(not(target_vendor = "apple"))]
+fn confine_open(_roots: &[PathBuf], _file: &tokio::fs::File) -> Result<(), Refusal> {
+    Ok(())
+}
+
+/// `file`: stream one regular file inside a workspace root, then close
+/// with `eof`.
+async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
+    let requested = args
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Refusal::new("bad_request", "missing path"))?;
+    let resolved = confine(&config.file_roots, Path::new(requested))?;
+    // Non-blocking, so a FIFO inside a root cannot hold the open; the checks below
+    // refuse anything that is not a regular file.
+    let mut file = tokio::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&resolved)
+        .await
+        .map_err(|_| Refusal::new("not_found", "cannot open"))?;
+    // A path component swapped for a symlink between the check and the open would
+    // escape the roots: check again where the open descriptor really points.
+    confine_open(&config.file_roots, &file)?;
+    let metadata = file.metadata().await.map_err(|_| Refusal::new("not_found", "cannot stat"))?;
+    if !metadata.is_file() {
+        return Err(Refusal::new("bad_request", "not a regular file"));
+    }
+    if metadata.len() > MAXIMUM_FILE_BYTES {
+        return Err(Refusal::new("too_large", "file is larger than 64 MiB"));
+    }
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).await.map_err(|e| Refusal::new("io", e.to_string()))?;
+        if read == 0 {
+            return Ok(());
+        }
+        if sender.send(Bytes::copy_from_slice(&buffer[..read])).await.is_err() {
+            return Ok(());
+        }
+    }
+}
+
+/// A file name a phone sent, made safe for a folder of this Mac: no path
+/// separators, control characters or leading dots, at most 120 bytes; an
+/// empty result is `attachment`.
+pub fn safe_file_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or_default();
+    let mapped: String =
+        base.chars().map(|c| if c.is_control() || matches!(c, ':' | '/' | '\\') { '_' } else { c }).collect();
+    let trimmed = mapped.trim().trim_start_matches(['.', ' ']);
+    let mut out = String::new();
+    for c in trimmed.chars() {
+        if out.len() + c.len_utf8() > 120 {
+            break;
+        }
+        out.push(c);
+    }
+    if out.is_empty() { "attachment".into() } else { out }
+}
+
+/// The folders of the tabs the daemon lists (`list-workspaces`), canonical.
+async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal> {
+    let path = config
+        .default_socket
+        .clone()
+        .unwrap_or_else(|| config.tui_socket_dir.join(format!("{}.sock", config.default_session)));
+    let unavailable = |e: &dyn std::fmt::Display| Refusal::new("unavailable", format!("cmux-tui: {e}"));
+    let read = async {
+        let socket = UnixStream::connect(&path).await.map_err(|e| unavailable(&e))?;
+        let (read, mut write) = socket.into_split();
+        write
+            .write_all(b"{\"cmd\":\"list-workspaces\",\"id\":\"cnx-upload\"}\n")
+            .await
+            .map_err(|e| unavailable(&e))?;
+        let mut reader = BufReader::new(read);
+        loop {
+            let mut line = Vec::new();
+            if reader.read_until(b'\n', &mut line).await.map_err(|e| unavailable(&e))? == 0 {
+                return Err(unavailable(&"closed"));
+            }
+            let Ok(value) = serde_json::from_slice::<Value>(&line) else { continue };
+            if value.get("id").and_then(Value::as_str) == Some("cnx-upload") {
+                return Ok(value);
+            }
+        }
+    };
+    let reply = tokio::time::timeout(std::time::Duration::from_secs(5), read)
+        .await
+        .map_err(|_| unavailable(&"timed out"))??;
+    let data = reply.get("data").unwrap_or(&reply);
+    let mut folders = Vec::new();
+    let empty = Vec::new();
+    let list = |value: &Value, key: &str| value.get(key).and_then(Value::as_array).unwrap_or(&empty).clone();
+    for workspace in list(data, "workspaces") {
+        for screen in list(&workspace, "screens") {
+            for pane in list(&screen, "panes") {
+                for tab in list(&pane, "tabs") {
+                    if let Some(cwd) = tab.get("cwd").and_then(Value::as_str)
+                        && cwd.starts_with('/')
+                        && let Ok(folder) = std::fs::canonicalize(cwd)
+                        && !folders.contains(&folder)
+                    {
+                        folders.push(folder);
+                    }
+                }
+            }
+        }
+    }
+    Ok(folders)
+}
+
+/// The folder an `upload` writes to. With `cwd` (a folder of one of the
+/// Mac's tabs, or inside a shared root): `<cwd>/.cmux/attachments/phone-<session>`,
+/// next to acpmux's own attachments, so the agent of that workspace reads
+/// it without leaving its folder. Without: `<uploads>/<session>`.
+async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -> Result<PathBuf, Refusal> {
+    let session: String =
+        peer.session_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(36).collect();
+    if session.is_empty() {
+        return Err(Refusal::new("bad_request", "no link session"));
+    }
+    let Some(cwd) = cwd else {
+        let folder = config.uploads_dir.join(&session);
+        create_private_dir(&config.uploads_dir)?;
+        create_private_dir(&folder)?;
+        return Ok(folder);
+    };
+    if !cwd.starts_with('/') || cwd.chars().any(char::is_control) {
+        return Err(Refusal::new("bad_request", "cwd must be an absolute folder"));
+    }
+    let canonical = std::fs::canonicalize(cwd).map_err(|_| Refusal::new("not_found", "no such folder"))?;
+    if !canonical.is_dir() {
+        return Err(Refusal::new("bad_request", "cwd is not a folder"));
+    }
+    let in_roots = confine(&config.file_roots, &canonical).is_ok();
+    if !in_roots && !daemon_folders(config).await?.contains(&canonical) {
+        return Err(Refusal::new("forbidden", "cwd is not the folder of a tab on this Mac"));
+    }
+    let folder = canonical.join(".cmux").join("attachments").join(format!("phone-{session}"));
+    std::fs::create_dir_all(&folder)
+        .map_err(|e| Refusal::new("io", format!("cannot create the upload folder: {e}")))?;
+    // `.cmux` or `attachments` may be a symlink out of the workspace.
+    let resolved =
+        std::fs::canonicalize(&folder).map_err(|_| Refusal::new("io", "upload folder vanished"))?;
+    if !resolved.starts_with(&canonical) {
+        return Err(Refusal::new("forbidden", "the upload folder leaves the workspace"));
+    }
+    Ok(resolved)
+}
+
+fn create_private_dir(path: &Path) -> Result<(), Refusal> {
+    use std::os::unix::fs::DirBuilderExt;
+    match std::fs::DirBuilder::new().recursive(true).mode(0o700).create(path) {
+        Ok(()) => Ok(()),
+        Err(e) => Err(Refusal::new("io", format!("cannot create {}: {e}", path.display()))),
+    }
+}
+
+/// `<folder>/<name>`, or `<stem> 2.<ext>`, ... when that name is taken:
+/// links `part` there without replacing anything.
+fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
+    let (stem, extension) = match name.rfind('.') {
+        Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
+        _ => (name, ""),
+    };
+    for attempt in 1..=999 {
+        let candidate = if attempt == 1 {
+            folder.join(name)
+        } else {
+            folder.join(format!("{stem} {attempt}{extension}"))
+        };
+        match std::fs::hard_link(part, &candidate) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(part);
+                return Ok(candidate);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(Refusal::new("io", format!("cannot save the upload: {e}"))),
+        }
+    }
+    Err(Refusal::new("io", "too many files with that name"))
+}
+
+/// `upload` `{name, size, cwd?}`: the phone sends exactly `size` bytes as
+/// data frames; hostd writes them to a new file of the upload folder
+/// ([`upload_folder`]) and answers one data frame `{"path","size"}`, then
+/// closes with `eof`. A refusal is answered `{"error","message"}` before the
+/// channel closes with that code. Nothing is overwritten, nothing is
+/// executed, and a short, long or oversized upload leaves no file. `size`
+/// may be a JSON number or a decimal string (the app's channel arguments
+/// are strings).
+async fn upload(
+    config: &ServiceConfig,
+    peer: &Peer,
+    args: &Value,
+    sender: &ChannelSender,
+    receiver: ChannelReceiver,
+) -> Result<(), Refusal> {
+    match receive_upload(config, peer, args, receiver).await {
+        Ok((path, size)) => {
+            tracing::info!(size, phone = peer.device_id, "upload saved");
+            let reply = serde_json::json!({"path": path.to_string_lossy(), "size": size}).to_string();
+            let _ = sender.send(Bytes::from(reply)).await;
+            Ok(())
+        }
+        Err(refusal) => {
+            let reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
+            let _ = sender.send(Bytes::from(reply)).await;
+            Err(refusal)
+        }
+    }
+}
+
+async fn receive_upload(
+    config: &ServiceConfig,
+    peer: &Peer,
+    args: &Value,
+    mut receiver: ChannelReceiver,
+) -> Result<(PathBuf, u64), Refusal> {
+    let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Refusal::new("bad_request", "missing name"))?;
+    let size = match args.get("size") {
+        Some(Value::Number(number)) => number.as_u64(),
+        Some(Value::String(text)) => text.parse().ok(),
+        _ => None,
+    }
+    .ok_or_else(|| Refusal::new("bad_request", "missing size"))?;
+    if size > config.upload_max_bytes {
+        return Err(Refusal::new(
+            "too_large",
+            format!("the file is larger than {} MB", config.upload_max_bytes / (1024 * 1024)),
+        ));
+    }
+    let name = safe_file_name(name);
+    let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
+    let folder = upload_folder(config, peer, cwd).await?;
+    let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&part)
+        .await
+        .map_err(|e| Refusal::new("io", format!("cannot create the upload: {e}")))?;
+    let received = async {
+        let mut received: u64 = 0;
+        while received < size {
+            match receiver.recv().await {
+                Some(ChannelEvent::Data(bytes)) => {
+                    received += bytes.len() as u64;
+                    if received > size {
+                        return Err(Refusal::new("bad_request", "more bytes than the declared size"));
+                    }
+                    file.write_all(&bytes).await.map_err(|e| Refusal::new("io", e.to_string()))?;
+                }
+                _ => return Err(Refusal::new("bad_request", "the upload ended early")),
+            }
+        }
+        file.flush().await.map_err(|e| Refusal::new("io", e.to_string()))?;
+        file.sync_all().await.map_err(|e| Refusal::new("io", e.to_string()))?;
+        Ok(())
+    }
+    .await;
+    drop(file);
+    if let Err(refusal) = received {
+        let _ = std::fs::remove_file(&part);
+        return Err(refusal);
+    }
+    let path = publish_upload(&folder, &name, &part).inspect_err(|_| {
+        let _ = std::fs::remove_file(&part);
+    })?;
+    Ok((path, size))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upload_names_are_safe() {
+        assert_eq!(safe_file_name("photo.jpg"), "photo.jpg");
+        assert_eq!(safe_file_name("../../etc/passwd"), "passwd");
+        assert_eq!(safe_file_name("a\\b.txt"), "b.txt");
+        assert_eq!(safe_file_name(".bashrc"), "bashrc");
+        assert_eq!(safe_file_name("..."), "attachment");
+        assert_eq!(safe_file_name("a\nb:c"), "a_b_c");
+        assert_eq!(safe_file_name(""), "attachment");
+        assert!(safe_file_name(&"é".repeat(200)).len() <= 120);
+    }
+
+    #[test]
+    fn publish_never_replaces() {
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("a.txt"), "old").unwrap();
+        let part = folder.path().join(".x.part");
+        std::fs::write(&part, "new").unwrap();
+        let path = publish_upload(folder.path(), "a.txt", &part).unwrap();
+        assert_eq!(path, folder.path().join("a 2.txt"));
+        assert_eq!(std::fs::read_to_string(folder.path().join("a.txt")).unwrap(), "old");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        assert!(!part.exists());
+    }
+
+    #[test]
+    fn acpmux_messages_are_joined() {
+        let mut assembler = MessageAssembler::default();
+        assert_eq!(assembler.push(br#"{"jsonrpc":"2.0","params":{"a":"#).unwrap(), None);
+        assert_eq!(
+            assembler.push(br#""xy"}}"#).unwrap().as_deref(),
+            Some(r#"{"jsonrpc":"2.0","params":{"a":"xy"}}"#)
+        );
+        assert_eq!(assembler.push(br#"{"b":1}"#).unwrap().as_deref(), Some(r#"{"b":1}"#));
+        assert_eq!(assembler.push(b"not json").unwrap_err().code, "bad_request");
+    }
+
+    #[test]
+    fn session_names() {
+        assert!(valid_session_name("main"));
+        assert!(valid_session_name("dev-1.x"));
+        assert!(!valid_session_name("../x"));
+        assert!(!valid_session_name(".hidden"));
+        assert!(!valid_session_name(""));
+    }
+
+    #[tokio::test]
+    async fn a_fifo_inside_a_root_is_refused_without_blocking() {
+        let root = tempfile::tempdir().unwrap();
+        let fifo = root.path().join("pipe");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        // SAFETY: a valid NUL-terminated path and mode.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let resolved = confine(&[root.path().to_path_buf()], &fifo).unwrap();
+        let mut options = tokio::fs::OpenOptions::new();
+        options.read(true).custom_flags(libc::O_NONBLOCK);
+        let open = options.open(&resolved);
+        let file = tokio::time::timeout(std::time::Duration::from_secs(2), open)
+            .await
+            .expect("open blocked")
+            .unwrap();
+        assert!(!file.metadata().await.unwrap().is_file());
+    }
+
+    #[test]
+    fn confine_keeps_reads_inside_roots() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("a.txt"), "a").unwrap();
+        std::fs::write(outside.path().join("secret"), "s").unwrap();
+        std::os::unix::fs::symlink(outside.path().join("secret"), root.path().join("link")).unwrap();
+        let roots = vec![root.path().to_path_buf()];
+        assert!(confine(&roots, &root.path().join("a.txt")).is_ok());
+        assert_eq!(confine(&roots, &root.path().join("link")).unwrap_err().code, "forbidden");
+        assert_eq!(confine(&roots, &root.path().join("../x")).unwrap_err().code, "not_found");
+        assert_eq!(confine(&roots, Path::new("a.txt")).unwrap_err().code, "bad_request");
+        assert_eq!(confine(&[], &root.path().join("a.txt")).unwrap_err().code, "forbidden");
+    }
+}

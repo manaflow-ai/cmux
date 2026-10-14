@@ -56,6 +56,10 @@ public struct DaemonLanePolicy: Sendable {
         "new-browser-tab", "browser-frame-presented", "browser-mouse", "browser-mouse-guarded", "browser-wheel",
         "browser-wheel-guarded", "browser-key", "browser-key-press", "browser-insert-text", "browser-navigate",
         "browser-back", "browser-forward", "browser-reload", "browser-activate",
+        // Agent chat tabs: cnx-hostd sets this Mac's own agent tab host on
+        // them (cnx-ios/rust/crates/cnx-hostd/src/policy.rs); this lane has
+        // no such host, so it refuses them below.
+        "new-conversation-tab",
         // Frontend projections: guarded per subject below.
         "get-frontend-projection", "put-frontend-projection",
     ]
@@ -117,6 +121,10 @@ public struct DaemonLanePolicy: Sendable {
         }
         if command == "get-frontend-projection" || command == "put-frontend-projection" {
             return projectionVerdict(object, id: id, write: command == "put-frontend-projection")
+        }
+        if command == "new-conversation-tab" {
+            return .refuse(Self.errorLine(id: id, code: "unavailable",
+                                          message: "this Mac's cmux does not let a phone start agent chats"))
         }
         return .forward
     }
