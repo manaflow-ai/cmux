@@ -48,6 +48,10 @@ import Testing
     @Test func aLayoutChangeThatLandsMidDragSnapsWithTheWindowAndSpringsAgainAfter() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
+        // Pane layout springs only with `ui.paneAnimations` on (off by default).
+        let paneAnimations = DesignSettings.shared.paneAnimations
+        DesignSettings.shared.paneAnimations = true
+        defer { DesignSettings.shared.paneAnimations = paneAnimations }
         try #require(Motion.animatesMovement, "animation speed is off on this host")
         let provider = Panes()
         let model = LayoutModel(screens: Self.split(0.5), activeScreenID: "s", focusedPane: "p1")
