@@ -14,11 +14,17 @@ enum SidebarSectionHandlers {
         // named as the menu showed them.
         func bind(_ id: ActionID, undoable: Bool = false, unavailable: @escaping @MainActor () -> String? = { nil },
                   _ run: @escaping @MainActor (ActionInvocation, SidebarLayoutDocument) throws -> SidebarLayoutOp?) {
-            registry.bind(id, unavailable: { layout.unavailableReason ?? unavailable() }, invoke: { [weak registry] invocation in
+            // With the sidebar document every band edit is a document op (SidebarDocWiring.sendLayout), never an
+            // edit of the older layout owner: that owner would confirm a change the document never sees.
+            registry.bind(id, unavailable: { SidebarDocWiring.isActive ? unavailable() : layout.unavailableReason ?? unavailable() },
+                          invoke: { [weak registry] invocation in
                 do {
                     guard let op = try run(invocation, layout.document) else { return }
-                    guard undoable, let registry else { return try layout.send(op) }
-                    let title = registry.action(for: id)?.targetTitle?(invocation) ?? registry.descriptor(for: id)?.title ?? ""
+                    let title = registry?.action(for: id)?.targetTitle?(invocation) ?? registry?.descriptor(for: id)?.title ?? ""
+                    if try SidebarDocWiring.sendLayout([op], over: layout.document, title: title, undoable: undoable && invocation.origin == .user) {
+                        return
+                    }
+                    guard undoable, registry != nil else { return try layout.send(op) }
                     try PinCommands(context: context).sendLayout(op, title: title, origin: invocation.origin)
                 } catch {
                     registry?.refuse(RefusalStrings.describe(error))
@@ -119,12 +125,13 @@ enum SidebarSectionHandlers {
                 .sectionUpdate(try SidebarSectionResolve.section(invocation.target, in: doc).id, SectionPatch(layout: kind))
             }
         }
-        bind("sidebar.section.setAlignment") { invocation, doc in
+        let docLacksField: @MainActor () -> String? = { SidebarDocWiring.isActive ? SidebarSectionStrings.notInDocument : nil }
+        bind("sidebar.section.setAlignment", unavailable: docLacksField) { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
             let align = invocation["align"]?.stringValue.flatMap(SectionArrangement.Alignment.init(rawValue:)) ?? .leading
             return .sectionUpdate(section.id, SectionPatch(align: align))
         }
-        bind("sidebar.section.setGap") { invocation, doc in
+        bind("sidebar.section.setGap", unavailable: docLacksField) { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
             return .sectionUpdate(section.id, SectionPatch(gap: invocation["gap"]?.intValue.map(OptionalUpdate.set) ?? .clear))
         }
@@ -159,7 +166,7 @@ enum SidebarSectionHandlers {
         bind("sidebar.section.remove") { invocation, doc in
             .sectionRemove(try SidebarSectionResolve.section(invocation.target, in: doc).id)
         }
-        bind("sidebar.layout.reset") { _, _ in .reset }
+        bind("sidebar.layout.reset", unavailable: docLacksField) { _, _ in .reset }
         // Collapse is this window's view state: no layout op.
         registry.bind("sidebar.section.toggleCollapsed", run: { [weak services = context.services] invocation in
             guard let model = services?.windows.active?.sidebar.model else { return }

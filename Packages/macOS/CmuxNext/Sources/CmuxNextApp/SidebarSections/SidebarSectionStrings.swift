@@ -6,6 +6,22 @@ enum SidebarSectionStrings {
         String(format: String(localized: "sidebarSections.rejected", defaultValue: "the sidebar layout refused this change (%@)",
                               table: "SidebarSections", bundle: .module), reason)
     }
+    /// A band edit the sidebar document has no op for.
+    static func describe(_ gap: SidebarDocStore.LayoutOpGap) -> String {
+        switch gap {
+        case .unsupported: notInDocument
+        case .workspaceList: workspaceListStays
+        case .unknownItem: noSuchItem
+        }
+    }
+    static var notInDocument: String {
+        String(localized: "sidebarSections.notInDocument", defaultValue: "this sidebar setting is not available in the new sidebar yet",
+               table: "SidebarSections", bundle: .module)
+    }
+    static var workspaceListStays: String {
+        String(localized: "sidebarSections.workspaceListStays", defaultValue: "the workspace list cannot be moved or removed",
+               table: "SidebarSections", bundle: .module)
+    }
     static var noSuchSection: String {
         String(localized: "sidebarSections.noSuchSection", defaultValue: "no such sidebar section", table: "SidebarSections", bundle: .module)
     }

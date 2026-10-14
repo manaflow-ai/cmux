@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -45,6 +46,23 @@ enum SidebarDocWiring {
                 if layout.docLayout != store.shown?.layout { layout.docLayout = store.shown?.layout }
             }
         }
+    }
+
+    /// The document is active: band edits go to it, not to the older layout owner.
+    static var isActive: Bool { SidebarDocStore.current.map { $0.isActive && $0.shown != nil } ?? false }
+
+    /// Sends band edits (section and item actions) as one document change
+    /// while the document is active; false when it is not (the older layout
+    /// owner takes them). Throws the refusal for an edit the document has no
+    /// op for. `undoable`: a user's change (one undo step titled `title`).
+    static func sendLayout(_ ops: [SidebarLayoutOp], over layout: SidebarLayoutDocument, title: String, undoable: Bool) throws -> Bool {
+        guard isActive, let store = SidebarDocStore.current else { return false }
+        do {
+            try store.send(layout: ops, over: layout, title: title, undoable: undoable)
+        } catch {
+            throw ActionFailure(message: SidebarSectionStrings.describe(error))
+        }
+        return true
     }
 
     static func liveRefs(_ machines: MachineRegistry) -> [SidebarDocWorkspaceRef] {

@@ -107,6 +107,8 @@ extension PinCommands {
     /// done; undo sends their inverses in reverse order and skips items that
     /// are already gone.
     func sendLayout(_ ops: [SidebarLayoutOp], title: String, origin: ActionOrigin) throws {
+        // With the sidebar document, band edits are document ops (one change, one undo step).
+        if try SidebarDocWiring.sendLayout(ops, over: layout.document, title: title, undoable: origin == .user) { return }
         let ops = ops.filter { op in
             guard case let .itemRemove(id) = op else { return true }
             return layout.document.locate(id) != nil
@@ -138,6 +140,7 @@ extension PinCommands {
 
     /// Sends one layout change and, for the user, registers its inverse.
     func sendLayout(_ op: SidebarLayoutOp, title: String, origin: ActionOrigin) throws {
+        if try SidebarDocWiring.sendLayout([op], over: layout.document, title: title, undoable: origin == .user) { return }
         let inverse = layout.document.inverse(of: op)
         try layout.send(op)
         guard origin == .user, let inverse else { return }
