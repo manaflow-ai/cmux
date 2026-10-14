@@ -120,14 +120,16 @@ extension AgentTabStore {
 
     /// ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` in `pane`: the tab
     /// shows and is selected now (unless `select` is false); the store's tab keeps the selection
-    /// when it replaces it, then `then` gets its id. A refusal is reported through the registry.
+    /// when it replaces it, then `then` gets its id. A refusal is reported through the registry;
+    /// a task-level refusal also invokes `failed` so callers can release transient state.
     /// Returns false when the pane cannot hold an agent tab.
     /// `hidden`: the tab never shows in `pane`'s strip (a chat bound for a new chat dock).
     @discardableResult
     func openTab(in pane: PaneController, session: String? = nil, seed: AgentPaneSeedSource? = nil,
                  newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
                  linked: Bool = false, select: Bool = true, hidden: Bool = false,
-                 then: (@MainActor (String) -> Void)? = nil) -> Bool {
+                 then: (@MainActor (String) -> Void)? = nil,
+                 failed: (@MainActor () -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
         let pending: AgentTabPending
         do {
@@ -156,6 +158,7 @@ extension AgentTabStore {
                 return nil
             } catch {
                 daemon.logger.error("new-conversation-tab (agent) failed: \(String(describing: error), privacy: .public)")
+                failed?()
                 return "\(RefusalStrings.agentTabCreateFailed)"
             }
         })
