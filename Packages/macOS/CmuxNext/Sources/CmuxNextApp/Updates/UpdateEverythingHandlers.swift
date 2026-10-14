@@ -17,7 +17,7 @@ enum UpdateEverythingHandlers {
         let steps = UpdateEverythingAppSteps(services: services)
         let runner = UpdateEverythingRunner(journal: UpdateEverythingJournal(url: journalURL(services)))
         registry.bind(actionID, run: { _ in
-            guard runner.claim() else { throw ActionFailure(message: UpdateEverythingStrings.alreadyRunning) }
+            guard runner.claim() else { throw ActionFailure(message: UpdateEverythingRunner.alreadyRunning) }
             // task-owner: one confirmation and its run; ends with the run's result toast
             Task { @MainActor in
                 defer { runner.release() }
@@ -33,7 +33,7 @@ enum UpdateEverythingHandlers {
 
     private static func ask(_ services: AppServices, steps: UpdateEverythingAppSteps, runner: UpdateEverythingRunner) async {
         let plan = await steps.plan()
-        guard !plan.isUpToDate else { return toast(services, UpdateEverythingStrings.everythingUpToDate) }
+        guard !plan.isUpToDate else { return toast(services, UpdateEverythingRunner.everythingUpToDate) }
         guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
         let prompt = UpdateEverythingPrompt(plan)
         let spec = CmuxDialogSpec(title: prompt.title, lines: prompt.lines,
@@ -43,15 +43,15 @@ enum UpdateEverythingHandlers {
                                   identifier: "cmux.dialog.updateEverything")
         let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
         guard answer.button == DestructiveConfirmation.confirmID else { return }
-        toast(services, UpdateEverythingStrings.updating, duration: .seconds(45 * 60))
+        toast(services, UpdateEverythingRunner.updating, duration: .seconds(45 * 60))
         let outcomes = await runner.run(plan, continueThreads: answer.values[continueID]?.bool ?? true, steps: steps)
         report(outcomes, services)
     }
 
     /// One toast: every failure by machine, or done.
     private static func report(_ outcomes: [UpdateEverythingOutcome], _ services: AppServices) {
-        let failures = outcomes.compactMap { outcome in outcome.failure.map { UpdateEverythingStrings.failed(outcome.name, $0) } }
-        toast(services, failures.isEmpty ? UpdateEverythingStrings.done : failures.joined(separator: "\n"),
+        let failures = outcomes.compactMap { outcome in outcome.failure.map { UpdateEverythingOutcome.failureLine(outcome.name, $0) } }
+        toast(services, failures.isEmpty ? UpdateEverythingRunner.done : failures.joined(separator: "\n"),
               duration: .seconds(failures.isEmpty ? 6 : 20))
     }
 

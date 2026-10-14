@@ -1,12 +1,5 @@
 import Foundation
 
-/// The capability of a daemon that updates its machine's agent CLIs (`agent-update-v1`,
-/// cmux-tui/spec/commands.md agent-update-plan / agent-update-apply): it asks the machine's own
-/// acpmux, so Update Everything reaches this Mac, SSH and Cloud machines the same way.
-public enum AgentUpdateCapability {
-    public static let name = "agent-update-v1"
-}
-
 /// `agent-update-plan {}`: the machine's agent CLIs that are outdated and that its acpmux can
 /// update without sudo, and its threads (Update Everything's confirmation).
 public struct AgentUpdatePlanRequest: DaemonRequest {
@@ -33,7 +26,11 @@ public struct AgentUpdatePlanRequest: DaemonRequest {
     }
 
     public static let command = "agent-update-plan"
-    public static var requiredCapability: String? { AgentUpdateCapability.name }
+    /// The capability of a daemon that updates its machine's agent CLIs (`agent-update-v1`,
+    /// cmux-tui/spec/commands.md agent-update-plan / agent-update-apply): it asks the machine's own
+    /// acpmux, so Update Everything reaches this Mac, SSH and Cloud machines the same way.
+    public static let capability = "agent-update-v1"
+    public static var requiredCapability: String? { capability }
     public init() {}
 }
 
@@ -66,7 +63,7 @@ public struct AgentUpdateApplyRequest: DaemonRequest {
     }
 
     public static let command = "agent-update-apply"
-    public static var requiredCapability: String? { AgentUpdateCapability.name }
+    public static var requiredCapability: String? { AgentUpdatePlanRequest.capability }
     /// The longest an apply may take: each updater may run 15 minutes (acpmux `probe.rs`).
     public static let timeout: Duration = .seconds(30 * 60)
 

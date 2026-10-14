@@ -27,7 +27,7 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
         var bundled: String?
         if let binary = try? DaemonLauncherBinary.resolve() { bundled = await BundledCmuxTUI.commit(binary: binary) }
         let targets: [(String, String, UpdateEverythingMachine.Kind, DaemonService)] =
-            [(MachineRegistry.localID, UpdateEverythingStrings.thisMac, .local, services.machines.local)]
+            [(MachineRegistry.localID, UpdateEverythingMachine.thisMac, .local, services.machines.local)]
             + services.machines.ssh.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.host.label, .ssh, $0.daemon) }
             + services.machines.cloud.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.machine.title, .cloud, $0.daemon) }
         var machines = await withTaskGroup(of: (Int, UpdateEverythingMachine).self) { group in
@@ -70,7 +70,7 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
         var machine = UpdateEverythingMachine(id: id, name: name, kind: kind)
         let running = daemon.identity?.buildCommit.flatMap { $0.isEmpty ? nil : $0 }
         if let bundled, kind != .local, running.map({ !bundled.hasPrefix($0) && !$0.hasPrefix(bundled) }) ?? true {
-            machine.daemon = UpdateEverythingChange(name: UpdateEverythingStrings.daemonName, from: running.map { String($0.prefix(7)) },
+            machine.daemon = UpdateEverythingChange(name: UpdateEverythingMachine.daemonName, from: running.map { String($0.prefix(7)) },
                                                     to: String(bundled.prefix(7)))
         }
         let agents = await Self.agentPlan(daemon)
@@ -80,7 +80,7 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
     }
 
     private static func agentPlan(_ daemon: DaemonService) async -> AgentUpdatePlanRequest.Response? {
-        guard daemon.supports(AgentUpdateCapability.name), let connection = daemon.connection else { return nil }
+        guard daemon.supports(AgentUpdatePlanRequest.capability), let connection = daemon.connection else { return nil }
         return try? await connection.request(AgentUpdatePlanRequest(), timeout: .seconds(45))
     }
 
@@ -89,17 +89,17 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
     }
 
     func updateDaemon(on machine: UpdateEverythingMachine) async throws {
-        guard let daemon = services.machines.anyDaemon(machine: machine.id) else { throw ActionFailure(message: UpdateEverythingStrings.disconnected) }
+        guard let daemon = services.machines.anyDaemon(machine: machine.id) else { throw ActionFailure(message: UpdateEverythingMachine.disconnected) }
         let before = daemon.identity?.pid
         switch machine.kind {
         case .local:
             return
         case .ssh:
-            guard let session = services.machines.sshSession(machine.id) else { throw ActionFailure(message: UpdateEverythingStrings.disconnected) }
+            guard let session = services.machines.sshSession(machine.id) else { throw ActionFailure(message: UpdateEverythingMachine.disconnected) }
             try await services.ssh.install(session)
         case .cloud:
             guard let binary = services.cloud.move.cli, let socket = await daemon.connection?.endpoint?.socketPath else {
-                throw ActionFailure(message: UpdateEverythingStrings.disconnected)
+                throw ActionFailure(message: UpdateEverythingMachine.disconnected)
             }
             let answer = try await CloudMoveCLI(binary: binary).machineUpdate(socket: socket, toBundled: true)
             if !answer.ok { throw ActionFailure(message: answer.error ?? answer.errorCode ?? "") }
@@ -109,7 +109,7 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
         let answered = await Self.holds(within: Self.reconnectLimit) {
             daemon.connection != nil && daemon.identity.map { $0.pid != before } ?? false
         }
-        if !answered { throw ActionFailure(message: UpdateEverythingStrings.disconnected) }
+        if !answered { throw ActionFailure(message: UpdateEverythingMachine.disconnected) }
     }
 
     func outdatedAgents(on machine: UpdateEverythingMachine) async -> [UpdateEverythingChange] {
@@ -119,12 +119,12 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
 
     func updateAgents(on machine: UpdateEverythingMachine, continueThreads: Bool) async throws {
         guard let connection = services.machines.anyDaemon(machine: machine.id)?.connection else {
-            throw ActionFailure(message: UpdateEverythingStrings.disconnected)
+            throw ActionFailure(message: UpdateEverythingMachine.disconnected)
         }
         let request = AgentUpdateApplyRequest(ids: machine.harnesses.compactMap(\.id), continueThreads: continueThreads)
         let answer = try await connection.request(request, timeout: AgentUpdateApplyRequest.timeout)
         if let failed = answer.results.first(where: { !$0.ok }) {
-            throw ActionFailure(message: UpdateEverythingStrings.failed(failed.id, failed.error ?? ""))
+            throw ActionFailure(message: UpdateEverythingOutcome.failureLine(failed.id, failed.error ?? ""))
         }
     }
 
