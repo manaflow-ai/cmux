@@ -73,7 +73,7 @@ def doc_icon_url(host):
     tagged app's bundled cmux-tui)."""
     tui = os.path.join(os.path.dirname(CLI), "cmux-tui")
     env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "CMUX_QUIET": "1"}
-    out = subprocess.run([tui, "--app-socket", SOCKET, "raw", "operation", "sidebar.get"], capture_output=True, text=True, timeout=30, env=env)
+    out = subprocess.run([tui, "--app-socket", SOCKET, "--json", "raw", "operation", "sidebar.get"], capture_output=True, text=True, timeout=30, env=env)
     try:
         doc = json.loads(out.stdout)
     except ValueError:
@@ -84,7 +84,7 @@ def doc_icon_url(host):
     def walk(value):
         if isinstance(value, dict):
             body = value.get("body")
-            if isinstance(body, dict) and body.get("type") == "url" and host in str(body.get("url")):
+            if isinstance(body, dict) and body.get("type") == "url" and str(body.get("url")).rstrip("/") == host:
                 found.append(body.get("icon_url"))
             for child in value.values():
                 walk(child)
@@ -355,15 +355,15 @@ try:
             record("link row in the list opens its page", bool(opened), "debug.surfaces names github.com" if opened else "no github.com surface")
             # The open tab teaches the app the page's favicon address; the app stores it on the item (icon_url, read back
             # from the daemon with sidebar.get) and the row draws that icon, not the /favicon.ico fallback.
-            tab_icon = wait(lambda: next((pair.split(" ", 1)[1] for pair in (rpc("debug.sidebar_rows") or {}).get("open_tab_favicons", [])
-                                          if "github.com" in pair.split(" ", 1)[0]), None), 20)
-            stored = wait(lambda: (lambda value: value if value and value == tab_icon else None)(doc_icon_url("github.com")), 20)
+            # The app keys tab favicons by the page's exact origin (not gist.github.com or another GitHub host).
+            tab_icon = wait(lambda: ((rpc("debug.sidebar_rows") or {}).get("open_tab_favicons") or {}).get("https://github.com"), 20)
+            stored = wait(lambda: (lambda value: value if value and value == tab_icon else None)(doc_icon_url("https://github.com")), 20)
             drawn = wait(lambda: next((r for r in window().get("rows", []) if r.get("key") == key and r.get("icon") == "favicon"
                                        and r.get("icon_address") == tab_icon), None), 20)
             shot("v2-5-link-row")
             ok = bool(tab_icon) and not str(tab_icon).endswith("/favicon.ico") and stored == tab_icon and bool(drawn)
             record("link row draws the open tab's favicon", ok,
-                   f"tab favicon={tab_icon} sidebar.get icon_url={doc_icon_url('github.com')} row icon_address="
+                   f"tab favicon={tab_icon} sidebar.get icon_url={doc_icon_url('https://github.com')} row icon_address="
                    f"{next((r.get('icon_address') for r in window().get('rows', []) if r.get('key') == key), None)}")
             undo("link item into the list", lambda: any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")))
     else:

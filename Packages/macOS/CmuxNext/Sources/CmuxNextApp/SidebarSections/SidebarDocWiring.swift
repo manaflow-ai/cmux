@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -32,10 +33,16 @@ enum SidebarDocWiring {
         SidebarModel.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
         // task-owner: the app's services (live for the app); event-driven (Observation)
         Task { [weak services] in
-            // An open tab's favicon address can change while its image is cached already (no favicon revision): watch the addresses too.
-            for await _ in ObservationStream({ (services?.favicons.revision, store.version, services?.openTabFaviconPairs()) }) {
+            // An open tab's favicon address can change while its image is cached already (no favicon revision): watch
+            // the addresses too, read once per change into one origin -> favicon table for every link.
+            var last: [String: String]?
+            var lastVersion: UInt64?
+            for await (revision, version, byOrigin) in ObservationStream({ (services?.favicons.revision, store.version, services?.openTabFaviconsByOrigin() ?? [:]) }) {
+                _ = revision
                 NotificationCenter.default.post(name: SidebarModel.itemFaviconsChanged, object: nil)
-                store.storeIconURLs { page in services?.openTabFaviconAddress(page) }
+                guard byOrigin != last || version != lastVersion else { continue } // a tab change that moves no favicon address
+                (last, lastVersion) = (byOrigin, version)
+                store.storeIconURLs { page in URL(string: page).flatMap(BookmarkURL.faviconKey(for:)).flatMap { byOrigin[$0] } }
             }
         }
         // task-owner: the app's services (live for the app); event-driven (Observation)
