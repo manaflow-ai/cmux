@@ -8585,6 +8585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             debugSource: debugSource,
             skipConfiguredAction: staysLocal,
             runsCustomConfiguredAction: localOnly && !skipConfiguredAction,
+            forceLocal: localOnly,
             inheritWorkingDirectoryOverride: staysLocal
                 ? manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
                 : nil
