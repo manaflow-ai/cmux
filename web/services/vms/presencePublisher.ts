@@ -215,10 +215,13 @@ export type VmSyncPublisherDeps = {
  * work would be frozen with the function, so the work is awaited instead;
  * `publishVmSync` bounds it to `VM_SYNC_PUBLISH_TIMEOUT_MS`. Never rejects.
  */
-export function scheduleVmSyncWork(work: () => Promise<void>): Promise<void> {
+export function scheduleVmSyncWork(
+  work: () => Promise<void>,
+  defer: (task: () => Promise<void>) => void = after,
+): Promise<void> {
   const guarded = () => work().catch((err) => console.error("[VM] vms sync publish work failed", err));
   try {
-    after(guarded);
+    defer(guarded);
     return Promise.resolve();
   } catch {
     return guarded();

@@ -249,14 +249,18 @@ describe("withVmSyncPublication", () => {
   });
 });
 
+/** `after()` outside a request scope, as a cron reconciler sees it. Passed
+ * explicitly because other suites mock `next/server` process-wide. */
+const noRequestScope = (): void => { throw new Error("`after` was called outside a request scope"); };
+
 describe("cron path (no request scope) awaits the publish", () => {
   test("scheduleVmSyncWork resolves only after the work finished and never rejects", async () => {
-    // bun test has no Next.js request scope, so `after()` throws here exactly
-    // as it does for a cron reconciler on Vercel: the work must be awaited.
+    // Without a request scope `after()` throws, as it does for a cron
+    // reconciler on Vercel: the work must be awaited.
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     let finished = false;
-    const scheduled = scheduleVmSyncWork(async () => { await gate; finished = true; });
+    const scheduled = scheduleVmSyncWork(async () => { await gate; finished = true; }, noRequestScope);
     let settled = false;
     void scheduled.then(() => { settled = true; });
     await Promise.resolve();
@@ -264,7 +268,7 @@ describe("cron path (no request scope) awaits the publish", () => {
     release();
     await scheduled;
     expect(finished).toBe(true);
-    await expect(scheduleVmSyncWork(async () => { throw new Error("worker down"); })).resolves.toBeUndefined();
+    await expect(scheduleVmSyncWork(async () => { throw new Error("worker down"); }, noRequestScope)).resolves.toBeUndefined();
   });
 
   test("a decorated write does not resolve before an awaited publish completes", async () => {
@@ -278,7 +282,7 @@ describe("cron path (no request scope) awaits the publish", () => {
       readRow: async () => row({ id: vmId }),
       publish: async (teamId) => { markPublishStarted(); await publishGate; published.push(teamId); },
       // The cron-path scheduler: no request scope, so it awaits the work.
-      schedule: scheduleVmSyncWork,
+      schedule: (work) => scheduleVmSyncWork(work, noRequestScope),
     };
     const repo = withVmSyncPublication({
       markProviderObservedStatus: () => Effect.succeed(true),
