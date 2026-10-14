@@ -43,6 +43,9 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
 
     public func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in
+            // A `cancel()` queued before this block (a task cancelled as `oneShot` began) already
+            // finished the connection; connecting now would leak the descriptor and its read source.
+            guard !closed else { return }
             self.onLine = onLine
             self.onClose = onClose
             guard let fd = Self.connect(path: path) else { return finish() }
