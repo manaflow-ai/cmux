@@ -361,6 +361,25 @@ Gestures:
   SwiftUI talks to it through an `@Observable SidebarModel { progress, isOpen }`. A pure SwiftUI
   `offset` + `DragGesture` fights `ScrollView` and the tab bar; do not use it.
 
+Swipe rules (app-wide, user decision 2026-10-13, `verify/swipes.md`):
+
+- No list has leading-edge (swipe right) actions: a rightward pan on a tab root opens the team
+  drawer. Actions that would have been leading go to the trailing edge (swipe left), the
+  long-press context menu, or both. At most three trailing actions; the rest live in the
+  context menu.
+- Custom swipe rows (the Feed's `FeedSwipeRow`) begin their pan only for a leftward drag, or
+  for a rightward drag that closes already open actions, so a rightward pan falls through to
+  the drawer.
+- Order is outermost first; the outermost action runs on a full swipe. A full swipe must never
+  grant anything (permissions are allowed with a tap).
+- Destructive actions (Delete, Deny, Decline) use the system destructive red: `role:
+  .destructive` with no custom tint in a `List` (clear the shell's label tint with
+  `.tint(nil)`, or the role draws white in dark mode), `UIColor.systemRed` in custom rows.
+- Non-destructive actions use UIKit semantic system colors that adapt to dark mode, as Mail
+  and Messages do: `systemBlue` (read state, answer), `systemIndigo` (alerts), `systemPurple`
+  (Done, as Mail's Archive), `systemGreen` (Allow), `systemOrange` (Restore), `systemGray`
+  (Copy path). White icon over a short label.
+
 Content (top to bottom):
 
 1. Header row, 20 pt side margin, centered at the toolbar line: "cmux" wordmark text
@@ -953,7 +972,13 @@ permission requests, errors, PR events.
 - Tap anywhere else on the cell → open the event's tab: push the Workspace's tab (agent chat or
   terminal) inside the Feed stack, scrolled to the event's turn. Highlight row `fillPressed` on
   touch down.
-- Swipe actions: leading "Read" (`envelope.open`), trailing "Mute" (`bell.slash`).
+- Swipe actions (trailing only, 3.3 swipe rules), outermost first: pending permission "Deny"
+  (`xmark.shield`, destructive red) and "Allow" (`checkmark.shield`, system green; a full swipe
+  never allows); pending question "Decline" (`xmark`, destructive red) and "Answer"
+  (`arrowshape.turn.up.left`, system blue); every other event "Done" (`checkmark`, system purple,
+  removes the row with the Undo bar) and "Read"/"Unread" (`envelope.open`/`envelope.badge`,
+  system blue). The context menu and the `ellipsis` menu hold Open tab, Copy, Mark as
+  read/unread, Done and Mute this workspace.
 
 ### 8.3 Comparison checklist (Feed)
 

@@ -117,7 +117,15 @@ struct FeedCell: View {
         Section(item.createdAt.formatted(.dateTime.weekday(.wide).hour().minute())) {
             Button("Open tab", systemImage: "arrow.up.right.square", action: open)
             Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = item.markdown }
-            Button("Mark as read", systemImage: "envelope.open") { store.markRead(item.id) }
+            // Everything the trailing swipe leaves out lives here (SPEC swipe rules).
+            if item.isRead {
+                Button("Mark as unread", systemImage: "envelope.badge") { store.markUnread(item.id) }
+            } else {
+                Button("Mark as read", systemImage: "envelope.open") { store.markRead(item.id) }
+            }
+            Button("Done", systemImage: "checkmark") {
+                withAnimation(.cnxSmooth) { store.markDone(item.id) }
+            }
             Button("Mute this workspace", systemImage: "bell.slash") {
                 withAnimation(.cnxSmooth) { _ = store.mutedWorkspaces.insert(item.workspaceID) }
             }
