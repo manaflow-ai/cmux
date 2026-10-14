@@ -75,9 +75,6 @@ pub(crate) struct StripEdit {
     /// recorded as one closed-history group that forms it again
     /// (RECOVERABLE-BY-DEFAULT).
     pub(crate) ungrouped: Option<Value>,
-    /// A group that closes with its tabs (Close Group): its archive joins
-    /// the closed-history group of those tabs, whose reopen forms it again.
-    pub(crate) closed_group: Option<Value>,
     pub(crate) result: StripResult,
 }
 
@@ -108,7 +105,6 @@ impl Mux {
                     tab_state: Vec::new(),
                     saved: None,
                     ungrouped: None,
-                    closed_group: None,
                     result: StripResult::None,
                 };
                 let result = mutate(&mux, &mut projected, &mut edit)?;
@@ -200,8 +196,7 @@ fn strip_state_write(
     before: &crate::workspace_registry::PresentationSnapshot,
     edit: StripEdit,
 ) -> crate::resource_mutation::PlanStateWrite {
-    let StripEdit { groups, pins, tab_state, saved, ungrouped, closed_group, result: result_kind } =
-        edit;
+    let StripEdit { groups, pins, tab_state, saved, ungrouped, result: result_kind } = edit;
     let mut touched_tabs = BTreeSet::new();
     for (tab, group) in &before.tab_groups.members {
         if groups.members.get(tab) != Some(group) {
@@ -243,9 +238,6 @@ fn strip_state_write(
                 "tab_group",
                 archive,
             )?;
-        }
-        if let Some(archive) = &closed_group {
-            crate::state::closed_history_store::attach_closed_tab_group(transaction, archive)?;
         }
         write_tab_groups(transaction, &groups)?;
         for (tab, pinned, url) in &pins {

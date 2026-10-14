@@ -282,11 +282,18 @@ impl Mux {
         for member in &restore {
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
         }
-        if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
-            // A closed group (Close Group) names its closed tabs: it forms
-            // again around those this reopen brought back.
+        // An ungrouped group (`tab_group`, no member) forms again whole. The
+        // groups a close took (`tab_groups`; `tab_group` on a Close Group
+        // recorded before cx-gzh.31) name their closed tabs: each forms
+        // again around those this reopen brought back.
+        let closed = !restore.is_empty();
+        let groups = record
+            .get("tab_group")
+            .filter(|group| group.is_object())
+            .into_iter()
+            .chain(record["tab_groups"].as_array().into_iter().flatten());
+        for group in groups {
             let mut group = group.clone();
-            let closed = !restore.is_empty();
             if closed {
                 let tabs = group["tab_ids"]
                     .as_array()
@@ -294,6 +301,9 @@ impl Mux {
                     .flatten()
                     .filter_map(|tab| reopened.reopened_as.get(tab.as_str()?).cloned())
                     .collect::<Vec<_>>();
+                if tabs.is_empty() {
+                    continue;
+                }
                 group["tab_ids"] = serde_json::json!(tabs);
             }
             self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
