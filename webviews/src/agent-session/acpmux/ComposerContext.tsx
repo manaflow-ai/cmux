@@ -123,6 +123,7 @@ export function ComposerContext({
                   icon={<FolderIcon />}
                   value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
                   chevron
+                  middle={currentFolder !== undefined}
                 />
               }
               folders={folders}
@@ -142,6 +143,7 @@ export function ComposerContext({
               selected={currentFolder}
               disabled={readOnly && !newChats}
               icon={<FolderIcon />}
+              middle={currentFolder !== undefined}
               allowPath
               onBrowse={newChats ? browseNewChat : undefined}
               extras={
@@ -161,14 +163,10 @@ export function ComposerContext({
               }}
             />
           )}
-          {folderShown && (
-            <span className="acpmux-location-dot" aria-hidden="true">
-              ·
-            </span>
-          )}
           <LocationPicker
             label={t(CONTEXT_LABELS.computer)}
             menu="Computer"
+            kind="computer"
             icon={<ComputerIcon />}
             value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
             options={computers}
@@ -301,12 +299,32 @@ function normalizeCwd(cwd?: string): string | undefined {
 }
 
 /// What every location control shows: an optional icon, the name (cut with an ellipsis, never
-/// wrapped) and, on a control that opens a menu, a chevron. One look for the whole row.
-function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value: string; chevron: boolean }) {
+/// wrapped) and, on a control that opens a menu, a chevron. One look for the whole row. A folder's
+/// name (`middle`) is cut in the middle, so its end survives: "atl…web", never "atla…" (design
+/// panel, compact composer).
+function LocationFace({
+  icon,
+  value,
+  chevron,
+  middle = false,
+}: {
+  icon?: React.ReactNode;
+  value: string;
+  chevron: boolean;
+  middle?: boolean;
+}) {
+  const [head, tail] = middle ? splitForMiddleTruncation(value) : [value, ""];
   return (
     <>
       {icon}
-      <span className="acpmux-location-label">{value}</span>
+      {tail ? (
+        <span className="acpmux-location-label" data-middle="">
+          <span className="acpmux-location-head">{head}</span>
+          <span className="acpmux-location-tail">{tail}</span>
+        </span>
+      ) : (
+        <span className="acpmux-location-label">{value}</span>
+      )}
       {chevron && (
         <span className="ui-ghost-icon" aria-hidden="true">
           <ChevronIcon />
@@ -314,6 +332,16 @@ function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value:
       )}
     </>
   );
+}
+
+/// A name split for a cut in the middle: the head takes the ellipsis, the tail always shows. Names
+/// under 7 characters are not split (they fit, or a cut would leave nothing to read). The tail is a
+/// third of the name, 3 to 6 characters, so "atlas-web" reads "atl…web" in a narrow pane.
+export function splitForMiddleTruncation(value: string): [string, string] {
+  const chars = Array.from(value);
+  if (chars.length < 7) return [value, ""];
+  const tail = Math.min(6, Math.max(3, Math.floor(chars.length / 3)));
+  return [chars.slice(0, -tail).join(""), chars.slice(-tail).join("")];
 }
 
 function FolderIcon() {
@@ -367,6 +395,8 @@ function LocationPicker({
   selected,
   disabled,
   icon,
+  middle = false,
+  kind,
   allowPath = false,
   onBrowse,
   extras,
@@ -380,6 +410,10 @@ function LocationPicker({
   selected?: string;
   disabled: boolean;
   icon?: React.ReactNode;
+  /// The name is cut in the middle (a folder's).
+  middle?: boolean;
+  /// "computer": the picker whose name gives way to its icon in a narrow strip.
+  kind?: "computer";
   allowPath?: boolean;
   /// The folder popover's last row, Choose folder…: the host's folder panel.
   onBrowse?(): void;
@@ -406,13 +440,13 @@ function LocationPicker({
   }, [options, query, suffixes]);
   if (disabled)
     return (
-      <span className="acpmux-location-picker">
+      <span className="acpmux-location-picker" data-kind={kind}>
         <span
           className="acpmux-location-readonly"
           aria-label={label + ": " + value}
           title={label + ": " + (allowPath && selected ? selected : value)}
         >
-          <LocationFace icon={icon} value={value} chevron={false} />
+          <LocationFace icon={icon} value={value} chevron={false} middle={middle} />
         </span>
       </span>
     );
@@ -421,10 +455,10 @@ function LocationPicker({
     setOpen(false);
     setQuery("");
   };
-  const button = <LocationFace icon={icon} value={value} chevron />;
+  const button = <LocationFace icon={icon} value={value} chevron middle={middle} />;
   if (!allowPath)
     return (
-      <span ref={control} className="acpmux-location-picker">
+      <span ref={control} className="acpmux-location-picker" data-kind={kind} title={label + ": " + value}>
         <Menu open={open} onOpenChange={setOpen}>
           <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
             {button}
