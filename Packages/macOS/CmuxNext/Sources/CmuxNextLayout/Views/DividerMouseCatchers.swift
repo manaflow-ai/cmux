@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// Divider hit areas over Chromium pages.
 ///
