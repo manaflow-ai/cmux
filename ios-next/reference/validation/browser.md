@@ -909,3 +909,35 @@ terminal layer, follows the same offset. Verified on the mock: a slow
   animates `bar`. I recorded 3 pill taps but could not fit them: the pill sits
   over a dark code block on the mock page, which corrupts the label track. A
   clean recapture needs a page with a plain background behind the pill.
+
+## Round 16: swipe parity against the device recording
+
+**Source.** `~/nxios-ref/safari/user/swipe-close-device.mp4`: iPhone 17 Pro
+Max, 1320 × 2868, 767 frames over 12.95 s (variable rate, about 60 fps, not
+120). It has 2 tabs and no touch indicator, so finger positions are not
+visible. I measured with real `pts_time` (`browser-tools/devtrack3.py`,
+`devtrack2.py`), tracking the left card's edges, top, bottom and scale.
+
+| | Device Safari | Ours (Pro Max simulator, `purple.py`) |
+|---|---|---|
+| Pick-up | The card **lifts**: scale 1.0 → **1.09** about its centre within ≈ 50–100 ms of the drag starting (1.517 → 1.567 s), in either direction | Scale 1.09 about the card's centre (width 196 → 213.3, the same as the device's 213.3); lift spring 0.08 / 1 |
+| Right drag | Rubber-banded; the largest move seen is ≈ 58 pt (finger not visible). No rotation and no fade | Rubber band (`120·(1 − 1/(0.55·dx/120 + 1))`): a 150 pt finger drag moves the card 47 pt |
+| Release and spring back | Position fits **0.66 / 0.86** (centre x, rms 0.6 pt) and scale **0.57 / 0.94** back to 1. Settles in ≈ 0.5 s with ≈ 1% overshoot | Position spring 0.66 / 0.86 and scale 0.57 / 0.94. Measured on ours: centre x 0.62 / 0.92 (rms 0.3 pt), settling in ≈ 0.48 s |
+| Fly-off | The card stays lifted and opaque and keeps going left at the finger's speed (≈ 1000 pt/s, ≈ 17 pt per frame); off screen in ≈ 0.12 s | Linear at the release speed (at least 1000 pt/s), lifted and opaque |
+| Reflow | With 2 tabs, the remaining card starts moving toward the left slot while the closing card is still leaving (≈ 50 ms after it starts), and Safari then **opens the last tab** (zoom at +130 ms) | The reflow starts once the host confirms (mock: the next frame). When a swipe leaves one tab, it opens |
+| Count | The bar shows the tab's title (here "Start Page") as soon as one tab is left | Unchanged (shows "1 Tab"); not implemented |
+
+The device clip doesn't show the close threshold or the fling velocity (one
+close only), so the simulator values from round 14 stay: 72% of the width,
+225 pt/s. Row-wrapping paths can't be seen with 2 tabs. On simulator Safari
+(round 14, 5 tabs) the cards move in straight lines between slots, including
+diagonally from the next row's left slot to the previous row's right slot,
+on the reflow spring; ours does the same.
+
+**Regression seen while recording (not from the swipe code).** Since the
+grid's static-snapshot and scroll changes (`7a6e86aa0284`, `105fceb792da`),
+the card that becomes active after a close (or the active card while others
+reflow) jumps or crossfades into its new slot instead of moving. The same
+gesture on `1d9368ebdf17`, before those commits, moves it smoothly
+(`prev-close.mp4` vs `pm-close.mp4`, `pm-close2.mp4`). I've handed this to
+the grid/perf owner.

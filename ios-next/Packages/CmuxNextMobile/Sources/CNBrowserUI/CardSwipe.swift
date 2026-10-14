@@ -30,7 +30,7 @@ struct CardSwipe: Equatable, Sendable {
     /// of the drag starting, about its centre) and settles back on release
     /// (scale fit 0.57 / 0.94).
     static let liftScale: CGFloat = 1.09
-    static let lift = ZoomSpring(response: 0.15, damping: 1)
+    static let lift = ZoomSpring(response: 0.08, damping: 1)
     static let settle = ZoomSpring(response: 0.57, damping: 0.94)
     /// A closing card keeps going left at the finger's speed (device ≈ 1000
     /// pt/s, still lifted and opaque) until it is off screen.
