@@ -192,7 +192,12 @@ are loading, cached, live, empty, failed, offline and idle.
   - `an_unread_channel_does_not_stall_the_link`;
   - the `version` service in `services_over_*`.
 - **Swift:** CnxModelTests, CnxLiveTests and CnxTransportTests are green
-  (Swift Testing, 92 tests). They include `MacDataMachineTests`,
+  (Swift Testing, 92 tests) at `9f0ba747`, before the merge of
+  `origin/feat-cnx-ios`. The run after the merge stopped at a compile error
+  that the merge brought into CmuxTabsKit (`Toolbar.swift:372`, "ambiguous
+  use of operator '-'"). It shows only on the mini's Xcode 26.3; the app
+  builds with this Mac's Xcode. The merge commit's Retry, timeout and
+  Paired Macs changes have no unit tests yet. They include `MacDataMachineTests`,
   `MacStatusLineTests`, `LiveSnapshotStoreTests`,
   `batchSendsOneWriteAndKeepsOrder` and the updated `LinkMachine` retry
   tests.
