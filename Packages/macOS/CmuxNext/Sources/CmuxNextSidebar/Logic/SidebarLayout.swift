@@ -252,7 +252,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     var header = SidebarRow(
                         key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
                         group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
-                        isCollapsed: groupCollapsed, childCount: entry.children.count, groupColor: group.color
+                        isCollapsed: groupCollapsed, childCount: members.count, groupColor: group.color
                     )
                     header.isThinHeader = o.minimal
                     rows.append(header)

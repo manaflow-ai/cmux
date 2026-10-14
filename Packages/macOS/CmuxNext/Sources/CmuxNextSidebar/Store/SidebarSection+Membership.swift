@@ -16,7 +16,7 @@ nonisolated extension SidebarSection {
                 case var .group(group):
                     let wasEmpty = group.workspaces.isEmpty
                     group.workspaces.removeAll { !members.contains($0.id.rawValue) }
-                    return group.workspaces.isEmpty && !wasEmpty ? nil : .group(group)
+                    return group.workspaces.isEmpty && !wasEmpty && group.items.isEmpty ? nil : .group(group)
                 case .item:
                     return node
                 }

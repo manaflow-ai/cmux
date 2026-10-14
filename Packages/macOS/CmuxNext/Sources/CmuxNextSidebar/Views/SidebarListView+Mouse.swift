@@ -94,7 +94,7 @@ extension SidebarListView {
             break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
-            if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
+            if let g = model.group(group), g.isPinned, g.workspaces.isEmpty, g.items.isEmpty {
                 model.send(.openGroup(group))
             } else if groupEditing.isOnChip(point, group: group) {
                 // The chip opens the group editor (cx-rcby); its chevron and

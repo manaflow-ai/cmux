@@ -23,7 +23,7 @@ extension SidebarListView {
         }
         var sections = model.sections
         switch drag.payload {
-        case let .workspaces(ids): Self.move(ids, to: position, in: &sections)
+        case let .workspaces(ids): SidebarEdits.apply(.reorder(ids, to: position), to: &sections) // a group's index counts member rows
         case let .group(group): SidebarEdits.apply(.reorderGroup(group, index: position.index), to: &sections)
         case let .item(item): Self.move(item, to: position, in: &sections)
         }
@@ -58,39 +58,14 @@ extension SidebarListView {
         }
         guard let moved, let s = sections.firstIndex(where: { $0.id == position.section }) else { return }
         guard let groupID = position.group else {
-            return sections[s].nodes.insert(.item(moved), at: min(max(0, position.index), sections[s].nodes.count))
+            sections[s].nodes.insert(.item(moved), at: min(max(0, position.index), sections[s].nodes.count))
+            return
         }
         guard let n = sections[s].nodes.firstIndex(where: { $0.id == .group(groupID) }), case var .group(group) = sections[s].nodes[n] else { return }
         var members = group.members
         members.insert(.item(moved), at: min(max(0, position.index), members.count))
         group.setMembers(members)
         sections[s].nodes[n] = .group(group)
-    }
-
-    /// Workspaces at `position`: into a group with link, tab or app members, `position.index` counts members (the
-    /// drawn rows), so they land between the same member rows the drop shows.
-    static func move(_ ids: [WorkspaceID], to position: DropPosition, in sections: inout [SidebarSection]) {
-        func group(_ id: GroupID) -> (Int, Int, SidebarGroup)? {
-            for s in sections.indices {
-                for n in sections[s].nodes.indices { if case let .group(group) = sections[s].nodes[n], group.id == id { return (s, n, group) } }
-            }
-            return nil
-        }
-        guard let groupID = position.group, let (_, _, before) = group(groupID), !before.items.isEmpty else {
-            return SidebarEdits.apply(.reorder(ids, to: position), to: &sections)
-        }
-        let moving = Set(ids)
-        let kept = before.members.filter { if case let .workspace(ws) = $0 { !moving.contains(ws.id) } else { true } }
-        let index = min(max(0, position.index), kept.count)
-        let workspaceIndex = kept[..<index].filter { if case .workspace = $0 { true } else { false } }.count
-        SidebarEdits.apply(.reorder(ids, to: DropPosition(section: position.section, group: groupID, index: workspaceIndex)), to: &sections)
-        guard let (s, n, after) = group(groupID) else { return }
-        let landed = ids.compactMap { id in after.workspaces.first { $0.id == id } }.map(SidebarGroupMember.workspace)
-        var members = kept
-        members.insert(contentsOf: landed, at: index)
-        var placed = after
-        placed.setMembers(members)
-        sections[s].nodes[n] = .group(placed)
     }
 
     /// The dragged workspaces' tab rows hide with them (they move along).

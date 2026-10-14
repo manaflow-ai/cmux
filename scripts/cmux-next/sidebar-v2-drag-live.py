@@ -426,14 +426,16 @@ try:
                          and not r.get("group")), None)
             if away:
                 rpc("debug.mouse", {"x": center(away["window_frame"])[0], "y": center(away["window_frame"])[1], "action": "click"})
-                time.sleep(0.5)  # test harness: let the focus move to that workspace
+                # The focus has moved once no github.com surface is focused.
+                wait(lambda: not any(f for _, f in github_state()), 5)
             before = github_state()
             member = member_link(group_id) or member
             rpc("debug.mouse", {"x": center(member["window_frame"])[0], "y": center(member["window_frame"])[1], "action": "click"})
             opened = wait(lambda: (lambda now: now if now != before and any(f for _, f in now) else None)(github_state()), 15)
             shot("v2-5b-link-member-opened")
             record("link member row opens its page", bool(opened),
-                   f"github.com surfaces before={before} after={github_state()}")
+                   f"github.com surfaces before={before} after={github_state()}"
+                   + ("" if away else " (no loose workspace row to move the focus to first: before may already hold a focused github.com surface)"))
             undo("link onto a Pinned group", lambda: member_link(group_id) is None)
     else:
         record("link onto a Pinned group lists as its member row", False, f"link source={source} Grp header={grp_header} group_id={group_id}")

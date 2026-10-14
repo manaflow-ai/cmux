@@ -99,8 +99,9 @@ public final class SidebarDocSections {
                 listed.insert(workspace.id)
             case .group(let group):
                 let members = group.members.compactMap { byResource[$0.workspaceID] }
-                // A group lists while it shows a member: a live workspace, or a link, tab or app member (never lost).
-                guard !members.isEmpty || group.members.isEmpty || !group.listed.isEmpty else { continue }
+                // A group lists where it lists a live workspace, or everywhere with none at all; its link, tab and app
+                // members follow it (`SidebarDocProjection.arrange`).
+                guard !members.isEmpty || group.members.isEmpty else { continue }
                 flush()
                 listed.formUnion(members.map(\.id))
                 sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))

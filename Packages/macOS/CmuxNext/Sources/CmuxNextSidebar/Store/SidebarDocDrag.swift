@@ -83,11 +83,17 @@ public struct SidebarDocDrag {
         return (SidebarDragGeometry(slots: slots, acceptance: acceptance), rows)
     }
 
-    /// The anchor target of a list position (index counted without the moved items).
+    /// The anchor target of a list position (index counted without the moved items; in a group, among its
+    /// member rows: workspaces and link, tab and app items, as `SidebarRow.siblingIndex` counts them).
     public func target(_ position: DropPosition, moving: [String], model: SidebarModel) -> SidebarDocTarget? {
         guard let section = section(position.section), let shown = model.section(position.section) else { return nil }
         let siblings: [String] = if let group = position.group {
-            (model.group(group)?.workspaces ?? []).compactMap { item(.workspace($0.id)) }
+            (model.group(group)?.members ?? []).compactMap { member in
+                switch member {
+                case .workspace(let workspace): item(.workspace(workspace.id))
+                case .item(let listed): listed.id
+                }
+            }
         } else {
             shown.nodes.compactMap { node in
                 switch node {
