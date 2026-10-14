@@ -425,6 +425,7 @@ async function stripePersonalCheckout(
       attribution,
       signedIn: !user.isAnonymous,
       existingStripeCustomer: Boolean(stripeBillingStatus.customerId),
+      ...checkoutLivemode(session),
     }));
     return NextResponse.redirect(session.url);
   } catch (error) {
@@ -524,12 +525,14 @@ async function stripeTeamCheckout(
     }
     deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
       sessionId: session.id,
-      subject: { scope: "team", stackTeamId: resolvedTeamId },
+      // The purchasing admin is the person; the team is the group.
+      subject: { scope: "team", stackTeamId: resolvedTeamId, actorUserId: stackUserId },
       plan: "team",
       billingInterval: interval,
       attribution,
       signedIn: !user.isAnonymous,
       existingStripeCustomer: Boolean(stripeBillingStatus.customerId),
+      ...checkoutLivemode(session),
     }));
     return NextResponse.redirect(session.url);
   } catch (error) {
@@ -590,6 +593,11 @@ function checkoutPrincipalId(value: unknown, kind: "user" | "team"): string {
     throw new Error(`Stack ${kind} checkout principal is missing an id`);
   }
   return value;
+}
+
+/** Stripe's livemode for the checkout analytics event, when Stripe reported one. */
+function checkoutLivemode(session: { readonly livemode?: unknown }): { livemode?: boolean } {
+  return typeof session.livemode === "boolean" ? { livemode: session.livemode } : {};
 }
 
 function usableCheckoutSession(
