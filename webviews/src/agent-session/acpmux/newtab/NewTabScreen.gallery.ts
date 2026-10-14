@@ -65,7 +65,11 @@ function galleryNativeCalls(document: Document): GalleryNativeCall[] {
   );
 }
 
-async function waitForTabJump(ctx: PlayContext, target: "tab" | "here" | "closed" | "stashed", id: string): Promise<void> {
+async function waitForTabJump(
+  ctx: PlayContext,
+  target: "tab" | "here" | "closed" | "stashed",
+  id: string,
+): Promise<void> {
   await ctx.waitFor(() =>
     galleryNativeCalls(ctx.document).some(
       (call) => call.method === "tab.jump" && call.params?.target === target && call.params?.id === id,
