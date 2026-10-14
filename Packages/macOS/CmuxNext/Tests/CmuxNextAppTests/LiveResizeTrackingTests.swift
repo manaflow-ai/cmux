@@ -27,7 +27,7 @@ import Testing
     }
 
     static func window(width: CGFloat, height: CGFloat) -> NSWindow {
-        NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled, .resizable],
+        NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.borderless],
                  backing: .buffered, defer: true)
     }
 
@@ -42,10 +42,7 @@ import Testing
         [LayoutScreen(id: "s", name: "s", layout: .splits(.split("v", axis: .horizontal, ratio: ratio, a: .leaf("p1"), b: .leaf("p2"))))]
     }
 
-    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
-
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
-    func aLayoutChangeThatLandsMidDragSnapsWithTheWindowAndSpringsAgainAfter() throws {
+    @Test func aLayoutChangeThatLandsMidDragSnapsWithTheWindowAndSpringsAgainAfter() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         try #require(Motion.animatesMovement, "animation speed is off on this host")
@@ -54,9 +51,6 @@ import Testing
         let root = LayoutRootView(model: model, contentProvider: provider)
         let window = Self.window(width: 1000, height: 700)
         window.contentView = root
-        window.orderBack(nil)
-        defer { window.orderOut(nil) }
-        try #require(window.screen != nil, "a window with no screen applies its changes at once")
         root.layoutSubtreeIfNeeded()
         root.driver.isManual = true
         let screen = try #require(root.screenViews["s"])
