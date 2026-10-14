@@ -180,11 +180,11 @@ final class AgentTabStore {
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
-    init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
+    init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
         self.linkScheme = linkScheme
-        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(tag: tag, environment: environment, showcase: showcase)
+        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection.
@@ -310,10 +310,7 @@ final class AgentTabStore {
         // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
         if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
            seed?.holdsOnlyFolder ?? true, let spare = takeSpare?() {
-            standaloneViews.remove(spare)
-            wire(spare.model, key: key)
-            views[key] = spare
-            spare.adoptNewTab(newTab.page)
+            adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
             return spare
         }

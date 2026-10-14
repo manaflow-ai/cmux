@@ -209,6 +209,34 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.avatar.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.profile.avatar.set": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.create": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.delete": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.profile.list": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.profile.update": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.stop": {
       "scope": "chief:write",
       "class": "mutation"
@@ -965,6 +993,14 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "participant.avatar.get": {
+      "scope": "participant:read",
+      "class": "read"
+    },
+    "participant.avatar.set": {
+      "scope": "participant:write",
+      "class": "mutation"
+    },
     "participants.add": {
       "scope": "participants:write",
       "class": "mutation"
@@ -1345,6 +1381,10 @@
       "scope": "sidebar:write",
       "class": "mutation"
     },
+    "sidebar.item.remove_ref": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
     "sidebar.item.update": {
       "scope": "sidebar:write",
       "class": "mutation"
@@ -1354,6 +1394,10 @@
       "class": "mutation"
     },
     "sidebar.pin": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.reset": {
       "scope": "sidebar:write",
       "class": "mutation"
     },
@@ -1777,6 +1821,7 @@
   "never": [
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.release",
     "agent.message.send",
     "automation.delete",
     "automation.settings.set",

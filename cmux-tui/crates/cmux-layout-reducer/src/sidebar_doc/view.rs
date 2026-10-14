@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use super::doc::Doc;
 use super::model::*;
 
 /// A live workspace of one machine, with the title the filter matches.
@@ -97,7 +98,9 @@ impl Context<'_> {
                 .or_else(|| item.label().map(str::to_string))
                 .unwrap_or_default(),
             Body::Group { name, .. } => name.clone(),
-            Body::Url { url, title } => format!("{} {url}", title.clone().unwrap_or_default()),
+            Body::Url { url, title, .. } => {
+                format!("{} {url}", title.clone().unwrap_or_default())
+            }
             Body::Builtin { id }
             | Body::App { id }
             | Body::Room { id }
@@ -151,8 +154,6 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
             .filter(|text| !text.is_empty()),
         collapsed: request.collapsed.as_ref().map(|ids| ids.iter().map(String::as_str).collect()),
     };
-    let mut doc = doc.clone();
-    doc.normalize();
     let shown_session = |session: &str| {
         request
             .window
@@ -161,15 +162,10 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
             .is_none_or(|sessions| sessions.iter().any(|s| s == session))
     };
     // Unplaced live workspaces, by machine, in live order.
-    let placed: HashSet<(&str, &str)> = doc
-        .items
-        .iter()
-        .filter_map(|item| item.body.workspace())
-        .map(|r| (r.session_id.as_str(), r.workspace_id.as_str()))
-        .collect();
     let mut unplaced: Vec<(String, Vec<&LiveWorkspace>)> = Vec::new();
     for live in &request.live {
-        if placed.contains(&(live.session_id.as_str(), live.workspace_id.as_str())) {
+        let reference = WorkspaceRef::new(&live.session_id, &live.workspace_id);
+        if doc.workspace_item(&reference).is_some() {
             continue;
         }
         match unplaced.iter_mut().find(|(session, _)| *session == live.session_id) {
@@ -180,7 +176,7 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
     // The sections this window shows, with a stand-in for each machine
     // that has unplaced workspaces and no section.
     let mut sections: Vec<Section> = doc
-        .sections
+        .sections()
         .iter()
         .filter(|section| {
             section.room.as_ref().is_none_or(|room| request.window.room.as_ref() == Some(room))
@@ -199,19 +195,11 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
         sections.insert(at, Section::machine(session));
     }
     let machine_count = sections.iter().filter(|s| s.kind.machine().is_some()).count();
-    let mut children: HashMap<&str, Vec<&Item>> = HashMap::new();
-    let mut top: HashMap<&str, Vec<&Item>> = HashMap::new();
-    for item in &doc.items {
-        match &item.parent {
-            Some(parent) => children.entry(parent.as_str()).or_default().push(item),
-            None => top.entry(item.section.as_str()).or_default().push(item),
-        }
-    }
     let mut rows = Vec::new();
     for section in &sections {
         let mut body: Vec<Row> = Vec::new();
         let section_collapsed = context.is_collapsed(&section.id, false);
-        for item in top.get(section.id.as_str()).map(Vec::as_slice).unwrap_or_default() {
+        for item in doc.list(&section.id, None) {
             match &item.body {
                 Body::Workspace { reference } => {
                     let live = context.is_live(reference);
@@ -222,9 +210,7 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
                 Body::Group { collapsed, .. } => {
                     let name_matches = context.matches(&context.title_of(item));
                     let mut inner = Vec::new();
-                    for child in
-                        children.get(item.id.as_str()).map(Vec::as_slice).unwrap_or_default()
-                    {
+                    for child in doc.list(&section.id, Some(item.id.as_str())) {
                         let live = child.body.workspace().is_none_or(|r| context.is_live(r));
                         if !live && !section.keeps_closed {
                             continue;

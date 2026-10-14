@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -76,20 +77,20 @@ final class NewTabSparePool {
     /// Main-thread time of the last move of the parked spare to another window.
     private(set) var lastRetargetMilliseconds: Double?
 
+    /// In place of ``AgentTabs/makeSpare(_:)`` (WebKit's first load, on the main thread): tests stall it.
+    var makeSpare: ((AgentPaneNewTab) -> AgentPaneView?)?
     init(services: AppServices) {
         self.services = services
     }
 
 
-    /// At launch, before any window: makes the first spare, so its page loads while the windows
-    /// build; the launch's restored New Tab page adopts it, or ``start()`` parks it (bd cx-z9kz0).
+    /// At launch: probes WebKit's setup off the main thread, no spare yet (a first load held launch >10 s, cua-2).
     func prewarm() {
-        guard services.agentTabs.canHostChat, slot.shouldWarm,
-              let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
-        else { return }
-        slot.parked(view)
+        if services.agentTabs.canHostChat { webKit.probe { [weak self] in self?.scheduleWarm() } }
     }
 
+    /// WebKit's setup on this host; a slow one gets no spare this run.
+    let webKit = WebKitSetupGate()
     /// At launch: follow the key main window; park in the first visible one.
     func start() {
         services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }
@@ -271,13 +272,11 @@ final class NewTabSparePool {
     private var warmedOnce = false
 
     private func armWarmTimer() {
-        // Only the launch warm is instant: a `take()` that found nothing (it set
-        // `usedThisSession`) must not make a web view in the person's keystroke.
-        if !warmedOnce, !usedThisSession {
-            warmedOnce = true
-            return warmNow()
-        }
-        warmTimer.schedule(after: Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
+        // Only the launch warm comes early, after the first frame: a `take()` that found nothing
+        // (it set `usedThisSession`) must not make a web view in the person's keystroke.
+        let launch = !warmedOnce && !usedThisSession
+        warmedOnce = warmedOnce || launch
+        warmTimer.schedule(after: launch ? .milliseconds(250) : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 
     /// A recycled spare not yet back in the window.
@@ -296,9 +295,12 @@ final class NewTabSparePool {
             BenchSpans.measure("pool.park") { parking.addSubview(view) }
             return
         }
-        guard slot.shouldWarm, let content = target?.contentView,
-              let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
-        else { return }
+        guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
+        guard slot.shouldWarm, let content = target?.contentView else { return }
+        let start = ContinuousClock.now, page = NewTabPage.sparePage(services)
+        let made = BenchSpans.measure("pool.makeSpare") { makeSpare?(page) ?? services.agentTabs.makeSpare(page) }
+        if ContinuousClock.now - start > .seconds(1) { webKit.markSlow() } // it held the main thread
+        guard let view = made else { return }
         park(in: content)
         view.frame = parking.bounds
         view.autoresizingMask = [.width, .height]

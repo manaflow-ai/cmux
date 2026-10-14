@@ -18,11 +18,14 @@ extension WorkspaceRowView {
 
     var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
 
-    /// Lays out the age left of `trailing` and returns the new trailing edge.
+    /// Lays out the age (or a one-line status) left of `trailing` and returns the new trailing edge.
     func layoutTime(trailing: CGFloat, cy: CGFloat, height: CGFloat) -> CGFloat {
         timeLabel.isHidden = timeText == nil || isShowingPlaceholder
         guard !timeLabel.isHidden else { return trailing }
-        let w = ceil(timeLabel.intrinsicContentSize.width)
+        // The text's own width too: a time today ("1:26 AM") came out a few points short and ended in "…".
+        // A status there (`trailingStatus`) truncates at 40% of the row; the name keeps the rest.
+        let w = min(ceil(max(timeLabel.intrinsicContentSize.width, timeLabel.attributedStringValue.size().width + 2 * Self.labelInset)),
+                    (bounds.width * 0.4).rounded(.down))
         timeLabel.frame = NSRect(x: trailing - w, y: cy - height / 2, width: w, height: height)
         return trailing - w - Metrics.space2
     }

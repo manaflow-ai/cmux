@@ -56,3 +56,13 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
         }
     }
 }
+
+extension DaemonError {
+    /// A lost or restarting connection (retry), as opposed to the daemon's own refusal.
+    public var isLostConnection: Bool {
+        switch self {
+        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
+        default: false
+        }
+    }
+}
