@@ -174,6 +174,13 @@ def main() -> int:
         action="store_true",
         help="Refuse to overwrite an immutable object; accept an identical existing object",
     )
+    parser.add_argument(
+        "--conflict-exit-code",
+        type=int,
+        help="With --write-once: exit with this code, with no immutable-r2-conflict annotation, when the "
+             "object exists with other bytes. For a caller that then waits for the other publisher's "
+             "upload and keeps it (two runs of one commit or tree key at once).",
+    )
     parser.add_argument("--dry-run-json", action="store_true", help="Print the signed request instead of uploading")
     args = parser.parse_args()
     if not args.content_type:
@@ -242,6 +249,9 @@ def main() -> int:
                     return 0
             except (urllib.error.HTTPError, RuntimeError) as retry_error:
                 if isinstance(retry_error, ImmutableConflict):
+                    if args.conflict_exit_code is not None:
+                        sys.stderr.write(f"another publisher wrote it first: {retry_error}\n")
+                        return args.conflict_exit_code
                     _report_immutable_conflict(retry_error)
                 sys.stderr.write(f"R2 immutable-object check failed: {retry_error}\n")
                 return 1
@@ -250,6 +260,9 @@ def main() -> int:
         return 1
     except (OSError, RuntimeError) as error:
         if isinstance(error, ImmutableConflict):
+            if args.conflict_exit_code is not None:
+                sys.stderr.write(f"another publisher wrote it first: {error}\n")
+                return args.conflict_exit_code
             _report_immutable_conflict(error)
         sys.stderr.write(f"R2 upload failed: {error}\n")
         return 1
