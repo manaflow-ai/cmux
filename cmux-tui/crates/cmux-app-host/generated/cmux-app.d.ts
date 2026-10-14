@@ -321,6 +321,8 @@ declare namespace Cmux {
   type SidebarAttachPatch = { kind: "patch"; sidebar_view_id: string /* sidebar_view_… */; render: Cmux.RenderPatch }
   type SidebarAttachScroll = { kind: "scroll"; sidebar_view_id: string /* sidebar_view_… */; scroll: Cmux.RenderScroll }
   type SidebarAttachSnapshot = { kind: "snapshot"; sidebar_view: Cmux.SidebarViewSnapshot; render: Cmux.RenderSnapshot }
+  type SidebarDocMutation = { revision: string; inverse: Array<Cmux.JsonValue> }
+  type SidebarDocSnapshot = { revision: string; sections: Array<Cmux.JsonValue>; items: Array<Cmux.JsonValue> }
   type SidebarItemRef = { kind: string; value: string }
   type SidebarLayoutOp = unknown
   type SidebarLayoutOpItemAdd = { kind: "item.add"; item: Cmux.JsonValue; section: string; index: number }
@@ -1281,6 +1283,46 @@ interface CmuxGlobal {
     schema: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
     /** `settings.snapshot` (read, scope `settings:read`) */
     snapshot: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
+  }
+  sidebar: {
+    /** `sidebar.adopt` (mutation, scope `sidebar:write`) */
+    adopt: CmuxOp<{ machine?: string; session?: string; refs: Array<Cmux.JsonValue>; to?: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+    /** `sidebar.apply` (mutation, scope `sidebar:write`) */
+    apply: CmuxOp<{ machine?: string; session?: string; ops: Array<Cmux.JsonValue> }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+    /** `sidebar.get` (read, scope `sidebar:read`) */
+    get: CmuxOp<{ machine?: string; session?: string }, Cmux.SidebarDocSnapshot>
+    group: {
+      /** `sidebar.group.create` (mutation, scope `sidebar:write`) */
+      create: CmuxOp<{ machine?: string; session?: string; id?: string; name: string; color?: string; icon?: string; profile?: string; items?: Array<string>; to?: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+      /** `sidebar.group.ungroup` (mutation, scope `sidebar:write`) */
+      ungroup: CmuxOp<{ machine?: string; session?: string; id: string }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+      /** `sidebar.group.update` (mutation, scope `sidebar:write`) */
+      update: CmuxOp<{ machine?: string; session?: string; id: string; patch: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+    }
+    item: {
+      /** `sidebar.item.add` (mutation, scope `sidebar:write`) */
+      add: CmuxOp<{ machine?: string; session?: string; item: Cmux.JsonValue; to: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+      /** `sidebar.item.remove` (mutation, scope `sidebar:write`) */
+      remove: CmuxOp<{ machine?: string; session?: string; id: string }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+      /** `sidebar.item.update` (mutation, scope `sidebar:write`) */
+      update: CmuxOp<{ machine?: string; session?: string; id: string; patch: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+    }
+    /** `sidebar.move` (mutation, scope `sidebar:write`) */
+    move: CmuxOp<{ machine?: string; session?: string; items: Array<string>; to: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+    /** `sidebar.pin` (mutation, scope `sidebar:write`) */
+    pin: CmuxOp<{ machine?: string; session?: string; items: Array<string> }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+    section: {
+      /** `sidebar.section.add` (mutation, scope `sidebar:write`) */
+      add: CmuxOp<{ machine?: string; session?: string; section: Cmux.JsonValue; place?: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+      /** `sidebar.section.move` (mutation, scope `sidebar:write`) */
+      move: CmuxOp<{ machine?: string; session?: string; id: string; place: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+      /** `sidebar.section.remove` (mutation, scope `sidebar:write`) */
+      remove: CmuxOp<{ machine?: string; session?: string; id: string }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+      /** `sidebar.section.update` (mutation, scope `sidebar:write`) */
+      update: CmuxOp<{ machine?: string; session?: string; id: string; patch: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+    }
+    /** `sidebar.unpin` (mutation, scope `sidebar:write`) */
+    unpin: CmuxOp<{ machine?: string; session?: string; items: Array<string> }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
   }
   sidebar_layout: {
     /** `sidebar_layout.get` (read, scope `sidebar_layout:read`) */
