@@ -4,6 +4,7 @@
 // Tooltips also carry a shortcut hint in the secondary ink, like the native one.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { HoverGroup, HoverIntent } from "./hoverIntent";
 import { installTooltips, tooltipWidth } from "./titleTooltips";
 
 test("a tooltip for truncated text wraps up to its source's width, never narrower than the line", () => {
@@ -121,7 +122,7 @@ test("rows passing under a scroll do not flash their tooltips; the row under the
 });
 
 // Leo, 2026-10-14: tooltips showed at once on every control the pointer passed. They wait the hover
-// delay (800 ms, ui/hoverIntent.ts) before the first, then show at once for a neighbor while the
+// delay (450 ms, ui/hoverIntent.ts) before the first, then show at once for a neighbor while the
 // group is warm, and cool 500 ms after the last one hid. A control whose own text says the tooltip
 // shows none (#20375). The timers run on a clock the test moves.
 class FakeClock {
@@ -173,10 +174,10 @@ test("the first tooltip waits the hover delay; a neighbor's then shows at once u
   const { buttons, text } = toolbar(clock);
   await hover(buttons[0]);
   expect(text()).toBeNull();
-  clock.advance(500);
+  clock.advance(300);
   await hover(buttons[0]);
   expect(text()).toBeNull();
-  clock.advance(350);
+  clock.advance(200);
   await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
   expect(text()).toBe("Back");
   // Warm: straight to the neighbor, its tooltip at once.
@@ -236,4 +237,18 @@ test("a control whose own text says the tooltip shows none", async () => {
   await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
   expect(tip().hidden).toBe(false);
   expect(tip().querySelector(".ui-tooltip-text")?.textContent).toBe("Back");
+});
+
+test("a key typed while a toolbar hint waits drops it: it does not pop up mid-typing", async () => {
+  const clock = new FakeClock();
+  const group = new HoverGroup(500, clock);
+  const doc = page(`<button id="b" title="Back"></button>`, { clock, group });
+  // A toolbar hint (ui/Toolbar.tsx) in the same group, waiting its delay.
+  const hint: string[] = [];
+  const toolbarHint = new HoverIntent<string>({ group, clock, show: (id) => hint.push(id), hide: () => {} });
+  toolbarHint.hover("Share");
+  clock.advance(200);
+  doc.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "a", bubbles: true }));
+  clock.advance(2000);
+  expect(hint).toEqual([]);
 });

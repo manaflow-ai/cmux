@@ -23,7 +23,10 @@ import Testing
             return button
         }
         window.orderFrontRegardless()
-        return (window, buttons, TooltipPresenter(clock: clock))
+        let presenter = TooltipPresenter(clock: clock)
+        // The standard timing, whatever a developer's tunables say.
+        presenter.timing = .standard
+        return (window, buttons, presenter)
     }
 
     private static func tracker(_ view: NSView) throws -> TooltipTracker {
@@ -43,14 +46,14 @@ import Testing
             presenter.dismiss()
             window.orderOut(nil)
         }
-        // The first tooltip waits the initial delay (800 ms).
+        // The first tooltip waits the initial delay (450 ms).
         presenter.enter(try Self.tracker(buttons[0]))
         #expect(presenter.shown == nil, "the first tooltip showed with no delay")
         try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(500))
+        clock.advance(by: .milliseconds(300))
         try await Self.settle()
         #expect(presenter.shown == nil, "the first tooltip showed before the delay")
-        clock.advance(by: .milliseconds(400))
+        clock.advance(by: .milliseconds(200))
         try await Self.settle(until: { presenter.shown != nil })
         #expect(presenter.shown?.text == "Back")
 
@@ -75,7 +78,7 @@ import Testing
         presenter.enter(try Self.tracker(buttons[3]))
         #expect(presenter.shown == nil, "the group stayed warm past its cool-down")
         try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(900))
+        clock.advance(by: .milliseconds(600))
         try await Self.settle(until: { presenter.shown != nil })
         #expect(presenter.shown?.text == "Share")
     }
@@ -92,6 +95,7 @@ import Testing
         for button in buttons {
             presenter.enter(try Self.tracker(button))
             if let text = presenter.shown?.text { shown.append(text) }
+            try await clock.waitForSleeper()
             for _ in 0..<30 {
                 clock.advance(by: .milliseconds(2))
                 await Task.yield()
@@ -119,7 +123,7 @@ import Testing
         presenter.enter(try Self.tracker(labeled))
         #expect(presenter.shown == nil, "a button titled Reload showed the tooltip Reload")
         // Past the delay, before a shown tooltip's recheck (500 ms) could put it away.
-        clock.advance(by: .milliseconds(900))
+        clock.advance(by: .milliseconds(600))
         try await Self.settle()
         #expect(presenter.shown == nil, "a button titled Reload showed the tooltip Reload after the delay")
         // An icon-only neighbor still shows its own.
@@ -129,5 +133,28 @@ import Testing
         clock.advance(by: .milliseconds(2_000))
         try await Self.settle(until: { presenter.shown != nil })
         #expect(presenter.shown?.text == "Back")
+    }
+
+    /// A titled button inside a view with its own tooltip: the button's label
+    /// names it, so nothing shows, not the container's tooltip instead.
+    @Test func aLabeledControlInsideATooltipViewShowsNeither() async throws {
+        let clock = ManualClock()
+        let (window, _, presenter) = Self.toolbar(clock: clock)
+        defer {
+            presenter.dismiss()
+            window.orderOut(nil)
+        }
+        let container = NSView(frame: NSRect(x: 160, y: 10, width: 120, height: 40))
+        window.contentView?.addSubview(container)
+        container.themedToolTip = "Page actions"
+        let labeled = NSButton(title: "Reload", target: nil, action: nil)
+        labeled.frame = NSRect(x: 10, y: 8, width: 80, height: 24)
+        container.addSubview(labeled)
+        labeled.themedToolTip = "Reload"
+        presenter.enter(try Self.tracker(container))
+        presenter.enter(try Self.tracker(labeled))
+        clock.advance(by: .milliseconds(600))
+        try await Self.settle()
+        #expect(presenter.shown == nil, "hovering the button titled Reload showed \(presenter.shown?.text ?? "")")
     }
 }

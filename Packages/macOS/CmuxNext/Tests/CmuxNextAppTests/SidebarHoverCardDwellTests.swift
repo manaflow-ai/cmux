@@ -190,8 +190,12 @@ import Testing
         // The real mouse moves off the card, somewhere no source sees it.
         let away = window.convertPoint(toScreen: list.convert(NSPoint(x: card.maxX + 200, y: card.maxY + 200), to: nil))
         coordinator.pointerLocation = { away }
+        // The next look finds the pointer gone: the grace starts then, so the card is still up.
         try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(200))
+        try await Self.settle()
         #expect(coordinator.isShowing(first), "the card closed at once, with no grace")
+        try await clock.waitForSleeper()
         for _ in 0..<4 {
             clock.advance(by: .milliseconds(200))
             try await Self.settle()
@@ -199,5 +203,37 @@ import Testing
             try await clock.waitForSleeper()
         }
         #expect(coordinator.machine.shownTarget == nil, "the card stayed after the pointer left it")
+    }
+
+    /// Moving down the list with a little drift toward the card is not heading
+    /// into it: the card slides to the next row at once, as before the safe
+    /// triangle.
+    @Test func movingDownTheListWithDriftSlidesTheCardAtOnce() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { Self.tearDown(list, window, coordinator) }
+        try #require(rows.count == 5)
+        _ = try await Self.dwell(on: rows[0], list, coordinator, clock)
+        guard case let .workspace(next) = rows[1].key else { return }
+        let target = WorkspaceHoverCardController.targetID(next)
+        // Row 0's middle to row 1's middle, 3 pt down and 1 pt toward the card every 4 ms.
+        var point = NSPoint(x: list.bounds.midX, y: rows[0].y + rows[0].height / 2)
+        let end = rows[1].y + rows[1].height / 2
+        var onNextRow: Int?
+        var slidAfter: Int?
+        var step = 0
+        while abs(point.y - end) > 1.5 {
+            point.y += end > point.y ? 3 : -3
+            point.x += 1
+            step += 1
+            list.updateHover(list.convert(point, to: nil))
+            if onNextRow == nil, let id = list.hoverCardWorkspace(at: point), id == next { onNextRow = step }
+            if slidAfter == nil, coordinator.machine.shownTarget?.id == target { slidAfter = step }
+            clock.advance(by: .milliseconds(4))
+            await Task.yield()
+        }
+        let reached = try #require(onNextRow, "the path never reached row 1")
+        let slid = try #require(slidAfter, "the card stayed on row 0 while the pointer moved down onto row 1")
+        #expect(slid - reached <= 2, "the card took \((slid - reached) * 4) ms to slide to row 1")
     }
 }

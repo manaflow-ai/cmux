@@ -24,7 +24,14 @@ final class TooltipPanel: NSPanel {
 
     let text = NSTextField(wrappingLabelWithString: "")
     let hint = NSTextField(labelWithString: "")
-    private let surface = NSView()
+    let surface = NSView()
+    // Red-test shim (the frosted surface and its fades are the next commit): the names the tests
+    // read, over the solid surface.
+    static let margin: CGFloat = 0
+    static let rise: CGFloat = 0
+    let blur = NSVisualEffectView()
+    var tint: NSView { surface }
+    var isFadingOut: Bool { false }
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)

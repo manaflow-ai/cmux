@@ -47,14 +47,17 @@ import Testing
         #expect(panel.isVisible)
         #expect(Self.same(try #require(panel.text.textColor), scope.perform { Palette.textPrimary }))
         #expect(Self.same(try #require(panel.hint.textColor), scope.perform { Palette.textSecondary }))
-        let fill = try #require(panel.contentView?.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
-        // The solid popup surface (`Palette.popupSurface`), like every overlay that carries text.
-        #expect(Self.same(fill, scope.tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).nsColor))
-        #expect(panel.contentView?.layer?.cornerRadius == TooltipPanel.radius)
+        let fill = try #require(panel.tint.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
+        // The tooltip surface (`TooltipSurface`): frosted glass under the theme's tint, or the
+        // solid popup surface under Reduce Transparency.
+        let surface = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value)
+        let expected = ReduceTransparency.shared.isEnabled ? surface.fill : surface.tint
+        #expect(Self.same(fill, expected.nsColor))
+        #expect(panel.tint.layer?.cornerRadius == TooltipPanel.radius)
 
-        // Below the button, centered on it.
+        // Below the button, centered on it (the surface; the window has room for its shadow).
         let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
-        #expect(panel.frame.maxY <= anchor.minY)
+        #expect(panel.frame.maxY - TooltipPanel.margin <= anchor.minY)
         #expect(abs(panel.frame.midX - anchor.midX) <= 1)
 
         // A text change while shown shows the new text; clearing it hides the tooltip.
@@ -62,7 +65,7 @@ import Testing
         #expect(presenter.shown?.text == "New Window")
         button.themedToolTip = nil
         #expect(presenter.shown == nil)
-        #expect(!panel.isVisible)
+        #expect(!panel.isVisible || panel.isFadingOut)
         window.orderOut(nil)
     }
 

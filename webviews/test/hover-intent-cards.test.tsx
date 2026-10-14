@@ -1,6 +1,6 @@
 // Leo, 2026-10-14: tooltips and hover cards showed at once (or nearly: the minimap's turn preview
 // after 110 ms) on everything the pointer passed. They now share the
-// app's hover intent (ui/hoverIntent.ts): the first waits the hover delay (800 ms, AppKit's tooltip
+// app's hover intent (ui/hoverIntent.ts): the first waits the hover delay (450 ms; AppKit's tooltip
 // delay is about 1 s), a neighbor's then shows at once, and half a second away cools it again.
 // These run on the real timers, through the components' own pointer handlers.
 import { afterAll, expect, test } from "bun:test";
@@ -94,7 +94,7 @@ test("the minimap's turn preview waits the hover delay, then follows the pointer
       });
 
     await move(2);
-    await wait(300);
+    await wait(200);
     expect(visible()).toBe(false);
     await wait(650);
     expect(visible()).toBe(true);
@@ -106,7 +106,7 @@ test("the minimap's turn preview waits the hover delay, then follows the pointer
     expect(visible()).toBe(false);
     await wait(600);
     await move(4);
-    await wait(300);
+    await wait(200);
     expect(visible()).toBe(false);
     await wait(650);
     expect(visible()).toBe(true);
