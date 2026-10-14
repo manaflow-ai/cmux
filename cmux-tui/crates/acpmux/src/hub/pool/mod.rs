@@ -282,7 +282,7 @@ impl Hub {
         if let Some(reason) = crate::protected_folders::unasked_refusal(&cwd) {
             return Err(RpcError::invalid_params(reason));
         }
-        let cwd = super::adoption::session_cwd(Some(cwd), None, &family)?;
+        let (cwd, _) = super::adoption::session_cwd(Some(cwd), None, &family, &[])?;
         let spawn_model = profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
         let draft = super::resolve::draft_meta(super::resolve::Draft {
