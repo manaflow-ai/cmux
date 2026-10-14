@@ -75,6 +75,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The solid surface of menus, popovers and tooltips (`--surface-popup`), the same
             // opaque fill as native overlays (`Palette.popupSurface`).
             "--cmux-popup-surface": Self.css(tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)),
+            // The tooltip's frosted tint (`TooltipSurface`, the native tooltip's): the popup
+            // surface at the least alpha that keeps the text 4.5:1 over any backdrop.
+            "--cmux-tooltip-tint": Self.css(TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint),
             "--cmux-text": Self.css(tokens.textPrimary),
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),

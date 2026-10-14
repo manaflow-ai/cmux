@@ -5,9 +5,11 @@ import CmuxNextWakeups
 /// (`.themedHelp` in SwiftUI); hovering it shows this tooltip below the view, kept on screen, with
 /// AppKit's hover intent (Leo, 2026-10-14; `HoverIntent`): the first waits `tooltipDelay`, a
 /// neighbor's then shows at once while the group is warm, and a control whose own label already
-/// names it shows none. It
-/// draws in the view's theme scope: the elevated surface, the primary ink, a hairline border, a
-/// small radius and a shortcut hint in the secondary ink. Pages draw the same tooltip
+/// names it shows none. The first of a group fades in and rises 2 pt; a warm neighbor's is
+/// there at once; each fades out quicker than it came. It draws in the view's theme scope on the
+/// one tooltip surface (`TooltipSurface`: frosted glass under a tint the primary ink reads on, a
+/// one-device-pixel rim, a small tight shadow), with a shortcut hint in the secondary ink. Pages
+/// draw the same tooltip
 /// (webviews/src/ui/titleTooltips.ts, `.ui-tooltip`). A click, a key, a scroll or the app going
 /// inactive puts it away.
 @MainActor
@@ -102,17 +104,21 @@ public final class TooltipPresenter {
     private func resolve() {
         inside.removeAll { $0.view == nil || $0.text == nil }
         guard !scrolling else { return }
-        let target = inside.filter { !$0.repeatsVisibleLabel }.max { $0.depth < $1.depth }
+        // The deepest tooltip under the pointer; when its control's label already names it, none
+        // (not an ancestor's instead, as pages do).
+        let target = inside.max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
         candidate = target
         if target != nil { watch() }
         let timing = self.timing ?? .current
         intent.delay = timing.tooltipDelay
         intent.warmFor = timing.tooltipWarm
-        run(intent.hover(target.map(ObjectIdentifier.init)))
+        // A tooltip of a warm group is there at once; only the first of a group fades in.
+        let warm = intent.isWarm
+        run(intent.hover(target.map(ObjectIdentifier.init)), fade: !warm)
         if target == nil, inside.isEmpty, shown == nil, !intent.isWarm { unwatch() }
     }
 
-    private func run(_ effects: [HoverIntent<ObjectIdentifier>.Effect]) {
+    private func run(_ effects: [HoverIntent<ObjectIdentifier>.Effect], fade: Bool = true) {
         for effect in effects {
             switch effect {
             case .schedule(let token, let delay):
@@ -121,10 +127,16 @@ public final class TooltipPresenter {
                 intentTimer.cancel()
             case .show(let id):
                 hide()
-                guard let tracker = candidate, ObjectIdentifier(tracker) == id else { continue }
+                guard let tracker = candidate, ObjectIdentifier(tracker) == id else {
+                    _ = intent.dismiss()
+                    continue
+                }
                 current = tracker
                 watch()
-                show()
+                show(fade: fade)
+                // Its view left its window or lost its text while it waited: nothing shows, so the
+                // intent must not think one does (the next would skip its delay).
+                if shown == nil { _ = intent.dismiss() }
             case .hide:
                 hide()
             }
@@ -136,22 +148,25 @@ public final class TooltipPresenter {
         if inside.isEmpty, shown == nil, !scrolling, !intent.isWarm { unwatch() }
     }
 
-    private func show() {
+    /// Shows `current`: fading in when `fade` (the first of a warm group), else at once.
+    private func show(fade: Bool = false) {
         guard let tracker = current, let view = tracker.view, let window = view.window,
               let text = tracker.text, let anchor = tracker.screenRect else { return }
         let style = view.performWithTheme { TooltipStyle.current() }
         panel.show(text: text, shortcut: tracker.shortcut, style: style, appearance: view.effectiveAppearance)
         let center = NSPoint(x: anchor.midX, y: anchor.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? window.screen ?? NSScreen.main
-        panel.setFrameOrigin(Self.origin(for: panel.frame.size, below: anchor, on: screen?.visibleFrame ?? anchor.insetBy(dx: -1000, dy: -1000)))
-        panel.orderFrontRegardless()
+        // The surface sits `margin` inside the window (room for its shadow): place the surface.
+        let origin = Self.origin(for: panel.surfaceSize, below: anchor, on: screen?.visibleFrame ?? anchor.insetBy(dx: -1000, dy: -1000))
+        panel.setFrameOrigin(NSPoint(x: origin.x - TooltipPanel.margin, y: origin.y - TooltipPanel.margin))
+        panel.present(fade: fade)
         shown = (text, tracker.shortcut)
         scheduleCheck()
     }
 
     private func hide() {
         checker.cancel()
-        if shown != nil { panel.orderOut(nil) }
+        if shown != nil { panel.fadeOut() }
         shown = nil
         current = nil
         if inside.isEmpty, !scrolling, candidate == nil, !intent.isWarm { unwatch() }

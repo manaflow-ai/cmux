@@ -59,6 +59,8 @@ export interface AnchoredCardProps {
   className?: string;
   /** `data-state` on the card, for styling. */
   state?: string;
+  /** Shows at once, with no fade in (a warm tooltip group's hint). */
+  instant?: boolean;
   children: ReactNode;
 }
 
@@ -66,7 +68,7 @@ export interface AnchoredCardProps {
  * A hover card for content the page does not render with React (a link inside the editor): a
  * tooltip anchored to that element, opened and closed by the caller. It never takes focus.
  */
-export function AnchoredCard({ anchor, className, state, children }: AnchoredCardProps) {
+export function AnchoredCard({ anchor, className, state, instant, children }: AnchoredCardProps) {
   const container = usePortalContainer();
   return (
     <BaseTooltip.Root open={anchor !== null}>
@@ -78,7 +80,12 @@ export function AnchoredCard({ anchor, className, state, children }: AnchoredCar
           align="start"
           sideOffset={6}
         >
-          <BaseTooltip.Popup className={cx("ui-tooltip ui-card", className)} data-state={state} role="tooltip">
+          <BaseTooltip.Popup
+            className={cx("ui-tooltip ui-card", className)}
+            data-state={state}
+            data-instant={instant ? "" : undefined}
+            role="tooltip"
+          >
             {children}
           </BaseTooltip.Popup>
         </BaseTooltip.Positioner>

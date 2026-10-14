@@ -89,7 +89,7 @@ public nonisolated enum MotionTunables {
     /// `NSInitialToolTipDelay` is about 1 s).
     public static let tooltipDelay = Tunable<Double>.number(
         "motion.tooltip.delay", .hover, "Tooltip delay", help: "Pointer rest before the first tooltip shows.",
-        default: 0.8, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.tooltipDelay")
+        default: 0.45, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.tooltipDelay")
     public static let tooltipWarm = Tunable<Double>.number(
         "motion.tooltip.warm", .hover, "Tooltip warm time", help: "After a tooltip hides, how long the next one shows at once.",
         default: 0.5, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.tooltipWarm")

@@ -10,10 +10,13 @@ public import Foundation
 ///
 /// Apple's numbers: AppKit's tooltip waits `NSInitialToolTipDelay`
 /// (milliseconds; about 1000 ms at the default setting), and once one
-/// shows, the next view's tooltip shows at once. 800 ms is the step under
-/// that: close enough to read as the Mac's own, short enough that a
-/// deliberate rest is not a wait. Each value is a tunable (Debug >
-/// Tunables > Hover).
+/// shows, the next view's tooltip shows at once. cmux waits 450 ms (Leo,
+/// 2026-10-14: 400-500): a pointer crossing a 24-30 pt toolbar button at
+/// sweep speed (300-1000 pt/s) is on it for 30-100 ms, far under the delay,
+/// so a sweep still shows nothing, while a deliberate rest gets its answer
+/// in under half a second instead of AppKit's full second. The warm time
+/// (500 ms) is the gap between two buttons a reader moves across. Each
+/// value is a tunable (Debug > Tunables > Hover).
 public nonisolated struct HoverIntentTiming: Hashable, Sendable {
     /// Pointer rest before the first tooltip of a group shows.
     public var tooltipDelay: Duration
@@ -37,7 +40,7 @@ public nonisolated struct HoverIntentTiming: Hashable, Sendable {
 
     /// The defaults (`HOVER_INTENT` in webviews/src/ui/hoverIntent.ts mirrors these).
     public static let standard = HoverIntentTiming(
-        tooltipDelay: .milliseconds(800), tooltipWarm: .milliseconds(500), cardDwell: .milliseconds(1_000),
+        tooltipDelay: .milliseconds(450), tooltipWarm: .milliseconds(500), cardDwell: .milliseconds(1_000),
         cardGrace: .milliseconds(200), cardAim: .milliseconds(300))
 
     /// The values now, with any tunable override.
@@ -168,14 +171,24 @@ public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Hashable, Se
 /// The safe triangle (Amazon's menu aim, macOS submenus).
 nonisolated extension CGRect {
     /// Whether a pointer moving from `from` to `to` heads for this rect (a
-    /// shown card): `to` lies in it, or in the triangle from `from` to its
-    /// nearer edge. A target it crosses on the way then does not take the
-    /// card over. Screen coordinates; webviews/src/ui/hoverIntent.ts
-    /// (`aimingAt`) has the same test.
+    /// shown card): `to` lies in it, or the move heads for it (its step
+    /// toward the card is at least half its step along it) and `to` lies in
+    /// the triangle from `from` to its nearer edge. A target it crosses on
+    /// the way then does not take the card over. Screen coordinates; webviews/src/ui/hoverIntent.ts
+    /// (`aimingAt`, for submenus) has the triangle without the heading test:
+    /// a submenu sits beside its row, while a card hangs off a whole strip or
+    /// list that the pointer runs along.
     public func isAimedAt(from: CGPoint?, to: CGPoint?) -> Bool {
         guard let from, let to, width > 0, height > 0, from != to else { return false }
         if contains(to) { return true }
         let beside = from.x < minX || from.x > maxX
+        // The move must head for the card more than it runs along it: a pointer sliding across a
+        // tab strip or down a list with a pixel of drift toward the card is not aiming.
+        let dx = to.x - from.x
+        let dy = to.y - from.y
+        let toward = beside ? (from.x < minX ? dx : -dx) : (from.y < minY ? dy : -dy)
+        let along = beside ? abs(dy) : abs(dx)
+        guard toward > 0, toward * 2 >= along else { return false }
         let a: CGPoint
         let b: CGPoint
         if beside {

@@ -8,12 +8,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * The timing, in ms. AppKit's tooltip waits `NSInitialToolTipDelay` (about 1000 ms at the default
- * setting); 800 ms is the step under it: it reads as the Mac's own, and a deliberate rest is not a
- * wait. Mirrors `HoverIntentTiming.standard`.
+ * setting). cmux waits 450 ms (Leo, 2026-10-14: 400-500): a pointer sweeping across a toolbar
+ * button is on it for 30-100 ms, far under the delay, while a deliberate rest gets its answer in
+ * under half a second. Mirrors `HoverIntentTiming.standard`.
  */
 export const HOVER_INTENT = {
   /** Pointer rest before the first tooltip of a group shows. */
-  tooltipDelay: 800,
+  tooltipDelay: 450,
   /** After the last tooltip hid, how long the next one still shows at once. */
   tooltipWarm: 500,
   /** Pointer rest on a row before its hover card shows. */
@@ -41,6 +42,8 @@ export const realClock: HoverClock = {
  */
 export class HoverGroup {
   private active: HoverIntent<unknown> | null = null;
+  /** Intents of the group waiting out their delay. */
+  private readonly waiting = new Set<HoverIntent<unknown>>();
   private cooling: unknown;
   private hot = false;
 
@@ -73,10 +76,20 @@ export class HoverGroup {
     }, this.warmFor);
   }
 
-  /** A click, a key or a scroll: what shows goes, and the next one waits the full delay. */
+  /** @internal An intent of the group started or stopped waiting. */
+  waits(by: HoverIntent<unknown>, waiting: boolean) {
+    if (waiting) this.waiting.add(by);
+    else this.waiting.delete(by);
+  }
+
+  /**
+   * A click, a key or a scroll: what shows goes, what waits is dropped (a toolbar hint must not pop
+   * up while typing), and the next one waits the full delay.
+   */
   cool() {
     this.clock.clear(this.cooling);
     this.cooling = undefined;
+    for (const intent of this.waiting) intent.cancelWait();
     this.active?.hideNow();
     this.active = null;
     this.hot = false;
@@ -87,7 +100,8 @@ export class HoverGroup {
 export const tooltipGroup = new HoverGroup();
 
 export interface HoverIntentOptions<T> {
-  show(target: T): void;
+  /** `instant`: a warm group's (or a swap from one shown target to the next): no fade in. */
+  show(target: T, instant: boolean): void;
   hide(target: T): void;
   /** Rest before the first shows (default: the tooltip delay). */
   delay?: number;
@@ -134,9 +148,11 @@ export class HoverIntent<T> {
       return;
     }
     this.pending = target;
+    this.group.waits(this as HoverIntent<unknown>, true);
     this.timer = this.clock.set(() => {
       this.timer = undefined;
       this.pending = null;
+      this.group.waits(this as HoverIntent<unknown>, false);
       this.showNow(target);
     }, delay);
   }
@@ -167,31 +183,40 @@ export class HoverIntent<T> {
 
   private showNow(target: T) {
     const was = this.current;
+    // The first of a cold group fades in; a warm neighbor's, or a swap, is there at once.
+    const instant = this.group.warm || was !== null;
     if (was !== null && was !== target) this.options.hide(was);
     this.current = target;
     this.group.shown(this as HoverIntent<unknown>);
-    this.options.show(target);
+    this.options.show(target, instant);
+  }
+
+  /** @internal The group cooled: drop any wait. */
+  cancelWait() {
+    this.cancel();
   }
 
   private cancel() {
     if (this.timer !== undefined) this.clock.clear(this.timer);
     this.timer = undefined;
     this.pending = null;
+    this.group.waits(this as HoverIntent<unknown>, false);
   }
 }
 
 /**
- * React state for a `HoverIntent`: `shown` is the target that shows. `hover(target)` from pointer
- * enter/leave, `dismiss()` on press, key or scroll.
+ * React state for a `HoverIntent`: `shown` is the target that shows, `instant` whether it came at
+ * once (a warm group's: no fade in). `hover(target)` from pointer enter/leave, `dismiss()` on press,
+ * key or scroll.
  */
 export function useHoverIntent<T>(options: { delay?: number; group?: HoverGroup; clock?: HoverClock } = {}) {
-  const [shown, setShown] = useState<T | null>(null);
+  const [state, setState] = useState<{ shown: T | null; instant: boolean }>({ shown: null, instant: false });
   const intent = useRef<HoverIntent<T> | null>(null);
   if (!intent.current)
     intent.current = new HoverIntent<T>({
       ...options,
-      show: (target) => setShown(() => target),
-      hide: () => setShown(null),
+      show: (target, instant) => setState({ shown: target, instant }),
+      hide: () => setState({ shown: null, instant: false }),
     });
   useEffect(() => {
     const current = intent.current;
@@ -206,7 +231,7 @@ export function useHoverIntent<T>(options: { delay?: number; group?: HoverGroup;
     }),
     [controller],
   );
-  return { shown, ...actions };
+  return { shown: state.shown, instant: state.instant, ...actions };
 }
 
 export type Point = { x: number; y: number };

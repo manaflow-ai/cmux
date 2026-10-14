@@ -7,8 +7,9 @@ import CmuxNextWakeups
 /// timer, and turns the world into the machine's events: pointer moves from
 /// the sources, a fresh hit test of the pointer after any geometry change
 /// (content can move under a still pointer, and tracking areas then send
-/// nothing), dismissals, suppressions and removed targets. Nothing polls:
-/// the only timer is a one-shot `DemandTimer`, armed only in a pending,
+/// nothing), dismissals, suppressions and removed targets. Nothing polls
+/// while no card shows (a pointer resting on a card is the one exception,
+/// below): the only timer is a one-shot `DemandTimer`, armed only in a pending,
 /// leaving, grace or pinned phase; the event monitor for dismissals exists only
 /// while a card is pending or shown.
 ///
@@ -16,7 +17,8 @@ import CmuxNextWakeups
 /// target toward the card (the safe triangle, `CGRect.isAimedAt`) does not hand the
 /// card to a target it crosses, and a pointer resting on the card keeps it;
 /// the card ignores the mouse, so each leave deadline looks where the
-/// pointer is (one timer per grace while the pointer rests on the card).
+/// pointer is (one timer per grace, about five a second, while the pointer
+/// rests on the card; any move, click, key or the app going inactive ends it).
 @MainActor
 public final class HoverCardCoordinator {
     public private(set) var machine = HoverCardMachine()

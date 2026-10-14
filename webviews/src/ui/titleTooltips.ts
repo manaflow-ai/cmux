@@ -103,7 +103,33 @@ export function installTooltips(
     }
     return element.getAttribute("data-tooltip") ?? "";
   };
-  const show = () => {
+  // The fade out under way: it ends with the tooltip hidden, unless a show comes first.
+  let ending: number | undefined;
+  const endFade = () => {
+    if (ending !== undefined) win.clearTimeout(ending);
+    ending = undefined;
+    tip.removeEventListener("transitionend", finishFade);
+    tip.removeAttribute("data-ending-style");
+  };
+  function finishFade(event?: Event) {
+    if (event && event.target !== tip) return;
+    endFade();
+    tip.hidden = true;
+  }
+  /** The longest of the tooltip's transitions now, in ms (0 with no stylesheet, as in a test page). */
+  const fadeMs = () => {
+    const times = (value: string) =>
+      value
+        .split(",")
+        .map((part) => part.trim())
+        .map((part) => (part.endsWith("ms") ? parseFloat(part) : part.endsWith("s") ? parseFloat(part) * 1000 : 0));
+    const style = win.getComputedStyle(tip);
+    const durations = times(style.transitionDuration ?? "");
+    const delays = times(style.transitionDelay ?? "");
+    return Math.max(0, ...durations.map((duration, index) => duration + (delays[index] ?? 0)).filter(Number.isFinite));
+  };
+  /** Shows `target`'s tooltip: fading in and rising, or at once when `instant` (a warm group's). */
+  const show = (instant = true) => {
     if (!target?.isConnected) return;
     const text = textOf(target);
     if (!text) return;
@@ -120,6 +146,10 @@ export function installTooltips(
     } else tip.replaceChildren(label);
     const anchor = target.getBoundingClientRect();
     const truncated = clips(target);
+    const fadeIn = !instant && (tip.hidden === true || ending !== undefined);
+    endFade();
+    tip.toggleAttribute("data-instant", !fadeIn);
+    tip.toggleAttribute("data-starting-style", fadeIn);
     tip.hidden = false;
     let natural: number | undefined;
     if (truncated) {
@@ -143,6 +173,11 @@ export function installTooltips(
     });
     tip.style.left = `${position.left}px`;
     tip.style.top = `${position.top}px`;
+    if (fadeIn) {
+      // The starting style is laid out (measuring did that); dropping it runs the fade in.
+      void tip.offsetWidth;
+      tip.removeAttribute("data-starting-style");
+    }
   };
   // The show waits for the next frame: measuring the tooltip lays out the page, and done at once it
   // landed in the frame of a click that opens a menu (a long frame); a click before then cancels it.
@@ -150,7 +185,33 @@ export function installTooltips(
   const hideTip = () => {
     if (frame !== undefined) win.cancelAnimationFrame(frame);
     frame = undefined;
-    tip.hidden = true;
+    if (tip.hidden || ending !== undefined) return;
+    // Fades out (quicker than the fade in), then hides; at once with no transition.
+    tip.removeAttribute("data-starting-style");
+    tip.setAttribute("data-ending-style", "");
+    const ms = fadeMs();
+    if (ms <= 0) {
+      finishFade();
+      return;
+    }
+    tip.addEventListener("transitionend", finishFade);
+    ending = win.setTimeout(finishFade, ms + 50);
+  };
+  // A hide waits for the next frame, and a show before then cancels it: moving straight from one
+  // element to the next (pointerout, then pointerover) swaps the text with no fade out between.
+  let hideFrame: number | undefined;
+  const requestHide = () => {
+    if (frame !== undefined) win.cancelAnimationFrame(frame);
+    frame = undefined;
+    if (hideFrame !== undefined) return;
+    hideFrame = win.requestAnimationFrame(() => {
+      hideFrame = undefined;
+      hideTip();
+    });
+  };
+  const cancelHide = () => {
+    if (hideFrame !== undefined) win.cancelAnimationFrame(hideFrame);
+    hideFrame = undefined;
   };
   // The hover delay and the warm group (ui/hoverIntent.ts) decide when `target` shows.
   const intent = new HoverIntent<Element>({
@@ -158,18 +219,20 @@ export function installTooltips(
     group: options.group ?? (options.clock ? new HoverGroup(HOVER_INTENT.tooltipWarm, options.clock) : tooltipGroup),
     clock: options.clock,
     delay: options.delay,
-    show: (element) => {
+    show: (element, instant) => {
       if (element !== target) return;
+      cancelHide();
+      if (frame !== undefined) win.cancelAnimationFrame(frame);
       frame = win.requestAnimationFrame(() => {
         frame = undefined;
-        show();
+        show(instant);
       });
     },
-    hide: hideTip,
+    hide: requestHide,
   });
   const hide = () => {
     intent.hover(null);
-    hideTip();
+    requestHide();
     target = undefined;
   };
   let quiet: ReturnType<typeof setTimeout> | undefined;
@@ -189,7 +252,8 @@ export function installTooltips(
       return;
     }
     // Straight from one element to the next: the intent swaps them (at once while warm).
-    hideTip();
+    if (frame !== undefined) win.cancelAnimationFrame(frame);
+    frame = undefined;
     target = element;
     intent.hover(element);
   };
@@ -205,6 +269,7 @@ export function installTooltips(
   const dismiss = () => {
     const under = target;
     intent.dismiss();
+    cancelHide();
     hideTip();
     target = under;
   };
@@ -240,6 +305,7 @@ export function installTooltips(
     doc.removeEventListener("scroll", onScroll, true);
     if (quiet !== undefined) clearTimeout(quiet);
     win.removeEventListener("blur", dismiss);
+    endFade();
     tip.remove();
   };
 }

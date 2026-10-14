@@ -21,6 +21,8 @@ function useHint() {
   const intent = useHoverIntent<Element>({ group: tooltipGroup });
   return {
     anchor: intent.shown,
+    /** A warm group's hint: there at once, with no fade in. */
+    instant: intent.instant,
     show: (element: Element, delay?: number) => intent.hover(element, delay),
     hide: () => intent.hover(null),
     dismiss: intent.dismiss,
@@ -92,7 +94,7 @@ export function ToolbarButton({
       </BaseToolbar.Button>
       {hint.anchor ? (
         <Suspense fallback={null}>
-          <LazyCard anchor={hint.anchor} className="ui-hint">
+          <LazyCard anchor={hint.anchor} className="ui-hint" instant={hint.instant}>
             {label}
           </LazyCard>
         </Suspense>
