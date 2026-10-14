@@ -179,6 +179,10 @@ struct TabOverview: View {
     var hiddenTabId: String?
     /// Cards take taps and pinches (the grid is settled).
     var gridInteractive: Bool
+    /// Cards take swipes (the grid is settled, or a zoom is heading to it:
+    /// Safari closes a card swiped during the zoom-out). Taps still wait
+    /// for the grid to settle.
+    var swipeInteractive = false
     /// The bottom bar takes taps (settled, or a zoom heading here: Done reverses it).
     var controlsInteractive: Bool
     /// Scroll offset and content origin, written on every scroll frame
@@ -240,9 +244,11 @@ struct TabOverview: View {
                                 onOpen: { onSelect(tab.id) },
                                 onClose: { Task { _ = await onClose(tab.id) } })
                             .contentShape(.rect)
-                            .onTapGesture { onSelect(tab.id) }
+                            .onTapGesture { if gridInteractive { onSelect(tab.id) } }
                             // Swipe left to close (CardSwipe).
                             .gesture(CardSwipeGesture { phase in
+                                // The card the zoom is landing on stays put.
+                                guard gridInteractive || tab.id != hiddenTabId else { return }
                                 let rm = UIAccessibility.isReduceMotionEnabled
                                 switch phase {
                                 case .changed(let dx):
@@ -312,7 +318,7 @@ struct TabOverview: View {
             .ignoresSafeArea()
             .scaleEffect(1.06 - 0.06 * shown)
             .blur(radius: 10 * (1 - shown))
-            .allowsHitTesting(gridInteractive)
+            .allowsHitTesting(gridInteractive || swipeInteractive)
 
             // Glass ignores inherited opacity; keep hidden controls out of
             // the hierarchy instead.

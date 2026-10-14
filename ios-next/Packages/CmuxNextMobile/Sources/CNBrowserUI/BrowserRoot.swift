@@ -275,6 +275,7 @@ struct BrowserScreen: View {
                                 // the live view still stands in for its card.
                                 ? (tabs.activeTerminal != nil && gridSettledKey == nil ? tabs.activeKey : nil) : zoomTabId,
                             gridInteractive: zoomState.gridInteractive,
+                            swipeInteractive: zoomState.phase == .animating && zoomState.headingToOverview,
                             controlsInteractive: overviewVisible && zoomState.headingToOverview,
                             scroll: gridScroll, position: $overviewPosition,
                             leadingItem: leadingItem,
