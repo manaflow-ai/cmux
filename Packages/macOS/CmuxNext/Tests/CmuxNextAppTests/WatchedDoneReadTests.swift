@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
 @testable import CmuxNextDaemon
@@ -25,9 +26,11 @@ struct WatchedDoneReadTests {
     /// Delivers one daemon notification (`source`, `level`, `title`) to a tab whose OSC 7501
     /// records are `records`, seen as `visibility`.
     static func arrive(source: String, level: String, title: String, records: String = "[]",
+                       marker: TabNotification? = nil,
                        visibility: TerminalVisibility, showcase: Bool = false) throws -> Arrival {
+        _ = NSApplication.shared
         let store = DaemonStore()
-        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_7")])
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_7", notification: marker)])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let line = #"{"type":"stream_item","item":{"kind":"snapshot","snapshot":{"terminals":[{"id":"term_7","extra":{"program_status":\#(records)}}],"extra":{"state":{}}}}}"#
@@ -65,6 +68,13 @@ struct WatchedDoneReadTests {
     func anAskOrAnErrorStaysUnreadInAWatchedPane(_ level: String, _ title: String) throws {
         let arrival = try Self.arrive(source: "agent", level: level, title: title, visibility: Self.watched)
         #expect(!arrival.read, "\(title) needs the user even while they watch")
+    }
+
+    @Test(arguments: [NotificationLevel.warning, .error])
+    func aWatchedTurnLeavesAnEarlierUnreadAskOrErrorUnread(_ level: NotificationLevel) throws {
+        let marker = TabNotification(notification: NotificationID(rawValue: 4), unread: true, level: level, source: "agent")
+        let arrival = try Self.arrive(source: "agent", level: "info", title: "Claude finished", marker: marker, visibility: Self.watched)
+        #expect(!arrival.read, "reading the tab would read the \(level) the user has not seen")
     }
 
     @Test func aTurnThatFinishesUnwatchedStaysUnread() throws {
