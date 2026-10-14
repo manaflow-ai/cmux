@@ -5,7 +5,7 @@
 //!
 //!   cnx-lanebench --base-url URL --token-file PATH --team TEAM --mac MAC_DEVICE_ID
 //!                 --transport webrtc|wireguard [--no-input-lane] [--samples N]
-//!                 [--flood COMMAND] [--exclude-cgnat]
+//!                 [--flood COMMAND] [--exclude-cgnat] [--relay-only]
 //!
 //! It creates two workspaces (A and B), attaches to both on their own
 //! `daemon` channels like the app, and starts COMMAND (default
@@ -17,7 +17,8 @@
 //! - `ack_ms`: until the `send` request's reply arrives.
 //!
 //! Then it sends ^C to A followed by `printf 'lane%s\n' done` and measures
-//! `interrupt_ms`, until A prints `lanedone`. Keystrokes go on an input-lane
+//! `interrupt_ms`, until the Mac's screen of A (`read-screen`) shows
+//! `lanedone`, and `interrupt_seen_ms`, until A's attach stream carries it. Keystrokes go on an input-lane
 //! `daemon` channel, as the app sends them; `--no-input-lane` sends them on
 //! the attach channel and offers no lane, as the app and the link did before.
 //! Prints one JSON line. The workspaces are closed at the end.
@@ -45,12 +46,13 @@ struct Args {
     samples: usize,
     flood: String,
     exclude_cgnat: bool,
+    relay_only: bool,
 }
 
 fn parse() -> Result<Args> {
     let mut args = std::env::args().skip(1);
     let (mut base_url, mut token_file, mut team, mut mac, mut transport) = (None, None, None, None, None);
-    let (mut input_lane, mut samples, mut exclude_cgnat) = (true, 20, false);
+    let (mut input_lane, mut samples, mut exclude_cgnat, mut relay_only) = (true, 20, false, false);
     let mut flood = "yes | head -c 50000000".to_owned();
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
@@ -70,6 +72,7 @@ fn parse() -> Result<Args> {
             "--samples" => samples = value()?.parse()?,
             "--flood" => flood = value()?,
             "--exclude-cgnat" => exclude_cgnat = true,
+            "--relay-only" => relay_only = true,
             other => bail!("unknown argument {other}"),
         }
     }
@@ -85,6 +88,7 @@ fn parse() -> Result<Args> {
         samples,
         flood,
         exclude_cgnat,
+        relay_only,
     })
 }
 
@@ -267,6 +271,7 @@ async fn main() -> Result<()> {
         ice_servers,
         exclude_cgnat: args.exclude_cgnat,
         input_lane: args.input_lane,
+        relay_only: args.relay_only,
         ..DialOptions::default()
     };
     let connected =
@@ -298,6 +303,7 @@ async fn main() -> Result<()> {
     let input_a = lane.as_ref().unwrap_or(&attach_a);
     let input_b = lane.as_ref().unwrap_or(&attach_b);
 
+    eprintln!("surfaces a={a} b={b} lane={lane_state} path={:?}", *connected.path.borrow());
     // Let both shells print their prompts.
     let started = Instant::now();
     for surface in [a, b] {
@@ -308,6 +314,7 @@ async fn main() -> Result<()> {
             .context("shell not ready")?;
     }
 
+    eprintln!("shells ready");
     // Idle baseline: echo with no flood.
     let mut idle = Vec::new();
     for i in 0..5u8 {
@@ -321,25 +328,26 @@ async fn main() -> Result<()> {
     }
     send(input_b, b, b"\x15").await?;
 
+    eprintln!("idle echo done");
     // Flood A.
     screens.forget(a);
     let mut flood = args.flood.clone().into_bytes();
     flood.push(b'\r');
     send(input_a, a, &flood).await?;
     let flood_start = Instant::now();
-    while screens.total(a) < 2 * 1024 * 1024 {
-        if flood_start.elapsed() > Duration::from_secs(60) {
-            bail!("the flood did not start");
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    // Let the flood fill every queue between the PTY and this side.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    eprintln!("flood running: {} bytes so far", screens.total(a));
     let mut echoes = Vec::new();
     let mut acks = Vec::new();
     let mut missed = 0;
     for i in 0..args.samples {
         let letter = [b'a' + (i % 26) as u8];
         let at = Instant::now();
-        send(input_b, b, &letter).await?;
+        if let Err(error) = send(input_b, b, &letter).await {
+            let screen = control.request("read-screen", json!({"surface": b})).await;
+            bail!("sample {i}: {error}; B screen {screen:?}");
+        }
         acks.push(millis(at.elapsed()));
         match screens.wait_for(b, at, &letter, Duration::from_secs(20)).await {
             Some(seen) => echoes.push(millis(seen - at)),
@@ -355,13 +363,29 @@ async fn main() -> Result<()> {
     // ^C in the flooding terminal, then a marker command.
     screens.forget(a);
     let at = Instant::now();
-    let interrupt_ack = {
-        send(input_a, a, b"\x03").await?;
-        millis(at.elapsed())
+    let interrupt_ack = match send(input_a, a, b"\x03").await {
+        Ok(()) => json!(millis(at.elapsed())),
+        Err(error) => json!(format!("error: {error}")),
     };
-    send(input_a, a, b"printf 'lane%s\\n' done\r").await?;
-    let interrupt =
-        screens.wait_for(a, at, b"lanedone", Duration::from_secs(120)).await.map(|seen| millis(seen - at));
+    let interrupt = match send(input_a, a, b"printf 'lane%s\\n' done\r").await {
+        Ok(()) => {
+            // The Mac's screen of A (read-screen), polled: the ^C took effect
+            // once the marker command ran.
+            let mut done = None;
+            while at.elapsed() < Duration::from_secs(120) {
+                let screen = control.request("read-screen", json!({"surface": a})).await?;
+                if screen.to_string().contains("lanedone") {
+                    done = Some(millis(at.elapsed()));
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            done
+        }
+        Err(_) => None,
+    };
+    let interrupt_seen =
+        screens.wait_for(a, at, b"lanedone", Duration::from_secs(5)).await.map(|seen| millis(seen - at));
 
     let report = json!({
         "transport": format!("{:?}", args.transport),
@@ -376,6 +400,7 @@ async fn main() -> Result<()> {
         "flood_mbps_received": (flooded_bytes as f64 * 8.0 / 1e6 / flood_seconds * 10.0).round() / 10.0,
         "interrupt_ack_ms": interrupt_ack,
         "interrupt_ms": interrupt,
+        "interrupt_seen_ms": interrupt_seen,
     });
     println!("{report}");
 

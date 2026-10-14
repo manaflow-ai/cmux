@@ -370,3 +370,42 @@ async fn webrtc_input_lane_falls_back_with_an_older_mac() {
 async fn wireguard_input_lane_falls_back_with_an_older_mac() {
     input_lane(TransportKind::WireGuard, false).await;
 }
+
+/// Throughput probe (run with --ignored --nocapture).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore]
+async fn throughput_probe() {
+    for kind in [TransportKind::WebRtc, TransportKind::WireGuard] {
+        let server = FakeSignaling::start(FakeOptions::default()).await;
+        let phone_id = uuid::Uuid::new_v4().to_string();
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+        let _mac_task = spawn_echo_mac(mac);
+        let phone =
+            SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+        let connected =
+            dial::connect(&phone, &mac_id, kind, &options(), LinkConfig::default()).await.expect("dial");
+        let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+        let (sender, mut receiver) = channel.split();
+        let total = 20_000_000usize;
+        let started = std::time::Instant::now();
+        let writer = tokio::spawn(async move {
+            let mut sent = 0;
+            while sent < total {
+                sender.send(Bytes::from(vec![1u8; 256 * 1024])).await.unwrap();
+                sent += 256 * 1024;
+            }
+            sender
+        });
+        let mut got = 0;
+        while got < total {
+            if let Some(ChannelEvent::Data(b)) = receiver.recv().await {
+                got += b.len();
+            }
+        }
+        let secs = started.elapsed().as_secs_f64();
+        eprintln!("{kind:?}: {:.1} Mbit/s each way", got as f64 * 8.0 / 1e6 / secs);
+        drop(writer.await);
+        connected.link.close("done");
+    }
+}
