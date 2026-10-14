@@ -18,12 +18,14 @@
 //! chooses.
 //!
 //! `PATH` is not owned: a caller may supply it. The daemon keeps its
-//! `claude` shim directory first on it ([`keep_shim_first_on_path`]).
+//! `claude` and `codex` shim directory first on it
+//! ([`keep_shim_first_on_path`]), and the integrated shell keeps it first
+//! after the user's startup files (`CMUX_TUI_AGENT_SHIMS`).
 //!
 //! Warnings name the dropped key only; a caller value is never logged.
 
 /// Keys the daemon always owns. A caller value for one of them is dropped.
-pub const DAEMON_OWNED_ENV_KEYS: [&str; 13] = [
+pub const DAEMON_OWNED_ENV_KEYS: [&str; 14] = [
     "CMUX_TUI_SOCKET",
     "CMUX_BROWSER_HOST_SOCKET",
     "CMUX_MUX_SOCKET",
@@ -36,6 +38,9 @@ pub const DAEMON_OWNED_ENV_KEYS: [&str; 13] = [
     "AGENT_BROWSER_PLUGINS",
     "AGENT_BROWSER_SESSION",
     "CMUX_TUI_CLAUDE_WRAPPER_ACTIVE",
+    // The agent shim directory the shell integration keeps first on PATH
+    // (`shell_integration::AGENT_SHIMS_ENV`).
+    "CMUX_TUI_AGENT_SHIMS",
     // The terminal's launch credential (plans/cmux-next/identity.md section 2).
     "CMUX_LAUNCH_CREDENTIAL",
 ];
