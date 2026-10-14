@@ -1,5 +1,5 @@
-# Fogline: soft grey surfaces, low-glare contrast and a blue accent. A cmux theme (light pair: Fogline Light).
-# cmux-accent = #2c67c5
+# Soft Blue: soft grey surfaces, low-glare contrast and a blue accent. A cmux theme (light pair: Soft Blue Light).
+# cmux-accent = #3666f0
 palette = 0=#2f2f2f
 palette = 1=#f06c63
 palette = 2=#5fc28a
@@ -15,10 +15,10 @@ palette = 11=#f6c770
 palette = 12=#7aa7f0
 palette = 13=#c9a6f5
 palette = 14=#7ad3df
-palette = 15=#fdfdfd
+palette = 15=#ffffff
 background = #181818
-foreground = #fdfdfd
-cursor-color = #fdfdfd
+foreground = #ffffff
+cursor-color = #ffffff
 cursor-text = #181818
 selection-background = #24395a
-selection-foreground = #fdfdfd
+selection-foreground = #ffffff

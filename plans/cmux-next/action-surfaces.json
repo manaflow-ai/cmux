@@ -27225,16 +27225,22 @@
                 "value" : "Vesper"
               },
               {
-                "title" : "Fogline",
+                "title" : "Soft Blue",
                 "title_key" : null,
                 "title_table" : null,
-                "value" : "Fogline"
+                "value" : "Soft Blue"
               },
               {
-                "title" : "Kiln",
+                "title" : "Clay Orange",
                 "title_key" : null,
                 "title_table" : null,
-                "value" : "Kiln"
+                "value" : "Clay Orange"
+              },
+              {
+                "title" : "Olive Grey",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Olive Grey"
               },
               {
                 "title" : "Rose Pine Dawn",
@@ -27255,16 +27261,16 @@
                 "value" : "GitHub Light Default"
               },
               {
-                "title" : "Fogline Light",
+                "title" : "Soft Blue Light",
                 "title_key" : null,
                 "title_table" : null,
-                "value" : "Fogline Light"
+                "value" : "Soft Blue Light"
               },
               {
-                "title" : "Kiln Light",
+                "title" : "Clay Orange Light",
                 "title_key" : null,
                 "title_table" : null,
-                "value" : "Kiln Light"
+                "value" : "Clay Orange Light"
               }
             ]
           },
@@ -30343,16 +30349,22 @@
                     "value" : "Vesper"
                   },
                   {
-                    "title" : "Fogline",
+                    "title" : "Soft Blue",
                     "title_key" : null,
                     "title_table" : null,
-                    "value" : "Fogline"
+                    "value" : "Soft Blue"
                   },
                   {
-                    "title" : "Kiln",
+                    "title" : "Clay Orange",
                     "title_key" : null,
                     "title_table" : null,
-                    "value" : "Kiln"
+                    "value" : "Clay Orange"
+                  },
+                  {
+                    "title" : "Olive Grey",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Olive Grey"
                   },
                   {
                     "title" : "Rose Pine Dawn",
@@ -30373,16 +30385,16 @@
                     "value" : "GitHub Light Default"
                   },
                   {
-                    "title" : "Fogline Light",
+                    "title" : "Soft Blue Light",
                     "title_key" : null,
                     "title_table" : null,
-                    "value" : "Fogline Light"
+                    "value" : "Soft Blue Light"
                   },
                   {
-                    "title" : "Kiln Light",
+                    "title" : "Clay Orange Light",
                     "title_key" : null,
                     "title_table" : null,
-                    "value" : "Kiln Light"
+                    "value" : "Clay Orange Light"
                   }
                 ]
               },
@@ -32730,16 +32742,22 @@
                         "value" : "Vesper"
                       },
                       {
-                        "title" : "Fogline",
+                        "title" : "Soft Blue",
                         "title_key" : null,
                         "title_table" : null,
-                        "value" : "Fogline"
+                        "value" : "Soft Blue"
                       },
                       {
-                        "title" : "Kiln",
+                        "title" : "Clay Orange",
                         "title_key" : null,
                         "title_table" : null,
-                        "value" : "Kiln"
+                        "value" : "Clay Orange"
+                      },
+                      {
+                        "title" : "Olive Grey",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Olive Grey"
                       },
                       {
                         "title" : "Rose Pine Dawn",
@@ -32760,16 +32778,16 @@
                         "value" : "GitHub Light Default"
                       },
                       {
-                        "title" : "Fogline Light",
+                        "title" : "Soft Blue Light",
                         "title_key" : null,
                         "title_table" : null,
-                        "value" : "Fogline Light"
+                        "value" : "Soft Blue Light"
                       },
                       {
-                        "title" : "Kiln Light",
+                        "title" : "Clay Orange Light",
                         "title_key" : null,
                         "title_table" : null,
-                        "value" : "Kiln Light"
+                        "value" : "Clay Orange Light"
                       }
                     ]
                   },
@@ -34955,16 +34973,22 @@
                         "value" : "Vesper"
                       },
                       {
-                        "title" : "Fogline",
+                        "title" : "Soft Blue",
                         "title_key" : null,
                         "title_table" : null,
-                        "value" : "Fogline"
+                        "value" : "Soft Blue"
                       },
                       {
-                        "title" : "Kiln",
+                        "title" : "Clay Orange",
                         "title_key" : null,
                         "title_table" : null,
-                        "value" : "Kiln"
+                        "value" : "Clay Orange"
+                      },
+                      {
+                        "title" : "Olive Grey",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Olive Grey"
                       },
                       {
                         "title" : "Rose Pine Dawn",
@@ -34985,16 +35009,16 @@
                         "value" : "GitHub Light Default"
                       },
                       {
-                        "title" : "Fogline Light",
+                        "title" : "Soft Blue Light",
                         "title_key" : null,
                         "title_table" : null,
-                        "value" : "Fogline Light"
+                        "value" : "Soft Blue Light"
                       },
                       {
-                        "title" : "Kiln Light",
+                        "title" : "Clay Orange Light",
                         "title_key" : null,
                         "title_table" : null,
-                        "value" : "Kiln Light"
+                        "value" : "Clay Orange Light"
                       }
                     ]
                   },
