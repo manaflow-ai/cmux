@@ -358,6 +358,7 @@ button.bgtasks-row:hover {
   align-items: stretch;
   justify-content: center;
   gap: 0;
+  overflow: hidden;
 }
 .bgtasks-c2__line {
   height: 20px;
@@ -378,7 +379,7 @@ button.bgtasks-row:hover {
 .bgtasks-c2__kind {
   flex: none;
 }
-/* Line 2 runs under the stop too; the action gives way, the spend stays whole while it fits. */
+/* Line 2 runs under the stop too; the spend gives way first, the action ellipsizes last. */
 .bgtasks-c2__sub {
   height: var(--text-caption--line-height);
   margin-right: -26px;
@@ -387,14 +388,16 @@ button.bgtasks-row:hover {
   align-items: center;
   gap: 4px;
   min-width: 0;
+  overflow: hidden;
   white-space: nowrap;
   color: var(--cv-text-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
 }
+/* The action never shares the shrink; it ellipsizes only once it fills the line alone. */
 .bgtasks-c2__action {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: none;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -402,10 +405,17 @@ button.bgtasks-row:hover {
   flex: none;
 }
 .bgtasks-c2__spend {
-  flex: none;
-  max-width: 100%;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* Workflow progress runs the row's full width on its bottom edge. */
+.bgtasks__progress--row.bgtasks-c2__progress {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 0;
 }
 /* The stop square: filled, muted until hover, on the title line. */
 .bgtasks-stop {

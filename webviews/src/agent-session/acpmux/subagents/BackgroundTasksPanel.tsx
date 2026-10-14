@@ -573,7 +573,7 @@ function GroupedTwoLine({ tasks, now, onOpen, onStop, menu }: LayoutProps & { ta
   );
 }
 
-/// About 40px: icon, title, kind, time and stop over a muted line of what it does now and its spend.
+/// About 40px: icon, title, kind, time and stop over a muted line of what it does now, then its spend.
 function AgentTwoLineRow({
   agent,
   now,
@@ -613,7 +613,7 @@ function AgentTwoLineRow({
         </span>
       )}
       {workflow && (
-        <span className="bgtasks__progress bgtasks__progress--row" aria-hidden="true">
+        <span className="bgtasks__progress bgtasks__progress--row bgtasks-c2__progress" aria-hidden="true">
           <span style={{ width: `${(100 * workflow.done) / workflow.started}%` }} />
         </span>
       )}
