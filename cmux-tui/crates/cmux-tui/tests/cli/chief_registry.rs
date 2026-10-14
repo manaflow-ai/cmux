@@ -268,3 +268,64 @@ fn a_chief_changes_its_own_picture_and_only_the_fields_the_person_allowed() {
         .request("conversation-bind", json!({"participant": "agent_helper", "token": other_token}));
     assert_eq!(reason(&v2(&mut helper, "chief.profile.list", json!({}), None)), "origin.forbidden");
 }
+
+/// S9 layer 1 (cx-ebm.60.9): an agent caller (a Chief turn, an acpmux
+/// session, a tasks agent) may not make or delete a Chief or change a grant
+/// field (tools, harnesses, self-edit, engine); `cmux chief` refuses with the
+/// `origin.forbidden` shape of `--all-sessions` and writes nothing. Profile
+/// text stays open. This is cooperative: it stops a model that tries, not a
+/// process that clears its env.
+#[test]
+fn an_agent_caller_cannot_make_delete_or_widen_a_chief() {
+    let server = HeadlessServer::start("chief-registry-agent");
+    let made = stdout_json(&chief_cli(
+        &server,
+        &["new", "--name", "Ops", "--tools", "tell", "--json"],
+        "",
+    ));
+    let id = made["id"].as_str().unwrap().to_owned();
+    let refused_calls: Vec<Vec<&str>> = vec![
+        vec!["new", "--name", "Rogue", "--json"],
+        vec!["delete", &id, "--json"],
+        vec!["edit", &id, "--tools", "tell,browser", "--json"],
+        vec!["edit", &id, "--harnesses", "codex", "--json"],
+        vec!["edit", &id, "--self-edit", "avatar,instructions", "--json"],
+        vec!["edit", &id, "--harness", "codex", "--json"],
+        vec!["edit", &id, "--model", "other-model", "--json"],
+        vec!["edit", &id, "--effort", "high", "--json"],
+        vec!["edit", &id, "--role", "Boss", "--tools", "browser", "--json"],
+    ];
+    for (key, value) in
+        [("ACPMUX_SESSION_ID", "s_chief_turn"), ("CMUX_AGENT_PRINCIPAL", id.as_str())]
+    {
+        for args in &refused_calls {
+            let output = chief_cli_as(&server, args, "", &[(key, value)]);
+            assert_eq!(output.status.code(), Some(1), "{key} {args:?}: {output:?}");
+            assert!(output.stdout.is_empty(), "{key} {args:?}: {output:?}");
+            let error = json_error(&output);
+            assert_eq!(error["code"], "origin.forbidden", "{key} {args:?}: {error}");
+            assert_eq!(error["details"]["reason"], "agent_caller", "{key} {args:?}: {error}");
+            assert_eq!(error["details"]["marker"], key, "{key} {args:?}: {error}");
+        }
+    }
+
+    // Nothing was written: the same two Chiefs, the same grant, the same rev.
+    let mut home = Conn::open(&server.socket);
+    let listed = ok(&v2(&mut home, "chief.profile.list", json!({}), None));
+    assert_eq!(ids(&listed), vec!["agent_mux".to_owned(), id.clone()], "{listed}");
+    let after = ok(&v2(&mut home, "chief.profile.get", json!({"chief": id}), None));
+    assert_eq!(after["rev"], made["rev"], "{after}");
+    assert_eq!(after["tools"], json!(["tell"]));
+    assert_eq!(after["self_edit"], made["self_edit"]);
+    assert_eq!(after["role"], made["role"]);
+
+    // Profile text is not a grant: an agent caller may change it.
+    let edited = stdout_json(&chief_cli_as(
+        &server,
+        &["edit", &id, "--role", "Night watch", "--json"],
+        "",
+        &[("ACPMUX_SESSION_ID", "s_chief_turn")],
+    ));
+    assert_eq!(edited["role"], "Night watch", "{edited}");
+    assert_eq!(edited["tools"], json!(["tell"]));
+}
