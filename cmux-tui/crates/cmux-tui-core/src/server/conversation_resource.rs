@@ -21,8 +21,8 @@ use serde_json::{Value, json};
 use super::conversations::commit_op;
 use super::{
     MessageWriter, Mux, MuxEvent, OutboundStream, ResourceError, ResourceOperation,
-    ResourceWorkerPermit, StreamPublicId, send_resource_response, session_stream,
-    trusted_local_resource_client,
+    ResourceWorkerPermit, StreamPublicId, conversation_resource_client, send_resource_response,
+    session_stream,
 };
 use crate::conversation_store::{ConversationEvent, ConversationRejected};
 use crate::resource_router::ParsedResourceRequest;
@@ -56,7 +56,7 @@ pub(super) fn handle(
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
     if operation == Operation::ConversationEvents {
-        let prepared = trusted_local_resource_client(mux, client, operation)
+        let prepared = conversation_resource_client(mux, client, operation)
             .and_then(|()| events::prepare(mux, client, writer, &request));
         return match prepared {
             Ok((result, start)) => {
@@ -70,7 +70,7 @@ pub(super) fn handle(
             Err(error) => send_resource_response(writer, id, operation, Err(error)),
         };
     }
-    let result = trusted_local_resource_client(mux, client, operation)
+    let result = conversation_resource_client(mux, client, operation)
         .and_then(|()| answer(mux, client, operation, &request));
     send_resource_response(writer, id, operation, result)
 }

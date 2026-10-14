@@ -10,7 +10,7 @@
 //!
 //! - `subagent`: the subagent whose session the update belongs to.
 //! - `subagents`: subagents this update starts or changes, each
-//!   `{id, parent, name?, task?, prompt?, state, toolCallId?}`, with `parent`
+//!   `{id, parent, name?, task?, prompt?, kind?, state, toolCallId?}`, with `parent`
 //!   null for the session's own subagents and `state` one of `running`,
 //!   `completed`, `failed`, `cancelled` or `disconnected`.
 
@@ -69,6 +69,13 @@ impl SubagentTree {
                 // client drawing the subagent can leave out.
                 if let Some(call) = update.pointer("/_meta/claude/toolUseId") {
                     event.insert("toolCallId".into(), call.clone());
+                }
+                // The kind of agent it is (Claude's subagent_type: Explore,
+                // general-purpose, a user agent), drawn beside its name.
+                if let Some(kind) =
+                    update.pointer("/_meta/claude/subagentType").and_then(Value::as_str)
+                {
+                    event.insert("kind".into(), json!(kind));
                 }
                 event.insert("state".into(), json!("running"));
                 vec![Value::Object(event)]

@@ -119,7 +119,8 @@ usage: cmux history list [--kind <kind,...>] [--range <range>] [--profile <profi
        cmux history restore <restore id>
        cmux history <verb...>   (an app action: show, back, forward, reopen, clear, ...)
 The session daemon keeps history, so these work while the app is closed.
-Every removal of page visits answers a restore id.";
+Every removal of page visits answers a restore id. Removing or clearing a
+closed item deletes it for good: it cannot be reopened.";
 
 const BOOKMARK_HELP: &str = "\
 usage: cmux bookmark list [--folder <folder>] [--profile <profile>] [--limit <n>]

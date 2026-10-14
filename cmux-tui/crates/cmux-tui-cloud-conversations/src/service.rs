@@ -274,6 +274,12 @@ impl CloudConversations {
                 )?;
             }
             let session = CloudSession::new(params, lease.generation + 1)?;
+            // A new app lease (sign-in, account switch), not a renewal of the same one:
+            // the person's other clients (a page) list the inbox again.
+            let fresh = by_app
+                && !(lease.app_held
+                    && lease.session.as_ref().is_some_and(|old| old.account == session.account));
+            let fresh_account = fresh.then(|| session.account.clone());
             lease.generation = session.generation;
             lease.expiring_sent = false;
             lease.expired_sent = false;
@@ -284,9 +290,13 @@ impl CloudConversations {
             });
             lease.session = Some(session);
             lease.app_held = by_app;
-            reply
+            (reply, fresh_account)
         };
+        let (reply, fresh_account) = reply;
         self.inner.notify();
+        if let Some(account) = fresh_account {
+            self.inner.emit(CloudEvent::InboxReset { seq: 0, account });
+        }
         Ok(reply)
     }
 
@@ -422,6 +432,18 @@ impl CloudConversations {
         let (value, _) =
             read_value(self.post("/v1/read", &read_body("conversation.thread", params))?)?;
         Ok(value)
+    }
+
+    /// The account (JWT `sub`) and Stack project (JWT `aud`) of the current
+    /// person's lease, when its token carries both and is no chief token:
+    /// the inputs of the person's Worker user id. Never the token.
+    pub fn lease_person(&self) -> Option<(String, String)> {
+        let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+        let session = lease.session.as_ref()?;
+        if session.agent.is_some() {
+            return None;
+        }
+        Some((session.account.clone()?, session.audience.clone()?))
     }
 
     /// The leased chief's wake queue (`cloud-mux-subscribe`): the agent is

@@ -49,6 +49,10 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+# Whether the client asked for native subagent sessions the way codex-acp 1.10.0
+# reads it: the JetBrains AIR capability in clientCapabilities._meta (its ACP
+# schema strips the draft `subagents` field, so that one does not count).
+NATIVE_SUBAGENTS = False
 SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
 
 
@@ -453,6 +457,44 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m2", "content": {"type": "text", "text": "partial answer"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "codex-subagents" starts two subagents as codex-acp 1.10.0 does: with native
+    # subagent sessions, a subagent_spawned per child and each child's own
+    # updates under its session id; without, only "Start subagent" tool calls.
+    if text == "codex-subagents":
+        children = [("child-a", "/root/read_a", "Read a", "a.txt"), ("child-b", "/root/read_b", "Read b", "b.txt")]
+        for child, path, name, _ in children:
+            if NATIVE_SUBAGENTS:
+                update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": child, "name": name, "task": f"Delegated task for {name}", "capabilities": {}})
+            else:
+                update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"start-{child}", "title": f"Start subagent {path[6:]}", "kind": "other", "status": "completed",
+                             "_meta": {"codex": {"subagent": {"threadId": child, "path": path, "activity": "started"}}}})
+        if NATIVE_SUBAGENTS:
+            for child, _, _, file in children:
+                update(child, {"sessionUpdate": "tool_call", "toolCallId": f"read-{child}", "title": f"Read file '{file}'", "kind": "read", "status": "completed"})
+                update(child, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{file} says hello"}})
+                update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": child, "state": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "both read"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "codex-late-subagent-ask": a native subagent that outlives its parent's turn and asks
+    # for permission after that turn ended (cx-jo8yo): the turn ends at once, then the child
+    # asks under its own session id and says what it was answered.
+    if text == "codex-late-subagent-ask" and NATIVE_SUBAGENTS:
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "late-child", "name": "Late", "task": "Late", "capabilities": {}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+        def late():
+            call = {"toolCallId": "late-1", "title": "touch late.txt", "kind": "edit", "status": "pending"}
+            res = request("session/request_permission", {"sessionId": "late-child", "toolCall": call, "options": [
+                {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
+                {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+            ]})
+            outcome = (res or {}).get("outcome") or {}
+            update("late-child", {"sessionUpdate": "agent_message_chunk", "content": {"type": "text",
+                   "text": "late " + (outcome.get("optionId") or outcome.get("outcome") or "none")}})
+            update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "late-child", "state": "completed"})
+        threading.Thread(target=late, daemon=True).start()
+        return
     # "codex-fail" reports a terminal Codex error in-band, then ends the turn.
     if text == "codex-fail":
         update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Error", "willRetry": False, "additionalDetails": "Selected model is at capacity.", "codexErrorInfo": {"serverOverloaded": {}}}}}})
@@ -582,6 +624,9 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "Authentication required"}})
             continue
         if m == "initialize":
+            global NATIVE_SUBAGENTS
+            air = ((params.get("clientCapabilities") or {}).get("_meta") or {}).get("jetbrains", {}).get("air", {})
+            NATIVE_SUBAGENTS = air.get("version", 0) >= 1 and "nativeSubagentSessions" in air.get("capabilities", [])
             # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
             # session start that take time (MCP servers), for pool latency.
             if os.environ.get("FAKE_INIT_DELAY_MS"):

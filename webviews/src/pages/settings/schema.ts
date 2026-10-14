@@ -41,7 +41,7 @@ export type SchemaRow = {
   summary: LocalizedText | null;
   kind: SettingKind;
   choices?: Choice[];
-  /** A string_list of `choices` in an order the user picks. */
+  /** A string_list of `choices`: true in an order the user picks, false any subset in choice order. */
   ordered?: boolean;
   range?: NumberRange;
   default: unknown;

@@ -35,9 +35,12 @@ extension AppActions {
         // Home is a top page (TOP-SECTION-ITEMS-ARE-PAGES): the active
         // window shows it, from any origin (a focus action). With no window,
         // the store's home workspace opens one; else refused with why.
-        // The channels Home tab (HomeChannelsPageTab), next to the native Home. Registered at
-        // launch so a restored Channels tab finds its provider.
+        // The channels Home tab (HomeChannelsPageTab), next to the native Home, and in DEBUG the Home fixture
+        // (debug.home_native_fixture.open): registered at launch so a restored tab finds its provider (not blank).
         services.pages.register(HomeChannelsPageTab(services: services))
+        #if DEBUG
+        services.pages.register(DebugHomeNativeFixture())
+        #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         registry.bind("home.show") {
             if TopPages.show(.home, services: services) != nil { return }

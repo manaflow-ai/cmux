@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ChoiceOrNumberEditor } from "./ChoiceOrNumberEditor";
+import { ChoiceSetEditor } from "./ChoiceSetEditor";
 import { ColorEditor } from "./ColorEditor";
 import { DomainListEditor } from "./DomainListEditor";
 import { ChatRootsEditor } from "./ChatRootsEditor";
@@ -53,8 +54,10 @@ export function Editor(props: EditorProps): ReactNode {
       return <TimeRangeEditor {...props} />;
     case "string_list":
       // A list of fixed choices in an order the user picks (sidebar.workspaceRow.secondLineOrder),
-      // else free-text tokens (browser.urlsToAlwaysOpenExternally).
-      return row.choices ? <OrderedChoicesEditor {...props} /> : <HostListEditor {...props} />;
+      // any subset of fixed choices (browser.toolbarButtons), else free-text tokens
+      // (browser.urlsToAlwaysOpenExternally).
+      if (!row.choices) return <HostListEditor {...props} />;
+      return row.ordered === false ? <ChoiceSetEditor {...props} /> : <OrderedChoicesEditor {...props} />;
     case "number_list":
     case "string_map":
       // Only cmux-browser and page-hidden keys have these kinds, and the page never lists them (schema.ts).

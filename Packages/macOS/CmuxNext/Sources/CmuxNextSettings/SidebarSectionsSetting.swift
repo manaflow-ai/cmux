@@ -27,7 +27,7 @@ public nonisolated enum SidebarSectionsSetting {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
                           help: SettingsText.keyed("settings.sidebar.cards.tips.help",
-                                                   "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."),
+                                                   "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."),
                           summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showsTips),
                           keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"])

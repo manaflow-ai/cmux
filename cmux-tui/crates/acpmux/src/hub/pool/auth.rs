@@ -94,7 +94,7 @@ impl AuthCache {
                 .get(k)
                 .cloned()
                 .or_else(|| std::env::var(k).ok())
-                .or_else(|| crate::login_env::var(k))
+                .or_else(|| crate::login_env::allowed_var(k))
         };
         let home = dirs::home_dir().unwrap_or_default();
         self.fingerprint_with(family, &env, &home)

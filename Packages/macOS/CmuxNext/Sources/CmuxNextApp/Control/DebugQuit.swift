@@ -5,10 +5,12 @@ import CmuxNextSettings
 /// `debug.quit` reports or drives the automation quit sheet. `{}` reports;
 /// `{open: true}` starts an interactive quit, and `fixture_quit` performs a
 /// DEBUG-only fixture quit. `{press: ...}` answers a sheet or failure alert.
+/// `{wedge_engine_stop: true}` makes engine stop block for quit-deadline checks.
 @MainActor
 enum DebugQuit {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let quit = services.quit
+        if params["wedge_engine_stop"]?.boolValue == true { quit.wedgesEngineStop = true }
         if let choice = params["fixture_quit"]?.stringValue {
             let choices: [String: QuitSessionsChoice] = ["keep": .keep, "end-sessions": .endKeepLayout, "end-everything": .endEverything]
             guard let picked = choices[choice] else { return .object(["error": .string("fixture_quit: keep, end-sessions or end-everything")]) }
@@ -46,6 +48,7 @@ enum DebugQuit {
 
     private static func report(_ quit: QuitCoordinator) -> [String: JSONValue] {
         var result: [String: JSONValue] = ["quitting": .bool(quit.isQuitting), "asking": .bool(quit.sheet != nil),
+                                           "wedges_engine_stop": .bool(quit.wedgesEngineStop),
                                            "activated": .bool(quit.lastAskActivated), "quit_with": quitWith]
         if let failure = quit.failureAlert {
             result["failure"] = .object([

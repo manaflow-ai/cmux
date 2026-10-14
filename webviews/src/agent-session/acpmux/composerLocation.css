@@ -143,7 +143,7 @@
   border: 0;
   border-radius: var(--ui-popup-radius);
   background-color: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
   transform-origin: var(--transform-origin);
 }

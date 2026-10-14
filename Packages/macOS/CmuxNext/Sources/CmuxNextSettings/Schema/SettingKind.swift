@@ -33,4 +33,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     /// the default order (`sidebar.workspaceRow.secondLineOrder`). Exported
     /// as a `string_list` with `choices`, so older readers see a string list.
     case orderedChoices([SettingChoice])
+    /// Any subset of the choices, kept in the choices' order; the page shows
+    /// a switch per choice (`browser.toolbarButtons`). Exported as a
+    /// `string_list` with `choices` and `ordered: false`.
+    case choiceSet([SettingChoice])
 }

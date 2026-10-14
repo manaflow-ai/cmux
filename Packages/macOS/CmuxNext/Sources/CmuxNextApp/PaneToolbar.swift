@@ -2,13 +2,16 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSettings
+import CmuxNextTabs
+import os
 
-/// A pane's "…" at its tab bar's trailing end (Leo 2026-10-12; was cx-kk7lm's row of buttons):
-/// it shows while the pointer is over the pane's top-right corner. Its menu is the strip plus's
-/// (a terminal, a browser, an agent chat, … in this pane), then Split Right, Split Down, the shown
-/// tab's own actions and Toggle Pane Zoom. A chat's pane has none: its header has its own (acpmux
-/// header/ChatHeaderTools.tsx). `tabs.hiddenButtons` hid buttons from the old row, which put them
-/// under "…"; every action is under "…" now, so it no longer applies.
+/// A pane's "…" at its tab bar's trailing end (Leo 2026-10-12; was cx-kk7lm's row of buttons), after
+/// the actions pinned as buttons (`tabs.toolbarButtons`, none by default; Lawrence 2026-10-12): they
+/// show while the pointer is over the tab bar, like its "+". The menu is the strip plus's (a terminal,
+/// a browser, an agent chat, … in this pane), then the actions not pinned (Split Right, Split Down,
+/// the shown tab's own, Toggle Pane Zoom), then Show in Tab Bar, which pins or unpins one. A chat's
+/// pane has none: its header has its own (acpmux header/ChatHeaderTools.tsx).
 @MainActor
 final class PaneToolbar {
     /// What the selected tab is, for its own actions; nil is a chat: no "…".
@@ -16,11 +19,12 @@ final class PaneToolbar {
         case newTab, terminal, browser, other
     }
 
-    /// What the bar follows: the selected tab, its kind and whether the pane is zoomed.
+    /// What the bar follows: the selected tab, its kind, whether the pane is zoomed and the pins.
     struct State: Equatable, Sendable {
         var target: String?
         var kind: Kind?
         var zoomed = false
+        var pinned: [String] = []
     }
 
     let view = PaneToolbarView()
@@ -30,12 +34,16 @@ final class PaneToolbar {
     private(set) var target: String?
     private(set) var kind: Kind?
     private(set) var zoomed = false
+    private(set) var pinned: [String] = []
+    /// Writes the pinned list (`tabs.toolbarButtons`); every pane follows the file.
+    var writePinned: (PaneToolbarButtonsSetting) -> Void = { _ in }
     private var observation: Task<Void, Never>?
 
     init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?) {
         self.registry = registry
         self.newTabMenu = newTabMenu
         view.moreMenu = { [weak self] in self?.moreMenu() }
+        view.onPerform = { [weak self] id in self?.perform(ActionID(rawValue: id)) }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -52,22 +60,32 @@ final class PaneToolbar {
                       // The plus's rows, without its Chromium warmup: "…" is opened for a split as often.
                       pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey)) }
                   })
+        writePinned = { [weak services] next in
+            guard let settings = services?.settings else { return }
+            // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
+            Task {
+                do { try await settings.setSetting(at: PaneToolbarButtonsSetting.configPath, to: next.configValue, by: .currentRun()) } catch {
+                    Logger(subsystem: "com.cmuxterm.app.next", category: "pane-toolbar").error("tabs.toolbarButtons write failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
         // task-owner: lives as long as the pane's view; event-driven (Observation)
         observation = Task { [weak self, weak pane] in
             for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
                 guard let self, let state else { return }
-                update(target: state.target, kind: state.kind, zoomed: state.zoomed)
+                update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned)
             }
         }
     }
 
     private static func state(_ pane: PaneController) -> State {
+        let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
         guard let key = pane.stripModel.selectedID?.rawValue, let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
-            return State()
+            return State(pinned: pinned)
         }
         // The pane's own workspace, not a store scan: this runs for every pane.
         let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
-        return State(target: key, kind: kind(tab, isNewTabPage: TabTitleResolver(services: pane.services).isNewTabPage(tab)), zoomed: zoomed)
+        return State(target: key, kind: kind(tab, isNewTabPage: TabTitleResolver(services: pane.services).isNewTabPage(tab)), zoomed: zoomed, pinned: pinned)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
@@ -93,12 +111,32 @@ final class PaneToolbar {
 
     static let zoom: ActionID = "toggleSplitZoom"
 
-    /// Shows "…" for tab `target` of `kind` (nil: none); lit while the pane is zoomed.
-    func update(target: String?, kind: Kind?, zoomed: Bool = false) {
+    /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit while the pane is zoomed.
+    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = []) {
         self.target = target
         self.kind = kind
         self.zoomed = zoomed
-        view.show(more: target != nil && kind != nil, lit: zoomed && target != nil && kind != nil)
+        self.pinned = pinned
+        let shown = target != nil && kind != nil
+        view.show(shownPins().compactMap(item), more: shown, lit: zoomed && shown)
+    }
+
+    /// The pinned actions the tab can run, in the user's order, as buttons before "…".
+    func shownPins() -> [ActionID] { pinned.map(ActionID.init(rawValue:)).filter(tabActions().contains) }
+
+    /// A pinned action's button: the New Tab page's tool symbols (cx-kk7lm), a zoomed pane's lit zoom.
+    private func item(_ id: ActionID) -> PaneToolbarItem? {
+        guard let registry = registry(), let descriptor = registry.descriptor(for: id) else { return nil }
+        let title = descriptor.title.hasSuffix("…") ? String(descriptor.title.dropLast()) : descriptor.title
+        let lit = zoomed && id == Self.zoom
+        let symbols: [ActionID: String] = ["openDiffViewer": "plusminus", "file.open": "folder", "agentPane.searchChats": "bubble.left.and.text.bubble.right"]
+        return PaneToolbarItem(id: id.rawValue, title: title, symbol: lit ? "arrow.down.right.and.arrow.up.left" : symbols[id] ?? descriptor.symbol,
+                               shortcut: registry.shortcutDisplay(for: id), lit: lit)
+    }
+
+    private func perform(_ id: ActionID) {
+        guard let target else { return }
+        _ = registry()?.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: target), origin: .user))
     }
 
     /// The tab's actions "…" offers: those it can run.
@@ -108,20 +146,42 @@ final class PaneToolbar {
         return Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
     }
 
-    /// "…": what opens in the pane, then the splits and the tab's own actions, with their keys.
+    /// "…": what opens in the pane, the actions without a button with their keys, then Show in Tab Bar.
     private func moreMenu() -> NSMenu? {
         guard let registry = registry(), let target, kind != nil else { return nil }
         let menu = newTabMenu() ?? NSMenu()
-        let own = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target), entries: tabActions().map { .action($0) })
+        let buttons = shownPins()
+        let own = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
+                                           entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
         if !menu.items.isEmpty, !own.items.isEmpty { menu.addItem(.separator()) }
         for item in own.items {
             own.removeItem(item)
             menu.addItem(item)
         }
+        menu.addItem(.separator())
+        menu.addItem(showInTabBarItem(registry: registry))
         return menu
+    }
+
+    /// Show in Tab Bar: one checked row per action the list may pin; choosing one pins or unpins it.
+    private func showInTabBarItem(registry: ActionRegistry) -> NSMenuItem {
+        let item = NSMenuItem(title: PaneToolbarStrings.showInTabBar, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: PaneToolbarStrings.showInTabBar)
+        let setting = PaneToolbarButtonsSetting(pinned: pinned)
+        for id in PaneToolbarButtonsSetting.buttonIDs {
+            guard let descriptor = registry.descriptor(for: ActionID(rawValue: id)) else { continue }
+            let row = NSMenuItem(title: descriptor.title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
+            row.state = pinned.contains(id) ? .on : .off
+            let closure = ActionMenuClosure { [weak self] in self?.writePinned(setting.toggling(id)) }
+            row.target = closure
+            row.representedObject = closure
+            submenu.addItem(row)
+        }
+        item.submenu = submenu
+        return item
     }
 }
 
 enum PaneToolbarStrings {
-    static var more: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
+    static var showInTabBar: String { String(localized: "paneToolbar.showInTabBar", defaultValue: "Show in Tab Bar", bundle: .module) }
 }

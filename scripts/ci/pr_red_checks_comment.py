@@ -27,7 +27,8 @@ MARKER = "<!-- cmux-red-checks -->"
 # (kind, value): "prefix" matches the start of a check name, "name" the whole name.
 TRACKED = (
     ("prefix", "web / "),                            # ci-web.yml jobs (ci.yml `web` caller)
-    ("name", "cmux-next CmuxNextApp size cap"),       # cmux-next.yml app-size job (hq-11)
+    ("name", "cmux-next CmuxNextApp size cap"),       # cmux-next-guards.yml app-size job (hq-11)
+    ("name", "cmux-next crash ratchet"),              # cmux-next-guards.yml crash-ratchet job
 )
 RED = {"failure", "timed_out", "action_required", "startup_failure"}
 GREEN_BODY = MARKER + "\nall web/size checks green"

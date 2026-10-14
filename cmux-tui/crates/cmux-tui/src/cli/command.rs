@@ -832,6 +832,30 @@ fn parse_tab_strings(
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabFocus, selectors, flags, Map::new())
         }
+        // browser-devices-v1: emulate a device in a browser tab (the daemon
+        // keeps it; the engine that shows the tab applies extra.emulation).
+        [selector, "emulate"] => {
+            selectors.insert("tab", "tab", selector)?;
+            let mut params = Map::new();
+            insert_optional_string(&mut params, flags, "device", "device");
+            insert_optional_string(&mut params, flags, "orientation", "orientation");
+            if let Some(custom) = flags.take("custom-json") {
+                let custom = serde_json::from_str(&custom).map_err(|error| {
+                    UsageError::new(format!("invalid --custom-json JSON: {error}"))
+                })?;
+                params.insert("custom".into(), custom);
+            }
+            if params.is_empty() {
+                return Err(UsageError::new(
+                    "tab emulate needs --device, --custom-json or --orientation; `cmux browser devices list` lists the devices",
+                ));
+            }
+            request(ResourceOperation::BrowserTabEmulate, selectors, flags, params)
+        }
+        [selector, "emulate", "clear"] => {
+            selectors.insert("tab", "tab", selector)?;
+            request(ResourceOperation::BrowserTabEmulateClear, selectors, flags, Map::new())
+        }
         [selector, action @ ("pin" | "unpin" | "update" | "zoom" | "restart"), rest @ ..] => {
             selectors.insert("tab", "tab", selector)?;
             state::tab_change(action, rest, selectors, flags)

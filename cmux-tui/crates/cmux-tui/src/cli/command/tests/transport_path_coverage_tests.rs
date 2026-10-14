@@ -49,6 +49,16 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["closed", "clear", "--before-ms", "5", "--keep-newest", "3"], "closed.delete"),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
+        (
+            vec![
+                "tab",
+                TAB,
+                "emulate",
+                "--custom-json",
+                r#"{"title":"Kiosk","screen":{"vertical":{"width":600,"height":1000},"horizontal":{"width":1000,"height":600},"device-pixel-ratio":2}}"#,
+            ],
+            "browser.tab.emulate",
+        ),
         // layout.bulk: one case in cases.rs; the other levels and --end-terminals.
         (vec!["workspace", WORKSPACE, "close", "--others", "--end-terminals"], "layout.bulk"),
         (vec!["screen", "current", "close", "--to-right"], "layout.bulk"),

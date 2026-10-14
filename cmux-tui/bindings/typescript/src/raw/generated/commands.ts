@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06. */
+/* cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85. */
 
 
 import type * as T from "./types.js";
@@ -1571,6 +1571,12 @@ export interface NotifyRequest extends CmuxRequestBase {
   "title": string;
 }
 
+/** Protocol v12; authority: local-admin. */
+export interface PageCredentialRequest extends CmuxRequestBase {
+  cmd: "page-credential";
+}
+export type PageCredentialResult = T.JsonValue;
+
 /** Protocol v7; authority: local-admin. */
 export interface PairingResponseRequest extends CmuxRequestBase {
   cmd: "pairing-response";
@@ -2388,6 +2394,8 @@ export interface UpdateFrontendBrowserTabRequest extends CmuxRequestBase {
   cmd: "update-frontend-browser-tab";
   "favicon_url"?: (string) | null;
   "owner"?: (string) | null;
+  /** Move the frontend browser tab to this browser profile; null clears its profile. */
+  "profile_id"?: (string) | null;
   "surface": T.Id;
   "title"?: (string) | null;
   "url"?: (string) | null;
@@ -2505,6 +2513,14 @@ export interface WaitForRequest extends CmuxRequestBase {
   /** Zero performs one immediate check. */
   "timeout_ms": bigint;
 }
+
+/** Protocol v12; authority: local-admin. */
+export interface WsListenRequest extends CmuxRequestBase {
+  cmd: "ws-listen";
+  "allow_origin"?: (string) | null;
+  "allow_origins"?: (Array<string>) | null;
+}
+export type WsListenResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface ZoomPaneRequest extends CmuxRequestBase {
@@ -2667,6 +2683,7 @@ export type CmuxRequest =
   | NewWorkspaceRequest
   | NoteSizeActivityRequest
   | NotifyRequest
+  | PageCredentialRequest
   | PairingResponseRequest
   | PaneNeighborRequest
   | PasteImageRequest
@@ -2768,6 +2785,7 @@ export type CmuxRequest =
   | UrlOpenSubscribeRequest
   | VtStateRequest
   | WaitForRequest
+  | WsListenRequest
   | ZoomPaneRequest;
 
 /** Command name to request, result, authority, and version mapping. */
@@ -3988,6 +4006,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "page-credential": {
+    request: PageCredentialRequest;
+    result: PageCredentialResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "page-credential-v1";
+    stream: null;
+  };
   "pairing-response": {
     request: PairingResponseRequest;
     result: PairingResponseResult;
@@ -4794,6 +4820,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "ws-listen": {
+    request: WsListenRequest;
+    result: WsListenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "ws-listen-v1";
     stream: null;
   };
   "zoom-pane": {

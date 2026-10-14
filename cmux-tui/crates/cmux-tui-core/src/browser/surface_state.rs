@@ -344,6 +344,20 @@ impl BrowserSurface {
         }
     }
 
+    /// A frontend (WebKit or CEF in the cmux app) renders this page, so it is
+    /// live as soon as it exists: it never attaches a CDP session or streams
+    /// frames, the two ways a daemon browser leaves `Starting` (cx-d0d.82).
+    /// `live_since` and `last_frame_at` stay unset, so frame-stall detection
+    /// stays off.
+    pub(crate) fn mark_frontend_rendered(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !matches!(state.status, BrowserStatus::Starting) {
+            return;
+        }
+        state.status = BrowserStatus::Live;
+        self.mark_state_dirty_locked(&mut state);
+    }
+
     /// Apply the location a frontend-rendered browser reports. Such a
     /// browser has no CDP target, so this is its only source of URL and
     /// title. Returns whether either changed.

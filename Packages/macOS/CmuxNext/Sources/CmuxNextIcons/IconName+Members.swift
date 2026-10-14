@@ -15,6 +15,7 @@ extension IconName {
     nonisolated public static let actionGo = IconName("action.go")
     nonisolated public static let actionHide = IconName("action.hide")
     nonisolated public static let actionMore = IconName("action.more")
+    nonisolated public static let actionMoreVertical = IconName("action.more.vertical")
     nonisolated public static let actionPause = IconName("action.pause")
     nonisolated public static let actionPin = IconName("action.pin")
     nonisolated public static let actionReload = IconName("action.reload")

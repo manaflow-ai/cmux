@@ -17,6 +17,7 @@ extension IconName {
         .actionGo,
         .actionHide,
         .actionMore,
+        .actionMoreVertical,
         .actionPause,
         .actionPin,
         .actionReload,

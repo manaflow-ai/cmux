@@ -20,10 +20,20 @@ pub(super) fn run(
     env: &BTreeMap<String, String>,
     limit: Duration,
 ) -> Result<(bool, String), String> {
+    run_for(argv, env, limit, None)
+}
+
+/// `run` with the login allow-list of the harness `family` (an auth check).
+pub(super) fn run_for(
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    limit: Duration,
+    family: Option<&str>,
+) -> Result<(bool, String), String> {
     let (program, args) = argv.split_first().ok_or("no command")?;
     let mut cmd = Command::new(program);
-    crate::login_env::apply_std(&mut cmd);
-    crate::config::scrub_nested_claude_env(&mut cmd);
+    crate::login_env::apply_std_for(&mut cmd, family, Some(env));
+    crate::config::scrub_nested_claude_env_for(&mut cmd, family);
     cmd.envs(env).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
@@ -109,8 +119,12 @@ pub fn installed_version(path: &str) -> Result<String, String> {
 
 /// A profile's `auth.check` command, with the profile's `env`: exit 0 means
 /// signed in.
-pub fn auth_check(argv: &[String], env: &BTreeMap<String, String>) -> Result<bool, String> {
-    run(argv, env, TIMEOUT).map(|(ok, _)| ok)
+pub fn auth_check(
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    family: &str,
+) -> Result<bool, String> {
+    run_for(argv, env, TIMEOUT, Some(family)).map(|(ok, _)| ok)
 }
 
 /// Whether `latest` is newer than `installed`, by their numeric parts. A

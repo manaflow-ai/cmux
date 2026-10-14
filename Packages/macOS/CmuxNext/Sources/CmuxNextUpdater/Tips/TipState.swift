@@ -1,12 +1,15 @@
 public import Foundation
 
-/// What the tips card remembers on this Mac (UserDefaults, never uploaded):
-/// actions the user ran, tips dismissed, the tip shown today, and the end
-/// of a timed mute ("Mute Tips for 1 Day/Week").
+/// What the tips card remembers on this Mac (UserDefaults, never uploaded;
+/// kept across restarts and updates): actions the user ran, tips dismissed,
+/// tips the person saw on screen (each shows once, ever), the tip chosen
+/// today, and the end of a timed mute ("Mute Tips for 1 Day/Week").
 nonisolated public struct TipState: Equatable, Sendable {
     /// Action ids the user ran (local usage flags).
     public var usedActions: Set<String> = []
     public var dismissed: Set<String> = []
+    /// Tip ids whose card was on screen: never picked again.
+    public var seen: Set<String> = []
     /// The tip chosen for `day` (yyyy-MM-dd, local calendar); a nil tip
     /// means "none today" (dismissed, tried, or nothing left).
     public var shownTip: String?
@@ -29,6 +32,7 @@ nonisolated public struct TipState: Equatable, Sendable {
     static let shownTipKey = "cmux.next.tips.shownTip"
     static let shownDayKey = "cmux.next.tips.shownDay"
     static let mutedUntilKey = "cmux.next.tips.mutedUntil"
+    static let seenKey = "cmux.next.tips.seen"
 
     public init(defaults: UserDefaults) {
         usedActions = Set(defaults.stringArray(forKey: Self.usedKey) ?? [])
@@ -36,6 +40,13 @@ nonisolated public struct TipState: Equatable, Sendable {
         shownTip = defaults.string(forKey: Self.shownTipKey)
         shownDay = defaults.string(forKey: Self.shownDayKey)
         mutedUntil = defaults.object(forKey: Self.mutedUntilKey) as? Date
+        if let seen = defaults.stringArray(forKey: Self.seenKey) {
+            self.seen = Set(seen)
+        } else if let shown = shownTip, let index = TipCatalog.all.firstIndex(where: { $0.id == shown }) {
+            // State from before seen tips were recorded: the rotation went in catalog order, so
+            // every tip up to the last one shown was seen.
+            self.seen = Set(TipCatalog.all[...index].map(\.id))
+        }
     }
 
     public func save(to defaults: UserDefaults) {
@@ -44,6 +55,7 @@ nonisolated public struct TipState: Equatable, Sendable {
         defaults.set(shownTip, forKey: Self.shownTipKey)
         defaults.set(shownDay, forKey: Self.shownDayKey)
         defaults.set(mutedUntil, forKey: Self.mutedUntilKey)
+        defaults.set(seen.sorted(), forKey: Self.seenKey)
     }
 
     /// The local calendar day of `date` (yyyy-MM-dd).
@@ -54,16 +66,21 @@ nonisolated public struct TipState: Equatable, Sendable {
 }
 
 /// Picks the tip of the day (pure). At most one new tip per calendar day,
-/// in catalog order after the last one shown; never a used or dismissed
-/// tip; once today's tip is dismissed or tried, nothing more today.
+/// in catalog order after the last one shown; never a used, dismissed or
+/// seen tip (each tip shows once, ever; a tip a later release adds is
+/// unseen, so it shows once too; with every tip seen, none). Today's tip
+/// stays while it is still on the card (`showing`) even though it is seen;
+/// once it is dismissed, tried, or gone (a restart), nothing more today.
 nonisolated public struct TipChooser {
     public init() {}
 
-    public static func choose(_ catalog: [Tip], state: TipState, today: String) -> (tip: Tip?, state: TipState) {
+    public static func choose(_ catalog: [Tip], state: TipState, today: String, showing: String? = nil) -> (tip: Tip?, state: TipState) {
         var state = state
-        func eligible(_ tip: Tip) -> Bool { !state.dismissed.contains(tip.id) && !state.usedActions.contains(tip.action) }
+        func open(_ tip: Tip) -> Bool { !state.dismissed.contains(tip.id) && !state.usedActions.contains(tip.action) }
+        func eligible(_ tip: Tip) -> Bool { open(tip) && !state.seen.contains(tip.id) }
         if state.shownDay == today {
-            let tip = state.shownTip.flatMap { id in catalog.first { $0.id == id } }.flatMap { eligible($0) ? $0 : nil }
+            let tip = state.shownTip.flatMap { id in catalog.first { $0.id == id } }
+                .flatMap { eligible($0) || ($0.id == showing && open($0)) ? $0 : nil }
             if tip == nil { state.shownTip = nil }
             return (tip, state)
         }
