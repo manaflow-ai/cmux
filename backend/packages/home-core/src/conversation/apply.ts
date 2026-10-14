@@ -8,6 +8,7 @@ import { conversationChanged, upsertParticipant, type ApplyResult, type Commit, 
 import {
   MAX_PARTICIPANTS,
   SYSTEM_ACTOR,
+  type ThreadResolution,
   type ConversationHead,
   type Message,
   type Op,
@@ -22,6 +23,7 @@ import {
   validateParticipant,
   validateParts,
   validateReaction,
+  validateThreadTitle,
   validateTitle
 } from "./validate.ts"
 
@@ -29,7 +31,9 @@ import {
 export const targetMessageId = (op: Op): string | undefined =>
   op.kind === "message.edit" || op.kind === "message.retract" || op.kind === "reaction.add" || op.kind === "reaction.remove" || op.kind === "question.answer"
     ? op.message_id
-    : undefined
+    : op.kind === "thread.update"
+      ? op.root
+      : undefined
 
 export const isSend = (op: Op): boolean => op.kind === "message.send"
 
@@ -71,18 +75,24 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       // Only an agent posts a question, and only a pending one (Rust `bad_question`).
       if (parts.some((part) => part.type === "question" && (actor.kind !== "agent" || part.state.kind !== "pending"))) fail("invalid_parts")
       const replyTo = op.reply_to
+      let parent: Message | undefined
       if (replyTo !== undefined) {
         const replied = request.reply_target
         if (!replied || replied.id !== replyTo.message_id || replied.conversation !== head.id) fail("unknown_message")
         if (replyTo.part_index >= replied!.parts.length) fail("invalid_part_index")
+        parent = replied!
       }
       // A null thread_root is no thread (as serde reads it in Rust).
-      const threadRoot = op.thread_root ?? undefined
-      if (threadRoot !== undefined) {
+      const namedRoot = op.thread_root ?? undefined
+      if (namedRoot !== undefined) {
         const root = request.thread_target
-        // A thread has one level: a reply in a thread cannot be a root (Rust `InvalidThreadRoot`).
-        if (!root || root.id !== threadRoot || root.conversation !== head.id || root.thread_root !== undefined) fail("invalid_thread_root")
+        // thread_root is always the top root: a reply in a thread cannot be a root (Rust `InvalidThreadRoot`).
+        if (!root || root.id !== namedRoot || root.conversation !== head.id || root.thread_root !== undefined) fail("invalid_thread_root")
       }
+      // Threads nest without a limit (conversation-tree-v1, Rust reducer.rs): reply_to is the parent;
+      // a parent in a thread passes its root on; a named root must be the parent's own.
+      if (namedRoot !== undefined && parent !== undefined && parent.id !== namedRoot && parent.thread_root !== namedRoot) fail("invalid_thread_root")
+      const threadRoot = namedRoot ?? parent?.thread_root
       const nowMs = parseRfc3339Millis(now) ?? 0
       // Every head carries the loop guard (O(1), no row window, so work cards cannot hide agent
       // turns). A head written before the counters existed falls back to the row window once.
@@ -196,6 +206,38 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       next.participants = upsertParticipant(head.participants, stamped)
       next.updated_at = now
       return conversationChanged(next, request)
+    }
+    // A thread object lives on its root (conversation-thread-objects-v1). Like an edit it changes
+    // a message, not the list order, so `updated_at` stays; any participant may set it, a Chief too.
+    case "thread.update": {
+      const message = target(head, request, op.root)
+      if (message.thread_root !== undefined) fail("invalid_thread_root")
+      // A null field is absent, as serde reads it in Rust.
+      const title = op.title ?? undefined
+      const status = op.status ?? undefined
+      const owner = op.owner ?? undefined
+      if (title === undefined && status === undefined && owner === undefined) fail("invalid_thread_update")
+      const state: { title?: string; owner?: string; resolved?: ThreadResolution } = { ...message.thread }
+      if (title !== undefined) {
+        // An empty title clears it (readers show the root's first line).
+        validateThreadTitle(title)
+        if (title === "") delete state.title
+        else state.title = title
+      }
+      if (owner !== undefined) {
+        // A current participant who can act: a person, a device or an agent (a Chief), never a
+        // pending invited address.
+        const holder = owner === "" ? undefined : currentParticipant(head, owner as string)
+        if (typeof owner !== "string" || (owner !== "" && (!holder || holder.kind === "address"))) fail("invalid_thread_owner")
+        if (owner === "") delete state.owner
+        else state.owner = owner
+      }
+      if (status === "resolved") state.resolved = { by: request.actor, at: now, seq: head.last_seq }
+      else if (status === "open") delete state.resolved
+      else if (status !== undefined) fail("invalid_thread_update")
+      const { thread: _old, ...rest } = message
+      const empty = state.title === undefined && state.owner === undefined && state.resolved === undefined
+      return updated(next, empty ? rest : { ...rest, thread: state })
     }
     case "title.set": {
       if (head.kind === "dm" || head.kind === "chief") fail("kind_forbids")
