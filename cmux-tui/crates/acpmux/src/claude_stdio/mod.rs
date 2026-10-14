@@ -289,6 +289,12 @@ pub struct Translator {
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
+    /// The skills Claude Code names in its system/init (`skills`, names
+    /// without "/"): their slash commands are tagged as skills.
+    skills: Mutex<Vec<String>>,
+    /// The `availableCommands` list last sent, so a turn's system/init that
+    /// changes nothing sends no new one.
+    sent_commands: Mutex<Option<Vec<Value>>>,
     /// Lines for claude's stdin produced while reading its stdout (answers
     /// to control requests acpmux declines). The reader drains them.
     stdin_replies: Mutex<Vec<Value>>,
@@ -374,6 +380,8 @@ impl Translator {
             steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
+            skills: Mutex::new(Vec::new()),
+            sent_commands: Mutex::new(None),
             stdin_replies: Mutex::new(Vec::new()),
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
@@ -422,6 +430,41 @@ impl Translator {
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
         std::mem::take(&mut *self.stdin_replies.lock().await)
+    }
+
+    /// The `available_commands_update` for Claude's slash commands, an entry
+    /// per command with `_meta.kind: "skill"` on a skill's (the pane's picker
+    /// labels it "Skill"). Without `always`, a list that is unchanged, or
+    /// empty before any was sent, sends nothing.
+    async fn commands_update(&self, always: bool) -> Option<Value> {
+        let skills = self.skills.lock().await.clone();
+        let list: Vec<Value> = self
+            .slash_commands
+            .lock()
+            .await
+            .iter()
+            .map(|c| {
+                let mut entry = json!({"name": c.get("name"), "description": c.get("description")});
+                let name = c.get("name").and_then(Value::as_str).unwrap_or("");
+                let name = name.strip_prefix('/').unwrap_or(name);
+                if !name.is_empty()
+                    && skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
+                {
+                    entry["_meta"] = json!({"kind": "skill"});
+                }
+                entry
+            })
+            .collect();
+        let mut sent = self.sent_commands.lock().await;
+        let unchanged = match sent.as_ref() {
+            Some(before) => *before == list,
+            None => list.is_empty(),
+        };
+        if !always && unchanged {
+            return None;
+        }
+        *sent = Some(list.clone());
+        Some(json!({"sessionUpdate": "available_commands_update", "availableCommands": list}))
     }
 
     pub async fn modes_value(&self) -> Value {

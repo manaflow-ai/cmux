@@ -2018,6 +2018,11 @@ pre.cv-math-source {
     opacity: 1;
   }
 }
+/* A chat reopening where the reader left it stays unseen while older pages bring that row back
+   (cx-odzaz), so it never flashes at its latest message first. */
+.acpmux-scroll[data-seeking] {
+  visibility: hidden;
+}
 /* The transcript's soft edges (New Tab's list, #19791): rows fade in under the header once the view
    has left the start, and out above the composer while more lies below, instead of a hard cut. A
    mask paints nothing, so rows dissolve into whatever is behind the pane (its background or the

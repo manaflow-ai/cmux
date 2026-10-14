@@ -181,6 +181,9 @@ pub mod method {
     pub const SESSION_SET_MODE: &str = "session/set_mode";
     pub const SESSION_SET_MODEL: &str = "session/set_model";
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
+    /// Turn one of a chat's tools on or off (`hub/tools.rs`): `{sessionId,
+    /// id, enabled}`.
+    pub const MUX_SET_TOOLS: &str = "_acpmux/set_tools";
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const CANCEL_REQUEST: &str = "$/cancel_request";
@@ -241,9 +244,14 @@ pub mod method {
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// Personal stats over every session log (`stats.rs`); the local unix
+    /// socket only (the app reaches it there), never a WebSocket origin.
+    pub const MUX_STATS: &str = "_acpmux/stats";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
+    pub const MUX_BOOKMARK_GET: &str = "_acpmux/bookmark_get";
+    pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
     pub const MUX_ASK: &str = "_acpmux/ask";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";

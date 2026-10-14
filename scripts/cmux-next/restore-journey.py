@@ -76,6 +76,9 @@ relaunch (the caller quits it and releases the slot).
 import argparse, atexit, glob, hashlib, http.server, json, os, re, shlex, signal, socket, subprocess, sys, threading, time
 from urllib.parse import parse_qs, urlparse
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import build_names  # noqa: E402  (next to this script; restore-journey-slot.sh copies both)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the app's control socket")
@@ -177,6 +180,17 @@ class App:
         self.env = self.environment(self.pid)
         say(f"app pid {self.pid} tag {self.tag} bundle {self.bundle} id {self.bundle_id}")
         self.check_target()
+
+    def names(self):
+        """The build's own names (build_names.py): socket, session, acpmux home; None if unknown."""
+        try:
+            return build_names.of_app(self.bundle) if self.bundle else None
+        except ValueError:
+            return None
+
+    def sessions(self):
+        """The app daemon's session: of the build key, or `cmux-app-<tag>` from before per-build isolation."""
+        return [s for s in ((self.names() or {}).get("session"), f"cmux-app-{self.tag}") if s]
 
     def check_target(self):
         """Only a tagged DEV build, never a person's cmux: the journey closes rj-* workspaces,
@@ -333,7 +347,7 @@ def daemon_socket():
     --socket <path>`, run from the app bundle): its socket, from its own arguments."""
     out = subprocess.run(["ps", "axo", "args="], capture_output=True, text=True).stdout
     for line in out.splitlines():
-        if line.startswith(APP.bundle + "/") and "--headless" in line and f"--session cmux-app-{APP.tag}" in line:
+        if line.startswith(APP.bundle + "/") and "--headless" in line and any(f"--session {s} " in line + " " for s in APP.sessions()):
             m = re.search(r"--socket (\S+)", line)
             if m:
                 return m.group(1)
@@ -373,14 +387,16 @@ def acpmux_socket_of(home):
 
 
 def acpmux_home():
-    """The app's acpmux home: <account home>/.acpmux/builds/com.cmuxterm.app.debug.<tag slug> (the account's real home,
-    not a slot HOME). Never /tmp/acpmux-<uid> as such: other apps' daemons live there."""
+    """The app's acpmux home: <account home>/.acpmux/builds/<build key> (the account's real home,
+    not a slot HOME; build_names.py has the app's rule), or, for a build from before per-build
+    isolation, builds/com.cmuxterm.app.debug.<tag slug>. Never /tmp/acpmux-<uid> as such: other
+    apps' daemons live there."""
     slug = re.sub(r"[^a-z0-9]+", "-", (APP.tag or "").lower()).strip("-")
+    homes = [APP.names()["acpmux_home"]] if APP.names() else []
     for base in {os.path.expanduser("~"), APP.env.get("HOME", "")}:
-        home = os.path.join(base, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug.lower()).strip("."))
-        if base and os.path.exists(acpmux_socket_of(home)):
-            return home
-    return None
+        if base:
+            homes.append(os.path.join(base, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug).strip(".")))
+    return next((home for home in homes if os.path.exists(acpmux_socket_of(home))), None)
 
 
 class Acpmux:
@@ -755,7 +771,8 @@ def seed_agent():
         # Evidence for the gap: the app's own log about the bind and the page's session report.
         log = subprocess.run(["log", "show", "--last", "4m", "--style", "compact", "--predicate",
                               f"processID == {APP.pid} AND (eventMessage CONTAINS[c] 'conversation-tab' "
-                              "OR eventMessage CONTAINS[c] 'session' OR eventMessage CONTAINS[c] 'bind')"],
+                              "OR eventMessage CONTAINS[c] 'session' OR eventMessage CONTAINS[c] 'bind' "
+                              "OR eventMessage CONTAINS[c] 'refused' OR eventMessage CONTAINS[c] 'agent pane')"],
                              capture_output=True, text=True, timeout=120).stdout
         with open(os.path.join(opts.out, "agent-bind-log.txt"), "w") as f:
             f.write(log)
