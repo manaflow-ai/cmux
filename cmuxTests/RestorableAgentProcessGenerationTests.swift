@@ -283,6 +283,37 @@ struct RestorableAgentProcessGenerationTests {
         )?.processLiveness == .unknown)
     }
 
+    @Test("A legacy PID with contradictory argv is available for restore without identity")
+    func legacyPIDWithContradictoryArgumentsDoesNotBlockRestoreWithoutIdentity() throws {
+        let fixture = try makeFixture(prefix: "cmux-legacy-pid-missing-identity")
+        defer { cleanup(fixture) }
+        let unrelatedProcess = CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/claude"],
+            environment: [
+                "CMUX_WORKSPACE_ID": fixture.workspaceID.uuidString,
+                "CMUX_SURFACE_ID": fixture.panelID.uuidString,
+            ]
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.root.path,
+            fileManager: fixture.fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
+            processArgumentsProvider: { pid in
+                pid == fixture.processID ? unrelatedProcess : nil
+            },
+            processPresenceProvider: { _ in .present },
+            processIdentityProvider: { _ in nil }
+        )
+
+        #expect(index.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.processLiveness == .exited)
+        #expect(!index.hasUncertainStablePanelEntry(panelId: fixture.panelID))
+    }
+
     @Test("Missing identity for a recorded live PID fails closed")
     func missingIdentityForRecordedLivePIDFailsClosed() throws {
         let fixture = try makeFixture(prefix: "cmux-partial-pid-identity")
