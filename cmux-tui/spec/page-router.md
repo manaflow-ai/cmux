@@ -49,6 +49,12 @@ origin `user` on top of the table.
 hq-99's rule (cmux#13742): `history.*` reads only for page `history`; a History delete needs page
 `history` and the person's gesture.
 
+Page `home-channels` may call `workspace.open_url` (cx-ebm.59.3) only on the person's gesture: the
+host proves a click on a web link in the Chief chat with a confirmation for that request on the
+page relay, and the link opens on the right side of the home workspace. The page's own WebSocket
+has no confirmation, so the call is refused there (`gesture_required`). The page may call nothing
+else of the catalog.
+
 ## Events (`page-events-v1`)
 
 A page entry's `events` names the subscribe events (events.md) that page hears. A page relay's
