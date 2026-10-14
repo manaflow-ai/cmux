@@ -14,16 +14,18 @@ import {
  *
  * Every agent comes from its own GitHub release asset (services/vms/images/agents.ts).
  * A version unpacks to /opt/cmux-agents/<binary>/<version>/, and
- * /usr/local/bin/<binary> links to the executable inside it. opencode's
- * /usr/local/bin entry stays the /etc/cmux/opencode wrapper, which execs
- * /usr/local/libexec/cmux-opencode-real, the link that moves instead.
+ * /usr/local/bin/<binary> links to the executable inside it. The
+ * /usr/local/bin entries of claude, codex and opencode stay their /etc/cmux/<binary>
+ * launchers, which exec /usr/local/libexec/cmux-<binary>-real, the link that
+ * moves instead.
  *
  * One script does both jobs:
  *
  * - `install` (the devbox bake): installs the Dockerfile's pins exactly,
  *   checking each download against the sha256 pinned beside the version. It
  *   never reads release metadata.
- * - `update` (a machine opted into "latest", started detached on attach): for
+ * - `update` (a machine opted into "latest", started detached on attach, after
+ *   a just-resumed clone's resume window and at idle priority): for
  *   each agent, installs the newest x.y.z release that has been public for at
  *   least GUEST_AGENT_MIN_RELEASE_AGE_SECONDS and is not above the repository's
  *   latest release, checking the download against the sha256 digest GitHub's
@@ -110,7 +112,8 @@ root = options["root"]
 setting_path = os.path.join(config_dir, "agent-updates")
 state_path = os.path.join(config_dir, "agent-updates.state")
 lock_path = os.path.join(config_dir, ".agent-updates.lock")
-wrapper = os.path.join(config_dir, "opencode")
+# Agents whose /usr/local/bin entry is a cmux launcher (/etc/cmux/<binary>).
+wrapped = ("opencode", "claude", "codex")
 release = re.compile(r"^\d+\.\d+\.\d+$")
 reported_version = re.compile(r"(\d+\.\d+\.\d+)")
 sha256_digest = re.compile(r"^sha256:([0-9a-f]{64})$")
@@ -175,16 +178,19 @@ def standalone_versions(agent):
         return []
     return sorted((name for name in names if release.match(name) and complete(agent, name)), key=release_key)
 
+def wrapper(agent):
+    return os.path.join(config_dir, agent["binary"])
+
 def uses_wrapper(agent):
-    return agent["binary"] == "opencode" and os.path.isfile(wrapper)
+    return agent["binary"] in wrapped and os.path.isfile(wrapper(agent))
 
 def entry(agent):
     return os.path.join(options["binDir"], agent["binary"])
 
 def real_link(agent):
-    # The link whose target is the tool itself: opencode's sits behind the wrapper.
+    # The link whose target is the tool itself: a wrapped agent's sits behind its launcher.
     if uses_wrapper(agent):
-        return os.path.join(options["libexecDir"], "cmux-opencode-real")
+        return os.path.join(options["libexecDir"], "cmux-" + agent["binary"] + "-real")
     return entry(agent)
 
 def probe_version(path):
@@ -200,7 +206,7 @@ def link(agent, version):
     if uses_wrapper(agent):
         os.makedirs(options["libexecDir"], exist_ok=True)
         link_atomic(target, real_link(agent))
-        link_atomic(wrapper, entry(agent))
+        link_atomic(wrapper(agent), entry(agent))
     else:
         link_atomic(target, entry(agent))
 
@@ -213,7 +219,7 @@ def installed(agent):
     if real.startswith(prefix):
         version = real[len(prefix):].split(os.sep)[0]
         if release.match(version) and complete(agent, version) and os.path.isfile(real):
-            if uses_wrapper(agent) and os.path.realpath(entry(agent)) != os.path.realpath(wrapper):
+            if uses_wrapper(agent) and os.path.realpath(entry(agent)) != os.path.realpath(wrapper(agent)):
                 link(agent, version)
             return "standalone", version
     if not os.path.isfile(real):
@@ -535,22 +541,90 @@ export function guestAgentInstallCommand(
   return guestAgentUpdaterCommand(configDir, { ...options, pins }, "install");
 }
 
+/**
+ * How long after a clone resumes the updater stays off the machine. A clone's
+ * disk is slow for its first minutes, and the attach that starts the updater
+ * arrives seconds after resume, while the cmux-tui daemon is still starting:
+ * a full update's downloads and unpacks there stalled the daemon's journal
+ * commits past its readiness timeout, and the Mac saw the daemon port refuse
+ * (https://github.com/manaflow-ai/cmux/issues/20438). Equal to cmux-devbox-boot's
+ * HOUSEKEEPING_DELAY, the window the boot supervisor keeps systemd timers off
+ * the same path; vm-agent-updates.test.ts pins the equality.
+ */
+export const GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS = 10 * 60;
+
+/** A wake this much later than the requested wait is a snapshot resume, not scheduling delay. */
+const GUEST_AGENT_UPDATES_RESUME_JUMP_SLACK_SECONDS = 30;
+
+/** Written by cmux-devbox-boot when it binds a resumed clone (TEMPLATE_RUN_DIR). */
+export const GUEST_CLONE_STARTED_MARKER = "/run/cmux/clone-started";
+
 export type GuestAgentUpdatesPaths = {
   readonly configDir: string;
   readonly log: string;
   readonly updater: GuestAgentUpdaterOptions;
+  readonly cloneStartedMarker: string;
+  readonly resumeWindowSeconds: number;
 };
 
 const GUEST_AGENT_UPDATES_PATHS: GuestAgentUpdatesPaths = {
   configDir: "/etc/cmux",
   log: GUEST_AGENT_UPDATES_LOG,
   updater: GUEST_AGENT_UPDATER_DEFAULTS,
+  cloneStartedMarker: GUEST_CLONE_STARTED_MARKER,
+  resumeWindowSeconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS,
 };
+
+/**
+ * The detached updater run: wait out the resume window, then run the updater
+ * at low priority (nice 19, plus ionice's idle class when ionice is present;
+ * only BFQ honors that class, and -t runs the updater even if it cannot be
+ * set; the window is the real protection). The window is measured from the clone
+ * marker's mtime and re-read after every wait. Two clock hazards are handled:
+ *   * A fork or checkpoint taken while this waits resumes with its clocks
+ *     jumped, so the sleep returns at once, possibly before the fork's boot
+ *     supervisor rewrites the marker. A wake far past the requested wait is
+ *     therefore read as a resume and starts a fresh window from the wake.
+ *   * A marker dated in the future (the clock stepped back after it was
+ *     written) counts as written when it was first seen, and keeps counting
+ *     that way after the clock passes its date, so the wait is never longer
+ *     than one window. A window start later than now (the clock stepped back
+ *     during the wait) is pulled back to now for the same reason.
+ * A machine with no marker (not a clone, or rebooted since) or an expired
+ * window runs at once.
+ */
+export function guestAgentUpdaterLaunchScript(paths: GuestAgentUpdatesPaths = GUEST_AGENT_UPDATES_PATHS): string {
+  const marker = shellQuote(paths.cloneStartedMarker);
+  const window = paths.resumeWindowSeconds;
+  return [
+    `since=0`,
+    `ahead=""`,
+    `while :; do`,
+    `now=$(date +%s)`,
+    `[ "$since" -le "$now" ] || since=$now`,
+    `started=$since`,
+    `if [ -e ${marker} ] && seen=$(date -r ${marker} +%s 2>/dev/null); then`,
+    `if [ "$seen" -gt "$now" ] || [ "$seen" = "$ahead" ]; then ahead=$seen; [ "$since" -gt 0 ] || since=$now; seen=$since; fi`,
+    `if [ "$seen" -gt "$started" ]; then started=$seen; fi`,
+    `fi`,
+    `left=$((started + ${window} - now))`,
+    `[ "$left" -gt 0 ] || break`,
+    `echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) update: waiting \${left}s for the resumed machine to settle"`,
+    `sleep "$left"`,
+    `woke=$(date +%s)`,
+    `if [ $((woke - now)) -gt $((left + ${GUEST_AGENT_UPDATES_RESUME_JUMP_SLACK_SECONDS})) ]; then since=$woke; fi`,
+    `done`,
+    `io=""`,
+    `if command -v ionice >/dev/null 2>&1; then io="ionice -t -c 3"; fi`,
+    `exec nice -n 19 $io ${guestAgentUpdaterCommand(paths.configDir, paths.updater)}`,
+  ].join("\n");
+}
 
 /**
  * The root shell script behind {@link guestAgentUpdatesCommand}: record the
  * setting atomically and, for "latest", start the updater detached (its own
  * session, no stdin, output appended to the log) so the script returns at once.
+ * The detached run is {@link guestAgentUpdaterLaunchScript}.
  */
 export function guestAgentUpdatesScript(
   setting: VmAgentUpdatesSetting,
@@ -565,7 +639,7 @@ export function guestAgentUpdatesScript(
     `mv -f "$tmp" ${shellQuote(`${configDir}/agent-updates`)}`,
   ];
   const launch = setting === "latest"
-    ? [`(setsid nohup ${guestAgentUpdaterCommand(configDir, paths.updater)} </dev/null >>${shellQuote(paths.log)} 2>&1 &)`]
+    ? [`(setsid nohup sh -c ${shellQuote(guestAgentUpdaterLaunchScript(paths))} </dev/null >>${shellQuote(paths.log)} 2>&1 &)`]
     : [];
   return [...record, ...launch].join(" && ");
 }

@@ -5,6 +5,7 @@ import AppKit
 import Carbon.HIToolbox
 import Combine
 import SwiftUI
+import WebKit
 @testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)
@@ -6504,24 +6505,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() throws {
+    func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() async throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId),
-              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
-            XCTFail("Expected focused terminal surface")
-            return
-        }
+        let fixture = try TerminalFocusTestFixture()
+        defer { fixture.tearDown() }
+        try await fixture.startSurface()
+        let window = fixture.window
+        let terminalPanel = fixture.panel
+        let terminalView = terminalPanel.hostedView.surfaceView
 
         focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
 
@@ -6562,16 +6557,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertEqual(repairProbe.repairCount(), 1, "window.sendEvent should run the focused terminal repair path")
         XCTAssertTrue(repairProbe.repairResponder() === orphanResponder, "Repair should evaluate the simulated stranded responder")
-        // Forwarding the repaired keyDown into libghostty only happens once the runtime surface is
-        // live, and the headless xctest host does not always spin one up. Skip rather than wrap the
-        // assertion in `if hasLiveSurface`: a conditional makes the oracle vanish on a host without a
-        // surface and the test still reports green, so the forwarding would be unverified without
-        // anything saying so. A skip says it out loud. The repair routing asserted above is checked
-        // either way, and runs before this point.
-        try XCTSkipUnless(
-            terminalPanel.surface.hasLiveSurface,
-            "No live libghostty surface on this host, so keyDown forwarding cannot be observed"
-        )
         XCTAssertGreaterThan(
             repairProbe.forwardedKeyDownCount(),
             0,
@@ -7102,24 +7087,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping() throws {
+    func testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping() async throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId),
-              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
-            XCTFail("Expected focused terminal surface")
-            return
-        }
+        let fixture = try TerminalFocusTestFixture()
+        defer { fixture.tearDown() }
+        try await fixture.startSurface()
+        let window = fixture.window
+        let terminalPanel = fixture.panel
+        let terminalView = terminalPanel.hostedView.surfaceView
 
         let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
         focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
@@ -7165,18 +7144,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertEqual(repairProbe.repairCount(), 1, "window.sendEvent should run the focused terminal repair path")
         XCTAssertTrue(repairProbe.repairResponder() === strayView, "Repair should evaluate the simulated wrong same-window responder")
-        // A cold surface queues the repaired keyDown and requests an input-demand
-        // runtime start, so the forward into libghostty lands only after that
-        // asynchronous start completes. Give it a chance before judging, and skip
-        // loudly (as the stranded-responder sibling does) when this host never
-        // spins a runtime surface up, so the oracle cannot silently vanish.
-        waitUntil(timeout: 5.0) {
-            repairProbe.forwardedKeyDownCount() > 0
-        }
-        try XCTSkipUnless(
-            terminalPanel.surface.hasLiveSurface,
-            "No live libghostty surface on this host, so keyDown forwarding cannot be observed"
-        )
         XCTAssertGreaterThan(
             repairProbe.forwardedKeyDownCount(),
             0,
@@ -7185,24 +7152,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testFocusTextBoxShortcutMovesFocusBackToTerminalWhenTextBoxIsFirstResponder() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId),
-              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
-            XCTFail("Expected focused terminal surface")
-            return
-        }
+    func testFocusTextBoxShortcutMovesFocusBackToTerminalWhenTextBoxIsFirstResponder() throws {
+        let fixture = try TerminalFocusTestFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.window
+        let terminalPanel = fixture.panel
+        let terminalView = terminalPanel.hostedView.surfaceView
 
         let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
         textBoxView.onFocusTextBox = { terminalPanel.textBoxDidBecomeFocused() }
@@ -7363,25 +7318,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testTextBoxSecondEscapeHidesWhenTerminalSurfaceOwnsFocus() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let contentView = window.contentView,
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId),
-              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
-            XCTFail("Expected focused terminal panel")
-            return
-        }
+    func testTextBoxSecondEscapeHidesWhenTerminalSurfaceOwnsFocus() throws {
+        let fixture = try TerminalFocusTestFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.window
+        let terminalPanel = fixture.panel
+        let terminalView = terminalPanel.hostedView.surfaceView
+        let contentView = try XCTUnwrap(window.contentView)
 
         let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
         let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
@@ -12574,6 +12517,90 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(harness.webView.performKeyEquivalent(with: commandReturn))
         XCTAssertEqual(probe.callCount, 0, "Focus mode must consume unhandled Cmd+Return instead of falling through to the app menu")
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+    }
+
+    func testBrowserFocusModeReturnDoesNotRouteWebInspectorResponderToPage() {
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === harness.webView else { return nil }
+            forwardedEvents.append(event)
+            return true
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        XCTAssertTrue(
+            harness.panel.setBrowserFocusModeActive(true, reason: "unit.inspectorReturn", focusWebView: false)
+        )
+        let inspectorView = FakeWKInspectorContainerView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        inspectorView.addSubview(FocusableTestView(frame: inspectorView.bounds))
+        harness.webView.addSubview(inspectorView)
+        XCTAssertTrue(harness.window.makeFirstResponder(inspectorView.subviews[0]))
+
+        guard let event = makeKeyDownEvent(
+            key: "\r",
+            modifiers: [.command],
+            keyCode: 36,
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        _ = harness.window.performKeyEquivalent(with: event)
+
+        XCTAssertTrue(forwardedEvents.isEmpty)
+        XCTAssertTrue(harness.window.firstResponder === inspectorView.subviews[0])
+    }
+
+    func testBrowserFocusModeReturnDoesNotRouteForeignWebContentResponderToPage() {
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+        guard let pageSuperview = harness.webView.superview else {
+            XCTFail("Expected the page web view to be attached")
+            return
+        }
+
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === harness.webView else { return nil }
+            forwardedEvents.append(event)
+            return true
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        XCTAssertTrue(
+            harness.panel.setBrowserFocusModeActive(true, reason: "unit.foreignWebContentReturn", focusWebView: false)
+        )
+        // WebKit docks the inspector frontend as a sibling web view whose class
+        // names do not have to match the inspector heuristic.
+        let foreignWebView = WKWebView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        let nestedContainer = NSView(frame: foreignWebView.bounds)
+        let nestedResponder = FocusableTestView(frame: nestedContainer.bounds)
+        nestedContainer.addSubview(nestedResponder)
+        foreignWebView.addSubview(nestedContainer)
+        pageSuperview.addSubview(foreignWebView)
+        defer { foreignWebView.removeFromSuperview() }
+        XCTAssertTrue(harness.window.makeFirstResponder(nestedResponder))
+
+        guard let event = makeKeyDownEvent(
+            key: "\r",
+            modifiers: [.command],
+            keyCode: 36,
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        _ = harness.window.performKeyEquivalent(with: event)
+
+        XCTAssertTrue(forwardedEvents.isEmpty)
+        XCTAssertTrue(harness.window.firstResponder === nestedResponder)
     }
 
     func testShowNotificationsShortcutYieldsToFocusedBrowserPane() {

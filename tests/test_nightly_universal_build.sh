@@ -253,6 +253,19 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
 fi
 
 if ! awk '
+  /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "helper" && /uses: actions\/checkout@/ { checkout=1; next }
+  job == "helper" && checkout && /submodules: recursive/ { recursive=1 }
+  job == "helper" && /scripts\/ci\/init-submodule\.sh ghostty/ { init_line=NR }
+  job == "helper" && /name: Install Zig/ { install_line=NR }
+  END { exit !(checkout && !recursive && init_line && install_line && init_line < install_line) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly Ghostty helper checkout must use the retrying initializer before Zig consumes Ghostty"
+  exit 1
+fi
+
+if ! awk '
   /^      - name: Inject universal Ghostty CLI helper/ { in_inject=1; next }
   in_inject && /^      - name:/ { in_inject=0 }
   in_inject && /install -m 755 nightly-inputs\/ghostty\/ghostty "\$DEST"/ { saw_install=1 }
@@ -662,6 +675,19 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   fi
 done
 
+# The sign job installs the cmux-tui client and its SSH payloads after the build
+# job's strip, so it must run strip-release-bundle.sh again after that install.
+if ! awk '
+  /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
+  job == "build-sign-notarize-nightly:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
+  job == "build-sign-notarize-nightly:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
+  job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  END { exit !(install_line && strip_line && thin_line && install_line < strip_line && strip_line < thin_line) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly sign job must run strip-release-bundle.sh after installing the cmux-tui client and before thinning"
+  exit 1
+fi
+
 INSTALL_TUI_SCRIPT="$ROOT_DIR/scripts/install-cmux-tui-client.sh"
 for expected in '--expected-commit' '--require-capability' 'required cmux-tui capability is missing'; do
   if ! grep -Fq -- "$expected" "$INSTALL_TUI_SCRIPT"; then
@@ -692,7 +718,7 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   if ! awk '
     /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
     /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }
-    /^          \.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
+    /^ +\.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
     /^      - name: Notarize app/ { if (!notarize_line) notarize_line=NR }
     END { exit !(smoke_line && cli_line && cli_run && notarize_line && smoke_line < cli_line && cli_line < cli_run && cli_run < notarize_line) }
   ' "$workflow"; then

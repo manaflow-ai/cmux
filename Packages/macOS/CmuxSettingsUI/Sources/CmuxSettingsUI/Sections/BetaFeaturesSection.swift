@@ -11,7 +11,11 @@ public struct BetaFeaturesSection: View {
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
+    @State private var remoteTmuxNewWorkspaceOnHost: DefaultsValueModel<Bool>
+    @State private var remoteTmuxOriginColors: DefaultsValueModel<Bool>
+    @State private var remoteTmuxOriginHostTitles: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
+    @State private var clickByHint: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
     /// `DisableCustomSidebars` (MDM): same treatment for the interpreted
     /// custom sidebars opt-in.
@@ -23,7 +27,11 @@ public struct BetaFeaturesSection: View {
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
+        _remoteTmuxNewWorkspaceOnHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxNewWorkspaceOnHost))
+        _remoteTmuxOriginColors = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxOriginColors))
+        _remoteTmuxOriginHostTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxOriginHostTitles))
         _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
+        _clickByHint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.windowHints))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
 
@@ -45,9 +53,17 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 remoteTmuxRow
                 SettingsCardDivider()
+                remoteTmuxNewWorkspaceOnHostRow
+                SettingsCardDivider()
+                remoteTmuxOriginColorsRow
+                SettingsCardDivider()
+                remoteTmuxOriginHostTitlesRow
+                SettingsCardDivider()
                 workspaceTodoControlsRow
                 SettingsCardDivider()
                 workspaceTodosChecklistStyleRow
+                SettingsCardDivider()
+                clickByHintRow
             }
         }
         .task { startObservingSettings() }
@@ -66,8 +82,12 @@ public struct BetaFeaturesSection: View {
             extensions,
             customSidebars,
             remoteTmux,
+            remoteTmuxNewWorkspaceOnHost,
+            remoteTmuxOriginColors,
+            remoteTmuxOriginHostTitles,
             workspaceTodoControls,
             workspaceTodosChecklistStyle,
+            clickByHint,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -101,6 +121,21 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaWorkspaceTodoControlsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var clickByHintRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("windowHints.beta.enabled"),
+            searchAnchorID: "setting:betaFeatures:click-by-hint",
+            String(localized: "settings.betaFeatures.clickByHint", defaultValue: "Click by Hint"),
+            subtitle: String(localized: "settings.betaFeatures.clickByHint.subtitle", defaultValue: "Preview: Cmd-J labels every clickable control in the window, and typing a label clicks it.")
+        ) {
+            Toggle("", isOn: Binding(get: { clickByHint.current }, set: { clickByHint.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaClickByHintToggle")
         }
     }
 
@@ -189,6 +224,56 @@ public struct BetaFeaturesSection: View {
         }
     }
 
+    @ViewBuilder
+    private var remoteTmuxNewWorkspaceOnHostRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:remoteTmuxNewWorkspaceOnHost",
+            String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost", defaultValue: "New Workspace on the remote host"),
+            subtitle: remoteTmuxNewWorkspaceOnHost.current
+                ? String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOn", defaultValue: "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host. New Local Workspace opens a local one.")
+                : String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOff", defaultValue: "New Workspace always opens a local workspace, even with a remote tmux workspace selected.")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteTmuxNewWorkspaceOnHost.current }, set: { remoteTmuxNewWorkspaceOnHost.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaRemoteTmuxNewWorkspaceOnHostToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var remoteTmuxOriginColorsRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("remoteTmux.beta.originColors.enabled"),
+            searchAnchorID: "setting:betaFeatures:remoteTmuxOriginColors",
+            String(localized: "settings.betaFeatures.remoteTmuxOriginColors", defaultValue: "Remote host colors"),
+            subtitle: remoteTmuxOriginColors.current
+                ? String(localized: "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn", defaultValue: "Tints each remote workspace's sidebar row with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins.")
+                : String(localized: "settings.betaFeatures.remoteTmuxOriginColors.subtitleOff", defaultValue: "Leaves remote workspaces without an origin color until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteTmuxOriginColors.current }, set: { remoteTmuxOriginColors.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaRemoteTmuxOriginColorsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var remoteTmuxOriginHostTitlesRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("remoteTmux.beta.originHostTitles.enabled"),
+            searchAnchorID: "setting:betaFeatures:remoteTmuxOriginHostTitles",
+            String(localized: "settings.betaFeatures.remoteTmuxOriginHostTitles", defaultValue: "Remote host names on duplicate titles"),
+            subtitle: remoteTmuxOriginHostTitles.current
+                ? String(localized: "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOn", defaultValue: "When workspaces share a title, shows each remote one's host after the title, leaving off the domain the hosts share.")
+                : String(localized: "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOff", defaultValue: "Leaves duplicate workspace titles as they are until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteTmuxOriginHostTitles.current }, set: { remoteTmuxOriginHostTitles.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaRemoteTmuxOriginHostTitlesToggle")
+        }
+    }
 }
 
 /// Small warning callout with a yellow triangle, used at the top of
