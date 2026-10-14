@@ -116,8 +116,9 @@ enum SessionWire {
                 return SidebarDocBatch.resources.contains(resource)
             }
             if !sidebar.isEmpty {
-                let revision = (try? c.decodeIfPresent(JSONValue.self, forKey: .revision)).flatMap { $0 }.flatMap(SidebarDocMutation.revision)
-                sidebarBatch = SidebarDocBatch(revision: revision, idempotencyKey: try? c.decodeIfPresent(String.self, forKey: .idempotencyKey),
+                // The item's `revision` is the session journal's, not the document's: the
+                // `sidebar_doc` marker change carries the document revision the mirror reads.
+                sidebarBatch = SidebarDocBatch(revision: nil, idempotencyKey: try? c.decodeIfPresent(String.self, forKey: .idempotencyKey),
                                                changes: sidebar)
             }
         }

@@ -88,7 +88,7 @@ public nonisolated struct SidebarDragGeometry: Sendable {
             case .into: table.into
             case .after: table.after
             }
-        } ?? acceptance.isEmpty
+        } ?? (acceptance.isEmpty || slot.kind == .section) // a header the table lacks (one machine draws none) takes the drop
         guard allowed else { return Hit(slot: slot, zone: zone, target: nil, refusal: accepted?.refusal ?? "refused") }
         return Hit(slot: slot, zone: zone, target: Self.target(slot, zone), refusal: nil)
     }

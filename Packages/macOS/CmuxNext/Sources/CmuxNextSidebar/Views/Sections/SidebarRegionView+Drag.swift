@@ -76,7 +76,7 @@ extension SidebarRegionView {
         } else {
             SidebarReorderLift.follow(drag.lift, top: origin.y, visible: host.visibleRect)
         }
-        if isWorkspaceItem(drag.subject) || (drag.subject.itemID != nil && listTakesAnyItem?() == true), let probe = dropToListProbe {
+        if isWorkspaceItem(drag.subject) || (isGroupItem(drag.subject) && listTakesAnyItem?() == true), let probe = dropToListProbe {
             drag.dropsToList = probe(convert(point, to: nil))
             if drag.dropsToList {
                 // Over the list the band shows the drop's outcome: itself
@@ -138,6 +138,12 @@ extension SidebarRegionView {
     private func isWorkspaceItem(_ subject: SidebarRegionDragSubject) -> Bool {
         guard case let .item(id) = subject else { return false }
         return content?.sections.lazy.flatMap(\.items).first { $0.id == id }?.ref.kind == LayoutItemRef.workspaceKind
+    }
+
+    /// A group tile (the sidebar document): the list draws groups, so it can take one.
+    private func isGroupItem(_ subject: SidebarRegionDragSubject) -> Bool {
+        guard case let .item(id) = subject else { return false }
+        return content?.sections.lazy.flatMap(\.items).first { $0.id == id }?.ref.kind == SidebarDocProjection.groupKind
     }
 
     private func frame(of subject: SidebarRegionDragSubject) -> CGRect? {

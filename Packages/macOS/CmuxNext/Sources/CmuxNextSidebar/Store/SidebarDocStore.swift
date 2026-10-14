@@ -31,6 +31,8 @@ public final class SidebarDocStore {
     /// puts it on its undo surface (the toast and Cmd-Z).
     @ObservationIgnored public var onUndoable: @MainActor (String, @escaping @MainActor () -> Void) -> Void = { _, _ in }
     @ObservationIgnored private var loading = false
+    /// A refetch asked for while one was in flight runs after it.
+    @ObservationIgnored private var refetchAgain = false
     /// The last projection (`projection(live:)`), by version and live set.
     @ObservationIgnored var projectionCache: (version: UInt64, live: [SidebarDocWorkspaceRef], projection: SidebarDocProjection)?
     /// Refs already sent to `sidebar.adopt` this session.
@@ -53,14 +55,18 @@ public final class SidebarDocStore {
     /// Fetches the whole document (the first load, a reconnect, a stream
     /// snapshot, a revision gap).
     public func refresh() {
-        guard isSupported, !loading, let remote, let mirror else {
+        if loading { refetchAgain = true; return }
+        guard isSupported, let remote, let mirror else {
             if isActive, !isSupported { isActive = false; shown = nil; bump() }
             return
         }
         loading = true
         // task-owner: one sidebar.get; settles the load
         Task { [weak self] in
-            defer { self?.loading = false }
+            defer {
+                self?.loading = false
+                if self?.refetchAgain == true { self?.refetchAgain = false; self?.refresh() }
+            }
             guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self else { return }
             guard mirror.load(data) else { return }
             self.records = records
@@ -157,6 +163,8 @@ public final class SidebarDocStore {
             do {
                 let reply = try await body(remote, key)
                 guard let self else { return }
+                // A no-op change echoes no batch: its intent must not stay pending.
+                if !reply.hasInverse { self.drop(key) }
                 if reply.hasInverse {
                     let inverse = reply.inverse
                     self.onUndoable(title) { [weak self] in self?.apply(inverse, title: title) }

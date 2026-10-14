@@ -47,7 +47,9 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         var sectionIndex: [String: Int] = [:]
 
         for row in rows {
-            guard let record = records.sections[row.section] else { continue }
+            // A live machine without a stored section yet (`sec_m_<session>`) still lists, unplaced.
+            let record = records.sections[row.section]
+                ?? SidebarDocSection(id: row.section, kind: .machine(session: row.ref?.sessionID ?? SidebarDocWire.Section.session(fromID: row.section)))
             if let session = record.session {
                 machineSections[session] = record.id
                 if !placedList {
@@ -61,9 +63,9 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                 sectionIndex[record.id] = sections.count
                 sections.append(Self.section(record))
             }
-            guard row.depth == 0, let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { continue }
-            if let ref = item.body.workspace { items[ref] = id }
-            sections[index].items.append(Self.layoutItem(item))
+            guard let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { continue }
+            if let ref = item.body.workspace { items[ref] = id } // members of a pinned group too: they list once
+            if row.depth == 0 { sections[index].items.append(Self.layoutItem(item)) }
         }
         if !placedList {
             sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list, content: .workspaces))
