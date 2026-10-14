@@ -63,9 +63,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
         inputObserver?(event)
-        #if DEBUG
-        ArrowCursorView.traceEvent(event)
-        #endif
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
@@ -74,8 +71,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
             (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown()
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
-        // A Chromium page window does not get moves outside it (`ArrowCursorView.withholdsPageMove`).
-        if event.type == .mouseMoved, ArrowCursorView.withholdsPageMove(event) { return ArrowCursorView.pointerDidMove() }
         super.sendEvent(event)
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { mouseDownObserver?(event) }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is

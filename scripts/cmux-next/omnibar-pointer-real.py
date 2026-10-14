@@ -4,15 +4,18 @@
   nx-remote --needs input --app-from-fleet cmux --tag TAG --ref SHA -- \\
     'python3 scripts/cmux-next/omnibar-pointer-real.py --tag TAG --app "$NX_APP"'
 
-Input host only: it moves the real pointer and clicks through cua-driver (desktop scope; its
-Accessibility grant posts the events) and reads the cursor on screen (`pointer-probe.swift`, built
-here with swiftc). The app is launched active with an empty config. For a Chromium tab, a WebKit
-tab and a New Tab page:
+Input host only: it moves the real pointer with mouse-moved events along a path, as a mouse sends
+them, and drags with real press, drag and release events (`pointer-probe.swift`, built here with
+swiftc; the input job's SSH path has the Accessibility grant that posting needs), clicks through
+cua-driver (desktop scope), and reads the cursor on screen. `--moves warp` moves with cua-driver's
+warp instead, which sends the app no move event (it does not model a mouse). The app is launched
+active with an empty config. For a Chromium tab, a WebKit tab (a local test page) and a New Tab page:
 
   1. a real click on the page gives the page the keyboard (a Chromium page window then has the key:
      printed from `debug.window_list`);
   2. the real pointer over the omnibar's text, above it and past its end shows the I-beam; over the
-     page-info chip and Reload the arrow;
+     page-info chip and Reload the arrow; a still pointer over the text keeps the I-beam while the
+     page reloads and while the page sets its own cursor;
   3. Back, Forward and Reload show no tooltip (no visible TooltipPanel); the More button shows one
      (printed, the control);
   4. a real click on the omnibar focuses it, and the I-beam stays over the text area;
@@ -173,7 +176,9 @@ def click(point):
 def cursor_at(point, want):
     move(point)
     got = quiet_wait(lambda: probe("cursor") == want and want, 2) or probe("cursor")
-    print(f"   t={time.monotonic():.3f} screen cursor {got}", flush=True)
+    x, y = to_screen(point)
+    owner = "" if got == want else f"; window at the point: {probe('owner', x, y)}"
+    print(f"   t={time.monotonic():.3f} screen cursor {got}{owner}", flush=True)
     return got
 
 
@@ -308,7 +313,7 @@ if os.path.exists(SOCKET):
 app = subprocess.Popen([BINARY], env={
     "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-    "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **dict(kv.split("=", 1) for kv in opts.env)},
+    "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1000,760", **dict(kv.split("=", 1) for kv in opts.env)},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
 print(f"app pid {app.pid}, out {opts.out}, screen height {SCREEN_H}, scale {SCALE}", flush=True)
 

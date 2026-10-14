@@ -10,17 +10,6 @@ final class WebKitWebView: WKWebView {
     /// enter pane fullscreen only shortly after one (transient activation).
     private(set) var lastUserInput: ContinuousClock.Instant?
 
-    /// Whether the last move this view took was over it (`ArrowCursorView.pageTakesMove`).
-    private var hadPointer = false
-
-    /// A move outside the page (AppKit sends the first responder every move in the window) is
-    /// withheld past the first, so the page sets no cursor over the toolbar (`ArrowCursorView+PageMoves`).
-    override func mouseMoved(with event: NSEvent) {
-        guard ArrowCursorView.pageTakesMove(at: convert(event.locationInWindow, from: nil), visibleRect: visibleRect,
-                                            hadPointer: &hadPointer) else { return }
-        super.mouseMoved(with: event)
-    }
-
     override func mouseDown(with event: NSEvent) {
         // A Control-click opens a menu too: only automation's own press suppresses it.
         suppressesNextMenu = false
