@@ -8,7 +8,7 @@ import { UiProvider } from "../../ui/UiProvider";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { HomeChannelsPage } from "./HomeChannelsPage";
-import { MockHomeProvider, type MockDraft } from "./mockProvider";
+import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider";
 import { HomeChannelsStore } from "./store";
 
 type Props = {
@@ -22,6 +22,8 @@ type Props = {
   draft?: MockDraft;
   /** Adds #incident, a thread with more replies than one page. */
   longThread?: boolean;
+  /** Sample agent runs in the Chief DM. */
+  runs?: MockRuns;
   /** The owner refuses pins and marks. */
   refuseInbox?: boolean;
 };
@@ -32,10 +34,13 @@ function HomeChannelsGallery({
   offline = false,
   draft,
   longThread = false,
+  runs = "none",
   refuseInbox = false,
 }: Props) {
   const [store] = useState(() => {
-    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread, refuseInbox));
+    const created = new HomeChannelsStore(
+      offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox),
+    );
     if (select)
       void created.select(select).then(() => {
         if (thread) void created.openThread(thread);
@@ -91,6 +96,8 @@ export default componentEntry<Props>({
     "pages/home-channels/AddChannel.tsx#AddChannel",
     "pages/home-channels/MessageRow.tsx#DraftRow",
     "pages/home-channels/icons.tsx#HomeIcon",
+    "pages/home-channels/RunCard.tsx",
+    "pages/home-channels/RunSheet.tsx",
   ],
   load: async () => HomeChannelsGallery,
   styles: async () => {
@@ -348,6 +355,29 @@ export default componentEntry<Props>({
       props: { select: "c-chief", draft: "growing" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".hc-msg.draft"));
+      },
+    },
+    run: {
+      note: "The Chief's finished run under its reply: Worked for, steps, cost; Open shows the whole run.",
+      props: { select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
+      },
+    },
+    "run-open": {
+      note: "The run sheet: every step in order (shell output, the read, the diff, the reply), time, tokens and cost.",
+      props: { select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-open"));
+        await ctx.click({ selector: ".lg-run.done .lg-run-open" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-run-sheet .cv-tool").length >= 3);
+      },
+    },
+    "run-live": {
+      note: "A run that works now: Working for (ticking), its newest steps under the question, the Chief shown working.",
+      props: { select: "c-chief", runs: "live" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.running .cv-tool"));
       },
     },
     "draft-posted": {

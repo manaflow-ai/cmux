@@ -129,6 +129,19 @@ pub(crate) fn require_conversation(id: &str) -> Result<(), CloudError> {
     }
 }
 
+/// A Chief participant id (`agent_` and 1-64 letters or digits): the path
+/// segment of the Chief brain's run reads.
+pub(crate) fn require_agent(id: &str) -> Result<(), CloudError> {
+    let valid = id.strip_prefix("agent_").is_some_and(|rest| {
+        (1..=64).contains(&rest.len()) && rest.bytes().all(|b| b.is_ascii_alphanumeric())
+    });
+    if valid {
+        Ok(())
+    } else {
+        Err(CloudError::BadRequest(format!("agent {id:?} is not a Chief id")))
+    }
+}
+
 /// `cloud-conversation-op` params.
 #[derive(Debug, Clone, Deserialize)]
 pub struct OpRequest {

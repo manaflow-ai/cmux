@@ -31,8 +31,11 @@ enum TiledBubble {
     static func render(_ bl: BlockLayout, chunk: Int, outgoing: Bool, width: CGFloat, scale: CGFloat) -> CGImage? { // nil when allocation fails
         let lh = Fixture.lineHeight
         let size = CGSize(width: width, height: CGFloat(linesPerTile) * lh + 2 * overflow)
-        return WideBitmap.make(size: size, scale: scale, opaque: false) { ctx in
-            draw(bl, chunk: chunk, outgoing: outgoing, in: ctx, top: 0)
+        // Any thread (tile queue, LongText scans): the drawing reads this tile's scale.
+        return Fixture.withRenderScale(scale) {
+            WideBitmap.make(size: size, scale: scale, opaque: false) { ctx in
+                draw(bl, chunk: chunk, outgoing: outgoing, in: ctx, top: 0)
+            }
         }
     }
     /// The tile's lines into `ctx`, the tile's top at y `top` (checks draw tiles and the whole in one context).
@@ -234,7 +237,7 @@ final class TiledBody {
         self.row = p
         self.layout = layout
         body = RowDraw.bodyRect(spec)
-        let s = Fixture.renderScale
+        let s = cell.renderScale
         let full = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
         container.frame = full
         let fill = cell.fillContainer
@@ -248,7 +251,7 @@ final class TiledBody {
             cell.fillGradient.isHidden = true
             fill.backgroundColor = Fixture.incoming.cgColor
         }
-        let outline = RowDraw.balloon(body, row: p) // an outgoing text balloon is drawn inside its frame
+        let outline = RowDraw.balloon(body, row: p, scale: s) // an outgoing text balloon is drawn inside its frame
         let x0 = floor((outline.minX - BubbleSlices.pad) * s) / s
         let phase = outline.minX - BubbleSlices.pad - x0
         // a slice image that could not be allocated leaves the bubble outline undrawn.
@@ -379,7 +382,7 @@ final class TiledBody {
             layout.require(lines: max(0, wantA - 2 * screenLines)..<min(total, wantB + 2 * screenLines))
         }
 
-        let s = Fixture.renderScale, palette = Fixture.paletteGeneration
+        let s = cell.renderScale, palette = Fixture.paletteGeneration
         let hint = LongTextLayout.TileHint(outgoing: row.outgoing, width: body.width, scale: s, palette: palette)
         if layout.tileHint.map({ $0.outgoing != hint.outgoing || $0.width != hint.width || $0.scale != hint.scale || $0.palette != hint.palette }) ?? true {
             layout.tileHint = hint
@@ -501,7 +504,8 @@ final class TiledBody {
             let img = TiledBubble.render(layout.blockLayout(block), chunk: k.chunk, outgoing: k.outgoing, width: width, scale: k.scale)
             DispatchQueue.main.async { [weak self] in
                 TiledStats.tilesAsync += 1
-                guard k.palette == Fixture.paletteGeneration, k.scale == Fixture.renderScale else { return }
+                // A tile of an older palette is dropped; the key holds the scale (a view at another scale asks for its own).
+                guard k.palette == Fixture.paletteGeneration else { return }
                 if let img { TileCache.shared.put(k, img) } // an unallocated tile stays blank
                 guard let self else { return }
                 self.pending.removeValue(forKey: k)

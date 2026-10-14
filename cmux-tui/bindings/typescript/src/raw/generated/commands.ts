@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e91c9649daac926f7f92b0419f350228957c836a5946c9cbe9efe63386f52815. */
+/* cmux-tui mux protocol 12, IR 045bb6edc4ba7169a4a93878796fddf68cc1b2bb77b0ef6f59d6512800efa999. */
 
 
 import type * as T from "./types.js";
@@ -372,6 +372,26 @@ export interface CloudConversationOpRequest extends CmuxRequestBase {
 export type CloudConversationOpResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudConversationRunRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-run";
+  "after_seq"?: (bigint) | null;
+  "agent": string;
+  "conversation": string;
+  "run": string;
+}
+export type CloudConversationRunResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudConversationRunsRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-runs";
+  "agent": string;
+  "before_started_at"?: (bigint) | null;
+  "conversation": string;
+  "limit"?: (number) | null;
+}
+export type CloudConversationRunsResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudConversationSnapshotRequest extends CmuxRequestBase {
   cmd: "cloud-conversation-snapshot";
   "conversation": string;
@@ -658,6 +678,45 @@ export type ConversationOpResult = {
   "rev": bigint;
   "seq"?: bigint;
   "transaction"?: string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationRunRequest extends CmuxRequestBase {
+  cmd: "conversation-run";
+  "after_rev"?: bigint;
+  "conversation": string;
+  "limit"?: (number) | null;
+  "run": string;
+}
+export type ConversationRunResult = {
+  "has_more": boolean;
+  "run": (T.JsonValue) | null;
+  "steps": Array<T.JsonValue>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationRunAppendRequest extends CmuxRequestBase {
+  cmd: "conversation-run-append";
+  "conversation": string;
+  "run": (T.JsonValue) | null;
+  "steps"?: Array<T.JsonValue>;
+}
+export type ConversationRunAppendResult = {
+  "run": (T.JsonValue) | null;
+  "steps": Array<T.JsonValue>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationRunsRequest extends CmuxRequestBase {
+  cmd: "conversation-runs";
+  "before_started_at"?: (bigint) | null;
+  "conversation": string;
+  "limit"?: (number) | null;
+  "turns"?: (Array<string>) | null;
+}
+export type ConversationRunsResult = {
+  "has_more": boolean;
+  "runs": Array<T.JsonValue>;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -1345,6 +1404,7 @@ export interface MoveTabToColumnRequest extends CmuxRequestBase {
   cmd: "move-tab-to-column";
   "after_column"?: (T.Id) | null;
   "dock"?: (T.ColumnPin) | null;
+  "keep_focus"?: boolean;
   "pane"?: (T.Id) | null;
   "respawn"?: (T.SplitRespawn) | null;
   "screen"?: (T.Id) | null;
@@ -1369,6 +1429,7 @@ export type MoveTabToNewWorkspaceResult = T.JsonValue;
 export interface MoveTabToSplitRequest extends CmuxRequestBase {
   cmd: "move-tab-to-split";
   "edge": string;
+  "keep_focus"?: boolean;
   "pane": T.Id;
   "ratio"?: (number) | null;
   "respawn"?: (T.SplitRespawn) | null;
@@ -2609,6 +2670,8 @@ export type CmuxRequest =
   | CloseWorkspaceRequest
   | CloudConversationHistoryRequest
   | CloudConversationOpRequest
+  | CloudConversationRunRequest
+  | CloudConversationRunsRequest
   | CloudConversationSnapshotRequest
   | CloudConversationSubscribeRequest
   | CloudConversationThreadRequest
@@ -2635,6 +2698,9 @@ export type CmuxRequest =
   | ConversationLinkResolveRequest
   | ConversationListRequest
   | ConversationOpRequest
+  | ConversationRunRequest
+  | ConversationRunAppendRequest
+  | ConversationRunsRequest
   | ConversationSearchRequest
   | ConversationSnapshotRequest
   | ConversationThreadRequest
@@ -3116,6 +3182,22 @@ export interface CmuxCommandDefinitionMap {
     capability: "cloud-conversations-v1";
     stream: null;
   };
+  "cloud-conversation-run": {
+    request: CloudConversationRunRequest;
+    result: CloudConversationRunResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversation-runs-v1";
+    stream: null;
+  };
+  "cloud-conversation-runs": {
+    request: CloudConversationRunsRequest;
+    result: CloudConversationRunsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversation-runs-v1";
+    stream: null;
+  };
   "cloud-conversation-snapshot": {
     request: CloudConversationSnapshotRequest;
     result: CloudConversationSnapshotResult;
@@ -3322,6 +3404,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-run": {
+    request: ConversationRunRequest;
+    result: ConversationRunResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-runs-v1";
+    stream: null;
+  };
+  "conversation-run-append": {
+    request: ConversationRunAppendRequest;
+    result: ConversationRunAppendResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-runs-v1";
+    stream: null;
+  };
+  "conversation-runs": {
+    request: ConversationRunsRequest;
+    result: ConversationRunsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-runs-v1";
     stream: null;
   };
   "conversation-search": {

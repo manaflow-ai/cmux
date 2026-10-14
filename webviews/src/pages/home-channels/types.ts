@@ -19,6 +19,8 @@ export const HomeOps = {
   updateThread: "cmux.home.updateThread",
   pin: "cmux.home.pin",
   markUnread: "cmux.home.markUnread",
+  runs: "cmux.home.runs",
+  run: "cmux.home.run",
   events: "cmux.home.events",
 } as const;
 
@@ -232,6 +234,8 @@ export interface HomeEventBatch {
   drafts?: HomeDraftItem[];
   /** My own list state changes (pins, marks), in order. */
   inbox?: HomeInboxChange[];
+  /** Agent runs that changed: each run after the change and the steps it wrote. */
+  runs?: HomeRunChange[];
 }
 
 export interface HomeSearchHit {
@@ -246,4 +250,98 @@ export interface HomeResolvedLink {
   message?: HomeMessage;
   threadRoot?: string;
   path: string[];
+}
+
+export type HomeRunStatus = "running" | "done" | "failed" | "cancelled";
+export type HomeRunStepKind = "talk" | "thought" | "tool" | "note";
+
+/** A file a tool call changed or read: texts when they were small enough to keep. */
+export interface HomeRunFile {
+  path: string;
+  oldText?: string;
+  newText?: string;
+  added?: number;
+  removed?: number;
+  line?: number;
+}
+
+/** A picture or recording a step made: an attachment record of the conversation. */
+export interface HomeRunAttachment {
+  hash: string;
+  name: string;
+  mimeType: string;
+  byteCount: number;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+}
+
+/** One step of an agent run (`conversation-runs-v1`): a reply segment, a thought summary, a tool
+ * call with its input and output, or a note. `seq` is its place; `rev` grows with each write. */
+export interface HomeRunStep {
+  id: string;
+  seq: number;
+  at: number;
+  rev: number;
+  kind: HomeRunStepKind;
+  status?: "running" | "done" | "failed";
+  text?: string;
+  truncated?: boolean;
+  tool?: {
+    name: string;
+    kind?: string;
+    title?: string;
+    input?: unknown;
+    output?: string;
+    outputTruncated?: boolean;
+    exitCode?: number;
+    startedAt?: number;
+    endedAt?: number;
+    files: HomeRunFile[];
+  };
+  attachments: HomeRunAttachment[];
+  links: { label: string; url: string }[];
+}
+
+/** An agent run: the trajectory of one agent turn. `turn` is the `clientMessageId` of the reply the
+ * run ends with, so the run shows on that reply; a running run with no reply shows as live work. */
+export interface HomeRun {
+  id: string;
+  conversation: string;
+  author: string;
+  status: HomeRunStatus;
+  startedAt: number;
+  endedAt?: number;
+  updatedAt: number;
+  rev: number;
+  stepCount: number;
+  turn?: string;
+  answers: string[];
+  threadRoot?: string;
+  title?: string;
+  usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  costUsd?: number;
+  model?: string;
+  harness?: string;
+  error?: string;
+  session?: { kind: string; id: string; host?: string };
+  workspace?: string;
+}
+
+export interface HomeRunChange {
+  run: HomeRun;
+  steps: HomeRunStep[];
+}
+
+/** `cmux.home.runs`: the newest runs of a conversation, or the runs of these reply keys. */
+export interface HomeRunList {
+  runs: HomeRun[];
+  hasMore: boolean;
+}
+
+/** `cmux.home.run`: one run and its steps written after `afterRev`, oldest write first. */
+export interface HomeRunPage {
+  run: HomeRun;
+  steps: HomeRunStep[];
+  hasMore: boolean;
 }

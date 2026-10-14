@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e91c9649daac926f7f92b0419f350228957c836a5946c9cbe9efe63386f52815'
+IR_SHA256 = '045bb6edc4ba7169a4a93878796fddf68cc1b2bb77b0ef6f59d6512800efa999'
 
 
 @dataclass(frozen=True)
@@ -508,6 +508,34 @@ COMMANDS = {
             'origin': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-conversation-run': CommandMetadata(
+        'cloud-conversation-run',
+        'local-admin',
+        12,
+        'cloud-conversation-runs-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'agent': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'run': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-runs': CommandMetadata(
+        'cloud-conversation-runs',
+        'local-admin',
+        12,
+        'cloud-conversation-runs-v1',
+        ('local-admin',),
+        None,
+        {
+            'agent': CommandFieldMetadata(None, None),
+            'before_started_at': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-conversation-snapshot': CommandMetadata(
         'cloud-conversation-snapshot',
         'local-admin',
@@ -835,6 +863,47 @@ COMMANDS = {
             'idempotency_key': CommandFieldMetadata(None, None),
             'op': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-run': CommandMetadata(
+        'conversation-run',
+        'local-admin',
+        12,
+        'conversation-runs-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_rev': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'run': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-run-append': CommandMetadata(
+        'conversation-run-append',
+        'local-admin',
+        12,
+        'conversation-runs-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'run': CommandFieldMetadata(None, None),
+            'steps': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-runs': CommandMetadata(
+        'conversation-runs',
+        'local-admin',
+        12,
+        'conversation-runs-v1',
+        ('local-admin',),
+        None,
+        {
+            'before_started_at': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'turns': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-search': CommandMetadata(
@@ -1792,6 +1861,7 @@ COMMANDS = {
         {
             'after_column': CommandFieldMetadata(None, None),
             'dock': CommandFieldMetadata(12, 'dock-columns-v1'),
+            'keep_focus': CommandFieldMetadata(12, 'tab-split-keep-focus-v1'),
             'pane': CommandFieldMetadata(None, None),
             'respawn': CommandFieldMetadata(12, 'tab-column-respawn-v1'),
             'screen': CommandFieldMetadata(None, None),
@@ -1824,6 +1894,7 @@ COMMANDS = {
         None,
         {
             'edge': CommandFieldMetadata(None, None),
+            'keep_focus': CommandFieldMetadata(12, 'tab-split-keep-focus-v1'),
             'pane': CommandFieldMetadata(None, None),
             'ratio': CommandFieldMetadata(None, None),
             'respawn': CommandFieldMetadata(12, 'tab-split-respawn-v1'),
@@ -3517,6 +3588,7 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'cloud-conversation-changed': EventMetadata('cloud-conversation-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-resynced': EventMetadata('cloud-conversation-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-conversation-run-changed': EventMetadata('cloud-conversation-run-changed', 12, 'cloud-conversation-runs-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-changed': EventMetadata('cloud-inbox-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-reset': EventMetadata('cloud-inbox-reset', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-mux-resynced': EventMetadata('cloud-mux-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
@@ -3528,6 +3600,7 @@ EVENTS = {
     'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'conversation-draft': EventMetadata('conversation-draft', 12, 'conversation-draft-events-v1', ('subscribe',), 'emitted'),
     'conversation-inbox-changed': EventMetadata('conversation-inbox-changed', 12, 'conversation-inbox-state-v1', ('subscribe',), 'emitted'),
+    'conversation-run-changed': EventMetadata('conversation-run-changed', 12, 'conversation-runs-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),

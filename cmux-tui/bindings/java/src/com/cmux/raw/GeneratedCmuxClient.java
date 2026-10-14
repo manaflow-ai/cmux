@@ -188,6 +188,16 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudConversationRun(CloudConversationRunRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_RUN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudConversationRuns(CloudConversationRunsRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_RUNS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudConversationSnapshot(CloudConversationSnapshotRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_SNAPSHOT, request.toWire());
         return Wire.immutableJson(result);
@@ -316,6 +326,21 @@ public abstract class GeneratedCmuxClient {
     public final ConversationOpResult conversationOp(ConversationOpRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_OP, request.toWire());
         return ConversationOpResult.fromWire(result);
+    }
+
+    public final ConversationRunResult conversationRun(ConversationRunRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_RUN, request.toWire());
+        return ConversationRunResult.fromWire(result);
+    }
+
+    public final ConversationRunAppendResult conversationRunAppend(ConversationRunAppendRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_RUN_APPEND, request.toWire());
+        return ConversationRunAppendResult.fromWire(result);
+    }
+
+    public final ConversationRunsResult conversationRuns(ConversationRunsRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_RUNS, request.toWire());
+        return ConversationRunsResult.fromWire(result);
     }
 
     public final ConversationSearchResult conversationSearch(ConversationSearchRequest request) throws CmuxException {

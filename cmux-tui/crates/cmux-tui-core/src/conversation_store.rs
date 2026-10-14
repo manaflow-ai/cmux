@@ -29,6 +29,8 @@ pub(crate) mod inbox;
 pub(crate) use import::ImportedMessage;
 #[path = "conversation_links.rs"]
 pub(crate) mod links;
+#[path = "conversation_runs.rs"]
+pub(crate) mod runs;
 #[path = "conversation_threads.rs"]
 pub(crate) mod threads;
 
@@ -211,6 +213,7 @@ impl ConversationStore {
         transaction.execute_batch(attachments::SCHEMA)?;
         transaction.execute_batch(threads::SCHEMA)?;
         transaction.execute_batch(inbox::SCHEMA)?;
+        transaction.execute_batch(runs::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -739,6 +742,12 @@ pub enum ConversationEvent {
         pin_position: Option<u64>,
         marked_unread: bool,
     },
+    /// An agent's run changed (`conversation-run-append`,
+    /// `conversation-runs-v1`): the run after the append and the steps it
+    /// wrote. Not a conversation change (no rev); `subscribe` delivers it
+    /// only to a connection that echoed `conversation-runs-v1` in
+    /// `set-client-info` (never the remote relay or `conversation.events`).
+    Run { conversation: String, run: Value, steps: Vec<Value> },
 }
 
 impl ConversationEvent {
@@ -772,7 +781,18 @@ impl ConversationEvent {
                 }
                 value
             }
+            Self::Run { conversation, run, steps } => json!({
+                "event": "conversation-run-changed",
+                "conversation": conversation,
+                "run": run,
+                "steps": steps,
+            }),
         }
+    }
+
+    /// Run events go on `subscribe` only to a connection that asked for them.
+    pub(crate) const fn is_run(&self) -> bool {
+        matches!(self, Self::Run { .. })
     }
 
     /// Drafts travel on `conversation.events`, and on `subscribe` only to a
