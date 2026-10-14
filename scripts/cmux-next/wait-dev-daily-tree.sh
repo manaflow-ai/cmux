@@ -16,7 +16,10 @@
 # polled like a deferred one: the probe says failed until GitHub lists a
 # just-dispatched publisher, and also while a same-tree artifacts run it did
 # not find is still publishing (DEV run 38562080086 gave up at 12:25Z on
-# 2026-10-14 while run 38561677744 was publishing its tree).
+# 2026-10-14 while run 38561677744 was publishing its tree). Only the probes up
+# to the first failed answer may dispatch a publisher
+# (CMUX_TUI_TREE_DISPATCH); later ones only look, so a tree whose build keeps
+# failing is not rebuilt for the whole wait.
 # Env: CMUX_DEV_TREE_PROBE (tests only) replaces pin-cmux-tui.sh.
 set -euo pipefail
 
@@ -28,9 +31,10 @@ poll_seconds="${CMUX_DEV_TREE_POLL_SECONDS:-60}"
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 started=$SECONDS
+dispatch="${CMUX_TUI_TREE_DISPATCH:-}"
 while :; do
   : > "$tmp/out"
-  GITHUB_OUTPUT="$tmp/out" CMUX_TUI_TREE_RECHECK_SECONDS=0 CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0 \
+  GITHUB_OUTPUT="$tmp/out" CMUX_TUI_TREE_DISPATCH="$dispatch" CMUX_TUI_TREE_RECHECK_SECONDS=0 CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0 \
     bash "$probe" probe || true
   state="$(sed -n 's/^tree_state=//p' "$tmp/out" | tail -1)"
   case "$state" in
@@ -39,7 +43,8 @@ while :; do
       echo "the cmux-tui tree is published after $((SECONDS - started))s; the DEV Release compile runs"
       exit 0 ;;
     deferred) ;;
-    *) echo "the probe says tree_state=${state:-none} ($(sed -n 's/^tree_reason=//p' "$tmp/out" | tail -1)); looking again" ;;
+    *) echo "the probe says tree_state=${state:-none} ($(sed -n 's/^tree_reason=//p' "$tmp/out" | tail -1)); looking again"
+       dispatch=0 ;;
   esac
   if (( SECONDS - started >= wait_seconds )); then
     cat "$tmp/out" >> "$GITHUB_OUTPUT"
