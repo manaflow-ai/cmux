@@ -15,6 +15,14 @@ def rect(view):
     return view[:4]
 
 
+def drawn(view):
+    """Drawn at all (a hidden row of a dragged group, or a row faded out, is not)."""
+    return (view[4] if len(view) > 4 else 1) > 0.02
+
+
+FRAME_MS = 1000 / 120
+
+
 def covered(frame, card):
     return card is not None and all(abs(frame[i] - card[i]) <= 1.5 for i in range(4))
 
@@ -24,11 +32,13 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
     for a, b in zip(frames, frames[1:]):
         for key, fb in b["views"].items():
             fa = a["views"].get(key)
-            if fa is None or key in dragged:
+            if fa is None or key in dragged or not (drawn(fa) or drawn(fb)):
                 continue
-            step = max(abs(fb[0] - fa[0]), abs(fb[1] - fa[1]), abs(fb[3] - fa[3]))
+            # A step per 120 Hz frame: a display frame that came late (a gap of n frames) may move n frames' worth.
+            frames_spanned = max(1.0, (b["t"] - a["t"]) * 1000 / FRAME_MS)
+            step = max(abs(fb[0] - fa[0]), abs(fb[1] - fa[1]), abs(fb[3] - fa[3])) / frames_spanned
             if key.startswith("block("):
-                block_worst = max(block_worst, abs(fb[3] - fa[3]))
+                block_worst = max(block_worst, abs(fb[3] - fa[3]) / frames_spanned)
             if step > worst:
                 worst, worst_at = step, (key, round(b["t"] - frames[0]["t"], 3))
             if step > JUMP_PT:
@@ -45,7 +55,7 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
     settle = None
     if lifted and dropped_key:
         last = lifted[-1]
-        after = [f for f in frames if f["t"] > last["t"] and dropped_key in f["views"]]
+        after = [f for f in frames if f["t"] > last["t"] and dropped_key in f["views"] and drawn(f["views"][dropped_key])]
         if after:
             card, item = last["lift"], rect(after[0]["views"][dropped_key])
             meet = max(abs(card[i] - item[i]) for i in range(4))
