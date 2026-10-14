@@ -580,6 +580,50 @@
   "breaks": false
  },
  {
+  "name": "_acpmux/start_mode every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/start_mode",
+   "params": {
+    "harness": 1,
+    "cwd": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/start_mode never takes a preset",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/start_mode",
+   "params": {
+    "harness": "claude",
+    "preset": "p"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/start_mode never takes _meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/start_mode",
+   "params": {
+    "harness": "claude",
+    "_meta": {
+     "acpmux": {}
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
   "name": "_acpmux/harnesses every known param",
   "frame": {
    "jsonrpc": "2.0",
