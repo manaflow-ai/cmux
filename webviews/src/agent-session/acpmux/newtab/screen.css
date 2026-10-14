@@ -79,8 +79,24 @@
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
 .nt-location { display: contents; }
 .nt-composer { --acpmux-strip-inset: 20px; }
+/* The strip is the box's fill (.nt-box below): the composer's surface, and the box's hover lift
+   while the box has the pointer, so the two stay one surface at rest and on hover. */
 .nt-composer .acpmux-composer-strip {
-  background: linear-gradient(var(--acpmux-composer-bg), var(--acpmux-composer-bg)), var(--cmux-surface-solid, var(--acpmux-base));
+  --nt-box-fill: color-mix(
+    in srgb,
+    var(--cmux-hover, color-mix(in srgb, var(--agent-text) 6%, transparent)) var(--nt-box-lift),
+    transparent
+  );
+  background: linear-gradient(var(--nt-box-fill), var(--nt-box-fill)),
+    var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
+}
+.nt-composer:has(.nt-box:hover:not(:focus-within)) .acpmux-composer-strip {
+  --nt-box-lift: 100%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nt-composer .acpmux-composer-strip {
+    transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
+  }
 }
 /* The card never clips: the model picker opens in the card, above or below its chip (a clipping
    card cut it to its search field, Lawrence 2026-10-13). The location row is the strip above it. */
