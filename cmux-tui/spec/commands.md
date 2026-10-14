@@ -8304,9 +8304,19 @@ the trusted local connection rule and the acpmux start are those of
 `agent-session-start`. The daemon never answers by itself: a client sends a
 `level` only for the person's own answer (the app's agent pane relay needs
 a fresh gesture for a set that trusts, as for a chat on the Mac's own
-acpmux). acpmux takes it as from a unix client (the person's own CLI): any
-trusted local unix client of this daemon can set trust here, as it can on
-acpmux's own socket (same uid). A WebSocket client of acpmux still cannot
+acpmux). Pages reach the same verb only as the routed v2 operations
+`agent_session.trust.get {surface, cwd}` and `agent_session.trust.set
+{surface, cwd, level, home_confirmed?}` (page-router.md, namespace
+`agent_session`, hq-6d): only page `agent` (the agent pane and its New Tab
+page) may read, every other page gets `origin.forbidden` (the trust state
+tells a page which folders the person works in), and a set needs the
+person's gesture, a host confirmation the daemon checks for exactly that
+request (`origin.forbidden {reason: "gesture_required"}` without it), and
+origin user. A page relay cannot send this legacy line. Known limit (hq-6d):
+a plain trusted local unix client keeps acpmux's own rule and answers
+without a gesture, as it can on acpmux's own socket (same uid); the app's
+chat on another machine reaches the verb that way, behind its relay's
+fresh-gesture rule. A WebSocket client of acpmux still cannot
 answer (`trust.remote`). At most 8 calls run at once (`agent_session.limit`).
 
 ## Agent chat transfer
