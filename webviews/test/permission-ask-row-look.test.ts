@@ -103,13 +103,18 @@ await requireBrowserLane("permission-ask-row-look.test.ts", async () => {
         );
         const holderBox = holder.getBoundingClientRect();
         const cardBox = card.getBoundingClientRect();
+        const rowBox = card.querySelector<HTMLElement>(".acpmux-ask-row")!.getBoundingClientRect();
+        const notes = card.querySelectorAll(".acpmux-ask-note").length;
         const answerBoxes = answers.map((button) => button.getBoundingClientRect());
         return {
           mono: /mono|menlo|courier/i.test(style.fontFamily),
           weight: Number(style.fontWeight),
           oneLine: holderBox.height <= parseFloat(style.lineHeight) + 1,
           cut: style.textOverflow === "ellipsis" && holder.scrollWidth > holder.clientWidth,
-          cardHeight: cardBox.height,
+          rowHeight: rowBox.height,
+          // The card is the row plus its one-line notes (what Always grants), nothing more.
+          cardExtra: cardBox.height - rowBox.height - notes * 24,
+          notes,
           rim: Math.max(
             parseFloat(cardStyle.borderTopWidth),
             parseFloat(cardStyle.borderLeftWidth),
@@ -131,8 +136,10 @@ await requireBrowserLane("permission-ask-row-look.test.ts", async () => {
       expect(seen.weight).toBeLessThanOrEqual(400);
       expect(seen.oneLine).toBe(true);
       expect(seen.cut).toBe(true);
-      expect(seen.cardHeight).toBeLessThanOrEqual(40);
-      expect(seen.cardHeight).toBeGreaterThanOrEqual(28);
+      expect(seen.rowHeight).toBeLessThanOrEqual(40);
+      expect(seen.rowHeight).toBeGreaterThanOrEqual(28);
+      expect(seen.notes).toBe(1);
+      expect(seen.cardExtra).toBeLessThanOrEqual(10);
       expect(seen.panelScrolls).toBe(false);
       expect(seen.holderHeight).toBeGreaterThanOrEqual(14);
       expect(seen.rim).toBeLessThanOrEqual(1);
