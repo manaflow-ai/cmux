@@ -191,7 +191,11 @@ impl Doc {
     }
 
     /// The ordered entries of one sibling list.
-    pub fn list_entries(&self, section: &str, parent: Option<&str>) -> Option<&BTreeSet<ListEntry>> {
+    pub fn list_entries(
+        &self,
+        section: &str,
+        parent: Option<&str>,
+    ) -> Option<&BTreeSet<ListEntry>> {
         self.lists.get(&(section.to_string(), parent.map(str::to_string)))
     }
 

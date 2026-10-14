@@ -63,14 +63,16 @@ impl Mux {
                     if reduced.revision == current.revision {
                         return Ok(StateChanges::new(store::snapshot_value(&current)?, Vec::new()));
                     }
-                    let ops = if migrated { pinned_ops(&current, &reduced, doc) } else { Vec::new() };
+                    let ops =
+                        if migrated { pinned_ops(&current, &reduced, doc) } else { Vec::new() };
                     let mut events = Vec::new();
                     if !ops.is_empty() {
                         let previous_revision = doc.revision;
                         let mut mint = mint_item_id;
-                        let applied = reduce::apply_in_place(doc, &ops, &mut mint).map_err(
-                            |refusal| anyhow::anyhow!("bad request: {}", refusal.as_str()),
-                        )?;
+                        let applied =
+                            reduce::apply_in_place(doc, &ops, &mut mint).map_err(|refusal| {
+                                anyhow::anyhow!("bad request: {}", refusal.as_str())
+                            })?;
                         if !applied.changes.is_empty() {
                             events = doc_store::write_changes(
                                 transaction,

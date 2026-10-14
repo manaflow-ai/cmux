@@ -278,8 +278,11 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
         Op::ItemAdd { item, to } => add_item(tx, item, to, mint),
         Op::ItemRemove { id } => {
             let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-            let children: Vec<ItemId> =
-                tx.doc.list(&item.section, Some(id.as_str())).map(|child| child.id.clone()).collect();
+            let children: Vec<ItemId> = tx
+                .doc
+                .list(&item.section, Some(id.as_str()))
+                .map(|child| child.id.clone())
+                .collect();
             for child in children {
                 tx.remove_item(&child);
             }
@@ -592,7 +595,8 @@ fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refusal> {
         }
     }
     let (low, high) = neighbors(tx.doc, to, &moved_set)?;
-    let (low_key, high_key) = (low.as_ref().map(|e| e.0.as_str()), high.as_ref().map(|e| e.0.as_str()));
+    let (low_key, high_key) =
+        (low.as_ref().map(|e| e.0.as_str()), high.as_ref().map(|e| e.0.as_str()));
     let keys = order_key::sequence(low_key, high_key, moved.len());
     let mut assignments: Vec<(ItemId, String)> = moved.iter().cloned().zip(keys).collect();
     if order_key::needs_spread(low_key, high_key)
@@ -675,8 +679,7 @@ fn ensure_pinned_section(tx: &mut Tx) {
         return;
     }
     let mut section = Section::pinned();
-    let _ =
-        place_section(tx, &mut section, &SectionPlace { index: Some(0), ..Default::default() });
+    let _ = place_section(tx, &mut section, &SectionPlace { index: Some(0), ..Default::default() });
     tx.put_section(section);
 }
 

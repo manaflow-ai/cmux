@@ -199,7 +199,10 @@ pub(crate) fn queue_change(transaction: &Transaction<'_>, change: &Value) -> any
 /// Queue many changes as one row (a JSON array; [`drain_pending_changes`]
 /// flattens it), so a commit that restates every placement is not one
 /// insert per change.
-pub(crate) fn queue_changes(transaction: &Transaction<'_>, changes: &[Value]) -> anyhow::Result<()> {
+pub(crate) fn queue_changes(
+    transaction: &Transaction<'_>,
+    changes: &[Value],
+) -> anyhow::Result<()> {
     if changes.is_empty() {
         return Ok(());
     }

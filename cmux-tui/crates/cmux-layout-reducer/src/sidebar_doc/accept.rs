@@ -34,11 +34,7 @@ struct Dragged {
 }
 
 fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
-    let mut result = Dragged {
-        keys: HashSet::new(),
-        machines: HashSet::new(),
-        has_group: false,
-    };
+    let mut result = Dragged { keys: HashSet::new(), machines: HashSet::new(), has_group: false };
     for key in items {
         result.keys.insert(key.clone());
         if let Some(item) = doc.item(key) {

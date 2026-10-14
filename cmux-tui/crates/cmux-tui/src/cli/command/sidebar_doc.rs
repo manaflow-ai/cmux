@@ -31,11 +31,10 @@ pub(super) fn section_max_rows(
     let value = match rows {
         "none" => Value::Null,
         _ => {
-            let rows = rows
-                .parse::<u32>()
-                .ok()
-                .filter(|rows| (1..=50).contains(rows))
-                .ok_or_else(|| UsageError::new("sidebar section-max-rows takes 1 to 50 or none"))?;
+            let rows =
+                rows.parse::<u32>().ok().filter(|rows| (1..=50).contains(rows)).ok_or_else(
+                    || UsageError::new("sidebar section-max-rows takes 1 to 50 or none"),
+                )?;
             json!(rows)
         }
     };

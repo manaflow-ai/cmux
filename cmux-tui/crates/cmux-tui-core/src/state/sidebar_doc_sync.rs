@@ -32,7 +32,6 @@
 //! section (and an emptied group there); in Pinned and custom sections it
 //! stays.
 
-
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use cmux_layout_reducer::sidebar_doc::migrate::LegacyWorkspace;
@@ -836,7 +835,9 @@ pub(crate) fn write_back(
         let next = after
             .list_entries(&item.section, None)
             .into_iter()
-            .flat_map(|set| set.range((std::ops::Bound::Excluded(entry.clone()), std::ops::Bound::Unbounded)))
+            .flat_map(|set| {
+                set.range((std::ops::Bound::Excluded(entry.clone()), std::ops::Bound::Unbounded))
+            })
             .filter_map(|(_, id)| after.item(id));
         for next in next {
             let Some(reference) = next.body.workspace() else { continue };

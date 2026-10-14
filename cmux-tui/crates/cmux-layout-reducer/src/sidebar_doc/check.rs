@@ -80,7 +80,8 @@ pub(crate) fn touched(
         if same_place {
             continue;
         }
-        let places = [now.map(|item| item.section.as_str()), old.as_ref().map(|item| item.section.as_str())];
+        let places =
+            [now.map(|item| item.section.as_str()), old.as_ref().map(|item| item.section.as_str())];
         for section in places.into_iter().flatten() {
             for child in doc.list(section, Some(id.as_str())) {
                 check_item(doc, child)?;
@@ -364,7 +365,10 @@ pub fn repair(doc: &mut Doc) -> bool {
     // A group whose workspaces belong to another machine than its section.
     items.retain(|item| {
         let Some(machine) = group_machine.get(&item.id) else { return true };
-        kinds.get(&item.section).and_then(|kind| kind.machine()).is_none_or(|owner| owner == machine)
+        kinds
+            .get(&item.section)
+            .and_then(|kind| kind.machine())
+            .is_none_or(|owner| owner == machine)
     });
     let kept: HashSet<String> = items.iter().map(|item| item.id.clone()).collect();
     for item in &mut items {

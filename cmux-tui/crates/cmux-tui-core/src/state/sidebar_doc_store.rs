@@ -34,12 +34,18 @@ const EPOCH_KEY: &str = "sidebar_doc_epoch";
 /// the rows.
 enum Slot {
     Empty,
-    Cached { registry: String, epoch: String, doc: Box<Doc> },
+    Cached {
+        registry: String,
+        epoch: String,
+        doc: Box<Doc>,
+    },
     /// A commit holds the document. A reader parses the rows instead; a
     /// nested writer (an old-store sync inside that commit) does too and
     /// marks the lease stale, so the holder does not cache a copy that
     /// missed its write.
-    Leased { stale: bool },
+    Leased {
+        stale: bool,
+    },
 }
 
 static CACHE: std::sync::Mutex<Slot> = std::sync::Mutex::new(Slot::Empty);
@@ -142,7 +148,8 @@ impl Drop for Lease<'_> {
         if stale {
             return;
         }
-        if let (Some(doc), Ok(Some((registry, epoch)))) = (self.doc.take(), cache_key(self.connection))
+        if let (Some(doc), Ok(Some((registry, epoch)))) =
+            (self.doc.take(), cache_key(self.connection))
         {
             *slot = Slot::Cached { registry, epoch, doc: Box::new(doc) };
         }
@@ -232,27 +239,29 @@ pub(crate) fn snapshot(connection: &Connection) -> anyhow::Result<Value> {
 fn write_section(transaction: &Transaction<'_>, section: &Section) -> anyhow::Result<()> {
     let json = serde_json::to_string(section)?;
     anyhow::ensure!(json.len() <= MAX_ROW_BYTES, "bad request: too_many");
-    transaction.prepare(
-        "INSERT INTO sidebar_sections(id, order_key, section_json) VALUES(?1, ?2, ?3)
+    transaction
+        .prepare(
+            "INSERT INTO sidebar_sections(id, order_key, section_json) VALUES(?1, ?2, ?3)
          ON CONFLICT(id) DO UPDATE SET order_key = excluded.order_key,
                                        section_json = excluded.section_json",
-    )?
-    .execute(params![section.id, section.order, json])?;
+        )?
+        .execute(params![section.id, section.order, json])?;
     Ok(())
 }
 
 fn write_item(transaction: &Transaction<'_>, item: &Item) -> anyhow::Result<()> {
     let json = serde_json::to_string(item)?;
     anyhow::ensure!(json.len() <= MAX_ROW_BYTES, "bad request: too_many");
-    transaction.prepare(
-        "INSERT INTO sidebar_items(id, section_id, parent_id, order_key, item_json)
+    transaction
+        .prepare(
+            "INSERT INTO sidebar_items(id, section_id, parent_id, order_key, item_json)
          VALUES(?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(id) DO UPDATE SET section_id = excluded.section_id,
                                        parent_id = excluded.parent_id,
                                        order_key = excluded.order_key,
                                        item_json = excluded.item_json",
-    )?
-    .execute(params![item.id, item.section, item.parent, item.order, json])?;
+        )?
+        .execute(params![item.id, item.section, item.parent, item.order, json])?;
     Ok(())
 }
 
@@ -279,15 +288,11 @@ pub(crate) fn write_changes(
         events.push(state_upsert(ITEM_RESOURCE, &item.id, serde_json::to_value(item)?));
     }
     for id in &changes.deleted_items {
-        transaction
-            .prepare("DELETE FROM sidebar_items WHERE id = ?1")?
-            .execute([id])?;
+        transaction.prepare("DELETE FROM sidebar_items WHERE id = ?1")?.execute([id])?;
         events.push(state_delete(ITEM_RESOURCE, id));
     }
     for id in &changes.deleted_sections {
-        transaction
-            .prepare("DELETE FROM sidebar_sections WHERE id = ?1")?
-            .execute([id])?;
+        transaction.prepare("DELETE FROM sidebar_sections WHERE id = ?1")?.execute([id])?;
         events.push(state_delete(SECTION_RESOURCE, id));
     }
     set_meta(transaction, REVISION_KEY, &revision.to_string())?;
@@ -336,7 +341,8 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
         eprintln!("cmux-tui: the migrated sidebar document breaks an invariant ({refusal})");
     }
     let (sections, items) = doc.to_parts();
-    let changes = Changes { sections, deleted_sections: Vec::new(), items, deleted_items: Vec::new() };
+    let changes =
+        Changes { sections, deleted_sections: Vec::new(), items, deleted_items: Vec::new() };
     // No journal batch at open: clients read the document with sidebar.get.
     write_changes(&tx, 0, doc.revision, &changes, None)?;
     super::sidebar_doc_sync::clear_dirty(&tx)?;
