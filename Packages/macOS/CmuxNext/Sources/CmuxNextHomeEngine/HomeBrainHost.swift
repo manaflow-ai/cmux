@@ -193,8 +193,13 @@ public nonisolated struct HomeBrainHost: Sendable {
             shell.standardOutput = output
             shell.standardError = FileHandle.nullDevice
             try shell.run()
-            // The shell exits right after the background start; its one line is the pid.
-            let printed = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            // The shell exits right after the background start; its one line is the pid. Awaited as
+            // the pipe delivers it, so no thread blocks on the shell; no line (EOF) is no pid.
+            var printed = ""
+            for try await line in output.fileHandleForReading.bytes.lines {
+                printed = line
+                break
+            }
             let pid = pid_t(printed.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0 > 1 ? $0 : nil }
             logger.info("mux host started for \(muxHome.path, privacy: .public) pid \(pid.map(String.init) ?? "?", privacy: .public)")
             return pid
