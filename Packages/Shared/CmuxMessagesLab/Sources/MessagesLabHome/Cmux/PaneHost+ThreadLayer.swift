@@ -61,6 +61,38 @@ extension HostView {
         CATransaction.commit()
     }
 
+    /// cmux: the thread's rows over the header (round 4 capture: in a light close, thread rows flying
+    /// back to their places under the header drew over the avatar for 14 frames; in an open a row
+    /// covered the pill). The thread's row layers (the thread layer's sublayers other than
+    /// ThreadBackdrop's `threadDim`) move into `threadRows`, one container masked out at the avatar's
+    /// disc and the pill's capsule: a row passes under the header's controls, as transcript rows do,
+    /// while the backdrop under them still blurs the controls. Called after every engine change (the
+    /// vendored thread view adds its rows during a dispatch) and on layout (the controls' places).
+    func clipThreadRows() {
+        guard let thread = liftedThread, thread.layer.superlayer === threadHost.root,
+              let dim = thread.subviews.first?.layer else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        if threadRows.superlayer !== thread.layer {
+            threadRows.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
+            thread.layer.insertSublayer(threadRows, above: dim)
+        }
+        for l in thread.layer.sublayers ?? [] where l !== dim && l !== threadRows { threadRows.addSublayer(l) }
+        if threadRows.frame != thread.layer.bounds { threadRows.frame = thread.layer.bounds }
+        let holes = paneHeader.controlRects(width: bounds.width)
+        guard holes != threadRowsHoles else { return }
+        threadRowsHoles = holes
+        let mask = (threadRows.mask as? CAShapeLayer) ?? CAShapeLayer()
+        mask.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        mask.fillRule = .evenOdd
+        mask.frame = threadRows.bounds
+        let path = CGMutablePath()
+        path.addRect(threadRows.bounds.insetBy(dx: -4096, dy: -4096))
+        for r in holes { path.addRoundedRect(in: r, cornerWidth: min(r.width, r.height) / 2, cornerHeight: min(r.width, r.height) / 2) }
+        mask.path = path
+        threadRows.mask = mask
+    }
+
     /// The thread layer lives in `threadHost` (tests, the DEBUG socket).
     var threadLayerLifted: Bool {
         guard let demo, let thread = Self.threadLayerView(of: demo) else { return false }

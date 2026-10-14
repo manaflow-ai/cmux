@@ -58,6 +58,9 @@ final class HostView: NSView {
     weak var liftedThread: UIView?
     /// The window view the thread layer was last searched in.
     var threadLayerSearch: ObjectIdentifier?
+    /// The thread's rows, masked out at the header's controls (PaneHost+ThreadLayer.swift).
+    let threadRows = CALayer()
+    var threadRowsHoles: [CGRect] = []
     /// `--scroll-trace` uses a scroll view that takes the probe's posted
     /// events (README: responsive scrolling).
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
@@ -161,7 +164,7 @@ final class HostView: NSView {
         // in the window can change with no size change of the window view (RowCell.windowPlace).
         refreshWindowPlace()
         CATransaction.commit()
-        if let demo { liftThreadLayer(demo) }  // cmux: the thread layer stays over the header
+        if let demo { liftThreadLayer(demo); clipThreadRows() }  // cmux: the thread layer stays over the header
         placeNativeViews()
     }
 
@@ -561,6 +564,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // sits above the thread view's blur). cmux: the scroll view, scroller included, is under
         // `threadHost` (PaneHost+ThreadLayer.swift), so the thread backdrop blurs and darkens it with
         // the transcript, as real Messages does; its alpha stays SequenceScroller's own.
+        host.clipThreadRows()  // cmux: a thread view's new rows pass under the header's controls
         prefetchNextReceipt()
         scheduleWake()
     }

@@ -3,14 +3,14 @@ import AppKit
 /// MessagesLab R76's header controls (HeaderBar.swift) inside the Home pane.
 /// Blocker: HeaderBar installs an NSToolbar and a titlebar accessory on the
 /// window, and a Home tab shares the cmux-next window. The same controls sit
-/// in the pane over `HeaderBackdropView` (the blurred, darkened transcript):
-/// the 40 pt avatar 9 pt from the top, and the glass capsule name pill
-/// centered 58.5 pt from the top (`HeaderBar.pillWidth`, bold 13 pt, the dim
-/// chevron). cmux: the places are the baseline's Messages reference (avatar
-/// top 9, pill centre 58.5; HeaderBar's own constants are 8 and 58). The
-/// avatar draws over the pill's backing and under the pill's glass, so the
-/// whole disc shows as in Messages (the disc reaches 49 pt, the pill starts
-/// at 44.5 pt). No band, no edge line, no video button (Home has no calls).
+/// in the pane over `HeaderBackdropView` (the blurred, darkened transcript),
+/// at HeaderBar's measured places: the 40 pt avatar 8 pt from the top, and
+/// the glass capsule name pill centered 58 pt from the top
+/// (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron). The disc overlaps
+/// the pill's top (disc 8-48 pt, pill 44-72 pt) and draws over it, whole, as
+/// in Messages (baseline ref/real-bubble-stills-2x.png: the white disc covers
+/// the pill's top edge). No band, no edge line, no video button (Home has no
+/// calls).
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
     let pill = NSButton()
@@ -31,19 +31,18 @@ final class PaneHeaderView: NSView {
     var onContact: () -> Void = {}
 
     static let avatarSize: CGFloat = 40
-    static let avatarTop: CGFloat = 9
-    /// Messages' pill center, 58.5 pt from the window top (the baseline reference).
-    static let pillCenterY: CGFloat = 58.5
+    static let avatarTop: CGFloat = 8
+    /// HeaderBar: Messages' pill center, 58 pt from the window top.
+    static let pillCenterY: CGFloat = 58
     static let pillHeight: CGFloat = 28
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         avatar.imageScaling = .scaleProportionallyUpOrDown
-        // Back to front: the pill's backing, the avatar, the pill (glass): the backing never
-        // covers the disc's bottom, and the disc shows through the glass where they meet.
+        // Back to front: the pill's backing, the pill (glass), the avatar: the disc draws whole
+        // over the pill's top edge, as in Messages.
         pillBacking.wantsLayer = true
         addSubview(pillBacking)
-        addSubview(avatar)
         // HeaderBar's pill, as configured there.
         if #available(macOS 26, *) {
             pill.bezelStyle = .glass
@@ -61,6 +60,7 @@ final class PaneHeaderView: NSView {
         pill.target = self
         pill.action = #selector(contactClicked)
         addSubview(pill)
+        addSubview(avatar)
         applyTitle()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -73,6 +73,8 @@ final class PaneHeaderView: NSView {
     /// below the header).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
+        // The avatar draws over the pill's top edge: a click on the disc is the avatar's (mouseDown).
+        if !avatar.isHidden, avatar.frame.contains(p) { return self }
         if pill.frame.contains(p) && !pill.isHidden { return pill }
         return bounds.contains(p) ? self : nil
     }
@@ -92,6 +94,16 @@ final class PaneHeaderView: NSView {
         let p = convert(event.locationInWindow, from: nil)
         if !avatar.isHidden, avatar.frame.contains(p) { onContact(); return }
         window?.performDrag(with: event)
+    }
+
+    /// The avatar's disc and the pill's capsule in the superview's coordinates for a header of
+    /// `width` (the thread rows' mask, PaneHost+ThreadLayer.swift); none while they are hidden.
+    func controlRects(width: CGFloat) -> [CGRect] {
+        guard !title.isEmpty else { return [] }
+        let s = PaneHeaderView.avatarSize, w = HeaderBar.pillWidth(title), h = PaneHeaderView.pillHeight
+        return [CGRect(x: (width - s) / 2, y: PaneHeaderView.avatarTop, width: s, height: s),
+                CGRect(x: (width - w) / 2, y: PaneHeaderView.pillCenterY - h / 2, width: w, height: h)]
+            .map { $0.offsetBy(dx: frame.minX, dy: frame.minY) }
     }
 
     override func layout() {
