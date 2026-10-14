@@ -426,17 +426,24 @@
 }
 
 /* The composer is one material surface. The location scope is quiet metadata at its lower edge,
-   so it cannot read as a second box over wallpaper or add a full-width divider. */
+   so it cannot read as a second box over wallpaper or add a full-width divider. Its rim is one
+   device pixel and its focus ring whole device pixels (desktop.css hairline tokens), so both stay
+   continuous around the rounded corners at every scale; the rim clears with appearance.borders
+   none, as the composer edge does (styles.css). */
 .acpmux-composer-box {
+  --acpmux-composer-rim: color-mix(in srgb, var(--agent-text) 16%, transparent);
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
   box-shadow:
     0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
-    inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 16%, transparent);
+    inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-rim);
+}
+:root[data-borders="none"] .acpmux-composer-box {
+  --acpmux-composer-rim: transparent;
 }
 .acpmux-composer-box:focus-within {
   box-shadow:
     0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 38%, transparent);
+    inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--agent-accent, var(--agent-text)) 38%, transparent);
 }
 .acpmux-composer-context,
 .acpmux-composer-box[data-context-first] > .acpmux-composer-context {
