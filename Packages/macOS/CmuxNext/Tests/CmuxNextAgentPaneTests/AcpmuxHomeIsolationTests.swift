@@ -153,13 +153,17 @@ struct AcpmuxOtherHomeDaemonTests {
         // Its own home stops it.
         try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, deadline: .seconds(10))
         let pid = try #require(started)
-        #expect(after?.pid == pid, "a shutdown for another home stopped the daemon")
-        guard case AcpmuxStatusClient.Failure.otherHome(_)? = refused as? AcpmuxStatusClient.Failure else {
-            Issue.record("expected .otherHome, got \(String(describing: refused))")
-            return
-        }
         let exitDeadline = ContinuousClock.now + .seconds(10)
         while kill(pid, 0) == 0, ContinuousClock.now < exitDeadline { try await Task.sleep(for: .milliseconds(50)) }
-        #expect(kill(pid, 0) != 0, "its own home's shutdown did not stop it")
+        let stoppedByItsHome = kill(pid, 0) != 0
+        // Whatever failed, the daemon ends with the test.
+        if !stoppedByItsHome {
+            _ = try? await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/shutdown", deadline: .seconds(10))
+        }
+        #expect(after?.pid == pid, "a shutdown for another home stopped the daemon")
+        if case AcpmuxStatusClient.Failure.otherHome(_)? = refused as? AcpmuxStatusClient.Failure {} else {
+            Issue.record("expected .otherHome, got \(String(describing: refused))")
+        }
+        #expect(stoppedByItsHome, "its own home's shutdown did not stop it")
     }
 }
