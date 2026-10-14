@@ -1882,7 +1882,17 @@ export function VirtualTranscript({
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <>
-      <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
+      <div
+        ref={ref}
+        className="acpmux-scroll"
+        role="feed"
+        aria-label={t("transcript.label")}
+        onScroll={onScroll}
+        // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
+        // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        data-fade-top={renderScroll.top > 0.5 || undefined}
+        data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
+      >
         <ThreadMinimap
           rows={rows}
           sessionId={sessionId}
