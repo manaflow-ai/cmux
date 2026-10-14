@@ -119,7 +119,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                     return false
                 }
                 if let completion = decision.remindedCompletion,
-                   await Self.reminderRepeatsAcknowledgedCompletion(completion, store: store) {
+                   await MainActor.run(body: { Self.reminderRepeatsAcknowledgedCompletion(completion) }) {
                     Self.notificationDiagnostic(canonical.draft, reason: "completion-acknowledged", identity: identity)
                     return false
                 }

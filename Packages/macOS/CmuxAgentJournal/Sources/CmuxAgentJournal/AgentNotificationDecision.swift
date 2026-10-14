@@ -35,7 +35,7 @@ public struct AgentNotificationDecision: Sendable, Equatable {
     /// The turn completion an idle reminder repeats.
     ///
     /// The reconciler cannot see read state. The app delivers the reminder only
-    /// while this completion was never delivered or is still unread, so a turn
+    /// while this completion was never recorded or is still unread, so a turn
     /// the user already acknowledged stays quiet.
     public struct RemindedCompletion: Sendable, Equatable {
         /// Receipt identity of the completion.
@@ -45,10 +45,10 @@ public struct AgentNotificationDecision: Sendable, Equatable {
 
         /// Whether the reminder repeats a completion the user already acknowledged.
         /// - Parameters:
-        ///   - completionWasDelivered: The completion's receipt was claimed.
+        ///   - completionWasRecorded: The app's notification store recorded the completion.
         ///   - completionIsUnread: A stored notification with ``correlationKey`` is still unread.
-        public func isAcknowledged(completionWasDelivered: Bool, completionIsUnread: Bool) -> Bool {
-            completionWasDelivered && !completionIsUnread
+        public func isAcknowledged(completionWasRecorded: Bool, completionIsUnread: Bool) -> Bool {
+            completionWasRecorded && !completionIsUnread
         }
     }
 

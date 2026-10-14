@@ -477,8 +477,9 @@ struct AgentNotificationReconcilerTests {
         #expect(reconciler.apply(AgentJournalEvent(sequence: 5, committedAtMs: 1005, draft: lateReminder)).disposition == .delayed)
     }
 
-    private func idleReminder(_ sequence: Int64, source: String, turn: String? = "turn-1") -> AgentJournalEvent {
-        var reminder = event(sequence, .idleObserved, source: source, turn: turn).draft
+    private func idleReminder(_ sequence: Int64, source: String, turn: String? = "turn-1",
+                              occurredAt: Int64? = nil) -> AgentJournalEvent {
+        var reminder = event(sequence, .idleObserved, source: source, turn: turn, occurredAt: occurredAt).draft
         reminder.attention?.notification?.category = "idle-reminder"
         return AgentJournalEvent(sequence: sequence, committedAtMs: 1000 + sequence, draft: reminder)
     }
@@ -502,22 +503,36 @@ struct AgentNotificationReconcilerTests {
         #expect(reminder.remindedCompletion == .init(identity: doneIdentity, correlationKey: "stop-key"))
     }
 
-    @Test func remindedCompletionIsAcknowledgedOnlyAfterDeliveryAndRead() {
-        let completion = AgentNotificationDecision.RemindedCompletion(identity: "done", correlationKey: "done")
-        #expect(completion.isAcknowledged(completionWasDelivered: true, completionIsUnread: false))
-        #expect(!completion.isAcknowledged(completionWasDelivered: true, completionIsUnread: true))
-        #expect(!completion.isAcknowledged(completionWasDelivered: false, completionIsUnread: false))
+    /// A continuation without UserPromptSubmit reopens the settled turn. Its
+    /// Stop is deduplicated against the first completion, so the reminder must
+    /// not be linked to (and suppressed by) that already-read completion.
+    @Test(arguments: ["claude"])
+    func reminderAfterPromptlessContinuationIsNotLinkedToTheReadCompletion(source: String) throws {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, turn: nil, notify: false))
+        let first = reconciler.apply(event(2, .turnCompleted, source: source, turn: nil))
+        #expect(first.disposition == .accepted)
+        _ = reconciler.apply(event(3, .stateChanged, source: source, turn: nil, notify: false,
+                                   occurredAt: 20, declaredPhase: .running, nativeEvent: "PreToolUse"))
+        let second = reconciler.apply(event(4, .turnCompleted, source: source, turn: nil, occurredAt: 30))
+        #expect(second.identity == first.identity)
+        let reminder = reconciler.apply(idleReminder(5, source: source, turn: nil, occurredAt: 31))
+        #expect(reminder.disposition == .accepted)
+        #expect(reminder.remindedCompletion == nil)
+
+        // A real next turn links its own completion again.
+        _ = reconciler.apply(event(6, .turnStarted, source: source, turn: nil, notify: false, occurredAt: 40))
+        let third = reconciler.apply(event(7, .turnCompleted, source: source, turn: nil, occurredAt: 41))
+        let thirdIdentity = try #require(third.identity)
+        let nextReminder = reconciler.apply(idleReminder(8, source: source, turn: nil, occurredAt: 42))
+        #expect(nextReminder.remindedCompletion?.identity == thirdIdentity)
     }
 
-    @Test func receiptLookupDoesNotReserve() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: url) }
-        let store = try AgentJournalStore(databaseURL: url.appendingPathComponent("journal.sqlite"))
-        defer { store.close() }
-        #expect(try !store.hasNotificationReceipt(identity: "done"))
-        #expect(try !store.hasNotificationReceipt(identity: "done"))
-        #expect(try store.claimNotification(identity: "done"))
-        #expect(try store.hasNotificationReceipt(identity: "done"))
+    @Test func remindedCompletionIsAcknowledgedOnlyAfterRecordingAndRead() {
+        let completion = AgentNotificationDecision.RemindedCompletion(identity: "done", correlationKey: "done")
+        #expect(completion.isAcknowledged(completionWasRecorded: true, completionIsUnread: false))
+        #expect(!completion.isAcknowledged(completionWasRecorded: true, completionIsUnread: true))
+        #expect(!completion.isAcknowledged(completionWasRecorded: false, completionIsUnread: false))
     }
 
     @Test(arguments: ["claude", "codex"])

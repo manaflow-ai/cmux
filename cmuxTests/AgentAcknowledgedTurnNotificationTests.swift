@@ -15,10 +15,8 @@ extension AgentNotificationRegressionTests {
     private struct JournalHarness {
         let center: AgentJournalLifecycleCenter
         let directory: URL
-        let restoreDefaults: () -> Void
 
         func close() {
-            restoreDefaults()
             try? FileManager.default.removeItem(at: directory)
         }
     }
@@ -30,21 +28,24 @@ extension AgentNotificationRegressionTests {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-acknowledged-turn-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        // Pin the shipped defaults so a developer's own settings cannot hide
-        // the reminder this suite proves is suppressed for the right reason.
-        let catalog = NotificationsCatalogSection()
-        let keys = [catalog.agentIdleReminder.userDefaultsKey, catalog.agentTurnComplete.userDefaultsKey]
-        let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
-        catalog.agentIdleReminder.set(true, in: .standard)
-        catalog.agentTurnComplete.set("always", in: .standard)
+        // Preferences are read, never written: other suites share
+        // UserDefaults.standard. The shipped defaults deliver both categories;
+        // suppression tests assert that first so a pass cannot come from a
+        // preference filter.
         return JournalHarness(
             center: AgentJournalLifecycleCenter(databaseURL: directory.appendingPathComponent("journal.sqlite3")),
-            directory: directory,
-            restoreDefaults: {
-                for (key, value) in zip(keys, saved) {
-                    if let value { UserDefaults.standard.set(value, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) }
-                }
-            })
+            directory: directory)
+    }
+
+    private func expectRemindersAndCompletionsEnabled() {
+        let delivery = AgentNotificationDelivery()
+        #expect(delivery.allows(category: .idleReminder, pending: false))
+        #expect(delivery.allows(category: .turnComplete, pending: false))
+    }
+
+    private func idleReminder(_ fixture: Fixture, at time: Int64) -> AgentJournalEventDraft {
+        draft(fixture, .idleObserved, source: "claude", at: time, category: "idle-reminder",
+              body: "Claude is waiting for your input", nativeEvent: "Notification")
     }
 
     private func draft(_ fixture: Fixture, _ kind: AgentJournalEventKind, source: String, at time: Int64,
@@ -81,6 +82,7 @@ extension AgentNotificationRegressionTests {
         defer { fixture.restore() }
         let harness = try makeJournalHarness(fixture, source: "claude")
         defer { harness.close() }
+        expectRemindersAndCompletionsEnabled()
 
         await settle(harness, fixture, [
             draft(fixture, .sessionStarted, source: "claude", at: 1),
@@ -91,9 +93,7 @@ extension AgentNotificationRegressionTests {
         fixture.store.markRead(forTabId: fixture.source.id, surfaceId: fixture.panelId)
         #expect(unreadCount(fixture) == 0)
 
-        let reminder = draft(fixture, .idleObserved, source: "claude", at: 60_003, category: "idle-reminder",
-                             body: "Claude is waiting for your input", nativeEvent: "Notification")
-        #expect(await !harness.center.admitNotification(reminder))
+        #expect(await !harness.center.admitNotification(idleReminder(fixture, at: 60_003)))
         await settle(harness, fixture, [])
         #expect(unreadCount(fixture) == 0)
     }
@@ -110,13 +110,34 @@ extension AgentNotificationRegressionTests {
             draft(fixture, .turnStarted, source: "claude", at: 2),
             draft(fixture, .turnCompleted, source: "claude", at: 3, category: "turn-complete", nativeEvent: "Stop"),
         ])
+        #expect(unreadCount(fixture) == 1)
         fixture.store.clearNotifications(forTabId: fixture.source.id, surfaceId: fixture.panelId)
+        #expect(fixture.store.notifications.isEmpty)
 
+        await settle(harness, fixture, [idleReminder(fixture, at: 60_003)])
+        #expect(fixture.store.notifications.isEmpty)
+    }
+
+    /// A completion that was claimed but never recorded (here, the workspace
+    /// was muted) was not seen by the user, so it is not acknowledged and the
+    /// reminder stays eligible once notifications reach the pane again.
+    @Test func claudeIdleReminderAfterUnrecordedCompletionStillNotifies() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let harness = try makeJournalHarness(fixture, source: "claude")
+        defer { harness.close() }
+        expectRemindersAndCompletionsEnabled()
+
+        fixture.source.isMuted = true
         await settle(harness, fixture, [
-            draft(fixture, .idleObserved, source: "claude", at: 60_003, category: "idle-reminder",
-                  body: "Claude is waiting for your input", nativeEvent: "Notification"),
+            draft(fixture, .sessionStarted, source: "claude", at: 1),
+            draft(fixture, .turnStarted, source: "claude", at: 2),
+            draft(fixture, .turnCompleted, source: "claude", at: 3, category: "turn-complete", nativeEvent: "Stop"),
         ])
         #expect(fixture.store.notifications.isEmpty)
+        fixture.source.isMuted = false
+
+        #expect(await harness.center.admitNotification(idleReminder(fixture, at: 60_003)))
     }
 
     /// The reminder is still the nag the user enabled while the completion is
@@ -132,9 +153,8 @@ extension AgentNotificationRegressionTests {
             draft(fixture, .turnStarted, source: "claude", at: 2),
             draft(fixture, .turnCompleted, source: "claude", at: 3, category: "turn-complete", nativeEvent: "Stop"),
         ])
-        let unreadReminder = draft(fixture, .idleObserved, source: "claude", at: 60_003, category: "idle-reminder",
-                                   body: "Claude is waiting for your input", nativeEvent: "Notification")
-        #expect(await harness.center.admitNotification(unreadReminder))
+        #expect(unreadCount(fixture) == 1)
+        #expect(await harness.center.admitNotification(idleReminder(fixture, at: 60_003)))
 
         fixture.store.markRead(forTabId: fixture.source.id, surfaceId: fixture.panelId)
         await settle(harness, fixture, [
