@@ -423,13 +423,15 @@ async fn dispatch_request(
                 .get("value")
                 .cloned()
                 .ok_or_else(|| RpcError::invalid_params("value is required"))?;
-            hub.set_config(&s, id, value).await
+            // The app pane's effort pick is saved for the next new chat (start_defaults.rs).
+            hub.client_set_config(&s, id, value, conn.origin == Origin::LocalApp).await
         }
         method::SESSION_SET_MODEL => {
             let s = hub.resolve(session_key(&params)?)?;
             let model = str_param(&params, "modelId")
                 .ok_or_else(|| RpcError::invalid_params("modelId is required"))?;
-            hub.set_model(&s, model).await
+            // The app pane's model pick is saved for the next new chat (start_defaults.rs).
+            hub.client_set_model(&s, model, conn.origin == Origin::LocalApp).await
         }
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
