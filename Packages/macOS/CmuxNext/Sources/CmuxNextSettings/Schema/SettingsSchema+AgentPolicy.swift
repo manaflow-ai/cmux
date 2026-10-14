@@ -98,6 +98,7 @@ extension SettingsSchema {
         "ui.animations.newTab",
         "ui.animations.newWorkspace",
         "ui.animations.bounce",
+        "ui.paneAnimations",
         "layout.panePadding",
         "layout.paneCornerRadius",
         "layout.paneBorder",
