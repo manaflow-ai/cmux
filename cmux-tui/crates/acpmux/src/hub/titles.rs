@@ -14,6 +14,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// `SessionMeta.title_source` values.
 const PROMPT: &str = "prompt";
+const ADOPTED: &str = "adopted";
 pub(super) const HARNESS: &str = "harness";
 const ASKED: &str = "asked";
 const GENERATED: &str = "generated";
@@ -35,6 +36,15 @@ pub(super) fn set_fallback_title(m: &mut SessionMeta, text: &str) {
     m.title = Some(short_text(first, 80));
     m.title_source = Some(PROMPT.to_owned());
     m.title_prompt = Some(short_text(text.trim(), 2000));
+}
+
+/// An adopted chat keeps the title it came with: a prompt sent here is not
+/// its first, so nothing generates one from it.
+pub(super) fn keep_adopted_title(m: &mut SessionMeta) {
+    if matches!(m.title_source.as_deref(), None | Some(PROMPT)) {
+        m.title_source = Some(ADOPTED.to_owned());
+        m.title_prompt = None;
+    }
 }
 
 impl Hub {
@@ -184,7 +194,7 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
     let mut stdin = child.stdin.take()?;
     let mut stdout = child.stdout.take()?;
     let request = request.to_owned();
-    let answer = async move {
+    let answer = async {
         stdin.write_all(request.as_bytes()).await.ok()?;
         drop(stdin);
         let mut out = String::new();
@@ -193,13 +203,15 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
         status.success().then_some(out)
     };
     let Ok(out) = tokio::time::timeout(TIMEOUT, answer).await else {
-        // The command runs in its own group (a wrapper's children too): end it all.
+        // The command runs in its own group (a wrapper's children too): end it
+        // all while its leader, not yet reaped, still holds the group's id.
         #[cfg(unix)]
         if let Some(pid) = pid {
             unsafe {
                 libc::killpg(pid as i32, libc::SIGKILL);
             }
         }
+        drop(child);
         return None;
     };
     clean(&out?)
