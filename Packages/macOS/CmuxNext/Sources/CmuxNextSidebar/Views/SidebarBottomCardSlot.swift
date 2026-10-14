@@ -81,12 +81,3 @@ struct SidebarBottomCardSlot {
         notice.frame = frame(.notice, height: notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0)
     }
 }
-
-/// The bottom-left cards the sidebar renders (`SidebarModel.updateCard`,
-/// `.nowPlaying`, `.updatedCard`, `.noticeCard`): one at a time, in that order.
-nonisolated struct SidebarBottomCards: Hashable, Sendable {
-    var update: SidebarUpdateCard?
-    var nowPlaying: SidebarNowPlaying?
-    var updated: SidebarUpdatedCard?
-    var notice: SidebarNoticeCard?
-}
