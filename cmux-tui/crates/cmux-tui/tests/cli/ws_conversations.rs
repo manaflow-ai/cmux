@@ -16,6 +16,10 @@ use super::*;
 #[path = "ws_attachments.rs"]
 mod attachments;
 
+/// Chiefs from the person's page over the same WebSocket (`chief-profile-ws-v1`).
+#[path = "ws_chief_profiles.rs"]
+mod chief_profiles;
+
 pub(super) const TOKEN: &str = "ws-conversations-test-credential";
 
 pub(super) struct Ws {

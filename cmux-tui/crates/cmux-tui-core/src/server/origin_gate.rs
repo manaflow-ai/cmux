@@ -324,6 +324,13 @@ pub(super) fn set_page(mux: &Mux, client: u64, page: String) {
     }
 }
 
+/// The page id of `client` (a page WebSocket's handshake Origin, or a page
+/// relay's hello), or `None`. A client with no record has none.
+pub(super) fn connection_page(mux: &Mux, client: u64) -> Option<String> {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.clients.get(&client).and_then(|record| record.origin.page.clone())
+}
+
 /// Step 2 passed (prover B): `client`, a role-main connection, is the
 /// verified app. Its `peer_key` stays the audit-token key, so its page
 /// relay (same process, same token) still matches it. False when the client
@@ -501,3 +508,7 @@ mod page_access_tests;
 #[cfg(all(test, unix))]
 #[path = "pairing_gate_tests.rs"]
 mod pairing_gate_tests;
+
+#[cfg(all(test, unix))]
+#[path = "chief_profile_ws_tests.rs"]
+mod chief_profile_ws_tests;
