@@ -42136,18 +42136,30 @@ export default {
             .lowercased()
     }
 
+    /// Upstream error text reaches notifications and Feed, so credentials are
+    /// redacted first. Nil when no safe detail remains; callers then
+    /// use their product-level failure copy.
     private func openCodeFailureMessage(from object: [String: Any]) -> String? {
+        let raw: String?
         if let message = firstString(in: object, keys: ["error", "message", "reason", "description"]) {
-            return truncate(normalizedSingleLine(message), maxLength: 500)
+            raw = message
+        } else if let error = object["error"] as? [String: Any] {
+            let nestedData = error["data"] as? [String: Any]
+            raw = firstString(in: error, keys: ["message", "reason", "description"])
+                ?? nestedData.flatMap {
+                    firstString(in: $0, keys: ["message", "error", "reason", "description"])
+                }
+                ?? firstString(in: error, keys: ["name"])
+        } else {
+            raw = nil
         }
-        guard let error = object["error"] as? [String: Any] else { return nil }
-        let nestedData = error["data"] as? [String: Any]
-        let message = firstString(in: error, keys: ["message", "reason", "description"])
-            ?? nestedData.flatMap {
-                firstString(in: $0, keys: ["message", "error", "reason", "description"])
-            }
-            ?? firstString(in: error, keys: ["name"])
-        return message.map { truncate(normalizedSingleLine($0), maxLength: 500) }
+        guard let raw else { return nil }
+        let redacted = normalizedSingleLine(AgentHookNotificationPolicy.redactSensitiveErrorDetail(normalizedSingleLine(raw)))
+        let remaining = redacted.replacingOccurrences(
+            of: #"<[a-z]+>|[\s\p{P}]"#, with: "", options: .regularExpression
+        )
+        guard !remaining.isEmpty else { return nil }
+        return truncate(redacted, maxLength: 500)
     }
 
     /// Feed reading must retain the completion, not the notification preview.
