@@ -169,7 +169,6 @@ impl HomeView {
 #[derive(Debug, Default)]
 struct Tab {
     id: String,
-    kind: String,
     selected: bool,
     /// Its terminal's id (a terminal tab).
     terminal: Option<String>,
@@ -277,7 +276,6 @@ impl Home {
                         let mut row = Tab {
                             id: text(tab, "id"),
                             selected: flag(tab, "focused"),
-                            kind: kind.clone(),
                             ..Tab::default()
                         };
                         row.line = match kind.as_str() {
