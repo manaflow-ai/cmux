@@ -36461,6 +36461,7 @@ function sessionState(sessionId) {
       lastUserMessage: null,
       assistantPreamble: null,
       cwd: null,
+      lastStopKind: null,
       updatedAt: Date.now(),
     });
   }
@@ -36494,6 +36495,57 @@ function dropSession(sessionId) {
       messageRoles.delete(messageId);
     }
   }
+}
+
+function failureMessage(event) {
+  const props = eventProperties(event);
+  const raw = props.error || props.failure || props.reason;
+  if (typeof raw === "string") return normalizeText(raw, 500);
+  if (raw && typeof raw === "object") {
+    const nestedData = raw.data && typeof raw.data === "object" ? raw.data : {};
+    const nested = firstString(
+      raw.message,
+      raw.error,
+      raw.reason,
+      raw.description,
+      nestedData.message,
+      nestedData.error,
+      nestedData.reason,
+      nestedData.description,
+      raw.name
+    );
+    if (nested) return normalizeText(nested, 500);
+  }
+  return normalizeText(firstString(props.message, props.description), 500);
+}
+
+function sessionStatusType(status) {
+  if (typeof status === "string") return status.trim().toLowerCase();
+  if (!status || typeof status !== "object") return null;
+  return firstString(status.type, status.status, status.state)?.toLowerCase() || null;
+}
+
+// A turn publishes exactly one terminal stop. Only a run signal (session
+// creation, busy status, a promoted prompt or an execution start) opens the
+// next turn. Message updates and queued prompts do not: a queued prompt's
+// message arrives while the previous turn is still running, and a repeated
+// update after a stop must not reopen a finished turn.
+function beginTurn(sessionId) {
+  sessionState(sessionId).lastStopKind = null;
+}
+
+// OpenCode keeps an execution interrupted by shutdown and resumes it.
+function isResumableInterruption(event) {
+  return event?.type === "session.execution.interrupted" && eventProperties(event).reason === "shutdown";
+}
+
+// The first terminal event settles the turn. A published stop cannot be
+// reclassified, so a later failure or idle for the same turn is dropped.
+function shouldSendStop(sessionId, kind) {
+  const state = sessionState(sessionId);
+  if (state.lastStopKind) return false;
+  state.lastStopKind = kind;
+  return true;
 }
 
 function contextForSession(sessionId) {
@@ -36548,10 +36600,12 @@ function looksLikeOpenCodeScript(value) {
   return lower.includes("opencode") || lower.includes("open-code");
 }
 
+// Compiled OpenCode reports Bun's virtual entry (src/index.js on 1.x, the TUI
+// worker on V2) as an argument. It is never a user argument.
 function isOpenCodeInternalWorkerArg(value) {
   if (!value) return false;
   const normalized = String(value).replaceAll("\\", "/");
-  return normalized.includes("/$bunfs/") && normalized.endsWith("/tui/worker.js");
+  return normalized.includes("/$bunfs/") || normalized.includes("/~BUN/");
 }
 
 function withoutOpenCodeInternalWorkerArgs(argv) {
@@ -36590,13 +36644,16 @@ function base64NulSeparated(values) {
 function hookEnvironment(cwd) {
   const env = { ...process.env };
   delete env.AMP_API_KEY;
-  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
-    const argv = normalizedLaunchArgv();
-    env.CMUX_AGENT_LAUNCH_KIND = "opencode";
-    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
-    env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
-    env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
-  }
+  // Any inherited capture describes a parent process: another agent, or an
+  // OpenCode that started this one. Always describe this process's launch.
+  delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND;
+  delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND;
+  delete env.CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT;
+  const argv = normalizedLaunchArgv();
+  env.CMUX_AGENT_LAUNCH_KIND = "opencode";
+  env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
+  env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
+  env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
   return env;
 }
 
@@ -36667,29 +36724,66 @@ function trackMessage(event) {
   }
 }
 
+// Busy status carries no turn identity; prompts and user messages own it.
+function resetTurnFromEvent(event) {
+  const props = eventProperties(event);
+  const running = ["session.next.prompted", "session.execution.started"].includes(event?.type)
+    || (event?.type === "session.status" && sessionStatusType(props.status) === "busy");
+  if (!running) return;
+  const sessionId = sessionIdFor(event);
+  if (sessionId) beginTurn(sessionId);
+}
+
+function sendStop(ctx, event, failed = false) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId || !shouldSendStop(sessionId, failed ? "failure" : "success")) return;
+  const error = failed ? failureMessage(event) : null;
+  sendHook("stop", ctx, event, {
+    hook_event_name: failed ? "StopFailure" : "Stop",
+    ...(error ? { error } : {}),
+  });
+}
+
+// OpenCode publishes these through session.error without ending the turn: a
+// user interrupt (Esc) then goes idle, and a context overflow compacts and
+// continues. The idle stop that follows is the turn's outcome.
+const NON_TERMINAL_SESSION_ERRORS = new Set(["MessageAbortedError", "ContextOverflowError"]);
+
 const createCMUXSessionRestore = async (ctx) => {
   const handleEvent = async (event) => {
       trackMessage(event);
+      resetTurnFromEvent(event);
       const props = eventProperties(event);
       switch (event && event.type) {
         case "session.created":
+          beginTurn(sessionIdFor(event));
           sendHook("session-start", ctx, event);
           break;
         case "session.updated":
           if (props.info && props.info.time && props.info.time.archived) {
             sendHook("session-end", ctx, event);
             dropSession(sessionIdFor(event));
-          } else {
-            sendHook("session-start", ctx, event);
           }
           break;
         case "session.status":
-          if (props.status && props.status.type === "idle") {
-            sendHook("stop", ctx, event);
+          if (sessionStatusType(props.status) === "idle") {
+            sendStop(ctx, event);
           }
           break;
         case "session.idle":
-          sendHook("stop", ctx, event);
+          sendStop(ctx, event);
+          break;
+        case "session.execution.succeeded":
+        case "session.execution.interrupted":
+          if (!isResumableInterruption(event)) sendStop(ctx, event);
+          break;
+        case "session.error":
+          if (NON_TERMINAL_SESSION_ERRORS.has(props.error?.name)) break;
+          sendStop(ctx, event, true);
+          break;
+        case "session.execution.failed":
+        case "session.next.step.failed":
+          sendStop(ctx, event, true);
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);
@@ -36712,11 +36806,37 @@ export const CMUXSessionRestore = async (ctx) => {
   return createCMUXSessionRestore(ctx);
 };
 
+// Released OpenCode calls `server(ctx)` inside each TUI process with the
+// project server context. Old V2 snapshots called it from a shared service
+// without that context, so only subscribe when it is present.
+function isTUIProcessServerContext(ctx) {
+  return Boolean(ctx && typeof ctx === "object" && ctx.client && ctx.serverUrl && ctx.directory);
+}
+
+const CMUX_SESSION_SERVER_SCOPES_KEY = Symbol.for("cmux.session.server.scopes");
+
 export default {
   id: "cmux.server",
-  // Keep the legacy server entry inert in V2. Session hooks run from the
-  // per-TUI ./tui entrypoint so a shared service never reuses one TUI's IDs.
-  server() { return {}; },
+  async server(ctx) {
+    if (!isTUIProcessServerContext(ctx)) return {};
+    // Every loader in one plugin scope receives the same ctx. OpenCode keeps
+    // one scope per directory and disposes a scope's hooks when it tears it
+    // down, after which this scope must not send hooks.
+    const scopes = globalThis[CMUX_SESSION_SERVER_SCOPES_KEY] ||= new WeakSet();
+    if (scopes.has(ctx)) return {};
+    scopes.add(ctx);
+    globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
+    const hooks = await createCMUXSessionRestore(ctx);
+    let disposed = false;
+    return {
+      event: async (input) => {
+        if (!disposed) await hooks.event(input);
+      },
+      dispose() {
+        disposed = true;
+      },
+    };
+  },
   // Compatibility alias for older V2 snapshots that called setup().
   setup() { return () => {}; },
 };
@@ -40406,6 +40526,18 @@ export default {
                 )
                 return summary.status == .error ? summary : nil
             }()
+            let openCodeFailure: AgentHookNotificationSummary? = {
+                guard def.name == "opencode" else { return nil }
+                let event = reportedHookEventName(from: input)?.lowercased() ?? ""
+                guard isOpenCodeFailureHookEvent(event) else { return nil }
+                let rawObject = input.rawObject ?? input.object ?? [:]
+                return classifyAgentHookNotification(
+                    def: def,
+                    signal: event,
+                    message: openCodeFailureMessage(from: rawObject) ?? "",
+                    isFallback: false
+                )
+            }()
             let rawCwd = hookCwd ?? mapped?.cwd
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
             let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
@@ -40432,8 +40564,10 @@ export default {
             )
             if let antigravityFailure {
                 subtitle = antigravityFailure.subtitle
+            } else if let openCodeFailure {
+                subtitle = openCodeFailure.subtitle
             }
-            if codexFailure == nil, antigravityFailure == nil, let projectName, !projectName.isEmpty {
+            if codexFailure == nil, antigravityFailure == nil, openCodeFailure == nil, let projectName, !projectName.isEmpty {
                 subtitle = String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.subtitle.completedInProject",
@@ -40444,6 +40578,7 @@ export default {
             }
             let body = codexFailure?.body
                 ?? antigravityFailure?.body
+                ?? openCodeFailure?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? String(
@@ -40460,7 +40595,7 @@ export default {
                 inputTurnID: input.turnId,
                 terminationReason: stopTerminationReason
             )
-            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure != nil || antigravityFailure != nil
+            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure != nil || antigravityFailure != nil || openCodeFailure != nil
                 ? .error
                 : (sameTurnNeedsInput ? .needsInput : .idle)
             var lifecycleAfterStop: AgentHibernationLifecycleState = {
@@ -40651,7 +40786,7 @@ export default {
             // reducer's per-session fold handles stale sessions (a newer
             // running session outranks this one) and subagent tagging keeps
             // nested sessions off the pane badge — no emit-side guessing.
-            let stopHadFailure = codexFailure != nil || antigravityFailure != nil
+            let stopHadFailure = codexFailure != nil || antigravityFailure != nil || openCodeFailure != nil
             emitJournal(
                 stopHadFailure ? .errorReported : (sameTurnNeedsInput ? .questionRequested : .turnCompleted),
                 workspaceId: workspaceId,
@@ -40815,6 +40950,18 @@ export default {
                         )
                     }
                 } else if antigravityFailure != nil {
+                    let statusValue = agentErrorStatusValue(for: def)
+                    if def.name == "cursor" {
+                        sendCursorCriticalCommand(
+                            "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                        )
+                    } else {
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    }
+                } else if openCodeFailure != nil {
                     let statusValue = agentErrorStatusValue(for: def)
                     if def.name == "cursor" {
                         sendCursorCriticalCommand(
@@ -41677,9 +41824,17 @@ export default {
     ) {
         let fallbackHookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         let reportedEvent = reportedHookEventName(from: parsedInput)
+        let isOpenCodeStopFailure = source == "opencode"
+            && reportedEvent.map(isOpenCodeFailureHookEvent) == true
         let hookEventName: String
-        if let reportedEvent,
-           (source == "claude" || source == "codex") {
+        if isOpenCodeStopFailure {
+            // OpenCode uses the Claude-compatible StopFailure discriminator in
+            // its lifecycle bridge, but Feed's wire schema represents a
+            // failed turn as Stop + is_error. Preserve the failure bit while
+            // avoiding a successful completion event in the app reducer.
+            hookEventName = "Stop"
+        } else if let reportedEvent,
+                  (source == "claude" || source == "codex") {
             // Preserve an explicit lifecycle discriminator when a command
             // entrypoint was selected by stale/duplicated settings. The
             // classifier keeps approval semantics (including Codex's native
@@ -41763,6 +41918,15 @@ export default {
             if !failureDetails.isEmpty {
                 event["failure"] = failureDetails
                 failureDetailsForFeed = failureDetails
+            }
+        }
+        if isOpenCodeStopFailure {
+            event["is_error"] = true
+            if let message = openCodeFailureMessage(from: fallbackObject) {
+                event["error"] = message
+                var failureDetails = event["failure"] as? [String: Any] ?? [:]
+                failureDetails["message"] = message
+                event["failure"] = failureDetails
             }
         }
         if let toolInput = parsedInput.object?["tool_input"] {
@@ -42014,6 +42178,51 @@ export default {
             .map { String(format: "%02x", $0) }
             .joined()
         return "fallback-\(String(digest.prefix(16)))"
+    }
+
+    /// The notification and Feed paths share this classification, so a raw
+    /// OpenCode failure event is an error in both.
+    private func isOpenCodeFailureHookEvent(_ value: String) -> Bool {
+        let event = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedOpenCodeHookEventName(event) == "stopfailure"
+            || event.contains("execution.failed")
+            || event.contains("next.step.failed")
+            || event == "session.error"
+            || event == "error"
+    }
+
+    private func normalizedOpenCodeHookEventName(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+    }
+
+    /// Upstream error text reaches notifications and Feed, so credentials are
+    /// redacted first. Nil when no safe detail remains; callers then
+    /// use their product-level failure copy.
+    private func openCodeFailureMessage(from object: [String: Any]) -> String? {
+        let raw: String?
+        if let message = firstString(in: object, keys: ["error", "message", "reason", "description"]) {
+            raw = message
+        } else if let error = object["error"] as? [String: Any] {
+            let nestedData = error["data"] as? [String: Any]
+            raw = firstString(in: error, keys: ["message", "reason", "description"])
+                ?? nestedData.flatMap {
+                    firstString(in: $0, keys: ["message", "error", "reason", "description"])
+                }
+                ?? firstString(in: error, keys: ["name"])
+        } else {
+            raw = nil
+        }
+        guard let raw else { return nil }
+        let redacted = normalizedSingleLine(AgentHookNotificationPolicy.redactSensitiveErrorDetail(normalizedSingleLine(raw)))
+        let remaining = redacted.replacingOccurrences(
+            of: #"<[a-z]+>|[\s\p{P}]"#, with: "", options: .regularExpression
+        )
+        guard !remaining.isEmpty else { return nil }
+        return truncate(redacted, maxLength: 500)
     }
 
     /// Feed reading must retain the completion, not the notification preview.

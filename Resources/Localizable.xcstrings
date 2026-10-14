@@ -652319,120 +652319,61 @@
         }
       }
     },
-    "agentRestore.writerLock.changing": {
+    "cli.restore.error.conversationNotFound": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex was still updating its session locks, so cmux could not confirm this conversation is free. Retry 'cmux restore --surface'."
+            "value": "restore: this session has no saved conversation to resume. Start the agent again in this terminal."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كان Codex لا يزال يحدّث أقفال الجلسات، لذلك لم يتمكن cmux من التأكد من أن هذه المحادثة غير مستخدمة. أعد تشغيل 'cmux restore --surface'."
+            "value": "restore: لا تحتوي هذه الجلسة على محادثة محفوظة لاستئنافها. ابدأ الوكيل مرة أخرى في هذه الطرفية."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex hat seine Sitzungssperren noch aktualisiert, daher konnte cmux nicht bestätigen, dass diese Unterhaltung frei ist. Führe 'cmux restore --surface' erneut aus."
+            "value": "restore: Diese Sitzung hat keine gespeicherte Unterhaltung zum Fortsetzen. Starten Sie den Agenten in diesem Terminal neu."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex todavía estaba actualizando sus bloqueos de sesión, así que cmux no pudo confirmar que esta conversación esté libre. Vuelve a ejecutar 'cmux restore --surface'."
+            "value": "restore: esta sesión no tiene ninguna conversación guardada que reanudar. Vuelva a iniciar el agente en esta terminal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex mettait encore à jour ses verrous de session, cmux n'a donc pas pu confirmer que cette conversation est libre. Relancez 'cmux restore --surface'."
+            "value": "restore : cette session n'a aucune conversation enregistrée à reprendre. Redémarrez l'agent dans ce terminal."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex がまだセッションロックを更新していたため、cmux はこの会話が使用中でないことを確認できませんでした。'cmux restore --surface' を再実行してください。"
+            "value": "restore: このセッションには再開できる保存済みの会話がありません。このターミナルでエージェントをもう一度起動してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex가 아직 세션 잠금을 갱신하고 있어 cmux가 이 대화가 사용 중이 아닌지 확인할 수 없습니다. 'cmux restore --surface'를 다시 실행하세요."
+            "value": "restore: 이 세션에는 재개할 저장된 대화가 없습니다. 이 터미널에서 에이전트를 다시 시작하십시오."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex 仍在更新其会话锁，因此 cmux 无法确认此对话未被占用。请重新运行 'cmux restore --surface'。"
+            "value": "restore: 此会话没有可恢复的已保存对话。请在此终端中重新启动代理。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex 仍在更新其工作階段鎖定，因此 cmux 無法確認此對話未被使用。請重新執行 'cmux restore --surface'。"
-          }
-        }
-      }
-    },
-    "agentRestore.writerLock.unreadable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux could not read this conversation's Codex session lock, so it could not confirm the conversation is free. Retry 'cmux restore --surface'."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر على cmux قراءة قفل جلسة Codex لهذه المحادثة، لذلك لم يتمكن من التأكد من أنها غير مستخدمة. أعد تشغيل 'cmux restore --surface'."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux konnte die Codex-Sitzungssperre dieser Unterhaltung nicht lesen und daher nicht bestätigen, dass die Unterhaltung frei ist. Führe 'cmux restore --surface' erneut aus."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux no pudo leer el bloqueo de sesión de Codex de esta conversación, así que no pudo confirmar que esté libre. Vuelve a ejecutar 'cmux restore --surface'."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux n'a pas pu lire le verrou de session Codex de cette conversation et n'a donc pas pu confirmer qu'elle est libre. Relancez 'cmux restore --surface'."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux はこの会話の Codex セッションロックを読み取れなかったため、会話が使用中でないことを確認できませんでした。'cmux restore --surface' を再実行してください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux가 이 대화의 Codex 세션 잠금을 읽을 수 없어 대화가 사용 중이 아닌지 확인할 수 없습니다. 'cmux restore --surface'를 다시 실행하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 无法读取此对话的 Codex 会话锁，因此无法确认此对话未被占用。请重新运行 'cmux restore --surface'。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 無法讀取此對話的 Codex 工作階段鎖定，因此無法確認此對話未被使用。請重新執行 'cmux restore --surface'。"
+            "value": "restore：此工作階段沒有可繼續的已儲存對話。請在此終端機中重新啟動代理程式。"
           }
         }
       }
@@ -653228,6 +653169,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新啟動機器"
+          }
+        }
+      }
+    },
+    "agentRestore.writerLock.changing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex was still updating its session locks, so cmux could not confirm this conversation is free. Retry 'cmux restore --surface'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كان Codex لا يزال يحدّث أقفال الجلسات، لذلك لم يتمكن cmux من التأكد من أن هذه المحادثة غير مستخدمة. أعد تشغيل 'cmux restore --surface'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex hat seine Sitzungssperren noch aktualisiert, daher konnte cmux nicht bestätigen, dass diese Unterhaltung frei ist. Führe 'cmux restore --surface' erneut aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex todavía estaba actualizando sus bloqueos de sesión, así que cmux no pudo confirmar que esta conversación esté libre. Vuelve a ejecutar 'cmux restore --surface'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex mettait encore à jour ses verrous de session, cmux n'a donc pas pu confirmer que cette conversation est libre. Relancez 'cmux restore --surface'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex がまだセッションロックを更新していたため、cmux はこの会話が使用中でないことを確認できませんでした。'cmux restore --surface' を再実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex가 아직 세션 잠금을 갱신하고 있어 cmux가 이 대화가 사용 중이 아닌지 확인할 수 없습니다. 'cmux restore --surface'를 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 仍在更新其会话锁，因此 cmux 无法确认此对话未被占用。请重新运行 'cmux restore --surface'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 仍在更新其工作階段鎖定，因此 cmux 無法確認此對話未被使用。請重新執行 'cmux restore --surface'。"
+          }
+        }
+      }
+    },
+    "agentRestore.writerLock.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not read this conversation's Codex session lock, so it could not confirm the conversation is free. Retry 'cmux restore --surface'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux قراءة قفل جلسة Codex لهذه المحادثة، لذلك لم يتمكن من التأكد من أنها غير مستخدمة. أعد تشغيل 'cmux restore --surface'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Codex-Sitzungssperre dieser Unterhaltung nicht lesen und daher nicht bestätigen, dass die Unterhaltung frei ist. Führe 'cmux restore --surface' erneut aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo leer el bloqueo de sesión de Codex de esta conversación, así que no pudo confirmar que esté libre. Vuelve a ejecutar 'cmux restore --surface'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu lire le verrou de session Codex de cette conversation et n'a donc pas pu confirmer qu'elle est libre. Relancez 'cmux restore --surface'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの会話の Codex セッションロックを読み取れなかったため、会話が使用中でないことを確認できませんでした。'cmux restore --surface' を再実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 대화의 Codex 세션 잠금을 읽을 수 없어 대화가 사용 중이 아닌지 확인할 수 없습니다. 'cmux restore --surface'를 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法读取此对话的 Codex 会话锁，因此无法确认此对话未被占用。请重新运行 'cmux restore --surface'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法讀取此對話的 Codex 工作階段鎖定，因此無法確認此對話未被使用。請重新執行 'cmux restore --surface'。"
           }
         }
       }
