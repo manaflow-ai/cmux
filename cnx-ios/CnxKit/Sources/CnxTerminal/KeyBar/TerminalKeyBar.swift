@@ -16,6 +16,14 @@ struct TerminalKeyBar: View {
     @State private var cut: Set<KeyBarKey> = []
     /// The row is being dragged or is decelerating or snapping.
     @State private var scrolling = false
+    /// Key widths, for spreading the settled row's leftover (R3-5).
+    @State private var widths: [KeyBarKey: CGFloat] = [:]
+
+    private var spread: [CGFloat] {
+        guard !scrolling, widths.count == KeyBarKey.middle.count else { return [] }
+        return KeyBarSpread().shifts(widths: KeyBarKey.middle.map { widths[$0] ?? 40 }, spacing: 6,
+                                     contentOffset: edges.offset, visibleWidth: edges.visibleWidth)
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -23,9 +31,11 @@ struct TerminalKeyBar: View {
                 KeyCap(key: key, model: model)
             }
             ScrollView(.horizontal) {
+                let shifts = spread
                 HStack(spacing: 6) {
-                    ForEach(KeyBarKey.middle, id: \.self) { key in
+                    ForEach(Array(KeyBarKey.middle.enumerated()), id: \.element) { index, key in
                         let hidesCut = !scrolling && cut.contains(key)
+                        let shift = index < shifts.count ? shifts[index] : 0
                         KeyCap(key: key, model: model)
                             .onGeometryChange(for: Bool.self) { proxy in
                                 KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
@@ -37,8 +47,14 @@ struct TerminalKeyBar: View {
                             } action: { whole in
                                 if whole { cut.remove(key) } else { cut.insert(key) }
                             }
-                            // At rest, a key the edge cuts is not drawn: no sliver (R2-4).
+                            .onGeometryChange(for: CGFloat.self) { proxy in proxy.size.width } action: { width in
+                                widths[key] = width
+                            }
+                            // At rest, a key the edge cuts is not drawn: no sliver (R2-4),
+                            // and the leftover is spread over the gaps (R3-5).
                             .opacity(hidesCut ? 0 : 1)
+                            .offset(x: shift)
+                            .animation(.easeOut(duration: 0.12), value: shift)
                             .animation(.easeOut(duration: 0.12), value: hidesCut)
                             .accessibilityHidden(clipped.contains(key) || hidesCut)
                     }

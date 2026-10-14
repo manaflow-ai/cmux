@@ -106,3 +106,28 @@ public struct KeyBarVisibility: Equatable, Sendable {
         softKeyboard = .none
     }
 }
+
+/// Spreads the space a settled key bar scroller leaves over the gaps between
+/// its whole keys (R3-5), instead of one 19-20 pt hole at an end. Returns an
+/// x shift per key (0 for keys not wholly visible; those are not drawn at rest).
+public struct KeyBarSpread: Sendable {
+    public init() {}
+
+    public func shifts(widths: [CGFloat], spacing: CGFloat, contentOffset: CGFloat, visibleWidth: CGFloat) -> [CGFloat] {
+        var x: [CGFloat] = []
+        var cursor: CGFloat = -contentOffset
+        for width in widths {
+            x.append(cursor)
+            cursor += width + spacing
+        }
+        let whole = widths.indices.filter { x[$0] >= -0.5 && x[$0] + widths[$0] <= visibleWidth + 0.5 }
+        var result = [CGFloat](repeating: 0, count: widths.count)
+        guard whole.count >= 2, let first = whole.first, let last = whole.last else { return result }
+        let span = x[last] + widths[last] - x[first]
+        let extra = max(0, visibleWidth - span) / CGFloat(whole.count - 1)
+        for (rank, index) in whole.enumerated() {
+            result[index] = -x[first] + CGFloat(rank) * extra
+        }
+        return result
+    }
+}
