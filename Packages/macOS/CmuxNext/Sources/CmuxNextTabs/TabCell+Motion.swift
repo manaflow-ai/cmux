@@ -8,9 +8,9 @@ extension TabCell {
     /// and hover go at once (the selection moved to another tab in the same
     /// sync), then its content freezes (`closingChanged`).
     func beginClosing() {
-        showsSeparator = false
         isHovered = false
         isSelected = false
+        showsSeparator = false
         isClosing = true
     }
 

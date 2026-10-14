@@ -302,12 +302,15 @@ pub struct Settings {
     pub shared_ttl: crate::prompt::SharedTtl,
     /// Reads the person's Home workspace for each turn (`home_view`); None: no block.
     pub home_view: Option<crate::home_view::HomeView>,
+    /// Who this Chief is in the conversations and which messages wake it.
+    pub membership: crate::membership::Membership,
 }
 
 /// The longest a turn waits for view lines that are still building
-/// (chief 2026-10-10: a user turn never waits more than 10 s on compaction);
+/// (chief 2026-10-10: 10 s; hq-6d 2026-10-14, Lawrence "the chief responds
+/// too slow": 1 s, the turn starts and the compactor catches up after);
 /// then it reads them unsummarized and the next turn gets their summaries.
-pub const SETTLE_BOUND: Duration = Duration::from_secs(10);
+pub const SETTLE_BOUND: Duration = Duration::from_secs(1);
 /// How often a turn waiting for the compactor updates `settle.json`.
 const PROGRESS_TICK: Duration = Duration::from_secs(2);
 
@@ -489,6 +492,14 @@ pub struct Brain {
     /// Woken conversations not acked yet: the highest woken seq of each
     /// (`mux_ack.rs`).
     mux_pending: HashMap<String, u64>,
+    /// Local side conversations (`membership`), from the last summary seen:
+    /// None when the Chief is not in it (its messages are not read), else
+    /// each participant and whether it is a person.
+    side_member: HashMap<String, Option<HashMap<String, bool>>>,
+    /// The thread a reply to a waking group message goes into, by message
+    /// id: `(thread_root, parent)` (`membership::thread_target`). In memory
+    /// only: after a restart such a reply goes to the top level.
+    reply_threads: HashMap<String, (String, String)>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
 }
@@ -569,6 +580,8 @@ impl Brain {
             describing: HashSet::new(),
             side_handled: HashMap::new(),
             mux_pending: HashMap::new(),
+            side_member: HashMap::new(),
+            reply_threads: HashMap::new(),
             previewer: None,
         };
         // Each cut turn runs again first, on the reference client's note;

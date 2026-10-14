@@ -128,6 +128,20 @@ pub enum ResourceOperation {
     ChiefEngineSet,
     #[serde(rename = "chief.stop")]
     ChiefStop,
+    #[serde(rename = "chief.profile.list")]
+    ChiefProfileList,
+    #[serde(rename = "chief.profile.get")]
+    ChiefProfileGet,
+    #[serde(rename = "chief.profile.create")]
+    ChiefProfileCreate,
+    #[serde(rename = "chief.profile.update")]
+    ChiefProfileUpdate,
+    #[serde(rename = "chief.profile.delete")]
+    ChiefProfileDelete,
+    #[serde(rename = "chief.profile.avatar.set")]
+    ChiefProfileAvatarSet,
+    #[serde(rename = "chief.profile.avatar.get")]
+    ChiefProfileAvatarGet,
     #[serde(rename = "credential.verify")]
     CredentialVerify,
     #[serde(rename = "credential.mint")]
@@ -426,6 +440,38 @@ pub enum ResourceOperation {
     SidebarLayoutGet,
     #[serde(rename = "sidebar_layout.update")]
     SidebarLayoutUpdate,
+    #[serde(rename = "sidebar.get")]
+    SidebarGet,
+    #[serde(rename = "sidebar.move")]
+    SidebarMove,
+    #[serde(rename = "sidebar.pin")]
+    SidebarPin,
+    #[serde(rename = "sidebar.unpin")]
+    SidebarUnpin,
+    #[serde(rename = "sidebar.item.add")]
+    SidebarItemAdd,
+    #[serde(rename = "sidebar.item.remove")]
+    SidebarItemRemove,
+    #[serde(rename = "sidebar.item.update")]
+    SidebarItemUpdate,
+    #[serde(rename = "sidebar.section.add")]
+    SidebarSectionAdd,
+    #[serde(rename = "sidebar.section.update")]
+    SidebarSectionUpdate,
+    #[serde(rename = "sidebar.section.move")]
+    SidebarSectionMove,
+    #[serde(rename = "sidebar.section.remove")]
+    SidebarSectionRemove,
+    #[serde(rename = "sidebar.group.create")]
+    SidebarGroupCreate,
+    #[serde(rename = "sidebar.group.update")]
+    SidebarGroupUpdate,
+    #[serde(rename = "sidebar.group.ungroup")]
+    SidebarGroupUngroup,
+    #[serde(rename = "sidebar.adopt")]
+    SidebarAdopt,
+    #[serde(rename = "sidebar.apply")]
+    SidebarApply,
     #[serde(rename = "project.list")]
     ProjectList,
     #[serde(rename = "project.observe")]
@@ -438,6 +484,8 @@ pub enum ResourceOperation {
     ProjectRemove,
     #[serde(rename = "project.sync")]
     ProjectSync,
+    #[serde(rename = "project.source.update")]
+    ProjectSourceUpdate,
     #[serde(rename = "browser.devices.list")]
     BrowserDevicesList,
     #[serde(rename = "browser.devices.add_custom")]
@@ -538,6 +586,8 @@ pub enum ResourceOperation {
     WorkspaceAgentFolderSet,
     #[serde(rename = "workspace.agent_start.get")]
     WorkspaceAgentStartGet,
+    #[serde(rename = "workspace.open_url")]
+    WorkspaceOpenUrl,
     #[serde(rename = "workspace_group.create")]
     WorkspaceGroupCreate,
     #[serde(rename = "workspace_group.delete")]
