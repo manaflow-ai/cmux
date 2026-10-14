@@ -52,13 +52,16 @@ extension Metrics {
     /// `windowCornerRadius`: concentric with them (the window radius less
     /// the gutter). Without a gutter the pane's corners at the window's are
     /// the window's own, so the two are one outline; a square window
-    /// (fullscreen) gets a square pane, rounding only at real edges. A Debug
+    /// (fullscreen) gets a square pane, rounding only at real edges. Under a
+    /// standard titlebar strip the pane's top corners sit below it, against
+    /// the window's straight side, so the pane is square too (the window
+    /// still rounds its own corners). A Debug
     /// Settings override wins; with a gutter in fullscreen it is
     /// `mainPaneCornerRadius`.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
         let gutter = mainPaneGutter
-        if gutter == 0 { return windowCornerRadius }
+        if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : windowCornerRadius }
         return windowCornerRadius > 0 ? max(0, windowCornerRadius - gutter) : mainPaneCornerRadius
     }
     /// Black's alpha over the chrome around the main pane: the shade of the
