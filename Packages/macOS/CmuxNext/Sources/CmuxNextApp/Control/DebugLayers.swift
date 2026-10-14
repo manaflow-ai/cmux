@@ -8,7 +8,7 @@ import CmuxNextSettings
 /// each window's role, where the overlay plane lives, and whether every app
 /// overlay (focus ring, dim, drop highlight) draws above content child
 /// windows (Chromium pages). WebKit pages are in-window views and never
-/// appear as child windows. `titlebar_band: true` adds the first window's `NSWindow.titlebarBandMap`.
+/// appear as child windows. `titlebar_band: true` adds `NSWindow.titlebarBandMap`.
 enum DebugLayers {
     static func report(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
