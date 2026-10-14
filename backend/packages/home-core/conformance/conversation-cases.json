@@ -14946,6 +14946,2210 @@
    }
   },
   {
+   "name": "attachment: an image with its preview",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 0,
+    "rev": 1,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f1",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f1",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800,
+       "preview": {
+        "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mime_type": "image/jpeg",
+        "byte_count": 512000
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000001",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": null
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 1,
+      "rev": 2,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000001",
+      "conversation": "conv_TEST",
+      "seq": 1,
+      "client_msg_id": "f1",
+      "author": "user_local",
+      "parts": [
+       {
+        "type": "attachment",
+        "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "screen.png",
+        "mime_type": "image/png",
+        "byte_count": 2400000,
+        "width": 2880,
+        "height": 1800,
+        "preview": {
+         "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+         "byte_count": 512000,
+         "mime_type": "image/jpeg"
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000001",
+       "conversation": "conv_TEST",
+       "seq": 1,
+       "client_msg_id": "f1",
+       "author": "user_local",
+       "parts": [
+        {
+         "type": "attachment",
+         "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "name": "screen.png",
+         "mime_type": "image/png",
+         "byte_count": 2400000,
+         "width": 2880,
+         "height": 1800,
+         "preview": {
+          "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "byte_count": 512000,
+          "mime_type": "image/jpeg"
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "attachment: a video with its poster and a caption",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 2,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f2",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f2",
+     "parts": [
+      {
+       "type": "text",
+       "text": "the run"
+      },
+      {
+       "type": "attachment",
+       "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000,
+       "poster": {
+        "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "mime_type": "image/webp",
+        "byte_count": 2000000
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "f1",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800,
+       "preview": {
+        "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "byte_count": 512000,
+        "mime_type": "image/jpeg"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 2,
+      "rev": 3,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 2
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000002",
+      "conversation": "conv_TEST",
+      "seq": 2,
+      "client_msg_id": "f2",
+      "author": "user_local",
+      "parts": [
+       {
+        "type": "text",
+        "text": "the run"
+       },
+       {
+        "type": "attachment",
+        "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "run.mp4",
+        "mime_type": "video/mp4",
+        "byte_count": 18000000,
+        "width": 1920,
+        "height": 1080,
+        "duration_ms": 42000,
+        "poster": {
+         "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+         "byte_count": 2000000,
+         "mime_type": "image/webp"
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000002",
+       "conversation": "conv_TEST",
+       "seq": 2,
+       "client_msg_id": "f2",
+       "author": "user_local",
+       "parts": [
+        {
+         "type": "text",
+         "text": "the run"
+        },
+        {
+         "type": "attachment",
+         "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+         "name": "run.mp4",
+         "mime_type": "video/mp4",
+         "byte_count": 18000000,
+         "width": 1920,
+         "height": 1080,
+         "duration_ms": 42000,
+         "poster": {
+          "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "byte_count": 2000000,
+          "mime_type": "image/webp"
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "attachment: four images and a PDF in one message",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 2
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f3",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f3",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      },
+      {
+       "type": "attachment",
+       "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+       "name": "b.jpg",
+       "mime_type": "image/jpeg",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      },
+      {
+       "type": "attachment",
+       "hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+       "name": "c.gif",
+       "mime_type": "image/gif",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      },
+      {
+       "type": "attachment",
+       "hash": "1111111111111111111111111111111111111111111111111111111111111111",
+       "name": "d.webp",
+       "mime_type": "image/webp",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      },
+      {
+       "type": "attachment",
+       "hash": "2222222222222222222222222222222222222222222222222222222222222222",
+       "name": "spec.pdf",
+       "mime_type": "application/pdf",
+       "byte_count": 90000
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "f2",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "the run"
+      },
+      {
+       "type": "attachment",
+       "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000,
+       "poster": {
+        "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "byte_count": 2000000,
+        "mime_type": "image/webp"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 3,
+      "rev": 4,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 3
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000003",
+      "conversation": "conv_TEST",
+      "seq": 3,
+      "client_msg_id": "f3",
+      "author": "user_local",
+      "parts": [
+       {
+        "type": "attachment",
+        "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "screen.png",
+        "mime_type": "image/png",
+        "byte_count": 2400000,
+        "width": 2880,
+        "height": 1800
+       },
+       {
+        "type": "attachment",
+        "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "name": "b.jpg",
+        "mime_type": "image/jpeg",
+        "byte_count": 2400000,
+        "width": 2880,
+        "height": 1800
+       },
+       {
+        "type": "attachment",
+        "hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "name": "c.gif",
+        "mime_type": "image/gif",
+        "byte_count": 2400000,
+        "width": 2880,
+        "height": 1800
+       },
+       {
+        "type": "attachment",
+        "hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        "name": "d.webp",
+        "mime_type": "image/webp",
+        "byte_count": 2400000,
+        "width": 2880,
+        "height": 1800
+       },
+       {
+        "type": "attachment",
+        "hash": "2222222222222222222222222222222222222222222222222222222222222222",
+        "name": "spec.pdf",
+        "mime_type": "application/pdf",
+        "byte_count": 90000
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000003",
+       "conversation": "conv_TEST",
+       "seq": 3,
+       "client_msg_id": "f3",
+       "author": "user_local",
+       "parts": [
+        {
+         "type": "attachment",
+         "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "name": "screen.png",
+         "mime_type": "image/png",
+         "byte_count": 2400000,
+         "width": 2880,
+         "height": 1800
+        },
+        {
+         "type": "attachment",
+         "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+         "name": "b.jpg",
+         "mime_type": "image/jpeg",
+         "byte_count": 2400000,
+         "width": 2880,
+         "height": 1800
+        },
+        {
+         "type": "attachment",
+         "hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+         "name": "c.gif",
+         "mime_type": "image/gif",
+         "byte_count": 2400000,
+         "width": 2880,
+         "height": 1800
+        },
+        {
+         "type": "attachment",
+         "hash": "1111111111111111111111111111111111111111111111111111111111111111",
+         "name": "d.webp",
+         "mime_type": "image/webp",
+         "byte_count": 2400000,
+         "width": 2880,
+         "height": 1800
+        },
+        {
+         "type": "attachment",
+         "hash": "2222222222222222222222222222222222222222222222222222222222222222",
+         "name": "spec.pdf",
+         "mime_type": "application/pdf",
+         "byte_count": 90000
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "attachment: 100000000 bytes fit",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 3,
+    "rev": 4,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 3
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f4",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f4",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 100000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000004",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000003",
+     "conversation": "conv_TEST",
+     "seq": 3,
+     "client_msg_id": "f3",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      },
+      {
+       "type": "attachment",
+       "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+       "name": "b.jpg",
+       "mime_type": "image/jpeg",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      },
+      {
+       "type": "attachment",
+       "hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+       "name": "c.gif",
+       "mime_type": "image/gif",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      },
+      {
+       "type": "attachment",
+       "hash": "1111111111111111111111111111111111111111111111111111111111111111",
+       "name": "d.webp",
+       "mime_type": "image/webp",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      },
+      {
+       "type": "attachment",
+       "hash": "2222222222222222222222222222222222222222222222222222222222222222",
+       "name": "spec.pdf",
+       "mime_type": "application/pdf",
+       "byte_count": 90000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 4,
+      "rev": 5,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 4
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000004",
+      "conversation": "conv_TEST",
+      "seq": 4,
+      "client_msg_id": "f4",
+      "author": "user_local",
+      "parts": [
+       {
+        "type": "attachment",
+        "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "run.mp4",
+        "mime_type": "video/mp4",
+        "byte_count": 100000000,
+        "width": 1920,
+        "height": 1080,
+        "duration_ms": 42000
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000004",
+       "conversation": "conv_TEST",
+       "seq": 4,
+       "client_msg_id": "f4",
+       "author": "user_local",
+       "parts": [
+        {
+         "type": "attachment",
+         "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+         "name": "run.mp4",
+         "mime_type": "video/mp4",
+         "byte_count": 100000000,
+         "width": 1920,
+         "height": 1080,
+         "duration_ms": 42000
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "attachment: an agent's attachment-only message is not a turn",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 4,
+    "rev": 5,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "f5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f5",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000005",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000004",
+     "conversation": "conv_TEST",
+     "seq": 4,
+     "client_msg_id": "f4",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 100000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 5,
+      "rev": 6,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 4
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000005",
+      "conversation": "conv_TEST",
+      "seq": 5,
+      "client_msg_id": "f5",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "attachment",
+        "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+        "name": "run.mp4",
+        "mime_type": "video/mp4",
+        "byte_count": 18000000,
+        "width": 1920,
+        "height": 1080,
+        "duration_ms": 42000
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000005",
+       "conversation": "conv_TEST",
+       "seq": 5,
+       "client_msg_id": "f5",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "attachment",
+         "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+         "name": "run.mp4",
+         "mime_type": "video/mp4",
+         "byte_count": 18000000,
+         "width": 1920,
+         "height": 1080,
+         "duration_ms": 42000
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "attachment: one byte over 100000000",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 100000001,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: an SVG is never on the allow list",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "logo.svg",
+       "mime_type": "image/svg+xml",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: a denied extension under an allowed type",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "setup.exe",
+       "mime_type": "application/zip",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: an upper-case type",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "screen.png",
+       "mime_type": "IMAGE/PNG",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: a hash that is not 64 lowercase hex digits",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: a name with a path separator",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "../x.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: a 256-character name",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: zero bytes",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 0,
+       "width": 2880,
+       "height": 1800
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: a zero width",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 0,
+       "height": 1800
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: a poster on an image",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800,
+       "poster": {
+        "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mime_type": "image/jpeg",
+        "byte_count": 1000
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: a preview on a video",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000,
+       "preview": {
+        "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mime_type": "image/jpeg",
+        "byte_count": 1000
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: a PNG poster",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000,
+       "poster": {
+        "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mime_type": "image/png",
+        "byte_count": 1000
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: a poster over 2000000 bytes",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000,
+       "poster": {
+        "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mime_type": "image/jpeg",
+        "byte_count": 2000001
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: a preview over 512000 bytes",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "f0",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800,
+       "preview": {
+        "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mime_type": "image/jpeg",
+        "byte_count": 512001
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "attachment: an edit may swap the file",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 4
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "f6",
+    "op": {
+     "kind": "message.edit",
+     "message_id": "msg_00000000000000000000000001",
+     "parts": [
+      {
+       "type": "text",
+       "text": "better"
+      },
+      {
+       "type": "attachment",
+       "hash": "4444444444444444444444444444444444444444444444444444444444444444",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "f1",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "name": "screen.png",
+       "mime_type": "image/png",
+       "byte_count": 2400000,
+       "width": 2880,
+       "height": 1800,
+       "preview": {
+        "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "byte_count": 512000,
+        "mime_type": "image/jpeg"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "f5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "attachment",
+       "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+       "name": "run.mp4",
+       "mime_type": "video/mp4",
+       "byte_count": 18000000,
+       "width": 1920,
+       "height": 1080,
+       "duration_ms": 42000
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 5,
+      "rev": 7,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 4
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000001",
+      "conversation": "conv_TEST",
+      "seq": 1,
+      "client_msg_id": "f1",
+      "author": "user_local",
+      "parts": [
+       {
+        "type": "text",
+        "text": "better"
+       },
+       {
+        "type": "attachment",
+        "hash": "4444444444444444444444444444444444444444444444444444444444444444",
+        "name": "screen.png",
+        "mime_type": "image/png",
+        "byte_count": 2400000,
+        "width": 2880,
+        "height": 1800
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": [],
+      "edited_at": "2026-10-01T12:00:00.000Z"
+     },
+     "change": {
+      "kind": "message-updated",
+      "message": {
+       "id": "msg_00000000000000000000000001",
+       "conversation": "conv_TEST",
+       "seq": 1,
+       "client_msg_id": "f1",
+       "author": "user_local",
+       "parts": [
+        {
+         "type": "text",
+         "text": "better"
+        },
+        {
+         "type": "attachment",
+         "hash": "4444444444444444444444444444444444444444444444444444444444444444",
+         "name": "screen.png",
+         "mime_type": "image/png",
+         "byte_count": 2400000,
+         "width": 2880,
+         "height": 1800
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": [],
+       "edited_at": "2026-10-01T12:00:00.000Z"
+      }
+     }
+    }
+   }
+  },
+  {
    "name": "question: an agent posts a question",
    "head": {
     "id": "conv_01J0000000000000000QUESTN",

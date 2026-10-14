@@ -496,6 +496,11 @@
       "size": 2751
     },
     {
+      "path": "CloudInboxOpRequest.java",
+      "sha256": "efdcc6b2acdc1cfc8cce3072187e7c482ea7b7739fe336feb345b3111559e39b",
+      "size": 3646
+    },
+    {
       "path": "CloudInboxResetEvent.java",
       "sha256": "4869560e23cabf753bb12f17778a383421ea072b159cc005810116542ce422cf",
       "size": 2865
@@ -577,8 +582,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "f9c8d27b5b455abc75cf27f022b3dd0daccc6a0b3fbb49476678615ce602eb70",
-      "size": 71384
+      "sha256": "be1d7c6b6fa10bd939598354fab23bcd7536ade17a0cdec66cddf6cc41c432da",
+      "size": 72193
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -594,6 +599,16 @@
       "path": "ConversationAgentTokenResult.java",
       "sha256": "6ff448d11a0a7e54c4a37dc94be9dd33163320936000022491d88debb532645e",
       "size": 2807
+    },
+    {
+      "path": "ConversationAttachmentLinkRequest.java",
+      "sha256": "05f10e2c692ec84c090e1dfa433181501bc5cf433b1044e8f7424a9195bc4cf7",
+      "size": 4220
+    },
+    {
+      "path": "ConversationAttachmentLinkResult.java",
+      "sha256": "0b0f924bc2c381baf00de2e1de389b87a44d04e8e4a1db0d4302c1869fc8970a",
+      "size": 2834
     },
     {
       "path": "ConversationAttachmentReadRequest.java",
@@ -699,6 +714,21 @@
       "path": "ConversationImportResult.java",
       "sha256": "d77d4f606e96bdad1f3fac1d7e51798f16a9abb10ce73a0c83b6fbdc887d8511",
       "size": 3695
+    },
+    {
+      "path": "ConversationInboxChangedEvent.java",
+      "sha256": "d73d2670543ed972bc74bfaeca0beaa589bd4c65789263018c46f4f50b6c5cef",
+      "size": 5548
+    },
+    {
+      "path": "ConversationInboxOpRequest.java",
+      "sha256": "bed0fa7ae8f6ce55f8c5a223d78fe506ca20eaa8c67fc64ec403642b27140dfc",
+      "size": 2852
+    },
+    {
+      "path": "ConversationInboxOpResult.java",
+      "sha256": "173d183f2a3a459f44d0ef251ba452ea791b9fc4eba8846a834622a64246b9ab",
+      "size": 5092
     },
     {
       "path": "ConversationLinkResolveRequest.java",
@@ -822,8 +852,8 @@
     },
     {
       "path": "ConversationSummary.java",
-      "sha256": "1f9cf1a2823ccafd585daf56378a24884746e53b01ea727ecc539a563441e1b7",
-      "size": 8624
+      "sha256": "0765c1a6e8692cf72a02608927c1ae5e17453044091d4407322d5b66c98e4287",
+      "size": 10631
     },
     {
       "path": "ConversationTabRecord.java",
@@ -1072,8 +1102,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "c15c5c8aeb35bc4faf5ef3790095018c592579eb1c2761b7a140184202ba3c34",
-      "size": 16127
+      "sha256": "33394127f74d29cfaa3dac74ccd7431ed6c011ffb790235c52c68c17273866db",
+      "size": 16384
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1177,8 +1207,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "09c5f76bb3a9fcf165b6fab7ec0733ac9f172472b779b9f9d9ad6f5be22aede8",
-      "size": 62053
+      "sha256": "baf39f7dda85c9814247a25a33f25d8d11410765608a6371edc7a21c738b27aa",
+      "size": 62845
     },
     {
       "path": "GetBlobRequest.java",
@@ -1857,8 +1887,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "f572ae273720a3205ebc4c2a22e881b94df5bf222b2f857e75c9081136a36338",
-      "size": 6680
+      "sha256": "f662b407e54357df9ff6ad2f4aec58c777ce47f75ec0b428a6d98eeb314d3a8c",
+      "size": 6776
     },
     {
       "path": "ProtocolEvent.java",
@@ -3117,7 +3147,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "dcc956ee2226cb4608c36bd2caa4626484373193bafea9f062cc84e0e554dbe3",
+  "ir_sha256": "70e4f221b4cc30541db42e497e4ac735eb2e8751d5f4816b4e6a242a30284f7c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -106,6 +106,10 @@ fn scoped_raw_commands(page: &str) -> &'static [&'static str] {
             "conversation-link-resolve",
             "conversation-runs",
             "conversation-run",
+            "conversation-inbox-op",
+            "conversation-attachment-upload",
+            "conversation-attachment-read",
+            "conversation-attachment-link",
         ],
         _ => &[],
     }

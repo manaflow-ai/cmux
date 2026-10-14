@@ -146,6 +146,7 @@ pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
+mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
 mod browser_profiles;
@@ -1651,6 +1652,7 @@ enum Command {
     ConversationHistory(conversations::HistoryParams),
     ConversationThread(conversations::ThreadParams),
     ConversationLinkResolve(conversations::LinkResolveParams),
+    ConversationInboxOp(conversations::InboxOpParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -1676,6 +1678,7 @@ enum Command {
     CloudConversationRuns(cloud_conversations::RunsParams),
     CloudConversationRun(cloud_conversations::RunParams),
     CloudConversationOp(cloud_conversations::OpParams),
+    CloudInboxOp(cloud_conversations::InboxOpParams),
     CloudInboxSubscribe,
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
@@ -1689,6 +1692,7 @@ enum Command {
     /// server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
     ConversationAttachmentRead(conversation_attachments::ReadParams),
+    ConversationAttachmentLink(conversation_attachments::LinkParams),
     ConversationRunAppend(conversation_runs::AppendParams),
     ConversationRuns(conversation_runs::RunsParams),
     ConversationRun(conversation_runs::RunParams),
@@ -3531,6 +3535,7 @@ fn handle_command_with_cancellation(
         Command::ConversationLinkResolve(params) => {
             conversations::link_resolve(mux, client, params)
         }
+        Command::ConversationInboxOp(params) => conversations::inbox_op(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
@@ -3556,6 +3561,7 @@ fn handle_command_with_cancellation(
         Command::CloudConversationRuns(params) => cloud_conversations::runs(mux, client, params),
         Command::CloudConversationRun(params) => cloud_conversations::run(mux, client, params),
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
+        Command::CloudInboxOp(params) => cloud_conversations::inbox_op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
         Command::CloudMuxSubscribe(_) => cloud_conversations::mux_subscribe(mux, client),
         Command::CloudMuxUnsubscribe(_) => cloud_conversations::mux_unsubscribe(mux, client),
@@ -3569,6 +3575,7 @@ fn handle_command_with_cancellation(
         }
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
+        Command::ConversationAttachmentLink(p) => conversation_attachments::link(mux, client, p),
         Command::ConversationRunAppend(p) => conversation_runs::append(mux, client, p),
         Command::ConversationRuns(p) => conversation_runs::runs(mux, client, p),
         Command::ConversationRun(p) => conversation_runs::run(mux, client, p),
