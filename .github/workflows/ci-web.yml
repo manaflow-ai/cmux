@@ -226,8 +226,11 @@ jobs:
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The webviews suite alone (243 files, then 62
     # dev-server files) passed 188 files in 12.5 min before 15 cut it off (#20276,
-    # 2026-10-13, after a typecheck red had hidden the growth), so 30.
-    timeout-minutes: 30
+    # 2026-10-13, after a typecheck red had hidden the growth), so 30. On 2026-10-14
+    # the test step alone took 22 min (277 files, about 90 of them dev-server files two
+    # at a time), and the engine install (apt for --with-deps) took 2.5 min on one run
+    # and 11.5 on the next, which left the tests 17 min (#20697, cx-v6fbz), so 40.
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
