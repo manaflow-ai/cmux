@@ -21,38 +21,25 @@ enum BrowserDeviceHandlers {
             guard daemon.supports(DaemonCapabilities.shared.browserDevices) else {
                 throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.browserDevices))
             }
+            // nil device: No Device (`browser.tab.emulate.clear`); nil orientation: the device's first.
+            let choose: @MainActor (String?, String?) -> Void = { device, orientation in
+                guard let device else { return daemon.send("browser.tab.emulate.clear") { try await $0.state.clearTabEmulation(resource) } }
+                daemon.send("browser.tab.emulate") { try await $0.state.emulateTab(resource, device: device.isEmpty ? nil : device, orientation: orientation) }
+            }
             let device = invocation["device"]?.stringValue?.trimmingCharacters(in: .whitespaces)
             let orientation = invocation["orientation"]?.stringValue
-            if device?.lowercased() == "none" {
-                daemon.send("browser.tab.emulate.clear") { try await $0.state.clearTabEmulation(resource) }
-                return
-            }
-            if device?.isEmpty == false || orientation != nil {
-                daemon.send("browser.tab.emulate") {
-                    try await $0.state.emulateTab(resource, device: device?.isEmpty == false ? device : nil, orientation: orientation)
-                }
-                return
-            }
-            let chrome = entry.chrome
-            let current = tab.emulation
+            if device != nil || orientation != nil { return choose(device?.lowercased() == "none" ? nil : device ?? "", orientation) }
+            let (chrome, current) = (entry.chrome, tab.emulation.flatMap { try? JSONEncoder().encode($0) })
             Task { @MainActor in
-                let list: JSONValue
                 do {
-                    list = try await daemon.perform("browser.devices.list") { try await $0.state.browserDevices() }
+                    let list = try await daemon.perform("browser.devices.list") { try await $0.state.browserDevices() }
+                    let menu = BrowserDeviceMenu(devices: BrowserDeviceMenu.devices(list: (try? JSONEncoder().encode(list)) ?? Data()),
+                                                 current: BrowserDeviceMenu.current(record: current), choose: choose).menu()
+                    presentedMenu = menu
+                    chrome.toolbarButtons.present(menu, from: .overflow)
                 } catch {
                     registry.refuse(RefusalStrings.describe(error))
-                    return
                 }
-                let menu = BrowserDeviceMenu(devices: BrowserDeviceMenu.devices(list: (try? JSONEncoder().encode(list)) ?? Data()),
-                                             current: BrowserDeviceMenu.current(record: current.flatMap { try? JSONEncoder().encode($0) })) { device, orientation in
-                    if let device {
-                        daemon.send("browser.tab.emulate") { try await $0.state.emulateTab(resource, device: device, orientation: orientation) }
-                    } else {
-                        daemon.send("browser.tab.emulate.clear") { try await $0.state.clearTabEmulation(resource) }
-                    }
-                }.menu()
-                presentedMenu = menu
-                chrome.toolbarButtons.present(menu, from: .overflow)
             }
         })
     }

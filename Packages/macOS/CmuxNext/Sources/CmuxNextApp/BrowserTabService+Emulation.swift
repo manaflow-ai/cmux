@@ -3,11 +3,9 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
-/// Device emulation (browser-devices-v1, cx-ocbf3): the page follows the
-/// tab record's `extra.emulation`, which the daemon resolves.
+/// Device emulation (browser-devices-v1, cx-ocbf3): the page follows the daemon's `extra.emulation`.
 extension BrowserTabService {
-    /// Applies the tab record's emulation to `page` now and on every change,
-    /// until the page is released (`untrack`) or replaced.
+    /// Applies the tab record's emulation to `page` now and on each change until `untrack`.
     func trackEmulation(_ page: any BrowserTab, id: String) {
         guard let engine = page as? any BrowserEmulating else { return }
         emulationFollowers.removeValue(forKey: id)?.cancel()
