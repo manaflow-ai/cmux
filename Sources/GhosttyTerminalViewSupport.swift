@@ -278,6 +278,9 @@ extension GhosttyNSView {
     }
 }
 
+/// Returns whether deferred focus recovery may activate the target window.
+///
+/// A miniaturized window remains under the user's control until they restore it.
 func shouldAllowEnsureFocusWindowActivation(
     activeTabManager: TabManager?,
     targetTabManager: TabManager,
