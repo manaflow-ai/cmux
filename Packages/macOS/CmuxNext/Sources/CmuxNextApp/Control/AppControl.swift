@@ -68,7 +68,7 @@ final class AppControl {
         #if DEBUG
         let probe = frameProbe
         service.router.register([
-            .mainActor("debug.frames") { [weak services] call in .value(probe.handle(call.params, services: services)) },
+            .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBridge
 @testable import CmuxNextDesign
 import CmuxNextDaemon
 @testable import CmuxNextLayout

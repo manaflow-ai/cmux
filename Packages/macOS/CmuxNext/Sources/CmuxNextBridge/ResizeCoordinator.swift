@@ -1,11 +1,10 @@
 import AppKit
-import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextWakeups
 
 /// A view whose settled grid goes to the PTY owner (`DaemonTerminalIO`).
-@MainActor protocol ResizeTarget: AnyObject {
+@MainActor public protocol ResizeTarget: AnyObject {
     func applySettled(_ size: CellSize)
 }
 
@@ -15,25 +14,27 @@ import CmuxNextWakeups
 /// so reports are held until three frames pass unchanged. A live window
 /// resize is the exception: the person's pointer is on the edge and the
 /// text must follow it, so each new grid goes the next frame (cx-sqj3h).
-final class ResizeCoordinator {
-    static let shared = ResizeCoordinator()
-    static let settleFrames = 3
+public final class ResizeCoordinator {
+    public static let shared = ResizeCoordinator()
+    public static let settleFrames = 3
 
     private var settle = ResizeSettle<ObjectIdentifier, CellSize>(stableFrames: ResizeCoordinator.settleFrames)
     private var targets: [ObjectIdentifier: any ResizeTarget] = [:]
     /// Pane sizes span windows, so the settle count runs on the app scheduler.
+    public init() {}
+
     private lazy var frames = FrameClient(owner: "ResizeCoordinator.settle", isAnimation: false, on: .app) { [weak self] _ in
         self?.tick() ?? false
     }
 
-    func submit(_ io: any ResizeTarget, size: CellSize) {
+    public func submit(_ io: any ResizeTarget, size: CellSize) {
         let key = ObjectIdentifier(io)
         targets[key] = io
         settle.submit(key, size: size)
         startLink()
     }
 
-    func cancel(_ io: any ResizeTarget) {
+    public func cancel(_ io: any ResizeTarget) {
         let key = ObjectIdentifier(io)
         settle.cancel(key)
         targets[key] = nil
@@ -44,7 +45,7 @@ final class ResizeCoordinator {
     }
 
     /// One frame; false once every size settled.
-    func tick() -> Bool {
+    public func tick() -> Bool {
         settle.stableFrames = Motion.isLiveResizing ? 1 : Self.settleFrames
         for (key, size) in settle.tick() {
             targets.removeValue(forKey: key)?.applySettled(size)
