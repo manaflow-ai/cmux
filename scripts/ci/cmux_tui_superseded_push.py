@@ -28,7 +28,7 @@ next_batch.py). With --key, a run that another run of the key deferred to
 (a cmux-tui-tree-deferred-<key> artifact, tree-owner-wait) is not superseded:
 that run waits for its tree.
 
-Every API or git failure answers no: the run then does its work as before.
+Every API failure answers no: the run then does its work as before.
 
 Usage: cmux_tui_superseded_push.py --event E --ref REF --sha SHA [--key KEY --run-id ID]
 Environment: GH_TOKEN (contents, pull-requests and actions read),
@@ -42,7 +42,6 @@ import argparse
 import json
 import os
 import re
-import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -89,13 +88,13 @@ def lane_verdict(ref: str, sha: str) -> tuple[bool, str]:
 
 
 def pin_verdict(sha: str) -> tuple[bool, str]:
-    shown = subprocess.run(["git", "log", "-1", "--format=%P%n%s", sha],
-                           capture_output=True, text=True, check=False)
-    if shown.returncode != 0:
-        raise ApiError(f"git log {sha}: {shown.stderr.strip()}")
-    parents_line, _, subject = shown.stdout.partition("\n")
-    parents = parents_line.split()
-    subject = subject.strip()
+    # Both jobs check out at depth 1, where git shows the pin commit without
+    # parents (run 38608893139), so the parents and subject come from the API.
+    status, data = api(f"commits/{sha}")
+    if status != 200 or not isinstance(data, dict):
+        raise ApiError(f"GET commits/{sha}: HTTP {status}")
+    parents = [str((parent or {}).get("sha", "")) for parent in data.get("parents") or []]
+    subject = str((data.get("commit") or {}).get("message") or "").partition("\n")[0].strip()
     if len(parents) != 2 or subject != f"Merge {parents[1]} into {parents[0]}":
         return False, "the pin is not a pull request merge commit; keeping the run"
     head = parents[1]
