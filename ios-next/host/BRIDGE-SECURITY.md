@@ -43,7 +43,8 @@ Daemon (`DAEMON_ALLOW`), with the only fields each may carry:
 | `send` | `surface`, `bytes` (base64, 1 MiB) | typing into an existing terminal |
 | `detach-attached-view` | `surface`, `lease` | end a mirror |
 | `new-tab` | none | a new tab running the user's default shell |
-| `close-surface`, `rename-surface` | `surface` (+ `name`) | phone terminal list actions |
+| `close-tabs` | `surfaces` (exactly one), `end_terminals:true` | `term.close`: close the tab and end its shell (plain `close-surface` left the pty running for the daemon's 30 s reap grace) |
+| `rename-surface` | `surface`, `name` | phone terminal rename |
 | `select-workspace`, `select-screen` | `index` | `layout.focusTab`: bring the pane's workspace/screen forward |
 | `focus-pane` | `pane` (numeric) | `layout.focusTab` |
 | `select-tab` | `pane` (numeric), `index` | `layout.focusTab` |
@@ -70,8 +71,9 @@ acpmux (`ACPMUX_ALLOW`): `initialize` (empty client capabilities),
   `shell_args`, `cwd`, `env`, `argv`, `command`, `terminal_id` and launch
   specs are denied on every command. `run`, `create-terminal`,
   `create-surface-with-receipt`, `apply-layout`, `split`, `new-pane*` and
-  `new-screen` are not listed at all. `term.create` with a `cwd` is refused
-  with `unsupported`. The daemon runs on this Mac, which is the intended
+  `new-screen` are not listed at all. `term.create` with a `cwd`, or with
+  any option other than the ignored `cols`/`rows` (`argv`, `env`,
+  `shell_args`, `command`, ...), is refused with `unsupported`. The daemon runs on this Mac, which is the intended
   target: there is no other host a spawn could fall back to (verified live
   on mini-cmux15, see below).
 - **Agents.** `session/new` starts a harness that acpmux already knows
@@ -151,7 +153,8 @@ terminals and sessions. All are the phone owner's objects. IDs are scoped:
 - Agent session ids are passed to acpmux, which only knows this user's
   sessions. `agent.list` hides sessions that live on acpmux peers.
 - `term.close` and `agent.close` act on the user's own objects, as the
-  existing mobile daemon-lane policy already allows (`close-surface`).
+  existing mobile daemon-lane policy already allows (`term.close` uses
+  `close-tabs` with `end_terminals` so the shell ends with the tab).
 
 ### Does it read local state the phone has no business seeing?
 

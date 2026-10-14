@@ -50,7 +50,9 @@ export const DAEMON_ALLOW: Record<string, Record<string, FieldRule>> = {
   send: { surface: isSurface, bytes: isBase64(1024 * 1024) },
   // A plain new tab runs the user's default shell (no cwd/env/shell_args).
   "new-tab": {},
-  "close-surface": { surface: isSurface },
+  // term.close: close one tab and end its shell now (plain close-surface
+  // leaves the pty running for the daemon's reap grace).
+  "close-tabs": { surfaces: (v) => Array.isArray(v) && v.length === 1 && isSurface(v[0]), end_terminals: (v) => v === true },
   "rename-surface": { surface: isSurface, name: isString(256) },
   // layout.focusTab: select the tab on the Mac and focus its pane (shared
   // focus, by design). Only numeric ids and indexes; no layout changes.

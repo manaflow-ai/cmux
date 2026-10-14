@@ -63,6 +63,9 @@ export interface DaemonTerminalsEvents {
 
 const RIS = Buffer.from("\x1bc");
 
+/** term.create params a mirrored terminal accepts (cols/rows are ignored: the Mac owns the grid; cwd is refused above). */
+const TERM_CREATE_PARAMS = new Set(["cols", "rows", "cwd"]);
+
 export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
   private control: DaemonConn | null = null;
   private connecting: Promise<DaemonConn> | null = null;
@@ -183,11 +186,22 @@ export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
     return { ...t };
   }
 
+  /**
+   * Closes the Mac tab and ends its shell. `close-surface` alone only removes
+   * the tab and leaves the pty running until the daemon's reap grace (30 s
+   * in cmux-next); `close-tabs` with end_terminals ends it right away.
+   */
   async close(id: string): Promise<void> {
     const { surface } = await this.known(id);
-    await (await this.conn()).request("close-surface", { surface }).catch((err) => {
+    const res = await (await this.conn()).request<{ closed?: number[] }>("close-tabs", { surfaces: [surface], end_terminals: true }).catch((err) => {
       throw this.mapError(err, surface);
     });
+    if (Array.isArray(res?.closed) && !res.closed.includes(surface)) {
+      this.forget(surface);
+      throw new RpcError("not_found", `terminal ${id} ended on the Mac`);
+    }
+    this.forget(surface);
+    this.scheduleRefresh();
   }
 
   async rename(id: string, title: string): Promise<void> {
@@ -296,8 +310,11 @@ export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
     this.on("event", (topic, payload) => server.broadcast(topic, payload));
     server.register("term.list", async () => ({ terminals: await this.list() }));
     server.register("term.create", async (p) => {
-      // Never let the phone choose where or what a Mac terminal runs.
+      // Never let the phone choose where or what a Mac terminal runs: refuse
+      // every option but the (ignored) grid instead of silently dropping it.
       if (optStr(p, "cwd") !== undefined) throw new RpcError("unsupported", "a working directory cannot be chosen from the phone; the Mac picks it");
+      const extra = Object.keys(p).filter((k) => !TERM_CREATE_PARAMS.has(k) && p[k] !== null && p[k] !== undefined);
+      if (extra.length > 0) throw new RpcError("unsupported", `term.create on the Mac takes no ${extra.join(", ")}: new terminals run the default shell`);
       return { terminal: await this.create() };
     });
     server.register("term.attach", async (p, session: ClientSession) => {

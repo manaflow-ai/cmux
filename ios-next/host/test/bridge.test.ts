@@ -100,6 +100,13 @@ async function fakeDaemon() {
         srv.broadcast({ event: "tab-added", surface });
         return;
       }
+      case "close-tabs": {
+        const closed = m.surfaces.filter((sf: number) => tabs.some((t) => t.surface === sf));
+        for (const sf of closed) tabs.splice(tabs.findIndex((t) => t.surface === sf), 1);
+        ok({ closed, terminals: closed.map(() => ({ terminal_id: "t", terminal_incarnation: "i" })) });
+        srv.broadcast({ event: "tab-closed" });
+        return;
+      }
       case "new-tab": {
         const surface = nextSurface++;
         tabs.push({ surface, kind: "pty", name: null, title: "zsh", size: { cols: 104, rows: 40 }, cwd: "/Users/me", dead: false });
@@ -139,6 +146,9 @@ describe("bridge policy", () => {
       expect(() => checkDaemonCommand(cmd, params as Record<string, unknown>), `${cmd} ${JSON.stringify(params)}`).toThrow(PolicyError);
     }
     expect(() => checkDaemonCommand("new-tab", {})).not.toThrow();
+    expect(() => checkDaemonCommand("close-tabs", { surfaces: [3], end_terminals: true })).not.toThrow();
+    expect(() => checkDaemonCommand("close-tabs", { surfaces: [3, 4], end_terminals: true })).toThrow(PolicyError);
+    expect(() => checkDaemonCommand("close-tabs", { surfaces: [3], end_terminals: true, keep_layout: true })).toThrow(PolicyError);
     expect(() => checkDaemonCommand("new-frontend-browser-tab", { url: "https://example.com/x?y=1", engine: "cef" })).not.toThrow();
     expect(() => checkDaemonCommand("new-frontend-browser-tab", { url: "about:blank", engine: "cef" })).not.toThrow();
     for (const p of [
@@ -277,7 +287,9 @@ describe("daemon terminals bridge", () => {
     client.peer.on("event", (t, p) => t === "term.updated" && updates.push(p.terminal));
     await client.request("term.list");
     await expect(client.request("term.create", { cols: 80, rows: 24, cwd: "/etc" })).rejects.toMatchObject({ code: "unsupported" });
-    const { terminal } = await client.request("term.create", { cols: 80, rows: 24 });
+    for (const extra of [{ argv: ["/bin/sh"] }, { env: { X: "1" } }, { shell_args: ["-c", "id"] }, { command: "id" }])
+      await expect(client.request("term.create", { cols: 80, rows: 24, ...extra })).rejects.toMatchObject({ code: "unsupported" });
+    const { terminal } = await client.request("term.create", { cols: 80, rows: 24, cwd: null });
     expect(terminal.id).toBe("s10");
     expect(d.commands.filter((c) => c.cmd === "new-tab")).toEqual([{ id: expect.any(Number), cmd: "new-tab" }]);
     // A tab opened on the Mac reaches the phone through tab-added.
@@ -286,6 +298,15 @@ describe("daemon terminals bridge", () => {
     await waitFor(() => updates.some((t) => t.id === "s42" && t.title === "mac tab"));
     await expect(client.request("term.attach", { terminalId: "s5", cols: 1, rows: 1 })).rejects.toMatchObject({ code: "not_found" }); // browser tab
     await expect(client.request("term.attach", { terminalId: "../x", cols: 1, rows: 1 })).rejects.toMatchObject({ code: "not_found" });
+    // term.close ends the shell, not just the tab.
+    const exited: any[] = [];
+    client.peer.on("event", (t, p) => t === "term.exited" && exited.push(p));
+    await client.request("term.close", { terminalId: "s10" });
+    expect(d.commands.find((c) => c.cmd === "close-tabs")).toEqual({ id: expect.any(Number), cmd: "close-tabs", surfaces: [10], end_terminals: true });
+    expect(d.commands.some((c) => c.cmd === "close-surface")).toBe(false);
+    expect(exited.map((e) => e.terminalId)).toContain("s10");
+    expect((await client.request("term.list")).terminals.map((t: any) => t.id)).not.toContain("s10");
+    await expect(client.request("term.close", { terminalId: "s10" })).rejects.toMatchObject({ code: "not_found" });
   });
 
   it("maps a terminal that ended on the Mac to not_found and drops it from the list", async () => {
