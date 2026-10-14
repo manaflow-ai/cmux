@@ -2949,15 +2949,17 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
-  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
-  /// this pane when this is a subagent's pane or the host opens none.
   // Only Claude's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`).
   const stopsSubagents = snapshot.summary?.harness === "claude";
   const stopSubagent = useMemo(
     () =>
-      stopsSubagents ? (id: string) => void directClient.current?.stopSubagent(id).catch(() => undefined) : undefined,
+      stopsSubagents
+        ? (id: string) => directClient.current?.stopSubagent(id) ?? Promise.reject(new Error("no acpmux connection"))
+        : undefined,
     [stopsSubagents],
   );
+  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
+  /// this pane when this is a subagent's pane or the host opens none.
   const showSubagent = useCallback((id: string, focus = true) => {
     if (subagentPane.current) return setSubagentView(id);
     void openSubagentPane(callNative, id, focus).then((opened) => {

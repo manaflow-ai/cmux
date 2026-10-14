@@ -1114,10 +1114,11 @@ export class AcpmuxDirectClient {
   }
 
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
-  /// sends Claude's stop_task, and the subagent ends as cancelled when Claude stops it.
+  /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
+  /// when Claude stops it. A Claude that never answers fails it after 10 s.
   stopSubagent(subagentSessionId: string): Promise<unknown> {
-    if (!this.selectedSessionId) return Promise.resolve();
-    return this.request("_acpmux/subagent_stop", { sessionId: this.selectedSessionId, subagentSessionId });
+    if (!this.selectedSessionId) return Promise.reject(new Error("no session"));
+    return this.request("_acpmux/subagent_stop", { sessionId: this.selectedSessionId, subagentSessionId }, 10_000);
   }
 
   /// Reads the selected session's durable composer draft from acpmux.

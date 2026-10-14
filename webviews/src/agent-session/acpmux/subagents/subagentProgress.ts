@@ -1,7 +1,7 @@
 // What a subagent has spent so far, as the parts of its status line: a Claude workflow's agents
 // done of started, its tokens and its tool uses (acpmux `subagent_progress`, subagentFold.ts).
-// Shared by every list that shows a subagent (the transcript's group rows, the Background tasks
-// pane), so each says the same thing the same way.
+// The transcript's subagent rows draw it; a list of subagents elsewhere should too, so each says
+// the same thing the same way.
 import type { PaneLanguage, Translate } from "../i18n";
 import type { Subagent } from "./subagentFold";
 

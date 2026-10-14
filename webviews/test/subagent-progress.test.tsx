@@ -208,7 +208,7 @@ test("stopping a subagent leaves its row closed; a refused stop says so and can 
     await act(async () => button().click());
     expect(answers.length).toBe(1);
     await act(async () => answers[0]!.reject(new Error("no running subagent w")));
-    expect([button().disabled, button().getAttribute("aria-label")]).toEqual([false, "Couldn't stop probe"]);
+    expect([button().disabled, button().getAttribute("aria-label")]).toEqual([false, "Couldn’t stop probe"]);
     await act(async () => button().click());
     expect(answers.length).toBe(2);
     expect(opened).toEqual([]);

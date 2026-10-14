@@ -23,8 +23,9 @@ export const SubagentNavContext = createContext<((id: string | undefined) => voi
 /// in place.
 export const SubagentPaneContext = createContext<((id: string) => void) | undefined>(undefined);
 
-/// Stops a running subagent (App.tsx, direct.ts `stopSubagent`); absent where the harness cannot.
-export const SubagentStopContext = createContext<((id: string) => void) | undefined>(undefined);
+/// Stops a running subagent (App.tsx, direct.ts `stopSubagent`), settling with Claude's answer;
+/// absent where the harness cannot.
+export const SubagentStopContext = createContext<((id: string) => Promise<unknown>) | undefined>(undefined);
 
 /// Avatars drawn before "+N".
 const STACK = 3;
@@ -177,16 +178,33 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   return (
     <div className="cv-subagent-stoppable">
       {line}
-      <button
-        type="button"
-        className="cv-subagent__stop"
-        aria-label={t("subagents.stop", { name: agent.name })}
-        title={t("subagents.stop", { name: agent.name })}
-        onClick={() => stop(agent.id)}
-      >
-        <Icon name="action.stop" size={12} />
-      </button>
+      <StopButton agent={agent} stop={stop} />
     </div>
+  );
+}
+
+/// A running subagent's stop button. It stays off while Claude has the request (and after Claude
+/// takes it, until the subagent ends); when acpmux or Claude refuses, it says so and can be tried
+/// again.
+function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
+  const t = useT();
+  const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
+  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: agent.name });
+  return (
+    <button
+      type="button"
+      className="cv-subagent__stop"
+      data-state={state}
+      disabled={state === "stopping"}
+      aria-label={label}
+      title={label}
+      onClick={() => {
+        setState("stopping");
+        stop(agent.id).catch(() => setState("failed"));
+      }}
+    >
+      <Icon name="action.stop" size={12} />
+    </button>
   );
 }
 
