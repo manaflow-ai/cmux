@@ -1,8 +1,9 @@
 //! `terminal-input-while-creating-v1` over the daemon socket (cx-wb5.78): input sent to the
 //! caller-minted `terminal_id` of a split that is still being created is queued, in order across
-//! connections, and written to the new terminal once it is live; a refused split and a creation
-//! that outlives the expiry give each sending connection its own bytes back in one
-//! `terminal-input-unclaimed` notice; more than 64 KiB is refused with `input.overflow`.
+//! connections, and written to the new terminal once it is live; a creation that outlives the
+//! expiry gives each sending connection its own bytes back in one `terminal-input-unclaimed`
+//! notice; a refused creation never takes input; more than 64 KiB is refused with
+//! `input.overflow`.
 
 use super::super::*;
 use std::sync::mpsc;
@@ -158,42 +159,33 @@ fn input_for_a_creating_terminal_is_queued_then_written_in_order() {
 }
 
 #[test]
-fn a_refused_creation_gives_each_sender_its_queued_input_back() {
-    let harness = RecoveryHarness::start_with_host_ready_delay("creating-input-refused", 1_000);
+fn a_refused_creation_takes_no_input() {
+    let harness = RecoveryHarness::start_with_host_ready_delay("creating-input-refused", 500);
     let pane = first_pane(&harness, "creating-refused");
-    // The pane id is taken first, so the second split with it is refused at its commit.
     let taken = request(
         &harness.socket,
         serde_json::json!({"id": 10, "cmd": "split", "pane": pane, "dir": "down", "pane_id": pane_id(1)}),
     );
-    assert!(taken["surface"].is_u64(), "{taken}");
+    let taken_surface = taken["surface"].as_u64().unwrap();
+    // The same pane id with another request is refused before anything is created, so its
+    // terminal id never waits for input: a send to it fails and writes nothing anywhere.
     let terminal_id = creating_terminal(2);
-    let refused = spawn_request(
+    let refused = request_response(
         &harness.socket,
         serde_json::json!({
             "id": 11, "cmd": "split", "pane": pane, "dir": "right",
             "pane_id": pane_id(1), "terminal_id": terminal_id,
         }),
     );
-    let mut first = Connection::open(&harness.socket);
-    let mut second = Connection::open(&harness.socket);
-    queue(&mut first, 20, &terminal_id, "ls");
-    queue(&mut second, 21, &terminal_id, "pwd");
-    queue(&mut first, 22, &terminal_id, "\r");
-
-    let reply = refused.recv_timeout(test_timeout(Duration::from_secs(20))).unwrap();
-    assert_eq!(reply["ok"], false, "the split with a taken pane id was refused: {reply}");
-    for (connection, expected) in [(&mut first, "ls\r"), (&mut second, "pwd")] {
-        let notice = connection.unclaimed();
-        assert_eq!(notice["terminal_id"], terminal_id, "{notice}");
-        assert_eq!(notice["reason"], "failed", "{notice}");
-        assert_eq!(base64_text(&notice), expected, "each sender gets its own bytes, in order");
-    }
-    // Nothing was written anywhere, and the id is unknown now.
-    let after = first.call(serde_json::json!({
-        "id": 23, "cmd": "send", "terminal_id": terminal_id, "text": "x",
+    assert_eq!(refused["ok"], false, "{refused}");
+    let mut sender = Connection::open(&harness.socket);
+    let sent = sender.call(serde_json::json!({
+        "id": 20, "cmd": "send", "terminal_id": terminal_id, "text": "REFUSED-INPUT",
     }));
-    assert_eq!(after["ok"], false, "{after}");
+    assert_eq!(sent["ok"], false, "{sent}");
+    assert!(sent["error"].as_str().unwrap().contains("unknown terminal"), "{sent}");
+    let screen = request(&harness.socket, serde_json::json!({"id": 21, "cmd": "read-screen", "surface": taken_surface}));
+    assert!(!screen["text"].as_str().unwrap().contains("REFUSED-INPUT"), "{screen}");
 }
 
 #[test]

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85";
+pub const ir_sha256 = "1ef4072e86baf7f2617fa3740c5d13334050c3ca1209cb2b7ef3c8942673c222";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7409,7 +7409,8 @@ pub fn selectWorkspace(client: anytype, request: SelectWorkspaceRequest) !wire.D
 pub const SendRequest = struct {
     bytes: wire.Field(Base64) = .absent,
     paste: ?bool = null,
-    surface: Id,
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
     text: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -7417,7 +7418,13 @@ pub const SendRequest = struct {
     };
 };
 
-pub const SendResult = EmptyResult;
+pub const SendResult = struct {
+    queued: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "queued",
+    };
+};
 
 pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
     return client.callTyped(
@@ -7429,6 +7436,7 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .capability = null,
             .fields = &.{
                 .{ .name = "paste", .since = 7, .capability = null },
+                .{ .name = "terminal_id", .since = null, .capability = "terminal-input-while-creating-v1" },
             },
         },
         request,
@@ -9612,6 +9620,13 @@ pub const TerminalClipboardReadCancelledEvent = struct {
     request_id: []const u8,
 };
 
+pub const TerminalInputUnclaimedEvent = struct {
+    bytes_base64: Base64,
+    event: []const u8,
+    reason: []const u8,
+    terminal_id: []const u8,
+};
+
 pub const TerminalReapedEvent = struct {
     event: []const u8,
     grace_ms: u64,
@@ -9823,6 +9838,7 @@ pub const Event = union(enum) {
     tab_renamed: TabRenamedEvent,
     terminal_clipboard_read: TerminalClipboardReadEvent,
     terminal_clipboard_read_cancelled: TerminalClipboardReadCancelledEvent,
+    terminal_input_unclaimed: TerminalInputUnclaimedEvent,
     terminal_reaped: TerminalReapedEvent,
     terminal_registry_changed: TerminalRegistryChangedEvent,
     title_changed: TitleChangedEvent,
@@ -9903,6 +9919,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .tab_renamed => "tab-renamed",
         .terminal_clipboard_read => "terminal-clipboard-read",
         .terminal_clipboard_read_cancelled => "terminal-clipboard-read-cancelled",
+        .terminal_input_unclaimed => "terminal-input-unclaimed",
         .terminal_reaped => "terminal-reaped",
         .terminal_registry_changed => "terminal-registry-changed",
         .title_changed => "title-changed",
@@ -10184,6 +10201,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     if (std.mem.eql(u8, name, "terminal-clipboard-read-cancelled")) {
         const decoded = try wire.decodeLeaky(TerminalClipboardReadCancelledEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .terminal_clipboard_read_cancelled = decoded } };
+    }
+    if (std.mem.eql(u8, name, "terminal-input-unclaimed")) {
+        const decoded = try wire.decodeLeaky(TerminalInputUnclaimedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .terminal_input_unclaimed = decoded } };
     }
     if (std.mem.eql(u8, name, "terminal-reaped")) {
         const decoded = try wire.decodeLeaky(TerminalReapedEvent, arena.allocator(), value);
@@ -10588,20 +10609,21 @@ const event_streams_59 = [_][]const u8{"subscribe-deltas"};
 const event_streams_60 = [_][]const u8{"subscribe-deltas"};
 const event_streams_61 = [_][]const u8{"control"};
 const event_streams_62 = [_][]const u8{"control"};
-const event_streams_63 = [_][]const u8{"subscribe"};
+const event_streams_63 = [_][]const u8{"control"};
 const event_streams_64 = [_][]const u8{"subscribe"};
 const event_streams_65 = [_][]const u8{"subscribe"};
 const event_streams_66 = [_][]const u8{"subscribe"};
-const event_streams_67 = [_][]const u8{"control"};
-const event_streams_68 = [_][]const u8{"attach-byte"};
-const event_streams_69 = [_][]const u8{"subscribe"};
-const event_streams_70 = [_][]const u8{"subscribe-deltas"};
+const event_streams_67 = [_][]const u8{"subscribe"};
+const event_streams_68 = [_][]const u8{"control"};
+const event_streams_69 = [_][]const u8{"attach-byte"};
+const event_streams_70 = [_][]const u8{"subscribe"};
 const event_streams_71 = [_][]const u8{"subscribe-deltas"};
 const event_streams_72 = [_][]const u8{"subscribe-deltas"};
 const event_streams_73 = [_][]const u8{"subscribe-deltas"};
 const event_streams_74 = [_][]const u8{"subscribe-deltas"};
+const event_streams_75 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 75;
+pub const event_count: usize = 76;
 pub const events = [_]EventDescriptor{
     .{ .name = "activity-changed", .since = 12, .capability = "vm-activity-v1", .streams = &event_streams_0 },
     .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_1 },
@@ -10666,16 +10688,17 @@ pub const events = [_]EventDescriptor{
     .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_60 },
     .{ .name = "terminal-clipboard-read", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_61 },
     .{ .name = "terminal-clipboard-read-cancelled", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_62 },
-    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_63 },
-    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_64 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_65 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_66 },
-    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_67 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_68 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_69 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_70 },
-    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_71 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_72 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_73 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_74 },
+    .{ .name = "terminal-input-unclaimed", .since = 12, .capability = "terminal-input-while-creating-v1", .streams = &event_streams_63 },
+    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_64 },
+    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_65 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_66 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_67 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_68 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_69 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_70 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_71 },
+    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_72 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_73 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_74 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_75 },
 };

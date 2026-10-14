@@ -12,8 +12,6 @@
 //! focus. Clients send keys to the new terminal at once and never hold or replay them.
 
 use super::*;
-use base64::Engine as _;
-use serde_json::json;
 
 /// The most bytes queued for one creating terminal; more is refused (`input.overflow`).
 pub(crate) const CREATING_INPUT_LIMIT: usize = 64 * 1024;
@@ -23,8 +21,8 @@ const CREATING_INPUT_EXPIRY: Duration = Duration::from_secs(10);
 /// Test hook: a shorter expiry in milliseconds.
 const EXPIRY_OVERRIDE_ENV: &str = "CMUX_TUI_TEST_CREATING_INPUT_EXPIRY_MS";
 
-/// Sends one notice to the connection that queued the bytes.
-pub(crate) type UnclaimedNotice = Arc<dyn Fn(&Value) + Send + Sync>;
+/// Gives one connection its queued bytes back: `(terminal_id, bytes, reason)`.
+pub(crate) type UnclaimedNotice = Arc<dyn Fn(&str, &[u8], &str) + Send + Sync>;
 
 struct QueuedInput {
     client: u64,
@@ -64,8 +62,8 @@ pub(crate) struct InputOverflow {
     queued: usize,
 }
 
-impl std::fmt::Display for InputOverflow {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for InputOverflow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "the creating terminal already holds {} queued bytes (limit {CREATING_INPUT_LIMIT})", self.queued)
     }
 }
@@ -80,6 +78,10 @@ pub(crate) fn error_code(error: &anyhow::Error) -> Option<String> {
 impl Mux {
     /// A creation that names `terminal_id` was received: input for the id is queued from now on.
     pub(crate) fn begin_creating_input(&self, terminal_id: &str) {
+        // A live terminal already has the id (a refused or replayed create): input goes to it.
+        if self.live_surface_for_terminal(terminal_id).is_some() {
+            return;
+        }
         let inputs = &self.creating_inputs;
         let generation = inputs.next_generation.fetch_add(1, Ordering::Relaxed);
         inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner).entry(terminal_id.to_string()).or_insert(
@@ -114,7 +116,11 @@ impl Mux {
         let surface = self
             .live_surface_for_terminal(terminal_id)
             .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-        if paste { surface.write_paste(bytes)? } else { surface.write_bytes(bytes)? }
+        if paste {
+            surface.write_paste(bytes)?;
+        } else {
+            surface.write_bytes(bytes)?;
+        }
         drop(terminals);
         self.note_terminal_input(surface.id, client);
         Ok(TerminalInputTarget::Written)
@@ -199,7 +205,7 @@ impl Mux {
     }
 }
 
-/// One `terminal-input-unclaimed` notice per sending connection, with its own bytes in order.
+/// One give-back per sending connection, with its own bytes in order.
 fn give_back(terminal_id: &str, queued: Vec<QueuedInput>, reason: &str) {
     let mut senders: Vec<(u64, UnclaimedNotice, Vec<u8>)> = Vec::new();
     for input in queued {
@@ -209,11 +215,6 @@ fn give_back(terminal_id: &str, queued: Vec<QueuedInput>, reason: &str) {
         }
     }
     for (_, notice, bytes) in senders {
-        notice(&json!({
-            "event": "terminal-input-unclaimed",
-            "terminal_id": terminal_id,
-            "bytes_base64": base64::engine::general_purpose::STANDARD.encode(bytes),
-            "reason": reason,
-        }));
+        notice(terminal_id, &bytes, reason);
     }
 }

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85";
+inline constexpr std::string_view kProtocolIrSha256 = "1ef4072e86baf7f2617fa3740c5d13334050c3ca1209cb2b7ef3c8942673c222";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -439,6 +439,7 @@ struct SelectScreenRequest;
 struct SelectTabRequest;
 struct SelectWorkspaceRequest;
 struct SendRequest;
+struct SendResult;
 struct SendKeyRequest;
 struct ServerStatsRequest;
 struct SetCellPixelsRequest;
@@ -567,6 +568,7 @@ struct TabClosedEvent;
 struct TabRenamedEvent;
 struct TerminalClipboardReadEvent;
 struct TerminalClipboardReadCancelledEvent;
+struct TerminalInputUnclaimedEvent;
 struct TerminalReapedEvent;
 struct TerminalRegistryChangedEvent;
 struct TitleChangedEvent;
@@ -4188,9 +4190,15 @@ struct SendKeyRequest {
 struct SendRequest {
     Field<Base64> bytes{};
     std::optional<bool> paste{};
-    Id surface{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
     Field<std::string> text{};
     friend bool operator==(const SendRequest&, const SendRequest&) = default;
+};
+
+struct SendResult {
+    std::optional<bool> queued{};
+    friend bool operator==(const SendResult&, const SendResult&) = default;
 };
 
 struct ServerStatsConnections {
@@ -4888,6 +4896,13 @@ struct TerminalHistoryRequest {
     Field<std::uint64_t> max_bytes{};
     Id surface{};
     friend bool operator==(const TerminalHistoryRequest&, const TerminalHistoryRequest&) = default;
+};
+
+struct TerminalInputUnclaimedEvent {
+    Base64 bytes_base64{};
+    std::string reason{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalInputUnclaimedEvent&, const TerminalInputUnclaimedEvent&) = default;
 };
 
 struct TerminalPlacement {
@@ -7856,6 +7871,12 @@ struct Codec<SendRequest> {
 };
 
 template <>
+struct Codec<SendResult> {
+    static Result<Json> encode(const SendResult& value);
+    static Result<SendResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<SendKeyRequest> {
     static Result<Json> encode(const SendKeyRequest& value);
     static Result<SendKeyRequest> decode(const Json& value);
@@ -8621,6 +8642,12 @@ template <>
 struct Codec<TerminalClipboardReadCancelledEvent> {
     static Result<Json> encode(const TerminalClipboardReadCancelledEvent& value);
     static Result<TerminalClipboardReadCancelledEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalInputUnclaimedEvent> {
+    static Result<Json> encode(const TerminalInputUnclaimedEvent& value);
+    static Result<TerminalInputUnclaimedEvent> decode(const Json& value);
 };
 
 template <>

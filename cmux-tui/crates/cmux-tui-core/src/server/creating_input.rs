@@ -4,6 +4,8 @@
 
 use super::*;
 use crate::mux::creating_input::{TerminalInputTarget, UnclaimedNotice};
+// The server's test build already brings the trait into scope through `super::*`.
+#[cfg(not(test))]
 use base64::Engine as _;
 
 /// `terminal-input-while-creating-v1`.
@@ -45,8 +47,13 @@ pub(super) fn send_to_terminal(
         return Ok(json!({}));
     }
     let notice_writer = writer.clone();
-    let notice: UnclaimedNotice = Arc::new(move |event: &Value| {
-        let _ = notice_writer.send_control(event);
+    let notice: UnclaimedNotice = Arc::new(move |terminal_id: &str, bytes: &[u8], reason: &str| {
+        let _ = notice_writer.send_control(&json!({
+            "event": "terminal-input-unclaimed",
+            "terminal_id": terminal_id,
+            "bytes_base64": base64::engine::general_purpose::STANDARD.encode(bytes),
+            "reason": reason,
+        }));
     });
     let target = mux.write_terminal_input(&terminal_id, client, &payload, paste, notice)?;
     Ok(if target == TerminalInputTarget::Queued { json!({"queued": true}) } else { json!({}) })
