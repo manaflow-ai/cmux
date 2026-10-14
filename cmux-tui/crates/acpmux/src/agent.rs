@@ -198,6 +198,14 @@ pub(crate) fn harness_command(
         owned
     };
     let mut env = resolved_profile_env(profile)?;
+    // The Codex bridge runs the configured codex binary: `CODEX_PATH` of the
+    // profile or its family (`defaults.codex.env`), as the ACP adapter does.
+    let owned = match env.get("CODEX_PATH").filter(|p| !p.is_empty()) {
+        Some(path) if crate::codex_app_server::is_launch(&owned.0, &owned.1) => {
+            (path.clone(), owned.1)
+        }
+        _ => owned,
+    };
     // A bound route's provider variables the inherited env must not keep
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
@@ -855,6 +863,16 @@ impl ChildAgent {
             }
         };
         tokio::time::timeout(ceiling, progress).await.unwrap_or(false)
+    }
+
+    /// Whether the agent answers now: a hosted agent's host answers a query
+    /// within `budget` (a wedged host keeps its link open but never
+    /// answers); a direct child is alive.
+    pub async fn answers_within(&self, budget: std::time::Duration) -> bool {
+        if let Some(h) = &self.hosted {
+            return h.link().query_within(budget).await.is_ok();
+        }
+        self.is_alive().await
     }
 
     /// The Claude translator's state, wherever the translator runs.

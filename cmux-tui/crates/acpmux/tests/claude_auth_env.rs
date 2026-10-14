@@ -6,6 +6,7 @@
 //! shell (`$SHELL -l -i -c`) reads `~/.zshrc`, and a stand-in Claude Code
 //! (`fake_claude.py`, FAKE_CLAUDE_AUTH=1) that looks for a sign-in the way
 //! Claude Code does and says what it found, or fails like Claude Code.
+#![cfg(unix)]
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};

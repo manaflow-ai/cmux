@@ -26,6 +26,8 @@ public final class TerminalHostView: NSView {
     private var shellStall: TerminalShellStall?
     /// "Restart Shell Here" above the banner while the shell has ended.
     private let restartButton = TerminalRestartButton()
+    /// "Retry" above the banner once the view stopped retrying its attach.
+    private let retryButton = TerminalRetryButton()
     /// The App's `tab.restart` for this tab; nil hides the button (a daemon
     /// without `tab-restart-v1`, a tab that cannot restart).
     public var onRestart: (@MainActor () -> Void)? {
@@ -71,6 +73,14 @@ public final class TerminalHostView: NSView {
             restartButton.centerXAnchor.constraint(equalTo: centerXAnchor),
             restartButton.bottomAnchor.constraint(equalTo: banner.topAnchor, constant: -8),
         ])
+        retryButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(retryButton, positioned: .above, relativeTo: banner)
+        NSLayoutConstraint.activate([
+            retryButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+            retryButton.bottomAnchor.constraint(equalTo: banner.topAnchor, constant: -8),
+        ])
+        // The same re-attach a click in the disconnected terminal starts.
+        retryButton.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
@@ -115,6 +125,7 @@ public final class TerminalHostView: NSView {
         shownStatus = status
         banner.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
         restartButton.show(status)
+        retryButton.show(status)
     }
 
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {

@@ -293,3 +293,42 @@ fn hello_replies_say_whether_origin_user_is_allowed() {
     assert!(!allowed(&keyless.challenge(INSTALL_ID)));
     assert_eq!(keyless.origin_user().as_deref(), Some(FORBIDDEN));
 }
+
+/// Only the person deletes a browser profile (its cookies, sign-ins,
+/// passwords and passkeys): over the real socket, an agent connection (no
+/// hello), a page relay and an unproved role-main hello are refused and the
+/// profile stays; the proved app connection deletes it.
+#[test]
+fn only_the_proved_app_deletes_a_browser_profile() {
+    const PROFILE: &str = "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+    let (_mux, socket) = daemon("hello-profile-delete", true);
+    let delete = json!({ "id": 2, "cmd": "delete-browser-profile", "browser_profile": PROFILE });
+    let listed = |client: &mut Client| {
+        let reply = client.rpc(json!({ "id": 3, "cmd": "list-personal" }));
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["data"]["browser_profiles"].as_array().unwrap().iter().any(|p| p["id"] == PROFILE)
+    };
+
+    // An agent may make a profile for its own sign-ins, but not delete one.
+    let mut agent = Client::connect(&socket);
+    let created = agent.rpc(json!({ "id": 1, "cmd": "create-browser-profile",
+        "browser_profile": PROFILE, "name": "Agent sign-ins" }));
+    assert_eq!(created["ok"], true, "{created}");
+    let refused = agent.rpc(delete.clone());
+    assert_eq!(refused["error_code"], FORBIDDEN, "{refused}");
+    assert!(listed(&mut agent));
+
+    let mut relay = Client::connect(&socket);
+    relay.rpc(json!({ "id": 1, "cmd": "client-hello", "role": "page_relay" }));
+    assert_eq!(relay.rpc(delete.clone())["error_code"], FORBIDDEN);
+    let mut unproved = Client::connect(&socket);
+    unproved.rpc(json!({ "id": 1, "cmd": "client-hello", "role": "main" }));
+    assert_eq!(unproved.rpc(delete.clone())["error_code"], FORBIDDEN);
+    assert!(listed(&mut agent));
+
+    let mut app = Client::connect(&socket);
+    assert_eq!(app.hello()["data"]["verified"], true);
+    let deleted = app.rpc(delete);
+    assert_eq!(deleted["ok"], true, "{deleted}");
+    assert!(!listed(&mut app));
+}

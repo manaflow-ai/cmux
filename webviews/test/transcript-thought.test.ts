@@ -1,6 +1,6 @@
-// A thought draws as one closed "Thought" row titled by its first line, and opens to the full text
-// (cx-ncc.73, Codex desktop app parity). The transcript gallery's play clicks it in Chromium; this
-// checks the play passed.
+// A thought shows in full on its row, wrapped after a muted "Thought", with nothing to open and no
+// tooltip (Leo 2026-10-13). The transcript gallery's plays check it in Chromium; this checks they
+// passed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -74,12 +74,12 @@ await requireBrowserLane("transcript-thought.test.ts", async () => {
     return result;
   };
 
-  test("a thought is a closed Thought row that opens to its full text", async () => {
+  test("a thought shows its full text on its row, with no tooltip", async () => {
     const result = await play("thought-row");
     expect(playFailures(result.report)).toEqual([]);
   });
 
-  test("Find marks a word in a closed thought's text, not its Thought label", async () => {
+  test("Find marks a word in a thought's text, not its Thought label", async () => {
     const result = await play("thought-find");
     expect(playFailures(result.report)).toEqual([]);
   });

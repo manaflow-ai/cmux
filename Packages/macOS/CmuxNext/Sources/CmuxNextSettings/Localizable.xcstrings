@@ -44154,127 +44154,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them."
+            "value": "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ペインの区切り方。「なし」では境界線も区切り線も描きません。ペインの間をドラッグするとサイズは変更できます。"
+            "value": "ペインの区切り方。「なし」では境界線も区切り線も描きません。ペインの間をドラッグするとサイズは変更できます。既定値：丸みのあるメインペイン内では区切り線、それ以外では境界線。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "كيفية التمييز بين الأجزاء. «لا شيء» لا يرسم أي حد أو فاصل؛ ويظل السحب بين الأجزاء يغيّر حجمها."
+            "value": "كيفية التمييز بين الأجزاء. «لا شيء» لا يرسم أي حد أو فاصل؛ ويظل السحب بين الأجزاء يغيّر حجمها. الافتراضي: فواصل داخل اللوحة الرئيسية المنحنية، وحدود في غير ذلك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kako se okna razlikuju. Ništa ne crta ni obrub ni razdjelnik; povlačenje između okana i dalje mijenja njihovu veličinu."
+            "value": "Kako se okna razlikuju. Ništa ne crta ni obrub ni razdjelnik; povlačenje između okana i dalje mijenja njihovu veličinu. Zadano: razdjelnici unutar zaobljenog glavnog okna, inače okviri."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan ruder skelnes fra hinanden. Ingen tegner hverken kant eller skillelinje; træk mellem ruder ændrer stadig deres størrelse."
+            "value": "Hvordan ruder skelnes fra hinanden. Ingen tegner hverken kant eller skillelinje; træk mellem ruder ændrer stadig deres størrelse. Standard: skillelinjer i den afrundede hovedrude, ellers rammer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wie Bereiche voneinander getrennt werden. Keine zeichnet weder Rahmen noch Trennlinie; Ziehen zwischen Bereichen ändert weiterhin ihre Größe."
+            "value": "Wie Bereiche voneinander getrennt werden. Keine zeichnet weder Rahmen noch Trennlinie; Ziehen zwischen Bereichen ändert weiterhin ihre Größe. Standard: Trennlinien im abgerundeten Hauptbereich, sonst Rahmen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cómo se distinguen los paneles. Ninguno no dibuja bordes ni divisores; arrastrar entre paneles sigue cambiando su tamaño."
+            "value": "Cómo se distinguen los paneles. Ninguno no dibuja bordes ni divisores; arrastrar entre paneles sigue cambiando su tamaño. Predeterminado: divisores dentro del panel principal curvo; bordes en los demás casos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Comment les panneaux se distinguent. Aucune ne dessine ni bordure ni séparateur ; glisser entre les panneaux les redimensionne toujours."
+            "value": "Comment les panneaux se distinguent. Aucune ne dessine ni bordure ni séparateur ; glisser entre les panneaux les redimensionne toujours. Par défaut : séparateurs dans le panneau principal arrondi, bordures sinon."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Come si distinguono i riquadri. Nessuna non disegna bordi né divisori; trascinare tra i riquadri li ridimensiona comunque."
+            "value": "Come si distinguono i riquadri. Nessuna non disegna bordi né divisori; trascinare tra i riquadri li ridimensiona comunque. Predefinito: divisori nel riquadro principale curvo, bordi negli altri casi."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "របៀបបែងចែកផ្ទាំង។ គ្មាន មិនគូរស៊ុម ឬបន្ទាត់ខណ្ឌទាល់តែសោះ; ការអូសរវាងផ្ទាំងនៅតែប្ដូរទំហំបាន។"
+            "value": "របៀបបែងចែកផ្ទាំង។ គ្មាន មិនគូរស៊ុម ឬបន្ទាត់ខណ្ឌទាល់តែសោះ; ការអូសរវាងផ្ទាំងនៅតែប្ដូរទំហំបាន។ លំនាំដើម៖ បន្ទាត់ខណ្ឌនៅក្នុងផ្ទាំងមេកោង បើមិនដូច្នោះទេ ស៊ុម។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "창을 구분하는 방식입니다. 없음은 테두리나 구분선을 그리지 않으며, 창 사이를 드래그하면 여전히 크기가 조절됩니다."
+            "value": "창을 구분하는 방식입니다. 없음은 테두리나 구분선을 그리지 않으며, 창 사이를 드래그하면 여전히 크기가 조절됩니다. 기본값: 둥근 메인 패널 안에서는 구분선, 그 외에는 테두리."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan ruter skilles fra hverandre. Ingen tegner verken kant eller skillelinje; dra mellom ruter endrer fortsatt størrelsen."
+            "value": "Hvordan ruter skilles fra hverandre. Ingen tegner verken kant eller skillelinje; dra mellom ruter endrer fortsatt størrelsen. Standard: skillelinjer i den avrundede hovedruten, ellers rammer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sposób oddzielania paneli. Brak nie rysuje ramek ani linii podziału; przeciąganie między panelami nadal zmienia ich rozmiar."
+            "value": "Sposób oddzielania paneli. Brak nie rysuje ramek ani linii podziału; przeciąganie między panelami nadal zmienia ich rozmiar. Domyślnie: separatory wewnątrz zaokrąglonego panelu głównego, w innych przypadkach obramowania."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Como os painéis se distinguem. Nenhuma não desenha bordas nem divisores; arrastar entre painéis ainda os redimensiona."
+            "value": "Como os painéis se distinguem. Nenhuma não desenha bordas nem divisores; arrastar entre painéis ainda os redimensiona. Padrão: divisórias dentro do painel principal curvo; bordas nos demais casos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Как разделяются панели. «Нет» не рисует ни рамок, ни разделителей; перетаскивание между панелями по-прежнему меняет их размер."
+            "value": "Как разделяются панели. «Нет» не рисует ни рамок, ни разделителей; перетаскивание между панелями по-прежнему меняет их размер. По умолчанию: разделители внутри скруглённой основной панели, иначе рамки."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "วิธีแยกแต่ละบาน ไม่มี จะไม่วาดเส้นขอบหรือเส้นแบ่งเลย การลากระหว่างบานยังปรับขนาดได้"
+            "value": "วิธีแยกแต่ละบาน ไม่มี จะไม่วาดเส้นขอบหรือเส้นแบ่งเลย การลากระหว่างบานยังปรับขนาดได้ ค่าเริ่มต้น: เส้นแบ่งภายในบานหน้าต่างหลักแบบโค้ง นอกนั้นเป็นเส้นขอบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bölmelerin nasıl ayrıldığı. Hiçbiri kenarlık veya ayırıcı çizmez; bölmeler arasında sürüklemek yine de boyutlarını değiştirir."
+            "value": "Bölmelerin nasıl ayrıldığı. Hiçbiri kenarlık veya ayırıcı çizmez; bölmeler arasında sürüklemek yine de boyutlarını değiştirir. Varsayılan: kavisli ana bölmenin içinde ayırıcılar, diğer durumlarda kenarlıklar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Як розділяються панелі. «Немає» не малює ні рамок, ні розділювачів; перетягування між панелями все одно змінює їхній розмір."
+            "value": "Як розділяються панелі. «Немає» не малює ні рамок, ні розділювачів; перетягування між панелями все одно змінює їхній розмір. Типово: роздільники всередині заокругленої основної панелі, інакше рамки."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cách phân biệt các ngăn. Không có sẽ không vẽ viền hay đường chia; kéo giữa các ngăn vẫn đổi kích thước được."
+            "value": "Cách phân biệt các ngăn. Không có sẽ không vẽ viền hay đường chia; kéo giữa các ngăn vẫn đổi kích thước được. Mặc định: đường chia bên trong ô chính bo cong, còn lại là viền."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "窗格之间如何区分。“无”不绘制任何边框或分隔线；在窗格之间拖动仍可调整大小。"
+            "value": "窗格之间如何区分。“无”不绘制任何边框或分隔线；在窗格之间拖动仍可调整大小。默认：圆角主窗格内使用分隔线，其他情况使用边框。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "窗格之間如何區分。「無」不繪製任何邊框或分隔線；在窗格之間拖曳仍可調整大小。"
+            "value": "窗格之間如何區分。「無」不繪製任何邊框或分隔線；在窗格之間拖曳仍可調整大小。預設：圓角主窗格內使用分隔線，其他情況使用邊框。"
           }
         }
       }
