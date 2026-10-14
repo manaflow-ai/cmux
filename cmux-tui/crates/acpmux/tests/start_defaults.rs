@@ -45,8 +45,15 @@ fn home_env(
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let calls = dir.join("calls.jsonl");
+    // Each fake reads its own config folder, empty unless a test writes one, never the
+    // machine's ~/.codex or ~/.claude.
+    let homes =
+        json!({"CODEX_HOME": dir.join("codex-home"), "CLAUDE_CONFIG_DIR": dir.join("claude-home")});
     let profile = |extra: &Value| {
         let mut env = json!({"FAKE_PICKER": "1", "FAKE_CALLS": calls.to_str().unwrap()});
+        for (k, v) in homes.as_object().unwrap() {
+            env[k] = v.clone();
+        }
         for (k, v) in extra.as_object().unwrap() {
             env[k] = v.clone();
         }
@@ -234,15 +241,8 @@ fn home_with_harness_config(
     codex_toml: Option<&str>,
     claude_settings: Option<&str>,
 ) -> (PathBuf, PathBuf) {
-    let dir =
-        std::env::temp_dir().join(format!("acpmux-start-defaults-{name}-{}", std::process::id()));
+    let (dir, calls) = home(name);
     let (codex_home, claude_home) = (dir.join("codex-home"), dir.join("claude-home"));
-    let home = home_env(
-        name,
-        json!({"CODEX_HOME": codex_home}),
-        json!({"CLAUDE_CONFIG_DIR": claude_home}),
-        json!({}),
-    );
     std::fs::create_dir_all(&codex_home).unwrap();
     std::fs::create_dir_all(&claude_home).unwrap();
     if let Some(t) = codex_toml {
@@ -251,7 +251,7 @@ fn home_with_harness_config(
     if let Some(t) = claude_settings {
         std::fs::write(claude_home.join("settings.json"), t).unwrap();
     }
-    home
+    (dir, calls)
 }
 
 #[tokio::test]
