@@ -5829,6 +5829,8 @@ function createSuccessUsageEvents(input: CreateSuccessEventInput, running: Cloud
       eventType: "vm.created",
       provider: running.provider,
       imageId: running.imageId,
+      // Not persisted; analytics derives `cloud_vm_ready.time_to_ready_ms`.
+      vmCreatedAt: running.createdAt,
       metadata: {
         idempotencyKeySet: !!input.idempotencyKey,
         imageVersion: running.imageVersion,

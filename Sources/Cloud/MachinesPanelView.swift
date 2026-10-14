@@ -742,6 +742,7 @@ struct MachinesPanelView: View {
                             .underline()
                     }
                     .buttonStyle(.plain)
+                    .upgradePromptImpression(.machinesPanelUpgradeNudge)
                 } else if let plan = viewModel.plan {
                     Text(planIncludesLabel(plan))
                         .cmuxFont(size: 11)

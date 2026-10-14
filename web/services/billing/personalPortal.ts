@@ -27,7 +27,7 @@ export async function personalPortalSession(input: {
   });
   if (canSwitch) await captureBillingPlanSwitchStarted({
     sessionId: session.id, userId: input.userId, fromPlan: status.activePlanId,
-    targetPlan: input.target, attribution: input.attribution,
+    targetPlan: input.target, attribution: input.attribution, livemode: session.livemode,
   });
   return session;
 }

@@ -112,6 +112,22 @@ struct VMClientTelemetryTests {
         #expect(VMClientTelemetry.sentryData(unreachable)["detail"] as? String == "https://x: timed out")
     }
 
+    @Test("the record observer sees every outcome, even throttled failures")
+    func recordObserverIsUnthrottled() {
+        let captured = CaptureLog()
+        let telemetry = VMClientTelemetry(
+            capturePostHog: { event, properties in captured.postHog.append((event, properties)) },
+            observeRecord: { captured.observed.append($0.outcome.errorCode ?? "ok") },
+            channel: "dev"
+        )
+        let failure = record(outcome: .response(status: 409, errorCode: "vm_active_limit_exceeded", serverTraceId: "t1"))
+        telemetry.record(failure)
+        telemetry.record(failure)
+        telemetry.record(record(outcome: .response(status: 201, errorCode: nil, serverTraceId: "t2")))
+        #expect(captured.postHog.count == 2)
+        #expect(captured.observed == ["vm_active_limit_exceeded", "vm_active_limit_exceeded", "ok"])
+    }
+
     @Test("failures are throttled per operation and code; successes never are")
     func throttling() {
         let clock = ManualClock()
@@ -174,4 +190,5 @@ private final class CaptureLog: @unchecked Sendable {
     var postHog: [(String, [String: Any])] = []
     var sentry: [(String, VMRequestFailureSeverity)] = []
     var breadcrumbs = 0
+    var observed: [String] = []
 }

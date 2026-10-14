@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxProductAnalytics
 import AppKit
 import CMUXAuthCore
 import CMUXMobileCore
@@ -61,11 +62,19 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     @ObservationIgnored var receivedInvitationsPoll: Task<Void, Never>?
     @ObservationIgnored var receivedInvitationsLoaded = false
     var isCreatingTeam: Bool { coordinator.isCreatingTeam }
+    @ObservationIgnored let analytics: ProductAnalytics
+    @ObservationIgnored var analyticsState = AccountAnalyticsState()
 
-    init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
+    init(
+        coordinator: AuthCoordinator,
+        browserSignIn: HostBrowserSignInFlow,
+        analytics: ProductAnalytics = .app
+    ) {
         self.coordinator = coordinator
         self.browserSignIn = browserSignIn
+        self.analytics = analytics
         startCoordinatorObservation()
+        syncAnalytics()
     }
 
     var currentIdentity: AccountIdentity? {
@@ -147,10 +156,12 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func startSignIn() {
+        noteSignInStarted()
         browserSignIn.beginSignIn()
     }
 
     func startSignInForPane() -> URL? {
+        noteSignInStarted()
         browserSignIn.beginSignIn()
         return browserSignIn.activeAttemptSignInURL
     }
@@ -162,7 +173,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
     /// allowing socket callers to await a bounded result.
     func signIn(timeout: TimeInterval) async -> Bool {
-        await browserSignIn.signIn(timeout: timeout)
+        noteSignInStarted()
+        return await browserSignIn.signIn(timeout: timeout)
     }
 
     /// Issues the manual hosted Stack sign-in URL through the same callback
@@ -201,8 +213,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func signOut() async {
+        // Captured before the sign-out so it joins the signed-in person.
+        analytics.signedOut()
         await browserSignIn.signOut()
         billingPlanState = .unknown
+        restoreAnalyticsIfStillSignedIn()
     }
 
     /// Set for the whole switch so sign-in gates show its progress instead of
@@ -231,6 +246,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             switchAttempt = nil
         }
         await signOut()
+        noteSignInStarted()
         var attempt = browserSignIn.beginSignIn(selectAccount: true)
         switchAttempt = attempt
         // Stay switching until the newest attempt settles: a replaced one
@@ -245,8 +261,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Socket variant of sign-out. The underlying sign-out continues if the
     /// caller's deadline expires, matching the browser flow contract.
     func signOut(timeout: TimeInterval) async {
+        analytics.signedOut()
         await browserSignIn.signOut(timeout: timeout)
         billingPlanState = .unknown
+        restoreAnalyticsIfStillSignedIn()
     }
 
     func refreshCurrentUser() async {
@@ -292,6 +310,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 canManageBilling: details.canManageBilling,
                 tier: details.tier
             )
+            analytics.notePlan(accountID: identityID, isPaid: details.isPro)
             return true
         } catch {
             // A cancelled request (the panel went away) says nothing about the plan.

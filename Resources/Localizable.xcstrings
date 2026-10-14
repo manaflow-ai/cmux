@@ -212352,55 +212352,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspect PostHog flag state and local overrides for this Mac."
+            "value": "Inspect remote feature flag state and local overrides for this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacのPostHogフラグ状態とローカル上書きを確認します。"
+            "value": "このMacのリモート機能フラグの状態とローカル上書きを確認します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "查看此 Mac 的 PostHog 开关状态和本地覆盖项。"
+            "value": "查看此 Mac 的远程功能开关状态和本地覆盖项。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "PostHog-Flag-Status und lokale Überschreibungen für diesen Mac untersuchen."
+            "value": "Remote-Feature-Flag-Status und lokale Überschreibungen für diesen Mac untersuchen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspecter l’état des drapeaux PostHog et les surcharges locales pour ce Mac."
+            "value": "Inspecter l’état des drapeaux de fonctionnalités distants et les surcharges locales pour ce Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "افحص حالة ميزات PostHog والتجاوزات المحلية لجهاز Mac هذا."
+            "value": "افحص حالة علامات الميزات البعيدة والتجاوزات المحلية لجهاز Mac هذا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspecciona el estado de los flags de PostHog y las anulaciones locales para esta Mac."
+            "value": "Inspecciona el estado de los flags de funciones remotos y las anulaciones locales para esta Mac."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢查此 Mac 的 PostHog 旗標狀態與本機覆蓋。"
+            "value": "檢查此 Mac 的遠端功能旗標狀態與本機覆蓋。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 PostHog 플래그 상태 및 로컬 재정의를 검사합니다."
+            "value": "이 Mac의 원격 기능 플래그 상태 및 로컬 재정의를 검사합니다."
           }
         }
       }
