@@ -20,6 +20,12 @@ struct Fake {
     fail_resources: bool,
     fail_apps: bool,
     daemon_snapshot: Option<Value>,
+    /// The answer to every daemon request but `session.snapshot`; else
+    /// `daemon_snapshot`.
+    resource_result: Option<Value>,
+    /// The app's transport drops after a `feed.*` request is sent, as
+    /// `transport::app_method` reports it.
+    lose_app_transport: bool,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -62,6 +68,11 @@ impl Backend for Fake {
                 idempotency_key: key,
             });
         }
+        if request["operation"] != "session.snapshot"
+            && let Some(result) = &self.resource_result
+        {
+            return Ok(result.clone());
+        }
         Ok(self.daemon_snapshot.clone().unwrap_or_else(|| json!([])))
     }
 
@@ -71,13 +82,24 @@ impl Backend for Fake {
         params: Value,
         _timeout: Duration,
         idempotency_key: Option<&str>,
+        mutation: bool,
     ) -> Result<Value, CallFailure> {
         self.sent.borrow_mut().push(json!({
             "kind": "app",
             "method": method,
             "params": params,
             "key": idempotency_key,
+            "mutation": mutation,
         }));
+        if self.lose_app_transport && method.starts_with("feed.") {
+            let keyed = idempotency_key.is_some();
+            return Err(CallFailure {
+                kind: if keyed || mutation { FailureKind::InProgress } else { FailureKind::NotRun },
+                error: json!({"code": "app.transport", "message": "connection reset",
+                              "retryable": keyed || !mutation}),
+                idempotency_key: idempotency_key.map(str::to_owned),
+            });
+        }
         if self.fail_apps {
             return Err(CallFailure {
                 kind: FailureKind::NotRun,
@@ -950,4 +972,111 @@ fn agents_action_tools_report_a_failing_owner_with_its_state_and_key() {
     assert_eq!(result["isError"], true);
     assert_eq!(result["structuredContent"]["state"], "not_run");
     assert_eq!(result["structuredContent"]["error"]["code"], "transport.unavailable");
+}
+
+#[test]
+fn agents_dialog_answer_only_denies_permissions_over_mcp() {
+    for mode in ["bypassPermissions", "always", "allow", "acceptEdits", "default"] {
+        let mut server = Server::new(Fake::default(), None);
+        let result = call(
+            &mut server,
+            "agents_dialog_answer",
+            json!({"request_id": "request_a", "mode": mode}),
+        );
+        assert_eq!(result["isError"], true, "{mode}: {result}");
+        assert_eq!(result["structuredContent"]["state"], "not_run", "{mode}");
+        let message = result["structuredContent"]["error"]["message"].as_str().unwrap();
+        assert!(message.contains("approve permissions in cmux, not over MCP"), "{message}");
+        assert!(server.backend.sent.borrow().is_empty(), "{mode} reached the app");
+    }
+    let mut server = Server::new(Fake::default(), None);
+    let result = call(
+        &mut server,
+        "agents_dialog_answer",
+        json!({"request_id": "request_a", "mode": "deny"}),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    let reply = &sent_of(&server, "app")[0];
+    assert_eq!(reply["method"], "feed.permission.reply");
+    assert_eq!(reply["params"], json!({"request_id": "request_a", "mode": "deny"}));
+
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let find = |name: &str| tools.iter().find(|tool| tool["name"] == name).unwrap().clone();
+    let answer = find("agents_dialog_answer");
+    assert_eq!(answer["annotations"]["destructiveHint"], true);
+    assert_eq!(answer["inputSchema"]["properties"]["mode"]["enum"], json!(["deny"]));
+    assert!(answer["description"].as_str().unwrap().contains("other agents"), "{answer}");
+    let list = find("agents_dialog_list");
+    assert!(list["description"].as_str().unwrap().contains("other agents"), "{list}");
+}
+
+#[test]
+fn agents_dialog_answer_reports_a_reply_lost_after_sending_as_in_progress() {
+    let mut server = Server::new(Fake { lose_app_transport: true, ..Fake::default() }, None);
+    let result = call(
+        &mut server,
+        "agents_dialog_answer",
+        json!({"request_id": "request_a", "selections": ["one"]}),
+    );
+    assert_eq!(result["isError"], true, "{result}");
+    assert_eq!(result["structuredContent"]["state"], "in_progress", "{result}");
+    assert_eq!(result["structuredContent"]["error"]["retryable"], false);
+    assert_eq!(sent_of(&server, "app")[0]["mutation"], true);
+
+    // A list is a read: nothing changed, so it never ran.
+    let mut server = Server::new(Fake { lose_app_transport: true, ..Fake::default() }, None);
+    let result = call(&mut server, "agents_dialog_list", json!({}));
+    assert_eq!(result["structuredContent"]["state"], "not_run", "{result}");
+    assert_eq!(sent_of(&server, "app")[0]["mutation"], false);
+}
+
+#[test]
+fn agents_oversized_receipt_keeps_the_action_result_and_key() {
+    let created = "ws_fedcba9876543210fedcba9876543210";
+    let tabs = (0..250)
+        .map(|i| json!({"id": format!("tab_{i:032x}"), "title": "x".repeat(2048)}))
+        .collect::<Vec<_>>();
+    let mut server = Server::new(
+        Fake {
+            daemon_snapshot: Some(json!({"tabs": tabs})),
+            resource_result: Some(json!({"id": created, "name": "Build"})),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(
+        &mut server,
+        "agents_workspace_create",
+        json!({"name": "Build", "idempotency_key": "create-big"}),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    let receipt = &result["structuredContent"];
+    assert!(serde_json::to_vec(receipt).unwrap().len() <= MAX_RESULT_BYTES);
+    assert_eq!(receipt["action"], "workspace.create");
+    assert_eq!(receipt["result"]["id"], created);
+    assert_eq!(receipt["idempotency_key"], "create-big");
+    assert_eq!(receipt["state"], json!({"truncated": true, "hint": "call agents_snapshot"}));
+
+    // Without a key the receipt names the one the daemon request carried.
+    let result = call(&mut server, "agents_workspace_create", json!({"name": "Build"}));
+    let sent = &sent_of(&server, "resource")
+        .into_iter()
+        .rfind(|sent| sent["request"]["operation"] == "workspace.create")
+        .unwrap();
+    let key = sent["request"]["idempotency_key"].as_str().unwrap();
+    assert!(key.starts_with("mutation_"), "{key}");
+    assert_eq!(result["structuredContent"]["idempotency_key"], key);
+}
+
+#[test]
+fn agents_palette_open_over_mcp_carries_the_mcp_origin() {
+    let mut server = Server::new(Fake::default(), None);
+    let result = call(&mut server, "agents_palette_open", json!({}));
+    assert_eq!(result["isError"], false, "{result}");
+    let run = &sent_of(&server, "app")[0];
+    assert_eq!(run["params"]["action"], "palette.open");
+    assert_eq!(run["params"]["origin"], "mcp", "{run}");
+    assert_eq!(run["params"]["focus"], true);
 }

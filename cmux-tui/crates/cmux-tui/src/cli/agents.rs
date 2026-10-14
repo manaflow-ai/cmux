@@ -295,7 +295,7 @@ fn follow_app_focus<B: Backend>(
     };
     let Some(id) = app_focus::reply_id(&result) else { return Ok(result) };
     let params = app_focus::focus_params(&focus, &id);
-    match backend.app("action.run", params, app::WAITING_RUN_TIMEOUT, None) {
+    match backend.app("action.run", params, app::WAITING_RUN_TIMEOUT, None, true) {
         Ok(_) => Ok(result),
         Err(failure) if app_focus::is_not_found(&failure.error) || no_app(&failure) => Ok(result),
         Err(failure) => Err(AgentFailure::Owner(failure)),
@@ -327,7 +327,7 @@ fn run_app<B: Backend>(
         "dialog.answer" => dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?,
         _ => return Err(AgentFailure::Usage("unknown app action".into())),
     };
-    backend.app(method, params, timeout, idempotency_key).map_err(AgentFailure::Owner)
+    backend.app(method, params, timeout, idempotency_key, false).map_err(AgentFailure::Owner)
 }
 
 fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), UsageError> {
@@ -388,7 +388,7 @@ fn receipt<B: Backend>(backend: &B, session: Option<&str>, action: &str, result:
     let state = compose_snapshot(
         backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
         backend
-            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None)
+            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
             .map_err(mcp::agent_failure_value),
     );
     json!({"schema_version": 1, "action": action, "result": result, "state": state})
