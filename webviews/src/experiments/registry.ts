@@ -3,9 +3,10 @@
 // Removing an experiment (its winner shipped as the plain code path) removes its line.
 import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/changes/treeMotion.experiment";
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
+import { hoverActions } from "../ui/hoverActions.experiment";
 import type { Experiment } from "./experiment";
 
-export const EXPERIMENTS: readonly Experiment[] = [diffTreeDisclosure, treeNameFade, sessionReplay];
+export const EXPERIMENTS: readonly Experiment[] = [diffTreeDisclosure, treeNameFade, sessionReplay, hoverActions];
 
 export function experimentById(id: string): Experiment | undefined {
   return EXPERIMENTS.find((experiment) => experiment.id === id);

@@ -114,7 +114,9 @@ test("a message shows More alone on hover, and a right-click offers every action
   await render(container);
   expect(card(container)).toEqual([strings.t("message.actions")]);
 
-  const text = [...container.querySelectorAll<HTMLElement>("p, span, div")].find((node) => node.textContent === "Ship it")!;
+  const text = [...container.querySelectorAll<HTMLElement>("p, span, div")].find(
+    (node) => node.textContent === "Ship it",
+  )!;
   await act(async () =>
     text.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })),
   );

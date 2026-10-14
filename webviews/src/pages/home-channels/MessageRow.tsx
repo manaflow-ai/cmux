@@ -56,11 +56,8 @@ export const MessageRow = memo(function MessageRow({
   const textOnly = message.parts.length > 0 && message.parts.every((part) => part.type === "text");
   const own = !message.retracted && message.author === me;
   const canEdit = own && textOnly && onEdit !== undefined && onEditStart !== undefined;
-  return (
-    <article
-      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}`}
-      aria-label={`${author?.name ?? message.author}, ${time}`}
-    >
+  const body = (
+    <>
       <div className="hc-msg-gutter">
         {head ? <Avatar participant={author} size={36} /> : <time className="hc-msg-hover-time">{time}</time>}
       </div>
@@ -111,7 +108,14 @@ export const MessageRow = memo(function MessageRow({
           </div>
         )}
       </div>
-      {!message.retracted && !editing && (
+    </>
+  );
+  return (
+    <article
+      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}`}
+      aria-label={`${author?.name ?? message.author}, ${time}`}
+    >
+      {!message.retracted && !editing ? (
         <MessageActions
           strings={strings}
           canEdit={canEdit}
@@ -121,7 +125,11 @@ export const MessageRow = memo(function MessageRow({
           onEdit={() => onEditStart?.(message)}
           onDelete={() => setConfirmDelete(true)}
           onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
-        />
+        >
+          {body}
+        </MessageActions>
+      ) : (
+        body
       )}
     </article>
   );
