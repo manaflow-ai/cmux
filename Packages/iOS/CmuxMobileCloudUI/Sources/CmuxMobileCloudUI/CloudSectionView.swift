@@ -537,10 +537,6 @@ struct CloudCreateMachineSheet: View {
         return limits?.maxDiskMb ?? memoryMb
     }
 
-    private func diskMb(for memoryMb: Int) -> Int? {
-        Self.diskMb(for: memoryMb, limits: limits)
-    }
-
     /// Compatibility fallback for control planes that predate `diskByMemoryMb`.
     private static func legacyDiskMb(for memoryMb: Int) -> Int? {
         switch memoryMb {

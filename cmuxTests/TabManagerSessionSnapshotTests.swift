@@ -2823,7 +2823,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         let configuration = try XCTUnwrap(snapshot.workspaceConfiguration())
         XCTAssertNil(configuration.managedCloudVMID)
-        XCTAssertNil(configuration.terminalStartupCommand)
+        let fallbackCommand = try XCTUnwrap(configuration.terminalStartupCommand)
+        XCTAssertTrue(fallbackCommand.contains("ssh -p 22"), fallbackCommand)
+        XCTAssertFalse(fallbackCommand.contains("vm-pty-attach"), fallbackCommand)
     }
 
     func testSessionRemoteWorkspaceSnapshotRestoresOrdinarySSHWithLifecycleReporting() throws {
