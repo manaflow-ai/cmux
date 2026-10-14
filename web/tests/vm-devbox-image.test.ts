@@ -855,6 +855,19 @@ test "$daemon_pid" = fixture
     expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
   }, 35_000);
 
+  test("codex's own hook-trust verdict gates a daemon pane's codex launch", async () => {
+    // Codex draws its composer before "Hooks need review", so the PTY probes
+    // above cannot see a cmux-tui codex wrapper whose injected trust codex
+    // ignores (#20482); the verifier asks codex's hooks/list instead.
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain('codexHookTrustCheck(DEVBOX_WORK_USER, DEVBOX_WORK_HOME, "codex-pane-hooks-trusted"');
+    expect(verify).toContain("Hooks need review");
+    const result = await runChild("python3", [fileURLToPath(new URL("./devbox-codex-hook-trust-test.py", import.meta.url))], {
+      timeout: 30_000,
+    });
+    expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
+  }, 35_000);
+
   test("one public-platform SDK serves the bake, the verifier, and the driver", () => {
     // There is a single Freestyle arm now: the public platform on freestyle@0.2.x.
     // A stray `freestyle-beta` alias would silently send one of these three at
