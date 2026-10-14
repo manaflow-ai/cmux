@@ -71,13 +71,13 @@ fn resource_upsert(
     id: &str,
     workspace: RegistryWorkspace,
 ) -> anyhow::Result<()> {
-    let revision = registry.snapshot()?.revision;
+    // No revision precondition: only the stored name row fences this write.
     registry.commit_resource_patch(
         &WorkspaceMutation::daemon(id, "test")?,
         "workspace.rename",
         &json!({"op":id}),
         None,
-        Some(revision),
+        None,
         &ResourcePatch {
             changes: vec![ResourceChange::UpsertWorkspace {
                 workspace,
