@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import CmuxAuthRuntime
 
@@ -84,5 +85,61 @@ struct StackTokenRefreshBoundaryTests {
         #expect(server.requestCount("POST", "/api/v1/auth/oauth/token") == 1)
         #expect(await store.getStoredRefreshToken() == "refresh-1")
         #expect(await store.getStoredAccessToken() == access)
+    }
+
+    /// A rate-limited refresh produces one token-refresh record with the
+    /// 429's evidence, and the first successful refresh after the cooldown
+    /// produces one recovered record.
+    @Test func rateLimitedRefreshIsReportedOnceThenRecovers() async throws {
+        let server = try LocalStackHTTPServer()
+        try await server.start()
+        defer { server.stop() }
+        let minted = testAccessJWT(issuedSecondsAgo: 0, expiresInSeconds: 600)
+        server.script("POST", "/api/v1/auth/oauth/token", [
+            .html(429, Self.edgeRateLimitPage, headers: ["Retry-After": "1"]),
+            .json(200, #"{"access_token":"\#(minted)"}"#),
+        ])
+        let directory = try makeBoundaryTestDirectory()
+        let store = FileStackTokenStore(directory: directory)
+        let access = testAccessJWT(issuedSecondsAgo: 570, expiresInSeconds: 30)
+        await store.seed(accessToken: access, refreshToken: "refresh-1")
+        let client = StackAuthClient(
+            config: .test, tokenStore: .custom(store), baseURL: server.baseURL, noAutomaticPrefetch: true
+        )
+        // The SDK reports refresh 429s to the process-wide instance. End any
+        // limited period an earlier test left, then record from here.
+        let telemetry = StackRateLimitTelemetry.shared
+        telemetry.succeeded(.tokenRefresh)
+        let recorded = OSAllocatedUnfairLock(initialState: [StackRateLimitTelemetryEvent]())
+        telemetry.setSink { event in
+            if event.phase == .tokenRefresh { recorded.withLock { $0.append(event) } }
+        }
+        defer { telemetry.setSink(nil) }
+
+        for _ in 0..<3 {
+            #expect(try await client.resolvedAccessToken(forceRefresh: false) == access)
+        }
+        // Wait out the 1 s Retry-After cooldown the SDK set; it reads the
+        // real clock.
+        try await Task.sleep(for: .milliseconds(1_200))
+        #expect(try await client.resolvedAccessToken(forceRefresh: false) == minted)
+        #expect(server.requestCount("POST", "/api/v1/auth/oauth/token") == 2)
+
+        let events = recorded.withLock { $0 }
+        #expect(events.count == 2)
+        guard case let .rateLimited(retryAfter, backoff, attempt, bodyKind, endpoint) = events.first?.kind else {
+            Issue.record("expected a rate-limited record, got \(events)")
+            return
+        }
+        #expect(retryAfter == 1)
+        #expect(backoff == 1)
+        #expect(attempt == 1)
+        #expect(bodyKind == "html")
+        #expect(endpoint == "/api/v1/auth/oauth/token")
+        guard case let .recovered(limitedFor) = events.last?.kind else {
+            Issue.record("expected a recovered record, got \(events)")
+            return
+        }
+        #expect((1...10).contains(limitedFor))
     }
 }
