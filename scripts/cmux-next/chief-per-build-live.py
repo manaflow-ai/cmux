@@ -27,7 +27,9 @@ ap.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 opts = ap.parse_args()
 
 TAG = opts.tag
-SCRATCH = tempfile.mkdtemp(prefix=f"chief-per-build-{TAG}-")
+# A short path: the brains' sockets (optchat/tools.sock) must fit sun_path
+# (104 bytes); a job's TMPDIR is too deep.
+SCRATCH = tempfile.mkdtemp(prefix="cpb-", dir="/tmp")
 ROOT = os.path.join(SCRATCH, "chief")
 NIGHTLY_HOME = os.path.join(ROOT, "default")
 TAG_B = f"{TAG}b"
