@@ -333,7 +333,6 @@ final class FakeDaemon: @unchecked Sendable {
     }
 }
 
-#if os(iOS)
 /// Audit B9: a message written to Chief before it connects is kept and sent
 /// once it does, never dropped.
 @Suite @MainActor struct ChiefOutboxTests {
@@ -352,7 +351,6 @@ final class FakeDaemon: @unchecked Sendable {
         #expect(outbox.load().isEmpty)
     }
 }
-#endif
 
 @Suite struct ChiefMockBackendTests {
     @Test func repliesWithTypingAndTapback() async throws {

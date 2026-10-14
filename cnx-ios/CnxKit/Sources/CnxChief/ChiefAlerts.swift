@@ -55,15 +55,18 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
     /// Shows Chief's alerts as banners while the app is in the foreground.
     /// Takes the delegate only when no one else has.
     public func install() {
-        guard !installed else { return }
+        guard !installed, Self.canNotify else { return }
         installed = true
         let center = UNUserNotificationCenter.current()
         if center.delegate == nil { center.delegate = self }
     }
 
+    /// The notification center exists only for an app bundle (not a test runner).
+    static var canNotify: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+
     /// Posts an alert for `message` from Chief in `conversationID`.
     func notify(_ message: ConversationMessage, title: String, conversationID: String, preferences: ChiefPreferences) {
-        guard !conversationVisible, !preferences.muted(conversationID) else { return }
+        guard Self.canNotify, !conversationVisible, !preferences.muted(conversationID) else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = message.isUnsent ? String(localized: "Message unsent")
@@ -82,6 +85,7 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
 
     /// Hide Alerts turned on: take back what is already delivered for it.
     func clearDelivered(conversationID: String) {
+        guard Self.canNotify else { return }
         let center = UNUserNotificationCenter.current()
         Task {
             let ids = await center.deliveredNotifications()

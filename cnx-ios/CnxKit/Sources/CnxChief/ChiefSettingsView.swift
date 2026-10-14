@@ -52,6 +52,9 @@ public struct ChiefSettingsView: View {
                 }
             }
             .task { await load() }
+            // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
+            .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }
+            .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation { receipts = on } } }
         }
         .accessibilityIdentifier("chief.settings")
     }

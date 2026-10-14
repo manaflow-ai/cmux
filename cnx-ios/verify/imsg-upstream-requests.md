@@ -88,3 +88,46 @@ they are intended. Chief will not work around them.
 - **Smallest additive option:**
   `ConversationPresentationOptions.trailingAccessibilityLabel: String?`, with a default of nil
   that keeps the current labels.
+
+## 6. Details: a host hook, or options for the quick actions and switches (Chief)
+
+- **Need:** Chief's details must not show controls that do nothing. User feedback on
+  the details page: "these toggles don't do anything, they're useless", and the
+  switches "don't have the animation".
+- **Package today:**
+  - `ConversationViewController.openInfo()` always presents
+    `ConversationDetailsViewController`.
+  - `ConversationDetailsHeaderView` always adds Call, FaceTime and Mail, disabled.
+  - `ConversationDetailsInfoPage` always shows Hide Alerts, plus Send Read Receipts
+    in a direct chat.
+  - Each switch calls `store.updateListState`. The store notifies `.listState`
+    synchronously, and the page answers with `table.reloadData()`. That rebuilds the
+    cell and replaces the `UISwitch` in the middle of its own tap, so the switch
+    jumps to its new value instead of sliding. When the backend rejects the change,
+    a second reload jumps it back.
+  - None of these types or members are public.
+- **What Chief does meanwhile (host only):** `ChiefConversationContainer` finds the
+  header's name button (`conversation.header.name`), its avatar tap button (the custom
+  button with a hint) and its trailing button (`conversation.header.trailing`). It
+  replaces their `touchUpInside` actions so they open a host sheet,
+  `ChiefSettingsView`, with native toggles. The trailing button also keeps the
+  package's own action for reply, edit and select modes. If a later package renames
+  these markers, its own details come back.
+- **Smallest additive options, any one of them:**
+  - `ConversationViewController.onShowDetails: (() -> Void)?`: when set, the
+    header's avatar and name call it instead of `openInfo()`.
+  - `ConversationPresentationOptions.detailsQuickActions: [Action]` (default: Call,
+    FaceTime, Mail) and `detailsShowsReadReceipts: Bool` (default true).
+  - Separately from the hook: in `ConversationDetailsInfoPage.storeDidChange`, skip
+    `reloadData()` for `.listState` when the visible switches already show the new
+    state, or update the switches in place with `setOn(_:animated: true)`.
+
+## 7. The trailing header button's label and its mode (Chief)
+
+- Extends item 5. Chief now uses `trailingSymbol: "slider.horizontal.3"` for its
+  settings.
+- **Problem:** the host cannot tell whether the button is in its action state or
+  shows the xmark of reply, edit or select mode. `trailingMode` is internal, so Chief
+  reads the button's image description.
+- **Smallest additive option:** a public `onHeaderAction: (() -> Void)?`, called only
+  in the action state, plus item 5's `trailingAccessibilityLabel`.
