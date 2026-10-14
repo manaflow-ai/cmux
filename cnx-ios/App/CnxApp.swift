@@ -8,10 +8,20 @@ import SwiftUI
 
 @main
 struct CnxApp: App {
-    @State private var auth = CnxAuthModel.live(
-        environment: ProcessInfo.processInfo.environment,
-        bundleIdentifier: Bundle.main.bundleIdentifier
-    )
+    @State private var auth: CnxAuthModel
+
+    init() {
+        #if !DEBUG
+        // Release and Production have no Developer page: remove any developer
+        // setting (mock data, a scripted demo, relay only) an earlier Debug
+        // or Demo install left in this container, before anything reads them.
+        DeveloperOptions.removeStoredValues()
+        #endif
+        _auth = State(initialValue: CnxAuthModel.live(
+            environment: ProcessInfo.processInfo.environment,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        ))
+    }
 
     var body: some Scene {
         WindowGroup {

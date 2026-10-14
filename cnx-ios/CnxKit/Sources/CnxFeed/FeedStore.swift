@@ -98,13 +98,22 @@ public protocol FeedActions: AnyObject {
     func message(for error: any Error) -> String
 }
 
-/// The Feed's state: newest first. Mock items until `CnxLive` replaces them
-/// with events from acpmux `_acpmux/watch`.
+/// The Feed's state: newest first. Empty until `CnxLive` fills it with
+/// events from acpmux `_acpmux/watch`; sample items only in DEBUG builds with
+/// mock content on.
 @MainActor
 @Observable
 public final class FeedStore {
     @ObservationIgnored public weak var actions: (any FeedActions)?
-    public static let shared = FeedStore(items: FeedStore.mockItems(now: Date()))
+    public static let shared = FeedStore(items: FeedStore.initialItems(mockContentEnabled: DeveloperOptions.mockContentEnabled))
+
+    /// The Feed before live data: sample items only with mock content on (DEBUG).
+    static func initialItems(mockContentEnabled: Bool) -> [FeedItem] {
+        #if DEBUG
+        if mockContentEnabled { return FeedStore.mockItems(now: Date()) }
+        #endif
+        return []
+    }
 
     public private(set) var items: [FeedItem] {
         didSet { if items != oldValue { onItemsChange?(items) } }
@@ -313,6 +322,7 @@ public final class FeedStore {
         body(&items[index])
     }
 
+    #if DEBUG
     /// Adds the next scripted live event (mock arrivals; demo driver uses it).
     public func injectLiveEvent(atTop: Bool) {
         let samples = FeedStore.liveSamples(now: Date())
@@ -322,4 +332,5 @@ public final class FeedStore {
         copy.id = "\(item.id)-\(liveIndex)"
         insert(copy, atTop: atTop)
     }
+    #endif
 }

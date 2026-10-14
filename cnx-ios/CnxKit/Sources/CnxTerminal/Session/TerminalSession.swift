@@ -11,11 +11,53 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     case title(String)
     /// The session ended.
     case exited(code: Int32)
+    /// The session's link to the Mac's terminal changed (see ``TerminalConnectionState``).
+    case connection(TerminalConnectionState)
+}
+
+/// Whether the screen shows the Mac's terminal yet. Anything but `attached`
+/// draws the honest placeholder (a skeleton terminal, a spinner and a short
+/// label), never made-up output.
+public enum TerminalConnectionState: Sendable, Equatable {
+    /// No terminal on the Mac yet: the link, the workspace tree or the first
+    /// attach is still coming. `mac` names the Mac when it is known.
+    case connecting(mac: String?)
+    /// Was attached; the link dropped and the session is attaching again.
+    case reattaching(mac: String?)
+    /// Attached: the screen mirrors the Mac's terminal.
+    case attached
+
+    public var isAttached: Bool { self == .attached }
+
+    /// The state after `event`: a `.connection` event sets it, and bytes from
+    /// the Mac mean the terminal is attached (even from a session that sends
+    /// no `.connection` events).
+    public func applying(_ event: TerminalSessionEvent) -> TerminalConnectionState {
+        switch event {
+        case .connection(let state): state
+        case .output: .attached
+        default: self
+        }
+    }
+
+    /// The placeholder's label ("Connecting to Aziz's Mac Studio…", "Reattaching…").
+    public var label: String? {
+        switch self {
+        case .connecting(let mac):
+            guard let mac, !mac.isEmpty else { return "Connecting…" }
+            return "Connecting to \(mac)…"
+        case .reattaching:
+            return "Reattaching…"
+        case .attached:
+            return nil
+        }
+    }
 }
 
 /// One terminal on a Mac, as the phone sees it: bytes in, input out, resize and
-/// the alternate screen flag. The mock replays scripted output; the link-backed
-/// session (cnx-ffi `daemon` channel, terminal attach/input/resize) comes later.
+/// the alternate screen flag. The link-backed session (`DaemonTerminalSession`,
+/// the cnx-ffi `daemon` channel) is the real one; ``PendingTerminalSession``
+/// stands in until it exists; the scripted mock exists only in DEBUG builds.
 @MainActor
 public protocol TerminalSession: AnyObject {
     /// The program running in the foreground, for the composer placeholder ("Send to zsh").
@@ -33,6 +75,9 @@ public protocol TerminalSession: AnyObject {
     func stop()
     /// Rows of the remote screen this session mirrors (nil: a local session).
     var remoteRows: Int? { get }
+    /// Whether the session shows the Mac's terminal now. Read once when the
+    /// screen is built; changes arrive as ``TerminalSessionEvent/connection(_:)``.
+    var connectionState: TerminalConnectionState { get }
 }
 
 extension TerminalSession {
@@ -40,6 +85,9 @@ extension TerminalSession {
     /// (a terminal on the Mac). The screen then maps the remote primary
     /// screen onto the bottom of its taller surface (``TerminalRowShift``).
     public var remoteRows: Int? { nil }
+
+    /// Sessions that do not report a connection are always attached.
+    public var connectionState: TerminalConnectionState { .attached }
 }
 
 /// Follows DEC private modes 47, 1047 and 1049 in a byte stream, across chunk

@@ -163,16 +163,11 @@ ditto -c -k --keepParent "$sim_app" "$out/ios-simulator/cnx-$tag-sim.app.zip"
 app_version=$(plutil -extract CFBundleShortVersionString raw "$sim_app/Info.plist" 2>/dev/null || echo "?")
 app_build=$(plutil -extract CFBundleVersion raw "$sim_app/Info.plist" 2>/dev/null || echo "?")
 
-# A Production build must carry none of the DEBUG surface and the right identity.
+# A Production build must carry none of the DEBUG surface (launch overrides,
+# the Developer page, demo drivers, mock terminal/agent/Feed/Chief content)
+# and the right identity. The check is tooling: it comes with this script, not the ref.
 check_production() {  # <app dir>
-  local app=$1 bad=() s
-  [[ "$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")" == "$bundle_id" ]] || bad+=("bundle id")
-  [[ "$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null)" == https://* ]] || bad+=("CNXAPIBase")
-  # Strings that exist only in DEBUG code: launch overrides, the Developer page, demo drivers.
-  for s in CNX_MOCK_AUTH CNX_STACK_EMAIL CNX_CLEAR_AUTH "Demo at next launch" DemoDriver TerminalDemoRoot -cnx-demo; do
-    if strings -a "$app/CnxApp" | grep -qF -- "$s"; then bad+=("DEBUG string '$s'"); fi
-  done
-  [[ ${#bad[@]} == 0 ]] || { echo "error: $app is not a clean Production build: ${bad[*]}" >&2; exit 1; }
+  bash "$script_dir/check-production-binary.sh" "$1" "$bundle_id"
 }
 [[ $config != Production ]] || check_production "$sim_app"
 
@@ -298,9 +293,9 @@ beside the demo build (\`dev.cmux.cnx.cnx\`); both are named "cmux cnx".
 | Compilation | Production configuration: Release optimization ($opt), \`CNX_PRODUCTION\`, no \`DEBUG\` in the app or any package. The build checks the binaries for DEBUG-only strings. |
 | Stack Auth | **Production** project \`9790718f-14cd-4f7e-824d-eaf527a82b82\`, no publishable key, email callback \`https://cmux.com/auth/callback\` (CmuxAuthRuntime \`AuthConfig(environment: .production)\`). Sign in with a real account: email code, Google or GitHub. |
 | Backend | **Dev** Worker \`https://cnx-ios-api-dev.debussy.workers.dev\` (API 0.4.0 or later), which accepts dev and production Stack users. A production user is a separate user there (Stack project plus user id). |
-| Developer surface | None: no "42" dev sign-in, no Settings → Developer, no mock data toggle, no scripted demos, no launch overrides. |
+| Developer surface | None: no "42" dev sign-in, no Settings → Developer, no mock data toggle, no scripted demos, no launch overrides (\`scripts/check-production-binary.sh\` passed). |
 | Error reporting | None (the app has none configured). |
-| Data before a Mac links | Empty: no sample teams or Macs. Placeholders that the live link replaces (Chief, agent chat history) are the same code as in the demo build. |
+| Data before a Mac links | Empty: no sample teams, Macs, Feed, chats or Chief. A terminal tab without its Mac session shows "Connecting to <Mac>…", never sample output. Mock code is compiled out, and stored developer settings from an earlier Debug or Demo install are removed at launch. |
 
 ## Contents
 
