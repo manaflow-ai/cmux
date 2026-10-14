@@ -234,7 +234,7 @@ struct RestorableAgentProcessGenerationTests {
     }
 
     @Test("Conclusive generation evidence avoids an additional presence probe", arguments: [false, true])
-    func conclusiveGenerationDoesNotProbePresence(generationMatches: Bool) throws {
+    func conclusiveGenerationAvoidsRedundantPresenceProbe(generationMatches: Bool) throws {
         let fixture = try makeFixture(prefix: "cmux-conclusive-pid-presence")
         defer { cleanup(fixture) }
         let recordedIdentity = AgentPIDProcessIdentity(
@@ -267,7 +267,9 @@ struct RestorableAgentProcessGenerationTests {
             workspaceId: fixture.workspaceID,
             panelId: fixture.panelID
         )?.processLiveness == (generationMatches ? .running : .exited))
-        #expect(presenceProbeCount == 0)
+        // A mismatched PID still needs one presence check to keep an occupied
+        // process out of pressure reclamation; restore adds no second probe.
+        #expect(presenceProbeCount == (generationMatches ? 0 : 1))
     }
 
     @Test("A present mismatched hook PID is not pressure-safe")
