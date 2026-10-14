@@ -388,8 +388,8 @@ by design); alerts on truncation and on sync failure are live steps.
 
 ## 13. S5: team included amount per team and per seat (built, test mode)
 
-Lawrence 2026-10-14: support both. Config shape: the mode is part of the price set, per plan
-(`USAGE_INCLUDED_MODES` in `backend/apps/api/src/billing-catalog.ts`), beside the included USD.
+Lawrence 2026-10-14: support both. Config shape (superseded by section 16: the Team mode is an operator setting per team): first built
+as part of the price set, per plan, beside the included USD.
 
 | mode | price | meter | what the sync sends |
 | --- | --- | --- | --- |
@@ -477,3 +477,13 @@ CMUX_UITEST, team `team_6774f37212cb1152d2a9`. Catalog `--set=e2e` made the per-
   its shared e2e team (sign-in service team e8733fff-8ce2-457b-9d6a-d20223d46a71, team id
   team_d68c2131970b3ebbd449, cmuxPlan=team on the development sign-in project only; on the development
   INFERENCE_ALLOWED_TEAMS) set per seat with 2 seats, on one test clock.
+- Order at renewal (S5 follow-up review P2): the sync sends the closed period's final level before it
+  adds or moves the usage item for the new period.
+- Credential (review P2, accepted for test mode): the route uses BILLING_LEVELS_KEY, which the sync
+  route also uses, and `actor` is what the caller says. Before the live step the route gets its own
+  operator key (a live step for Lawrence, with the S6 key work).
+- Test clocks (review P3, development only): the setting time is real time and a test clock's period
+  start can be later than real time, so on a test clock a setting can apply to a period that already
+  started. In live mode a period start is never in the future. The e2e makes the setting before it
+  creates the clock.
+- The stop's seats come only from a billable subscription whose period ended at most 35 days ago.

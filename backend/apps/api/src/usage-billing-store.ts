@@ -70,8 +70,14 @@ export const setTeamMode = (sql: SqlStorage, mode: IncludedMode, actor: string, 
   return { before, changed: true }
 }
 
-/** The seats of the team's latest billable subscription (any age), for the stop of a per-seat team; 1 when none. */
-export const lastSeenSeats = (sql: SqlStorage): number => Math.max(1, Number(sql.exec<{ seats: number | null }>(`SELECT seats FROM usage_billable ORDER BY seen_at DESC LIMIT 1`).toArray()[0]?.seats ?? 1))
+/** How far back a billable subscription's seats count for the stop of a per-seat team (its current or previous period). */
+export const SEATS_MEMORY_MS = 35 * 24 * 3600_000
+/**
+ * The seats of the team's latest billable subscription whose period ended at most SEATS_MEMORY_MS ago, for the
+ * stop of a per-seat team; 1 when none (review P3: a lapsed subscription's peak seats do not count for ever).
+ */
+export const lastSeenSeats = (sql: SqlStorage, now: number): number =>
+  Math.max(1, Number(sql.exec<{ seats: number | null }>(`SELECT seats FROM usage_billable WHERE period_end * 1000 > ? ORDER BY seen_at DESC LIMIT 1`, now - SEATS_MEMORY_MS).toArray()[0]?.seats ?? 1))
 
 const modeOf = (v: unknown): IncludedMode => (v === "per_seat" ? "per_seat" : "per_team")
 

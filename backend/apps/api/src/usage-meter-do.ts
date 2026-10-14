@@ -144,7 +144,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     const month_spent_usd = Math.round(spent + open) / 1_000_000
     const mark = currentBillable(sql, now, BILLABLE_GRACE_MS)
     // As the stop counts it (usage-user.ts includedRefusal): the mode in force at the month start, the last billable seats.
-    const unbilled = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`)) === "per_seat" ? { mode: "per_seat" as const, seats: lastSeenSeats(sql) } : { mode: "per_team" as const, seats: 1 }
+    const unbilled = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`)) === "per_seat" ? { mode: "per_seat" as const, seats: lastSeenSeats(sql, now) } : { mode: "per_team" as const, seats: 1 }
     if (!mark) return { billable: null, month_spent_usd, unbilled }
     const mode = mark.mode ?? "per_team"
     const seats = mark.seats ?? 1

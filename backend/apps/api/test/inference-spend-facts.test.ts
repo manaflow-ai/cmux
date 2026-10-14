@@ -392,6 +392,33 @@ describe("team included mode per team or per seat (cx-y79zh.1)", () => {
   })
 })
 
+describe("the included-amount stop of a per-seat team (cx-y79zh.1)", () => {
+  it("a per-seat team that is not billable stops at the amount x its last billable seats, and a lapsed subscription's seats stop counting", async () => {
+    const { t, team } = await paidPerson("included-stop-per-seat")
+    const stopOn = { ...(env as object), USAGE_HARD_STOP_UNBILLED: "1" }
+    fakeBoundaries(fakeStripe({ start: 1, end: 2 }), 0.000001)
+    const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
+    // The operator's per-seat setting (in force before this month), and a subscription with 3 seats whose mark expired.
+    await meter.setIncludedMode(team, "per_seat", "ops", null)
+    await inDO(meter, async (m) => {
+      m.ctx.storage.sql.exec(`UPDATE usage_mode_setting SET set_at = 0`)
+      m.ctx.storage.sql.exec(`INSERT INTO usage_billable (subscription, period_end, seen_at, period_start, mode, seats, included_usd) VALUES ('sub_lapsed', ?, ?, ?, 'per_seat', 3, 20)`, Math.floor((Date.now() - 3 * 3600_000) / 1000), Date.now() - 3 * 3600_000, Math.floor((Date.now() - 30 * 86_400_000) / 1000))
+    })
+    await spendOn(team, 45)
+    // 45 of 3 x 20 = 60: the call passes (a per-team team would stop at 20).
+    expect((await chat(t, stopOn)).status).toBe(200)
+    await spendOn(team, 15)
+    const stopped = await chat(t, stopOn)
+    expect(stopped.status).toBe(402)
+    expect(JSON.parse(stopped.text).error).toMatchObject({ code: "usage.included_reached", details: { included_usd: 60 } })
+    // The subscription's period ended more than 35 days ago: its seats no longer count, the stop is at 1 x 20.
+    await inDO(meter, async (m) => {
+      m.ctx.storage.sql.exec(`UPDATE usage_billable SET period_end = ?`, Math.floor((Date.now() - 40 * 86_400_000) / 1000))
+    })
+    expect(JSON.parse((await chat(t, stopOn)).text).error).toMatchObject({ code: "usage.included_reached", details: { included_usd: 20 } })
+  })
+})
+
 /** team.ai_limit.get through the Worker's fetch handler with `runEnv` (the stop is a Worker var). */
 const aiLimits = async (t: string, runEnv: unknown) => {
   const ctx = createExecutionContext()

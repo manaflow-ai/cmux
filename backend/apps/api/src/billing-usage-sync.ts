@@ -205,6 +205,15 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
         skip("no_usage_price")
         continue
       }
+      const includedUsd = usageIncludedUsd(plan, set)
+      // Period close first (review P2, and before any item move, cx-y79zh.1 review): after a renewal, the closed
+      // period gets its final level once more, dated inside it, in its own mode, seats and meter, while its
+      // invoice is still a draft (Stripe waits about an hour).
+      const prev = periodStart ? await meter.previousPush(team!, sub.id, periodStart) : null
+      if (prev) {
+        const prevMode = isIncludedMode(prev.mode) ? prev.mode : "per_team"
+        if (await pushLevel(team!, sub, prev.period_start, prev.period_end, prevMode, prev.included_usd ?? includedUsd, prev.seats)) report.pushed++
+      }
       // The usage item only: an item on a usage price or the usage product. The plan item is never written.
       let item = sub.items.data.find(isUsageItem)
       if (!item) {
@@ -220,7 +229,6 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
         report.skipped++
         continue
       }
-      const includedUsd = usageIncludedUsd(plan, set)
       // The period's seats: the plan item's quantity, or more when the period already saw more (the bill and the console agree, review P3).
       const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
       const seen = mode === "per_seat" ? await meter.pushState(team!, sub.id, start) : null
@@ -228,14 +236,6 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       // The team can be billed above its included amount until this period ends (inference/included-stop.ts);
       // the mark also names the period's included amount for the console (team.ai_limit.get).
       await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: includedUsd })
-      // Period close (review P2): after a renewal, the closed period gets its final level once more,
-      // dated inside it, while its invoice is still a draft (Stripe waits about an hour). It keeps the
-      // closed period's own mode and seats.
-      const prev = await meter.previousPush(team!, sub.id, start)
-      if (prev) {
-        const prevMode = isIncludedMode(prev.mode) ? prev.mode : "per_team"
-        if (await pushLevel(team!, sub, prev.period_start, prev.period_end, prevMode, prev.included_usd ?? includedUsd, prev.seats)) report.pushed++
-      }
       if (await pushLevel(team!, sub, start, end, mode, includedUsd, seats)) report.pushed++
       else report.unchanged++
     } catch (e) {
