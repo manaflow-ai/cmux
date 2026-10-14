@@ -106,8 +106,19 @@ enum WorkspaceMovePlan {
                 return nil
             }.first
             guard let node else { return nil }
-            local = node.workspaces.map(\.id.rawValue).filter { !moving.contains($0) }
-            slot = min(max(position.index, 0), local.count)
+            // A group's index counts its member rows (`SidebarGroup.members`): workspaces and link, tab and app items.
+            let kept = node.members.filter { member in
+                if case let .workspace(workspace) = member { return !moving.contains(workspace.id.rawValue) }
+                return true
+            }
+            local = kept.compactMap { member in
+                if case let .workspace(workspace) = member { return workspace.id.rawValue }
+                return nil
+            }
+            slot = kept.prefix(max(position.index, 0)).count { member in
+                if case .workspace = member { return true }
+                return false
+            }
         } else {
             // Top-level slots count group headers too; ungrouped rows are
             // the only ones in the ungrouped section.

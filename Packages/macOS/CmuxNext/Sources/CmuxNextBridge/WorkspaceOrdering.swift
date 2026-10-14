@@ -26,7 +26,12 @@ public struct WorkspaceOrdering {
                 return moved.contains(workspace.id) ? nil : [workspace.id]
             }
         } else {
-            containers = section.nodes.map { $0.workspaces.map(\.id).filter { !moved.contains($0) } }.filter { !$0.isEmpty }
+            // Top-level slots count every node (as `SidebarRow.siblingIndex` does): an item or a group with no
+            // workspace keeps its slot; only a moved loose workspace leaves its own.
+            containers = section.nodes.compactMap { node in
+                if case let .workspace(workspace) = node, moved.contains(workspace.id) { return nil }
+                return node.workspaces.map(\.id).filter { !moved.contains($0) }
+            }
         }
         if position.index >= 0, let anchor = containers.dropFirst(position.index).first(where: { !$0.isEmpty })?.first {
             return remaining.firstIndex(of: anchor) ?? remaining.count
