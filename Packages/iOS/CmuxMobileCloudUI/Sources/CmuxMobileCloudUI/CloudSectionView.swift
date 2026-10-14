@@ -181,9 +181,9 @@ struct CloudCreateMachineSheet: View {
     let availableKinds: Set<CloudMachineKind>?
     let limits: CloudMachineLimits?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
     /// App Store billing; when present, upgrade actions open the in-app plans
-    /// sheet instead of the web pricing page.
+    /// sheet. Without it the locked sizes stay as plain text: the App Store
+    /// build never links to a web purchase page (App Review Guideline 3.1.1).
     @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var selectedMemoryMb: Int
     @State private var isPlansSheetPresented = false
@@ -221,10 +221,11 @@ struct CloudCreateMachineSheet: View {
                         }
                         ForEach(lockedMemoryOptions, id: \.self) { memoryMb in
                             Button {
-                                openUpgradePage(planID: upgradePlanID(for: memoryMb))
+                                openPlans()
                             } label: {
                                 Label(lockedSizeMenuTitle(memoryMb), systemImage: "lock.fill")
                             }
+                            .disabled(billing == nil)
                             .accessibilityIdentifier("CloudCreateMachineLockedSize.\(memoryMb)")
                         }
                     } label: {
@@ -246,9 +247,9 @@ struct CloudCreateMachineSheet: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
-                            if let upgradeActionTitle {
+                            if billing != nil, let upgradeActionTitle {
                                 Button(upgradeActionTitle) {
-                                    openUpgradePage(planID: highestLockedMemoryUpgradePlanID)
+                                    openPlans()
                                 }
                                 .controlSize(.small)
                                 .buttonStyle(.bordered)
@@ -358,7 +359,6 @@ struct CloudCreateMachineSheet: View {
         }
     }
 
-    private static let pricingURL = URL(string: "https://cmux.com/pricing")!
     private static let fallbackMemoryMb = 8192
 
     private var machineKind: CloudMachineKind {
@@ -407,10 +407,6 @@ struct CloudCreateMachineSheet: View {
         let names = lockedMemoryUpgradePlanIDs.map(planDisplayName)
         guard !names.isEmpty else { return nil }
         return ListFormatter.localizedString(byJoining: names)
-    }
-
-    private var highestLockedMemoryUpgradePlanID: String? {
-        lockedMemoryUpgradePlanIDs.max { upgradePriority($0) < upgradePriority($1) }
     }
 
     private var upgradeActionTitle: String? {
@@ -511,14 +507,6 @@ struct CloudCreateMachineSheet: View {
         }
     }
 
-    private func upgradePriority(_ planID: String) -> Int {
-        switch normalizedPlanID(planID) {
-        case "max": return 2
-        case "pro": return 1
-        default: return 0
-        }
-    }
-
     private func memoryLabel(_ memoryMb: Int) -> String {
         String(
             format: L10n.string("mobile.cloud.create.size.gb", defaultValue: "%d GB"),
@@ -545,19 +533,11 @@ struct CloudCreateMachineSheet: View {
         }
     }
 
-    private func openUpgradePage(planID: String?) {
-        // App Store builds sell plans in app (Guideline 3.1.1); the web
-        // pricing page remains only for hosts without a billing model.
-        if billing != nil {
-            isPlansSheetPresented = true
-            return
-        }
-        guard let planID, var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
-            openURL(Self.pricingURL)
-            return
-        }
-        components.queryItems = [URLQueryItem(name: "plan", value: planID)]
-        openURL(components.url ?? Self.pricingURL)
+    /// Opens the in-app plans sheet. Plans are sold only in app (App Review
+    /// Guideline 3.1.1), so without a billing model this does nothing.
+    private func openPlans() {
+        guard billing != nil else { return }
+        isPlansSheetPresented = true
     }
 }
 

@@ -6,6 +6,7 @@
 
 import type Stripe from "stripe";
 import { MAX_PRICING_USD, PRO_PRICING_USD } from "./plans";
+import { planTierRank } from "./planTier";
 import { stripeBillingStatusForUser, type StripeBillingStatus } from "./pro";
 import { applySubscriptionUpdate } from "./purchase";
 import { resolveMaxPrice, resolveProPrice, stripe } from "./stripe";
@@ -13,7 +14,6 @@ import { personalPlanIdForSubscription } from "./subscriptionPlan";
 import { planItem } from "./subscriptionItems";
 
 export type SwitchTargetPlan = "pro" | "max";
-type PaidPersonalPlan = "go" | "pro" | "max";
 
 export type PlanChangeRefusal =
   | "no_subscription"
@@ -63,7 +63,6 @@ const defaultDependencies: PlanChangeDependencies = {
   syncSubscription: (subscription) => applySubscriptionUpdate(subscription),
 };
 
-const PLAN_RANK: Readonly<Record<PaidPersonalPlan, number>> = { go: 1, pro: 2, max: 3 };
 const MONTHLY_AMOUNT: Readonly<Record<SwitchTargetPlan, number>> = {
   pro: PRO_PRICING_USD.month.billedAmount * 100,
   max: MAX_PRICING_USD.month.billedAmount * 100,
@@ -106,7 +105,7 @@ async function resolveSwitch(
     subscription,
     itemId: item.id,
     price: await deps.priceFor(target),
-    direction: PLAN_RANK[target] > PLAN_RANK[current] ? "upgrade" : "downgrade",
+    direction: planTierRank(target) > planTierRank(current) ? "upgrade" : "downgrade",
     periodEnd: typeof item.current_period_end === "number" ? item.current_period_end : null,
   };
 }

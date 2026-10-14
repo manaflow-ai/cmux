@@ -64,6 +64,7 @@ import {
   vmResourceResizePendingFromMetadata,
   vmResourceResizeUnconfirmedFromMetadata,
   vmProviderResourceSize,
+  vmDiskMb,
   type VmComputeResources,
   type VmResourceReservation,
   type VmResourceResizePending,
@@ -96,6 +97,7 @@ import {
   VmSnapshotInProgressError,
   VmSnapshotIdempotencyConflictError,
   VmUsageLimitExceededError,
+  VmPlanBudgetExceededError,
   VmGoShapeError,
   VM_MODEL_PLANE_FAILURE_CODES,
   isVmCreateCreditsInsufficientError,
@@ -118,6 +120,7 @@ import {
   type VmResourcePoolPolicy,
 } from "./entitlements";
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
+import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./planUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
@@ -1079,9 +1082,74 @@ function requireGoShape(planId: string | null | undefined, shape: VmResourceRese
     ? Effect.fail(new VmGoShapeError()) : Effect.void;
 }
 
-/** Read and reserve the caller's remaining Go runtime allowance. */
-function requireGoCreate(input: Pick<Parameters<typeof createVm>[0], "billingPlanId" | "userId" | "imageSize" | "resourceReservation">) {
+const MB_PER_GB = 1024;
+
+function readPlanBudget(userId: string) {
+  return Effect.tryPromise({
+    try: () => getPlanBudgetUsage(userId),
+    catch: (cause) => new VmBillingError({ operation: "plan_budget", cause }),
+  });
+}
+
+function computeBudgetExceeded(usage: PlanBudgetUsage) {
+  return new VmPlanBudgetExceededError({
+    planId: usage.planId,
+    resource: "compute",
+    included: Math.round(usage.includedComputeSeconds / 3600),
+    used: Math.round(usage.usedComputeSeconds / 3600),
+    requested: 0,
+    resetsAt: usage.periodEnd,
+  });
+}
+
+/**
+ * Refuse a start when the Pro or Max compute allowance is used up, and a new
+ * or grown disk when the saved machines' disk would pass the plan's total.
+ * `addedDiskMb` is the disk the request adds; `replacesVmId` is the machine a
+ * resize grows, whose current disk the new size replaces.
+ */
+function requirePlanBudget(
+  planId: string | null | undefined,
+  userId: string,
+  disk: { readonly addedDiskMb: number; readonly replacesVmId?: string } | null,
+) {
   return Effect.gen(function* () {
+    if (!isBudgetPlanId(planId)) return;
+    const usage = yield* readPlanBudget(userId);
+    if (!usage) return;
+    if (!disk || disk.replacesVmId === undefined) {
+      if (usage.remainingComputeSeconds <= 0) return yield* Effect.fail(computeBudgetExceeded(usage));
+    }
+    if (!disk) return;
+    // A legacy restore or fork reserves the provider's disk ceiling until it
+    // is measured; the plan's per-machine maximum is the most it can hold.
+    const addedDiskMb = Math.min(disk.addedDiskMb, maxDiskMbForPlan(usage.planId));
+    const kept = usage.retainedStorageMb - (disk.replacesVmId ? usage.retainedDiskMb.get(disk.replacesVmId) ?? 0 : 0);
+    if (kept + addedDiskMb > usage.storageBudgetMb) {
+      return yield* Effect.fail(new VmPlanBudgetExceededError({
+        planId: usage.planId,
+        resource: "storage",
+        included: Math.round(usage.storageBudgetMb / MB_PER_GB),
+        used: Math.ceil(kept / MB_PER_GB),
+        requested: Math.ceil(addedDiskMb / MB_PER_GB),
+        resetsAt: usage.periodEnd,
+      }));
+    }
+  });
+}
+
+/** Disk a create will claim, the same value createVmBeginInput reserves. */
+function requestedCreateDiskMb(input: Pick<Parameters<typeof createVm>[0], "imageSize" | "resourceReservation" | "memoryMb">): number {
+  return (input.resourceReservation ?? vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })).diskMb;
+}
+
+/** Read and reserve the caller's remaining Go runtime allowance; check the Pro and Max allowances. */
+function requirePlanCreate(input: Pick<Parameters<typeof createVm>[0], "billingPlanId" | "userId" | "imageSize" | "resourceReservation" | "memoryMb">) {
+  return Effect.gen(function* () {
+    if (isBudgetPlanId(input.billingPlanId)) {
+      yield* requirePlanBudget(input.billingPlanId, input.userId, { addedDiskMb: requestedCreateDiskMb(input) });
+      return undefined;
+    }
     if (input.billingPlanId === "go") {
       yield* requireGoShape("go", input.resourceReservation ?? (input.imageSize ? {
         vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
@@ -1206,7 +1274,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     if (existingEntry) return existingEntry;
     let runtimeBudgetSeconds: number | undefined;
     if (!existingRetry || isFailedVmCreate(existingRetry) || existingRetry.status === "destroyed") {
-      runtimeBudgetSeconds = yield* requireGoCreate(input);
+      runtimeBudgetSeconds = yield* requirePlanCreate(input);
       yield* requireMemoryPlan(
         input.billingPlanId,
         requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }),
@@ -1269,7 +1337,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     // A failed row may have become retryable between the preflight lookup and
     // the insert transaction. Re-run create-only checks before provider I/O.
     if (runtimeBudgetSeconds === undefined && input.billingPlanId === "go") {
-      runtimeBudgetSeconds = yield* requireGoCreate(input);
+      runtimeBudgetSeconds = yield* requirePlanCreate(input);
     }
 
     const networkRules = yield* recordCreateNetworkPolicy(repo, providers, input, create.vm.id);
@@ -1592,7 +1660,7 @@ export function openBaseVm(input: {
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
       vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
     } : null);
-    const runtimeBudgetSeconds = yield* requireGoCreate(input);
+    const runtimeBudgetSeconds = yield* requirePlanCreate(input);
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
@@ -1640,7 +1708,7 @@ export function resetBaseVm(input: {
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
       vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
     } : null);
-    const runtimeBudgetSeconds = yield* requireGoCreate(input);
+    const runtimeBudgetSeconds = yield* requirePlanCreate(input);
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
@@ -2728,6 +2796,11 @@ export function forkVm(input: {
       : undefined;
 
     if (nativeFork) {
+      // The snapshot path checks the allowance in createVm; the native fork
+      // allocates its row here.
+      yield* requirePlanBudget(input.billingPlanId, input.userId, {
+        addedDiskMb: nativeForkReservation?.diskMb ?? vmDiskMb(),
+      });
       const sourceReservation = nativeForkReservation ?? DEFAULT_VM_RESOURCE_RESERVATION;
       const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
         userId: input.userId,
@@ -3561,6 +3634,8 @@ function resumeUntilRunning(
       const usage = yield* Effect.tryPromise({ try: () => getGoVmUsage(vm.userId), catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }) });
       if (usage && usage.remainingSeconds <= 0) return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: 40, usedHours: 40 }));
       yield* setRuntimeBudget(providers, vm, providerVmId, usage?.remainingSeconds ?? null);
+    } else {
+      yield* requirePlanBudget(vm.billingPlanId, vm.userId, null);
     }
     const handle = yield* resume(vm.provider, providerVmId).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
     if (handle.status === "running") return;
@@ -3858,7 +3933,13 @@ function withResumeOnSuspendedAfterFailure<A>(
         const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms, callerPlanId);
         yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
-          Effect.catchAll(() => Effect.fail(originalError)),
+          // An allowance refusal is the answer the caller needs; any other
+          // resume failure reports the operation's own error.
+          Effect.catchAll((resumeError) => Effect.fail(
+            resumeError._tag === "VmPlanBudgetExceededError" || resumeError._tag === "VmUsageLimitExceededError"
+              ? resumeError
+              : originalError,
+          )),
         );
         yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
@@ -4704,6 +4785,9 @@ export function resizeVm(input: {
         maxMb: diskMaxMb,
         reason: "above_max",
       }));
+    }
+    if (input.storageMb > currentMb) {
+      yield* requirePlanBudget(planId, vm.userId, { addedDiskMb: input.storageMb, replacesVmId: vm.id });
     }
     // Claim the new disk size under the same billing-team lock used by create.
     // The live repository always provides this method; test doubles from
@@ -5829,6 +5913,8 @@ function createSuccessUsageEvents(input: CreateSuccessEventInput, running: Cloud
       eventType: "vm.created",
       provider: running.provider,
       imageId: running.imageId,
+      // Not persisted; analytics derives `cloud_vm_ready.time_to_ready_ms`.
+      vmCreatedAt: running.createdAt,
       metadata: {
         idempotencyKeySet: !!input.idempotencyKey,
         imageVersion: running.imageVersion,

@@ -176,6 +176,8 @@ public final class CloudMachineCreateCoordinator {
             outcome = .failed(output: completion.failureOutput)
             projection.operations[index].phase = .failed(output: completion.failureOutput)
             projection.operations[index].refusalCode = completion.refusalCode
+            // The finished value reports this attempt's refusal, not the stale copy's.
+            operation.refusalCode = completion.refusalCode
         }
         transition.finished = .init(operation: operation, outcome: outcome)
         return transition
