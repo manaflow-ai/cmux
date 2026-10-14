@@ -18,10 +18,18 @@ function frameFamily(f: { family?: string | null }): string | undefined {
   return typeof f.family === "string" && f.family ? f.family : undefined;
 }
 
+/** "typ host udp 172.20.21.196:51234" from an ICE candidate line. */
+export function summarizeCandidate(c: string): string {
+  const parts = c.replace(/^a=/, "").split(/\s+/);
+  const typ = parts[parts.indexOf("typ") + 1] ?? "?";
+  return `typ ${typ} ${(parts[2] ?? "?").toLowerCase()} ${parts[4] ?? "?"}:${parts[5] ?? "?"}`;
+}
+
 interface PeerEntry {
   /** Set once ICE servers are known; candidates before that are buffered. */
   peer?: WebRtcPeer;
   pendingCandidates: { candidate: string; mid: string }[];
+  remoteCandidates?: number;
   /** Latest phone peerId seen for this session (changes if its signaling reconnects). */
   remotePeerId: string;
   /** Backend-stamped phone session family; revoking it drops the link. */
@@ -157,6 +165,7 @@ export class HostAgent {
           name: `host-${sessionId}`,
           log: (m) => log(`[${sessionId}] ${m}`),
           onSignal: (sig) => {
+            if (sig.type === "candidate") log(`[${sessionId}] local candidate ${summarizeCandidate(sig.candidate)}`);
             if (sig.type === "description") {
               this.signaling.send({ type: "answer", to: entry.remotePeerId, sessionId, sdp: sig.sdp });
             } else {
@@ -195,6 +204,9 @@ export class HostAgent {
       case "candidate": {
         const e = this.sessionFor(f);
         if (!e || !f.candidate) return;
+        // ICE diagnostics: which candidates the phone offers (types, families).
+        e.remoteCandidates = (e.remoteCandidates ?? 0) + 1;
+        if (e.remoteCandidates <= 12) this.opts.log(`[${f.sessionId}] remote candidate ${summarizeCandidate(f.candidate)}`);
         if (e.peer) e.peer.addRemoteCandidate(f.candidate, f.sdpMid ?? "0");
         else e.pendingCandidates.push({ candidate: f.candidate, mid: f.sdpMid ?? "0" });
         return;
