@@ -78,7 +78,14 @@ function turn() {
     ["mux", "turn_result", { status: "completed" }],
   );
   const start = Date.UTC(2026, 9, 13, 16, 0, 0);
-  return steps.map(([dir, kind, msg], index) => ({ sessionId: "s", seq: index + 1, at: start + index * 1000, dir, kind, msg }));
+  return steps.map(([dir, kind, msg], index) => ({
+    sessionId: "s",
+    seq: index + 1,
+    at: start + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
 }
 
 test("an open 'Worked for' lists every step, and text between calls is prose", async () => {
@@ -116,13 +123,7 @@ test("an open 'Worked for' lists every step, and text between calls is prose", a
   const lines = [...host.querySelectorAll(".cv-tools > .cv-tool, .cv-tools > .cv-message")].map(
     (node) => node.querySelector(".cv-tool__text, .cv-thought__label, .cv-message__party.is-to")?.textContent,
   );
-  expect(lines).toEqual([
-    "Thought for 1s",
-    "Ran 2 commands",
-    "Thought for 1s",
-    "Read 11 files",
-    "coordinator",
-  ]);
+  expect(lines).toEqual(["Thought for 1s", "Ran 2 commands", "Thought for 1s", "Read 11 files", "coordinator"]);
   // Nothing scrolls inside the open turn: the whole list is the transcript's.
   expect(host.querySelector(".cv-tool-run")).toBeNull();
 });

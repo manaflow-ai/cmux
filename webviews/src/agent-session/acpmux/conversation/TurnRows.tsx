@@ -8,10 +8,8 @@ import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
-import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
 import { toolGroups, type ToolGroup } from "./toolGroups";
-import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
 import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
@@ -75,9 +73,9 @@ function groupNode(group: ToolGroup, index: number, next: ToolGroup | undefined,
   }
 }
 
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
-/// ended turn's open "Worked for", a run of two or more entries folds under one summary line
-/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each.
+/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts), each
+/// on its own line, live or in an ended turn's open "Worked for": the open turn lists every step
+/// (Leo 2026-10-13); a second fold under it hid thoughts and messages and scrolled its tail away.
 export function ToolRows({ row }: { row: AcpmuxRow }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
@@ -86,13 +84,7 @@ export function ToolRows({ row }: { row: AcpmuxRow }) {
   const reveal = useContext(FindReveal);
   return (
     <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-      <div className="cv-tools">
-        {row.settled && groups.length > 1 && isFoldedRun(items ?? []) ? (
-          <ToolRun items={items ?? []}>{nodes}</ToolRun>
-        ) : (
-          nodes
-        )}
-      </div>
+      <div className="cv-tools">{nodes}</div>
     </FindReveal.Provider>
   );
 }

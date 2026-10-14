@@ -797,8 +797,10 @@ pre.cv-math-source {
   height: 1px;
   background: var(--cv-rule);
 }
+/* Centered on the label's x-height, not on its 20px line: 4px down puts the 14px chevron's middle
+   on the lowercase text's middle (worked-chevron-center.test.tsx). */
 .cv-worked__chevron {
-  margin-top: 3px;
+  margin-top: 4px;
   margin-left: 2px;
 }
 /* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
@@ -832,12 +834,6 @@ pre.cv-math-source {
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
-}
-/* An opened run's calls; past nine 26px rows the list scrolls. */
-.cv-tool-run {
-  max-height: 234px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 .cv-tool {
   all: unset;

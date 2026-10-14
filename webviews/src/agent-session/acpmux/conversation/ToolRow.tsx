@@ -17,7 +17,17 @@ import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { OutputMore, useOutput } from "./toolOutput";
 import { commandFolder, commandSummary } from "./commandSummary";
-import { AgentFigures, ChevronRight, Globe, Magnifier, OpenBook, Pencil, Plug, TerminalSquare, ToolGroup } from "./icons";
+import {
+  AgentFigures,
+  ChevronRight,
+  Globe,
+  Magnifier,
+  OpenBook,
+  Pencil,
+  Plug,
+  TerminalSquare,
+  ToolGroup,
+} from "./icons";
 import { agentLabel, isCallId, mcpLabel, toolGlyph, type ToolGlyph } from "./toolKinds";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;

@@ -13,7 +13,10 @@ export function commandFolder(command: string): { folder?: string; rest: string 
   if (!match) return { rest: command };
   const dir = match[1]!.replace(/^["']|["']$/g, "").replace(/\/+$/, "");
   const folder = dir.split("/").at(-1);
-  return { folder: folder && folder !== "~" && folder !== "." ? folder : undefined, rest: command.slice(match[0].length) };
+  return {
+    folder: folder && folder !== "~" && folder !== "." ? folder : undefined,
+    rest: command.slice(match[0].length),
+  };
 }
 
 /// The row's summary, or undefined when the command does not read as known steps.
@@ -37,7 +40,8 @@ export function commandPhrases(command: string): Phrase[] | undefined {
     if (!words) continue;
     const phrase = stepPhrase(words);
     if (!phrase) return undefined;
-    if (!phrases.some((said) => said.key === phrase.key && said.values?.ref === phrase.values?.ref)) phrases.push(phrase);
+    if (!phrases.some((said) => said.key === phrase.key && said.values?.ref === phrase.values?.ref))
+      phrases.push(phrase);
   }
   return phrases.length <= 3 ? phrases : undefined;
 }

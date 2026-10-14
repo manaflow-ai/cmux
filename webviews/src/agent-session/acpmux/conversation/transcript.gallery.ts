@@ -334,7 +334,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolRow.tsx",
     "agent-session/acpmux/chips/ReplyMedia.tsx",
     "agent-session/acpmux/conversation/icons.tsx#Expand",
-    "agent-session/acpmux/conversation/ToolRun.tsx",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
