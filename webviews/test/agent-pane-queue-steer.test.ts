@@ -11,7 +11,8 @@
 // - A prompt sent now to an agent that cannot steer reads "Steering" in the queue, apart from the
 //   queued ones, and "Sent now · stopped the turn" under its bubble once it runs.
 // - A steer reads "Steering" under its bubble while the reply it went into still streams, and
-//   "Steered" once the agent's next message starts.
+//   "Steered" once the agent's next message starts; a second steer in the same step does not mark
+//   the first read.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -245,6 +246,21 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       // The agent's next message answers the steer.
       send(["in", "agent_message_chunk", say("Using the cache dir now.", "m2")]);
       await mark.getByText("Steered · the agent read it").waitFor({ timeout: 10_000 });
+      await page.close();
+    });
+
+    test("a second steer in the same step leaves the first Steering until the agent reads both", async () => {
+      const page = await openChat(true);
+      send(["mux", "user_message", { text: "use the cache dir", promptId: "s-1", turnId: "turn-1", steer: true }]);
+      send(["mux", "user_message", { text: "and keep the old path", promptId: "s-2", turnId: "turn-1", steer: true }]);
+      const first = bubbleMark(page, "use the cache dir");
+      const second = bubbleMark(page, "and keep the old path");
+      await second.getByText("Steering").waitFor({ timeout: 10_000 });
+      expect(await first.innerText()).toContain("Steering");
+      expect(await first.innerText()).not.toContain("Steered");
+      send(["in", "agent_message_chunk", say("Using the cache dir and the old path.", "m2")]);
+      await first.getByText("Steered · the agent read it").waitFor({ timeout: 10_000 });
+      await second.getByText("Steered · the agent read it").waitFor({ timeout: 10_000 });
       await page.close();
     });
   });
