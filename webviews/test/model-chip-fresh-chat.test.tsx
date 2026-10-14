@@ -137,7 +137,8 @@ async function mountChat(harness: string, summary: Record<string, unknown> = {})
   return entry.models.find((model) => model.id === asked)?.name ?? asked;
 }
 
-const chip = () => host.querySelector(".acpmux-model-name")?.textContent ?? "";
+// The model the chip names, in full: its title (the visible name drops the vendor its mark draws).
+const chip = () => host.querySelector('[data-menu="Model"]')?.getAttribute("title") ?? "";
 
 // Dogfood run 5 (cx-21jvw): a chat started from a New Tab read "Model" on its chip until the
 // session reported Opus 5.5. Before that, the chip names the model the New Tab started it on
