@@ -4775,7 +4775,7 @@ function AcpmuxPane() {
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
           {!harnessesOpen && showNewTab && !newTab.history && (
-            // The page's style, under it (`order` puts it last); a pick shows in place at once.
+            // The page's style, under it; a pick shows in place at once.
             <StyleSwitch
               current={pageStyle(shownTemplate(newTab))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
