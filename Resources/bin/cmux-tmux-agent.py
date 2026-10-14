@@ -119,6 +119,9 @@ def launch(agent, args):
             tmux_call(context, 'set-option', '-p', '-t', pane, '@cmux_agent_owner', context['owner'])
             if agent == 'codex':
                 injected = ['--enable', 'hooks']
+                # Codex splits a -c key on every '.', even inside quotes, so the
+                # trust entries go in one inline table at hooks.state.
+                trust = []
                 for event, (label, state) in EVENTS.items():
                     command = hook_command(context, state)
                     timeout = 3 if event == 'SessionEnd' else 5
@@ -127,7 +130,8 @@ def launch(agent, args):
                     handler = '{hooks=[{type="command",command=' + json.dumps(command, ensure_ascii=False) + ',timeout=' + str(timeout) + '}]}'
                     injected += ['-c', 'hooks.' + event + '=[' + handler + ']']
                     key = '/<session-flags>/config.toml:' + label + ':0:0'
-                    injected += ['-c', 'hooks.state.' + json.dumps(key) + '.trusted_hash="sha256:' + digest + '"']
+                    trust.append(json.dumps(key) + '={trusted_hash="sha256:' + digest + '"}')
+                injected += ['-c', 'hooks.state={' + ','.join(trust) + '}']
                 args = hoist_codex_globals(args)
             else:
                 hooks = {event: [{'hooks': [{'type': 'command', 'command': hook_command(context, state), 'timeout': 5}]}] for event, (_, state) in EVENTS.items()}

@@ -244,6 +244,10 @@ struct ClaudeHookSessionRecord: Codable {
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    /// True after a top-level prompt has ended and remains set through later
+    /// helper notifications until the next accepted UserPromptSubmit.
+    /// Optional so records written by older builds continue to decode.
+    var turnSettled: Bool? = nil
     /// The hook event that most recently established the persisted lifecycle.
     /// Optional so records written by older builds continue to decode.
     var hookEventName: String? = nil
@@ -1176,6 +1180,11 @@ final class ClaudeHookSessionStore {
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                 return (staleTerminalTurn: true, nested: false)
             }
+            // UserPromptSubmit is the lifecycle boundary that starts a new
+            // parent turn. Clear the settled-turn fence while holding the
+            // store lock so a concurrent helper PreToolUse cannot reopen the
+            // old turn between the prompt and its running update.
+            record.turnSettled = false
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1285,6 +1294,7 @@ final class ClaudeHookSessionStore {
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
             let settlesTurn = depthAfterStop == 0
+            record.turnSettled = settlesTurn
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1413,6 +1423,7 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
+        turnSettled: Bool? = nil,
         hookEventName: String? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
@@ -1472,6 +1483,7 @@ final class ClaudeHookSessionStore {
                 launchCommand: launchCommand,
                 isRestorable: isRestorable,
                 agentLifecycle: agentLifecycle,
+                turnSettled: turnSettled,
                 hookEventName: hookEventName,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
@@ -2028,6 +2040,7 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord?,
         isRestorable: Bool?,
         agentLifecycle: AgentHibernationLifecycleState?,
+        turnSettled: Bool? = nil,
         hookEventName: String? = nil,
         lastSubtitle: String?,
         lastBody: String?,
@@ -2123,6 +2136,9 @@ final class ClaudeHookSessionStore {
         }
         if let agentLifecycle {
             record.agentLifecycle = agentLifecycle
+        }
+        if let turnSettled {
+            record.turnSettled = turnSettled
         }
         if let hookEventName = normalizeOptional(hookEventName) {
             record.hookEventName = hookEventName
@@ -21566,7 +21582,7 @@ struct CMUXCLI {
                    cmux hooks feed --source <agent> [--event <event>]
 
             Manage and run cmux agent hooks without adding one top-level command per
-            agent. Claude Code and Pi hooks are injected automatically by their cmux wrappers.
+            agent. Antigravity, Claude Code, Grok, Muse, and Pi hooks are injected automatically by their cmux wrappers.
 
             Agents:
               codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, muse
@@ -31307,17 +31323,25 @@ struct CMUXCLI {
                         )
                     }
                 }
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                    sessionId: acceptedSessionId,
-                    cwd: hookCwd,
-                    launchCommand: launchCommand,
-                    observedPermissionMode: observedHookPermissionMode
-                )
+                // Claude writes a fork's transcript with its first message.
+                // Until then the fork cannot be resumed, so the pane keeps its
+                // binding; the first prompt or stop binds the fork (#20186).
+                let forkTranscriptIsPending = isForkSessionLaunch
+                    && hookTranscriptPath.map { !FileManager.default.fileExists(atPath: $0) } == true
+                if !forkTranscriptIsPending {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: "claude",
+                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                        sessionId: acceptedSessionId,
+                        cwd: hookCwd,
+                        launchCommand: launchCommand,
+                        transcriptPath: hookTranscriptPath,
+                        observedPermissionMode: observedHookPermissionMode
+                    )
+                }
                 emitAgentJournalEvent(
                     client: client,
                     kind: .sessionStarted,
@@ -31517,6 +31541,7 @@ struct CMUXCLI {
                         // hibernatable .idle state so the planner cannot SIGTERM
                         // a live task (mirrors the antigravity fullyIdle flip).
                         agentLifecycle: stopFailure != nil ? .needsInput : (hasUnsettledWork ? .backgroundWorkPending : .idle),
+                        turnSettled: true,
                         hookEventName: reportedHookEventName(from: parsedInput) ?? "Stop",
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
@@ -31533,6 +31558,7 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         cwd: hookCwd ?? mappedSession?.cwd,
                         launchCommand: mappedSession?.launchCommand,
+                        transcriptPath: hookTranscriptPath,
                         observedPermissionMode: observedHookPermissionMode
                             ?? mappedSession?.lastPermissionMode
                     )
@@ -31731,6 +31757,7 @@ struct CMUXCLI {
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
+                    turnSettled: false,
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
                     updateLastSummary: true,
                     markActive: true,
@@ -31745,6 +31772,7 @@ struct CMUXCLI {
                     sessionId: sessionId,
                     cwd: hookCwd ?? mappedSession?.cwd,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
+                    transcriptPath: hookTranscriptPath,
                     observedPermissionMode: observedHookPermissionMode
                         ?? mappedSession?.lastPermissionMode
                 )
@@ -32296,6 +32324,17 @@ struct CMUXCLI {
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            // A helper can invoke PreToolUse after the parent turn's Stop hook.
+            // That event belongs to the completed turn, so it must not reopen
+            // the parent session as Running. A new parent turn always passes
+            // through UserPromptSubmit first, which replaces this settled
+            // lifecycle and clears the guard.
+            let parentTurnAlreadyEnded = mappedSession?.turnSettled == true
+            guard !parentTurnAlreadyEnded else {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.after-stop")
+                printClaudeHookAck()
+                return
+            }
             let claudePid = localClaudePID(mapped: mappedSession)
             // One ancestry walk per hook event, shared by the suppression gate
             // and the notify payload's subagent tag.
@@ -35216,6 +35255,22 @@ struct CMUXCLI {
         )
     }
 
+    /// The controlling terminal device of a live process, or `nil` when the
+    /// process has none or no longer exists.
+    func controllingTerminalDevice(of pid: Int) -> Int64? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0,
+              size > 0,
+              info.kp_proc.p_pid == Int32(pid),
+              info.kp_eproc.e_tdev != -1 else { // NODEV
+            return nil
+        }
+        return Int64(info.kp_eproc.e_tdev)
+    }
+
     private func parentPID(of pid: pid_t) -> pid_t {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.size
@@ -35807,7 +35862,8 @@ struct CMUXCLI {
         let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: kind,
             runtimeCwd: cwd,
-            launchWorkingDirectory: launchCommand?.workingDirectory
+            launchWorkingDirectory: launchCommand?.workingDirectory,
+            transcriptPath: transcriptPath
         )
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
@@ -37758,7 +37814,7 @@ export default {
             isCmuxOwnedHookCommand(command, for: def, includeLegacy: includeLegacyOwnedCommands)
         }
         var entries: [CodexHookTrustEntry] = []
-        let keySource = codexNormalizedHookSourcePath(hooksFilePath)
+        let keySource = codexHookTrustKeySourcePath(hooksFilePath, def: def)
 
         for eventName in codexHookEventNames {
             guard let groups = hooks[eventName] as? [[String: Any]],
@@ -37796,7 +37852,12 @@ export default {
         def: AgentHookDef
     ) -> Set<String> {
         guard def.name == "codex" else { return [] }
-        return ["\(codexNormalizedHookSourcePath(hooksFilePath)):"]
+        // Earlier installs keyed trust by the fully resolved path; keep
+        // clearing those stale entries from the cmux-owned block.
+        return [
+            "\(codexHookTrustKeySourcePath(hooksFilePath, def: def)):",
+            "\(codexNormalizedHookSourcePath(hooksFilePath)):",
+        ]
     }
 
     private static func codexLegacyHookTrustHashes(def: AgentHookDef) -> Set<String> {
@@ -37855,6 +37916,21 @@ export default {
             )
         }
         return hashes
+    }
+
+    /// The hooks.json path exactly as Codex embeds it in trust keys. Codex
+    /// canonicalizes an explicit `CODEX_HOME` directory and joins `hooks.json`
+    /// to it, but uses `$HOME/.codex` verbatim (codex-rs/utils/home-dir
+    /// `find_codex_home`), so a symlinked default home must not be resolved.
+    private static func codexHookTrustKeySourcePath(_ path: String, def: AgentHookDef) -> String {
+        guard def.resolvesConfigDirFromEnvOverride else { return path }
+        let url = URL(fileURLWithPath: path)
+        guard let resolvedParent = realPath(url.deletingLastPathComponent().path) else {
+            return path
+        }
+        return URL(fileURLWithPath: resolvedParent, isDirectory: true)
+            .appendingPathComponent(url.lastPathComponent)
+            .path
     }
 
     private static func codexNormalizedHookSourcePath(_ path: String) -> String {
@@ -45328,7 +45404,7 @@ export default {
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
-        if !isUninstall { print(String(localized: "cli.hooks.setup.wrapperNote", defaultValue: "  (Claude Code and Pi hooks are injected automatically via their cmux wrappers)")) }
+        if !isUninstall { print(String(localized: "cli.hooks.setup.wrapperNote", defaultValue: "  (Antigravity, Claude Code, Grok, Muse, and Pi hooks are injected automatically via cmux wrappers)")) }
         print("")
         var count = 0
         var skipped = 0
