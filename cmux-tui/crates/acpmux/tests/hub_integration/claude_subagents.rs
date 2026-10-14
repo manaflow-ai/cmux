@@ -46,18 +46,18 @@ async fn a_claude_subagent_asking_after_the_turn_ended_reaches_the_person() {
     let id = s["sessionId"].as_str().unwrap().to_owned();
     hub.set_policy(&hub.resolve(&id).unwrap(), PermissionPolicy::Ask).await;
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "late-agent-ask"}]});
-    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
-    // The ask came in while the prompt's own response was on its way, so it
-    // is read from the session's log; the chat waits on the person after its
-    // turn ended, not ready.
+    let rid = c.send(method::SESSION_PROMPT, prompt).await;
+    // The ask comes in while the prompt's own response is on its way: its
+    // notification comes before that response or after it (cx-nx5mb).
+    let (done, before) = c.response(rid).await;
+    done.unwrap();
+    let asked = match before.into_iter().find(|(m, _)| m == method::MUX_PERMISSION_PENDING) {
+        Some((_, pending)) => pending,
+        None => c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await,
+    };
+    let pid = asked["permissionId"].as_str().unwrap().to_owned();
+    // The chat waits on the person after its turn ended, not ready.
     let session = hub.resolve(&id).unwrap();
-    let asked = hub
-        .events(&id, 0, 10_000)
-        .unwrap()
-        .into_iter()
-        .rfind(|e| e.kind == "permission_request")
-        .unwrap_or_else(|| panic!("the late ask never reached the person"));
-    let pid = asked.msg["permissionId"].as_str().unwrap().to_owned();
     assert_eq!(hub.session_summary(&session)["status"], "waiting");
     // This client is not the person, so it rejects (an allow needs the app's
     // decision proof): the person's answer, not a cancel, reaches the subagent.
