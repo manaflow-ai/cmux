@@ -172,6 +172,11 @@ pub struct Pairing {
     pub limiter: Arc<Mutex<PromptLimiter>>,
     /// The phone's registration date for the prompt (`None`: not looked up).
     pub registration: Option<RegistrationLookup>,
+    /// Chief answer approvals already spent (`chief_answers.rs`), for every link.
+    pub spent_answers: Arc<crate::chief_answers::SpentNonces>,
+    /// This Mac's long-lived identity key (the app keeps it in the Keychain and
+    /// sends it over stdin): proves the Mac to a phone that pinned it.
+    pub identity: watch::Receiver<Option<MacIdentity>>,
 }
 
 impl Pairing {
@@ -180,7 +185,15 @@ impl Pairing {
         trust: watch::Receiver<Option<DeviceTrust>>,
         emit: Arc<dyn Fn(Event) + Send + Sync>,
     ) -> Self {
-        Self { mac_device_id, trust, emit, limiter: Arc::default(), registration: None }
+        Self {
+            mac_device_id,
+            trust,
+            emit,
+            limiter: Arc::default(),
+            registration: None,
+            spent_answers: Arc::default(),
+            identity: watch::channel(None).1,
+        }
     }
 }
 
@@ -413,6 +426,84 @@ pub fn challenge_message(
 /// A refusal: close code and reason.
 pub type Refused = (&'static str, String);
 
+/// The domain of the Mac's identity proof.
+const MAC_DOMAIN: &str = "cnx-mac-identity-v1";
+
+/// The bytes the Mac's identity key signs for a phone: this Mac's device id,
+/// the phone, the phone's own nonce (`macNonce`, so a recorded proof cannot be
+/// replayed) and this `auth`'s challenge.
+pub fn mac_proof_message(mac: &str, phone: &str, phone_nonce: &str, challenge: &str) -> Vec<u8> {
+    let mut out = MAC_DOMAIN.as_bytes().to_vec();
+    for part in [mac, phone, phone_nonce, challenge] {
+        out.push(0);
+        out.extend_from_slice(part.as_bytes());
+    }
+    out
+}
+
+/// This Mac's long-lived P-256 identity key (the app keeps it in the
+/// Keychain). A phone pins its public key per Mac device id the first time
+/// it pairs, and refuses a Mac that cannot prove it later (PROTOCOL.md
+/// "Mac identity").
+#[derive(Clone)]
+pub struct MacIdentity {
+    pair: Arc<ring::signature::EcdsaKeyPair>,
+    public: String,
+}
+
+impl std::fmt::Debug for MacIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MacIdentity").field("public", &self.public).finish_non_exhaustive()
+    }
+}
+
+impl MacIdentity {
+    /// From the raw 32-byte private scalar and the X9.63 public point, as hex.
+    pub fn from_raw(private_hex: &str, public_hex: &str) -> Option<Self> {
+        if !is_point(public_hex) {
+            return None;
+        }
+        let (private, public) = (unhex(private_hex)?, unhex(public_hex)?);
+        let pair = ring::signature::EcdsaKeyPair::from_private_key_and_public_key(
+            &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING,
+            &private,
+            &public,
+            &ring::rand::SystemRandom::new(),
+        )
+        .ok()?;
+        Some(Self { pair: Arc::new(pair), public: public_hex.to_owned() })
+    }
+
+    /// A fresh key (tests, and a hostd that runs without the app).
+    pub fn generate() -> Option<Self> {
+        use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
+        let rng = ring::rand::SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).ok()?;
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).ok()?;
+        let public = pair.public_key().as_ref().iter().map(|b| format!("{b:02x}")).collect();
+        Some(Self { pair: Arc::new(pair), public })
+    }
+
+    /// The X9.63 public point as lowercase hex.
+    pub fn public_key(&self) -> &str {
+        &self.public
+    }
+
+    /// Raw `r || s` over `message`, as hex.
+    pub fn sign(&self, message: &[u8]) -> Option<String> {
+        let signature = self.pair.sign(&ring::rand::SystemRandom::new(), message).ok()?;
+        Some(signature.as_ref().iter().map(|b| format!("{b:02x}")).collect())
+    }
+}
+
+impl Pairing {
+    /// With the app's identity key line (`mac_identity`).
+    pub fn with_identity(mut self, identity: watch::Receiver<Option<MacIdentity>>) -> Self {
+        self.identity = identity;
+        self
+    }
+}
+
 fn is_point(hex: &str) -> bool {
     hex.len() == 130
         && hex.starts_with("04")
@@ -491,7 +582,23 @@ async fn authenticate(
         return Ok(());
     };
     let nonce = new_nonce()?;
-    send(sender, json!({"challenge": nonce, "mac": pairing.mac_device_id})).await;
+    let mut challenge = json!({"challenge": nonce, "mac": pairing.mac_device_id});
+    // A phone that pins Macs sends its own nonce: the Mac signs it with its
+    // identity key, so a host registered with a stolen token cannot pass as it.
+    let phone_nonce = text("macNonce");
+    if !phone_nonce.is_empty() {
+        if !(16..=128).contains(&phone_nonce.len()) || !phone_nonce.bytes().all(|b| b.is_ascii_alphanumeric())
+        {
+            return Err(("bad_request", "macNonce is 16 to 128 letters or digits".into()));
+        }
+        let identity = pairing.identity.borrow().clone();
+        if let Some(identity) = identity {
+            let proof = mac_proof_message(&pairing.mac_device_id, phone, phone_nonce, &nonce);
+            challenge["macKey"] = json!(identity.public_key());
+            challenge["macSignature"] = json!(identity.sign(&proof));
+        }
+    }
+    send(sender, challenge).await;
     let signature = match tokio::time::timeout(SIGNATURE_WAIT, receiver.recv()).await {
         Ok(Some(ChannelEvent::Data(bytes))) => serde_json::from_slice::<Value>(&bytes)
             .ok()

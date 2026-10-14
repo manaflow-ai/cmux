@@ -30,6 +30,13 @@ policy (see `chief` below).
   imports) refuse it. The phone never proves the app's install key and never
   gets `user_origin_allowed`. This is deliberate: the phone is a scoped remote
   client, not the local owner.
+- **The Mac is pinned.** The phone pins each paired Mac's identity key on
+  first use (the Mac app's Keychain key, proved in every `auth` over the
+  phone's own nonce; PROTOCOL.md "Mac identity"). A host registered with a
+  stolen token under that Mac's device id cannot prove the key, so the phone
+  refuses it before it signs or sends anything, and says the Mac's identity
+  changed. A host under a new device id is a new Mac to the phone: it shows in
+  the list as one more Mac, and the person pairs it only by choice.
 - **Revoking.**
   - Turning off Settings > Mobile > Allow iPhone Connections stops hostd, so
     no link can start.
@@ -140,7 +147,7 @@ the owner's other agent conversations in Home.
 | `conversation-list`, `-snapshot`, `-history`, `-thread`, `-search` | Read the owner's own agent conversations (narrowed). |
 | `conversation-op`: `message.send` (`client_msg_id, parts, reply_to, thread_root`), `message.edit`, `message.retract`, `reaction.add/remove`, `read_cursor.set` | What the Mac's Home does in a conversation. |
 | `conversation-op`: `title.set` | Rename, as the Mac's Chief settings. |
-| `conversation-op`: `question.answer` | Answer Chief's questions; the owner stamps the respondent. |
+| `conversation-op`: `question.answer` with `approval` | Answer Chief's questions. Supervised, it counts only with the phone's Face ID signature over this Mac, conversation, question and answer (one use, at most 300 s; `chief_answers.rs`); hostd strips `approval`, and the owner stamps the respondent. An unsigned or forged answer is refused `forbidden`. |
 | `conversation-typing` (`conversation, on`) | Typing as the owner. |
 | `conversation-attachment-upload` (`begin` names an in-scope conversation; `chunk`, `commit`, `cancel` name the upload this connection began) and `-read` | Photos and files, under the owner's own limits (type allow list, 100 MB, hash checks). |
 | `cmux.protocol/2` `chief.engine.get`, `chief.engine.set` (`harness, model, effort, speed, compactor_speed`, strings), `chief.stop` (`name`) with `machine`/`session` only `current`, and no `origin` | The Mac Chief settings' model, harness and effort pickers and Stop (`ChiefControlClient`). |

@@ -314,6 +314,31 @@ that phone device id first registered with the service (`createdAt` of `GET
 absent when the lookup failed or took over 3 s; the dialog then says the
 date is unknown.
 
+### Mac identity (trust on first use)
+
+`auth` args may carry `macNonce` (16 to 128 letters or digits, the phone's
+own). The Mac app keeps a long-lived P-256 identity key in its Keychain and
+sends it to hostd once, on stdin:
+
+```json
+{"type":"mac_identity","private_key":"<32-byte scalar hex>","public_key":"04…"}
+```
+
+With both, the challenge frame adds `macKey` (the X9.63 point, hex) and
+`macSignature` (raw `r || s`, hex) over
+`cnx-mac-identity-v1 \0 mac \0 phone \0 macNonce \0 challenge`. The phone
+pins `macKey` per Mac device id when pairing first passes, and from then on
+refuses (`mac_identity_changed`, before it signs) a Mac that proves another key
+or none. Removing the Mac forgets the pin.
+
+### Chief question answers
+
+On the `chief` channel, a supervised hostd forwards `conversation-op` with
+`op.kind` `question.answer` only with
+`approval: {approver, nonce, expiresAt, signature}` (see
+`verify/phone-approvals.md`, "Chief question answers"); hostd strips it before
+the Chief owner. `approval` on any other op is refused.
+
 ## Connection setup (phone)
 
 Nothing here changes the wire; it is how a phone keeps a dial short.
