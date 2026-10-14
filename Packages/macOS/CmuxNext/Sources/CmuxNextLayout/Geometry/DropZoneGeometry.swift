@@ -27,7 +27,7 @@ public nonisolated enum DropZoneGeometry {
         func reach(_ zone: PaneDropZone) -> CGFloat {
             let extra: CGFloat = switch previous {
             case zone?: margin
-            case .center?: -margin
+            case .center?: -min(margin, (zone.splitAxis == .horizontal ? bandX : bandY) / 2)
             default: 0
             }
             return switch zone {

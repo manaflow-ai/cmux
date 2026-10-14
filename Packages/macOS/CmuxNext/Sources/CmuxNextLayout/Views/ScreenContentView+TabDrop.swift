@@ -57,8 +57,14 @@ extension ScreenContentView {
     /// moves (view coordinates, inset 2 pt so neighbors read apart); nil when the layout cannot be
     /// predicted here, and the caller falls back to the half.
     private func finalLayoutPreview(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> (newPane: CGRect, resized: [CGRect])? {
+        // A tab drop splits the target at 0.5 and sends no even-sizing ratios (TabMoves.toNewSplit; only a
+        // keyboard split applies `layout.splitSizing`), so the preview shows exactly that.
         guard let predicted = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: removing,
-                                                evenSizing: context.model.splitSizing == .even) else { return nil }
+                                                evenSizing: false) else { return nil }
+        // A drop that closes a column moves the strip's camera after it; show the half rather than guess.
+        if case let .columns(before) = layout, case let .columns(after) = predicted.layout, before.map(\.id) != after.map(\.id) {
+            return nil
+        }
         let style = context.style
         let after = ScreenGeometry.compute(predicted.layout, viewport: bounds.size, style: style, scale: window?.backingScaleFactor ?? 2)
         let offset = scroll.value
@@ -69,6 +75,8 @@ extension ScreenContentView {
         }
         guard let cell = after.panes[DropPreviewLayout.newPane] else { return nil }
         let newPane = shown(cell, DropPreviewLayout.newPane, in: after)
+        // The new pane must be fully on screen, or the drop's focus reveal scrolls the strip: show the half.
+        guard bounds.insetBy(dx: -1, dy: -1).contains(newPane) else { return nil }
         var resized: [CGRect] = []
         for (other, frame) in after.panes where other != DropPreviewLayout.newPane {
             let before = geometry.panes[other].map { shown($0, other, in: geometry) }
