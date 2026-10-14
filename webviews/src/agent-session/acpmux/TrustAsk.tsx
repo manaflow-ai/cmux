@@ -28,7 +28,7 @@ export function TrustAsk({
     <div className="acpmux-trust-ask" aria-live="polite">
       {ask.state === "decided" ? (
         <>
-          <span className="acpmux-trust-ask-text" title={ask.cwd}>
+          <span className="acpmux-trust-ask-text">
             {ask.level === "trusted"
               ? owned
                 ? t("trust.trustedPrivate")
@@ -45,7 +45,7 @@ export function TrustAsk({
         <span className="acpmux-trust-ask-text">{t("trust.remote")}</span>
       ) : (
         <>
-          <span className="acpmux-trust-ask-text" title={ask.state === "failed" ? undefined : ask.cwd}>
+          <span className="acpmux-trust-ask-text">
             {ask.state === "failed"
               ? t("trust.failed")
               : owned

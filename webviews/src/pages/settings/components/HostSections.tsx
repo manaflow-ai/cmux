@@ -38,11 +38,7 @@ function ListRows({ rows, empty, marks = false }: { rows: HostListRow[]; empty: 
         )}
         <div className="row-label">
           <div className="row-title">{row.title}</div>
-          {row.subtitle && (
-            <div className="row-help" title={row.subtitle}>
-              {row.subtitle}
-            </div>
-          )}
+          {row.subtitle && <div className="row-help">{row.subtitle}</div>}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
       </div>

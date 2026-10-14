@@ -358,7 +358,6 @@ export function AllChatsList({
             className="nt-all-group"
             data-focus-ring="row"
             aria-expanded={open}
-            title={project.cwd ?? label}
             onClick={() => {
               // A folded chat cannot stay selected: Enter or Bring would act on rows out of sight.
               selection.clear();
@@ -401,7 +400,6 @@ export function AllChatsList({
           data-focus-ring="row"
           data-untitled={row.title ? undefined : true}
           data-selected={selection.selected.includes(row.key) ? true : undefined}
-          title={row.cwd ? `${title}\n${row.cwd}` : title}
           onClick={(event) => {
             if (onBring && selection.click(event, row.key)) return;
             onOpen(row.key);

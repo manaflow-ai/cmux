@@ -147,7 +147,6 @@ export function ProjectChooser({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        title={current ? `${t("project.label")}: ${current}` : undefined}
         {...press}
       >
         {!inline && icon}
@@ -210,7 +209,6 @@ export function ProjectChooser({
                   aria-checked={checked}
                   aria-label={project ? [project.label, project.host, project.cwd].filter(Boolean).join(", ") : name}
                   className={`acpmux-menu-item${index === selected ? " acpmux-menu-active" : ""}${project ? "" : " acpmux-project-none"}`}
-                  title={project?.cwd}
                   onPointerMove={() => setActive(row.key)}
                   onMouseDown={(event) => {
                     event.preventDefault();
@@ -223,7 +221,7 @@ export function ProjectChooser({
                     {project && <span className="acpmux-menu-description" data-path={project.cwd} />}
                   </span>
                   {project?.host && (
-                    <span className="acpmux-project-host" title={project.host}>
+                    <span className="acpmux-project-host">
                       <GlobeIcon />
                       <span>{project.host}</span>
                     </span>
