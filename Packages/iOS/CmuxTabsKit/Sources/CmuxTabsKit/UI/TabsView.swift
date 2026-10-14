@@ -53,6 +53,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
     @State private var chrome = ChromeState()
     /// The page <-> grid transition (one interruptible progress value).
     @State private var zoomDriver = TabZoomDriver()
+    /// Swipe-to-close offsets of the grid's cards.
+    @State private var cardSwipes = CardSwipeState()
     /// Tab the zoom shows: the active tab, a tapped card, or a created tab.
     @State private var zoomTabId: String?
     /// Grid content origin in the screen's coordinate space, reported by the grid.
@@ -96,7 +98,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         ZStack(alignment: .topLeading) {
             // Kept mounted (hidden) so opening it does not pay for building
             // the grid on the first animation frame.
-            TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome,
+            TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
                         // On the settled grid the page layer draws the active
                         // tab's card live (the same view as the page).
                         hiddenTabId: zoomState.phase == .overview ? activeID : zoomTabId,
@@ -242,7 +244,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
         let phase = zoomState.phase
         let settled = phase == .page
         let g = settled ? (rect: fullRect, radius: chrome.swiping ? theme.metrics.screenRadius : 0)
-            : phase == .overview ? (rect: activeCardRect, radius: overviewLayout.cardRadius) : zoomGeometry()
+            : phase == .overview ? (rect: activeCardRect.offsetBy(dx: activeID.map { cardSwipes.offset($0) } ?? 0, dy: 0),
+                                    radius: overviewLayout.cardRadius) : zoomGeometry()
         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
         let close = phase == .overview ? zoomDriver.chrome.closeOpacity
             : CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: phase == .interactive || zoomState.headingToOverview)
@@ -280,6 +283,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             }
         }
         .offset(x: g.rect.minX + (chrome.swiping ? chrome.swipeOffset : 0), y: g.rect.minY)
+        .opacity(phase == .overview ? (activeID.map { cardSwipes.opacity($0) } ?? 1) : 1)
         .accessibilityHidden(!settled)
         .tabsKitStatusBarStyle(overviewVisible ? nil : activeTab?.statusBarStyle)
     }

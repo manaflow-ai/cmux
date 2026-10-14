@@ -1,4 +1,5 @@
 import Foundation
+import struct CnxModel.ServiceFailureMessage
 
 /// The `cnx-ios-api` HTTP surface the app uses (PROTOCOL.md "HTTP").
 public struct LiveAPI: Sendable {
@@ -83,6 +84,8 @@ public struct LiveAPI: Sendable {
         public var status: Int
         public var code: String
         public var message: String
+        /// The service's id for the request (support quotes it), when it sent one.
+        public var requestID: String? = nil
     }
 
     /// `POST /v1/devices` (upsert).
@@ -208,21 +211,32 @@ public struct LiveAPI: Sendable {
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401, !forceRefresh { continue }
-            guard (200..<300).contains(status) else { throw Self.failure(status: status, data: data) }
+            guard (200..<300).contains(status) else {
+                throw Self.failure(status: status, data: data, requestID: Self.requestID(response as? HTTPURLResponse))
+            }
             return data
         }
         throw Failure(status: 401, code: "unauthorized", message: "token refresh failed")
     }
 
-    static func failure(status: Int, data: Data) -> Failure {
+    static func failure(status: Int, data: Data, requestID: String? = nil) -> Failure {
         struct Envelope: Decodable {
             struct Body: Decodable { var code: String; var message: String }
             var error: Body
         }
         if let envelope = try? JSONDecoder().decode(Envelope.self, from: data) {
-            return Failure(status: status, code: envelope.error.code, message: envelope.error.message)
+            return Failure(status: status, code: envelope.error.code, message: envelope.error.message, requestID: requestID)
         }
-        return Failure(status: status, code: "http_\(status)", message: String(decoding: data.prefix(200), as: UTF8.self))
+        return Failure(status: status, code: "http_\(status)", message: String(decoding: data.prefix(200), as: UTF8.self), requestID: requestID)
+    }
+
+    /// The request id the service's edge stamps on every response.
+    static func requestID(_ response: HTTPURLResponse?) -> String? {
+        guard let response else { return nil }
+        for name in ["X-Request-Id", "CF-Ray"] {
+            if let value = response.value(forHTTPHeaderField: name), !value.isEmpty { return value }
+        }
+        return nil
     }
 
     static func parseDate(_ string: String) -> Date? {
@@ -259,5 +273,39 @@ public enum SignalFrame: Equatable, Sendable {
         default:
             return .other
         }
+    }
+}
+
+extension LiveAPI {
+    /// What a failed device removal tells the user. Never names the
+    /// service's vendors; quotes the Request ID when the service sent one.
+    public static func removalMessage(for error: any Error) -> ServiceFailureMessage {
+        if let failure = error as? Failure {
+            let text: String
+            switch (failure.status, failure.code) {
+            case (403, "not_owner"):
+                text = "This device belongs to another account. Only the account it's signed in to can remove it."
+            case (401, _):
+                text = "Your session expired. Sign in again, then try again."
+            case (429, _):
+                text = "Too many requests. Wait a moment and try again."
+            case (500..., _), (0, _):
+                text = "The Cloud service couldn't remove it (\(failure.code)). Try again in a moment."
+            default:
+                text = "The Cloud service refused: \(failure.message.isEmpty ? failure.code : failure.message)"
+            }
+            return ServiceFailureMessage(text: text, requestID: failure.requestID)
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return ServiceFailureMessage(text: "You're offline. Connect to the internet and try again.")
+            case .timedOut:
+                return ServiceFailureMessage(text: "The Cloud service didn't answer in time. Try again.")
+            default:
+                return ServiceFailureMessage(text: "Couldn't reach the Cloud service (\(urlError.localizedDescription)).")
+            }
+        }
+        return ServiceFailureMessage(text: "Couldn't remove it: \(error.localizedDescription)")
     }
 }
