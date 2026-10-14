@@ -47,12 +47,19 @@ fn reason(reply: &Result<Value, Value>) -> &str {
     reply.as_ref().err().and_then(|e| e["data"]["reason"].as_str()).unwrap_or("(none)")
 }
 
-/// A Claude Code profile whose program is `/bin/sh -c <script>`: the
-/// recipe's own flags land in `$0`, `$1`, ... and are ignored.
-fn fake_claude(script: &str) -> HarnessProfile {
+/// A Claude Code profile whose program is an executable shell script in
+/// `dir` named `name`: the recipe's own flags land in `$1`, ... and are ignored.
+fn fake_claude(dir: &Path, name: &str, script: &str) -> HarnessProfile {
+    let path = dir.join(name);
+    std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     HarnessProfile {
         kind: HarnessKind::ClaudeStdio,
-        argv: vec!["/bin/sh".into(), "-c".into(), script.into()],
+        argv: vec![path.to_string_lossy().into_owned()],
         env: BTreeMap::new(),
         description: None,
         fallback: None,
@@ -84,18 +91,22 @@ async fn complete_is_unix_socket_only_and_runs_headless() {
         ran.display(),
         cwd_file.display()
     );
-    cfg.harnesses.insert("fake".into(), fake_claude(&answers));
+    cfg.harnesses.insert("fake".into(), fake_claude(&root, "fake", &answers));
     cfg.harnesses.insert(
         "signedout".into(),
-        fake_claude("cat >/dev/null; echo 'Not logged in · Please run /login'; exit 1"),
+        fake_claude(
+            &root,
+            "signedout",
+            "cat >/dev/null; echo 'Not logged in · Please run /login' >&2; exit 1",
+        ),
     );
-    cfg.harnesses.insert("slow".into(), fake_claude("exec sleep 30"));
+    cfg.harnesses.insert("slow".into(), fake_claude(&root, "slow", "exec sleep 30"));
     cfg.harnesses.insert(
         "gemini".into(),
         HarnessProfile {
             kind: HarnessKind::Acp,
             argv: vec!["/bin/gemini".into(), "--experimental-acp".into()],
-            ..fake_claude("")
+            ..fake_claude(&root, "unused", "")
         },
     );
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();

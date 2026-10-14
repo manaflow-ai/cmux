@@ -83,6 +83,8 @@ fn claude_argv_keeps_the_profile_prefix() {
             "claude",
             "proxy",
             "-p",
+            "--output-format",
+            "text",
             "--model",
             "claude-haiku-5-5",
             "--tools",
@@ -99,6 +101,51 @@ fn claude_argv_keeps_the_profile_prefix() {
     assert!(inv.stdin_prompt);
     assert_eq!(inv.prompt_file, None);
     assert_eq!(inv.output_file, None);
+}
+
+#[test]
+fn claude_drops_every_profile_flag() {
+    // A profile that pins its own MCP servers, permissions and output format:
+    // none of it reaches the one-shot (--mcp-config adds servers, and
+    // --tools "" does not remove MCP tools).
+    let pinned = profile(
+        HarnessKind::ClaudeStdio,
+        &[
+            "/bin/sr",
+            "claude",
+            "proxy",
+            "--mcp-config",
+            "x.json",
+            "--dangerously-skip-permissions",
+            "--output-format",
+            "json",
+        ],
+    );
+    let none = |_: &str| -> Option<String> { None };
+    let (program, prefix) =
+        recipes::program(Recipe::Claude, &pinned, &BTreeMap::new(), &none).unwrap();
+    assert_eq!(
+        (program.as_str(), prefix.clone()),
+        ("/bin/sr", vec!["claude".to_owned(), "proxy".to_owned()])
+    );
+    let inv = invocation(Recipe::Claude, program, prefix, Some("haiku"), Path::new(DIR));
+    let argv = words(&inv);
+    for pinned in ["x.json", "--dangerously-skip-permissions", "json"] {
+        assert!(!argv.contains(&pinned), "{pinned} leaked into {argv:?}");
+    }
+    assert_eq!(argv.iter().filter(|w| **w == "--mcp-config").count(), 1, "{argv:?}");
+    let at = argv.iter().position(|w| *w == "--output-format").expect("--output-format");
+    assert_eq!(argv[at + 1], "text");
+    assert_eq!(argv.iter().filter(|w| **w == "--output-format").count(), 1, "{argv:?}");
+}
+
+#[test]
+fn claude_with_an_empty_argv_runs_claude() {
+    let empty = profile(HarnessKind::ClaudeStdio, &[]);
+    let none = |_: &str| -> Option<String> { None };
+    let (program, prefix) =
+        recipes::program(Recipe::Claude, &empty, &BTreeMap::new(), &none).unwrap();
+    assert_eq!((program.as_str(), prefix.len()), ("claude", 0));
 }
 
 #[test]
