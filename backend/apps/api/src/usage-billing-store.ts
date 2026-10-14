@@ -1,0 +1,84 @@
+import type { IncludedMode } from "./billing-catalog.ts"
+
+/**
+ * UsageMeterDO's billing tables (cx-y79zh S4/S5): what the usage sync sent per subscription period
+ * (usage_push), and the billable subscriptions it saw for the team (usage_billable). The DO is the
+ * only writer; the sync and the console read through its RPCs.
+ */
+
+/** The mode and seats a push was made in (S5 included modes); rows from before them are per team, 1 seat. */
+export interface PushInfo {
+  readonly mode: IncludedMode
+  readonly seats: number
+  readonly included_usd: number
+  /** The value sent to the meter (micro-dollars): the whole level per team, the level above included x seats per seat. */
+  readonly sent_micros: number
+}
+
+/** What the sync saw on its last run for a billable subscription, for the console (team.ai_limit.get). */
+export interface BillableInfo {
+  readonly period_start: number
+  readonly mode: IncludedMode
+  readonly seats: number
+  readonly included_usd: number
+}
+
+const addColumns = (sql: SqlStorage, table: string, cols: ReadonlyArray<[string, string]>) => {
+  const have = new Set(sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray().map((c) => c.name))
+  for (const [name, type] of cols) if (!have.has(name)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
+}
+
+export const ensureBillingTables = (sql: SqlStorage) => {
+  // The last level the usage sync sent to the payment service, per subscription and period (cx-y79zh S4).
+  sql.exec(`CREATE TABLE IF NOT EXISTS usage_push (subscription TEXT NOT NULL, period_start INTEGER NOT NULL, period_end INTEGER NOT NULL, identifier TEXT NOT NULL, micros INTEGER NOT NULL, pushed_at INTEGER NOT NULL, PRIMARY KEY (subscription, period_start))`)
+  // Billable subscriptions the usage sync saw for this team (the included-amount stop, cx-y79zh S5).
+  sql.exec(`CREATE TABLE IF NOT EXISTS usage_billable (subscription TEXT PRIMARY KEY, period_end INTEGER NOT NULL, seen_at INTEGER NOT NULL)`)
+  // An object made with the first usage_push shape (no period_end) gets the column; 0 = unknown, never a final push (review P2).
+  addColumns(sql, "usage_push", [["period_end", "INTEGER NOT NULL DEFAULT 0"], ["mode", "TEXT"], ["seats", "INTEGER NOT NULL DEFAULT 1"], ["included_usd", "REAL"], ["sent_micros", "INTEGER"]])
+  addColumns(sql, "usage_billable", [["period_start", "INTEGER"], ["mode", "TEXT"], ["seats", "INTEGER"], ["included_usd", "REAL"]])
+}
+
+const modeOf = (v: unknown): IncludedMode => (v === "per_seat" ? "per_seat" : "per_team")
+
+export const markBillable = (sql: SqlStorage, subscription: string, periodEnd: number, now: number, info?: BillableInfo) =>
+  sql.exec(
+    `INSERT INTO usage_billable (subscription, period_end, seen_at, period_start, mode, seats, included_usd) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (subscription) DO UPDATE SET period_end = excluded.period_end, seen_at = excluded.seen_at, period_start = excluded.period_start, mode = excluded.mode, seats = excluded.seats, included_usd = excluded.included_usd`,
+    subscription, periodEnd, now, info?.period_start ?? null, info?.mode ?? null, info?.seats ?? null, info?.included_usd ?? null
+  )
+
+/** The freshest billable mark that is still in force (BILLABLE_GRACE_MS, usage-user.ts), with what the sync saw. */
+export const currentBillable = (sql: SqlStorage, now: number, graceMs: number): ({ subscription: string; period_end: number } & Partial<BillableInfo>) | null => {
+  const row = sql.exec<{ subscription: string; period_end: number; period_start: number | null; mode: string | null; seats: number | null; included_usd: number | null }>(
+    `SELECT subscription, period_end, period_start, mode, seats, included_usd FROM usage_billable WHERE period_end * 1000 + ? > ? AND seen_at > ? ORDER BY seen_at DESC LIMIT 1`,
+    graceMs, now, now - graceMs
+  ).toArray()[0]
+  if (!row) return null
+  return {
+    subscription: row.subscription,
+    period_end: Number(row.period_end),
+    ...(row.period_start !== null ? { period_start: Number(row.period_start) } : {}),
+    ...(row.mode !== null ? { mode: modeOf(row.mode) } : {}),
+    ...(row.seats !== null ? { seats: Number(row.seats) } : {}),
+    ...(row.included_usd !== null ? { included_usd: Number(row.included_usd) } : {})
+  }
+}
+
+export const pushState = (sql: SqlStorage, subscription: string, periodStart: number): { identifier: string; mode: IncludedMode; seats: number } | null => {
+  const row = sql.exec<{ identifier: string; mode: string | null; seats: number }>(`SELECT identifier, mode, seats FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
+  return row ? { identifier: row.identifier, mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)) } : null
+}
+
+export const recordPush = (sql: SqlStorage, subscription: string, periodStart: number, periodEnd: number, identifier: string, micros: number, now: number, info?: PushInfo) =>
+  sql.exec(
+    `INSERT INTO usage_push (subscription, period_start, period_end, identifier, micros, pushed_at, mode, seats, included_usd, sent_micros) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (subscription, period_start) DO UPDATE SET period_end = excluded.period_end, identifier = excluded.identifier, micros = excluded.micros, pushed_at = excluded.pushed_at, mode = excluded.mode, seats = excluded.seats, included_usd = excluded.included_usd, sent_micros = excluded.sent_micros`,
+    subscription, periodStart, periodEnd, identifier, micros, now, info?.mode ?? "per_team", info?.seats ?? 1, info?.included_usd ?? null, info?.sent_micros ?? micros
+  )
+
+/** The latest period before `beforeStart` that the sync sent for this subscription, with its mode and seats (its final push after renewal). */
+export const previousPush = (sql: SqlStorage, subscription: string, beforeStart: number): { period_start: number; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null } | null => {
+  const row = sql.exec<{ period_start: number; period_end: number; mode: string | null; seats: number; included_usd: number | null }>(
+    `SELECT period_start, period_end, mode, seats, included_usd FROM usage_push WHERE subscription = ? AND period_start < ? AND period_end > 0 ORDER BY period_start DESC LIMIT 1`,
+    subscription, beforeStart
+  ).toArray()[0]
+  return row ? { period_start: Number(row.period_start), period_end: Number(row.period_end), mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)), included_usd: row.included_usd === null ? null : Number(row.included_usd) } : null
+}
