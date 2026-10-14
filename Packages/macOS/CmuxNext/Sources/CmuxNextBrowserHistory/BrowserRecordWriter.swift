@@ -137,9 +137,12 @@ public final class BrowserRecordWriter {
     /// Loads a web address another client wrote to the record (nil for a machine's page, whose
     /// record keeps the machine address).
     private let follow: (@MainActor (URL) -> Void)?
-    /// Addresses this writer sent and the daemon has not echoed yet (oldest first, at most 8):
-    /// their echo is this writer's own write, never an address to follow.
+    /// Addresses this writer is sending (oldest first, at most 8): their echo is this writer's
+    /// own write, never an address to follow. An entry goes with its echo or its reply.
     private var sentURLs: [String] = []
+    /// The page's address when it was told to follow the record: until the page leaves it (a
+    /// hibernated page loads on wake), its changes are not written back over the new address.
+    private var followedFrom: URL?
 
     /// `recordURL` maps the page's address to the address the record keeps
     /// (a machine's page keeps its machine record, cx-2cob slice 2).
@@ -182,6 +185,8 @@ public final class BrowserRecordWriter {
         unsent = nil
         let state = current()
         page = state
+        // A page that has not left the address it was told to leave yet writes nothing over the record.
+        if let from = followedFrom, state.url == from { return }
         await flush(state)
     }
 
@@ -204,17 +209,19 @@ public final class BrowserRecordWriter {
             record.back = recorded.back
             record.forward = recorded.forward
         }
+        let echo = record.url.flatMap { sentURLs.firstIndex(of: $0) }
+        if let echo { sentURLs.removeFirst(echo + 1) }
         guard record != recorded else { return }
         let previous = recorded
         recorded = record
-        if let text = record.url, let echo = sentURLs.firstIndex(of: text) {
-            sentURLs.removeFirst(echo + 1)
-        } else if let follow, let text = record.url, text != previous.url, text != current().url?.absoluteString,
-                  let url = URL(string: text), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-            // Another client moved the record to a new web address (`workspace.open_url` reusing
-            // this tab, cx-ebm.59.6): the page loads it instead of writing its old address back.
+        // Another client moved the record to a new web address (`workspace.open_url` reusing this
+        // tab, cx-ebm.59.6): the page loads it, as `cmux browser navigate` does, instead of writing
+        // its old address back. Other schemes are written back over as before.
+        let shown = current().url
+        if echo == nil, let follow, let text = record.url, text != previous.url, let url = URL(string: text),
+           url.absoluteString != shown?.absoluteString, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
             pending?.cancel()
-            (pending, unsent) = (nil, nil)
+            (pending, unsent, followedFrom) = (nil, nil, shown)
             return follow(url)
         }
         if let page { pageDidChange(page) }
@@ -222,6 +229,10 @@ public final class BrowserRecordWriter {
 
     private func pageDidChange(_ state: BrowserTabState) {
         page = state
+        if let from = followedFrom {
+            guard state.url != from else { return }
+            followedFrom = nil
+        }
         pending?.cancel()
         guard recorded.update(toward: state, state: tracksState) != nil else {
             pending = nil
@@ -241,6 +252,7 @@ public final class BrowserRecordWriter {
         guard let update = recorded.update(toward: state, state: tracksState) else { return }
         let base = recorded
         if let url = update.url { sentURLs = Array((sentURLs + [url]).suffix(8)) }
+        defer { if let url = update.url, let at = sentURLs.firstIndex(of: url) { sentURLs.remove(at: at) } }
         guard await send(update) else { return }
         if recorded == base { recorded = base.applying(update) }
     }
