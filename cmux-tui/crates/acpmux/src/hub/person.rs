@@ -123,6 +123,17 @@
 //!   `decisionNonce` and `personInstance`; an answer still goes to the peer,
 //!   which counts an allow only with its own person's proof (above).
 //!
+//! The default start mode (`hub/start_mode.rs`, cx-wx93i) is not a request:
+//! with no `mode` asked, a new chat starts in the person's latest pick, else
+//! `defaultPermissionMode` / `agents.defaultPermissionMode`, else the
+//! harness's full-access mode, for every non-Web origin (also the unix
+//! socket CLI). It never widens a proven caller session: one in a mode
+//! that asks starts its chats in the harness's own mode
+//! (`Hub::keeps_harness_mode`, as a handoff target of a source that asks
+//! does). A request that names a mode skips the default; (a) and (b) gate
+//! it as above. Presets, folder profiles, adopted chats and profiles that
+//! pin a mode in their argv keep the harness's own mode.
+//!
 //! Also without the person: no rules change under a session policy that
 //! does not ask (a rule is then what keeps a tool asking), no removal of a
 //! stored family-default or preset policy, no write of the `handoffKey`
@@ -164,6 +175,12 @@
 //!   (an agent host) inherits nothing until the next spawn.
 //! - `session/new` with a `policy` other than ask or deny-all is open to the
 //!   unix socket (it predates this check); a mode is not.
+//! - Open question (cx-wx93i): while the person's start mode is full
+//!   access (the default), a unix socket client that is no proven session,
+//!   such as `acpmux new` from a script, or an agent of a session that asks
+//!   that leaves out its caller token, gets a full-access chat without the
+//!   person. Limiting the default to the person (or LocalApp) would close
+//!   it; the person's pick of `standard` or `ask` closes it today.
 //! - DEV only: a same-uid process that starts the unsigned daemon before the
 //!   app does gives it its own spawn key; the app then hands that daemon off
 //!   (when its agents run under agent hosts), but the process held the
