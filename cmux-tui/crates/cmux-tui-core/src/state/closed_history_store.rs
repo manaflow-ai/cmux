@@ -690,7 +690,8 @@ pub(crate) fn capture_closed(
         }
         capture.members.push(tab);
     }
-    if capture.members.is_empty() {
+    // A stash (`stash-v1`) keeps this close's tabs in its own group.
+    if super::stash_store::take_capture_mark(transaction)? || capture.members.is_empty() {
         return Ok(());
     }
     insert_group(transaction, capture.members, capture.window)
@@ -723,8 +724,8 @@ fn capture_screen(
 
 /// The member of one closing tab, unless its screen or workspace closes
 /// with it (they record it) or its workspace is ephemeral.
-fn tab_member(
-    transaction: &Transaction<'_>,
+pub(crate) fn tab_member(
+    transaction: &Connection,
     tab_id: &str,
     closing_workspaces: &HashSet<String>,
     closing_screens: &HashSet<String>,

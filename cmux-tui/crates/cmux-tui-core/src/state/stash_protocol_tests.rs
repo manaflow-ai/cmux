@@ -116,7 +116,11 @@ fn stash_closes_browser_tabs_into_one_group_and_restores_here_then_in_a_new_work
     let surface = surface_of(&mux, &tab);
     assert_eq!(workspace_of(&mux, surface), moved["workspace_id"].as_str().unwrap());
     assert_eq!(tab_url(&mux, &tab), "https://example.com/b");
-    assert_eq!(pane_tab_ids(&mux, surface), [tab.clone()], "only the stashed page, no shell");
+    assert_eq!(
+        pane_tab_ids(&mux, surface),
+        std::slice::from_ref(&tab),
+        "only the stashed page, no shell"
+    );
     assert_eq!(mux.frontend_browser_history(surface).unwrap().as_deref(), Some(HISTORY));
     assert!(read(&mux, "stash.list", json!({})).as_array().unwrap().is_empty());
 

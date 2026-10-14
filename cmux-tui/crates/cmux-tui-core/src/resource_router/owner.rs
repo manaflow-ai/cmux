@@ -23,6 +23,8 @@ pub(super) enum OperationOwner {
     /// `workspace.open_url` (resource_router/open_url.rs), composed of topology
     /// and content operations.
     OpenUrl,
+    /// `stash.*` (state/stash_router.rs).
+    Stash,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -156,6 +158,11 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::HistoryTrailRecord => OperationOwner::History,
         ResourceOperation::BrowserTabSetProfile => OperationOwner::BrowserProfile,
         ResourceOperation::WorkspaceOpenUrl => OperationOwner::OpenUrl,
+        ResourceOperation::StashCreate
+        | ResourceOperation::StashList
+        | ResourceOperation::StashRestore
+        | ResourceOperation::StashDelete
+        | ResourceOperation::StashImport => OperationOwner::Stash,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet

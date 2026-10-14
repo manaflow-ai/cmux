@@ -35,7 +35,8 @@
     "conversation",
     "setting",
     "keybinding",
-    "browser_device"
+    "browser_device",
+    "stash"
   ],
   "types": {
     "BrowserDeviceList": {
@@ -1031,20 +1032,79 @@
     "JournalAppendResult": {
       "kind": "object",
       "fields": {
-        "producer_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
-        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+        "producer_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "event_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
       },
       "extra": false
     },
     "JournalProducerPutResult": {
       "kind": "object",
       "fields": {
-        "producer_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
-        "manifest_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
-        "namespace": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
-        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+        "producer_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "manifest_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "namespace": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "event_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
       },
       "extra": false
     },
@@ -1053,7 +1113,15 @@
       "fields": {
         "producers": {
           "required": true,
-          "type": {"kind": "array", "min_items": 0, "max_items": 1024, "items": {"kind": "ref", "name": "JournalProducerManifest"}}
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 1024,
+            "items": {
+              "kind": "ref",
+              "name": "JournalProducerManifest"
+            }
+          }
         }
       },
       "extra": false
@@ -1063,27 +1131,68 @@
       "fields": {
         "kinds": {
           "required": false,
-          "type": {"kind": "array", "min_items": 1, "max_items": 64, "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+          "type": {
+            "kind": "array",
+            "min_items": 1,
+            "max_items": 64,
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          }
         },
         "classes": {
           "required": false,
-          "type": {"kind": "array", "min_items": 1, "max_items": 4, "items": {"kind": "ref", "name": "JournalClass"}}
+          "type": {
+            "kind": "array",
+            "min_items": 1,
+            "max_items": 4,
+            "items": {
+              "kind": "ref",
+              "name": "JournalClass"
+            }
+          }
         },
         "subject_kinds": {
           "required": false,
-          "type": {"kind": "array", "min_items": 1, "max_items": 64, "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}}
+          "type": {
+            "kind": "array",
+            "min_items": 1,
+            "max_items": 64,
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          }
         },
         "max_sensitivity": {
           "required": false,
-          "type": {"kind": "enum", "values": ["public", "metadata", "sensitive"]}
+          "type": {
+            "kind": "enum",
+            "values": [
+              "public",
+              "metadata",
+              "sensitive"
+            ]
+          }
         },
         "regex": {
           "required": false,
-          "type": {"kind": "ref", "name": "JournalRegexFilter"}
+          "type": {
+            "kind": "ref",
+            "name": "JournalRegexFilter"
+          }
         },
         "include_causal_descendants": {
           "required": false,
-          "type": {"kind": "primitive", "name": "boolean"}
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       },
       "extra": false,
@@ -1099,175 +1208,723 @@
           "required": true,
           "sensitive": true,
           "description": "Executable path and arguments. SDK Debug, toString, exceptions, and logs redact the complete argv array.",
-          "type": {"kind": "array", "min_items": 1, "max_items": 64, "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 4096}}
+          "type": {
+            "kind": "array",
+            "min_items": 1,
+            "max_items": 64,
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            }
+          }
         },
-        "timeout_ms": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1, "maximum": 300000}},
-        "max_parallel": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1, "maximum": 64}}
+        "timeout_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1,
+            "maximum": 300000
+          }
+        },
+        "max_parallel": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1,
+            "maximum": 64
+          }
+        }
       },
       "extra": false,
-      "constraints": ["argv[0] is an absolute executable path. The dispatcher never invokes a shell."]
+      "constraints": [
+        "argv[0] is an absolute executable path. The dispatcher never invokes a shell."
+      ]
     },
     "JournalHookRetry": {
       "kind": "object",
       "fields": {
-        "max_attempts": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1, "maximum": 100}},
-        "backoff_ms": {"required": true, "type": {"kind": "primitive", "name": "uint32", "maximum": 86400000}}
+        "max_attempts": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "backoff_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "maximum": 86400000
+          }
+        }
       },
       "extra": false
     },
     "JournalHookDeliveryPolicy": {
       "kind": "object",
       "fields": {
-        "start": {"required": true, "type": {"kind": "enum", "values": ["tail", "beginning"]}},
-        "retry": {"required": true, "type": {"kind": "ref", "name": "JournalHookRetry"}}
+        "start": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "tail",
+              "beginning"
+            ]
+          }
+        },
+        "retry": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JournalHookRetry"
+          }
+        }
       },
       "extra": false
     },
     "JournalHookManifest": {
       "kind": "object",
       "fields": {
-        "hook_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
-        "manifest_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
-        "filter": {"required": true, "type": {"kind": "ref", "name": "JournalHookFilter"}},
-        "exec": {"required": true, "type": {"kind": "ref", "name": "JournalHookExec"}},
-        "delivery": {"required": true, "type": {"kind": "ref", "name": "JournalHookDeliveryPolicy"}},
+        "hook_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "manifest_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "filter": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JournalHookFilter"
+          }
+        },
+        "exec": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JournalHookExec"
+          }
+        },
+        "delivery": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JournalHookDeliveryPolicy"
+          }
+        },
         "permissions": {
           "required": true,
-          "type": {"kind": "array", "min_items": 1, "max_items": 32, "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+          "type": {
+            "kind": "array",
+            "min_items": 1,
+            "max_items": 32,
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          }
         }
       },
       "extra": false,
-      "constraints": ["Manifest versions increase monotonically.", "journal.read.sensitive is required when max_sensitivity is sensitive."]
+      "constraints": [
+        "Manifest versions increase monotonically.",
+        "journal.read.sensitive is required when max_sensitivity is sensitive."
+      ]
     },
     "JournalHookState": {
       "kind": "object",
       "fields": {
-        "manifest": {"required": true, "type": {"kind": "ref", "name": "JournalHookManifest"}},
-        "enabled": {"required": true, "type": {"kind": "primitive", "name": "boolean"}},
-        "cursor": {"required": true, "type": {"kind": "ref", "name": "Cursor"}}
+        "manifest": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JournalHookManifest"
+          }
+        },
+        "enabled": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "cursor": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "Cursor"
+          }
+        }
       },
       "extra": false
     },
     "JournalHookListResult": {
       "kind": "object",
       "fields": {
-        "hooks": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 1024, "items": {"kind": "ref", "name": "JournalHookState"}}}
+        "hooks": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 1024,
+            "items": {
+              "kind": "ref",
+              "name": "JournalHookState"
+            }
+          }
+        }
       },
       "extra": false
     },
     "JournalHookPutResult": {
       "kind": "object",
       "fields": {
-        "hook_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
-        "manifest_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
-        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+        "hook_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "manifest_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "event_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
       },
       "extra": false
     },
     "JournalContentRef": {
       "kind": "object",
       "fields": {
-        "content_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
-        "terminal_id": {"required": true, "type": {"kind": "resource_id", "resource": "terminal"}},
-        "format": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
-        "codec": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
-        "sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
-        "uncompressed_bytes": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "cols": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
-        "rows": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}}
+        "content_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "terminal_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "terminal"
+          }
+        },
+        "format": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "codec": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          }
+        },
+        "uncompressed_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "cols": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "rows": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        }
       },
       "extra": false
     },
     "JournalCheckpointSummary": {
       "kind": "object",
       "fields": {
-        "checkpoint_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
-        "source_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "reducer_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
-        "sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
-        "created_at_ms": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "content_refs": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalContentRef"}}}
+        "checkpoint_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "source_sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "reducer_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          }
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "content_refs": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 4096,
+            "items": {
+              "kind": "ref",
+              "name": "JournalContentRef"
+            }
+          }
+        }
       },
       "extra": false
     },
     "JournalCheckpointCreateResult": {
       "kind": "object",
       "fields": {
-        "checkpoint_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
-        "source_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "reducer_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
-        "sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
-        "created_at_ms": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "content_refs": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalContentRef"}}},
-        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+        "checkpoint_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "source_sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "reducer_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          }
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "content_refs": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 4096,
+            "items": {
+              "kind": "ref",
+              "name": "JournalContentRef"
+            }
+          }
+        },
+        "sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "event_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
       },
       "extra": false
     },
     "JournalCheckpointListResult": {
       "kind": "object",
       "fields": {
-        "checkpoints": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalCheckpointSummary"}}}
+        "checkpoints": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 4096,
+            "items": {
+              "kind": "ref",
+              "name": "JournalCheckpointSummary"
+            }
+          }
+        }
       },
       "extra": false
     },
     "JournalUnsupportedReplayRecord": {
       "kind": "object",
       "fields": {
-        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
-        "kind": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+        "sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "event_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
       },
       "extra": false
     },
     "JournalRestorePreview": {
       "kind": "object",
       "fields": {
-        "checkpoint_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}},
-        "checkpoint_source_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "head_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "reducer_version": {"required": true, "type": {"kind": "primitive", "name": "uint32", "minimum": 1}},
-        "fully_reducible": {"required": true, "type": {"kind": "primitive", "name": "boolean"}},
-        "applied_required_records": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "ignored_non_required_records": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "unsupported_required_record_count": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "unsupported_required_records_truncated": {"required": true, "type": {"kind": "primitive", "name": "boolean"}},
-        "unsupported_required_records": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalUnsupportedReplayRecord"}}},
-        "state_sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
-        "state": {"required": true, "type": {"kind": "ref", "name": "JsonValue"}},
-        "content_refs": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalContentRef"}}}
+        "checkpoint_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "checkpoint_source_sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "head_sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "reducer_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "fully_reducible": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "applied_required_records": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "ignored_non_required_records": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "unsupported_required_record_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "unsupported_required_records_truncated": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "unsupported_required_records": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 4096,
+            "items": {
+              "kind": "ref",
+              "name": "JournalUnsupportedReplayRecord"
+            }
+          }
+        },
+        "state_sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          }
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "content_refs": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 4096,
+            "items": {
+              "kind": "ref",
+              "name": "JournalContentRef"
+            }
+          }
+        }
       },
       "extra": false
     },
     "JournalSegment": {
       "kind": "object",
       "fields": {
-        "segment_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 256}},
-        "start_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "end_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "record_count": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "codec": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}},
-        "uncompressed_bytes": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
-        "sealed_at_ms": {"required": true, "type": {"kind": "primitive", "name": "decimal"}}
+        "segment_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          }
+        },
+        "start_sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "end_sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "record_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "codec": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "uncompressed_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          }
+        },
+        "sealed_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
       },
       "extra": false
     },
     "JournalSegmentListResult": {
       "kind": "object",
       "fields": {
-        "segments": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalSegment"}}}
+        "segments": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 4096,
+            "items": {
+              "kind": "ref",
+              "name": "JournalSegment"
+            }
+          }
+        }
       },
       "extra": false
     },
     "JournalSegmentSealResult": {
       "kind": "object",
       "fields": {
-        "through_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "segments": {"required": true, "type": {"kind": "array", "min_items": 1, "max_items": 4096, "items": {"kind": "ref", "name": "JournalSegment"}}},
-        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
-        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+        "through_sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "segments": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 1,
+            "max_items": 4096,
+            "items": {
+              "kind": "ref",
+              "name": "JournalSegment"
+            }
+          }
+        },
+        "sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "event_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
       },
       "extra": false
     },
@@ -7798,7 +8455,8 @@
         "sidebar_layout",
         "sidebar_item",
         "sidebar_section",
-        "sidebar_doc"
+        "sidebar_doc",
+        "stash"
       ]
     },
     "StateEntitySnapshot": {
@@ -7855,6 +8513,10 @@
         {
           "kind": "ref",
           "name": "SidebarDocChange"
+        },
+        {
+          "kind": "ref",
+          "name": "StashSnapshot"
         }
       ],
       "constraints": [
@@ -12109,6 +12771,303 @@
             "max_length": 32
           },
           "description": "The new current key id."
+        }
+      },
+      "extra": false
+    },
+    "StashTab": {
+      "kind": "object",
+      "fields": {
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The page; secret-looking query keys are stripped."
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The page title when it was stashed or imported."
+        },
+        "browser_profile_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The browser profile the page reopens in; null is the default profile."
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "The workspace the page was stashed from; null for an imported page."
+        }
+      },
+      "extra": false
+    },
+    "StashSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The name of the workspace the pages left, or of the imported group."
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Unix time in milliseconds of the stash (or the imported group's own time)."
+        },
+        "member_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "members": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StashTab"
+            }
+          },
+          "description": "The pages in restore order; stash.restore and stash.delete name them by index."
+        }
+      },
+      "extra": false
+    },
+    "StashCreateResult": {
+      "kind": "object",
+      "fields": {
+        "stash_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "The tabs that closed into the stash, in member order."
+        },
+        "skipped": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "With workspace: its tabs that stayed open (not web pages, pinned, or incognito)."
+        }
+      },
+      "extra": false
+    },
+    "StashRestoreResult": {
+      "kind": "object",
+      "fields": {
+        "stash_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "The first workspace a page reopened in."
+        },
+        "workspace_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          }
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "The reopened tabs in member order."
+        },
+        "remaining": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members still in the stash; 0 means the stash is gone."
+        }
+      },
+      "extra": false
+    },
+    "StashDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "stash_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "remaining": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members still in the stash; 0 means the stash is gone."
+        }
+      },
+      "extra": false
+    },
+    "StashImportTab": {
+      "kind": "object",
+      "fields": {
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 8192
+          },
+          "description": "Only http and https pages are kept."
+        },
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 1024
+          }
+        }
+      },
+      "extra": false
+    },
+    "StashImportGroup": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 256
+          },
+          "description": "The group's name (OneTab's group title)."
+        },
+        "created_ms": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Unix time in milliseconds the group was made; default now."
+        },
+        "tabs": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StashImportTab"
+            },
+            "min_items": 1,
+            "max_items": 1000
+          }
+        }
+      },
+      "extra": false
+    },
+    "StashImportResult": {
+      "kind": "object",
+      "fields": {
+        "stash_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "One stash per group that kept a page, in request order."
+        },
+        "imported_tabs": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "skipped_tabs": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Pages that are not http(s) URLs, or repeat a URL of their group."
         }
       },
       "extra": false
@@ -23592,16 +24551,43 @@
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": ["machine"],
+      "ancestors": [
+        "machine"
+      ],
       "params": {
-        "selectors": {"machine": "required", "session": "required"},
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
         "fields": {
-          "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}},
-          "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
+          "event": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JournalIngressEvent"
+            }
+          },
+          "live_prompt": {
+            "required": false,
+            "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.",
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
         },
         "extra": false
       },
-      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalAppendResult"}]},
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JournalAppendResult"
+          }
+        ]
+      },
       "errors": [
         "idempotency.conflict",
         "operation.failed",
@@ -23617,39 +24603,86 @@
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": ["machine"],
+      "ancestors": [
+        "machine"
+      ],
       "params": {
-        "selectors": {"machine": "required", "session": "required"},
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
         "fields": {},
         "extra": false
       },
-      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalCheckpointCreateResult"}]},
-      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JournalCheckpointCreateResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "operation.unsupported",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
     },
     "session.journal.checkpoint.list": {
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
-      "ancestors": ["machine"],
+      "ancestors": [
+        "machine"
+      ],
       "params": {
-        "selectors": {"machine": "required", "session": "required"},
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
         "fields": {},
         "extra": false
       },
-      "result": {"kind": "ref", "name": "JournalCheckpointListResult"},
-      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "result": {
+        "kind": "ref",
+        "name": "JournalCheckpointListResult"
+      },
+      "errors": [
+        "operation.failed",
+        "operation.unsupported",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
     },
     "session.journal.hook.list": {
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
-      "ancestors": ["machine"],
+      "ancestors": [
+        "machine"
+      ],
       "params": {
-        "selectors": {"machine": "required", "session": "required"},
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
         "fields": {},
         "extra": false
       },
-      "result": {"kind": "ref", "name": "JournalHookListResult"},
+      "result": {
+        "kind": "ref",
+        "name": "JournalHookListResult"
+      },
       "errors": [
         "operation.failed",
         "operation.unsupported",
@@ -23664,15 +24697,35 @@
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": ["machine"],
+      "ancestors": [
+        "machine"
+      ],
       "params": {
-        "selectors": {"machine": "required", "session": "required"},
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
         "fields": {
-          "manifest": {"required": true, "type": {"kind": "ref", "name": "JournalHookManifest"}}
+          "manifest": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JournalHookManifest"
+            }
+          }
         },
         "extra": false
       },
-      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalHookPutResult"}]},
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JournalHookPutResult"
+          }
+        ]
+      },
       "errors": [
         "idempotency.conflict",
         "operation.failed",
@@ -23688,13 +24741,21 @@
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
-      "ancestors": ["machine"],
+      "ancestors": [
+        "machine"
+      ],
       "params": {
-        "selectors": {"machine": "required", "session": "required"},
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
         "fields": {},
         "extra": false
       },
-      "result": {"kind": "ref", "name": "JournalProducerListResult"},
+      "result": {
+        "kind": "ref",
+        "name": "JournalProducerListResult"
+      },
       "errors": [
         "operation.failed",
         "operation.unsupported",
@@ -23709,15 +24770,35 @@
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": ["machine"],
+      "ancestors": [
+        "machine"
+      ],
       "params": {
-        "selectors": {"machine": "required", "session": "required"},
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
         "fields": {
-          "manifest": {"required": true, "type": {"kind": "ref", "name": "JournalProducerManifest"}}
+          "manifest": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JournalProducerManifest"
+            }
+          }
         },
         "extra": false
       },
-      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalProducerPutResult"}]},
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JournalProducerPutResult"
+          }
+        ]
+      },
       "errors": [
         "idempotency.conflict",
         "operation.failed",
@@ -23733,44 +24814,113 @@
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
-      "ancestors": ["machine"],
+      "ancestors": [
+        "machine"
+      ],
       "params": {
-        "selectors": {"machine": "required", "session": "required"},
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
         "fields": {
-          "checkpoint": {"required": false, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+          "checkpoint": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          }
         },
         "extra": false
       },
-      "result": {"kind": "ref", "name": "JournalRestorePreview"},
-      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "result": {
+        "kind": "ref",
+        "name": "JournalRestorePreview"
+      },
+      "errors": [
+        "operation.failed",
+        "operation.unsupported",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
     },
     "session.journal.segment.list": {
       "class": "read",
       "idempotency": "forbidden",
       "target": "session",
-      "ancestors": ["machine"],
+      "ancestors": [
+        "machine"
+      ],
       "params": {
-        "selectors": {"machine": "required", "session": "required"},
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
         "fields": {},
         "extra": false
       },
-      "result": {"kind": "ref", "name": "JournalSegmentListResult"},
-      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "result": {
+        "kind": "ref",
+        "name": "JournalSegmentListResult"
+      },
+      "errors": [
+        "operation.failed",
+        "operation.unsupported",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
     },
     "session.journal.segment.seal": {
       "class": "mutation",
       "idempotency": "required",
       "target": "session",
-      "ancestors": ["machine"],
+      "ancestors": [
+        "machine"
+      ],
       "params": {
-        "selectors": {"machine": "required", "session": "required"},
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
         "fields": {
-          "through_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}}
+          "through_sequence": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
         },
         "extra": false
       },
-      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalSegmentSealResult"}]},
-      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JournalSegmentSealResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "operation.unsupported",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
     },
     "session.journal.subscribe": {
       "class": "stream_open",
@@ -26137,6 +27287,318 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tabs": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "tab"
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Browser tabs to stash. Name exactly one of tabs or workspace."
+          },
+          "workspace": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "Stash this workspace's unpinned web pages; its other tabs stay open and are reported as skipped."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The tabs close in one commit and form one stash named after the workspace of the first; they are not recorded in the closed history (closed.list).",
+          "With tabs, a tab that is not a web page (a terminal, a conversation or a remote terminal) or is in an incognito workspace refuses the whole request with validation.invalid; nothing closes.",
+          "A workspace the stash leaves without a tab closes, as any last-tab close does."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashCreateResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "stash": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "The stash to delete from."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "uint32"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Indexes into the stash's members to delete. Omit to delete the whole stash."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Deletion is permanent."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.import": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "onetab"
+              ]
+            },
+            "description": "Where the groups come from."
+          },
+          "groups": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "StashImportGroup"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "The groups, each becoming one stash."
+          },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            },
+            "description": "The browser engine imported pages reopen in. Omit for a daemon-rendered browser."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Each group with at least one kept page becomes one stash; only http(s) URLs are kept, once per group, with secret-looking query keys stripped.",
+          "A retry with the same key replays and imports nothing twice."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashImportResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Newest first. Stashes are kept until restored or deleted; there is no retention pruning."
+        ]
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "StashSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.restore": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "stash": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "The stash to restore from."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "uint32"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Indexes into the stash's members to restore. Omit to restore every member; the rest stay."
+          },
+          "target": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "here",
+                "new_workspace"
+              ]
+            },
+            "description": "here (default): each page reopens in its pane at its index when that pane is live, else in its workspace's focused pane, else in the session's focused pane. new_workspace: every page opens, in order, in one new workspace named after the stash."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Restored members leave the stash in the commit that stores the result; the stash is removed with its last member. A retry with the same key replays.",
+          "A page reopens with its back/forward history, its browser profile and its engine."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashRestoreResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
