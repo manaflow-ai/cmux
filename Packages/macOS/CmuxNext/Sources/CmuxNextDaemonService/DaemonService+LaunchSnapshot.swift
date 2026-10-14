@@ -43,7 +43,7 @@ extension DaemonService {
     public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false) -> DaemonPrestart? {
-        guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, bundleID: launch.bundleID,
+        guard let launcher = try? DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
                                                 webSocketPageOrigins: pageOrigins) else { return nil }

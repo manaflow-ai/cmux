@@ -32,7 +32,27 @@ final class AgentActivityPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
-        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
+        let page = AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
+        followLanes(page)
+        return page
+    }
+
+    /// The lanes view (cx-v9k2f): every acpmux session with its lane while Labs preview features
+    /// are on, and a row click opens that chat.
+    private func followLanes(_ page: AgentActivityPageTab) {
+        page.model.onJump = { [weak self] lane in self?.jump(to: lane) }
+        guard let settings = services.settings else { return }
+        page.lanesFeed = page.model.follow(.shared) { settings.snapshot.previewFeatures }
+    }
+
+    /// Reveals the tab that shows a lane's chat, else opens it in the focused pane (the
+    /// `cmux://session/<id>` path every session link takes).
+    func jump(to lane: AgentActivityLane) {
+        do {
+            try DeepLinkNavigator(services: services).open(DeepLink(.session(lane.id, turn: nil)), background: false)
+        } catch {
+            services.registry.refuse(String(describing: error))
+        }
     }
 
     private func makeSource() -> any AgentActivitySource {

@@ -62,11 +62,10 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await?;
     }
-    // Only the person allows or widens what runs without asking
-    // (`hub/person.rs`): one check, before the request runs or reaches a peer.
-    // Held to the Web's rules: a Web connection, or a peer forwarding for its
-    // own Web client (`via: web`); a peer forwarding its unix socket or app
-    // keeps the person rule.
+    // Only the person allows or widens what runs without asking (`hub/person.rs`): one
+    // check, before the request runs or reaches a peer. Held to the Web's rules: a Web
+    // connection, or a peer forwarding for its own Web client (`via: web`); a peer
+    // forwarding its unix socket or app keeps the person rule.
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &params)
             == crate::hub::Control::Web;
@@ -137,10 +136,10 @@ async fn dispatch_request(
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
-                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
-                    method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
+                    method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "toolInventory"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -363,17 +362,15 @@ async fn dispatch_request(
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            let steer = mux_meta(&params)
-                .and_then(|m| m.get("steer"))
-                .and_then(Value::as_bool)
-                .or_else(|| params.get("steer").and_then(Value::as_bool))
-                .unwrap_or(false);
+            let provenance = crate::prompt_provenance::of(&params, conn.origin == Origin::Local)?;
+            let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
+            let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
+            let steer = steer.unwrap_or(false);
             let prompt_id = mux_meta(&params)
                 .and_then(|m| m.get("promptId"))
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
-            let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let notify = conn.clone();
             let opts = crate::hub::PromptOptions {
                 prompt_id,
@@ -385,6 +382,7 @@ async fn dispatch_request(
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
+                provenance,
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -440,6 +438,7 @@ async fn dispatch_request(
             // The app pane's model pick is saved for the next new chat (start_defaults.rs).
             hub.client_set_model(&s, model, conn.origin == Origin::LocalApp).await
         }
+        method::MUX_SET_TOOLS => hub.set_tools(&hub.resolve(session_key(&params)?)?, &params).await,
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
             hub.kill(&s, false).await?;
@@ -673,9 +672,7 @@ async fn dispatch_request(
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
             Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
         }
-        method::MUX_DRAFT_GET | method::MUX_DRAFT_SET | method::MUX_ASK => {
-            composer::handle(hub, conn, m, &params).await
-        }
+        m if composer::handles(m) => composer::handle(hub, conn, m, &params).await,
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;
             let remove: Vec<String> = params
@@ -928,10 +925,10 @@ async fn dispatch_request(
             hub.handoff_start(&params, control).await
         }
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
-        // Anything else that names a session goes to the agent untouched, from the
-        // unix socket only: an extension method may spawn or read (`remote_guard.rs`).
+        // Anything else that names a session goes to the agent untouched, from the unix
+        // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
-            if conn.origin != Origin::Local && session_key(&params).is_ok() {
+            if !super::remote_guard::forwards(conn.origin, other) && session_key(&params).is_ok() {
                 return Err(RpcError::invalid_params(format!(
                     "{other} is passed to the harness only from the local unix socket"
                 )));

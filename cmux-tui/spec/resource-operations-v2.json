@@ -10202,6 +10202,22 @@
           },
           "description": "list, inline or grid."
         },
+        "align": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "leading, center, trailing or fill (a newer value is kept): where an inline or grid section's rows or tiles sit on their line. Default leading."
+        },
+        "gap": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "0 to 32 points between the section's rows or tiles. Absent: the look's default spacing."
+        },
         "columns": {
           "required": false,
           "type": {
@@ -10408,7 +10424,7 @@
               "name": "SidebarSectionSnapshot"
             }
           },
-          "description": "Sections in display order: {id, kind, title?, shows_title, region, look, arrangement, columns?, max_rows?, scroll, room?, order, keeps_closed}; unknown keys are kept."
+          "description": "Sections in display order: {id, kind, title?, shows_title, region, look, arrangement, align, gap?, columns?, max_rows?, scroll, room?, order, keeps_closed}; unknown keys are kept."
         },
         "items": {
           "required": true,
@@ -14828,6 +14844,24 @@
               "max_length": 128
             },
             "description": "The compactor speed, default or fast, applied at the next brain start; empty or default clears it."
+          },
+          "compactor_harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's acpmux harness, applied at the next brain start; empty or default clears it (the turns' engine harness when it is a Claude one, else the default Claude route)."
+          },
+          "compactor_model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's model, applied at the next brain start; empty or default clears it (Claude Haiku on a Claude harness)."
           }
         },
         "extra": false
@@ -24912,7 +24946,7 @@
                 "name": "JsonValue"
               }
             },
-            "description": "Reducer ops, each tagged by op (move, pin, unpin, item.add, item.remove, item.update, section.add, section.update, section.move, section.remove, group.create, group.update, group.ungroup, adopt, close {refs}: a closed workspace leaves a machine section and stays in Pinned and custom sections, item.put, item.delete, section.put, section.delete), applied atomically. The inverse a mutation returns is such a list (undo); the inverse of an inverse is the redo."
+            "description": "Reducer ops, each tagged by op (move, pin, unpin, item.add, item.remove, item.update, section.add, section.update, section.move, section.remove, group.create, group.update, group.ungroup, adopt, close {refs}: a closed workspace leaves a machine section and stays in Pinned and custom sections, item.remove_ref {ref}, reset, item.put, item.delete, section.put, section.delete), applied atomically. The inverse a mutation returns is such a list (undo); the inverse of an inverse is the redo."
           }
         },
         "extra": false,
@@ -25295,6 +25329,56 @@
         "validation.invalid"
       ]
     },
+    "sidebar.item.remove_ref": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "ref": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "SidebarItemRef"
+            },
+            "description": "The old layout ref {kind, value}: workspace <session>:<workspace id>, url (the url), app, built_in, tab, room, saved_group, or an unknown kind kept by the document. A group has no ref."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "Removes every item that shows the ref, in every section (the old layout's item.remove_ref, \"Remove from Sidebar\"); unknown_item when none does. A removed workspace is unplaced and shows again at the end of its machine section."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "sidebar.item.update": {
       "class": "mutation",
       "idempotency": "required",
@@ -25448,6 +25532,50 @@
           "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
           "An op that changes nothing commits with no session.events change and the same document revision.",
           "The items move to the end of Pinned (sec_pinned, made first in the top region when missing); an item already there stays."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.reset": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "Restores the default sections (the old layout's layout.reset): sec_top (built-in, top: Home, App Store), an empty sec_pinned, one machine section per machine with its default look (its title stays), sec_recents (the recent agent chats app section) and sec_bottom (built-in, bottom, inline: the account). Every other section is removed.",
+          "Keeps the user's workspaces and groups: those in a machine section stay in place; a workspace or group in Pinned or a removed section moves to the end of its machine section (a group with its items; an empty group to the first machine section). Other items in Pinned and in removed sections are removed.",
+          "This machine's placed workspaces that are closed are removed (the machine sections they would move into do not keep closed items)."
         ]
       },
       "result": {
@@ -25666,7 +25794,7 @@
               "kind": "ref",
               "name": "JsonValue"
             },
-            "description": "{title?, shows_title?, look?, arrangement?, columns?, max_rows?, scroll? (fixed|flow), room?, keeps_closed?}; null clears title, columns, max_rows and room. A section.move into another region moves a scroll the user never changed to that region's default."
+            "description": "{title?, shows_title?, look?, arrangement?, align? (leading|center|trailing|fill), gap? (0-32 points), columns?, max_rows?, scroll? (fixed|flow), room?, keeps_closed?}; null clears title, gap, columns, max_rows and room; a gap outside 0-32 is invalid_value. A section.move into another region moves a scroll the user never changed to that region's default."
           }
         },
         "extra": false,
