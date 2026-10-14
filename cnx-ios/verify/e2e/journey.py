@@ -683,7 +683,7 @@ class Journey:
         text = self.mac_screen(self.seed["term1"]).get("text", "")
         flat = text.replace("\n", "").replace("\\ ", " ")
         paths = re.findall(r"(~?/[^❯'\"]*?\.(?:jpe?g|png|heic))", flat, re.I)
-        check(not errors, f"the phone reported: {errors[0]}")
+        check(not errors, f"the phone reported: {errors[0] if errors else ''}")
         check(paths, f"the phone sent {name} but no path reached the Mac terminal; tail {text[-160:]!r}")
         p = os.path.expanduser(paths[-1].strip())
         check(os.path.exists(p) and os.path.getsize(p) > 0,

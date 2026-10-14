@@ -6,7 +6,7 @@ import json
 import os
 import sys
 
-TARGETS = {"cold_connect_to_list": 1500, "warm_reconnect": 1000,
+TARGETS = {"cold_connect_to_list": 1500, "cold_link_up": 1500, "warm_reconnect": 1000,
            "keystroke_echo_idle": 50, "keystroke_echo_flood": 50}
 
 
