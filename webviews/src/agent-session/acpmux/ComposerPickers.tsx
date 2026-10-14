@@ -444,7 +444,7 @@ export function ComposerPickers({
         />
       )}
       {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
-      {(usage || summary?.sessionId || awaiting) && (
+      {(usage || snapshot.isWorking) && (
         <HideableChrome className="acpmux-context-usage-menu" item={chrome.contextUsage}>
           <ContextRing
             used={usage?.used}
@@ -479,7 +479,7 @@ export function ComposerPickers({
         />
       )}
       {!(effort && efforts.length > 1) && awaiting && <ChipSkeleton kind="effort" />}
-      <span className="acpmux-chips-spacer" />
+      <span className="acpmux-chips-spacer" aria-hidden="true" />
       {modes.length === 0 && awaiting && <ChipSkeleton kind="mode" />}
       {modes.length > 0 && (
         <AccessMenu
