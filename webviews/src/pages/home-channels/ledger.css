@@ -1198,7 +1198,7 @@
 /* The lightbox: the page dims and blurs behind one image (board principle 9). */
 .hc-lightbox-backdrop {
   background: color-mix(in srgb, var(--lg-solid) 72%, transparent);
-  backdrop-filter: blur(14px);
+  backdrop-filter: var(--surface-blur);
 }
 .hc-lightbox.ui-dialog {
   inset: 24px;
@@ -1334,4 +1334,16 @@
   color: var(--page-text-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+}
+.hc-att-image.failed {
+  cursor: default;
+}
+.hc-att-unread {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  height: 100%;
+  padding: 6px 8px;
+  text-align: start;
 }

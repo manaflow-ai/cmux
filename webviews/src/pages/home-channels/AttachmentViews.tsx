@@ -16,10 +16,15 @@ export const AttachmentContext = createContext<AttachmentService | undefined>(un
 /** Most image tiles shown in a message; the last one counts the rest. */
 const GRID_TILES = 4;
 
-/** A data URL (or URL) of one image variant, or undefined while it loads or when it failed. */
-function useImage(conversation: string, part: HomeAttachment, prefer: "preview" | "original"): string | undefined {
+/** A data URL (or URL) of one image variant: `src` once loaded, `failed` when this host cannot read
+ * it (an owner without attachment reads here, a record that is gone). */
+function useImage(
+  conversation: string,
+  part: HomeAttachment,
+  prefer: "preview" | "original",
+): { src?: string; failed: boolean } {
   const service = useContext(AttachmentContext);
-  const [src, setSrc] = useState<string>();
+  const [state, setState] = useState<{ src?: string; failed: boolean }>({ failed: !service });
   const variant = prefer === "preview" && part.preview ? "preview" : "original";
   useEffect(() => {
     if (!service) return;
@@ -29,14 +34,14 @@ function useImage(conversation: string, part: HomeAttachment, prefer: "preview" 
         ? service.url(conversation, part.hash, "original", part.name)
         : service.image(conversation, { hash: part.hash, variant });
     load.then(
-      (value) => live && setSrc(value),
-      () => live && setSrc(undefined),
+      (src) => live && setState({ src, failed: false }),
+      () => live && setState({ failed: true }),
     );
     return () => {
       live = false;
     };
   }, [service, conversation, part.hash, part.name, part.byteCount, variant]);
-  return src;
+  return state;
 }
 
 /** The attachment parts of one message, grouped as they show. */
@@ -113,18 +118,25 @@ function ImageTile({
   strings: Strings;
   onOpen(): void;
 }) {
-  const src = useImage(conversation, part, "preview");
+  const { src, failed } = useImage(conversation, part, "preview");
   const size = single ? frame(part, 360, 280) : undefined;
   return (
     <button
       type="button"
-      className={`hc-att-image${single ? " single" : ""}${src ? "" : " loading"}`}
+      className={`hc-att-image${single ? " single" : ""}${src ? "" : failed ? " failed" : " loading"}`}
       style={size}
       aria-label={part.name}
       title={part.name}
+      disabled={failed}
       onClick={onOpen}
     >
       {src && <img src={src} alt={part.name} draggable={false} />}
+      {failed && (
+        <span className="hc-att-unread">
+          <span className="hc-att-name">{part.name}</span>
+          <span className="hc-att-meta">{formatBytes(part.byteCount)}</span>
+        </span>
+      )}
       {more > 0 && <span className="hc-att-more">{strings.format("attachment.more", String(more))}</span>}
     </button>
   );
@@ -245,8 +257,8 @@ function Lightbox({
   onClose(): void;
 }) {
   const part = images[index];
-  const src = useImage(conversation, part, "original");
-  const preview = useImage(conversation, part, "preview");
+  const { src } = useImage(conversation, part, "original");
+  const { src: preview } = useImage(conversation, part, "preview");
   const step = (by: number) => onIndex((index + by + images.length) % images.length);
   const closeButton = useRef<HTMLButtonElement | null>(null);
   return (
