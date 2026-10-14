@@ -74,7 +74,6 @@ pub struct AppValues {
     /// The localized Chief title (`MUX_CHIEF_TITLE` when the record has no
     /// display_name; a Chief's own name comes first, `brain_environment`).
     pub chief_title: Option<String>,
-    pub mcp_command: Option<String>,
     pub bundled_cli: Option<PathBuf>,
     pub acpmux_bin: Option<PathBuf>,
     /// `MUX_HARNESS`.
@@ -193,7 +192,6 @@ pub fn brain_environment(
                 .map(str::to_owned)
                 .or_else(|| app.chief_title.clone()),
         ),
-        ("CMUX_MCP_COMMAND", app.mcp_command.clone()),
         ("CMUX_BUNDLED_CLI_PATH", app.bundled_cli.as_ref().map(|p| p.display().to_string())),
         ("ACPMUX_BIN", app.acpmux_bin.as_ref().map(|p| p.display().to_string())),
         ("MUX_HARNESS", app.harness.clone()),

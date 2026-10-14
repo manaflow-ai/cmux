@@ -8,7 +8,8 @@ extension ChiefConversationOwner {
     /// know: the brain executable (the same rule as Home's, so Release and
     /// RC give none and start no brain), this home, its bundle `bin`, the
     /// person's name, the localized Chief title, the bundled CLI and acpmux,
-    /// and the MCP command and harness of its own environment. The default
+    /// and the harness of its own environment (no MCP command: acpmux gives
+    /// each agent chat its own cmux MCP server). The default
     /// Chief's brain stays with Home (ChiefBrainKeeper), unchanged.
     static func brainsValue(home: ChiefHome, process: [String: String], bundle: Bundle) -> String? {
         let bin = bundle.resourceURL?.appendingPathComponent("bin", isDirectory: true)
@@ -25,9 +26,7 @@ extension ChiefConversationOwner {
             app["acpmux_bin"] = acpmux.executable.path
             if let cli = acpmux.childEnvironment["CMUX_BUNDLED_CLI_PATH"] { app["bundled_cli"] = cli }
         }
-        for (key, name) in [("CMUX_MCP_COMMAND", "mcp_command"), ("MUX_HARNESS", "harness")] {
-            if let value = process[key], !value.isEmpty { app[name] = value }
-        }
+        if let harness = process["MUX_HARNESS"], !harness.isEmpty { app["harness"] = harness }
         let value: [String: Any] = ["executable": host.executable.path, "home": home.muxHome.path, "app": app]
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { return nil }
         return String(decoding: data, as: UTF8.self)

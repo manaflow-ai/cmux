@@ -384,7 +384,6 @@ fn a_brain_gets_the_harness_logins_and_nothing_else() {
         "LC_ALL",
         "MUX_HARNESS",
         "OPTCHAT_CHIEF_HARNESS",
-        "CMUX_MCP_COMMAND",
     ] {
         assert!(brain_env_allowed(name), "{name}");
     }
