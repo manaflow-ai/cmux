@@ -253,6 +253,23 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/process/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/process/kill",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/process_update",
+      "params": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/kill",
       "params": true,
       "result": true
