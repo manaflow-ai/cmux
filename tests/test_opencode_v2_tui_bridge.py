@@ -158,7 +158,7 @@ setTimeout(() => {
 }, 0);
 liveA.emit({ details: { type: "session.created", data: { sessionID: "child-a", location: { directory: "/tmp/a" } }, location: { directory: "/tmp/a" } } });
 await Promise.race([
-  waitForObserved((event) => event.hook_event_name === "SessionStart" && event.session_id === "child-a"),
+  waitForObserved((event) => event.hook_event_name === "SessionStart" && event.cwd === "/tmp/a"),
   new Promise((_, reject) => setTimeout(() => reject(new Error("restored OpenCode session-start was dropped before TUI route became visible")), 2000)),
 ]);
 liveB.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "child-b" } } });

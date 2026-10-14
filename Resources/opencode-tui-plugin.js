@@ -190,10 +190,13 @@ function reportError(ctx, _error) {
   } catch (_) {}
 }
 
-async function handleEvent(ctx, ownership, feed, details, environment) {
-  const event = details?.event || details;
-  const id = sessionID(event);
-  if (!id || !ownership.belongs(id)) return;
+// OpenCode can publish the session lifecycle event while the restored TUI is
+// still moving its route/tab state into place. Retry only session-start events
+// during that short window; approval and completion events remain fail-closed
+// when their session is not currently owned by this TUI.
+const SESSION_START_RETRY_DELAYS_MS = [0, 10, 25, 50, 100, 250, 500, 1_000];
+
+async function deliverEvent(ctx, feed, event, id, environment) {
   const hook = sessionEventName(event);
   if (hook) {
     dispatchSessionHook(hook, {
@@ -208,20 +211,63 @@ async function handleEvent(ctx, ownership, feed, details, environment) {
   await feed.event({ event, ownedSessionId: id });
 }
 
+async function handleEvent(ctx, ownership, feed, details, environment, retrySessionStart) {
+  const event = details?.event || details;
+  const id = sessionID(event);
+  const hook = sessionEventName(event);
+  if (!id) return;
+  if (hook === "session-end") retrySessionStart?.cancel(id);
+  if (!ownership.belongs(id)) {
+    if (hook === "session-start") retrySessionStart?.retry(event, id);
+    return;
+  }
+  retrySessionStart?.cancel(id);
+  await deliverEvent(ctx, feed, event, id, environment);
+}
+
 export async function createCMUXTUIBridge(ctx, options = {}) {
   const environment = { ...process.env, ...options.environment };
   const ownership = createOwnership(ctx);
+  let disposed = false;
+  const pending = new Map();
+  const cancelPending = (id) => {
+    for (const [key, timer] of pending) {
+      if (!key.startsWith(`${id}:`)) continue;
+      clearTimeout(timer);
+      pending.delete(key);
+    }
+  };
   const feed = await CMUXFeed(ctx, {
     tui: true,
     ownsSession: ownership.belongs,
     locationForSession: () => ctx?.location,
     environment,
   });
+  const retrySessionStart = (event, id, attempt = 0) => {
+    if (disposed || attempt >= SESSION_START_RETRY_DELAYS_MS.length) return;
+    const key = `${id}:${event.type}`;
+    if (pending.has(key)) return;
+    const timer = setTimeout(() => {
+      pending.delete(key);
+      if (disposed) return;
+      void handleEvent(ctx, ownership, feed, event, environment, {
+        cancel: cancelPending,
+        retry: (nextEvent, nextID) => retrySessionStart(nextEvent, nextID, attempt + 1),
+      }).catch((error) => reportError(ctx, error));
+    }, SESSION_START_RETRY_DELAYS_MS[attempt]);
+    pending.set(key, timer);
+  };
   const onEvent = ({ details, event }) => {
-    void handleEvent(ctx, ownership, feed, details || event, environment).catch((error) => reportError(ctx, error));
+    void handleEvent(ctx, ownership, feed, details || event, environment, {
+      cancel: cancelPending,
+      retry: (nextEvent, nextID) => retrySessionStart(nextEvent, nextID),
+    }).catch((error) => reportError(ctx, error));
   };
   const stop = ctx.data.listen(onEvent);
   return () => {
+    disposed = true;
+    for (const timer of pending.values()) clearTimeout(timer);
+    pending.clear();
     stop?.();
     feed.dispose?.();
     ownership.dispose();
