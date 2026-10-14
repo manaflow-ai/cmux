@@ -14,7 +14,7 @@ export function LabsList({ onSet, onShowAll }: Props) {
     <nav className="nt-open-tabs nt-labs" aria-label={nt("labs")}>
       <div className="nt-open-tabs-head">
         <span>{nt("labs")}</span>
-        <button type="button" className="nt-labs-all ui-ghost" data-show-labs onClick={onShowAll}>
+        <button type="button" className="nt-chats-all" data-show-labs onClick={onShowAll}>
           {nt("labs.all")}
         </button>
       </div>
