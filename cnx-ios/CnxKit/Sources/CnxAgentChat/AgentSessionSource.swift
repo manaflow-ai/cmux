@@ -151,5 +151,34 @@ extension AgentSessionSource {
 
     public func discardHandoff(_ draft: AgentHandoffDraft) async {}
 
-    public var artifactSource: any ArtifactSource { MockArtifactSource() }
+    /// Sources without their own files say so; never sample files.
+    public var artifactSource: any ArtifactSource { UnavailableArtifactSource() }
+}
+
+/// An agent tab with no session behind it: no Mac is linked (or this build
+/// has no mock data). It says so instead of streaming a made-up session.
+@MainActor
+public final class DisconnectedAgentSource: AgentSessionSource {
+    public let summary: AgentSessionSummary
+    private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
+
+    public init(summary: AgentSessionSummary) {
+        self.summary = summary
+    }
+
+    public var message: String {
+        "\(summary.agentName) is on \(summary.macName). Connect to it to see this chat."
+    }
+
+    public func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
+        continuation.yield(.clientError(message))
+        continuations.append(continuation)
+        return stream
+    }
+
+    /// Nothing to send to: say why again.
+    public func send(_ intent: AgentClientIntent) {
+        for continuation in continuations { continuation.yield(.clientError(message)) }
+    }
 }

@@ -80,7 +80,6 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// 0 = page, 1 = grid, clamped (the spring may overshoot slightly).
     private var overviewShown: Double { min(1, max(0, zoomState.progress)) }
     /// Card titles and close buttons appear over the last fifth of the way.
-    private var overviewDetails: Double { min(1, max(0, (zoomState.progress - 0.8) / 0.2)) }
 
     private var overviewLayout: OverviewLayout {
         OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: tabs.count + (pendingNewTab == nil ? 0 : 1))
@@ -97,7 +96,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         ZStack(alignment: .topLeading) {
             // Kept mounted (hidden) so opening it does not pay for building
             // the grid on the first animation frame.
-            TabOverview(source: source, layout: overviewLayout, shown: overviewShown, detailsOpacity: overviewDetails,
+            TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome,
                         hiddenTabId: zoomState.phase == .overview ? nil : zoomTabId,
                         gridInteractive: zoomState.gridInteractive,
                         controlsInteractive: overviewVisible && zoomState.headingToOverview,
@@ -126,15 +125,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
             }
 
             if let tab = activeTab, zoomState.phase == .page, !chrome.swiping, !chrome.editing {
-                // Above the toolbar, riding the keyboard while it is up. Never
-                // below the resting place: an interactive dismissal drags the
-                // keyboard under the toolbar before it reports 0, and the row
-                // followed it down, then jumped back up.
+                // Above the toolbar, riding the keyboard while it is up.
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
                     source.accessory(for: tab, context: contentContext)
                 }
-                .padding(.bottom, max(keyboard, size.height - layout.capsule.minY + 8))
+                .padding(.bottom, keyboard > 0 ? keyboard : size.height - layout.capsule.minY + 8)
                 .frame(width: size.width, height: size.height)
             }
 
@@ -167,6 +163,27 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .opacity(chrome.menuOpen ? 1 : 0)
                     .allowsHitTesting(chrome.menuOpen)
                     .accessibilityHidden(!chrome.menuOpen)
+            }
+
+            if let notice = source.notice {
+                Text(notice)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(theme.colors.label)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 20))
+                    .padding(.horizontal, 24)
+                    .padding(.top, safeTop + 8)
+                    .frame(width: size.width, alignment: .top)
+                    .onTapGesture { source.clearNotice() }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .task(id: notice) {
+                        // Toast lifetime (a UI timeout, not synchronization).
+                        try? await Task.sleep(for: .seconds(5))
+                        if source.notice == notice { withAnimation { source.clearNotice() } }
+                    }
+                    .accessibilityAddTraits(.isStaticText)
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -230,6 +247,17 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .scaleEffect(scale, anchor: .topLeading)
         .frame(width: max(1, g.rect.width), height: max(1, g.rect.height), alignment: .topLeading)
         .clipShape(.rect(cornerRadius: g.radius, style: .continuous))
+        // The card's close button rides its corner at full size and fades in
+        // with the zoom's progress (CardChrome).
+        .overlay(alignment: .topTrailing) {
+            if zoomTabId != TabsScreenSpace.newTabMarker {
+                CardCloseGlyph()
+                    .padding(4)
+                    .opacity(CardChrome.zoomCloseOpacity(progress: zoomState.progress,
+                                                         headingToOverview: zoomState.phase == .interactive || zoomState.headingToOverview))
+                    .allowsHitTesting(false)
+            }
+        }
         .offset(x: g.rect.minX + (chrome.swiping ? chrome.swipeOffset : 0), y: g.rect.minY)
         .opacity(zoomState.phase == .overview ? 0 : 1)
         .allowsHitTesting(settled && !chrome.swiping && !chrome.editing)

@@ -88,7 +88,7 @@ public struct ArtifactsBrowser: View {
                                     }
                                     .swipeActions(edge: .trailing) {
                                         Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
-                                            .tint(.gray)
+                                            .tint(Color(uiColor: .systemGray))
                                     }
                             }
                         } header: {

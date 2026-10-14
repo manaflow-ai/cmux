@@ -313,8 +313,10 @@ public struct AgentChatTranscript: View {
             content: AnyView(AgentChatTurns(store: store, surface: surface)
                 .environment(\.openDiff, OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) })),
             empty: AnyView(AgentChatEmptyState(store: store)),
-            dock: placement == .owned ? AnyView(AgentChatBottomStack(store: store, surface: surface, showsJump: false, bottomPadding: 0)) : nil,
-            jump: placement == .owned ? AnyView(AgentChatJumpButton(store: store, surface: surface)) : nil
+            dock: placement == .owned ? AnyView(AgentChatBottomStack(store: store, surface: surface, bottomPadding: 0)) : nil,
+            // Both placements: the controller hosts the circle at a fixed
+            // size, 4 pt above the stack's top (verify/jump-button.md).
+            jump: AnyView(AgentChatJumpButton(store: store, surface: surface))
         )
         // UIKit owns the safe areas and the keyboard (the controller docks
         // the stack to the keyboard layout guide).
@@ -431,16 +433,18 @@ struct AgentChatJumpButton: View {
                 .accessibilityLabel("Jump to bottom")
             }
         }
-        .padding(4)
+        // The host's fixed size (`ChatTranscriptController.jumpHostSize`):
+        // the circle appears in place, centered, from its first frame.
+        .frame(width: 44, height: 44)
     }
 }
 
-/// Jump-to-bottom circle over the composer, or the permission action bar
-/// in the composer's place (SPEC 6.5, 6.9).
+/// The composer, or the permission action bar in its place (SPEC 6.9). The
+/// jump-to-bottom circle (SPEC 6.5) is the transcript's
+/// (`ChatTranscriptController`), so it never changes this stack's height.
 public struct AgentChatBottomStack: View {
     let store: AgentChatStore
     @Bindable var surface: AgentChatSurface
-    var showsJump = true
     var bottomPadding: CGFloat = 8
     @State private var reportedHeight: CGFloat = 0
     @FocusState private var composerFocused: Bool
@@ -450,19 +454,14 @@ public struct AgentChatBottomStack: View {
         self.surface = surface
     }
 
-    init(store: AgentChatStore, surface: AgentChatSurface, showsJump: Bool, bottomPadding: CGFloat) {
+    init(store: AgentChatStore, surface: AgentChatSurface, bottomPadding: CGFloat) {
         self.store = store
         self.surface = surface
-        self.showsJump = showsJump
         self.bottomPadding = bottomPadding
     }
 
     public var body: some View {
         VStack(spacing: 12) {
-            if showsJump, surface.showJump {
-                AgentChatJumpButton(store: store, surface: surface)
-                    .padding(-4)
-            }
             VStack(spacing: 12) {
                 if let error = store.clientError {
                     Button {
@@ -504,10 +503,9 @@ public struct AgentChatBottomStack: View {
                 }
             }
             // The transcript's bottom margin follows this top. The jump
-            // button above is excluded: it appears when the transcript is
-            // more than 80 pt from the bottom, and counting it moved the
-            // margin, which moved the distance, which toggled the button
-            // (a layout loop that flickered and could hang after a tab zoom).
+            // button is not in this stack: counting it moved the margin,
+            // which moved the distance, which toggled the button (a layout
+            // loop that flickered and could hang after a tab zoom).
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
                 surface.bottomStackTop = frame.minY
                 if surface.stackHeight != frame.height { surface.stackHeight = frame.height }

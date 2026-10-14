@@ -1,3 +1,5 @@
+// DEBUG and Demo builds only: mock content is never compiled into Production.
+#if DEBUG
 import Foundation
 
 /// A terminal that needs no Mac: a tiny shell with a line editor, scripted
@@ -303,3 +305,4 @@ enum MockKey: Equatable {
         }
     }
 }
+#endif

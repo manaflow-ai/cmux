@@ -341,7 +341,7 @@ struct CheckpointsScreen: View {
                             row(checkpoint)
                                 .swipeActions(edge: .trailing) {
                                     Button("Restore", systemImage: "clock.arrow.circlepath") { confirming = checkpoint }
-                                        .tint(.orange)
+                                        .tint(Color(uiColor: .systemOrange))
                                 }
                         }
                     } footer: {

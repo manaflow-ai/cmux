@@ -1,3 +1,5 @@
+// DEBUG and Demo builds only: mock content is never compiled into Production.
+#if DEBUG
 import Foundation
 
 extension AppStore {
@@ -111,3 +113,4 @@ extension AppStore {
         return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: workspaces, feed: feed, tabMemory: tabMemory)
     }
 }
+#endif
