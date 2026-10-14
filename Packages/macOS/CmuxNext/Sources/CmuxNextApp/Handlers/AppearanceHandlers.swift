@@ -60,7 +60,7 @@ enum AppearanceHandlers {
         }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             try requireUnmanaged(fontSizePath, context)
-            context.design.setOverride(.chromeFontSize, nil)
+            context.design.interfaceScale = CGFloat(InterfaceSizeSetting().fallback)
             context.writeSetting("reset interface size", fontSizePath, nil, reloadOnFailure: true)
         })
     }
@@ -154,17 +154,20 @@ enum AppearanceHandlers {
         context.writeSetting("set center focused column", CenterFocusedColumnSetting.configPath, .string(mode.rawValue), reloadOnFailure: true)
     }
 
-    /// Body size in points: the override, else the density default.
+    /// The selected chrome multiplier. The setting is palette-only and Labs-gated.
     static func interfaceSize(_ design: DesignSettings = .shared) -> Double {
-        Double(design.overrides[.chromeFontSize] ?? (design.density == .compact ? 12 : 13))
+        Double(design.interfaceScale)
     }
 
     private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
         try requireUnmanaged(fontSizePath, context)
         let design = context.design
-        design.setOverride(.chromeFontSize, CGFloat(interfaceSize(design) + delta))
-        let size = interfaceSize(design)
-        context.writeSetting("set interface size", fontSizePath, .number(size), reloadOnFailure: true)
+        let values = InterfaceSizeSetting().values
+        let current = interfaceSize(design)
+        let index = values.enumerated().min(by: { abs($0.element - current) < abs($1.element - current) })?.offset ?? 1
+        let next = values[min(max(index + Int(delta), 0), values.count - 1)]
+        design.interfaceScale = CGFloat(next)
+        context.writeSetting("set interface size", fontSizePath, .number(next), reloadOnFailure: true)
     }
 
     private static func stepUIScale(by delta: Double, _ context: AppActionContext) throws {

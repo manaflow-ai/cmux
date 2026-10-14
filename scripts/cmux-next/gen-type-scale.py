@@ -33,10 +33,10 @@ def load():
 
 
 def css_block(data):
-    lines = [BEGIN, ":root {"]
+    lines = [BEGIN, ":root {", "  --cmux-interface-scale: 1;"]
     for step in data["steps"]:
-        lines.append("  --text-%s: %spx; /* %s */" % (step["name"], step["size"], step["for"]))
-        lines.append("  --text-%s--line-height: %spx;" % (step["name"], step["lineHeight"]))
+        lines.append("  --text-%s: calc(%spx * var(--cmux-interface-scale, 1)); /* %s */" % (step["name"], step["size"], step["for"]))
+        lines.append("  --text-%s--line-height: calc(%spx * var(--cmux-interface-scale, 1));" % (step["name"], step["lineHeight"]))
     lines.append("  /* Menu and picker rows: the body step (NSFont.menuFont is the system size). */")
     lines.append("  --text-control: var(--text-body);")
     lines.append("  --text-control--line-height: var(--text-body--line-height);")
