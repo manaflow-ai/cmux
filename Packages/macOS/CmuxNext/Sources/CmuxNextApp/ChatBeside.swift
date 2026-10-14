@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 
@@ -9,8 +10,8 @@ import CmuxNextDaemon
 /// pane, never another split; a click on what a tab there already shows selects that tab. Keyboard
 /// focus stays in the chat. Command-click keeps the old place (``keepsOldPlace``).
 ///
-/// The one entry point for the chat's surfaces: links and PR links (AgentPaneNavigation, through
-/// `AgentPaneView.openLinkBeside`), file refs (`onOpenFile`), and the Changes diff.
+/// The one entry point for the chat's surfaces: links and PR links (`AgentPaneView.openURL`) and
+/// file refs (`onOpenFile`); the header's Changes diff joins the same pane (AgentChatSplitToggles).
 @MainActor
 struct ChatBeside {
     /// What a click opens.
@@ -19,27 +20,22 @@ struct ChatBeside {
         case url(URL)
         /// A file, on its file page.
         case file(URL)
-        /// The diff of a repository folder.
-        case diff(path: String)
     }
 
     let services: AppServices
 
-    /// Whether the click that is being handled asks for the old place: Command held.
-    static var keepsOldPlace: Bool { NSEvent.modifierFlags.contains(.command) }
+    /// Whether the click that is being handled asks for the old place: Command held. A link click
+    /// carries its own modifiers; a file ref's arrives later, so the keys held now stand in.
+    static var keepsOldPlace: Bool { (AgentPaneLinkClick.modifiers ?? NSEvent.modifierFlags).contains(.command) }
 
-    /// Opens `entity` beside chat tab `chat` (a provisional key resolves). False when the chat is in
-    /// no pane this app knows; the caller then opens it the old way.
+    /// Opens `entity` beside chat tab `chat` (a provisional key resolves). False when nothing opened
+    /// or was selected (the chat is in no pane this app knows, or the page cannot go beside it); the
+    /// caller then opens it the old way.
     @discardableResult
     func open(_ entity: Entity, beside chat: String) -> Bool {
         let chat = services.agentTabs.resolve(chat)
         guard let (_, chatPane) = services.locateTab(chat) else { return false }
         let beside = Self.besidePane(of: chatPane, in: services.daemon(for: chatPane).store)
-        if let beside, let shown = beside.tabs.first(where: { Self.shows($0, entity) }) {
-            // Shown already: select it there; the chat keeps focus.
-            services.paneController(for: beside)?.select(StripTabID(shown.id))
-            return true
-        }
         // A tab of the pane right of the chat names it; with none, the chat's tab with a new column.
         let target = beside.flatMap { $0.tabs.first?.id }
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? chat), origin: .user)
@@ -47,16 +43,24 @@ struct ChatBeside {
         invocation.newColumnBeside = target == nil
         switch entity {
         case .url(let url):
+            if let beside, let shown = beside.tabs.first(where: { Self.shows($0, url) }) {
+                // Shown already: select it there; the chat keeps focus.
+                guard let pane = services.paneController(for: beside) else { return false }
+                pane.select(StripTabID(shown.id))
+                return true
+            }
             invocation.arguments = ["url": .string(url.absoluteString)]
             return services.registry.perform("openBrowser", invocation: invocation)
-        case .diff(let path):
-            invocation.arguments = ["path": .string(path)]
-            return services.registry.perform("openDiffViewer", invocation: invocation)
         case .file(let url):
             // A file the browser previews (an image, a PDF) keeps its old place.
-            guard FilePageOpener.kind(for: url) != nil, let pane = services.paneController(for: beside ?? chatPane) else { return false }
-            let created = AgentBesidePlacement.placed(invocation, in: pane, then: nil)
-            return services.viewers.openFile(url, in: pane, userChose: true, beside: created) == nil
+            guard let kind = FilePageOpener.kind(for: url) else { return false }
+            let pages = kind == .markdown ? services.viewers.markdownPages : services.viewers.editorPages
+            if let shown = beside.flatMap(services.paneController(for:)), pages.selectShown(url, in: shown) { return true }
+            // Only a store tab moves beside the chat; else the old place.
+            guard let pane = services.paneController(for: beside ?? chatPane), pages.opensStoreTabs(in: pane) else { return false }
+            let placement = invocation
+            return services.viewers.openFile(url, in: pane, userChose: true,
+                                             beside: { AgentBesidePlacement.placed(placement, in: pane, then: nil) }) == nil
         }
     }
 
@@ -71,22 +75,19 @@ struct ChatBeside {
         return screen.panes.first { $0.handle == first }
     }
 
-    /// Whether `tab` shows `entity`: the same page, file or diff.
-    static func shows(_ tab: TabModel, _ entity: Entity) -> Bool {
-        switch entity {
-        case .url(let url):
-            tab.kind == .browser && tab.url.map(Self.comparable) == Self.comparable(url.absoluteString)
-        case .file(let url):
-            tab.page != nil && tab.pageRoute == url.standardizedFileURL.resolvingSymlinksInPath().path
-        case .diff(let path):
-            tab.page == "diff" && tab.pageRoute.map { path == $0 || path.hasPrefix($0 + "/") } ?? true
-        }
+    /// Whether browser tab `tab` shows `url`: the same page at the same anchor (a link to another
+    /// line of a file opens its own tab), whatever the scheme's and host's case or a trailing slash.
+    static func shows(_ tab: TabModel, _ url: URL) -> Bool {
+        guard tab.kind == .browser, let shown = tab.url.flatMap(URL.init(string:)).flatMap(comparable) else { return false }
+        return shown == comparable(url)
     }
 
-    /// A URL as two tabs on the same page compare: no fragment, no trailing slash.
-    private static func comparable(_ url: String) -> String {
-        var url = url.split(separator: "#", maxSplits: 1).first.map(String.init) ?? url
-        while url.hasSuffix("/") { url.removeLast() }
-        return url
+    private static func comparable(_ url: URL) -> String? {
+        guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        parts.scheme = parts.scheme?.lowercased()
+        parts.host = parts.host?.lowercased()
+        while parts.path.count > 1, parts.path.hasSuffix("/") { parts.path.removeLast() }
+        if parts.path.isEmpty, parts.host != nil { parts.path = "/" }
+        return parts.string
     }
 }

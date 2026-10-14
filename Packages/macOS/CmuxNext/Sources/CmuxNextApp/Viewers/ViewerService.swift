@@ -42,7 +42,7 @@ final class ViewerService {
     /// Opens `file` through ``fileOpener`` (the markdown page, a previewing tab, or the editor).
     /// `userChose` false for a page's or an agent's open. Returns why it did not open.
     func openFile(_ file: URL, in pane: PaneController?, userChose: Bool,
-                  beside: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
+                  beside: (@MainActor () -> @MainActor (SurfaceID) -> Void)? = nil) -> String? {
         if let opener = fileOpener as? FilePageOpener { return opener.open(file, in: pane, userChose: userChose, beside: beside) }
         return fileOpener.open(file, in: pane)
     }

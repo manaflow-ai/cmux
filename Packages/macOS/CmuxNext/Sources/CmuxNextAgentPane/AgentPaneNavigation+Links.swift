@@ -1,4 +1,4 @@
-import Foundation
+public import AppKit
 
 extension AgentPaneSource {
     /// Whether `url` is the page document itself, the only one the pane's main frame shows: the
@@ -29,4 +29,11 @@ extension AgentPaneNavigation {
         open(url)
         return true
     }
+}
+
+/// The modifiers of the link click being opened: `AgentPaneView.openURL` runs inside the click, so
+/// the open can tell a Command-click from a plain one (ChatBeside). Nil outside a click (Open Link,
+/// a page's own open).
+@MainActor public enum AgentPaneLinkClick {
+    public internal(set) static var modifiers: NSEvent.ModifierFlags?
 }
