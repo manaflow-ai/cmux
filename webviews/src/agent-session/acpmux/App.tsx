@@ -749,7 +749,7 @@ const defaultRegistry: NativeRegistry = {
   [SUBAGENT_OF]: SubagentOfPillRow,
 };
 
-/// A row's height as the page drew it, valid while the row's content version and width hold.
+/// A row's height as the page drew it at a width. It places the row until its next version is drawn.
 type DrawnHeight = { sessionId?: string; version: number; width: number; height: number };
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
