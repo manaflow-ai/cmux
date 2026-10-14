@@ -56,7 +56,7 @@ public nonisolated struct AcpmuxChiefHandoff: Sendable {
         }
         Self.logger.info("Chief acpmux \(pid) lacks the Chief home; handing it off")
         do {
-            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath)
+            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
             Self.logger.error("Chief acpmux handoff request failed: \(String(describing: error), privacy: .public)")
             return false

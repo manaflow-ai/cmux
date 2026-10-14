@@ -2118,6 +2118,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u CMUX_PANEL_ID
     -u CMUXD_UNIX_PATH
     -u CMUX_TAG
+    # A launch from an acpmux agent inherits its daemon's home and socket: the
+    # build would share that daemon and hand it off as its own outdated one.
+    -u ACPMUX_HOME
+    -u ACPMUX_SOCKET
+    -u ACPMUX_ENV
+    -u ACPMUX_SESSION_ID
+    -u ACPMUX_SESSION_NAME
     -u CMUX_DEBUG_LOG
     -u CMUX_BUNDLE_ID
     -u CMUX_BUNDLED_CLI_PATH

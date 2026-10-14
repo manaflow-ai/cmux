@@ -10,6 +10,9 @@ public import Foundation
 /// `acpmux`; every other build has `~/.acpmux/builds/<key>`, so no build
 /// starts, stops or hands off another build's daemon. A daemon in a home of
 /// its own listens on an ephemeral port, never the shared daemon's 47811.
+/// `ACPMUX_SOCKET` counts only with an explicit `ACPMUX_HOME`: inherited
+/// alone (an app launched from another cmux's terminal), it is another
+/// daemon's socket.
 public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public var executable: URL
     public var home: URL
@@ -50,12 +53,14 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         let root = testRoot(environment) ?? userHome.appendingPathComponent(".acpmux", isDirectory: true)
         let ownHome = build?.acpmuxHome(root: root) ?? root
         let home: URL
-        if let custom = environment["ACPMUX_HOME"], !custom.isEmpty {
-            home = URL(fileURLWithPath: custom, isDirectory: true)
+        let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+        if let customHome {
+            home = URL(fileURLWithPath: customHome, isDirectory: true)
         } else {
             home = ownHome
         }
-        let socket = socketPath(configured: environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }, home: home, uid: uid)
+        let configured = customHome == nil ? nil : environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
+        let socket = socketPath(configured: configured, home: home, uid: uid)
         var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
                                 "ACPMUX_SECRET_TOOLS": "1"]
         childEnvironment.merge(launchEnvironment) { _, new in new }
