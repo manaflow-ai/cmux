@@ -16,16 +16,15 @@ struct SplitPaneGridFitTests {
     @Test func splitPanesAndASecondTabRenderTheGridTheirViewsFit() async throws {
         try await Self.withApp { services in
             let controller = try #require(services.windows.active)
-            // The journey's window: wide enough for A | B and C | D (a pane is at least ~200 points wide).
+            // The journey's window width, so A | B has room (a pane is at least ~200 points wide).
             try #require(controller.window).setFrame(NSRect(x: 0, y: 0, width: 1100, height: 760), display: true)
             let id = try await services.windows.createWorkspace(WorkspaceSpawn(), into: controller.state.id)
             try await Self.until({ Self.shown(controller, workspace: id).count == 1 && Self.allLive(controller) },
                                  report: { Self.describe(controller) })
             let a = try #require(Self.shown(controller, workspace: id).first)
-            // rj-split: A | B, B over C, C | D, made by a script (no person's split rules).
-            let b = try await Self.split(a, "splitRight", services, controller, workspace: id)
-            let c = try await Self.split(b, "splitDown", services, controller, workspace: id)
-            _ = try await Self.split(c, "splitRight", services, controller, workspace: id)
+            // rj-split's first split, A | B, made by a script (no person's split rules). Its
+            // nested down splits need more height than a CI Mac's short display gives a window.
+            _ = try await Self.split(a, "splitRight", services, controller, workspace: id)
             // A second tab in A (its strip appears), A's first tab still selected.
             let tabs = a.orderedIDs.count
             #expect(services.registry.perform("newSurface", invocation: Self.at(a)))
@@ -80,7 +79,8 @@ struct SplitPaneGridFitTests {
     }
 
     private static func describe(_ controller: WindowController) -> String {
-        panes(controller).map { pane in
+        let frame = controller.window.map { "window \(Int($0.frame.width))x\(Int($0.frame.height))\n" } ?? ""
+        return frame + panes(controller).map { pane in
             let status = pane.surfaceStatus
             let terminal = status.terminal
             let grid = terminal?.grid.map { "\($0.columns)x\($0.rows)" } ?? "-"
