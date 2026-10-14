@@ -10,6 +10,7 @@ import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
+import { subagentProgress } from "./subagentProgress";
 
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
 export const SubagentHarnessContext = createContext<string | undefined>(undefined);
@@ -122,10 +123,12 @@ export function SubagentGroupHeader({
   );
 }
 
-/// One subagent in an open group: its avatar with a status dot, name, state or current action,
-/// and time. `edge` rounds the list's first and last rows. A click opens its own view.
+/// One subagent in an open group: its avatar with a status dot, name, state or current action
+/// with what it has spent (subagentProgress.ts), and time. `edge` rounds the list's first and last
+/// rows. A click opens its own view.
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
+  const language = usePaneLanguage();
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
   const open = pane ?? nav;
@@ -133,7 +136,9 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const now = useNow(agent ? running(agent) : false);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
-  const state = running(agent) ? (agent.action ?? t(label)) : t(label);
+  const state = [running(agent) ? (agent.action ?? t(label)) : t(label), ...subagentProgress(t, language, agent)].join(
+    " · ",
+  );
   const content = (
     <>
       <Avatar agent={agent} dot />
