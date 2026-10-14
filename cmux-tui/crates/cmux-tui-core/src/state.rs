@@ -97,6 +97,8 @@ mod sidebar_layout_protocol_tests;
 pub(crate) mod sidebar_layout_store;
 pub(crate) mod stash;
 #[cfg(test)]
+mod stash_member_tests;
+#[cfg(test)]
 mod stash_protocol_tests;
 pub(crate) mod stash_router;
 pub(crate) mod stash_store;

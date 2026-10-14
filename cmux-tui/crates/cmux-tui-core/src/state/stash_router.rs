@@ -34,13 +34,21 @@ fn string(fields: &Map<String, Value>, name: &str) -> Option<String> {
     fields.get(name).and_then(Value::as_str).map(str::to_string)
 }
 
-fn indexes(fields: &Map<String, Value>, name: &str) -> Option<Vec<usize>> {
-    fields.get(name).and_then(Value::as_array).map(|values| {
-        values
-            .iter()
-            .filter_map(|value| value.as_u64().and_then(|v| usize::try_from(v).ok()))
-            .collect()
-    })
+/// Member ids (`members`): strings, each a member id from `stash.list`.
+fn member_ids(fields: &Map<String, Value>) -> Result<Option<Vec<String>>, ResourceError> {
+    let Some(values) = fields.get("members") else { return Ok(None) };
+    values
+        .as_array()
+        .and_then(|values| {
+            values
+                .iter()
+                .map(|value| value.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()
+        })
+        .map(Some)
+        .ok_or_else(|| {
+            ResourceError::validation_invalid(Some("members"), "members must be member ids")
+        })
 }
 
 /// A group's `created_ms`: decimal digits (more than fit is the far
@@ -137,11 +145,12 @@ pub(crate) fn dispatch(
         Op::StashRestore => mux.state_stash_restore(
             &mutation,
             &stash,
-            indexes(fields, "members").as_deref(),
+            member_ids(fields)?.as_deref(),
             RestoreTarget::parse(fields.get("target").and_then(Value::as_str)),
+            fields.get("pane").and_then(Value::as_str),
         ),
         Op::StashDelete => {
-            mux.state_stash_delete(&mutation, &stash, indexes(fields, "members").as_deref())
+            mux.state_stash_delete(&mutation, &stash, member_ids(fields)?.as_deref())
         }
         Op::StashImport => mux.state_stash_import(
             &mutation,

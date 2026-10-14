@@ -8,12 +8,16 @@
 //!   `skipped` (they stay open). The close is one batch close commit whose
 //!   group goes to the stash instead of the closed history; a workspace it
 //!   empties closes as any last-tab close does.
-//! - `stash.restore {stash, members?, target?}` reopens members like Reopen
-//!   Closed (`here`, the default: their pane at their index when it is
-//!   live, else their workspace's focused pane, else the session's), or all
-//!   in one new workspace named after the stash (`new_workspace`). Restored
-//!   members leave the stash in the commit that stores the result.
+//! - Members are named by their stable `id` (from `stash.list`); an id the
+//!   stash no longer holds is `resource.not_found` and nothing changes.
+//! - `stash.restore {stash, members?, target?, pane?}` reopens members like
+//!   Reopen Closed (`here`, the default: their pane at their index when it
+//!   is live, else `pane` (the pane the user acted from), else their
+//!   workspace's focused pane, else the session's), or all in one new
+//!   workspace named after the stash (`new_workspace`). Restored members
+//!   leave the stash in the commit that stores the result.
 //! - `stash.delete {stash, members?}` drops members or the whole stash.
+//! - Only http(s) web pages are stashed, never app tabs.
 //! - `stash.import {source, groups, engine?}` stores OneTab groups; only
 //!   http(s) pages are kept. Pages without an engine reopen as
 //!   daemon-rendered browsers, so the app passes its engine.
@@ -24,8 +28,9 @@ use rusqlite::OptionalExtension;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use crate::mux::tab_groups::pane_by_public_id;
 use crate::mux::*;
-use crate::state::closed_history::{REOPEN, Reopened, choose};
+use crate::state::closed_history::{REOPEN, Reopened};
 use crate::state::closed_history_store::queue_change;
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
@@ -205,13 +210,15 @@ impl Mux {
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
         stash_id: &str,
-        members: Option<&[usize]>,
+        members: Option<&[String]>,
         target: RestoreTarget,
+        pane: Option<&str>,
     ) -> anyhow::Result<StateCommit> {
         const OPERATION: &str = "stash.restore";
         let _serial = REOPEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let fingerprint = json!({
-            "operation": OPERATION, "stash": stash_id, "members": members, "target": target.as_str(),
+            "operation": OPERATION, "stash": stash_id, "members": members,
+            "target": target.as_str(), "pane": pane,
         });
         if let Some(replay) = self
             .workspace_registry
@@ -224,13 +231,22 @@ impl Mux {
         let record = self
             .read_registry_state(|connection| store::stash_record(connection, stash_id))?
             .ok_or_else(|| state_not_found("stash", stash_id))?;
-        let (restore, _) =
-            choose(record["members"].as_array().cloned().unwrap_or_default(), members)?;
+        let (restore, _) = store::choose_members(
+            record["members"].as_array().cloned().unwrap_or_default(),
+            members,
+        )?;
+        if let Some(pane) = pane
+            && self.with_state(|state| pane_by_public_id(state, pane)).is_none()
+        {
+            return Err(state_not_found("pane", pane));
+        }
+        let restored_ids = restore.iter().map(|member| member["id"].clone()).collect::<Vec<_>>();
         let mut reopened = Reopened::default();
         match target {
             RestoreTarget::Here => {
                 for member in &restore {
-                    self.reopen_closed_tab(&mutation.actor, member, &mut reopened)?;
+                    let member = self.placed_in(member, pane);
+                    self.reopen_closed_tab(&mutation.actor, &member, &mut reopened)?;
                 }
             }
             RestoreTarget::NewWorkspace => {
@@ -250,7 +266,7 @@ impl Mux {
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .filter(|member| !restore.contains(member))
+                    .filter(|member| !restored_ids.contains(&member["id"]))
                     .cloned()
                     .collect::<Vec<_>>();
                 let (change, remaining) =
@@ -260,6 +276,7 @@ impl Mux {
                         "stash_id": stash_id,
                         "workspace_id": reopened.workspaces.first(),
                         "workspace_ids": reopened.workspaces,
+                        "screen_ids": reopened.screens,
                         "tab_ids": reopened.tabs,
                         "remaining": remaining,
                     }),
@@ -267,6 +284,23 @@ impl Mux {
                 ))
             },
         )
+    }
+
+    /// `member` as `here` restores it: in its own pane while that is live,
+    /// else in `pane` (at its end) when the user acted from one.
+    fn placed_in(&self, member: &Value, pane: Option<&str>) -> Value {
+        let Some(pane) = pane else { return member.clone() };
+        let own_pane_live = self.with_state(|state| {
+            member["pane_id"].as_str().and_then(|own| pane_by_public_id(state, own)).is_some()
+        });
+        if own_pane_live {
+            return member.clone();
+        }
+        let mut placed = member.clone();
+        placed["pane_id"] = json!(pane);
+        placed["workspace_id"] = Value::Null;
+        placed["index"] = Value::Null;
+        placed
     }
 
     /// One new workspace named after the stash holding `restore` in order.
@@ -320,7 +354,7 @@ impl Mux {
         &self,
         mutation: &WorkspaceMutation,
         stash_id: &str,
-        members: Option<&[usize]>,
+        members: Option<&[String]>,
     ) -> anyhow::Result<StateCommit> {
         const OPERATION: &str = "stash.delete";
         // Never while a restore of the same stash is between its read and
@@ -337,10 +371,7 @@ impl Mux {
                 let record = store::stash_record(transaction, stash_id)?
                     .ok_or_else(|| state_not_found("stash", stash_id))?;
                 let all = record["members"].as_array().cloned().unwrap_or_default();
-                let (_, keep) = match members {
-                    Some(chosen) => choose(all, Some(chosen))?,
-                    None => (all, Vec::new()),
-                };
+                let (_, keep) = store::choose_members(all, members)?;
                 let (change, remaining) =
                     store::keep_stash_members(transaction, stash_id, record, keep)?;
                 Ok(StateChanges::new(

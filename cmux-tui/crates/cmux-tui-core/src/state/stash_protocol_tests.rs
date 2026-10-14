@@ -96,7 +96,9 @@ fn stash_closes_browser_tabs_into_one_group_and_restores_here_then_in_a_new_work
     );
 
     let stash = created["stash_id"].as_str().unwrap().to_string();
-    let here = mutate(&mux, "stash.restore", json!({"stash": stash, "members": [0]}), "restore-1");
+    let first = stashes[0]["members"][0]["id"].clone();
+    let here =
+        mutate(&mux, "stash.restore", json!({"stash": stash, "members": [first]}), "restore-1");
     assert_eq!(here["remaining"], 1);
     let restored = here["tab_ids"][0].as_str().unwrap().to_string();
     assert_eq!(tab_url(&mux, &restored), "https://example.com/a");
@@ -194,7 +196,8 @@ fn stash_import_delete_and_persistence_across_a_restart() {
     assert_eq!(reading["members"][0]["title"], "A");
 
     let id = reading["id"].as_str().unwrap().to_string();
-    mutate(&mux, "stash.delete", json!({"stash": id, "members": [0]}), "delete-1");
+    let first = reading["members"][0]["id"].clone();
+    mutate(&mux, "stash.delete", json!({"stash": id, "members": [first]}), "delete-1");
     let stashes = read(&mux, "stash.list", json!({}));
     let reading = stashes.as_array().unwrap().iter().find(|group| group["id"] == id).unwrap();
     assert_eq!(member_urls(reading), ["https://b.example/"]);
