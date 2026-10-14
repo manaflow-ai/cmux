@@ -232,3 +232,23 @@ fn hostile_repository_submodule_inline_diff_runs_no_external_diff() {
 
     assert_no_marker(&scratch);
 }
+
+/// The submodule search keeps gitlinks only, so a large index with no
+/// submodule is never refused for its size.
+#[test]
+fn submodule_filter_search_is_bounded_by_gitlinks_not_files() {
+    let scratch = Scratch::new("large-index");
+    let root = scratch.0.join("repository");
+    new_repository(&root);
+    for index in 0..200 {
+        std::fs::write(root.join(format!("file-{index:04}.txt")), "x\n").expect("write file");
+    }
+    git(&root, &["add", "."]);
+    git(&root, &["commit", "--quiet", "-m", "many files"]);
+
+    let repository = Repository::open(&root).expect("open repository");
+    // 200 entries list about 14 KiB; none is a gitlink.
+    let searched = repository.with_submodule_filters_limited(1024);
+
+    assert!(searched.is_ok(), "{:?}", searched.err());
+}

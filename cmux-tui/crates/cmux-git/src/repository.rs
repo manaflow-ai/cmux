@@ -169,13 +169,21 @@ impl Repository {
     /// the submodule's own clean filter. Submodules are found from each
     /// index's gitlinks, since `.gitmodules` need not list them.
     pub fn with_submodule_filters(&self) -> Result<Self, GitFailure> {
+        self.with_submodule_filters_limited(MAX_INDEX_LISTING_BYTES)
+    }
+
+    /// [`Repository::with_submodule_filters`] with its listing limit given.
+    pub fn with_submodule_filters_limited(
+        &self,
+        max_listing_bytes: usize,
+    ) -> Result<Self, GitFailure> {
         let mut overrides = self.overrides.clone();
         let mut pending = vec![self.root.clone()];
         let mut found = 0;
         while let Some(root) = pending.pop() {
             let arguments = ["ls-files", "--stage", "-z"];
             let left = remaining(self.deadline);
-            let output = run_git_within(&root, &[], &arguments, MAX_INDEX_LISTING_BYTES, left)?;
+            let output = run_git_within(&root, &[], &arguments, max_listing_bytes, left)?;
             if output.truncated {
                 return Err(GitFailure::Exit("too many files to look for submodules".to_string()));
             }
