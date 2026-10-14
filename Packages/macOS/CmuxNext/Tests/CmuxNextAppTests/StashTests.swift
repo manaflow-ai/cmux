@@ -52,6 +52,41 @@ struct StashTests {
         }
     }
 
+    /// Stashed tabs let their pages go as a close does: the app keeps no page of them
+    /// (on cua-3 their Chromium renderers outlived the stash).
+    @Test func stashedTabsReleaseTheirPagesAsACloseDoes() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let (ids, _) = try await Self.openPages(3, services, connection)
+            let store = services.daemon.store
+            for tab in ids.compactMap({ Self.tab($0, store) }) { _ = services.cache.browser(for: tab) }
+            #expect(ids.allSatisfy { services.cache.hasContent(for: $0) }, "each tab has its page")
+
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: ids[0]), origin: .user)
+            #expect(services.registry.perform("tab.stashOthers", invocation: invocation))
+            try await PinnedPageTests.until({ ids[1...].allSatisfy { Self.tab($0, store) == nil } })
+            try await PinnedPageTests.until({ !ids[1...].contains { services.cache.hasContent(for: $0) } },
+                                            report: { "pages kept: \(ids.filter { services.cache.hasContent(for: $0) })" })
+            #expect(services.cache.hasContent(for: ids[0]), "the tab that stays keeps its page")
+        }
+    }
+
+    /// A browser tab the daemon closes on its own (`cmux tab close`, another client) lets its
+    /// page go too, as the app's own close does.
+    @Test func aBrowserTabTheDaemonClosesReleasesItsPage() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let (ids, _) = try await Self.openPages(2, services, connection)
+            let store = services.daemon.store
+            let closing = try #require(Self.tab(ids[1], store))
+            for tab in ids.compactMap({ Self.tab($0, store) }) { _ = services.cache.browser(for: tab) }
+            #expect(services.cache.hasContent(for: closing.id))
+
+            try await connection.closeTab(closing.surface)
+            try await PinnedPageTests.until({ Self.tab(closing.id, store) == nil })
+            try await PinnedPageTests.until({ !services.cache.hasContent(for: closing.id) }, report: { "the closed tab's page stayed" })
+            #expect(services.cache.hasContent(for: ids[0]), "the open tab keeps its page")
+        }
+    }
+
     @Test func thePageRestoresAndDeletesTabsAndGroups() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let (ids, urls) = try await Self.openPages(3, services, connection)
