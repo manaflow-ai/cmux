@@ -200,16 +200,15 @@ final class TabContentCache {
     func browser(for tab: TabModel) -> BrowserEntry? {
         let key = tab.id
         claimAgentDriven(surface: tab.surface, key: key)
+        // A close the daemon makes (`cmux tab close`, another client) frees the page too.
+        goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         if let entry = browsers[key] { return entry }
         if pageRequests.claimCloseOnArrival(tab.surface) {
             // Its page closed before the tab appeared (BrowserPageRequests).
-            let key = tab.id
             Task { @MainActor [weak self] in self?.pageRequests.closeTab(key) }
             return nil
         }
-        if let adopted = pageRequests.takeAdoption(for: tab) {
-            return tracked(install(adopted, for: key), tab)
-        }
+        if let adopted = pageRequests.takeAdoption(for: tab) { return tracked(install(adopted, for: key), tab) }
         let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
         if let page = appPage(for: tab, url: url) { return page }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
@@ -229,6 +228,7 @@ final class TabContentCache {
                 onBrowserReady?(key)
                 return
             }
+            guard goneTabs.tracks(key) else { return page.close() } // closed while it started (release forgot it)
             let entry = install(page, for: key)
             // By id, not the captured TabModel: a tab moved while its page
             // started (`cmux browser open` then split) has a new model.
