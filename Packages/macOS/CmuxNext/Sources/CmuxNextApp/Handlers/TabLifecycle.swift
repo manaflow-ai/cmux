@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// New terminal tab, new browser tab, and close tab for a shown pane (the
@@ -11,6 +12,9 @@ import Foundation
 /// (`ActionRegistry.track`) for callers that await the effect.
 enum TabLifecycle {
     static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, after anchor: TabModel? = nil) {
+        #if DEBUG
+        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.markAction() } // `debug.new_terminal_trace`
+        #endif
         guard let focused = ctx.daemonPane(invocation) else { return }
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).

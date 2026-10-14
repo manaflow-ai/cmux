@@ -97,8 +97,8 @@ enum DebugTimings {
         if turnStateApplies.count < capacity { turnStateApplies.append((lines, milliseconds(duration))) }
     }
 
-    static func controlPublished(tabs: Int, _ duration: Duration) {
-        if controlPublishes.count < capacity { controlPublishes.append((tabs, milliseconds(duration))) }
+    static func controlPublished(tabs: @autoclosure () -> Int, _ duration: Duration) {
+        if controlPublishes.count < capacity { controlPublishes.append((tabs(), milliseconds(duration))) }
     }
 
     static func handle(_ params: [String: JSONValue]) -> JSONValue {

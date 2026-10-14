@@ -54,6 +54,12 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         /// The app's neutral accent at full strength (the theme
         /// foreground; no hue, the no-blue rule): agent work.
         case accent
+        /// The theme foreground softened to Codex's spinner grey (white at
+        /// 66% on Codex's dark sidebar): the Codex-like set's work.
+        case spinner
+        /// Codex's unread blue: the Codex-like set's done dot. The one hue a
+        /// status set adds (Leo's team asked for Codex's dot, 2026-10-14).
+        case unread
     }
 
     public var glyph: Glyph
@@ -77,7 +83,12 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
     public static func make(_ state: StatusIndicatorState, style: StatusIndicatorStyle, animates: Bool,
                             set: StatusIconSet = .current) -> StatusIndicatorPlan {
         var plan = set.plan(for: state) ?? staticPlan(state, style: style)
-        if !animates { plan.animation = nil }
+        if !animates {
+            plan.animation = nil
+            // The Codex-like set's still work mark is a whole ring, not a stopped arc (Leo's team,
+            // 2026-10-14: a static ring under Reduce Motion or the Static mode). Loading keeps its stopped arc.
+            if set == .codex, state.isWorking, state.progress == nil { plan.glyph = .mark(.vector(.idle)) }
+        }
         return plan
     }
 

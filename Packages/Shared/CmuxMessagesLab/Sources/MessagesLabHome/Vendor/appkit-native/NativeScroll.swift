@@ -141,7 +141,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         cv.contentOffset = CGPoint(x: 0, y: y)
         // The list rounds to its pixel grid; anything more is a rebase inside the move (a page
         // evicted or landed above): its coordinates changed, so the move shows at once.
-        if abs(cv.contentOffset.y - Self.onGrid(y)) <= 0.01 { paceClipMove(from: before, to: cv.contentOffset.y) }
+        if abs(cv.contentOffset.y - onGrid(y)) <= 0.01 { paceClipMove(from: before, to: cv.contentOffset.y) }
         // The window view handles a scroll as the user's when the list is
         // tracking or decelerating (live scroll); scroller drags, keyboard
         // and accessibility scrolling are the user's too.
@@ -254,9 +254,9 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         updatePaceOverscan()
     }
 
-    /// The list's pixel grid (the shim rounds `contentOffset` with the same scale).
-    private static func onGrid(_ v: CGFloat) -> CGFloat {
-        let s = DisplayScale.current
+    /// The list's pixel grid (the shim rounds `contentOffset` with the same scale: its window view's, cx-3cb view-scale).
+    private func onGrid(_ v: CGFloat) -> CGFloat {
+        let s = max(1, demo?.renderScale ?? DisplayScale.current)
         return (v * s).rounded() / s
     }
 
@@ -424,7 +424,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         for a in r.layout.layoutAttributesForElements(in: rect) ?? [] where a.indexPath.item < n {
             guard let spec = r.layout.model.rows[checked: a.indexPath.item]?.spec else { continue } // checked
             switch spec.kind { case .receipt, .typing: continue; default: break }
-            if !RowBitmaps.shared.has(spec) { RowBitmaps.shared.request(spec) }
+            if !RowBitmaps.shared.has(spec, scale: r.labRenderScale) { RowBitmaps.shared.request(spec, scale: r.labRenderScale) }
         }
     }
 

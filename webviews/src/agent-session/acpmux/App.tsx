@@ -238,6 +238,8 @@ import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
+import { OfferChip } from "./offer/OfferChip";
+import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
@@ -706,6 +708,24 @@ const EditedFilesRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
 );
 
+/// An agent's offer of a parallel chat (offer/OfferChip.tsx); the reducer draws it only while
+/// the session-offer experiment is on.
+const SessionOfferRow = memo(
+  function SessionOfferRow({ row }: RowProps) {
+    if (!row.offer) return null;
+    const offerId = row.offer.offerId;
+    return (
+      <OfferChip
+        offer={row.offer}
+        onStart={() => callNative("chat.offer.start", { offerId })}
+        onDismiss={() => callNative("chat.offer.dismiss", { offerId })}
+        onOpen={(sessionId) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined)}
+      />
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
   assistant: MessageRow,
@@ -721,6 +741,7 @@ const defaultRegistry: NativeRegistry = {
   notice: NoticeRow,
   plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
+  sessionOffer: SessionOfferRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
@@ -1036,6 +1057,7 @@ export function VirtualTranscript({
   openAt,
   onAnchor,
   anchorNow,
+  onLoadOlder,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -1057,6 +1079,8 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  /// Pages older history in (canLoadOlder): asked again on each render while the view is near the top.
+  onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
@@ -1268,6 +1292,9 @@ export function VirtualTranscript({
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width });
+  /// The pane's width changed and no new content has come since: rows settling to their drawn
+  /// heights at the new width are that resize, not growth, and never glide.
+  const reflowing = useRef(false);
   const thread = useRef<HTMLDivElement>(null);
   // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
   useEffect(() => {
@@ -1545,6 +1572,11 @@ export function VirtualTranscript({
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
     const node = ref.current;
+    const rewrapped = width !== previousViewport.current.width;
+    const resized = rewrapped || height !== previousViewport.current.height;
+    if (rewrapped) reflowing.current = true;
+    else if (rows.length !== oldRows.length || rows.some((row, index) => row !== oldRows[index]))
+      reflowing.current = false;
     if (old && node) {
       // Content that shrank under the viewport has already clamped the live offset to
       // the new end; the offset recorded before this commit is where the reader was.
@@ -1578,18 +1610,26 @@ export function VirtualTranscript({
         // again by its drawn height, both before the frame paints: each step glides, and the
         // glides add up, so the text moves by what it grew. Gliding only the first step drew the
         // text an estimate's error too low, then slid it past its place, at every token.
-        const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
-        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized) glide(thread.current, step);
-      } else if (top > 0) {
+        // A resize (a window edge dragged, cx-sqj3h) reflows the rows in the same way, estimate
+        // then drawn height, at every frame of the drag: none of that glides, and a glide in
+        // flight ends, so the text sits at the end of the view on every frame.
+        if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
+        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
+          glide(thread.current, step);
+      } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
-        // so the row is found again by its id.
-        const anchor = visibleLayoutRange(old, top, 0, 0).first;
-        const id = oldRows[anchor]?.id;
-        const now = rows[anchor]?.id === id ? anchor : rows.findIndex((row) => row.id === id);
-        if (now >= 0) {
+        // so the row is found again by its id; at offset 0 too, when older history arrived above.
+        // A row older history completed (a turn cut at the page's edge) has a new id: the next row
+        // that kept its own anchors instead.
+        const first = visibleLayoutRange(old, top, 0, 0).first;
+        for (let anchor = first; anchor < Math.min(oldRows.length, first + 32); anchor++) {
+          const id = oldRows[anchor].id;
+          const now = rows[anchor]?.id === id ? anchor : rows.findIndex((row) => row.id === id);
+          if (now < 0) continue;
           const delta = layout.tops[now] - old.tops[anchor];
           if (clamped || Math.abs(delta) > 0.5) node.scrollTop = top + delta;
+          break;
         }
       }
     }
@@ -1846,6 +1886,14 @@ export function VirtualTranscript({
     }
   };
   useLayoutEffect(markTurns);
+  // Older history pages in before the reader reaches it: whenever the view is within two viewports
+  // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
+  // reader's row in place as each page lands.
+  useEffect(() => {
+    const node = ref.current;
+    if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) return;
+    if (node.scrollTop < node.clientHeight * 2) onLoadOlder().catch(() => {});
+  });
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
@@ -1862,7 +1910,17 @@ export function VirtualTranscript({
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <>
-      <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
+      <div
+        ref={ref}
+        className="acpmux-scroll"
+        role="feed"
+        aria-label={t("transcript.label")}
+        onScroll={onScroll}
+        // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
+        // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        data-fade-top={renderScroll.top > 0.5 || undefined}
+        data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
+      >
         <ThreadMinimap
           rows={rows}
           sessionId={sessionId}
@@ -1987,6 +2045,8 @@ function DefaultComposerChips({
 }) {
   const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
   const addAgent = useHarnessesPage();
+  // acpmux has answered with its harnesses: only then can the chip say none is installed.
+  const harnessesListed = useHarnessesListed();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
   const start = () => {
@@ -2030,8 +2090,10 @@ function DefaultComposerChips({
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
-      // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
+      // Add harness… (the picker's last row; the chip itself with no harness): the Harnesses page,
+      // in place, from this click's gesture.
       {...(addAgent ? { onAddAgent: addAgent } : {})}
+      harnessesListed={harnessesListed}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       pickerCatalog={picker.catalog}
@@ -2364,7 +2426,7 @@ function AcpmuxPane() {
       family: snapshot.summary?.family || snapshot.summary?.harness,
       prompts: promptCount,
     },
-    snapshot.origin !== "remote",
+    snapshot.origin !== "remote" || snapshot.answersTrust === true,
   );
   trustRefused.current = trustAsk.refused;
   const individualPermission =
@@ -2638,9 +2700,7 @@ function AcpmuxPane() {
   const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
-  // acpmux answered with its harnesses: only then does an empty catalog mean none is installed.
-  const harnessesListed = useHarnessesListed();
-  // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
+  // Add harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
   useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
@@ -3809,6 +3869,27 @@ function AcpmuxPane() {
             await client.markSide(sessionId, chat);
             await postNative("chat.sideChat", { sessionId });
           },
+          // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
+          "chat.offer.start": async ({ offerId }) => {
+            const chat = client.selectedSession;
+            const offer = client.offer(String(offerId));
+            if (!chat || !offer) throw new Error(translate("offer.failed"));
+            const cwd = offer.worktree ? await offerWorktree(callNative, offer) : offer.cwd;
+            return client.startOffer(chat, offer, cwd);
+          },
+          "chat.offer.dismiss": async ({ offerId }) => {
+            const chat = client.selectedSession;
+            if (!chat) throw new Error(translate("error.notOpen"));
+            await client.dismissOffer(chat, String(offerId));
+          },
+          // Open on a started offer: beside this chat, as a side chat opens; else here.
+          "chat.offer.open": async ({ sessionId }) => {
+            try {
+              await postNative("chat.sideChat", { sessionId: String(sessionId) });
+            } catch {
+              await persistSession(await client.select(String(sessionId)));
+            }
+          },
           // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
           // its own tab and brings this one back to the chat.
           "chat.handoff.prepare": async ({ harness }) => {
@@ -4447,6 +4528,7 @@ function AcpmuxPane() {
                                 find={quick ? undefined : find}
                                 sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
                                 canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
                                 openAt={
                                   !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
                                     ? scrollAnchor
@@ -4992,9 +5074,7 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
-              harnessesListed={harnessesListed}
               {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
-              {...(newTab.harnessHintDismissed ? { harnessHintDismissed: true } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse").then(

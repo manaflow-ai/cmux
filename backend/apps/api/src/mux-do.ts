@@ -1,9 +1,10 @@
-import type { Domain, Principal } from "@cmux/ownership"
+import type { Domain, OwnerFrame, Principal } from "@cmux/ownership"
 import { mux } from "@cmux/home-core"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
+import { brainName } from "./chief-brain/brain-do.ts"
 
 /**
  * MuxDO, one per chief (home-messaging.md sections 3 and 4.3): the chief's wake queue, run by
@@ -27,6 +28,24 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
 
   protected maySubscribe(head: mux.MuxHead, principal: Principal): boolean {
     return this.allowed(head, principal)
+  }
+
+  /**
+   * A committed wake (a new queue row, not a duplicate) of a cloud-brain chief also goes to its Durable
+   * Object brain for that conversation (chief-brain/brain-do.ts), where CHIEF_BRAIN_ENABLED is "1". The brain answers only when its owner
+   * turned it on; otherwise it returns at once. Delivery is best effort: the wake row stays in the
+   * queue until the brain (or a brain host) acks it.
+   */
+  protected afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
+    if (op !== "mux.wake" || this.env.CHIEF_BRAIN_ENABLED !== "1") return
+    const result = frames.find((f) => f.t === "result") as { value?: mux.WakeItem | null; replayed?: boolean } | undefined
+    const head = this.boundEngine?.currentState
+    const item = result?.value
+    // A chief run locally (mux.configure brain "local") is its host's alone: no second answer from here.
+    if (!item || result?.replayed || !head?.agent || !head.owner_user || head.brain !== "cloud") return
+    const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(brainName(head.agent, item.conversation)))
+    const wake = { agent: head.agent, owner: head.owner_user, conversation: item.conversation, seq: item.seq, reason: item.reason }
+    this.ctx.waitUntil(brain.wake(wake).then(() => undefined, (e: unknown) => console.warn(JSON.stringify({ msg: "chief_brain.wake_failed", agent: head.agent, error: String(e).slice(0, 200) }))))
   }
 
   /** mux.queue: the head (cursors and pending counts); wake rows come with the snapshot. */

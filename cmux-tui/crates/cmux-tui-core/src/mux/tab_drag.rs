@@ -111,11 +111,20 @@ impl TabDropEdge {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TabDragDestination {
     /// A new pane beside `pane` on `edge`, `ratio` of the split (default 1/2).
-    Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32> },
+    /// With `keep_focus` the focused pane stays focused: the new pane is not
+    /// made active (an app opening a pane for an agent, `tab-split-keep-focus-v1`).
+    Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32>, keep_focus: bool },
     /// A new strip column on `pane`'s screen after `after_column` (default:
     /// last), `width` a viewport fraction, pinned to an edge with `dock` (a
-    /// screen-edge drop: a docked column or a top or bottom dock).
-    Column { pane: PaneId, after_column: Option<SplitId>, width: f32, dock: Option<ColumnDock> },
+    /// screen-edge drop: a docked column or a top or bottom dock). `keep_focus`
+    /// as for `Split`.
+    Column {
+        pane: PaneId,
+        after_column: Option<SplitId>,
+        width: f32,
+        dock: Option<ColumnDock>,
+        keep_focus: bool,
+    },
 }
 
 impl From<TabDropEdge> for Edge {
@@ -163,19 +172,32 @@ impl TabDragDestination {
 
     fn fingerprint(self) -> Value {
         match self {
-            Self::Split { pane, edge, ratio } => serde_json::json!({
-                "kind": "split",
-                "pane": pane,
-                "edge": format!("{edge:?}"),
-                "ratio": ratio,
-            }),
-            Self::Column { pane, after_column, width, dock } => serde_json::json!({
-                "kind": "column",
-                "pane": pane,
-                "after_column": after_column,
-                "width": width,
-                "dock": dock,
-            }),
+            Self::Split { pane, edge, ratio, keep_focus } => {
+                let mut fingerprint = serde_json::json!({
+                    "kind": "split",
+                    "pane": pane,
+                    "edge": format!("{edge:?}"),
+                    "ratio": ratio,
+                });
+                // Only when set, so keys recorded before the field stay equal.
+                if keep_focus {
+                    fingerprint["keep_focus"] = Value::Bool(true);
+                }
+                fingerprint
+            }
+            Self::Column { pane, after_column, width, dock, keep_focus } => {
+                let mut fingerprint = serde_json::json!({
+                    "kind": "column",
+                    "pane": pane,
+                    "after_column": after_column,
+                    "width": width,
+                    "dock": dock,
+                });
+                if keep_focus {
+                    fingerprint["keep_focus"] = Value::Bool(true);
+                }
+                fingerprint
+            }
         }
     }
 }
@@ -211,7 +233,9 @@ impl TabDragIds {
 
 impl Mux {
     /// Move a tab into a new split beside `pane`: one atomic, undoable (on
-    /// the same screen) command for a drop on a pane edge.
+    /// the same screen) command for a drop on a pane edge. `keep_focus`
+    /// leaves the focused pane focused (`tab-split-keep-focus-v1`).
+    #[allow(clippy::too_many_arguments)]
     pub fn move_tab_to_split_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -219,13 +243,14 @@ impl Mux {
         pane: PaneId,
         edge: TabDropEdge,
         ratio: Option<f32>,
+        keep_focus: bool,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
         validate_split_ratio(ratio)?;
         self.commit_tab_drag(
             actor,
             surface,
-            TabDragDestination::Split { pane, edge, ratio },
+            TabDragDestination::Split { pane, edge, ratio, keep_focus },
             transaction,
         )
     }
@@ -272,7 +297,7 @@ impl Mux {
             }),
         };
         layout_invariants::model_result("tab.drag", &model, &kind)?;
-        let destination = TabDragDestination::Split { pane, edge, ratio };
+        let destination = TabDragDestination::Split { pane, edge, ratio, keep_focus: false };
         self.commit_tab_drag_respawning(actor, surface, pane, destination, respawn, transaction)
     }
 
@@ -299,7 +324,8 @@ impl Mux {
             );
             Ok(())
         })?;
-        let destination = TabDragDestination::Column { pane, after_column, width, dock };
+        let destination =
+            TabDragDestination::Column { pane, after_column, width, dock, keep_focus: false };
         self.commit_tab_drag_respawning(actor, surface, source, destination, respawn, transaction)
     }
 
@@ -349,13 +375,14 @@ impl Mux {
         after_column: Option<SplitId>,
         width: Option<f32>,
         dock: Option<ColumnDock>,
+        keep_focus: bool,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
         let width = validated_column_width(width)?;
         self.commit_tab_drag(
             actor,
             surface,
-            TabDragDestination::Column { pane, after_column, width, dock },
+            TabDragDestination::Column { pane, after_column, width, dock, keep_focus },
             transaction,
         )
     }
@@ -543,6 +570,49 @@ pub(crate) fn retarget_terminal_workspace(
     }
 }
 
+/// The focus a `keep_focus` split leaves in place: the active workspace, the
+/// target workspace's active screen and the target screen's active pane, as
+/// they were before the move (which makes the new pane active).
+/// Ids, not indexes: the move can close the source pane's screen.
+struct KeptFocus {
+    workspace: Option<WorkspaceId>,
+    screen: Option<ScreenId>,
+    pane: PaneId,
+}
+
+impl KeptFocus {
+    fn read(state: &State, workspace: usize, screen: usize) -> Self {
+        let target = &state.workspaces[workspace];
+        Self {
+            workspace: state.workspaces.get(state.active_workspace).map(|item| item.id),
+            screen: target.screens.get(target.active_screen).map(|item| item.id),
+            pane: target.screens[screen].active_pane,
+        }
+    }
+
+    /// Puts the focus back on the target screen (`workspace`, `screen`: its
+    /// location after the move); false (nothing changed) when the focused
+    /// pane closed in the move or no longer is on that screen, so the new
+    /// pane takes focus as without `keep_focus`.
+    fn restore(&self, state: &mut State, workspace: usize, screen: usize) -> bool {
+        if state.screen_of(self.pane) != Some((workspace, screen)) {
+            return false;
+        }
+        let active = self.workspace.and_then(|id| state.workspaces.iter().position(|w| w.id == id));
+        let target = &mut state.workspaces[workspace];
+        if let Some(index) =
+            self.screen.and_then(|id| target.screens.iter().position(|s| s.id == id))
+        {
+            target.active_screen = index;
+        }
+        target.screens[screen].active_pane = self.pane;
+        if let Some(active) = active {
+            state.active_workspace = active;
+        }
+        true
+    }
+}
+
 fn screen_location(state: &State, screen: ScreenId) -> Option<(usize, usize)> {
     state.workspaces.iter().enumerate().find_map(|(workspace, item)| {
         item.screens
@@ -582,6 +652,12 @@ pub(crate) fn apply_tab_drag(
     let source_screen = state.workspaces[source_location.0].screens[source_location.1].id;
     let target_workspace = state.workspaces[target_wi].id;
     let undoable = record_undo && target_screen == source_screen && source_tabs > 1;
+    let kept_focus = matches!(
+        destination,
+        TabDragDestination::Split { keep_focus: true, .. }
+            | TabDragDestination::Column { keep_focus: true, .. }
+    )
+    .then(|| KeptFocus::read(state, target_wi, target_si));
     let before = state.workspaces[target_wi].screens[target_si].layout_snapshot();
     {
         let screen = &mut state.workspaces[target_wi].screens[target_si];
@@ -645,7 +721,9 @@ pub(crate) fn apply_tab_drag(
                 );
             }
         }
-        screen.active_pane = ids.pane;
+        if kept_focus.is_none() {
+            screen.active_pane = ids.pane;
+        }
         screen.zoomed_pane = None;
     }
     state.insert_pane(Pane {
@@ -654,14 +732,19 @@ pub(crate) fn apply_tab_drag(
         name: None,
         tabs: Vec::new(),
         active_tab: 0,
-        active_at: mux.next_active_at(),
+        // A kept focus leaves the new pane least recent, so closing the
+        // focused pane does not move focus into it either.
+        active_at: if kept_focus.is_some() { 0 } else { mux.next_active_at() },
         focused_at: 0,
     });
     let (moved, _) = move_tab_in_state(mux, state, surface, ids.pane, 0);
     anyhow::ensure!(moved, "tab could not be moved into its new pane");
-    stamp_pane_focus(mux, state, ids.pane);
     let (target_wi, target_si) =
         screen_location(state, target_screen).context("drag destination screen disappeared")?;
+    match kept_focus {
+        Some(kept) if kept.restore(state, target_wi, target_si) => {}
+        _ => stamp_pane_focus(mux, state, ids.pane),
+    }
     if let TabDragDestination::Column { dock: Some(dock), .. } = destination {
         // Pinned after the move: the move may close the source column, and
         // the same rules as `set-column-dock` must hold on the result (one

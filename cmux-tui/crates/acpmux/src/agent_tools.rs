@@ -27,8 +27,11 @@
 //!   bundle ids for that session only.
 //! - Binaries are found next to this executable (the app's
 //!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`. A missing
-//!   binary leaves its server out. `cmux mcp serve` refuses unless
-//!   cmux.json sets `mcp.enabled`, so its server is added only then.
+//!   binary leaves its server out. Every agent chat gets `cmux mcp serve`
+//!   by default (cx-wx93i, Lawrence 2026-10-14: "give every agent chat the
+//!   cmux MCP tools by default"), so it controls cmux without a shell
+//!   command its sandbox may refuse; the settings file's `"mcp":
+//!   {"enabled": false}` turns it off (`cmux mcp serve` refuses then too).
 //! - Left out (`left_out`): remote-origin sessions (`remote_sandbox.rs`
 //!   keeps their MCP config empty on purpose), a profile or preset whose env
 //!   sets `ACPMUX_AGENT_TOOLS=0` (isolated sessions such as the Chief's
@@ -143,10 +146,15 @@ pub struct Inputs {
     /// get `request_secret` (`secret_mcp.rs`). Without the card an ask would
     /// wait with nothing to answer it.
     pub secrets: bool,
+    /// The app shows offered chats as chips ([`OFFER_TOOLS_ENV`] is `1`):
+    /// sessions get `offer_session` (`offer_mcp.rs`).
+    pub offers: bool,
 }
 
 /// Set to `1` by an app that shows the secret card (cx-ncc.42).
 pub const SECRET_TOOLS_ENV: &str = "ACPMUX_SECRET_TOOLS";
+/// Set to `1` by an app that shows offered chats as chips (cx-807da).
+pub const OFFER_TOOLS_ENV: &str = "ACPMUX_OFFER_TOOLS";
 
 impl Inputs {
     pub fn current() -> Self {
@@ -154,19 +162,16 @@ impl Inputs {
         let bin_dir = var(BIN_DIR_ENV).map(PathBuf::from).or_else(|| {
             std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf))
         });
-        let config = match var("CMUX_NEXT_CONFIG_FILE") {
-            Some(path) => PathBuf::from(path),
-            None => dirs::home_dir().unwrap_or_default().join(".config/cmux/cmux.json"),
-        };
         Inputs {
             enabled: var(SWITCH_ENV).is_none_or(|v| v != "0"),
             bin_dir,
-            cmux_json: std::fs::read_to_string(config).ok(),
+            cmux_json: crate::user_settings::text(),
             state_dir: crate::config::home().join("agent-tools"),
             cua: crate::cua_socket::from_env(),
             cua_v2: crate::cua_v2::active_dir(crate::cua_v2::dir_from_env()),
             acpmux: std::env::current_exe().ok(),
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
+            offers: var(OFFER_TOOLS_ENV).is_some_and(|v| v == "1"),
         }
     }
 }
@@ -292,8 +297,17 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
+    if let (true, Some(acpmux)) = (inputs.offers, &inputs.acpmux) {
+        // offer_session (`offer_mcp.rs`): `for_session` names the session.
+        servers.push(McpServer {
+            name: crate::offer_mcp::SERVER_NAME.into(),
+            command: acpmux.clone(),
+            args: vec!["offer-mcp".into()],
+            env: vec![],
+        });
+    }
     if let Some(cmux) = executable("cmux")
-        && inputs.cmux_json.as_deref().is_some_and(mcp_enabled)
+        && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
         servers.push(McpServer {
             name: "cmux".into(),
@@ -336,10 +350,15 @@ impl AgentTools {
             if server.name == "cmux" {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
             }
-            if server.name == crate::secret_mcp::SERVER_NAME {
+            let session_env = match server.name.as_str() {
+                crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
+                crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::SESSION_ENV),
+                _ => None,
+            };
+            if let Some(key) = session_env {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (crate::secret_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
+                    (key.to_owned(), session_id.to_owned()),
                     ("ACPMUX_SOCKET".to_owned(), socket),
                 ];
             }
@@ -425,11 +444,13 @@ fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     }
     Ok(written?)
 }
-/// Windows port: owner-only files are ACLs there (a later landing); until
-/// then no private file is written.
-#[cfg(not(unix))]
-fn write_private(_path: &Path, _bytes: &[u8]) -> anyhow::Result<()> {
-    Err(crate::platform::unsupported("private files"))
+/// Windows: the folder and the file owner-only (`owner_only.rs`).
+#[cfg(windows)]
+fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
+    crate::owner_only::create_dir_all(dir)?;
+    crate::owner_only::restrict(dir)?;
+    crate::config::write_atomic(path, bytes)
 }
 
 #[cfg(unix)]
@@ -443,18 +464,15 @@ fn is_executable(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
-/// Same rule as `cmux mcp serve` (cmux-tui `cli/mcp/config.rs`): on only when
-/// `mcp.enabled` is `true`; comments are allowed, anything unreadable is off.
-fn mcp_enabled(text: &str) -> bool {
-    let plain: String = text
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("//"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    serde_json::from_str::<Value>(&plain)
-        .ok()
-        .and_then(|doc| doc.pointer("/mcp/enabled").and_then(Value::as_bool))
-        .unwrap_or(false)
+/// Same rule as `cmux mcp serve` for an agent session (cmux-tui
+/// `cli/mcp/config.rs`): off only when the settings file says `mcp.enabled`
+/// is not `true` (`false`, or a value `serve` refuses); a missing file or
+/// key is on. An unreadable file is on too: `serve` reports the error to
+/// the agent instead of the server vanishing.
+fn mcp_disabled(text: &str) -> bool {
+    crate::user_settings::document(text)
+        .and_then(|doc| doc.pointer("/mcp/enabled").cloned())
+        .is_some_and(|v| !v.is_null() && v != Value::Bool(true))
 }
 
 /// The plugin folder for the compiled-in skills, written once per content

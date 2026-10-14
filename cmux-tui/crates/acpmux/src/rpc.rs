@@ -209,6 +209,9 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    /// Stop one of a session's background subagents (a Claude background
+    /// agent or workflow): `{sessionId, subagentSessionId}`.
+    pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
     pub const MUX_INFO: &str = "_acpmux/info";
@@ -293,6 +296,10 @@ pub mod method {
     pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
     pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
     pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
+    /// An agent offers the person a parallel chat (`hub/offers.rs`): a chip
+    /// the person accepts or dismisses with `offer_respond`.
+    pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";
+    pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";

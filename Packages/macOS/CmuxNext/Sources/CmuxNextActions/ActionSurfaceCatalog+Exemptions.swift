@@ -19,7 +19,8 @@ nonisolated extension ActionSurfaceCatalog {
         "renameWorkspace", "palette.clearWorkspaceName", "editWorkspaceDescription",
         "palette.clearWorkspaceDescription", "markWorkspaceDone", "palette.workspaceStatus",
         "palette.addWorkspaceChecklistItem", "palette.openWorkspaceTodoPane",         "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
-        "workspace.closeAll", "workspace.closeAllInAllWindows",
+        "workspace.closeAll", "workspace.closeAllInAllWindows", "workspaceGroup.closeOthers", "workspaceGroup.duplicate",
+        "window.closeOthers", "closeAllWindows",
         "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
         "palette.workspaceColor", "palette.resetWorkspaceColor", "reconnectWorkspace", "disconnectWorkspace",
         "clearWorkspaceNotifications", "workspaceGroup.newWorkspace", "workspaceGroup.rename",
@@ -43,6 +44,7 @@ nonisolated extension ActionSurfaceCatalog {
         "space.moveLeft", "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace",
         "workspace.duplicateToSpace", "workspaceGroup.moveToSpace", "space.setTheme", "space.clearTheme",
         "workspace.setTheme", "workspace.clearTheme", "terminal.setTheme", "terminal.clearTheme",
+        "workspace.setRemoteLocalhost",
         "splitRight", "newColumn", "newRow", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
         "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane", "file.open",
         "pane.toggleTabBar",
@@ -152,7 +154,7 @@ nonisolated extension ActionSurfaceCatalog {
         .guiOnly: [
             "agentHistory.show",
             "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
-            "closeAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
+            "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about",
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",
             "palette.openWorkspacePullRequests", "palette.findWork", "toggleSplitZoom", "canvasOverview",
@@ -262,6 +264,8 @@ nonisolated extension ActionSurfaceCatalog {
         .systemChange: [
             // Opens a batch of workspaces in the person's app: the person starts it (cx-rwlb).
             "workspace.importClassic",
+            // Whose localhost a workspace reaches: the person's choice only (cx-d0d.41).
+            "workspace.setRemoteLocalhost",
             "notifications.dismissal.keystroke",
             "notifications.dismissal.focus",
             "notifications.dismissal.click",
