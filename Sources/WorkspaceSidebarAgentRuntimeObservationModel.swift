@@ -17,6 +17,11 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     private(set) var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     @ObservationIgnored
     private(set) var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    /// Session identity for journal-backed lifecycle entries. Other sidebar
+    /// producers intentionally leave entries unowned so custom projections can
+    /// fail closed instead of attaching their state to a later agent session.
+    @ObservationIgnored
+    private(set) var agentLifecycleSessionIDsByPanelId: [UUID: [String: String]] = [:]
     @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
 
@@ -74,6 +79,32 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentLifecycleStatesByPanelId(_ newValue: [UUID: [String: AgentHibernationLifecycleState]]) {
         guard agentLifecycleStatesByPanelId != newValue else { return }
         agentLifecycleStatesByPanelId = newValue
+        notifyChanged()
+    }
+
+    func setAgentLifecycleSessionID(_ sessionID: String?, key: String, panelId: UUID) {
+        var next = agentLifecycleSessionIDsByPanelId
+        if let sessionID, !sessionID.isEmpty {
+            next[panelId, default: [:]][key] = sessionID
+        } else {
+            next[panelId]?.removeValue(forKey: key)
+            if next[panelId]?.isEmpty == true {
+                next.removeValue(forKey: panelId)
+            }
+        }
+        guard next != agentLifecycleSessionIDsByPanelId else { return }
+        agentLifecycleSessionIDsByPanelId = next
+        notifyChanged()
+    }
+
+    func clearAgentLifecycleSessionIDs(panelId: UUID) {
+        guard agentLifecycleSessionIDsByPanelId.removeValue(forKey: panelId) != nil else { return }
+        notifyChanged()
+    }
+
+    func clearAllAgentLifecycleSessionIDs() {
+        guard !agentLifecycleSessionIDsByPanelId.isEmpty else { return }
+        agentLifecycleSessionIDsByPanelId.removeAll()
         notifyChanged()
     }
 

@@ -57,6 +57,27 @@ public struct AgentLifecycleReducerState: Sendable, Equatable {
         return live.map(\.phase).max { $0.combinePrecedence < $1.combinePrecedence }
     }
 
+    /// The session whose live state supplies the combined phase for one
+    /// surface and agent key. Ties use the newest journal sequence so the
+    /// ownership metadata remains deterministic when sessions share a pane.
+    public func combinedSessionKey(surfaceId: String, agentKey: String) -> String? {
+        guard let bySession = sessions[surfaceId]?[agentKey] else { return nil }
+        return bySession
+            .filter { !$0.value.ended }
+            .max { lhs, rhs in
+                let lhsPhase = lhs.value.phase.combinePrecedence
+                let rhsPhase = rhs.value.phase.combinePrecedence
+                if lhsPhase != rhsPhase { return lhsPhase < rhsPhase }
+                if lhs.value.lastSequence != rhs.value.lastSequence {
+                    return lhs.value.lastSequence < rhs.value.lastSequence
+                }
+                if lhs.value.lastOccurredAtMs != rhs.value.lastOccurredAtMs {
+                    return lhs.value.lastOccurredAtMs < rhs.value.lastOccurredAtMs
+                }
+                return lhs.key < rhs.key
+            }?.key
+    }
+
     /// Full combined snapshot across all surfaces and agents.
     ///
     /// - Returns: The snapshot the projection layer diffs and applies.

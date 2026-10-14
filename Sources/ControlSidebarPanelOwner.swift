@@ -80,11 +80,17 @@ enum ControlSidebarPanelOwner {
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        sessionID: String? = nil
     ) {
         switch self {
         case .workspace(let workspace):
-            workspace.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
+            workspace.setAgentLifecycle(
+                key: key,
+                panelId: panelId,
+                lifecycle: lifecycle,
+                sessionID: sessionID
+            )
         case .dock(let dock):
             guard let panelId else { return }
             dock.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)

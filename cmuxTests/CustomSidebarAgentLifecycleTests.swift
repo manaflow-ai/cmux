@@ -20,7 +20,8 @@ struct CustomSidebarAgentLifecycleTests {
             currentSessionID: "session",
             state: .idle,
             agentSource: "claude",
-            panelLifecycles: ["claude_code": .backgroundWorkPending]
+            panelLifecycles: ["claude_code": .backgroundWorkPending],
+            lifecycleSessionIDs: ["claude_code": "session"]
         )
         #expect(lifecycle == "background_work_pending")
     }
@@ -41,7 +42,8 @@ struct CustomSidebarAgentLifecycleTests {
                 currentSessionID: "session",
                 state: .working(since: Date(timeIntervalSince1970: 1)),
                 agentSource: "codex",
-                panelLifecycles: ["codex": phase]
+                panelLifecycles: ["codex": phase],
+                lifecycleSessionIDs: ["codex": "session"]
             )
             #expect(lifecycle == expected[phase])
         }
@@ -59,14 +61,16 @@ struct CustomSidebarAgentLifecycleTests {
             currentSessionID: "session",
             state: .idle,
             agentSource: "claude",
-            panelLifecycles: panelLifecycles
+            panelLifecycles: panelLifecycles,
+            lifecycleSessionIDs: ["claude_code": "session"]
         ) == "needs_input")
         #expect(Workspace.customSidebarAgentLifecycle(
             sessionID: "session",
             currentSessionID: "session",
             state: .idle,
             agentSource: "codex",
-            panelLifecycles: panelLifecycles
+            panelLifecycles: panelLifecycles,
+            lifecycleSessionIDs: ["codex": "session"]
         ) == "running")
         #expect(Workspace.customSidebarAgentLifecycle(
             sessionID: "session",
@@ -84,14 +88,16 @@ struct CustomSidebarAgentLifecycleTests {
             currentSessionID: "ended",
             state: .ended,
             agentSource: "claude",
-            panelLifecycles: ["claude_code": .running]
+            panelLifecycles: ["claude_code": .running],
+            lifecycleSessionIDs: ["claude_code": "ended"]
         ) == nil)
         #expect(Workspace.customSidebarAgentLifecycle(
             sessionID: "unbound",
             currentSessionID: "unbound",
             state: .idle,
             agentSource: "claude",
-            panelLifecycles: nil
+            panelLifecycles: nil,
+            lifecycleSessionIDs: nil
         ) == nil)
     }
 
@@ -102,7 +108,8 @@ struct CustomSidebarAgentLifecycleTests {
         workspace.setAgentLifecycle(
             key: "claude_code",
             panelId: panelId,
-            lifecycle: .backgroundWorkPending
+            lifecycle: .backgroundWorkPending,
+            sessionID: "session"
         )
 
         #expect(Workspace.customSidebarAgentLifecycle(
@@ -110,7 +117,8 @@ struct CustomSidebarAgentLifecycleTests {
             currentSessionID: "session",
             state: .idle,
             agentSource: "claude",
-            panelLifecycles: workspace.agentLifecycleStatesByPanelId[panelId]
+            panelLifecycles: workspace.agentLifecycleStatesByPanelId[panelId],
+            lifecycleSessionIDs: workspace.agentLifecycleSessionIDsByPanelId[panelId]
         ) == "background_work_pending")
     }
 
@@ -122,6 +130,18 @@ struct CustomSidebarAgentLifecycleTests {
             state: .idle,
             agentSource: "claude",
             panelLifecycles: ["claude_code": .backgroundWorkPending]
+        ) == nil)
+    }
+
+    @Test("a current session does not inherit an older lifecycle entry")
+    func currentSessionDoesNotInheritOlderLifecycle() {
+        #expect(Workspace.customSidebarAgentLifecycle(
+            sessionID: "new-session",
+            currentSessionID: "new-session",
+            state: .idle,
+            agentSource: "claude",
+            panelLifecycles: ["claude_code": .backgroundWorkPending],
+            lifecycleSessionIDs: ["claude_code": "old-session"]
         ) == nil)
     }
 }

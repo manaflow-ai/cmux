@@ -107,7 +107,8 @@ extension Workspace {
                 },
                 state: record.state,
                 agentSource: record.agentKind.sourceName,
-                panelLifecycles: panelId.flatMap { agentLifecycleStatesByPanelId[$0] }
+                panelLifecycles: panelId.flatMap { agentLifecycleStatesByPanelId[$0] },
+                lifecycleSessionIDs: panelId.flatMap { agentLifecycleSessionIDsByPanelId[$0] }
             )
             agents.append(
                 CustomSidebarAgentSnapshot(
@@ -147,7 +148,8 @@ extension Workspace {
         currentSessionID: String?,
         state: ChatAgentState,
         agentSource: String,
-        panelLifecycles: [String: AgentHibernationLifecycleState]?
+        panelLifecycles: [String: AgentHibernationLifecycleState]?,
+        lifecycleSessionIDs: [String: String]? = nil
     ) -> String? {
         // A lifecycle belongs to the currently bound session. Avoid exposing
         // a newer session's panel state on an ended or superseded record.
@@ -155,6 +157,7 @@ extension Workspace {
         guard currentSessionID == sessionID else { return nil }
 
         let key = FeedCoordinator.lifecycleStatusKey(forSource: agentSource)
+        guard lifecycleSessionIDs?[key] == sessionID else { return nil }
         guard let lifecycle = panelLifecycles?[key] else { return nil }
         switch lifecycle {
         case .unknown: return "unknown"

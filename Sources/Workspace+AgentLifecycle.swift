@@ -504,11 +504,17 @@ extension Workspace {
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        sessionID: String? = nil
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        sidebarAgentRuntimeObservation.setAgentLifecycleSessionID(
+            sessionID,
+            key: key,
+            panelId: targetPanelId
+        )
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
             // Wake confirmation needs the report's own pane, never the
@@ -527,6 +533,7 @@ extension Workspace {
         for panelId in panelIds {
             guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
             agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
+            sidebarAgentRuntimeObservation.setAgentLifecycleSessionID(nil, key: key, panelId: panelId)
             removePanelStatusEntry(key: key, panelId: panelId)
             if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
@@ -548,6 +555,7 @@ extension Workspace {
 
     func clearAgentLifecycleStates(panelId: UUID) {
         guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
+        sidebarAgentRuntimeObservation.clearAgentLifecycleSessionIDs(panelId: panelId)
         for key in removed.keys {
             removePanelStatusEntry(key: key, panelId: panelId)
         }
@@ -573,6 +581,7 @@ extension Workspace {
         let panelIds = Array(agentLifecycleStatesByPanelId.keys)
         guard !panelIds.isEmpty else { return }
         agentLifecycleStatesByPanelId.removeAll()
+        sidebarAgentRuntimeObservation.clearAllAgentLifecycleSessionIDs()
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
         }
