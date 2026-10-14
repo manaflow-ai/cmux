@@ -176,6 +176,15 @@ class Debounce(unittest.TestCase):
         self.assertTrue(nb.superseded(runs, 11))
         self.assertFalse(nb.superseded(runs, 12))
         self.assertFalse(nb.superseded(runs, 99))  # not listed yet: wait, then look again
+        # only a run whose debounce job runs takes over: not a fork's or a next-batch/ head's (skipped there)
+        fork = {**run(13, "pull_request", 0), "head_repository": {"full_name": "fork/r"}, "head_branch": "x"}
+        stack = {**run(14, "pull_request", 0), "head_repository": {"full_name": "o/r"}, "head_branch": "next-batch/7"}
+        self.assertFalse(nb.superseded(runs + [fork, stack], 12, "o/r"))
+        self.assertTrue(nb.superseded(runs + [{**fork, "head_repository": {"full_name": "o/r"}}], 12, "o/r"))
+        # a run the full listing no longer reaches has 60 newer runs: it is superseded
+        page = [run(100 + i, "pull_request", 0) for i in range(60)]
+        self.assertTrue(nb.superseded(page, 11))
+        self.assertFalse(nb.superseded(page[:59], 11))
         self.debounce(runs, 11).dispatch.assert_not_called()
         self.debounce(runs, 12).dispatch.assert_called_once()
         # a newer event that arrives during the wait also supersedes it
