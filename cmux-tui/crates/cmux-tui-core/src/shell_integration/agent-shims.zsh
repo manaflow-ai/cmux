@@ -12,7 +12,7 @@ _cmux_tui_agent_shims_first() {
     builtin emulate -L zsh -o no_warn_create_global -o no_aliases
     builtin local dir=${CMUX_TUI_AGENT_SHIMS-}
     if [[ -n $dir && -d $dir && ${path[1]-} != "$dir" ]]; then
-        path=("$dir" "${(@)path:#$dir}")
+        path=("$dir" "${(@)path:#${~${(b)dir}}}")
     fi
     builtin return ret
 }
