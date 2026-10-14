@@ -256,8 +256,13 @@ public struct RootView: View {
             Task { await auth.selectTeam(teamID) }
         }
         live = coordinator
-        // Stop pushes to this phone before the session ends.
-        auth.willSignOut = { await PushRegistration.shared.unregister() }
+        // Before the session ends (the link closes with it): stop pushes to this phone,
+        // and ask the linked Mac to forget it (verify/phone-approvals.md).
+        auth.willSignOut = { [weak coordinator] in
+            async let push: Void = PushRegistration.shared.unregister()
+            async let unpair: Void = coordinator?.unpair() ?? ()
+            _ = await (push, unpair)
+        }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
     }

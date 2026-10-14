@@ -73,8 +73,19 @@ The first channel of every link is `auth`:
    - the device id with both keys is on the app's approved list: `{ok}`;
    - otherwise hostd emits `pair_request` to the app, sends `{pending}`, and
      waits up to 120 s for the app's next `devices` line to approve or deny.
-5. Until a link's `auth` succeeds, every other service on it, `echo`
-   included, is refused with close code `unpaired`.
+5. A channel the phone opens after `auth` waits for its outcome, at most
+   the signature and approval waits, so a link still opens its workspaces,
+   chats and Feed channels at once (fast connect). It is served only if
+   `auth` passes, and closed `unpaired` otherwise. A channel with no `auth`
+   opened before it (`echo` included) is refused `unpaired` at once.
+   hostd counts running `auth` channels in open order, so a failed one (an
+   unpair) does not refuse what another still holds.
+
+The phone opens `auth` first (`LinkPairing.open`, no round trip), then the
+`daemon` and `version` channels, then answers the challenge. Terminal, file,
+upload and browser channels open only on a link whose `auth` has opened, and
+terminals reattach (on the input lane, another stream) only after pairing
+passes.
 
 Unsupervised hostd (tests, `run-host.sh`) has no app to approve and serves
 links as before. The app always runs hostd supervised.
@@ -96,7 +107,7 @@ links as before. The app always runs hostd supervised.
   own person-proven unix connection (`CnxApproverSync`). That connection stays
   open; a new connection after a daemon restart sends the list again.
 - Settings → Mobile can show `paired` (name, paired date, key fingerprint) and
-  revoke one with `revokePhone(id:)`. Removing a phone from the account
+  revoke one with `revokePhone(id:)`, which also ends its live links. Removing a phone from the account
   (`removePhone(id:)`) also forgets it here. A phone that signs out asks to be
   forgotten (`unpaired`).
 
@@ -207,7 +218,10 @@ Following the relay rules in the repository's CLAUDE.md:
   the fake signaling server: a token alone reaches no service, a forged
   signature asks nobody, the Mac's approval opens the link, the next link
   passes at once, a new approval key asks again, unpair reaches the app, and
-  a refused phone is closed `denied`.
+  a refused phone is closed `denied`; channels opened behind `auth` wait for
+  it and are refused when it fails (`channels_opened_after_auth_wait_for_it`);
+  a failed `auth` does not refuse what another running one holds
+  (`pairing::tests::waiters_follow_every_running_auth`).
 - Swift, CnxLiveTests: the same vectors (canonical answers, payload, link
   challenge); the hub signs an allow and not a deny, and a cancelled Face ID
   sends nothing.
@@ -221,7 +235,79 @@ Following the relay rules in the repository's CLAUDE.md:
 - Settings → Mobile rows for paired phones (with Remove) are for the Mobile
   page's owner (`feat-cnx-ios-machost`): the service publishes `paired` and
   `revokePhone(id:)`.
+- The pairing prompt is an app-scope cmux dialog. While cmux is not the
+  active app, macOS may refuse its activation, and the dialog shows only when
+  the person brings cmux forward. A first pairing from the phone while the
+  person works in another app therefore waits (up to 120 s per link) with no
+  visible prompt. A system notification that opens the prompt would fix it.
+- The dialog is excluded from screen capture (`CmuxDialogCaptureExcludedHost`),
+  so the live record below has its accessibility text, not a picture.
+- The Feed marks a permission "Allowed" as soon as Allow is tapped, before
+  Face ID. A cancelled or failed Face ID puts the card back with "Not
+  approved: Face ID was cancelled."
+- acpmux refuses a paired phone's answer for a session whose mode is not one
+  of the harness's web asking modes, even when signed ("this session runs in
+  mode normal, which does not ask before it acts …"). Real harnesses declare
+  theirs; the live run's fake harness needed `webAskingModes`.
 
 ## Verification
 
-Filled in below by the live run.
+### Automated (final head)
+
+| Check | Where | Result |
+| --- | --- | --- |
+| `cargo test --workspace`, `cargo clippy --workspace --all-targets -D warnings`, `cargo fmt --check` (`cnx-ios/rust`) | local | pass (86 tests) |
+| acpmux `cargo test -p acpmux` | Blacksmith Testbox | not run: the Blacksmith CLI is not installed on this Mac |
+| CnxKit `swift build` | local, Xcode 27 | pass |
+| CnxKit `swift test` | `mini-cmuxs-mac-mini-2`, Xcode 26.3 | 238 tests in 75 suites pass (`approvals/cnxkit-swift-test.txt`); CmuxTabsKit built unpatched |
+| CmuxNextMobile CnxHost and pairing tests (`CnxHostTests`, `CnxPairingTests`) | mini, the CnxHost sources in a standalone package (stub `CmuxNextWakeups` ledger) | 20 tests pass (`approvals/mac-cnxhost-swift-test.txt`) |
+| iOS app, Production, generic iOS Simulator | local, `-jobs 4` | BUILD SUCCEEDED |
+| cmux-next Mac app | fleet job `324bc2c9589b4c5077ddf403`, commit `82c49e22a702`, `cmux DEV cnx-approvals-fin` | done (aws-m4pro-3, 13.5 min) |
+
+### Live (2026-10-14)
+
+- **Mac:** `mini-cmuxs-mac-mini-2`, the fleet build above in the `cmux` GUI
+  session, signed in with the DEBUG agent credential, Settings → Mobile on,
+  `ACPMUX_HOME` with acpmux's credit-free fake agent as the default harness
+  (`verify/scripts/approvals-mac.sh`). Approvals were raised with
+  `acpmux new -m fake "ask: …"` / `"question: …"`.
+- **Phone:** one headless simulator `cnx-approvals-fin` (iPhone 17 Pro, iOS
+  26.5), Debug build, same account, pinned to that Mac
+  (`-cnx.live.mac.<team> <id>`), `-cnx-demo approve` with a plan
+  (`verify/scripts/approvals-phone.sh`). Face ID was enrolled, matched and
+  failed with `simctl` BiometricKit notifications; Cancel was a real tap
+  (`axe`). The user's own Macs were never paired or dialed.
+- The Mac's pairing prompt was answered through its accessibility buttons,
+  as a person clicks; `debug.dialog` cannot press it.
+
+Evidence is in `verify/approvals/` (`live/`, `lock/`).
+
+| Item | Result | Evidence |
+| --- | --- | --- |
+| First pair: the Mac asks | Pass. hostd held `version` and `daemon` behind `auth`; the Mac showed "Allow “cnx-approvals-fin” to connect to this Mac?", the account, and the device key fingerprint | `live/mac-1-pair-prompt-ax.txt`, `live/mac-hostd.log`, `live/mac-app-pairing.log` |
+| Approve, then the link works | Pass. Allow → `paired`; the held channels and `acpmux`, `chief` were served; the Feed live; the next launch passed with no prompt | `live/p1-phone-2-paired-feed.png`, `live/phone-demo-steps.log` |
+| Allow needs Face ID: no match | Pass. Allow raised Face ID; a failed face and Cancel sent nothing (acpmux kept the prompt `waiting`); the card says "Not approved: Face ID was cancelled." | `live/p1-phone-3-allow-faceid.png`, `live/p1-phone-4-nomatch.png`, `live/p1-phone-5-cancelled.png` |
+| Allow needs Face ID: match | Pass. The signed allow counted: the agent replied `chose yes` | `live/p2-phone-1-allow-faceid.png`, `live/acpmux-replies.txt` |
+| Answer needs Face ID | Pass. A question answer raised Face ID and counted with exactly its answer (`{"Which branch should I deploy?": "A"}`) | `live/p2-phone-3-answer-faceid.png`, `live/p2-phone-4-answered.png` |
+| Deny unsigned | Pass. Deny went out while the Allow's Face ID sheet was still up, with no prompt of its own: `chose no` | `live/p2-phone-1-allow-faceid.png`, `live/acpmux-replies.txt` |
+| Require Face ID | Pass. With the setting on, cmux opened behind Face ID; a failed face and Cancel kept it locked; a match unlocked it; leaving for Settings and coming back locked it again. Off, it opened unlocked | `lock/1-…` to `lock/5-…` |
+| Refused key | Pass. A new phone key asked again; Don't Allow closed `auth` `denied`; the phone shows "cmux’s Mac mini (2) did not allow this iPhone"; the next link was refused in 11 ms with no new prompt, and the channels held behind it were refused `unpaired` | `live/mac-2-second-pair-prompt-ax.txt`, `live/p5-phone-1-denied.png`, `live/p6-phone-2-denied-banner.png`, `live/mac-hostd.log` |
+| Sign-out unpairs | Pass after a fix (below). The phone's `auth` `unpair` reached the app: "phone ccf5433a signed out; forgetting it", and acpmux dropped it as an approver | `live/mac-app-pairing.log` |
+
+Found and fixed during the run:
+
+1. **Simulator keys.** iOS 26.5 simulators report a Secure Enclave
+   (`SecureEnclave.isAvailable`) but refuse to make enclave keys
+   (LocalAuthentication -1020), so DEBUG simulator pairing failed.
+   `PhoneKeys` now never uses the enclave on a simulator.
+2. **Sign-out did not unpair.** The link went idle as the session ended,
+   before `signedOut()` asked the Mac to forget the phone, so the unpair never
+   left. The unpair now runs in `willSignOut`, before the session ends
+   (bounded with push unregistration to 3 s); `signedOut()` still deletes
+   the keys.
+3. **Fast connect with pairing** (merge of `feat-cnx-ios`): hostd refused the
+   channels the phone opened in parallel with `auth`. They now wait for it.
+
+Not run: an unsigned Allow from a phone against the live Mac (the phone
+never sends one); acpmux's `person_allow.rs` covers it. The acpmux suite on
+the Testbox (above).

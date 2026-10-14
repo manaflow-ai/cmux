@@ -77,8 +77,18 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
         }
     }
 
+    /// The simulator reports an enclave (`SecureEnclave.isAvailable`) but refuses to make
+    /// enclave keys (LocalAuthentication -1020), so it never uses one.
+    private static var hasEnclave: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        SecureEnclave.isAvailable
+        #endif
+    }
+
     private func key(_ account: String, presence: Bool) throws -> AnyKey {
-        if SecureEnclave.isAvailable {
+        if Self.hasEnclave {
             if let blob = try read(account) {
                 return .enclave(try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob))
             }

@@ -24,7 +24,7 @@ start)
   [[ -s $E/cfg/auth.env ]] || { echo "missing $E/cfg/auth.env"; exit 1; }
   [[ -s $AGENT ]] || { echo "missing $AGENT"; exit 1; }
   printf '{"mobile":{"allowIPhoneConnections":true}}\n' > "$CFG"
-  printf '{"harnesses":{"fake":{"argv":["python3","%s"]}},"defaultHarness":"fake","permissionPolicy":"ask"}\n' "$AGENT" > "$E/acpmux/config.json"
+  printf '{"harnesses":{"fake":{"argv":["python3","%s"]}},"defaultHarness":"fake","permissionPolicy":"ask","webAskingModes":{"fake":["normal","strict"]}}\n' "$AGENT" > "$E/acpmux/config.json"
   chmod 600 "$E/acpmux/config.json"
   open -n -a "$app" --env CMUX_NEXT_CONFIG_FILE="$CFG" --env CMUX_AUTH_CREDENTIALS_FILE="$E/cfg/auth.env" \
     --env ACPMUX_HOME="$E/acpmux"
