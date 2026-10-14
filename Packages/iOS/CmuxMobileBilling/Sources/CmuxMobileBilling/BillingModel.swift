@@ -48,6 +48,9 @@ public final class BillingModel {
     /// Transactions the server refused for good for the current account. They
     /// stay unfinished; automatic retries skip them until sign-out.
     private var rejectedTransactions: [UInt64: BillingFailure] = [:]
+    /// The last product-load outcome sent to analytics, so a reload with the
+    /// same result (after a purchase, restore or renewal) is not counted again.
+    private var lastProductsEvent: String?
 
     /// Creates the model.
     /// - Parameters:
@@ -220,6 +223,7 @@ public final class BillingModel {
     public func resetForSignOut() {
         accountGeneration += 1
         rejectedTransactions = [:]
+        lastProductsEvent = nil
         account = .idle
         offers = []
         offersFailure = nil
@@ -239,6 +243,12 @@ public final class BillingModel {
             return
         case .deferred:
             return
+        }
+        if case .pending(let productID) = purchase, productID == transaction.productID,
+           let offer = offers.first(where: { $0.product.id == productID }) {
+            // An approved Ask to Buy purchase: the App Store charged now.
+            // An awaitingServer purchase already reported its success.
+            capturePurchaseSucceeded(offer, transaction, delivery: "accepted")
         }
         if purchase.isWaiting(for: transaction.productID) {
             purchase = .completed(receipt.planID)
@@ -294,6 +304,10 @@ public final class BillingModel {
             await captureProductsFailed(reason: "no_server_products", generation: generation)
             return
         }
+        if offers.isEmpty {
+            // Show the spinner again while a retry loads.
+            offersFailure = nil
+        }
         let products: [StoreProduct]
         do {
             products = try await store.products(for: account.products.map(\.productID))
@@ -317,8 +331,11 @@ public final class BillingModel {
         } else {
             offersFailure = nil
             let loadedIDs = offers.map(\.product.id)
+            let signature = "loaded:" + loadedIDs.joined(separator: ",")
+            guard signature != lastProductsEvent else { return }
             let storefront = await store.storefrontCountryCode()
-            guard generation == accountGeneration else { return }
+            guard generation == accountGeneration, signature != lastProductsEvent else { return }
+            lastProductsEvent = signature
             capture(.productsLoaded, [
                 "product_ids": .string(loadedIDs.joined(separator: ",")),
                 "storefront": .string(storefront ?? "unknown"),
@@ -328,8 +345,11 @@ public final class BillingModel {
     }
 
     private func captureProductsFailed(reason: String, generation: Int) async {
+        let signature = "failed:" + reason
+        guard signature != lastProductsEvent else { return }
         let storefront = await store.storefrontCountryCode()
-        guard generation == accountGeneration else { return }
+        guard generation == accountGeneration, signature != lastProductsEvent else { return }
+        lastProductsEvent = signature
         capture(.productsFailed, [
             "reason": .string(reason),
             "storefront": .string(storefront ?? "unknown"),
