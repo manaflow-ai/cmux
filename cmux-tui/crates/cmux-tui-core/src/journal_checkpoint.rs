@@ -1462,7 +1462,7 @@ mod tests {
         let sealing = std::thread::spawn(move || {
             sealing_mux.seal_journal_segments(through, "client_test", "segment_writer_seal")
         });
-        prepare_entered_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        prepare_entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
 
         let ingress = crate::JournalIngress {
             producer_id: manifest.producer_id,
@@ -1486,7 +1486,7 @@ mod tests {
             );
             append_tx.send(result).unwrap();
         });
-        let append_result = append_rx.recv_timeout(std::time::Duration::from_secs(2));
+        let append_result = append_rx.recv_timeout(Duration::from_secs(2));
         release_prepare_tx.send(()).unwrap();
         append_result.expect("journal append blocked behind segment compression").unwrap();
         appending.join().unwrap();
