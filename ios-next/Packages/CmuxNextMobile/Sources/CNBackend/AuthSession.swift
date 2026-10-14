@@ -168,9 +168,12 @@ public final class AuthSession {
         }
     }
 
+    /// Shows signed-out immediately; the backend clears tokens locally and
+    /// revokes them in the background.
     public func signOut() async {
-        await backend.signOut()
         state = .signedOut
+        pendingEmail = nil
+        await backend.signOut()
     }
 
     public func deleteAccount() async throws {

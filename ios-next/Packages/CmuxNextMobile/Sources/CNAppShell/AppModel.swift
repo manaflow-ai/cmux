@@ -188,10 +188,13 @@ public final class AppModel {
             await hosts.refresh()
             reconcileSelection()
         case .signedOut:
+            appShellLog.info("signed out: sign-in shown, tearing down in the background")
+            // The sign-in screen is already up (phase follows auth.state);
+            // the link and signaling close without holding the UI.
             connection.disconnect()
-            await signaling?.stop()
             hosts.clear()
             if !isMock { preferences.selectedHostId = nil }
+            if let signaling { Task.detached { await signaling.stop() } }
         case .restoring:
             break
         }

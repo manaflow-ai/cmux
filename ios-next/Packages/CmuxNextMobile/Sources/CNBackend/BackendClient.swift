@@ -180,11 +180,15 @@ public actor BackendClient {
     }
 
     /// Revokes the refresh token (best effort) and clears local tokens.
+    /// Clears the local session at once, then revokes the refresh token in
+    /// the background (best effort) so sign-out never waits on the network.
     public func signOut() async {
-        if let refreshToken = session?.refreshToken {
-            _ = try? await send("POST", "/auth/logout", body: ["refreshToken": refreshToken], auth: true, as: EmptyPayload.self)
-        }
+        guard let captured = session else { return }
         clearSession()
+        Task {
+            let body = try? JSONEncoder().encode(["refreshToken": captured.refreshToken])
+            _ = try? await self.perform("POST", "/auth/logout", body: body, token: captured.accessToken, as: EmptyPayload.self)
+        }
     }
 
     public func me() async throws -> User {

@@ -357,8 +357,13 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         signalTask?.cancel()
         graceTask?.cancel()
         pathPollTask?.cancel()
-        for c in channels { c.close() }
-        peerConnection.close()
+        // Closing a peer connection joins WebRTC's threads; do it off the
+        // caller (often the main actor during sign-out or a host switch).
+        let pc = peerConnection
+        DispatchQueue.global(qos: .utility).async {
+            for c in channels { c.close() }
+            pc?.close()
+        }
         continuation.yield(.closed(reason: reason))
         continuation.finish()
         let signaling = self.signaling, hostId = self.hostId, sessionId = self.sessionId
