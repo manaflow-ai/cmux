@@ -322,6 +322,13 @@ struct CloudWelcomeTests {
         ) == .enable)
     }
 
+    @Test("only an additional accepted team opens Cloud for a free personal account")
+    func sharedTeamAccessRequiresMoreThanPersonalTeam() {
+        #expect(!CloudWelcomeNextStep.hasSharedTeamAccess(availableTeamCount: 0))
+        #expect(!CloudWelcomeNextStep.hasSharedTeamAccess(availableTeamCount: 1))
+        #expect(CloudWelcomeNextStep.hasSharedTeamAccess(availableTeamCount: 2))
+    }
+
     @Test("a shared team does not turn a personal free scope into Pro")
     func sharedTeamAccessOnlyOpensCloud() {
         #expect(!CloudMachinesEnablementView.shouldRequirePro(
