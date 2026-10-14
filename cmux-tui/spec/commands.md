@@ -1422,8 +1422,7 @@ Params:
 | `bytes` | `Base64` | default null | Decoded with standard base64 |
 | `paste` | `boolean` | default false | Protocol 7; conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
 
-With `terminal-input-while-creating-v1`, `terminal_id` addresses the terminal by its host id. This form is legacy:
-it has the same semantics as the resource operation `terminal.input.write` and shares its implementation. A
+With `terminal-input-while-creating-v1`, `terminal_id` addresses the terminal by its host id. A
 `split`, `new-pane`, `new-pane-right` or `new-tab` that names a caller-minted `terminal_id` makes that id
 *creating* when the daemon receives the request, before its host starts. Input for a creating id is not
 written yet: it is queued in one FIFO per id, in arrival order across connections, and the result is
@@ -1433,9 +1432,9 @@ written to it in order, before any input that arrives later. When the creation f
 first, or it has not ended 10 seconds after the first queued byte, nothing is written: each connection that
 queued bytes gets them back, in order, in one `terminal-input-unclaimed` control event
 ([events.md](events.md#terminal-input-unclaimed)) with `reason` `failed`, `cancelled`, `expired` or
-`write-failed`, so the client can give them to the terminal that has focus. A connection may queue input for
-a creating id only when it may send input under the same rules as a live `send` (the command's authority is
-unchanged). After the creation ended, `terminal_id` writes to the live terminal at once.
+`write-failed`, so the client can give them to the terminal that has focus. Authority is the same as for a live
+`send {surface}`: a local connection may queue input for a creating id; a remote relay connection may not
+send in either form (the relay refuses `send` before it is parsed). After the creation ended, `terminal_id` writes to the live terminal at once.
 
 Result:
 

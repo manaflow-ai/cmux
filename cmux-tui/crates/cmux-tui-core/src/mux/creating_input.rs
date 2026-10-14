@@ -2,7 +2,7 @@
 //!
 //! A pane or tab creation that names a caller-minted `terminal_id` registers that id as
 //! creating when the daemon receives the request, before its host starts and before the commit.
-//! Input addressed to the id (`send {terminal_id}`, `terminal.input.write`) is then kept in one
+//! Input addressed to the id (`send {terminal_id}`) is then kept in one
 //! FIFO per id, in arrival order across connections, up to [`CREATING_INPUT_LIMIT`] bytes. When
 //! the creation committed and its terminal is live, the queue is written to it in order, under
 //! the same lock as later input to the id, so queued bytes always precede live ones. A creation
