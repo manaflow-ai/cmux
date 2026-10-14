@@ -168,9 +168,23 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   filtered per line by a command allowlist (read/watch, terminal attach/input/
   resize, workspace/tab list/create/close/select, conversation and question
   commands). Command-bearing params such as spawn argv are denied.
-- `acpmux`: splice to the acpmux loopback WebSocket: one link `data` frame
-  carries exactly one WebSocket text message (a JSON value) in each direction.
+  `new-conversation-tab` is allowed only for an `agent_session` tab. The Mac
+  sets its `host` to its own agent tab host, and refuses any other host,
+  source or field.
+- `acpmux`: splice to the acpmux loopback WebSocket. One WebSocket text
+  message (a JSON value) is one write in each direction. A message above
+  256 KiB arrives as several data frames, and the receiver joins frames until
+  they parse as one JSON value (at most 32 MiB from the phone).
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
+- `upload`: `{"name","size","cwd"?}` (`size` a number or a decimal string).
+  The phone sends exactly `size` bytes as data frames. The Mac writes them to
+  a new file and answers one data frame `{"path","size"}`, then `eof`. With
+  `cwd`, which must be a folder of one of the Mac's tabs or inside a workspace
+  root, the file goes to `<cwd>/.cmux/attachments/phone-<session>/`.
+  Otherwise it goes to the host's uploads folder. A refusal (`too_large`,
+  `forbidden`, `not_found`, `bad_request`, `io`) is answered
+  `{"error","message"}` before the channel closes with that code. The name is
+  made safe, and an existing file is never replaced (`name 2.ext`, ...).
 - `echo`: test service.
 
 A service that ends normally closes its channel with `{code:"eof"}`; a

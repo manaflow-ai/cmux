@@ -58,6 +58,7 @@ extension AppServices {
             },
             computerName: { await MacName.computerName() }
         )
+        iphone.dependencies?.agentTabHost = { [weak self] in self?.agentTabs.localHost }
     }
 
     /// The account the iPhone host registers under: the selected team, else the personal space.

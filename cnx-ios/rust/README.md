@@ -157,6 +157,9 @@ target/release/cnx-hostd
 | `CNX_TUI_SOCKET` | The default session's socket when it is not `<dir>/<session>.sock` (the cmux-next app passes its own daemon's socket). |
 | `CNX_CONTROL=stdio` | Supervised mode (below): tokens and the acpmux endpoint come from stdin, events go to stdout. |
 | `CNX_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset denies every read. |
+| `CNX_AGENT_TAB_HOST` | The `agent_session.host` this Mac's app records on its own agent tabs (`install:<id>`). hostd sets it on a phone's `new-conversation-tab`. Unset refuses agent tabs from a phone. |
+| `CNX_UPLOADS_DIR` | Where `upload` writes a file that has no `cwd`, one folder per link session. Default `$CNX_STATE_DIR/uploads`. |
+| `CNX_UPLOAD_MAX_BYTES` | The largest file one `upload` accepts. Default 100 MiB. |
 | `ACPMUX_HOME` | acpmux state dir (default `~/.acpmux`); hostd reads `websocket.listen` and `websocket.token` from its `config.json` at every `acpmux` open. `CNX_ACPMUX_URL` / `CNX_ACPMUX_TOKEN` override. |
 | `CNX_INCLUDE_LOOPBACK=1` | Offer loopback candidates (same-host testing). |
 | `CNX_LOG` | tracing filter, default `info`. |
@@ -184,7 +187,8 @@ The app keeps the Stack session; hostd never sees a refresh token.
 - The app sets `CNX_TUI_SOCKET` to its own daemon socket, `CNX_DEVICE_ID` to a
   UUID kept in its Application Support folder, `CNX_DEVICE_NAME` to the
   computer name, `CNX_TEAM_ID` to the selected team or `personal-<userId>`,
-  and `CNX_FILE_ROOTS` to the chat roots. The service is the dev Worker
+  `CNX_FILE_ROOTS` to the chat roots, and `CNX_AGENT_TAB_HOST` to its agent
+  tab host (`install:<id>`). The service is the dev Worker
   (`CMUX_NEXT_CNX_API_URL` overrides it in a Debug build), for production
 sign-in too.
 
@@ -212,6 +216,12 @@ Services (default deny, `unknown_service` otherwise):
 - `file` `{path}`: an absolute path, canonicalized (symlinks resolved) and
   required to stay inside a `CNX_FILE_ROOTS` root; streams the regular file,
   then closes with `eof`.
+- `upload` `{name, size, cwd?}`: writes the next `size` bytes to a new file
+  and answers `{"path","size"}`. The file goes into
+  `<cwd>/.cmux/attachments/phone-<session>/` when `cwd` is a folder of one of
+  the daemon's tabs or inside a root, else into `CNX_UPLOADS_DIR/<session>/`.
+  It never overwrites. The name is made safe. A refusal is answered
+  `{"error","message"}`. See `../SECURITY.md`.
 
 ## Transports
 

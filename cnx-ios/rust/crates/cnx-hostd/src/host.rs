@@ -179,7 +179,7 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let peer = Peer { device_id: first.from.clone() };
+    let peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone() };
     let session_id = first.session_id.clone();
     let options = DialOptions {
         ice_servers: context.ice.servers().await,
