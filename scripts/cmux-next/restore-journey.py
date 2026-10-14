@@ -511,7 +511,7 @@ def page_html(name, base=""):
 var acted=0;
 function report(){{var p=location.pathname.replace(/^.*\\//,'/').replace(/\\.html$/,'');
 var probe=document.getElementById('probe'),ext=probe?(probe.complete&&probe.naturalWidth>0?1:0):-1,rd=-1;{read}
-new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&ext='+ext+'&rd='+rd+'&s='+acted+'&t='+Date.now();}}
+new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&ext='+ext+'&rd='+rd+'&s='+acted+'&w='+window.innerWidth+'&t='+Date.now();}}
 {act}
 setInterval(report,1000); window.addEventListener('scroll',report); window.addEventListener('pageshow',report); report();
 </script></body></html>"""
@@ -531,6 +531,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                                    "history": int(q.get("h", ["0"])[0]), "ext": int(q.get("ext", ["-1"])[0]),
                                                    "read": int(q.get("rd", ["-1"])[0]),
                                                    "self_scrolled": int(q.get("s", ["0"])[0]),
+                                                   "width": int(q.get("w", ["0"])[0]),
                                                    "at": time.time()}
             self.send_response(204)
             self.end_headers()
@@ -608,10 +609,11 @@ def seed_split():
     if not ws.get("terminal_id"):
         return
     write(ws["terminal_id"], "echo rj-split-a\n")
-    # Uneven ratios (a restore that evens splits out must fail the layout and geometry rows).
-    b = split(ws["pane_id"], "right", 0.3)
+    # Uneven ratios (a restore that evens splits out must fail the layout and geometry rows),
+    # each one inside what the 1100-point window can draw (a pane is at least ~200 points wide).
+    b = split(ws["pane_id"], "right", 0.55)
     c = b.get("pane_id") and split(b["pane_id"], "down", 0.7)
-    d = c and c.get("pane_id") and split(c["pane_id"], "right", 0.35)
+    d = c and c.get("pane_id") and split(c["pane_id"], "right", 0.45)
     for made, label in ((b, "b"), (c, "c"), (d, "d")):
         if made and made.get("terminal_id"):
             write(made["terminal_id"], f"echo rj-split-{label}\n")
@@ -619,6 +621,11 @@ def seed_split():
     e = value(cli("tab", "create", "terminal", "--workspace", ws["workspace_id"], "--pane", ws["pane_id"]))
     if e.get("terminal_id"):
         write(e["terminal_id"], "echo rj-split-e\n")
+    # A tab a person renamed, and one they pinned.
+    if e.get("tab_id"):
+        cli("tab", e["tab_id"], "rename", "--name", "rj-renamed")
+    if b and b.get("tab_id"):
+        cli("tab", b["tab_id"], "pin")
     cli("tab", ws["tab_id"], "focus")
 
 
@@ -660,6 +667,7 @@ def seed_web(base):
 
 AGENT = None
 TOP = {}  # the terminal running `top`: {"terminal": its id}
+W2 = {}  # the w2 page's CSS width at 100% zoom, before the seed zooms it
 HIST = {}  # the history tab: {"tab": its id}
 SEEDED = {}  # values from the first before-snapshot that later variants must keep
 # Clicks the page's link once it has loaded (a click before load can replace the entry instead of adding one).
@@ -714,11 +722,22 @@ def seed_w2(base):
     if not ws.get("workspace_id"):
         return
     write(ws["terminal_id"], f"echo rj-w2-marker-{RUN}\n")
-    cli("tab", "create", "browser", "--url", f"{base}/w2page", "--workspace", ws["workspace_id"], "--pane", ws["pane_id"])
+    page = value(cli("tab", "create", "browser", "--url", f"{base}/w2page", "--workspace", ws["workspace_id"], "--pane", ws["pane_id"]))
     action("moveWorkspaceToNewWindow", target=f"workspace:{ws['workspace_id']}")
     window = wait(lambda: next((w for w in (topology() or {}).get("windows", []) if w.get("workspace") == ws["workspace_id"]), None), 20)
     if window:
         rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[1]})
+    # The page zoomed in, as a person's Cmd-+, in its final window: its CSS viewport narrows.
+    if page.get("tab_id"):
+        since = time.time() + 1
+        wait(lambda: (REPORTS.get("w2page") or {}).get("at", 0) > since, 30)
+        W2["width_at_100"] = (REPORTS.get("w2page") or {}).get("width")
+        if W2["width_at_100"]:
+            # The CLI takes zoom steps only (in, out, reset), as Cmd-+ does: three steps in.
+            for _ in range(3):
+                width = (REPORTS.get("w2page") or {}).get("width", 0)
+                cli("tab", page["tab_id"], "update", "--zoom", "in")
+                wait(lambda: 0 < (REPORTS.get("w2page") or {}).get("width", 0) < width, 10)
 
 
 # Window frames (AppKit points, bottom-left origin), inside a 1080p screen's visible frame (above
@@ -918,6 +937,8 @@ def snapshot(label):
                     tp = f"{pp}.tab{t_index}"
                     kind = tab.get("kind")
                     items[f"{tp}.id"] = tab.get("id")
+                    items[f"{tp}.name"] = tab.get("name")
+                    items[f"{tp}.pinned"] = tab.get("pinned")
                     if kind == "terminal":
                         items[f"{tp}.terminal"] = tab.get("terminal")
                         items[f"{tp}.cwd"] = tab.get("cwd")
@@ -975,6 +996,8 @@ def snapshot(label):
     for page in ("hist", "tall", "w2page"):
         if page in fresh:
             items[f"page[{page}].path"] = fresh[page]["path"]
+    if "w2page" in fresh:
+        items["page[w2page].css_width"] = fresh["w2page"].get("width")
     if "hist" in fresh:
         # WebKit's own back list, as the page sees it (a person's link clicks: 3 entries).
         items["page[hist].history_length"] = fresh["hist"].get("history")
@@ -1100,6 +1123,15 @@ def must_have(item):
             or item.startswith("page["))
 
 
+def uneven(items, one, other):
+    """Two panes' drawn widths differ by more than 10 points."""
+    try:
+        widths = [int(str(items.get(f"{p}.view.size")).split("x")[0]) for p in (one, other)]
+    except ValueError:
+        return False
+    return abs(widths[0] - widths[1]) > 10
+
+
 def seeded(before):
     """FAIL rows for seed parts the before-snapshot does not show, so a seed that failed cannot
     leave an empty comparison that passes."""
@@ -1114,8 +1146,12 @@ def seeded(before):
         "agent": [("three turns", len(before.get("agent.prompts") or []) == 3),
                   ("chat tab bound to the session", (before.get("agent.tabs_bound") or 0) >= 1
                    and bool(AGENT) and before.get("agent.page.session") == AGENT["session"])],
-        "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page")],
-        "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split].")))],
+        "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page"),
+               ("w2 page zoomed in", (before.get("page[w2page].css_width") or 10**6) < (W2.get("width_at_100") or 0) * 0.9)],
+        "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split]."))),
+                  # The geometry rows only mean something if the app draws the uneven splits.
+                  ("rj-split drawn uneven", uneven(before, "ws[rj-split].s0.pane0", "ws[rj-split].s0.pane2")
+                   and uneven(before, "ws[rj-split].s0.pane2", "ws[rj-split].s0.pane3"))],
     }
     for part, rows in checks.items():
         if part in SKIP:
@@ -1148,6 +1184,10 @@ def compare(variant, before, after):
         elif item in ("top.running", "top.in_view"):
             ok = a is True and b is True
             detail = f"{b} -> {a}"
+        elif item == "page[w2page].css_width" and isinstance(a, int) and isinstance(b, int):
+            # The page's zoom: its CSS viewport width in the same window (within 2 CSS px).
+            ok = abs(a - b) <= 2 and a < (W2.get("width_at_100") or 0) * 0.9
+            detail = f"{b} -> {a} (at 100%: {W2.get('width_at_100')})"
         elif item == "page[tall].self_scrolled":
             # Only the seeded load scrolls itself; every reopened one must get its scroll from restore.
             ok = a == 0
