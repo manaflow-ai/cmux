@@ -2741,7 +2741,7 @@ impl JournalSegmentSealPlan {
             uncompressed.push(b'[');
             let mut start_sequence = None;
             let mut record_count = 0_u64;
-            let mut kinds = std::collections::BTreeSet::new();
+            let mut kinds = BTreeSet::new();
             'segment: while cursor < self.through_sequence
                 && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
             {
