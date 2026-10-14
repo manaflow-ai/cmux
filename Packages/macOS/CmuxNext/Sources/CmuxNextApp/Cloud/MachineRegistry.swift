@@ -114,7 +114,8 @@ final class MachineRegistry {
 
     /// O(1) per daemon (`DaemonStore.workspace(id:)`).
     func workspace(id: String) -> (WorkspaceModel, DaemonService)? {
-        daemons.lazy.compactMap { daemon in daemon.store.workspace(id: id).map { ($0, daemon) } }.first
+        if let workspace = local.store.workspace(id: id) { return (workspace, local) } // no daemon list for the common case
+        return remoteDaemons.lazy.compactMap { daemon in daemon.store.workspace(id: id).map { ($0, daemon) } }.first
     }
 
     /// The daemon holding pane `pane` (by object identity).
