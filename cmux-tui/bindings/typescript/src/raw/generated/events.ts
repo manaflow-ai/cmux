@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2aa331c20b3e6ca393f281f5bf1ff219ba1c48d5e9ffceb4cca2b82ef05e14f5. */
+/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
 
 
 import type * as T from "./types.js";
@@ -66,6 +66,12 @@ export type BrowserStateEvent = { event: "browser-state" } & {
   "surface": T.Id;
   "title": string;
   "url": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ChiefChangedEvent = { event: "chief-changed" } & {
+  "change": "created" | "updated" | "deleted";
+  "chief": string;
 };
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
@@ -669,6 +675,7 @@ export type KnownCmuxEvent =
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
+  | ChiefChangedEvent
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
@@ -753,6 +760,7 @@ export type KnownSubscribeEvent =
   | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
+  | ChiefChangedEvent
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
