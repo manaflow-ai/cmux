@@ -67,12 +67,15 @@ nonisolated enum SidebarDocWire {
         var look: SectionLook?
         var arrangement: Arrangement?
         var columns: Int?
+        /// Unknown names read as leading (as the reducer's own default).
+        var align: String?
+        var gap: Int?
         var room: String?
         var maxRows: Int?
         var keepsClosed: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case id, kind, title, region, look, arrangement, columns, room
+            case id, kind, title, region, look, arrangement, columns, align, gap, room
             case showsTitle = "shows_title"
             case maxRows = "max_rows"
             case keepsClosed = "keeps_closed"
@@ -89,6 +92,8 @@ nonisolated enum SidebarDocWire {
             }
             var arrangement = self.arrangement?.value ?? .list
             if let columns { arrangement.columns = columns }
+            if let align { arrangement.align = SectionArrangement.Alignment(rawValue: align) ?? .leading }
+            if let gap { arrangement.gap = gap }
             let pinned = kind == .pinned
             return SidebarDocSection(id: id, kind: kind, title: title, showsTitle: showsTitle ?? !pinned,
                                      region: region ?? (pinned ? .top : .middle), look: look ?? (pinned ? .builtIn : .list),

@@ -126,13 +126,12 @@ enum SidebarSectionHandlers {
                 .sectionUpdate(try SidebarSectionResolve.section(invocation.target, in: doc).id, SectionPatch(layout: kind))
             }
         }
-        let docLacksField: @MainActor () -> String? = { SidebarDocWiring.isActive ? SidebarSectionStrings.notInDocument : nil }
-        bind("sidebar.section.setAlignment", unavailable: docLacksField) { invocation, doc in
+        bind("sidebar.section.setAlignment") { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
             let align = invocation["align"]?.stringValue.flatMap(SectionArrangement.Alignment.init(rawValue:)) ?? .leading
             return .sectionUpdate(section.id, SectionPatch(align: align))
         }
-        bind("sidebar.section.setGap", unavailable: docLacksField) { invocation, doc in
+        bind("sidebar.section.setGap") { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
             return .sectionUpdate(section.id, SectionPatch(gap: invocation["gap"]?.intValue.map(OptionalUpdate.set) ?? .clear))
         }
@@ -167,7 +166,7 @@ enum SidebarSectionHandlers {
         bind("sidebar.section.remove") { invocation, doc in
             .sectionRemove(try SidebarSectionResolve.section(invocation.target, in: doc).id)
         }
-        bind("sidebar.layout.reset", unavailable: docLacksField) { _, _ in .reset }
+        bind("sidebar.layout.reset") { _, _ in .reset }
         // Collapse is this window's view state: no layout op.
         registry.bind("sidebar.section.toggleCollapsed", run: { [weak services = context.services] invocation in
             guard let model = services?.windows.active?.sidebar.model else { return }

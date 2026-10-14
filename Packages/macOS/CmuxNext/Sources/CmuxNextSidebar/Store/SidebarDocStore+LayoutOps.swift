@@ -11,7 +11,7 @@ public import Foundation
 extension SidebarDocStore {
     /// Why a band edit has no document op.
     public enum LayoutOpGap: Error, Hashable, Sendable {
-        /// A field the document does not store (alignment, spacing) or an edit it has no op for (reset).
+        /// An edit the document has no op for (a section that is not an item list, a non-workspace item into the workspace list).
         case unsupported
         /// The workspace list stands for the machine sections: it cannot move, be removed, be renamed or be scoped to a space.
         case workspaceList
@@ -71,7 +71,6 @@ private struct LayoutOpPlanner {
             for item in section.items { out += try add(item, to: section.id, index: Int.max) }
             return out
         case let .sectionUpdate(id, patch):
-            guard patch.align == nil, patch.gap == nil else { throw .unsupported }
             // The workspace list is every machine section: only how its rows look applies to each one.
             if id == Self.workspaces, patch.title != nil || patch.room != nil || patch.showsTitle != nil { throw .workspaceList }
             var wire: [String: Any] = [:]
@@ -80,6 +79,8 @@ private struct LayoutOpPlanner {
             if let look = patch.look { wire["look"] = look.rawValue }
             if let arrangement = patch.layout { wire["arrangement"] = arrangement.rawValue }
             if let columns = patch.columns { wire["columns"] = Self.update(columns) }
+            if let align = patch.align { wire["align"] = align.rawValue }
+            if let gap = patch.gap { wire["gap"] = Self.update(gap) }
             if let maxRows = patch.maxRows { wire["max_rows"] = Self.update(maxRows) }
             if let room = patch.room { wire["room"] = Self.update(room) }
             guard !wire.isEmpty else { return [] }
@@ -103,23 +104,30 @@ private struct LayoutOpPlanner {
         case let .itemRemoveRef(ref):
             // Every item with the ref, in any section and at any depth (a link listed in a machine section too).
             let matching = records.items.values.filter { SidebarDocProjection.ref($0.body, id: $0.id) == ref }
-            var out: [[String: Any]] = []
-            for record in matching.sorted(by: { $0.id < $1.id }) {
-                out += record.body.workspace != nil ? remove(record) : drop(record.id, op: ["op": "item.remove", "id": record.id])
-            }
-            return out
+            guard !matching.isEmpty else { return [] }
+            // A workspace has one item: out of a band it goes back to its machine section at its place
+            // (the document's item.remove_ref would drop the item, and the workspace would draw at the section's end).
+            if let workspace = matching.first(where: { $0.body.workspace != nil }) { return remove(workspace) }
+            // Anything else: the document's own op removes every item that shows the ref, in one change.
+            let gone = Set(matching.map(\.id))
+            for key in siblings.keys { siblings[key]?.removeAll { gone.contains($0) } }
+            return [["op": "item.remove_ref", "ref": ["kind": ref.kind, "value": ref.value]]]
         case let .itemUpdate(id, showsLabel):
             guard records.items[id.rawValue] != nil else { throw .unknownItem }
             return [["op": "item.update", "id": id.rawValue, "patch": ["shows_label": showsLabel]]]
         case .reset:
-            throw .unsupported
+            // The default sections again; the daemon's inverse makes it one undo step.
+            siblings = [:]
+            return [["op": "reset"]]
         }
     }
 
     private mutating func sectionAdd(_ section: LayoutSection, index: Int) -> [String: Any] {
         var wire: [String: Any] = ["id": section.id.rawValue, "kind": ["type": "custom"], "shows_title": section.showsTitle,
                                    "region": section.region.rawValue, "look": section.look.rawValue,
-                                   "arrangement": section.arrangement.layout.rawValue]
+                                   "arrangement": section.arrangement.layout.rawValue,
+                                   "align": section.arrangement.align.rawValue]
+        if let gap = section.arrangement.gap { wire["gap"] = gap }
         if let title = section.title { wire["title"] = title }
         if let columns = section.arrangement.columns { wire["columns"] = columns }
         if let maxRows = section.maxRows { wire["max_rows"] = maxRows }
