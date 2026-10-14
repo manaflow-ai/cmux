@@ -18,6 +18,7 @@ Prints one row per round and a total; exits 0 only when every round passed.
 Usage: chief-first-send-live.py --tag <tag> --app PATH [--rounds 20] [--deadline 120] [--mode both] [--keep-cache] [--out DIR]
 """
 import argparse, glob, json, os, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -44,8 +45,8 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 MUX_HOME = os.path.expanduser(f"~/.cmux/chief/isolated/{TAG}")
 OPTCHAT = os.path.join(MUX_HOME, "optchat")
 ACPMUX_HOME = os.path.join(MUX_HOME, "acpmux")
-# The app's own acpmux for its tag (AcpmuxEnvironment: ~/.acpmux/tags/<slug>).
-TAG_ACPMUX_HOME = os.path.expanduser(f"~/.acpmux/tags/{TAG}")
+# The app's own acpmux for its build (AcpmuxEnvironment: ~/.acpmux/builds/<build key>).
+TAG_ACPMUX_HOME = os.path.expanduser("~/.acpmux/builds/com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip("."))
 SCRATCH = tempfile.mkdtemp(prefix=f"chief-first-send-{TAG}-")
 os.makedirs(opts.out, exist_ok=True)
 

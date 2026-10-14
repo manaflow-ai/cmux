@@ -15,6 +15,7 @@ mod browser_tools;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod render_tool;
 mod schema;
 #[cfg(test)]
 mod tests;
@@ -377,7 +378,8 @@ impl<B: Backend> Server<B> {
     }
 
     /// Every tool: the daemon operations, the browser host's REPL ops,
-    /// `window_list`, and the app's CLI actions when the app answers.
+    /// `window_list`, `agents_snapshot`, `render`, and the app's CLI actions
+    /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
         let mut tools =
@@ -386,6 +388,7 @@ impl<B: Backend> Server<B> {
             .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
         tools.push(action_tools::window_list_tool());
         tools.push(super::agents::snapshot_tool());
+        tools.push(render_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -496,6 +499,12 @@ impl<B: Backend> Server<B> {
                 return Ok(tool_error(envelope(error, "not_run", None)));
             }
             return Ok(success(super::agents::snapshot_page(snapshot, offset, limit), false));
+        }
+        if name == render_tool::NAME {
+            return Ok(match render_tool::receipt(&arguments) {
+                Ok(receipt) => success(receipt, false),
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
