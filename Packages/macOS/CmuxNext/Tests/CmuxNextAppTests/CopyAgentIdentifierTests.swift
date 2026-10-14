@@ -13,8 +13,13 @@ struct CopyAgentIdentifierTests {
     static let action: ActionID = "agentChat.copyIdentifier"
     static let session = "0199e2c4-7f3a-7b21-9d4e-5a1b2c3d4e5f"
 
+    /// What the action copied: the fixture binds it to this recorder, not the general
+    /// pasteboard, which a headless test host cannot reach.
+    final class Copied { var text: String? }
+
     struct Fixture {
         let services: AppServices
+        let copied: Copied
         let chat: TabModel, newChat: TabModel, terminal: TabModel
         /// The chat's workspace, and one with only a terminal.
         let chatWorkspace: String, terminalWorkspace: String
@@ -26,6 +31,8 @@ struct CopyAgentIdentifierTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
+        let copied = Copied()
+        AgentChatIdentifierHandlers.bind(into: services.registry, context: AppActionContext(services: services)) { copied.text = $0 }
         var chat = TabSnapshot(surface: 1, kind: .conversation, title: "Fix the build", url: "about:blank")
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "local", session: session, harness: "claude"))
         var newChat = TabSnapshot(surface: 2, kind: .conversation, title: "New Chat", url: "about:blank")
@@ -40,7 +47,7 @@ struct CopyAgentIdentifierTests {
         let workspaces = services.machines.local.store.workspaces
         let tabs = workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
         func tab(_ surface: SurfaceID) -> TabModel { tabs.first { $0.surface == surface }! }
-        return Fixture(services: services, chat: tab(1), newChat: tab(2), terminal: tab(3),
+        return Fixture(services: services, copied: copied, chat: tab(1), newChat: tab(2), terminal: tab(3),
                        chatWorkspace: workspaces[0].id, terminalWorkspace: workspaces[1].id)
     }
 
@@ -74,30 +81,21 @@ struct CopyAgentIdentifierTests {
         let f = Self.fixture()
         #expect(Self.runs(Self.workspaceMenu(f.chatWorkspace, f.services)).contains(Self.action))
         #expect(!Self.runs(Self.workspaceMenu(f.terminalWorkspace, f.services)).contains(Self.action), "a workspace with no chat has no id to copy")
-        let pasteboard = NSPasteboard.general
-        let kept = pasteboard.string(forType: .string)
-        defer { pasteboard.clearContents(); if let kept { pasteboard.setString(kept, forType: .string) } }
-        pasteboard.clearContents()
         #expect(f.services.registry.perform(Self.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: f.chatWorkspace))))
-        #expect(pasteboard.string(forType: .string) == Self.session)
+        #expect(f.copied.text == Self.session)
     }
 
     @Test func itCopiesTheChatsAcpmuxSessionID() {
         let f = Self.fixture()
         let (services, chat, terminal) = (f.services, f.chat, f.terminal)
-        let pasteboard = NSPasteboard.general
-        let kept = pasteboard.string(forType: .string)
-        defer { pasteboard.clearContents(); if let kept { pasteboard.setString(kept, forType: .string) } }
-        pasteboard.clearContents()
-
         #expect(services.registry.perform(Self.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat.id))))
-        #expect(pasteboard.string(forType: .string) == Self.session)
+        #expect(f.copied.text == Self.session)
 
-        pasteboard.clearContents()
+        f.copied.text = nil
         let refusal = services.registry.capturingRefusal {
             _ = services.registry.perform(Self.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: terminal.id)))
         }
         #expect(refusal != nil, "a terminal says why nothing was copied")
-        #expect(pasteboard.string(forType: .string) == nil)
+        #expect(f.copied.text == nil)
     }
 }

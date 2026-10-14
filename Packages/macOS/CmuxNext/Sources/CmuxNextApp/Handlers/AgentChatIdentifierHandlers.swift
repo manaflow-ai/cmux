@@ -10,7 +10,8 @@ import Foundation
 enum AgentChatIdentifierHandlers {
     static let action: ActionID = "agentChat.copyIdentifier"
 
-    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+    /// `copy` writes the id (default the general pasteboard, `context.copy`).
+    static func bind(into registry: ActionRegistry, context: AppActionContext, copy: (@MainActor (String) -> Void)? = nil) {
         let session = { (invocation: ActionInvocation) -> String? in
             if invocation.target?.kind == .workspace {
                 return context.scope(invocation).workspace.flatMap { rowChat($0, services: context.services) }
@@ -19,7 +20,7 @@ enum AgentChatIdentifierHandlers {
         }
         registry.bind(action, invoke: { invocation in
             guard let id = session(invocation) else { return context.refuse(AgentChatIdentifierStrings.notAChat) }
-            context.copy(id)
+            (copy ?? context.copy)(id)
         })
         ActionTargetVisibility.hide(action, in: registry) { invocation in
             (invocation.target?.kind == .tab || invocation.target?.kind == .workspace) && session(invocation) == nil
