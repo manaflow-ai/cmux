@@ -699,20 +699,64 @@ public final class ConversationViewController: UIViewController {
             // anything else first applies what waited, so changes keep
             // their order.
             if liveGate.hold(change) { return }
-            if let held = liveGate.release() {
-                if change == .prepended {
-                    // An older page landed while other people's changes
-                    // waited (under the finger, or behind a page being
-                    // measured). The store holds both, so neither the live
-                    // rows nor the page's splice match the rows on screen:
-                    // one full build lands them together as a page, measured
-                    // ahead, with no motion (what waited shows in place).
-                    rebuild(change: .prepended, measured: nil, splice: nil, generation: nil, builtFrom: nil, fullBuild: true)
-                    return
-                }
-                rebuild(change: held)
+            // A page waits while the scroll indicator is scrubbed (see
+            // `ConversationPageLanding`), and pages after it join it.
+            if change == .prepended, liveGate.isHoldingPage || pageLandingWaits() {
+                liveGate.beginPageHold()
+                probeRestore("wait")
+                return
             }
-            rebuild(change: change)
+            // Anything else applying now carries a waiting page with it.
+            liveGate.endPageHold()
+            applyTranscriptChange(change)
+        }
+    }
+
+    /// Applies a transcript change, after what the live gate held.
+    private func applyTranscriptChange(_ change: ConversationStoreChange) {
+        if let held = liveGate.release() {
+            if change == .prepended {
+                // An older page landed while other people's changes
+                // waited (under the finger, or behind a page being
+                // measured). The store holds both, so neither the live
+                // rows nor the page's splice match the rows on screen:
+                // one full build lands them together as a page, measured
+                // ahead, with no motion (what waited shows in place).
+                rebuild(change: .prepended, measured: nil, splice: nil, generation: nil, builtFrom: nil, fullBuild: true)
+                return
+            }
+            rebuild(change: held)
+        }
+        rebuild(change: change)
+    }
+
+    /// Whether a landed page waits now (see `ConversationPageLanding`).
+    func pageLandingWaits() -> Bool {
+        ConversationPageLanding.waits(
+            isTracking: collectionView.isTracking,
+            isDecelerating: collectionView.isDecelerating,
+            offsetY: collectionView.contentOffset.y,
+            topInset: collectionView.adjustedContentInset.top
+        )
+    }
+
+    /// Lands a page that waited, with what waited for it, once nothing
+    /// makes it wait: it keeps the reader's anchor as any landing does.
+    func landHeldPageIfFree() {
+        guard liveGate.isHoldingPage, !pageLandingWaits() else { return }
+        liveGate.endPageHold()
+        applyTranscriptChange(.prepended)
+    }
+
+    /// From a scroll callback: lands a waiting page on the next turn of the
+    /// main run loop, outside the scroll view's own update.
+    private func scheduleHeldPageLanding() {
+        guard liveGate.isHoldingPage, !isHeldPageLandingScheduled, !pageLandingWaits() else { return }
+        isHeldPageLandingScheduled = true
+        Task { [weak self] in
+            guard let self else { return }
+            self.isHeldPageLandingScheduled = false
+            self.landHeldPageIfFree()
         }
     }
 
@@ -846,6 +890,14 @@ public final class ConversationViewController: UIViewController {
             self.probeSection(.measured, since: probeStart)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
+            // The scrub began while the page was measured: it waits, and
+            // lands measured (`layoutCache` keeps what was measured here).
+            if self.pageLandingWaits() {
+                self.liveGate.beginPageHold()
+                _ = self.liveGate.finishMeasuring()
+                self.probeRestore("wait")
+                return
+            }
             let held = self.liveGate.finishMeasuring()
             self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, builtFrom: current ? builtFrom : nil)
             // What arrived meanwhile follows the page, with its own motion
@@ -883,6 +935,7 @@ public final class ConversationViewController: UIViewController {
     static let measureAheadMinimum = 8
     private var measureGeneration = 0
     private var liveGate = ConversationLiveChangeGate()
+    private var isHeldPageLandingScheduled = false
     private var rebuildSerial = 0
 
     private var hasConfiguredHeader = false
@@ -1740,11 +1793,14 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
         // What arrived while the finger dragged applies at the lift.
         if let held = liveGate.endDragging() { rebuild(change: held) }
+        // A page that waited for a scrub lands at the lift.
+        landHeldPageIfFree()
     }
 
     public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         isPinnedToBottom = isNearBottom(tolerance: 44)
         trimHistoryIfResting()
+        landHeldPageIfFree()
     }
 
     /// A reader who scrolled back down and rests on the newest message bounds
@@ -1772,6 +1828,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             isScrollingToTop = false
         }
         maybeLoadOlder()
+        // A finger that moved back below the top lets a waiting page land.
+        scheduleHeldPageLanding()
         prefetchAroundVisibleRows()
         // Reading follows viewing (see +CatchUp), not scroll position:
         // Messages reads the whole conversation on open.
