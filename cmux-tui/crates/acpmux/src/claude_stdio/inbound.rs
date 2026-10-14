@@ -52,8 +52,27 @@ impl Translator {
                         }),
                     ));
                 }
-                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model"), "version": line.get("claude_code_version")}}})));
+                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "plugins": line.get("plugins"), "skills": line.get("skills"), "model": line.get("model"), "version": line.get("claude_code_version")}}})));
                 out.push(upd(json!({"sessionUpdate": "config_option_update", "configOptions": self.config_options_value().await})));
+                // Claude Code names its skills only here (every turn): their
+                // commands are sent again, tagged, when that changes the list.
+                if let Some(skills) = line.get("skills").and_then(Value::as_array) {
+                    *self.skills.lock().await =
+                        skills.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                    if let Some(u) = self.commands_update(false).await {
+                        out.push(upd(u));
+                    }
+                }
+            }
+            // Claude Code's whole command list after a change mid-session
+            // (skills found in a subdirectory, a reload): it replaces ours.
+            "system" if sub == "commands_changed" => {
+                if let Some(cmds) = line.get("commands").and_then(Value::as_array) {
+                    *self.slash_commands.lock().await = cmds.clone();
+                    if let Some(u) = self.commands_update(false).await {
+                        out.push(upd(u));
+                    }
+                }
             }
             "stream_event" => {
                 let ev = line.get("event").cloned().unwrap_or(Value::Null);
@@ -151,6 +170,8 @@ impl Translator {
                                 command: command.to_owned(),
                                 task: None,
                                 background: input.get("run_in_background")
+                                    == Some(&Value::Bool(true)),
+                                launched: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
                                 announced: false,
                             };
@@ -354,9 +375,10 @@ impl Translator {
                         "authMethods": [],
                         "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
                     })));
-                    if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
-                        let list: Vec<Value> = cmds.iter().map(|c| json!({"name": c.get("name"), "description": c.get("description")})).collect();
-                        out.push(upd(json!({"sessionUpdate": "available_commands_update", "availableCommands": list})));
+                    if inner.get("commands").is_some_and(Value::is_array)
+                        && let Some(u) = self.commands_update(true).await
+                    {
+                        out.push(upd(u));
                     }
                 } else if let Some(acp) = rid.strip_prefix("ctl-") {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
@@ -387,6 +409,10 @@ impl Translator {
                         ));
                     }
                 } else if let Some(acp) = rid.strip_prefix("stop-") {
+                    // A stop_task's answer (`subagent_stop`, `STOP_TASK`); the
+                    // task's end is its own event.
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    self.pending.lock().await.remove(&id.to_string());
                     out.push(super::workflows::stop_reply(acp, ok, &resp));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
@@ -530,10 +556,12 @@ impl Translator {
     /// task_started names its task and says whether it runs in the background,
     /// a task_updated may move it there (either way a `running`
     /// `background_task_update` goes out once), and a background one's
-    /// `task_notification` returns a `background_task_update`
-    /// saying how it ended (`completed`, `failed` or `stopped`), with Claude's
-    /// reason or summary when it gave one. The update goes to the session the
-    /// shell's Bash call ran in, a subagent's too.
+    /// `task_notification`, or a task_updated whose patch says it was stopped
+    /// (Claude Code may send no notification after `stop_task`), returns a
+    /// `background_task_update` saying how it ended (`completed`, `failed`
+    /// or `stopped`), with Claude's reason or summary when it gave one. The
+    /// update goes to the session the shell's Bash call ran in, a
+    /// subagent's too. A shell ends once: a later end finds no shell.
     async fn background_shell_task(&self, sub: &str, line: &Value, sid: &str) -> Option<Message> {
         let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
         let task = text("task_id");
@@ -547,6 +575,11 @@ impl Translator {
             }
         };
         let backgrounded = |at: Option<&Value>| at == Some(&Value::Bool(true));
+        // How it ended: a notification's status, or a task_updated patch's.
+        let status = match sub {
+            "task_updated" => line.pointer("/patch/status").and_then(Value::as_str),
+            _ => text("status"),
+        };
         match sub {
             "task_started" if text("task_type") == Some("local_bash") => {
                 let shell = shells.entry(tool.clone()).or_insert_with(|| BackgroundShell {
@@ -554,6 +587,7 @@ impl Translator {
                     command: text("description").unwrap_or("").to_owned(),
                     task: None,
                     background: false,
+                    launched: backgrounded(line.get("is_backgrounded")),
                     announced: false,
                 });
                 shell.task = task.map(str::to_owned).or(shell.task.take());
@@ -563,13 +597,18 @@ impl Translator {
             "task_updated" => {
                 let shell = shells.get_mut(&tool)?;
                 shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
-                return running(&tool, shell);
+                // Claude Code may send no notification after `stop_task`: a
+                // stopped task ends here. A completed or failed one waits
+                // for its notification, which carries the summary.
+                if !matches!(status, Some("stopped" | "killed")) {
+                    return running(&tool, shell);
+                }
             }
             "task_notification" => {}
             _ => return None,
         }
         let shell = shells.remove(&tool).filter(|s| s.background)?;
-        let state = match text("status") {
+        let state = match status {
             Some("failed") => "failed",
             Some("killed" | "stopped") => "stopped",
             _ => "completed",
@@ -587,7 +626,9 @@ impl Translator {
     }
 
     /// The background shells still running when Claude's stdout closed: they
-    /// ended with its process, so each is reported `stopped`.
+    /// ended with its process, so each is reported `stopped`, marked
+    /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
+    /// lists it `lost`); the update itself is what clients show.
     pub async fn end_background_shells(&self) -> Vec<Message> {
         let mut shells: Vec<_> =
             self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
@@ -595,7 +636,12 @@ impl Translator {
         shells
             .into_iter()
             .map(|(tool, shell)| {
-                shell_update(&shell, background_task_update(&tool, &shell, "stopped"))
+                let update = background_task_update(&tool, &shell, "stopped");
+                Message::notification(
+                    method::SESSION_UPDATE,
+                    json!({"sessionId": shell.sid, "update": update,
+                           "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
+                )
             })
             .collect()
     }
@@ -716,14 +762,18 @@ fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> V
 }
 
 /// The `running` update of a shell Claude runs in the background now, once
-/// per shell: the hub keeps a chat with one alive (`hub/idle.rs`). Clients
-/// note only how a shell ended.
+/// per shell, with its `origin` (`background` when it started there,
+/// `auto_backgrounded` when it moved there): the hub lists it as a process
+/// (`hub/processes.rs`) and keeps a chat with one alive (`hub/idle.rs`).
+/// Clients note only how a shell ended.
 fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
     if !shell.background || shell.announced {
         return None;
     }
     shell.announced = true;
-    Some(shell_update(shell, background_task_update(tool, shell, "running")))
+    let mut update = background_task_update(tool, shell, "running");
+    update["origin"] = json!(if shell.launched { "background" } else { "auto_backgrounded" });
+    Some(shell_update(shell, update))
 }
 
 /// `update` as a session update in the shell's session.

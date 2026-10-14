@@ -165,8 +165,13 @@ public struct DaemonLauncher: Sendable {
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
+        // An unsigned (DEV) build proves it is the app to an owner it started with this home's
+        // install key, as with its own daemon: the owner then takes its origin.confirmation.issue
+        // (a Home page's Chief create on the person's gesture). A signed build proves it by its
+        // code signature and gets no key.
+        let installKey = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)?.loadOrCreate()
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
-                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle))
+                                          installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         let environment = chiefEnvironment(processEnvironment)
         return DaemonLauncher(configuration: configuration, environment: { environment })
     }

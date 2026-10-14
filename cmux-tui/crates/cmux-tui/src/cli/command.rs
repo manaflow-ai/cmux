@@ -12,6 +12,7 @@ use serde_json::{Map, Number, Value, json};
 use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
+mod agent_message_cmd;
 mod browser;
 mod bulk_close;
 #[cfg(test)]
@@ -1333,14 +1334,7 @@ fn parse_agent(
 ) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
-        ["message", rest @ ..] => {
-            let from = flags.take("from");
-            let thread = flags.take("thread");
-            let reply_to = flags.take("reply-to");
-            Ok(CommandPlan::AgentMessage(Box::new(super::agent_message::parse_message(
-                rest, argv, from, thread, reply_to,
-            )?)))
-        }
+        ["message", rest @ ..] => agent_message_cmd::parse(rest, flags, argv),
         ["inbox", rest @ ..] => {
             let state = flags.take("state");
             let limit = flags.take("limit");

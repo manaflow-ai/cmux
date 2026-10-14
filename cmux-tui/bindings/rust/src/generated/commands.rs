@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR fbe22d31506fc5ed1307e1433a2bb7adb602fbb6f6f79d2fc4623dcce81d86d9.
+// cmux-tui mux protocol 12, IR 5b4349bcb1ec605e770ff79391600785f2978897235d7e53b93779488a6ec35a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -773,6 +773,15 @@ pub struct CloudMuxUnsubscribeRequest {
 
 #[rustfmt::skip]
 pub type CloudMuxUnsubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudParticipantAvatarGetRequest {
+    pub participant_id: String,
+}
+
+#[rustfmt::skip]
+pub type CloudParticipantAvatarGetResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -4179,6 +4188,10 @@ impl CmuxClient {
 
     pub fn cloud_mux_unsubscribe(&mut self, request: CloudMuxUnsubscribeRequest) -> Result<CloudMuxUnsubscribeResult> {
         self.execute(&CLOUD_MUX_UNSUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_participant_avatar_get(&mut self, request: CloudParticipantAvatarGetRequest) -> Result<CloudParticipantAvatarGetResult> {
+        self.execute(&CLOUD_PARTICIPANT_AVATAR_GET_METADATA, &request)
     }
 
     pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {

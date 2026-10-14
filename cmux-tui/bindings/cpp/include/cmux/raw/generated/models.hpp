@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "fbe22d31506fc5ed1307e1433a2bb7adb602fbb6f6f79d2fc4623dcce81d86d9";
+inline constexpr std::string_view kProtocolIrSha256 = "5b4349bcb1ec605e770ff79391600785f2978897235d7e53b93779488a6ec35a";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -278,6 +278,7 @@ struct CloudInboxUnsubscribeRequest;
 struct CloudMuxAckRequest;
 struct CloudMuxSubscribeRequest;
 struct CloudMuxUnsubscribeRequest;
+struct CloudParticipantAvatarGetRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
@@ -574,6 +575,7 @@ struct PairingRequestedEvent;
 struct PairingResolvedEvent;
 struct PaneAddedEvent;
 struct PaneClosedEvent;
+struct ParticipantAvatarChangedEvent;
 struct PersonalChangedEvent;
 struct ProgramStatusChangedEvent;
 struct RenderDeltaEvent;
@@ -1710,6 +1712,11 @@ struct CloudMuxWakeEvent {
     std::uint64_t seq{};
     std::optional<JsonValue> wakes{};
     friend bool operator==(const CloudMuxWakeEvent&, const CloudMuxWakeEvent&) = default;
+};
+
+struct CloudParticipantAvatarGetRequest {
+    std::string participant_id{};
+    friend bool operator==(const CloudParticipantAvatarGetRequest&, const CloudParticipantAvatarGetRequest&) = default;
 };
 
 struct CloudSessionClearRequest {
@@ -3897,6 +3904,12 @@ struct PaneSurfaceResult {
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     friend bool operator==(const PaneSurfaceResult&, const PaneSurfaceResult&) = default;
+};
+
+struct ParticipantAvatarChangedEvent {
+    std::optional<JsonValue> avatar{};
+    std::string participant{};
+    friend bool operator==(const ParticipantAvatarChangedEvent&, const ParticipantAvatarChangedEvent&) = default;
 };
 
 struct PasteImageRequest {
@@ -7207,6 +7220,12 @@ struct Codec<CloudMuxUnsubscribeRequest> {
 };
 
 template <>
+struct Codec<CloudParticipantAvatarGetRequest> {
+    static Result<Json> encode(const CloudParticipantAvatarGetRequest& value);
+    static Result<CloudParticipantAvatarGetRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudSessionClearRequest> {
     static Result<Json> encode(const CloudSessionClearRequest& value);
     static Result<CloudSessionClearRequest> decode(const Json& value);
@@ -8980,6 +8999,12 @@ template <>
 struct Codec<PaneClosedEvent> {
     static Result<Json> encode(const PaneClosedEvent& value);
     static Result<PaneClosedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ParticipantAvatarChangedEvent> {
+    static Result<Json> encode(const ParticipantAvatarChangedEvent& value);
+    static Result<ParticipantAvatarChangedEvent> decode(const Json& value);
 };
 
 template <>

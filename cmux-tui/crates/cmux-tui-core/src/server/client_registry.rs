@@ -683,6 +683,7 @@ impl ClientRegistry {
                     // (state/placement_shift.rs).
                     || capability == crate::state::placement_shift::CAPABILITY
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
+                    || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }

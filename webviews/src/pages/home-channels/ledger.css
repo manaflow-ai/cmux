@@ -1061,6 +1061,7 @@
 
 /* ---------- Agent runs: a quiet card under a Chief's reply, the run sheet over the timeline ---------- */
 .lg-run {
+  container: lg-run / inline-size;
   margin: 4px 0 2px;
   max-width: min(100%, 640px);
   border: 1px solid var(--lg-line);
@@ -1069,7 +1070,7 @@
 }
 .lg-run-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   min-height: 28px;
   padding: 0 8px;
@@ -1078,9 +1079,9 @@
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 8px;
+  column-gap: 8px;
   min-width: 0;
-  height: 28px;
+  min-height: 28px;
   padding: 0;
   border: 0;
   background: none;
@@ -1091,9 +1092,18 @@
   cursor: default;
 }
 .lg-run-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--page-text);
   font-weight: 500;
   white-space: nowrap;
+}
+.lg-run-metas {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  order: 1;
 }
 .lg-run-meta {
   color: var(--page-text-3);
@@ -1106,6 +1116,7 @@
 }
 .lg-run-open {
   flex: none;
+  height: 28px;
   font-size: var(--text-detail);
 }
 .lg-run-mark {
@@ -1208,8 +1219,29 @@
   font-size: var(--text-caption);
 }
 .lg-run-chevron {
+  order: 2;
   margin-inline-start: auto;
   color: var(--page-text-3);
+}
+/* A narrow card (its own width): "Worked for Ns" and Open stay on the first line; the step count
+   and the cost move under it as one line, never under Open. Above this width the first line holds
+   all of them (it never wraps), so a "·" never starts a line. */
+@container lg-run (max-width: 480px) {
+  .lg-run-toggle {
+    flex-wrap: wrap;
+  }
+  .lg-run-chevron {
+    order: 1;
+  }
+  .lg-run-metas {
+    order: 2;
+    flex-basis: 100%;
+    overflow: hidden;
+    padding: 0 0 6px 16px;
+  }
+  .lg-run-metas > .lg-run-meta:first-child::before {
+    content: none;
+  }
 }
 .lg-run-mark.stale {
   border-style: dashed;
@@ -1534,6 +1566,16 @@
   display: contents;
 }
 
+/* A run's author picture (participant-avatars-v1) next to its name. */
+.lg-run-author {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.lg-run-toggle > .hc-avatar {
+  margin-inline-end: 2px;
+}
+
 /* ---------- Sheets (routes.ts): one dialog, one decision ---------- */
 /* The palette's surface and the shared popup rule (a dimmed page, the solid popup surface). */
 .lg-form.ui-dialog,
@@ -1737,4 +1779,37 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* ---------- One pane at a time below 720 px of the page's own width (panes.ts) ----------
+   The list, or the open conversation with Back in its header; the hash says which. The thread and
+   run sheets then cover the conversation pane. Above it, the two-pane layout. */
+.lg-shell {
+  height: 100%;
+  container: lg-page / inline-size;
+}
+.lg-back {
+  display: none;
+}
+@container lg-page (max-width: 719.98px) {
+  .lg-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lg-page[data-pane="list"] > .lg-main,
+  .lg-page[data-pane="conversation"] > .lg-list {
+    display: none;
+  }
+  .lg-page > .lg-list {
+    border-inline-end: 0;
+  }
+  .lg-back {
+    display: inline-flex;
+    flex: none;
+    margin-inline-start: -6px;
+  }
+  .lg-sheet {
+    width: 100%;
+    border-inline-start: 0;
+    box-shadow: none;
+  }
 }
