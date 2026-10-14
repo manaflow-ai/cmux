@@ -22460,7 +22460,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only; the caller's principal must be a participant of conversation. op begin(conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?|preview?) | chunk(upload, piece, offset, data base64 <= 4 MiB decoded) | commit(upload) | cancel(upload). Cloud attachment allow list and limits (100 MB per file). Rejects: attachment_rejected. See spec/commands.md."
+    "Trusted local connections, and authenticated WebSocket connections with ws-attachments-v1; the caller's principal must be a participant of conversation. op begin(conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?|preview?) | chunk(upload, piece, offset, data base64 <= 4 MiB decoded) | commit(upload) | cancel(upload). Cloud attachment allow list and limits (100 MB per file). Rejects: attachment_rejected. See spec/commands.md."
    ]
   },
   "conversation-attachment-read": {
@@ -22572,7 +22572,78 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. variant original (default), poster or preview; length at most 4 MiB. The hash must be referenced by a message of the conversation or uploaded there by the caller. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview). See spec/commands.md."
+    "Trusted local connections, and authenticated WebSocket connections with ws-attachments-v1. variant original (default), poster or preview; length at most 4 MiB. The hash must be referenced by a message of the conversation or uploaded there by the caller. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview). See spec/commands.md."
+   ]
+  },
+  "conversation-attachment-link": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "ws-attachments-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "hash": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "variant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expires_in_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local and authenticated WebSocket connections. variant original (default), poster or preview; name follows the attachment name rule. The caller and the hash follow the conversation-attachment-read rule. path is /attachments/<token> on the daemon's WebSocket listener (HTTP GET or HEAD, one byte range), valid for expires_in_ms (10 minutes) or until a restart. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview, validation_invalid). See spec/commands.md."
    ]
   },
   "conversation-run-append": {
