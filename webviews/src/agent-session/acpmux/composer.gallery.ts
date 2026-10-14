@@ -751,36 +751,54 @@ export default agentPaneEntry({
     },
     "reasoning-claude": {
       note: "Play: Claude's reasoning menu: Low to Max with Extra High, Ultracode (with its line), Ultrathink, then Fast Mode On/Off; the chip reads Medium Fast.",
-      snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
-        configOptions: [
-          {
-            id: "effort",
-            name: "Reasoning",
-            category: "thought_level",
-            currentValue: "medium",
-            options: [
-              { value: "default", name: "Default" },
-              { value: "low", name: "Low" },
-              { value: "medium", name: "Medium" },
-              { value: "high", name: "High" },
-              { value: "xhigh", name: "Extra High" },
-              { value: "max", name: "Max" },
-              { value: "ultracode", name: "Ultracode" },
-              { value: "ultrathink", name: "Ultrathink" },
-            ],
-          },
-          {
-            id: "fast-mode",
-            name: "Fast mode",
-            category: "model_config",
-            currentValue: "on",
-            options: [
-              { value: "off", name: "Off" },
-              { value: "on", name: "On" },
-            ],
-          },
-        ],
-      }),
+      snapshot: withSummary(
+        {
+          ...chat(finished, { title: "Claude reasoning" }),
+          // Opus as Claude Code reports it with Extra High, so the menu offers Ultracode.
+          catalog: CATALOG.map((entry) =>
+            entry.id === "claude"
+              ? {
+                  ...entry,
+                  models: entry.models.map((model) =>
+                    model.id === "claude-opus-5-5"
+                      ? { ...model, efforts: ["low", "medium", "high", "xhigh", "max"] }
+                      : model,
+                  ),
+                }
+              : entry,
+          ),
+        },
+        {
+          configOptions: [
+            {
+              id: "effort",
+              name: "Reasoning",
+              category: "thought_level",
+              currentValue: "medium",
+              options: [
+                { value: "default", name: "Default" },
+                { value: "low", name: "Low" },
+                { value: "medium", name: "Medium" },
+                { value: "high", name: "High" },
+                { value: "xhigh", name: "Extra High" },
+                { value: "max", name: "Max" },
+                { value: "ultracode", name: "Ultracode" },
+                { value: "ultrathink", name: "Ultrathink" },
+              ],
+            },
+            {
+              id: "fast-mode",
+              name: "Fast mode",
+              category: "model_config",
+              currentValue: "on",
+              options: [
+                { value: "off", name: "Off" },
+                { value: "on", name: "On" },
+              ],
+            },
+          ],
+        },
+      ),
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
