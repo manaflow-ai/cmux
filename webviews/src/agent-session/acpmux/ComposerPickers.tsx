@@ -103,6 +103,8 @@ const browserSettleTimer: SettleTimer = (run, ms) => {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /** Granted folder trust and chat-wide permission state, folded into the Access menu. */
+  permissionAccess?: ComposerPermissionAccess;
   onModel(modelId: string): void;
   onMode(modeId: string): void;
   onEffort(configId: string, value: string): void;
@@ -135,6 +137,16 @@ type Props = {
   pickerCatalog?: PickerCatalog;
 };
 
+export type ComposerPermissionGrant = {
+  id: string;
+  label: string;
+  onRemove(): void;
+};
+
+export type ComposerPermissionAccess = {
+  grants: readonly ComposerPermissionGrant[];
+};
+
 /// The composer bar's controls: the
 /// permission mode (in the warning color when it skips approvals) and a
 /// Plan/Build toggle after the attach button, then at the right the context
@@ -142,6 +154,7 @@ type Props = {
 /// holds both). Each control shows only when the agent offers it.
 export function ComposerPickers({
   snapshot,
+  permissionAccess,
   onModel,
   onMode,
   onEffort,
@@ -513,6 +526,7 @@ export function ComposerPickers({
           current={mode?.id}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
+          permissionAccess={permissionAccess}
           onMode={onMode}
         />
       )}
@@ -576,6 +590,7 @@ function AccessMenu({
   current,
   sessionId,
   warning,
+  permissionAccess,
   onMode,
 }: {
   label: string;
@@ -583,8 +598,10 @@ function AccessMenu({
   current?: string;
   sessionId?: string;
   warning: string;
+  permissionAccess?: ComposerPermissionAccess;
   onMode(modeId: string): void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
@@ -598,6 +615,7 @@ function AccessMenu({
   const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
   const value = optimisticMode ?? current ?? modes[0]?.id ?? "";
   const currentMode = modes.find((choice) => choice.id === value);
+  const grants = permissionAccess?.grants ?? [];
   const pick = (next: string) => {
     setOptimistic({ sessionId, modeId: next });
     onMode(next);
@@ -609,6 +627,11 @@ function AccessMenu({
         <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
           <LockIcon />
           <span className="acpmux-mode-text">{currentMode?.name ?? label}</span>
+          {grants.length > 0 && (
+            <span className="acpmux-access-grant-count" aria-hidden="true">
+              {grants.length}
+            </span>
+          )}
           <ChevronIcon />
         </MenuButton>
         <MenuPopup
@@ -645,6 +668,24 @@ function AccessMenu({
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>
+          {grants.length > 0 && (
+            <div className="acpmux-access-grants" role="group" aria-label={t("permission.allowChat")}>
+              <div className="acpmux-access-grants-heading">{t("permission.allowChat")}</div>
+              {grants.map((grant) => (
+                <div className="acpmux-access-grant" key={grant.id}>
+                  <span className="acpmux-access-grant-label">{grant.label}</span>
+                  <button
+                    type="button"
+                    className="acpmux-access-grant-remove"
+                    aria-label={`${t("permission.revoke")}: ${grant.label}`}
+                    onClick={grant.onRemove}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </MenuPopup>
       </Menu>
     </span>
