@@ -33,7 +33,8 @@ public struct TabsRoot: View {
                 guard let id = tabs.activeTerminal?.id else { return }
                 terminals.handle(id).stepFontSize(by: Double(step))
             },
-            terminalAccessory: { id in AnyView(TerminalAccessory(handle: terminals.handle(id))) })
+            terminalAccessory: { id in AnyView(TerminalAccessory(handle: terminals.handle(id))) },
+            terminalReady: { id in terminals.handle(id).isLive })
             .onChange(of: tabs.terminals.map(\.id)) { _, ids in terminals.retain(ids) }
             .onDisappear { terminals.thumbnails.stopAll() }
     }

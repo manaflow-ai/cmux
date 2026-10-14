@@ -32,6 +32,8 @@ struct TabsScreenHost: View {
     var terminalFontStep: (Int) -> Void = { _ in }
     /// A terminal's composer row and key bar, placed above the toolbar.
     var terminalAccessory: (String) -> AnyView = { _ in AnyView(EmptyView()) }
+    /// The terminal's live view has content (else its card image covers it).
+    var terminalReady: (String) -> Bool = { _ in true }
 
     private var model: BrowserModel { tabs.browser }
 
@@ -47,7 +49,8 @@ struct TabsScreenHost: View {
                                   safeBottom: outer.safeAreaInsets.bottom,
                                   keyboard: kb > outer.safeAreaInsets.bottom + 1 ? kb : 0,
                                   terminalContent: terminalContent,
-                                  terminalAccessory: terminalAccessory, terminalFontStep: terminalFontStep)
+                                  terminalAccessory: terminalAccessory, terminalReady: terminalReady,
+                                  terminalFontStep: terminalFontStep)
                 }
                 .ignoresSafeArea()
             }
@@ -146,6 +149,8 @@ struct BrowserScreen: View {
     var terminalContent: (String, CGSize?) -> AnyView = { _, _ in AnyView(Color.black) }
     /// The open terminal's composer row and key bar (from the tabs root).
     var terminalAccessory: (String) -> AnyView = { _ in AnyView(EmptyView()) }
+    /// The terminal's live view has content (else its card image covers it).
+    var terminalReady: (String) -> Bool = { _ in true }
 
     @Environment(\.cnHostedInTabBar) private var hostedInTabBar
 
@@ -225,7 +230,9 @@ struct BrowserScreen: View {
             // the grid on the first animation frame.
             if tabs.loaded {
                 TabOverview(tabs: tabs, images: overviewImages, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome,
-                            hiddenTabId: zoomState.phase == .overview ? nil : zoomTabId,
+                            // On the settled grid the terminal layer draws the
+                            // active terminal's card live.
+                            hiddenTabId: zoomState.phase == .overview ? (tabs.activeTerminal != nil ? tabs.activeKey : nil) : zoomTabId,
                             gridInteractive: zoomState.gridInteractive,
                             controlsInteractive: overviewVisible && zoomState.headingToOverview,
                             scrollOffset: $overviewScroll, position: $overviewPosition,
@@ -244,6 +251,10 @@ struct BrowserScreen: View {
                     .accessibilityHidden(!zoomState.gridInteractive)
             }
 
+            if let terminal = tabs.activeTerminal, let key = tabs.activeKey {
+                terminalLayer(terminal.id, key: key)
+            }
+
             if zoomState.phase == .animating || zoomState.phase == .interactive {
                 // The tab's page laid out at full size, scaled and clipped
                 // to the moving rect (the rect is the tab's window).
@@ -252,16 +263,11 @@ struct BrowserScreen: View {
                 Group {
                     if let item = zoomTabId.flatMap(tabs.item), case .macOnly(let t) = item {
                         localPageScaled(MacOnlyPage(tab: t, status: tabs.browserAccess, hostName: hostName, safeTop: safeTop, safeBottom: pageBottom), g.rect)
-                    } else if content.terminal, let id = zoomTabId.flatMap(TabItem.terminalId(fromKey:)) {
-                        // The live terminal laid out at full page size, scaled to the rect.
-                        let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
-                        terminalContent(id, CGSize(width: size.width, height: size.height - safeTop - pageBottom - 64))
-                            .padding(.top, safeTop)
-                            .frame(width: size.width, height: size.height, alignment: .top)
-                            .background(Color.cn(\.terminalBackground))
-                            .scaleEffect(scale, anchor: .topLeading)
-                            .frame(width: max(1, g.rect.width), height: max(1, g.rect.height), alignment: .topLeading)
-                            .clipped()
+                    } else if content.terminal, zoomTabId != Self.newTabMarker, zoomTabId == tabs.activeKey {
+                        // The terminal layer zooms the live terminal itself
+                        // (a second TerminalContent here created a second
+                        // Ghostty view: the blink and the swapped content).
+                        Color.clear
                     } else {
                         ScaledPage(image: content.image, topColor: content.topColor, startPage: content.startPage, tabs: model.tabs,
                                    pageSize: size, safeTop: safeTop, strip: g.strip, terminal: content.terminal)
@@ -272,7 +278,7 @@ struct BrowserScreen: View {
                     // The card's close button rides its corner at full size
                     // and fades in with the zoom's progress (CardChrome).
                     .overlay(alignment: .topTrailing) {
-                        if zoomTabId != Self.newTabMarker {
+                        if zoomTabId != Self.newTabMarker, !(content.terminal && zoomTabId == tabs.activeKey) {
                             CardCloseGlyph()
                                 .padding(4)
                                 .opacity(CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: zoomState.phase == .interactive || zoomState.headingToOverview))
@@ -408,6 +414,78 @@ struct BrowserScreen: View {
 
     private var hostName: String { tabs.connection.hostInfo?.hostName ?? "" }
 
+    // MARK: Terminal layer
+
+    /// Where the active terminal is drawn: full screen on the page, the zoom's
+    /// rect while it zooms, its card on the grid (following the grid's scroll).
+    private func terminalPlacement(_ key: String) -> (rect: CGRect, radius: CGFloat, close: Double) {
+        switch zoomState.phase {
+        case .page:
+            return (fullRect, 0, 0)
+        case .overview:
+            return (cardRect(key), overviewLayout.cardRadius, zoomDriver.chrome.closeOpacity)
+        case .animating, .interactive:
+            guard zoomTabId == key else { return (cardRect(key), overviewLayout.cardRadius, zoomDriver.chrome.closeOpacity) }
+            let g = zoomGeometry()
+            let heading = zoomState.phase == .interactive || zoomState.headingToOverview
+            return (g.rect, g.radius, CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: heading))
+        }
+    }
+
+    /// A grid card's frame on screen (the grid's reported content origin).
+    private func cardRect(_ key: String) -> CGRect {
+        let index = tabs.items.firstIndex { $0.id == key } ?? 0
+        return overviewLayout.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
+    }
+
+    /// The active terminal, drawn by ONE `TerminalContent` that stays mounted
+    /// in the same place through every phase: the page, the zoom (scaled and
+    /// clipped to the moving rect; laid out once at the full page size, never
+    /// resized) and the grid (its card, live). Swapping a page view for a
+    /// zoom view made a second Ghostty controller each time (the first was
+    /// still parented), so the terminal blanked and came back as other
+    /// content. While the terminal has no renderer yet (opened from a card)
+    /// its card image covers it until it is live.
+    @ViewBuilder private func terminalLayer(_ id: String, key: String) -> some View {
+        let place = terminalPlacement(key)
+        let scale = size.width > 0 ? max(0.01, place.rect.width / size.width) : 1
+        let ready = terminalReady(id)
+        let onPage = zoomState.phase == .page && !chrome.swiping
+        ZStack(alignment: .topLeading) {
+            terminalContent(id, CGSize(width: size.width, height: size.height - safeTop - pageBottom - 64))
+                .padding(.top, safeTop)
+                .frame(width: size.width, height: size.height, alignment: .top)
+                .background(Color.cn(\.terminalBackground))
+            if !ready {
+                ScaledPage(image: overviewImages[key] ?? tabs.cardImage(key), topColor: .black, startPage: false, tabs: [],
+                           pageSize: size, safeTop: safeTop, strip: 0, terminal: true)
+                    .frame(width: size.width, height: size.height)
+                    .allowsHitTesting(false)
+            }
+        }
+        .scaleEffect(scale, anchor: .topLeading)
+        .frame(width: max(1, place.rect.width), height: max(1, place.rect.height), alignment: .topLeading)
+        .clipShape(.rect(cornerRadius: place.radius, style: .continuous))
+        .allowsHitTesting(onPage)
+        .overlay(alignment: .topTrailing) {
+            // The card's close button (drawn here because this layer covers
+            // the card); tappable on the settled grid.
+            Button {
+                withAnimation(motion.resolve(motion.reflow)) { tabs.close(key) }
+            } label: {
+                CardCloseGlyph().padding(4).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .opacity(place.close)
+            .allowsHitTesting(zoomState.phase == .overview && place.close > 0.5)
+            .accessibilityHidden(zoomState.phase != .overview)
+            .accessibilityLabel("Close \(tabs.activeItem?.title ?? "Terminal")")
+        }
+        .offset(x: place.rect.minX, y: place.rect.minY)
+        .opacity(chrome.swiping ? 0 : 1)
+        .accessibilityHidden(!onPage)
+    }
+
     /// A local page (Mac-only) laid out at full size, scaled into `rect`.
     private func localPageScaled(_ page: some View, _ rect: CGRect) -> some View {
         let scale = size.width > 0 ? max(0.01, rect.width / size.width) : 1
@@ -425,20 +503,10 @@ struct BrowserScreen: View {
             } else {
                 style.colors.startBackground
             }
-        } else if let terminal = tabs.activeTerminal, !chrome.swiping {
-            // A terminal tab: its live terminal fills the page (the terminal
-            // module's embeddable view), under the same floating toolbar.
-            // While a zoom runs the overlay draws it instead (one view per
-            // terminal at a time).
-            if zoomState.phase == .page {
-                terminalContent(terminal.id, nil)
-                    .padding(.top, safeTop)
-                    .padding(.bottom, pageBottom + 64)
-                    .frame(width: size.width, height: size.height)
-                    .background(Color.cn(\.terminalBackground))
-            } else {
-                Color.cn(\.terminalBackground)
-            }
+        } else if tabs.activeTerminal != nil, !chrome.swiping {
+            // A terminal tab: `terminalLayer` (above the grid) draws the live
+            // terminal in every phase.
+            Color.cn(\.terminalBackground)
         } else {
             browserPageLayer
         }
@@ -896,10 +964,14 @@ struct BrowserScreen: View {
         guard model.activeFrame != nil || showsStartPage,
               let n = ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_AUTO"].flatMap(Int.init) else { return }
         try? await Task.sleep(for: .seconds(3))  // recording lead-in (test script only)
+        // `CMUX_NEXT_BROWSER_AUTO_TERMINAL=1`: open the first terminal's card
+        // from the grid, then shrink it back and open it again.
+        let terminalKey = ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_AUTO_TERMINAL"] == "1"
+            ? tabs.items.first(where: \.isTerminal)?.id : nil
         for _ in 0..<n {
             openOverview()
             try? await Task.sleep(for: .seconds(1.5))
-            closeOverview(selecting: tabs.activeKey)
+            closeOverview(selecting: terminalKey ?? tabs.activeKey)
             try? await Task.sleep(for: .seconds(1.5))
         }
     }
