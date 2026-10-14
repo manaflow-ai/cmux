@@ -7,7 +7,7 @@ extension AppDelegate {
     nonisolated static func shouldReconcileWindowAfterScreenChange(
         isOnActiveSpace: Bool
     ) -> Bool {
-        true
+        isOnActiveSpace
     }
 
     nonisolated static func shouldPreserveAccessibleFrame(
