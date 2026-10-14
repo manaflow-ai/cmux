@@ -46,7 +46,9 @@ WANTED = set(opts.scenarios.split(","))
 CUA = os.path.expanduser("~/.local/bin/cua-driver")
 # One cua-driver session for every call: each `cua-driver call` otherwise gets its own implicit session, and a pixel
 # drag then has no screenshot context (job 1014-101119-0fef0c: drag replied {"code": "screenshot_context_missing"}).
-CUA_SESSION = "sbv2-drag-record"
+# A fresh label per run, started explicitly: cua-driver refuses a label whose session has ended (hitch6
+# 1014-122551-0acceb: "session has ended; tool call 'list_windows' was rejected").
+CUA_SESSION = f"sbv2-rec-{os.getpid()}-{int(time.time())}"
 APP, TAG, STOP = os.environ.get("NX_APP"), os.environ.get("NX_APP_TAG", ""), os.environ.get("NX_APP_STOP")
 SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.environ.get("NX_APP_CLI") or (APP and os.path.join(APP, "Contents/Resources/bin/cmux"))
@@ -139,6 +141,9 @@ class Target:
     @classmethod
     def find(cls):
         pid = app_pid()
+        started = cua("start_session", {})
+        if isinstance(started, dict) and started.get("error"):
+            fail_harness(f"cua-driver start_session failed: {json.dumps(started)[:300]}")
         # The window can still be ordering in after launch (hitch5 1014-112015-158e99 found none on screen): wait for it.
         listed = {}
         windows = wait(lambda: [w for w in (listed.update(cua("list_windows", {"pid": pid})) or listed.get("windows") or [])
