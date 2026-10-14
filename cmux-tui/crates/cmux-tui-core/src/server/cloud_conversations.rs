@@ -184,6 +184,10 @@ pub(super) struct RunParams {
 #[serde(deny_unknown_fields)]
 pub(super) struct AvatarParams {
     participant_id: String,
+    /// A conversation the person and the participant are both in: Cloud
+    /// answers another participant's picture only with one.
+    #[serde(default)]
+    conversation: Option<String>,
 }
 
 /// `cloud-conversation-subscribe` / `cloud-conversation-unsubscribe`.
@@ -355,7 +359,8 @@ pub(super) fn participant_avatar(
     client: u64,
     params: AvatarParams,
 ) -> anyhow::Result<Value> {
-    Ok(lease_user(mux, client)?.participant_avatar(&params.participant_id)?)
+    Ok(lease_user(mux, client)?
+        .participant_avatar(&params.participant_id, params.conversation.as_deref())?)
 }
 
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
