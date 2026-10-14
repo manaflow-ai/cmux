@@ -112,11 +112,11 @@ struct DrawerSidebar: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     section(.home, items: conversations.prefix(searching ? 50 : 6).map { c in
-                        SidebarItem(id: c.id, title: c.title, subtitle: c.lastMessage?.text, unread: c.unread > 0,
+                        SidebarItem(id: c.id, title: c.title, subtitle: c.lastMessage.map { plain($0.text) }, unread: c.unread > 0,
                                     route: CNShellRoute(kind: .conversation, id: c.id))
                     })
                     section(.agents, items: sessions.prefix(searching ? 50 : 8).map { s in
-                        SidebarItem(id: s.id, title: s.title, subtitle: s.preview, unread: AgentReadState.shared.isUnread(s),
+                        SidebarItem(id: s.id, title: plain(s.title), subtitle: s.preview.map(plain), unread: AgentReadState.shared.isUnread(s),
                                     status: Self.statusColor(s.status), route: CNShellRoute(kind: .agentSession, id: s.id))
                     })
                     // Tabs: browser tabs and terminals in one list, opening the
@@ -135,6 +135,9 @@ struct DrawerSidebar: View {
         .background(Color.cn(\.background))
         .onChange(of: drawer.isOpen) { _, open in if !open { searchFocused = false } }
     }
+
+    /// Agent and Chief text is Markdown; rows (and VoiceOver) show plain text.
+    private func plain(_ markdown: String) -> String { MarkdownPlainText()(markdown) }
 
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 

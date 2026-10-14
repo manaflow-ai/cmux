@@ -171,8 +171,10 @@ struct MarkdownParser: Sendable {
 /// Markdown reduced to one line of plain text, for previews and accessibility
 /// labels: code fences keep their code, headings, list and quote markers,
 /// emphasis, inline code ticks and link targets go, whitespace collapses.
-struct MarkdownPlainText: Sendable {
-    func callAsFunction(_ source: String) -> String {
+public struct MarkdownPlainText: Sendable {
+    public init() {}
+
+    public func callAsFunction(_ source: String) -> String {
         var parts: [String] = []
         for block in MarkdownParser().parse(source) {
             switch block {
