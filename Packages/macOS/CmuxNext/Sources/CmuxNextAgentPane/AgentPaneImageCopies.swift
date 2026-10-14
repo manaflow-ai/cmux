@@ -15,28 +15,39 @@ nonisolated enum AgentPaneImageCopies {
         "image/heic": "heic", "image/tiff": "tiff", "image/bmp": "bmp", "image/svg+xml": "svg",
     ]
 
+    /// A `data:` image's type, from its header alone: nil for another URL or type, or no base64.
+    static func type(of src: String) -> String? {
+        guard src.hasPrefix("data:"), let comma = src.firstIndex(of: ",") else { return nil }
+        let parts = src[src.index(src.startIndex, offsetBy: 5)..<comma].lowercased().split(separator: ";").map(String.init)
+        guard let type = parts.first, extensions[type] != nil, parts.contains("base64") else { return nil }
+        return type
+    }
+
     /// A `data:` image's bytes and type, nil for another URL, another type or an image too large.
     static func decode(_ src: String) -> (data: Data, type: String)? {
-        guard src.hasPrefix("data:"), let comma = src.firstIndex(of: ",") else { return nil }
-        let header = src[src.index(src.startIndex, offsetBy: 5)..<comma].lowercased()
-        let parts = header.split(separator: ";").map(String.init)
-        guard let type = parts.first, extensions[type] != nil, parts.contains("base64"),
+        guard let type = type(of: src), let comma = src.firstIndex(of: ","),
               let data = Data(base64Encoded: String(src[src.index(after: comma)...]), options: .ignoreUnknownCharacters),
               !data.isEmpty, data.count <= maximumBytes else { return nil }
         return (data, type)
     }
 
+    /// Longest name part of a copy's file name, in UTF-8 bytes (a file name holds 255).
+    static let maximumNameBytes = 200
+
     /// The copy's file name: the image's name as one plain file name (no folders, no leading dot,
-    /// "Image" when it has none), a short hash of its bytes, and its type's extension.
+    /// no control or format characters; "Image" when nothing readable is left), a short hash of its
+    /// bytes, and its type's extension.
     static func fileName(_ name: String, data: Data, type: String) -> String {
         var base = name.replacingOccurrences(of: "\\.[A-Za-z0-9]{1,5}$", with: "", options: .regularExpression)
-        base = String(base.unicodeScalars.map { scalar in
-            CharacterSet.controlCharacters.contains(scalar) || "/:\\".unicodeScalars.contains(scalar) ? "-" : Character(scalar)
-        })
-        base = base.trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
-        if base.isEmpty { base = "Image" }
+        var scalars = String.UnicodeScalarView()
+        for scalar in base.unicodeScalars where scalar.properties.generalCategory != .format {
+            scalars.append(CharacterSet.controlCharacters.contains(scalar) || "/:\\".unicodeScalars.contains(scalar) ? "-" : scalar)
+        }
+        base = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".- ").union(.whitespacesAndNewlines))
+        if !base.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { base = "Image" }
+        while base.utf8.count > maximumNameBytes { base.removeLast() }
         let hash = SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
-        return "\(base.prefix(80)) \(hash).\(extensions[type] ?? "img")"
+        return "\(base) \(hash).\(extensions[type] ?? "img")"
     }
 
     /// Writes `src`'s copy into `folder` (once per image) and returns its file.
@@ -62,32 +73,22 @@ nonisolated enum AgentPaneImageCopies {
 }
 
 extension AgentPaneImageCopies {
-    /// The image viewer's actions (``AgentPaneReplyRequest/revealImage(src:name:)`` and
+    /// The image viewer's actions (``AgentPaneReplyRequest/revealImage(src:name:path:)`` and
     /// ``AgentPaneReplyRequest/openImageInPane(src:name:)``) for `model`'s pane.
     @MainActor static func respond(to request: AgentPaneReplyRequest, in model: AgentPaneModel) async -> [String: Any] {
         switch request {
-        case .revealImage(let src, let name): return await reveal(src, name: name, in: model)
+        case .revealImage(let src, let name, let path): return await reveal(src, name: name, path: path, in: model)
         case .openImageInPane(let src, let name): return await openInPane(src, name: name, in: model)
         default: return AgentPaneModel.replyFailure(.openFailed)
         }
     }
 
-    /// `image.reveal`: the image's own file when `src` names one inside the roots (a local chat),
-    /// else its copy, selected in Finder.
-    @MainActor static func reveal(_ src: String, name: String, in model: AgentPaneModel) async -> [String: Any] {
+    /// `image.reveal`: the file `path` names when it is one inside the roots of a local chat, else
+    /// the image's copy, selected in Finder. One click covers both.
+    @MainActor static func reveal(_ src: String, name: String, path: String?, in model: AgentPaneModel) async -> [String: Any] {
         guard model.transport.gestures.consume() else { return AgentPaneModel.replyFailure(.gestureRequired) }
-        if !src.hasPrefix("data:") {
-            guard !model.remoteChat else { return AgentPaneModel.replyFailure(.pathInvalid) }
-            guard let resolved = model.replyPaths().resolve(src) else { return AgentPaneModel.replyFailure(.pathInvalid) }
-            switch resolved.place {
-            case .root: break
-            case .denied: return AgentPaneModel.replyFailure(.pathDenied)
-            case .outside: return AgentPaneModel.replyFailure(.pathOutsideRoots)
-            case .missing: return AgentPaneModel.replyFailure(.pathInvalid)
-            }
-            guard !resolved.isFolder, let canonical = AcpmuxPathPolicy.canonical(resolved.path),
-                  !model.replyPaths().isDenied(canonical) else { return AgentPaneModel.replyFailure(.pathInvalid) }
-            model.replyLinks.revealFile(URL(fileURLWithPath: canonical, isDirectory: false))
+        if let path, let file = shownFile(path, in: model) {
+            model.replyLinks.revealFile(file)
             return AgentPaneReply.success()
         }
         switch await copy(src, name: name, in: model.replyLinks.imageFolder) {
@@ -99,12 +100,20 @@ extension AgentPaneImageCopies {
         }
     }
 
+    /// The file `path` names when Finder may show it: a file (not a folder) inside the roots, not on
+    /// the deny list, in a chat on this machine. Nil otherwise (the image's copy is shown instead).
+    @MainActor static func shownFile(_ path: String, in model: AgentPaneModel) -> URL? {
+        guard !model.remoteChat, let resolved = model.replyPaths().resolve(path), resolved.place == .root,
+              !resolved.isFolder, let canonical = AcpmuxPathPolicy.canonical(resolved.path),
+              !model.replyPaths().isDenied(canonical) else { return nil }
+        return URL(fileURLWithPath: canonical, isDirectory: false)
+    }
+
     /// `image.openInPane`: a copy of the `data:` image in a cmux browser pane.
     @MainActor static func openInPane(_ src: String, name: String, in model: AgentPaneModel) async -> [String: Any] {
         guard model.transport.gestures.consume() else { return AgentPaneModel.replyFailure(.gestureRequired) }
-        guard let image = AgentPaneImageCopies.decode(src), image.type != "image/svg+xml" else {
-            return AgentPaneModel.replyFailure(.imageRefused)
-        }
+        // The type from the header alone: the copy decodes the image off the main actor.
+        guard let type = type(of: src), type != "image/svg+xml" else { return AgentPaneModel.replyFailure(.imageRefused) }
         switch await copy(src, name: name, in: model.replyLinks.imageFolder) {
         case .success(let file):
             guard let open = model.onOpenPreview, open(file) else { return AgentPaneModel.replyFailure(.openFailed) }

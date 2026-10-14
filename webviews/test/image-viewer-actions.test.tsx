@@ -1,7 +1,7 @@
 // The image viewer's Show in Finder and Open in browser tab (cx-ncc.39): the viewer asks the host
-// (AgentPaneImageCopies.swift) with the image it shows. Show in Finder names the image's file when
-// a reply read it from one, and falls back to the image itself when the host will not show that
-// file; Open in browser tab sends the image. An SVG never opens in a tab, and a refusal says so.
+// (AgentPaneImageCopies.swift) with the image it shows, in one request per click. Show in Finder
+// also names the image's file when a reply read it from one (the host shows that file, else the
+// copy); Open in browser tab sends the image. An SVG never opens in a tab, and a refusal says so.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
@@ -41,18 +41,14 @@ Object.assign(scope, replacements);
 
 type Posted = { method: string; params: Record<string, unknown> };
 const posted: Posted[] = [];
-// The host: refuses a file path (another machine's chat) when `refusePaths`, every request when
-// `refuseAll`, and answers the rest.
-let refusePaths = false;
+// The host: refuses every request when `refuseAll`, and answers the rest.
 let refuseAll = false;
 (dom.window as unknown as { webkit: unknown }).webkit = {
   messageHandlers: {
     agentSession: {
       postMessage(message: { method: string; params: Record<string, unknown> }) {
         posted.push({ method: message.method, params: message.params });
-        const src = String(message.params.src ?? "");
-        if (refuseAll || (refusePaths && !src.startsWith("data:")))
-          return Promise.resolve({ ok: false, error: { code: "link.path_invalid", message: "no" } });
+        if (refuseAll) return Promise.resolve({ ok: false, error: { code: "link.path_invalid", message: "no" } });
         return Promise.resolve({ ok: true, value: true });
       },
     },
@@ -102,18 +98,11 @@ async function click(label: string) {
   });
 }
 
-test("Show in Finder names the image's file, else the image itself", async () => {
+test("Show in Finder sends the image and the file it was read from, in one request", async () => {
   await show(0);
   posted.length = 0;
   await click("Show in Finder");
-  expect(posted).toEqual([{ method: "image.reveal", params: { src: "out/chart.png", name: "chart.png" } }]);
-
-  // The host will not show that file (another machine's chat): the image itself, as a copy.
-  refusePaths = true;
-  posted.length = 0;
-  await click("Show in Finder");
-  expect(posted.map((post) => post.params.src)).toEqual(["out/chart.png", png]);
-  refusePaths = false;
+  expect(posted).toEqual([{ method: "image.reveal", params: { src: png, name: "chart.png", path: "out/chart.png" } }]);
 
   // An image no file names goes as itself.
   await show(1);

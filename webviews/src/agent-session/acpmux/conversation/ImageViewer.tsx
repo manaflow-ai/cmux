@@ -58,17 +58,14 @@ async function dataUrl(src: string): Promise<string> {
 }
 
 /// Show in Finder (the image's file when a reply named one inside the folders, else a copy) or
-/// Open in browser tab (a copy), by the host (AgentPaneImageCopies.swift).
+/// Open in browser tab (a copy), by the host (AgentPaneImageCopies.swift): one request, so one
+/// click covers the host's fallback to the copy.
 async function imageAction(method: "image.reveal" | "image.openInPane", image: ChatImage): Promise<void> {
-  if (method === "image.reveal" && image.path) {
-    try {
-      await postNative("image.reveal", { src: image.path, name: image.alt });
-      return;
-    } catch {
-      // A file the host will not show (another machine's chat): show the copy instead.
-    }
-  }
-  await postNative(method, { src: await dataUrl(image.src), name: image.alt });
+  const src = await dataUrl(image.src);
+  await postNative(
+    method,
+    method === "image.reveal" && image.path ? { src, name: image.alt, path: image.path } : { src, name: image.alt },
+  );
 }
 
 export function ImageViewer({

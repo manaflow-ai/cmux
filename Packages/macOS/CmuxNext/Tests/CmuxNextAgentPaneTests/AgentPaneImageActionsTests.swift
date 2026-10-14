@@ -5,7 +5,8 @@ import Testing
 /// The image viewer's Show in Finder and Open in Browser Pane (cx-ncc.39): the page sends the
 /// image it shows, a `data:` URL, and the host keeps a copy named for the image with its type's
 /// extension; Finder selects it, or a browser pane opens it. An image from a file inside the
-/// roots is shown as that file. Each needs the person's click; an SVG never opens in a pane.
+/// roots of a local chat is shown as that file, else as its copy, on the same click. Each needs
+/// the person's click; an SVG never opens in a pane.
 @MainActor
 struct AgentPaneImageActionsTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -63,10 +64,20 @@ struct AgentPaneImageActionsTests {
         #expect(revealed()[1] == file)
         #expect(revealed()[2].lastPathComponent.hasPrefix("Image "))
 
+        // A name too long for a file name is cut; format characters (a right-to-left override)
+        // are dropped.
+        _ = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": String(repeating: "🖼️", count: 200)])
+        _ = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": "evil\u{202E}gnp.exe"])
+        #expect(revealed().count == 5)
+        #expect(revealed()[3].lastPathComponent.utf8.count <= 255)
+        #expect(FileManager.default.fileExists(atPath: revealed()[3].path))
+        #expect(!revealed()[4].lastPathComponent.unicodeScalars.contains("\u{202E}"))
+        #expect(revealed()[4].pathExtension == "png")
+
         // No click, no copy.
         let unclicked = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": "x"], click: false)
         #expect(Self.errorCode(unclicked) == AgentPaneReplyError.gestureRequired.rawValue)
-        #expect(revealed().count == 3)
+        #expect(revealed().count == 5)
     }
 
     @Test func openInBrowserPaneOpensTheCopyAsAFileAndNeverAnSVG() async throws {
@@ -91,7 +102,7 @@ struct AgentPaneImageActionsTests {
         #expect(opened().count == 1)
     }
 
-    @Test func anImageFromAFileInsideTheRootsIsShownAsThatFile() async throws {
+    @Test func anImageFromAFileInsideTheRootsIsShownAsThatFileElseAsItsCopy() async throws {
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let (model, revealed, _) = Self.model(folder)
@@ -100,19 +111,29 @@ struct AgentPaneImageActionsTests {
         let shot = project.appendingPathComponent("shot.png")
         try Self.png.write(to: shot)
         model.workspaceRoots = { [project.path] }
+        let isCopy = { (url: URL) in url.deletingLastPathComponent().lastPathComponent == "copies" }
 
-        let reply = await Self.ask(model, "image.reveal", ["src": shot.path, "name": "shot.png"])
+        let reply = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": "shot.png", "path": shot.path])
         #expect(Self.errorCode(reply) == nil, "\(reply)")
         #expect(revealed().map { $0.resolvingSymlinksInPath().path } == [shot.resolvingSymlinksInPath().path])
 
-        // A file outside the roots, or any path in a chat on another machine, is not shown.
+        // A file outside the roots, a folder, a missing file, or any path in a chat on another
+        // machine: the image's copy instead, on the same single click.
         let outside = folder.appendingPathComponent("elsewhere.png")
         try Self.png.write(to: outside)
-        let refused = await Self.ask(model, "image.reveal", ["src": outside.path, "name": "x"])
-        #expect(Self.errorCode(refused) == AgentPaneReplyError.pathOutsideRoots.rawValue)
+        for path in [outside.path, project.path, project.appendingPathComponent("gone.png").path] {
+            let fallback = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": "x", "path": path])
+            #expect(Self.errorCode(fallback) == nil, "\(path): \(fallback)")
+        }
         model.remoteChat = true
-        let remote = await Self.ask(model, "image.reveal", ["src": shot.path, "name": "x"])
-        #expect(Self.errorCode(remote) == AgentPaneReplyError.pathInvalid.rawValue)
-        #expect(revealed().count == 1)
+        let remote = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": "x", "path": shot.path])
+        #expect(Self.errorCode(remote) == nil, "\(remote)")
+        #expect(revealed().count == 5)
+        #expect(revealed().dropFirst().allSatisfy(isCopy))
+
+        // The image itself is required: a path alone is not a request.
+        let pathOnly = await Self.ask(model, "image.reveal", ["src": shot.path, "name": "x"])
+        #expect(Self.errorCode(pathOnly) != nil)
+        #expect(revealed().count == 5)
     }
 }
