@@ -16,7 +16,7 @@ export type SpeedSection = {
 };
 
 /// The reasoning chip and its menu (Lawrence 2026-10-09, MonoCode's picker): a Reasoning section
-/// with one checked row per level the model offers and a line under a level that needs one
+/// with one checked row per level the model offers and a short note beside a level that needs one
 /// (Ultracode); then the speed section when the agent has one.
 /// The chip names the level, plus "Fast" while fast mode is on. The menu is the shared popup
 /// layer's opaque surface (ui/Menu), so nothing shows through it. Picking sends chat.effort
@@ -62,16 +62,23 @@ export function EffortPicker({
     });
     return () => cancelAnimationFrame(frame);
   }, [open]);
+  // One line per row, as a native menu: the check in its own leading gutter (empty when the row is
+  // not chosen, so every label starts at the same x), the label, and a level's short note (Ultracode)
+  // in secondary text on the same line, its full text in the tooltip when the menu clips it.
   const row = (choice: Choice) => (
     <MenuRadioItem key={choice.id} value={choice.id} className="acpmux-effort-item">
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="flex items-center gap-1.5">
-          <span className="acpmux-menu-label">{choice.name}</span>
-          {choice.hint && (
-            <span className="rounded border-[0.5px] border-edge px-1 text-caption text-dim">{choice.hint}</span>
-          )}
-        </span>
-        {choice.description && <span className="text-detail text-dim">{choice.description}</span>}
+      <span className="acpmux-effort-text">
+        <span className="acpmux-menu-label">{choice.name}</span>
+        {choice.hint && (
+          <span className="acpmux-effort-hint rounded border-[0.5px] border-edge px-1 text-caption text-dim">
+            {choice.hint}
+          </span>
+        )}
+        {choice.description && (
+          <span className="acpmux-effort-detail" title={choice.description}>
+            {choice.description}
+          </span>
+        )}
       </span>
     </MenuRadioItem>
   );
