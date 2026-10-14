@@ -1394,12 +1394,15 @@ struct MachineUsageReadoutTests {
         #expect(fact?.contains(line) == true, "compact usage follows the name on the same line")
         #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")
     }
+}
 
-    // MARK: - Realtime `vms` stream
+// MARK: - Realtime `vms` stream
+
+@MainActor
+final class MachinesPanelVMStreamTests: XCTestCase {
 
     /// A panel with no client, no pin store and Cloud enabled: the stream's
     /// merge path with nothing to fetch.
-    @MainActor
     private func makeStreamingModel(pollingClock: any Clock<Duration> = ContinuousClock()) -> MachinesPanelViewModel {
         let model = MachinesPanelViewModel(
             createCoordinator: MachineCreateCoordinator(notifier: { _ in }, notificationCenter: NotificationCenter()),
@@ -1419,7 +1422,6 @@ struct MachineUsageReadoutTests {
         )
     }
 
-    @MainActor
     func testStreamUpsertReplacesTheRowInPlace() {
         let model = makeStreamingModel()
         model.applyVMChanges(
@@ -1436,7 +1438,6 @@ struct MachineUsageReadoutTests {
         XCTAssertEqual(model.machineIndexByID, ["c": 0, "b": 1, "a": 2])
     }
 
-    @MainActor
     func testStreamInsertKeepsCreatedAtDescendingOrder() {
         let model = makeStreamingModel()
         model.applyVMChanges(
@@ -1453,7 +1454,6 @@ struct MachineUsageReadoutTests {
         XCTAssertNil(model.plan, "limits only arrive with a REST list")
     }
 
-    @MainActor
     func testStreamDeleteRemovesTheRow() {
         let model = makeStreamingModel()
         model.applyVMChanges(
@@ -1469,7 +1469,6 @@ struct MachineUsageReadoutTests {
         XCTAssertEqual(model.machines.map(\.id), ["a"])
     }
 
-    @MainActor
     func testUnbackfilledSnapshotNeverDeletes() {
         let model = makeStreamingModel()
         model.applyVMChanges(
@@ -1484,7 +1483,43 @@ struct MachineUsageReadoutTests {
         XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
     }
 
-    @MainActor
+    /// The stream record carries only the row's own columns; per-request
+    /// list fields (creator name, pool claim, free-access expiry) must survive
+    /// a live update instead of resetting until the next REST read.
+    func testStreamUpsertKeepsListOnlyFieldsOfTheExistingRow() {
+        let model = makeStreamingModel()
+        var listed = streamSummary("a", createdAt: 1_000)
+        listed.createdBy = VMCreator(userId: "user-1", displayName: "Ada")
+        let claim = CloudVMResourceReservation(vcpus: 4, memoryMb: 8_192)
+        listed.resourcePoolClaim = claim
+        listed.resourceReservation = claim
+        listed.agentUpdates = .latest
+        let expiresAt = Int64(Date().addingTimeInterval(3 * 86_400).timeIntervalSince1970 * 1000)
+        listed.freeAccessExpiresAt = expiresAt
+        model.applyVMChanges(upserts: [listed], deletions: [], authoritative: true)
+        let before = model.machines[0]
+
+        var streamed = streamSummary("a", status: "paused", createdAt: 1_000, label: "renamed")
+        streamed.createdBy = VMCreator(userId: "user-1")
+        model.applyVMChanges(upserts: [streamed], deletions: [], authoritative: false)
+
+        let after = model.machines[0]
+        XCTAssertEqual(after.label, "renamed", "the stream's own columns apply")
+        XCTAssertEqual(after.createdBy, VMCreator(userId: "user-1", displayName: "Ada"))
+        XCTAssertEqual(after.resourcePoolClaim, claim)
+        XCTAssertEqual(after.resourceReservation, claim)
+        XCTAssertEqual(after.agentUpdates, .latest)
+        XCTAssertEqual(after.freeAccess, before.freeAccess)
+    }
+
+    func testStreamInsertTakesTheCreatorFromTheRecord() throws {
+        let summary = try VMClient.decodeListItem([
+            "id": "vm-new", "provider": "freestyle", "image": "cmux-devbox", "status": "running",
+            "createdAt": 1_000, "createdByUserId": "user-2",
+        ])
+        XCTAssertEqual(summary.createdBy, VMCreator(userId: "user-2"))
+    }
+
     func testRoutinePollIntervalFollowsTheStream() {
         let clock = CloudReadManualClock()
         let model = makeStreamingModel(pollingClock: clock)
