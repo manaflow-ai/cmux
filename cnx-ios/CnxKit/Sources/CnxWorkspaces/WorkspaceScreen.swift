@@ -31,7 +31,11 @@ extension TabsKitTheme {
 /// toolbar's back chevron (a tab without page history), the system edge
 /// swipe, the grid's leading back circle, and "All Workspaces" in the page menu.
 public struct WorkspaceScreen: View {
-    @State private var source: WorkspaceTabsSource
+    /// The source is built once per screen, on its first body. `init` runs
+    /// on every update of the navigation destination that makes this
+    /// screen, so it only keeps what it needs to build the source.
+    @State private var holder = SourceHolder()
+    private let makeSource: @MainActor () -> WorkspaceTabsSource
     @State private var showsGrid: Bool
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
@@ -40,9 +44,11 @@ public struct WorkspaceScreen: View {
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
                 creator: WorkspaceCreator? = nil, startsInGrid: Bool = false) {
-        _source = State(initialValue: WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator))
+        makeSource = { WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator) }
         _showsGrid = State(initialValue: startsInGrid)
     }
+
+    private var source: WorkspaceTabsSource { holder.source(makeSource) }
 
     public var body: some View {
         TabsView(source: source, isShowingOverview: $showsGrid)
@@ -56,7 +62,10 @@ public struct WorkspaceScreen: View {
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
             .background(InteractivePopEnabler())
-            .onAppear { source.exit = { dismiss() } }
+            .onAppear {
+                source.exit = { dismiss() }
+                source.opened()
+            }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
@@ -146,6 +155,20 @@ public final class WorkspaceDemoDirector {
     }
 }
 #endif
+
+/// Keeps a screen's source across updates of the view that makes it. Plain
+/// (not observable): building the source here is never a change to observe.
+@MainActor
+final class SourceHolder {
+    private var built: WorkspaceTabsSource?
+
+    func source(_ make: () -> WorkspaceTabsSource) -> WorkspaceTabsSource {
+        if let built { return built }
+        let source = make()
+        built = source
+        return source
+    }
+}
 
 /// SwiftUI disables the navigation controller's back swipes while the bar
 /// is hidden. A workspace hides the bar (TabsKit draws its own chrome, with

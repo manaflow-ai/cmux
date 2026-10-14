@@ -192,9 +192,20 @@ public final class AppStore {
         focusOnOpenWorkspaceIDs.insert(resolvedWorkspaceID(workspaceID))
     }
 
-    /// True once per request (placeholder or the real id it became).
+    /// Whether a workspace has a focus request waiting (placeholder or the
+    /// real id it became). A read: building a workspace screen, which a
+    /// navigation destination does on every update, calls only this.
+    public func wantsFocusOnOpen(_ workspaceID: String) -> Bool {
+        focusOnOpenWorkspaceIDs.contains(workspaceID) || focusOnOpenWorkspaceIDs.contains(resolvedWorkspaceID(workspaceID))
+    }
+
+    /// True once per request (placeholder or the real id it became). Writes
+    /// only when there is a request: `Set.remove` on an observed property
+    /// notifies observers even when it removes nothing, and a view update
+    /// that notifies what it reads re-runs itself forever (verify/e2e-matrix.md #4).
     public func takeFocusOnOpen(_ workspaceID: String) -> Bool {
-        focusOnOpenWorkspaceIDs.remove(workspaceID) != nil
+        guard wantsFocusOnOpen(workspaceID) else { return false }
+        return focusOnOpenWorkspaceIDs.remove(workspaceID) != nil
             || focusOnOpenWorkspaceIDs.remove(resolvedWorkspaceID(workspaceID)) != nil
     }
 
