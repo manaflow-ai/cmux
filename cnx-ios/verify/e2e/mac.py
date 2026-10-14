@@ -97,6 +97,9 @@ class Mac:
         self.cli = os.path.join(self.app, "Contents/Resources/bin/cmux")
         self.config = os.path.join(rig_dir, "config", "cmux-next.json")
         self.creds = os.path.join(rig_dir, "secrets", "dev-auth.env")
+        # Test-only pairing seed (DEBUG builds; SECURITY.md "Test-only pairing seed"):
+        # the phones this hidden rig app trusts without the person-only Allow prompt.
+        self.pairing_seed = os.path.join(rig_dir, "config", "iphone-pairing-seed.json")
         self.pid = None
         self._bundle = None
         self._tag = None
@@ -122,6 +125,15 @@ class Mac:
     def hostd_state(self):
         return os.path.expanduser(f"~/Library/Application Support/{self.bundle_id}/cnx-host")
 
+    def seed_pairing(self, names=(), ids=()):
+        """Trust these phones (simulator names, link device ids) without the person-only
+        Allow prompt: the DEBUG-only seed the rig app reads when a phone asks. Release
+        builds ignore it; the rig never clicks Allow and never writes paired-devices.json."""
+        devices = [{"name": n} for n in names] + [{"id": i} for i in ids]
+        fd = os.open(self.pairing_seed, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump({"devices": devices}, f, indent=2)
+
     # ---- prepare -----------------------------------------------------------
     def prepare(self):
         os.makedirs(os.path.join(self.rig, "mac"), exist_ok=True)
@@ -143,7 +155,8 @@ class Mac:
             pb(p, "Delete :LSEnvironment:CMUXTERM_REPO_ROOT", check=False)
             pb(p, "Delete :SUFeedURL", check=False)
             pb(p, "Delete :SUPublicEDKey", check=False)
-            for key, value in (("CMUX_NEXT_CONFIG_FILE", self.config), ("CMUX_AUTH_CREDENTIALS_FILE", self.creds)):
+            for key, value in (("CMUX_NEXT_CONFIG_FILE", self.config), ("CMUX_AUTH_CREDENTIALS_FILE", self.creds),
+                               ("CMUX_NEXT_IPHONE_PAIRING_SEED", self.pairing_seed)):
                 pb(p, f"Delete :LSEnvironment:{key}", check=False)
                 pb(p, f"Add :LSEnvironment:{key} string {value}")
             subprocess.run(["codesign", "--force", "--sign", "-", "--preserve-metadata=entitlements,requirements,flags,runtime", self.app],
@@ -159,6 +172,9 @@ class Mac:
                 cfg = {}
         cfg.setdefault("mobile", {})["allowIPhoneConnections"] = True
         json.dump(cfg, open(self.config, "w"), indent=2)
+        # No phone is trusted until seed_pairing() names one.
+        if not os.path.exists(self.pairing_seed):
+            self.seed_pairing()
         # Credentials: 0600, never printed.
         email, password = dev_credential()
         fd = os.open(self.creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

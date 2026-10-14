@@ -178,5 +178,5 @@ Status: pass 1 complete (2026-10-14, 11:16-12:25 PDT; 1-min load 3.6-34.8, under
 ## How to rerun
 `run.sh fetch-mac origin/feat-cnx-ios-mactry`, then `e2e.py --no-build --steps fresh_install,sign_in,choose_space
 --latency none --keep`, inject `cnx-hostd` into the rig copy if the fleet build lacks it, `qa.rig_launch()` /
-`qa.rig_pair(<dev user id>)`, then drive with `qa.py` (`ctx()`, `rec_start`/`rec_stop`, `sheet`, `frames`).
+`qa.rig_pair(names=[<simulator name>])` (the DEBUG pairing seed; no relaunch), then drive with `qa.py` (`ctx()`, `rec_start`/`rec_stop`, `sheet`, `frames`).
 Full-size recordings stay in `~/cnx-ios-e2e/codexqa-raw/` (not committed).

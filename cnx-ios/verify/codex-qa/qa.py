@@ -142,12 +142,11 @@ def load_avg():
 
 
 # ---- rig pairing (mactry builds ask the person to Allow each phone on the Mac) ----------
-# The rig app is hidden, and Settings > Mobile's Allow is user-gesture only. The rig runs
-# cnx-hostd through a shim (CMUX_NEXT_CNX_HOSTD_BIN, passed with `open --env`, so the rig
-# bundle is never re-signed: a re-sign changes the ad-hoc cdhash and the app's own
-# Keychain read of its Mac identity then blocks on an access prompt) that tees hostd's
-# stdout events; a pair_request there carries the phone's PUBLIC keys. rig_pair() writes
-# the rig's own paired-devices.json, which is what Allow writes (CnxPairedDevicesFile).
+# The rig app is hidden, and the Allow prompt is person-only. A DEBUG rig app instead
+# trusts the phones its pairing seed names (CMUX_NEXT_IPHONE_PAIRING_SEED, set by
+# e2e/mac.py prepare(); SECURITY.md "Test-only pairing seed"). The app reads the file
+# when a phone asks, so nothing is quit, relaunched or re-signed, and paired-devices.json
+# is never written by hand.
 EVENTS = os.path.expanduser("~/cnx-ios-e2e/codexqa-hostd-events.jsonl")
 SHIM = os.path.expanduser("~/cnx-ios-e2e/bin/cnx-hostd-tee")
 
@@ -155,7 +154,10 @@ SHIM = os.path.expanduser("~/cnx-ios-e2e/bin/cnx-hostd-tee")
 def rig_launch():
     _, m, _ = ctx()
     if not m.main_pids():
-        subprocess.run(["open", "-g", "-j", "-n", "--env", f"CMUX_NEXT_CNX_HOSTD_BIN={SHIM}", m.app], check=True)
+        # An app built before the fleet bundled cnx-hostd in DEBUG builds runs the shim.
+        bundled = os.path.exists(os.path.join(m.app, "Contents/Resources/bin/cnx-hostd"))
+        env = [] if bundled else ["--env", f"CMUX_NEXT_CNX_HOSTD_BIN={SHIM}"]
+        subprocess.run(["open", "-g", "-j", "-n", *env, m.app], check=True)
     for _ in range(120):
         if m.main_pids() and m.cmux("app", "ping", check=False, timeout=5).returncode == 0 and m.hostd_pids():
             return True
@@ -163,23 +165,12 @@ def rig_launch():
     return False
 
 
-def rig_pair(user_id):
+def rig_pair(names=(), ids=()):
+    """Trust these simulator phones (names) or link device ids on the rig Mac; the
+    phone's next link pairs without a prompt."""
     _, m, _ = ctx()
-    reqs = {}
-    for line in open(EVENTS):
-        try:
-            d = json.loads(line)
-        except ValueError:
-            continue
-        if d.get("type") == "pair_request":
-            reqs[d["phone_device_id"]] = d
-    devices = [{"id": r["phone_device_id"], "name": r["name"], "identityKey": r["identity_key"],
-                "approvalKey": r["approval_key"], "pairedAt": time.time() - 978307200} for r in reqs.values()]
-    m.quit()
-    path = os.path.join(m.hostd_state, "paired-devices.json")
-    with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
-        json.dump({"userID": user_id, "devices": devices, "denied": []}, f, indent=2, sort_keys=True)
-    return rig_launch(), [d["id"] for d in devices]
+    m.seed_pairing(names=names, ids=ids)
+    return list(names) + list(ids)
 
 
 def sheet(name, fps=2, cols=6, start=None, dur=None, width=200):
