@@ -124,7 +124,9 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.click({ role: "button", name: "Folder" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
         await ctx.type("adopt");
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
+        );
       },
     },
     "computer-menu": {

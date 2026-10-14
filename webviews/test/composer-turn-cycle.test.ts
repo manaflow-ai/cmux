@@ -5,7 +5,9 @@
 // subagents, a subagent's permission ask, a queued prompt, finished. Across the cycle the prompt,
 // the controls row, the footer and every control keep their boxes (within 0.5 px); the ask and the
 // queue grow upward over the transcript. Typing while the turn runs (Stop becomes Steer and Send)
-// moves neither the mic nor Send.
+// moves neither the mic nor Send. In every phase the row shows no context ring or spinner (the
+// running state is Send turned Stop, nothing else) and one lock at most (hq#1957 item 15 compact
+// row).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -63,7 +65,6 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     footer: ".acpmux-composer-context",
     plus: ".acpmux-composer-plus .acpmux-picker-button",
     model: ".acpmux-model .acpmux-picker-button",
-    ring: ".acpmux-context-ring",
     effort: ".acpmux-effort .acpmux-picker-button",
     access: ".acpmux-access-trigger",
     mic: ".acpmux-mic",
@@ -81,6 +82,21 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
       }
       return out;
     }, CONTROLS);
+
+  /** What the row should not show: a ring or spinner, more than one lock, the granted-status chip. */
+  const calm = (page: Page) =>
+    page.evaluate(() => {
+      const bar = document.querySelector(".acpmux-composer-bar")!;
+      const out: string[] = [];
+      for (const element of bar.querySelectorAll(
+        '.acpmux-context, .acpmux-context-ring, [role="progressbar"], [class*="spinner"], [class*="-ring"]',
+      ))
+        out.push(`a ring or spinner (${element.className.toString() || element.tagName})`);
+      const locks = bar.querySelectorAll('svg path[d^="M5.5 7V5.6"]').length;
+      if (locks > 1) out.push(`${locks} locks`);
+      if (bar.querySelector(".acpmux-permission-status")) out.push("the granted-status chip");
+      return out;
+    });
 
   /** What moved, resized, came or went between two measurements. */
   const moved = (before: Record<string, number[] | "missing">, after: Record<string, number[] | "missing">) =>
@@ -106,7 +122,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     test(`at ${width} px nothing in the composer moves through a running turn`, async () => {
       const page = await open(width, TURN_CYCLE[0]!.name);
       const start = await boxes(page);
-      const problems: string[] = [];
+      const problems: string[] = (await calm(page)).map((problem) => `${TURN_CYCLE[0]!.name}: ${problem}`);
       for (const { name, snapshot } of TURN_CYCLE.slice(1)) {
         await page.evaluate(
           (next) =>
@@ -122,6 +138,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
           () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
         );
         problems.push(...moved(start, await boxes(page)).map((problem) => `${name}: ${problem}`));
+        problems.push(...(await calm(page)).map((problem) => `${name}: ${problem}`));
       }
       await page.close();
       expect(problems).toEqual([]);
