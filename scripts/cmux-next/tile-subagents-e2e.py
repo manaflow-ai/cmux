@@ -351,7 +351,9 @@ def open_real_chat(workspace, pane):
 
 
 def click_row(workspace, sid, task):
-    reply = pane_rpc(chat_pane(workspace, sid), "click", selector=f'.acpmux-summary-agent[title="{task}"]')
+    """Clicks the card row by its label, as a person does (a row's `title` is its hover text,
+    which need not stay the task once its subagent shows elsewhere)."""
+    reply = pane_rpc(chat_pane(workspace, sid), "click", text=task)
     print("click", task, json.dumps(reply)[:200], flush=True)
 
 
