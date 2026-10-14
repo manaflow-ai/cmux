@@ -46,7 +46,9 @@ public final class UpdateEverythingRunner {
     public func run(_ plan: UpdateEverythingPlan, continueThreads: Bool, steps: any UpdateEverythingSteps) async -> [UpdateEverythingOutcome] {
         let machines = plan.machines.filter { !$0.isUpToDate }
         var outcomes = await withTaskGroup(of: (Int, UpdateEverythingOutcome).self) { group in
-            for (index, machine) in machines.enumerated() {
+            // Plain bindings: a tuple pattern captured by the task crashes the 6.3 region checker.
+            for index in machines.indices {
+                let machine = machines[index]
                 group.addTask { @MainActor in (index, await Self.update(machine, continueThreads: continueThreads, steps: steps)) }
             }
             var collected: [(Int, UpdateEverythingOutcome)] = []

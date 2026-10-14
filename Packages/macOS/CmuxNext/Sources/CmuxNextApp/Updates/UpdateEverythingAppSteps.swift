@@ -31,7 +31,9 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
             + services.machines.ssh.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.host.label, .ssh, $0.daemon) }
             + services.machines.cloud.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.machine.title, .cloud, $0.daemon) }
         var machines = await withTaskGroup(of: (Int, UpdateEverythingMachine).self) { group in
-            for (index, (id, name, kind, daemon)) in targets.enumerated() {
+            // Plain bindings: a tuple pattern captured by the task crashes the 6.3 region checker.
+            for index in targets.indices {
+                let id = targets[index].0, name = targets[index].1, kind = targets[index].2, daemon = targets[index].3
                 group.addTask { @MainActor in (index, await self.machine(id: id, name: name, kind: kind, daemon: daemon, bundled: bundled)) }
             }
             var collected: [(Int, UpdateEverythingMachine)] = []
