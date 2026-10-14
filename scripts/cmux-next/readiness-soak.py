@@ -27,7 +27,7 @@ network, no credential on the host. The app runs with its own ACPMUX_HOME and co
 folder; the soak never touches the host's ~/.acpmux or settings.
 
 At the end it writes report.json and report.md to --out and exits 1 when a criterion failed:
-no crash, no hang, no stuck turn, memory growth (median of the last hour of load against an hour mid-load,
+no crash, no hang, no control error, no stuck turn, memory growth (median of the last hour of load against an hour mid-load,
 or quarters of a shorter load phase) within --max-growth-percent and --max-growth-mb per kind, open fds of the
 app, daemon and acpmux growing by at most --max-fd-growth, the mean CPU of the app and the daemon
 under --max-app-cpu and --max-daemon-cpu. Idle CPU over --max-idle-*-cpu (app, daemon,
@@ -97,15 +97,25 @@ def open_fds(pid):
     return used // PROC_FDINFO_SIZE if used > 0 else None
 
 
-def responsible_pid(pid):
-    """The process macOS holds responsible for pid (an XPC service's host app), or None when unknown."""
+@functools.lru_cache(None)
+def responsibility_call():
+    """libSystem's responsibility_get_pid_responsible_for_pid, or None where it does not exist."""
     try:
         call = ctypes.CDLL("/usr/lib/libSystem.B.dylib").responsibility_get_pid_responsible_for_pid
     except (OSError, AttributeError):
         return None
     call.argtypes, call.restype = [ctypes.c_int], ctypes.c_int
+    return call
+
+
+def responsible_pid(pid):
+    """The process macOS holds responsible for pid (an XPC service's host app); -1 when the call has no
+    answer for pid (it exited), None when the call does not exist on this host."""
+    call = responsibility_call()
+    if call is None:
+        return None
     owner = call(pid)
-    return owner if owner > 0 else None
+    return owner if owner > 0 else -1
 
 
 def now_iso():
@@ -423,14 +433,17 @@ class Soak:
     def owns_webkit(self, pid, app_pid):
         """Whether the app is responsible for a WebKit process (launchd's child, so not by parent). Other
         apps' and iOS simulators' WebKit processes on the host do not count. Without the responsibility
-        call, every WebKit process started after the app counts (the old rule)."""
+        call on the host, every WebKit process started after the app counts (the old rule); a process the
+        call has no answer for is not counted."""
         owner = responsible_pid(pid)
         return owner == app_pid if owner is not None else pid not in self.webkit_before
 
     def round_trip(self, method):
         """(milliseconds, None) on a good reply, else (milliseconds, (kind, text)): kind "slow" when no reply
         came within --hang-after, "error" for an instant failure (connect refused, a missing socket file, an
-        error reply, a closed connection), with the error class and message."""
+        error reply, a closed connection), with the error class and message. A good reply that took --hang-after
+        or longer is slow too. An app that stops accepting fills its listen backlog, and macOS then refuses
+        a connect at once, so that hang shows as an error (ConnectionRefusedError); it still fails the run."""
         started = time.monotonic()
         try:
             reply = Client(self.socket, timeout=self.args.hang_after).call(method)
@@ -439,7 +452,10 @@ class Soak:
             failure = ("slow", f"{method}: no reply within {self.args.hang_after} s ({type(error).__name__})")
         except (OSError, ValueError) as error:
             failure = ("error", f"{method}: {type(error).__name__}: {error}")
-        return round((time.monotonic() - started) * 1000, 1), failure
+        ms = round((time.monotonic() - started) * 1000, 1)
+        if failure is None and ms >= self.args.hang_after * 1000:
+            failure = ("slow", f"{method}: reply after {ms} ms")
+        return ms, failure
 
     def check_control(self):
         """One system.ping and one snapshot.get. An instant failure is a control-error event with its text;
@@ -452,8 +468,8 @@ class Soak:
         if errors:
             self.event("control-error", f"control error: {'; '.join(errors)} ({timing})")
         slow = [text for kind, text in failures if kind == "slow"]
-        if slow or (not failures and max(ping_ms, snapshot_ms) >= self.args.hang_after * 1000):
-            self.event("hang", f"control round trip slow: {'; '.join(slow) or 'reply after --hang-after'} ({timing})")
+        if slow:
+            self.event("hang", f"control round trip slow: {'; '.join(slow)} ({timing})")
         return ping_ms, snapshot_ms
 
     def crash_reports(self):
