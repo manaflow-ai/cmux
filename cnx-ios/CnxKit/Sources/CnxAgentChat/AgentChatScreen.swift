@@ -387,7 +387,11 @@ struct AgentChatTurns: View {
                     .padding(.bottom, 20)
             }
             ForEach(store.turns) { turn in
-                TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id, surface: surface)
+                // Exactly the column's width: one row that cannot shrink never widens the turn.
+                ProposedWidthLayout {
+                    TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id, surface: surface)
+                }
+                    .rowHeightProbe("turn-\(turn.id)")
                     .padding(.bottom, 24)
                     .id(turn.id)
             }
@@ -634,6 +638,7 @@ struct TurnView: View {
                 let rows = turn.rows
                 ForEach(rows) { row in
                     rowView(row, isLastRow: row.id == rows.last?.id)
+                        .rowHeightProbe("\(row.id)")
                         .transition(.opacity.animation(.easeOut(duration: 0.15)))
                 }
                 if turn.status == .running, rows.needsWorkingIndicator, store.pendingPermission == nil, store.pendingQuestion == nil {
@@ -886,10 +891,55 @@ struct AnswerActionRow: View {
                     .lineLimit(1).fixedSize()
             }
         }
+        // At accessibility sizes the glyphs stop growing at AX1 (90 pt targets made the
+        // row wider than the column).
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         // 44 pt targets on a 32 pt visual row: the extra height overlaps the row's margins.
         .padding(.vertical, -6)
         .padding(.top, 2)
         .padding(.leading, -14)
+    }
+}
+
+#if DEBUG
+/// `-cnx-row-heights`: logs every size a transcript row is asked for and where it is
+/// placed, to `Documents/row-heights.txt` (round 3: measured vs drawn heights at AX5).
+struct RowHeightProbe: Layout {
+    let name: String
+    static let isEnabled = CommandLine.arguments.contains("-cnx-row-heights")
+    nonisolated(unsafe) static var handle: FileHandle? = {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("row-heights.txt")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        return try? FileHandle(forWritingTo: url)
+    }()
+
+    static func log(_ line: String) { handle?.write(Data((line + "\n").utf8)) }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let size = subviews.first?.sizeThatFits(proposal) ?? .zero
+        Self.log("fit \(name) w=\(proposal.width.map { "\($0)" } ?? "nil") h=\(proposal.height.map { "\($0)" } ?? "nil") -> \(size.width)x\(size.height)")
+        return size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        Self.log("place \(name) \(bounds.width)x\(bounds.height) at y=\(bounds.minY)")
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+#endif
+
+extension View {
+    @ViewBuilder
+    func rowHeightProbe(_ name: String) -> some View {
+        #if DEBUG
+        if RowHeightProbe.isEnabled {
+            RowHeightProbe(name: name) { self }
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
 #endif
