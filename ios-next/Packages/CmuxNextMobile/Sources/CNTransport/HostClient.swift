@@ -1,5 +1,6 @@
 import CNCore
 import Foundation
+import Synchronization
 
 public enum HostClientError: Error, Sendable, Hashable, LocalizedError {
     /// The link closed before the response arrived.
@@ -34,6 +35,7 @@ public actor HostClient {
 
     private nonisolated let hub = EventHub()
     private nonisolated let streams = StreamRouter()
+    private nonisolated let pathSubscribers = Mutex<[UUID: AsyncStream<PathInfo>.Continuation]>([:])
 
     public init(transport: any LinkTransport, clock: any Clock<Duration> = ContinuousClock(), defaultTimeout: Duration = .seconds(15)) {
         self.link = Link(transport: transport)
@@ -153,6 +155,16 @@ public actor HostClient {
 
     // MARK: Lifecycle
 
+    /// Path updates reported by the transport after it opened (the selected
+    /// ICE pair changed). Finishes when the link closes.
+    public nonisolated func pathChanges() -> AsyncStream<PathInfo> {
+        let (stream, continuation) = AsyncStream.makeStream(of: PathInfo.self, bufferingPolicy: .bufferingNewest(1))
+        let id = UUID()
+        pathSubscribers.withLock { $0[id] = continuation }
+        continuation.onTermination = { [weak self] _ in self?.pathSubscribers.withLock { _ = $0.removeValue(forKey: id) } }
+        return stream
+    }
+
     public nonisolated func close() {
         link.close()
     }
@@ -179,8 +191,10 @@ public actor HostClient {
                 if let frame = try? StreamFrame(decoding: data) {
                     streams.deliver(streamId: frame.streamId, payload: frame.payload)
                 }
-            case .pathChanged:
-                break
+            case .pathChanged(let info):
+                // The transport re-read its selected candidate pair (ICE
+                // state change or renomination).
+                for c in pathSubscribers.withLock({ Array($0.values) }) { c.yield(info) }
             case .closed(let reason):
                 finish(reason)
             }
@@ -232,6 +246,9 @@ public actor HostClient {
         for (_, c) in waiting { c.resume(throwing: HostClientError.disconnected(reason: reason)) }
         hub.finish()
         streams.finishAll()
+        for c in pathSubscribers.withLock({ s -> [AsyncStream<PathInfo>.Continuation] in defer { s.removeAll() }; return Array(s.values) }) {
+            c.finish()
+        }
         let waiters = closeWaiters
         closeWaiters.removeAll()
         for w in waiters { w.resume(returning: reason) }

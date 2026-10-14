@@ -236,7 +236,17 @@ public final class HostConnection {
                 if case .connected = self.state, self.client === client { self.state = .connected(path) }
             }
         }
-        sessionTasks = [forward, ping]
+        // Show the pair the transport actually uses as soon as it changes,
+        // not only at the next ping.
+        let paths = Task { [weak self] in
+            for await path in client.pathChanges() {
+                guard let self, self.client === client, case .connected(let current) = self.state else { continue }
+                var updated = path
+                updated.rttMs = current.rttMs
+                if updated != current { self.state = .connected(updated) }
+            }
+        }
+        sessionTasks = [forward, ping, paths]
     }
 
     private func measureRTT(_ client: HostClient) async -> Double? {

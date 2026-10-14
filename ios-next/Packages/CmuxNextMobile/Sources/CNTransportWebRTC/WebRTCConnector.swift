@@ -339,6 +339,21 @@ extension WebRTCLinkTransport: RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
 
+    /// The selected candidate pair changed (renomination): re-read it so the
+    /// app's path label matches what is in use.
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChangeLocalCandidate local: RTCIceCandidate,
+                        remoteCandidate remote: RTCIceCandidate, lastReceivedMs lastDataReceivedMs: Int32, changeReason reason: String) {
+        lock.lock()
+        let open = isOpen && !isClosed
+        lock.unlock()
+        guard open else { return }
+        webRTCLog.info("link \(self.sessionId, privacy: .public) selected pair changed: \(reason, privacy: .public)")
+        Task { [weak self] in
+            guard let self else { return }
+            self.continuation.yield(.pathChanged(await self.pathInfo()))
+        }
+    }
+
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         let message = SignalMessage.candidate(to: hostId, from: nil, sessionId: sessionId, candidate: candidate.sdp,
                                               sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex)
