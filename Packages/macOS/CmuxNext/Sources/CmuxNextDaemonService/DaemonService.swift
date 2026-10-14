@@ -134,6 +134,12 @@ public final class DaemonService {
             }
         }
         endpointProvider = launcher.endpointProvider
+        // Before the first connection the retry loop has no socket watch of its own (the connection installs one
+        // after its first handshake): watch the socket the last launch used and its ready marker, so a daemon
+        // that finishes a long restore or handoff wakes a loop past its timed budget (cx-4bd8m).
+        if let socket = launcher.configuration.rememberedSocket {
+            retryWake.watch(file: socket, companions: [socket + ".websocket.json"])
+        }
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapabilities.shared.wsListen, identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
