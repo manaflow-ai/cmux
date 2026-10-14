@@ -65,7 +65,7 @@ final class DaemonAppsTransport: AppsTransport {
     private func update(_ state: DaemonConnectionState, storeEpoch: Int) {
         let capabilities: [String]? = if case .connected(let identity) = state { identity.capabilities } else { nil }
         let next: AppsAvailability
-        if let reason = Self.unavailableReason(capabilities: capabilities) {
+        if let reason = Self.unavailableReason(capabilities: capabilities, cause: daemon.notConnectedReason) {
             next = .unavailable(reason)
         } else if case .available(let current) = availability, storeEpoch == self.storeEpoch {
             next = .available(epoch: current)
@@ -83,9 +83,9 @@ final class DaemonAppsTransport: AppsTransport {
     }
 
     /// Why the supervisor cannot be used: `capabilities` of the connected
-    /// daemon, nil when none is connected.
-    nonisolated static func unavailableReason(capabilities: [String]?) -> AppsUnavailableReason? {
-        guard let capabilities else { return .notConnected }
+    /// daemon, nil when none is connected (`cause`: the daemon service's reason).
+    nonisolated static func unavailableReason(capabilities: [String]?, cause: String? = nil) -> AppsUnavailableReason? {
+        guard let capabilities else { return cause.map(AppsUnavailableReason.notReady) ?? .notConnected }
         return capabilities.contains(capability) ? nil : .needsNewerDaemon
     }
 
