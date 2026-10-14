@@ -6,11 +6,11 @@ import AppKit
 /// it never advances: its view stays where the animation left it (an
 /// inserted sidebar row at alpha 0) until something else sets it. A change
 /// there applies at once instead, and one already running when the display
-/// goes to sleep ends at once (``MotionInFlight/finish()``).
+/// goes to sleep ends at once if it opted in (``MotionInFlight``).
 ///
 /// Core Graphics' state of the window's display decides. The workspace's
-/// sleep notification only triggers the end of running animations, so a
-/// sleep posted with no matching wake cannot leave later changes snapping.
+/// sleep and wake notifications only trigger the end of running animations,
+/// so a sleep posted with no matching wake cannot leave later changes snapping.
 @MainActor
 final class DisplaySleep {
     static let shared = DisplaySleep()
@@ -18,14 +18,16 @@ final class DisplaySleep {
     /// Tests pin the answer for every display; nil asks Core Graphics.
     static var asleepOverride: Bool?
 
-    private var observer: (any NSObjectProtocol)?
+    private var observers: [any NSObjectProtocol] = []
 
     private init() {
-        observer = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
-        ) { _ in
-            // main-proof: the observer runs on the main queue (queue: .main)
-            MainActor.assumeIsolated { MotionInFlight.finish() }
+        // Sleep ends what is running; wake ends what froze in the gap. Neither sets a state.
+        let center = NSWorkspace.shared.notificationCenter
+        observers = [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification].map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                // main-proof: the observer runs on the main queue (queue: .main)
+                MainActor.assumeIsolated { MotionInFlight.finish() }
+            }
         }
     }
 

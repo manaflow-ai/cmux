@@ -118,7 +118,7 @@ final class CollapsedBandReveal {
         if start > width.constant {
             Motion.withoutAnimation { Motion.animator(width, in: driver).constant = start }
         }
-        Motion.animateTimed(.appear, in: driver) { [self] in Motion.animator(width, in: driver).constant = full }
+        Motion.animateTimed(.appear, in: driver) { Motion.animator(width, in: driver).constant = full }
     }
 
     private func close() {
@@ -127,7 +127,7 @@ final class CollapsedBandReveal {
         guard let width else { return }
         lastChangeAnimated = animates
         guard lastChangeAnimated else { width.constant = 0; return }
-        Motion.animateExit(.disappear, in: driver) { [self] in Motion.animator(width, in: driver).constant = 0 }
+        Motion.animateExit(.disappear, in: driver) { Motion.animator(width, in: driver).constant = 0 }
     }
 
     private func releaseHold() {
