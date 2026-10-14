@@ -18,12 +18,11 @@ import os
 /// DevTools channel rule); Release and RC never bundle or start it: Home
 /// works and the Chief does not answer. Both keep the
 /// `host --daemon-socket --mux-home` contract and one lock per mux home.
-/// The mux home is the Chief home (`ChiefHome`): one per account, shared by
-/// every build, so the memory is one history; isolated launches (agent
-/// preflights, tests) get their own. The host lock keeps one host per home:
-/// a second build's launch exits at once and its Home shows the running
-/// host's conversation, which lives in the Chief home's own owner. When the
-/// host dies while the app runs, Home starts it again (`ChiefBrainWatch`).
+/// The mux home is this build's Chief home (`ChiefHome`, one Chief per
+/// build); isolated launches (agent preflights, tests) get their own. The
+/// host lock keeps one host per home: a second launch (or one `cmux chief`
+/// started) exits at once. When the host dies while the app runs, Home
+/// starts it again (`ChiefBrainWatch`).
 public nonisolated struct HomeBrainHost: Sendable {
     let executable: URL
     let muxHome: URL
