@@ -1,0 +1,31 @@
+# Demo app for CmuxWorkspacesKit: pick one of the three home designs.
+# Generate with `xcodegen generate` in this directory, then build the
+# CmuxWorkspacesDemo scheme for an iOS 26 simulator.
+name: CmuxWorkspacesDemo
+options:
+  bundleIdPrefix: dev.cmux.workspaces
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  CmuxWorkspacesKit:
+    path: ..
+targets:
+  CmuxWorkspacesDemo:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    dependencies:
+      - package: CmuxWorkspacesKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.workspaces.demo
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: Workspaces
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
