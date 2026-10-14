@@ -18,6 +18,8 @@ mod drafts;
 mod permission_groups;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
+#[path = "hub_integration/prompt_provenance.rs"]
+mod prompt_provenance;
 #[path = "hub_integration/questions.rs"]
 mod questions;
 #[path = "hub_integration/secrets.rs"]
@@ -1484,10 +1486,8 @@ mod preset_args;
 
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
-
 #[path = "hub_integration/quit_spawn.rs"]
 mod quit_spawn;
-
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
 
