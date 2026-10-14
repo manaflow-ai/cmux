@@ -42,6 +42,9 @@ public final class LiveCoordinator {
 
     /// Called after a move to another team (persists the Stack selection).
     @ObservationIgnored public var onFollow: ((String) -> Void)?
+    /// A Mac left the account (removed here or on another device), after
+    /// the store forgot it: screens showing one of its workspaces close.
+    @ObservationIgnored public var onMacRemoved: ((String) -> Void)?
 
     public let link: LinkController
     public let workspaces: WorkspaceSync
@@ -76,6 +79,11 @@ public final class LiveCoordinator {
     @ObservationIgnored private var discoveryTask: Task<Void, Never>?
     /// The account's Macs that were online at the last look (nil before the first).
     @ObservationIgnored private var previouslyOnline: Set<String>?
+    /// The account's own Macs at the last discovery (nil before the first):
+    /// one that drops out of the list was removed elsewhere.
+    @ObservationIgnored private var discoveredMacIDs: Set<String>?
+    /// Macs removed from this phone, against answers already on their way.
+    @ObservationIgnored private var removedMacs = RemovedMacs()
     /// A team the user picked in the sidebar: discovery leaves it while it is empty.
     @ObservationIgnored private var pinnedTeamID: String?
     /// What this account last saw (restored at launch, saved as it changes).
@@ -276,6 +284,7 @@ public final class LiveCoordinator {
     private func startTeam(_ teamID: String, warm: Bool = false) async {
         do {
             // One round trip: both registrations, this team's Macs and the account's Macs.
+            let asked = removedMacs.mark
             if let boot = try await api.bootstrap(teamID: teamID, devices: [
                 (identity.link, "phone", deviceName), (identity.presence, "phone", "\(deviceName) (presence)"),
             ]) {
@@ -286,9 +295,9 @@ public final class LiveCoordinator {
                 push.attach(api: api, deviceID: identity.link)
                 checkRelay()
                 ConnectTimeline.shared.mark("macs_loaded", detail: "\(boot.macs.count)")
-                applyMacs(boot.macs, teamID: teamID)
+                applyMacs(boot.macs, teamID: teamID, askedAt: asked)
                 store.teamDataState = .loaded
-                if let mine = boot.myMacs { applyDiscovered(mine) }
+                if let mine = boot.myMacs { applyDiscovered(mine, askedAt: asked) }
                 startPresence(teamID)
                 return
             }
@@ -306,10 +315,11 @@ public final class LiveCoordinator {
             registeredTeamID = teamID
             push.attach(api: api, deviceID: identity.link)
             checkRelay()
+            let askedForMacs = removedMacs.mark
             let macs = try await api.macs(teamID: teamID)
             guard !Task.isCancelled, store.activeTeamID == teamID else { return }
             ConnectTimeline.shared.mark("macs_loaded", detail: "\(macs.count)")
-            applyMacs(macs, teamID: teamID)
+            applyMacs(macs, teamID: teamID, askedAt: askedForMacs)
             store.teamDataState = .loaded
             log.info("team \(teamID, privacy: .private) registered, \(macs.count, privacy: .public) Macs")
             startPresence(teamID)
@@ -346,7 +356,7 @@ public final class LiveCoordinator {
         case .connected(let connected):
             presenceConnected = connected
         case .snapshot(let macs):
-            applyMacs(macs, teamID: teamID)
+            applyMacs(macs, teamID: teamID, askedAt: removedMacs.mark)
         case .mac(let mac) where mac.removed == true:
             forgetMac(mac.deviceId)
         case .mac(let mac):
@@ -362,16 +372,28 @@ public final class LiveCoordinator {
     /// dialed. Protocol v1 admits only the Mac owner's own phones.
     @ObservationIgnored private var othersMacs: Set<String> = []
 
-    /// A Mac its owner deleted (here or on another device): gone from every team.
+    /// A Mac its owner deleted (here or on another device): gone from every
+    /// team with its cached workspaces and connection state. When the link
+    /// was on it, the link moves to another Mac (or to none) at once, so
+    /// nothing keeps saying "Connecting…" to a Mac that no longer exists.
     func forgetMac(_ id: String) {
-        for team in store.teams where team.macs.contains(where: { $0.id == id }) {
-            store.setMacs(team.macs.filter { $0.id != id }, teamID: team.id)
-        }
-        if let count = store.accountMacCount, count > 0 { store.accountMacCount = count - 1 }
+        let linked = link.target?.macID == id
+        // The link's phase change must not write data for the removed Mac back.
+        if dataMacID == id { dataMacID = nil }
+        let known = store.forgetMac(id)
+        othersMacs.remove(id)
+        outdatedMacs.remove(id)
+        discoveredMacIDs?.remove(id)
+        previouslyOnline = previouslyOnline?.filter { !$0.hasPrefix("\(id)\u{0}") }
+        if snapshot?.linkedMacID == id { snapshot?.linkedMacID = nil }
+        if linked { link.send(.target(nil)) }
         retarget()
+        scheduleSnapshotSave()
+        if known || linked { onMacRemoved?(id) }
     }
 
-    private func applyMacs(_ macs: [LiveAPI.Mac], teamID: String) {
+    private func applyMacs(_ macs: [LiveAPI.Mac], teamID: String, askedAt: Int) {
+        let macs = removedMacs.filter(macs, askedAt: askedAt, id: \.deviceId)
         for mac in macs {
             if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
         }
@@ -415,9 +437,10 @@ public final class LiveCoordinator {
     /// moves to the team of an online Mac while the active team has none.
     func discoverOnce() async {
         do {
+            let asked = removedMacs.mark
             let macs = try await api.myMacs()
             guard !Task.isCancelled else { return }
-            applyDiscovered(macs)
+            applyDiscovered(macs, askedAt: asked)
         } catch {
             guard !Task.isCancelled else { return }
             log.error("Mac discovery failed: \(String(describing: error), privacy: .public)")
@@ -426,7 +449,13 @@ public final class LiveCoordinator {
 
     /// The account's Macs everywhere (`/me/macs`, or the bootstrap's copy): shows each in its
     /// team and moves to the team of an online Mac while the active team has none.
-    private func applyDiscovered(_ macs: [LiveAPI.Mac]) {
+    private func applyDiscovered(_ macs: [LiveAPI.Mac], askedAt: Int) {
+        let macs = removedMacs.filter(macs, askedAt: askedAt, id: \.deviceId)
+        // An own Mac the last look listed and this one does not was removed
+        // on another device (the Mac app's unpair, another phone).
+        let ids = Set(macs.map(\.deviceId))
+        for id in (discoveredMacIDs ?? []).subtracting(ids) { forgetMac(id) }
+        discoveredMacIDs = ids
         let found = macs.compactMap { mac -> DiscoveredMac? in
             guard let teamID = mac.teamId else { return nil }
             return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID)
@@ -468,7 +497,12 @@ public final class LiveCoordinator {
 
     /// Deletes a device of this account; a Mac leaves every list at once.
     public func removeDevice(id: String) async throws {
-        try await api.deleteDevice(id: id)
+        do {
+            try await api.deleteDevice(id: id)
+        } catch let failure as LiveAPI.Failure where failure.status == 404 {
+            // Already gone (removed on another device): the outcome the user asked for.
+        }
+        removedMacs.removed(id)
         forgetMac(id)
     }
 
@@ -616,12 +650,15 @@ public final class LiveCoordinator {
                 let daemon = try await link.openChannel(service: "daemon", args: [:])
                 ConnectTimeline.shared.mark("daemon_channel_open")
                 await self.workspaces.bind(daemon, macID: macID)
-                if let error = self.workspaces.lastError, self.store.macData[macID]?.source != .live {
+                // The link may have moved on (another Mac, or this one was removed).
+                if let error = self.workspaces.lastError, self.link.target?.macID == macID, self.store.macData[macID]?.source != .live {
                     self.store.handleMacData(.failed(error), macID: macID)
                 }
             } catch {
                 log.error("daemon channel: \(String(describing: error), privacy: .public)")
-                self.store.handleMacData(.failed(LinkController.reason(error)), macID: macID)
+                if self.link.target?.macID == macID {
+                    self.store.handleMacData(.failed(LinkController.reason(error)), macID: macID)
+                }
             }
         }
     }

@@ -52,7 +52,9 @@ final class ShellModel {
     /// Live data (signed in for real with a `cnx-ios-api` base URL); nil in mock mode.
     var live: LiveCoordinator?
     /// Settings → Connection's device list and account deletion (live mode).
-    private(set) var deviceDirectory: LiveDeviceDirectory?
+    private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
+    /// DEBUG mock mode (Settings → Developer → Mock data): sample content only.
+    private let mockMode: Bool
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
     var isFetchingInvite = false
@@ -73,6 +75,7 @@ final class ShellModel {
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
         let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
+        self.mockMode = mockMode
         #if DEBUG
         let mock = MockWorkspaceCreationBackend()
         mockCreation = mock
@@ -103,6 +106,10 @@ final class ShellModel {
         if self.live !== live, self.live != nil { terminalTabs.reset() }
         self.live = live
         deviceDirectory = live.map(LiveDeviceDirectory.init(live:))
+        #if DEBUG
+        if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
+        #endif
+        live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
         if let live {
             terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
             terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
@@ -115,6 +122,14 @@ final class ShellModel {
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
             creator.backend = offlineCreation
+        }
+    }
+
+    /// A Mac left the account: a workspace page of it (and anything pushed
+    /// on top) closes, back to the list.
+    func macRemoved(_ macID: String) {
+        if let index = workspacesPath.firstIndex(where: { $0.macID == macID }) {
+            workspacesPath.removeSubrange(index...)
         }
     }
 

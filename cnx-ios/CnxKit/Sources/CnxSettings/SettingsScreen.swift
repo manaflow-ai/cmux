@@ -62,7 +62,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     }
                     .pickerStyle(.menu)
                     NavigationLink(value: SettingsRoute.pairedMacs) {
-                        SettingsLabel("Paired Macs", symbol: "desktopcomputer", value: "\(store.activeTeam?.macs.count ?? 0)")
+                        SettingsLabel("Paired Macs", symbol: "desktopcomputer", value: "\(directory == nil ? store.activeTeam?.macs.count ?? 0 : store.accountMacCount ?? store.activeTeam?.macs.count ?? 0)")
                     }
                 } header: {
                     Text("Connection")
