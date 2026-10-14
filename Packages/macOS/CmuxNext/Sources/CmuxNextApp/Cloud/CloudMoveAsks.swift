@@ -193,7 +193,8 @@ final class CloudMoveAsks {
 
     // MARK: "Always" folders
 
-    private static func fingerprint(_ retry: CloudMoveRetries.Retry) -> String {
+    /// A Retry as text: a launch offer Dismissed stays dismissed until its tab's Retry changes.
+    static func fingerprint(_ retry: CloudMoveRetries.Retry) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         return (try? encoder.encode(retry)).map { String(decoding: $0, as: UTF8.self) } ?? ""
