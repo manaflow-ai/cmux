@@ -29,13 +29,31 @@ nonisolated struct WorkspaceAutoName: Equatable {
     /// `title`) whose front tab is `front`; nil keeps the workspace's own
     /// name. Both variants show it.
     func label(name: String, title: String?, front: Front?) -> String? {
-        nil
+        guard enabled, !Self.isUserNamed(name: name, title: title), let front else { return nil }
+        return Self.derived(front)
     }
 
     /// The name to write to the daemon once (variant `persist`), or nil to
     /// write nothing. `alreadyRenamed`: this app renamed (or asked to rename)
     /// the workspace before, so it never does again.
     func persistedName(name: String, title: String?, front: Front?, alreadyRenamed: Bool) -> String? {
-        nil
+        guard variant == .persist, !alreadyRenamed else { return nil }
+        // An incognito page's title stays in memory: the daemon keeps workspace names in closed history.
+        if case .browser(_, offTheRecord: true)? = front { return nil }
+        return label(name: name, title: title, front: front)
+    }
+
+    /// Whether the user named the workspace: a title, or a name the daemon did not give.
+    static func isUserNamed(name: String, title: String?) -> Bool {
+        !(title ?? "").isEmpty || !NewWorkspaceName.isDefaultWorkspaceName(name)
+    }
+
+    /// The name `front` gives, one line and at most `NewWorkspaceName.maxLength` characters.
+    static func derived(_ front: Front) -> String? {
+        switch front {
+        case let .browser(title, _): NewWorkspaceName.clean(title)
+        case let .chat(userName, title): NewWorkspaceName.clean(userName) ?? NewWorkspaceName.clean(title)
+        case let .terminal(tab): NewWorkspaceName.forTab(tab)
+        }
     }
 }
