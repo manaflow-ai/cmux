@@ -10,9 +10,11 @@ import CmuxNextTerminal
 /// default Apple System Colors), the chrome derived from it, and room,
 /// workspace and terminal themes. Params: `mode` `light`, `dark`, or
 /// `system` (clears the override). Returns the effective appearance, the
-/// applied terminal background (`#RRGGBB`), and the bundled Ghostty themes
-/// folder: null there means no theme file resolves, so every theme is
-/// Ghostty's built-in default and light captures stay dark.
+/// applied terminal background (`#RRGGBB`, as applied when the call returns;
+/// poll `debug.themes` to wait for a reload), and this app bundle's Ghostty
+/// themes folder: null there means the bundle ships no themes, so without
+/// Ghostty.app every theme is Ghostty's built-in default and light captures
+/// stay dark.
 enum DebugAppearance {
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
         switch params["mode"]?.stringValue {
@@ -25,7 +27,9 @@ enum DebugAppearance {
         let background = GhosttyRuntime.shared.themeColors.map {
             JSONValue.string(String(format: "#%02X%02X%02X", $0.background.r, $0.background.g, $0.background.b))
         } ?? .null
-        let themes = GhosttyRuntime.resourcesDirectory().map { JSONValue.string(($0 as NSString).appendingPathComponent("themes")) }
+        // The app's own copy only: resourcesDirectory() also falls back to Ghostty.app.
+        let themes = Bundle.main.resourceURL.map { $0.appending(path: "ghostty/themes").path }
+            .flatMap { FileManager.default.fileExists(atPath: $0) ? JSONValue.string($0) : nil }
         return .object([
             "override": NSApp.appearance.map { .string($0.name.rawValue) } ?? .null,
             "effective": .string(dark ? "dark" : "light"),

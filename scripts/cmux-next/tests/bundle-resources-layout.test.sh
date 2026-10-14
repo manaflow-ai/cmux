@@ -74,6 +74,11 @@ check() {  # <order> <Contents/Resources>
     [[ -f "$res/ghostty/themes/$theme" ]] || { echo "FAIL ($1): no ghostty/themes/$theme in the bundle" >&2; fail=1; }
   done
   [[ -f "$res/terminfo/78/xterm-ghostty" ]] || { echo "FAIL ($1): no terminfo/78/xterm-ghostty in the bundle" >&2; fail=1; }
+  # Every directory the script phases put in Resources stays a directory.
+  local dir
+  for dir in ghostty terminfo shell-integration cmux-cli-path bin libexec; do
+    [[ ! -e "$res/$dir" || -d "$res/$dir" ]] || { echo "FAIL ($1): $dir is a flat file, not a directory" >&2; fail=1; }
+  done
 }
 
 # Xcode: the Resources phase, then the script phase.
@@ -85,7 +90,7 @@ check "Resources phase first" "$xcode/app.app/Contents/Resources"
 # The fleet's Linux builder: the script phase, then the Resources phase.
 linux="$TMP/linux"
 phase "$linux"
-flat_copy "$linux/app.app/Contents/Resources" 2>"$TMP/linux-flat.log" || true
+flat_copy "$linux/app.app/Contents/Resources" 2>"$TMP/linux-flat.log" || { cat "$TMP/linux-flat.log" >&2; echo "FAIL: the flat copy failed" >&2; exit 1; }
 cat "$TMP/linux-flat.log" >&2
 check "script phase first" "$linux/app.app/Contents/Resources"
 
