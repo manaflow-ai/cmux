@@ -93,6 +93,9 @@ extension PaletteSearchIndex {
 }
 
 extension PaletteSearchEntry {
+    /// The localized keycap of the space key (`Shortcut.keyGlyph`).
+    @MainActor private static let spaceKeycap = Shortcut(Shortcut.spaceKey, modifiers: []).keyGlyph
+
     @MainActor
     init(_ item: PaletteItem, visible: Bool, sectionIndex: Int) {
         self.init(
@@ -111,7 +114,8 @@ extension PaletteSearchEntry {
         entersScope = item.enters != nil
         actionID = item.actionID?.rawValue
         demoted = item.isDemoted
-        keycaps = item.keycaps ?? []
+        // The space key's keycap is localized ("Space"); the ranker reads a locale-free "␣".
+        keycaps = (item.keycaps ?? []).map { $0 == Self.spaceKeycap ? "␣" : $0 }
         hasShortcut = !keycaps.isEmpty
         suggestedRank = item.suggestedRank
     }

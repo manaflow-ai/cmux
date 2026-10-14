@@ -143,7 +143,11 @@ fn shortcut_entries() -> Value {
         { "title": "Scroll To Bottom", "hasShortcut": true, "keycaps": ["G"], "actionID": "browser.bottom" },
         { "title": "Inspect Element", "keywords": ["devtools"], "actionID": "browser.inspect" },
         { "title": "Disabled Thing", "isEnabled": false, "hasShortcut": true, "keycaps": ["⌘", "J"], "actionID": "x.disabled" },
-        { "title": "Zoom Out", "hasShortcut": true, "keycaps": ["⌘", "-"], "actionID": "view.zoomOut" }
+        { "title": "Zoom Out", "hasShortcut": true, "keycaps": ["⌘", "-"], "actionID": "view.zoomOut" },
+        { "title": "Show Help", "hasShortcut": true, "keycaps": ["⇧", "⌘", "/"], "actionID": "app.help" },
+        { "title": "Next Sidebar Tab", "hasShortcut": true, "keycaps": ["⌃", "\u{f72d}"], "actionID": "sidebar.next" },
+        { "title": "Quick Look", "hasShortcut": true, "keycaps": ["⌘", "␣"], "actionID": "app.quickLook" },
+        { "title": "Find In Page", "hasShortcut": true, "keycaps": ["⌘", "F"], "actionID": "browser.find" }
     ])
 }
 
@@ -200,6 +204,14 @@ fn a_typed_shortcut_finds_its_action_first() -> Result<(), String> {
         ("cmd -", "Zoom Out"),
         ("cmd+-", "Zoom Out"),
         ("cmd d", "Split Right"),
+        ("Cmd + P", "Print"),
+        ("⌘-D", "Split Right"),
+        ("cmd ?", "Show Help"),
+        ("cmd shift /", "Show Help"),
+        ("ctrl pagedown", "Next Sidebar Tab"),
+        ("cmd space", "Quick Look"),
+        ("⌘␣", "Quick Look"),
+        ("cmd f", "Find In Page"),
     ];
     let mut failures = Vec::new();
     for (query, title) in cases {
@@ -211,6 +223,23 @@ fn a_typed_shortcut_finds_its_action_first() -> Result<(), String> {
     // A disabled row bound to the shortcut still shows, after the enabled rows.
     if !first_titles(&handle, 7, "cmd j", 20)?.iter().any(|title| title == "Disabled Thing") {
         failures.push("\"cmd j\" lost the disabled row".to_owned());
+    }
+    // The user's own alias for the query still wins over the bound shortcut.
+    let (code, body) = handle.rank(&serde_json::json!({
+        "operation": "rank", "version": 7, "query": "cmd i",
+        "aliases": { "browser.find": ["cmd i"] }
+    }))?;
+    let ranked: Value = serde_json::from_slice(&body).map_err(|error| error.to_string())?;
+    let order: Vec<u64> = ranked
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|section| section["rows"].as_array().cloned().unwrap_or_default())
+        .filter_map(|row| row["index"].as_u64())
+        .take(2)
+        .collect();
+    if code != OK || order != [15, 1] {
+        failures.push(format!("alias \"cmd i\": code {code}, first rows {order:?}, want [15, 1]"));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     Ok(())

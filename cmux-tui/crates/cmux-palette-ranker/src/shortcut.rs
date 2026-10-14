@@ -33,7 +33,7 @@ fn modifier(token: &str) -> Option<u8> {
         "⌃" | "ctrl" | "control" | "ctl" => CONTROL,
         "⌥" | "opt" | "option" | "alt" => OPTION,
         "⇧" | "shift" => SHIFT,
-        "⌘" | "cmd" | "command" | "meta" | "super" => COMMAND,
+        "⌘" | "cmd" | "command" => COMMAND,
         _ => return None,
     })
 }
@@ -68,6 +68,7 @@ fn query_key(token: &str) -> Option<Key> {
         "esc" | "escape" => "escape",
         "delete" | "del" | "backspace" | "bksp" => "delete",
         "forwarddelete" => "forwarddelete",
+        "home" | "end" | "pageup" | "pagedown" => token,
         "space" | "spacebar" => "space",
         "up" | "down" | "left" | "right" => token,
         "comma" => ",",
@@ -103,12 +104,24 @@ fn keycap_key(cap: &str) -> Key {
         if ('\u{f704}'..='\u{f71b}').contains(&c) {
             return Key::Named(format!("f{}", u32::from(c) - 0xf704 + 1));
         }
+        // AppKit's other function-key scalars that keybindings use.
+        let named = match c {
+            '\u{f728}' => Some("forwarddelete"),
+            '\u{f729}' => Some("home"),
+            '\u{f72b}' => Some("end"),
+            '\u{f72c}' => Some("pageup"),
+            '\u{f72d}' => Some("pagedown"),
+            _ => None,
+        };
+        if let Some(name) = named {
+            return Key::Named(name.to_owned());
+        }
     }
     query_key(&lower).unwrap_or(Key::Named(lower))
 }
 
 /// The words of a query: modifier glyphs stand alone; white space separates; `+` and `-` separate
-/// after a word and are a key after a separator (`cmd+-`, `⌘-`).
+/// after a word and are a word of their own after a separator (`cmd+-`, `⌘-`, `Cmd + P`).
 fn tokens(query: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -124,11 +137,9 @@ fn tokens(query: &str) -> Vec<String> {
             tokens.push(c.to_string());
         } else if (c == '+' || c == '-') && !current.is_empty() {
             tokens.push(std::mem::take(&mut current));
-        } else if (c == '+' || c == '-')
-            && tokens.last().is_some_and(|last| modifier(last).is_none())
-        {
-            // `a--` or `x + +`: not a chord word list.
-            return Vec::new();
+        } else if c == '+' || c == '-' {
+            // After a separator, `+` and `-` are a key word of their own.
+            tokens.push(c.to_string());
         } else {
             current.extend(c.to_lowercase());
         }
@@ -139,18 +150,65 @@ fn tokens(query: &str) -> Vec<String> {
     tokens
 }
 
+/// A US shifted symbol as shift plus its base key (`?` is ⇧/), so "cmd ?" names ⇧⌘/ and a
+/// binding stored as `}` names ⇧].
+fn stroke(mut modifiers: u8, key: Key) -> Stroke {
+    const SHIFTED: &[(char, char)] = &[
+        ('~', '`'),
+        ('!', '1'),
+        ('@', '2'),
+        ('#', '3'),
+        ('$', '4'),
+        ('%', '5'),
+        ('^', '6'),
+        ('&', '7'),
+        ('*', '8'),
+        ('(', '9'),
+        (')', '0'),
+        ('_', '-'),
+        ('+', '='),
+        ('{', '['),
+        ('}', ']'),
+        ('|', '\\'),
+        (':', ';'),
+        ('"', '\''),
+        ('<', ','),
+        ('>', '.'),
+        ('?', '/'),
+    ];
+    if let Key::Named(name) = &key {
+        let mut chars = name.chars();
+        if let (Some(c), None) = (chars.next(), chars.next())
+            && let Some(&(_, base)) = SHIFTED.iter().find(|(shifted, _)| *shifted == c)
+        {
+            modifiers |= SHIFT;
+            return Stroke { modifiers, key: Key::Named(base.to_string()) };
+        }
+    }
+    Stroke { modifiers, key }
+}
+
 /// The strokes a query names, or nothing when it is not a shortcut query.
 pub(crate) fn parse_query(query: &str) -> Option<Vec<Stroke>> {
     let mut strokes = Vec::new();
     let mut modifiers = 0;
     let mut named_modifier = false;
-    for token in tokens(query) {
-        if let Some(bit) = modifier(&token) {
+    let tokens = tokens(query);
+    for (at, token) in tokens.iter().enumerate() {
+        if let Some(bit) = modifier(token) {
             modifiers |= bit;
             named_modifier = true;
             continue;
         }
-        strokes.push(Stroke { modifiers, key: query_key(&token)? });
+        // "Cmd + P": a lone + or - between a modifier and the next word separates them.
+        if (token == "+" || token == "-")
+            && modifiers != 0
+            && at + 1 < tokens.len()
+            && tokens[..at].last().is_some_and(|last| modifier(last).is_some())
+        {
+            continue;
+        }
+        strokes.push(stroke(modifiers, query_key(token)?));
         modifiers = 0;
     }
     (named_modifier && modifiers == 0 && !strokes.is_empty()).then_some(strokes)
@@ -165,7 +223,7 @@ pub(crate) fn parse_keycaps(keycaps: &[String]) -> Option<Vec<Stroke>> {
             modifiers |= bit;
             continue;
         }
-        strokes.push(Stroke { modifiers, key: keycap_key(cap) });
+        strokes.push(stroke(modifiers, keycap_key(cap)));
         modifiers = 0;
     }
     (modifiers == 0 && !strokes.is_empty()).then_some(strokes)

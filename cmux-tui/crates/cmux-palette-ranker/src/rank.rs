@@ -291,7 +291,8 @@ struct Scored {
     /// A demoted row whose whole title is the query.
     exact_name: bool,
     shortcut: bool,
-    /// The query names this row's shortcut ("cmd i" for ⌘I): first among enabled rows.
+    /// The query names this row's shortcut ("cmd i" for ⌘I): first among enabled rows after the
+    /// user's own aliases.
     chord: bool,
     lifted: bool,
     aliased: bool,
@@ -484,9 +485,9 @@ pub(crate) fn rank(
             let (left_starts, right_starts) =
                 (starts.contains(&left.index), starts.contains(&right.index));
             right
-                .chord
-                .cmp(&left.chord)
-                .then(right.aliased.cmp(&left.aliased))
+                .aliased
+                .cmp(&left.aliased)
+                .then((right.chord && right.enabled).cmp(&(left.chord && left.enabled)))
                 .then(right_starts.cmp(&left_starts))
                 .then_with(|| {
                     if left_starts {
@@ -501,8 +502,8 @@ pub(crate) fn rank(
             right
                 .enabled
                 .cmp(&left.enabled)
-                .then(right.chord.cmp(&left.chord))
                 .then(right.aliased.cmp(&left.aliased))
+                .then(right.chord.cmp(&left.chord))
                 .then(right.lifted.cmp(&left.lifted))
                 .then(right.tier.cmp(&left.tier))
                 .then(left.demoted.cmp(&right.demoted))
