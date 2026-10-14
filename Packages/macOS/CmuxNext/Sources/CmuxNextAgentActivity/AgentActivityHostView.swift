@@ -112,6 +112,9 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
 
     @MainActor
     private func reply(to method: String, params: [String: Any]) async -> (Any?, String?) {
+        // One tuple return after the do/catch: Swift 6.3 and 6.4 at -O drop the first element of
+        // a tuple returned from both an awaiting `do` and its `catch` (swiftlang/swift#92698, cx-21wc5).
+        let body: [String: Any]
         do {
             let value: Any
             switch method {
@@ -134,10 +137,11 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
                 value = try await Self.frameData(source: source, frame: AgentActivityFrameRef(blob: blob, width: width, height: height))
             default: throw AgentActivitySourceError.refused(method)
             }
-            return (["ok": true, "value": value], nil)
+            body = ["ok": true, "value": value]
         } catch {
-            return (["ok": false, "error": ["userMessage": String(describing: error)]], nil)
+            body = ["ok": false, "error": ["userMessage": String(describing: error)]]
         }
+        return (body, nil)
     }
 
     @MainActor static func state(_ model: AgentActivityModel) -> [String: Any] {
