@@ -91,9 +91,9 @@ def main():
             assert len(notes["changes"]) == len(rows), "All changes must retain internal history"
             assert len(requests) == 1, "One bounded summarizer call per publish"
             inputs = json.loads(requests[0]["messages"][1]["content"])
-            assert {pr["number"] for pr in inputs} == {103, 105}, inputs
+            assert {pr["number"] for pr in inputs} == {103, 105, 108}, inputs
+            assert next(pr for pr in inputs if pr["number"] == 108)["body"].startswith("Release note:\n"), inputs
             assert all(line["title"] not in notes["changes"] for line in notes["summary"])
-            assert 108 not in {pr for note in digest for pr in note["prs"]}, digest
             # Appcast is a separate publishing CLI and must not leak the raw titles
             # while the signed notes are still being generated.
             feeds = root / "feeds"
