@@ -139,7 +139,9 @@ impl HomeView {
         let errors = std::thread::spawn(move || {
             let mut err = String::new();
             if let Some(stderr) = stderr.as_mut() {
-                let _ = stderr.take(64 * 1024).read_to_string(&mut err);
+                let _ = stderr.by_ref().take(64 * 1024).read_to_string(&mut err);
+                // The rest is read and dropped, so the pipe never fills.
+                let _ = std::io::copy(stderr, &mut std::io::sink());
             }
             err
         });
@@ -287,7 +289,7 @@ impl Home {
                                 if let Some(t) = terminal {
                                     line.push_str(&format!(
                                         " \"{}\"",
-                                        clip(&text(t, "title"), LINE_CHARS)
+                                        quoted(&text(t, "title"), LINE_CHARS)
                                     ));
                                     if let Some(cwd) = t.get("cwd").and_then(Value::as_str) {
                                         line.push_str(&format!(" in {}", clip(cwd, 400)));
@@ -309,7 +311,7 @@ impl Home {
                                 if let Some(b) = browser {
                                     line.push_str(&format!(
                                         " \"{}\" {}",
-                                        clip(&text(b, "title"), LINE_CHARS),
+                                        quoted(&text(b, "title"), LINE_CHARS),
                                         clip(&text(b, "url"), 400)
                                     ));
                                     if flag(b, "loading") {
@@ -321,7 +323,7 @@ impl Home {
                             other => {
                                 let name =
                                     tab.get("name").and_then(Value::as_str).unwrap_or_default();
-                                format!("{other} \"{}\"", clip(name, LINE_CHARS))
+                                format!("{other} \"{}\"", quoted(name, LINE_CHARS))
                             }
                         };
                         row
@@ -390,9 +392,11 @@ impl Home {
                 left_out += 1;
                 continue;
             }
-            // The screen tail takes what room is left, its newest lines first.
+            // The screen tail takes its share of the room left (every shown pane after it keeps
+            // its own share), its newest lines first.
             if let Some(Some(tail)) = tails.get(index) {
-                let room = budget - body.len() - part.len();
+                let panes_left = self.right.len().min(MAX_PANES).saturating_sub(index).max(1);
+                let room = (budget - body.len() - part.len()) / panes_left;
                 let mut kept: Vec<String> = Vec::new();
                 let mut used = 0;
                 for line in tail.lines().rev() {
@@ -464,6 +468,11 @@ fn tail(screen: &str) -> String {
         .map(|l| clip(l, LINE_CHARS))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// A title for inside the block's quotes: clipped, with its own `"` as `”`.
+fn quoted(text: &str, chars: usize) -> String {
+    clip(text, chars).replace('"', "”")
 }
 
 /// `text` cut to `chars` characters, with an ellipsis when cut. Control characters are dropped
