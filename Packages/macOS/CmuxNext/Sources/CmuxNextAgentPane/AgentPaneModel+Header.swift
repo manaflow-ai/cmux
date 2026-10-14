@@ -11,6 +11,9 @@ public struct AgentPaneHeaderHooks {
     public var tabState: @MainActor () -> AgentPaneHeaderState
     /// Opens acpmux session `id` in a new split beside the chat's tab (New side chat).
     public var openSide: @MainActor (String) -> Void
+    /// Opens acpmux session `id` in a new tab beside the chat's (a fork, a started Continue in…), so
+    /// the chat keeps its own tab and session; false when no tab opened.
+    public var openTab: @MainActor (String) -> Bool
     /// [+] New tab / Hide tabs: opens, hides or shows the panes beside the chat; whether they show
     /// after it, nil when it could not run.
     public var sideTabs: @MainActor () -> Bool?
@@ -29,6 +32,7 @@ public struct AgentPaneHeaderHooks {
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
                 tabState: @escaping @MainActor () -> AgentPaneHeaderState,
                 openSide: @escaping @MainActor (String) -> Void = { _ in },
+                openTab: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
                 saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil,
@@ -38,6 +42,7 @@ public struct AgentPaneHeaderHooks {
         self.toggle = toggle ?? run
         self.tabState = tabState
         self.openSide = openSide
+        self.openTab = openTab
         self.sideTabs = sideTabs
         self.preview = preview
         self.saveQuickActions = saveQuickActions ?? { _ in false }
@@ -114,27 +119,28 @@ extension AgentPaneModel {
             return AgentPaneReply.success(header.state(refresh: refresh).reply)
         case .sideChat(let fork):
             return await openSideChat(fork)
+        case .chatTab(let chat):
+            // Only a chat this pane made (its fork's or handoff start's reply put it in the pane's
+            // scope), never the chat itself, and not from a New Tab page. A refusal (another
+            // machine's pane, no daemon) answers so: the page then opens the chat in this tab.
+            guard let sessionId, newTab == nil, chat != sessionId, transport.sessions.contains(chat), let header,
+                  header.openTab(chat) else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.openTab")
+            }
+            return AgentPaneReply.success()
         default:
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request")
         }
     }
 
-    /// New side chat: `fork` must be a session this pane made (its fork's reply put it in the
-    /// pane's scope), never the chat itself. It is tagged `side` with the chat's session, which
-    /// keeps it off the lists, then opened in a split beside the chat.
+    /// New side chat's view part: opens `fork` in a split beside the chat. acpmux already tagged it
+    /// the chat's side chat (`_acpmux/side`, sent by the page, cx-jlzsf). `fork` must be a session
+    /// this pane made (its fork's reply put it in the pane's scope), never the chat itself.
     private func openSideChat(_ fork: String) async -> [String: Any] {
         guard let sessionId, newTab == nil, fork != sessionId, transport.sessions.contains(fork), let header else {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.sideChat")
         }
-        do {
-            try await transport.tagSession(fork, [Self.sideTag: sessionId], [])
-        } catch {
-            return AgentPaneReply.failure(code: "failed", message: "\(error)")
-        }
         header.openSide(fork)
         return AgentPaneReply.success()
     }
-
-    /// The tag that marks a side chat, valued with its chat's session (sessionList.ts `SIDE_TAG`).
-    static let sideTag = "side"
 }

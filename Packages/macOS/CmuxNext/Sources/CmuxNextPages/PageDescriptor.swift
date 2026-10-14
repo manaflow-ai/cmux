@@ -148,11 +148,12 @@ public extension PageDescriptor {
             .union(settingsSectionActions),
         dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true)
 
-    /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
-    /// host's native sheet before they reach the owner (the app's ConfirmingPageProvider); the page
-    /// runs no registry action yet.
+    /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
+    /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
+    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
     static let apps = PageDescriptor(
-        id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun])
+        id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
+        actions: ["app.open"])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;

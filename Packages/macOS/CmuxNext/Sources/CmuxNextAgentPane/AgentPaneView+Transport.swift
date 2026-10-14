@@ -70,16 +70,16 @@ extension AgentPaneView {
     /// decision reads event-time state, once, and is never made again later.
     func monitored(_ event: NSEvent) { judge(event, eventWindow: event.window) }
 
-    /// A key press with the page focused, or a click on the page: the user's gesture. `eventWindow`
-    /// is the event's window (tests pass it: a synthesized event cannot resolve it).
+    /// A key press with the page focused, or a click on the page, by the person (``AgentPanePersonInput``):
+    /// the user's gesture. `eventWindow` is the event's window (tests pass it: a synthesized event cannot resolve it).
     func judge(_ event: NSEvent, eventWindow: NSWindow?) {
-        guard let window, eventWindow === window else { return }
+        guard let window, eventWindow === window, AgentPanePersonInput.isPerson(event) else { return }
         switch event.type {
         case .keyDown:
             guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
         default:
             guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
         }
-        model.transport.gestures.record()
+        model.transport.gestures.record(click: event.type != .keyDown)
     }
 }

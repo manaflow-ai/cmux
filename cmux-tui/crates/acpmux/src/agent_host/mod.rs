@@ -27,6 +27,8 @@ pub mod host {
     }
 }
 pub mod link;
+#[cfg(unix)]
+mod record_watch;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
