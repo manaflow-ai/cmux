@@ -9,6 +9,7 @@ use tungstenite::protocol::WebSocketConfig;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Message, WebSocket, accept_hdr_with_config};
 
+use super::attachment_http;
 use super::page_files;
 use super::*;
 
@@ -252,7 +253,12 @@ fn handle_websocket_connection_with_permit(
     // handshake below) or a page file request (answered and closed).
     let Some((head_bytes, head)) = page_files::read_request_head(&mut stream) else { return };
     if !head.is_websocket_upgrade() {
-        page_files::serve(stream, &head, &rules.policy, rules.pages.as_deref());
+        // Download links (`ws-attachments-v1`), else page files.
+        if head.target.starts_with(attachment_http::PREFIX) {
+            attachment_http::serve(stream, &head, &rules.policy, &mux);
+        } else {
+            page_files::serve(stream, &head, &rules.policy, rules.pages.as_deref());
+        }
         return;
     }
     let stream = SynchronizedTcpStream::with_replay(stream, head_bytes);

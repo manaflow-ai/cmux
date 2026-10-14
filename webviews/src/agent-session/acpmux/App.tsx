@@ -1056,6 +1056,7 @@ export function VirtualTranscript({
   openAt,
   onAnchor,
   anchorNow,
+  onLoadOlder,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -1077,6 +1078,8 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  /// Pages older history in (canLoadOlder): asked again on each render while the view is near the top.
+  onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
@@ -1600,16 +1603,20 @@ export function VirtualTranscript({
         // text an estimate's error too low, then slid it past its place, at every token.
         const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
         if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized) glide(thread.current, step);
-      } else if (top > 0) {
+      } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
-        // so the row is found again by its id.
-        const anchor = visibleLayoutRange(old, top, 0, 0).first;
-        const id = oldRows[anchor]?.id;
-        const now = rows[anchor]?.id === id ? anchor : rows.findIndex((row) => row.id === id);
-        if (now >= 0) {
+        // so the row is found again by its id; at offset 0 too, when older history arrived above.
+        // A row older history completed (a turn cut at the page's edge) has a new id: the next row
+        // that kept its own anchors instead.
+        const first = visibleLayoutRange(old, top, 0, 0).first;
+        for (let anchor = first; anchor < Math.min(oldRows.length, first + 32); anchor++) {
+          const id = oldRows[anchor].id;
+          const now = rows[anchor]?.id === id ? anchor : rows.findIndex((row) => row.id === id);
+          if (now < 0) continue;
           const delta = layout.tops[now] - old.tops[anchor];
           if (clamped || Math.abs(delta) > 0.5) node.scrollTop = top + delta;
+          break;
         }
       }
     }
@@ -1866,6 +1873,14 @@ export function VirtualTranscript({
     }
   };
   useLayoutEffect(markTurns);
+  // Older history pages in before the reader reaches it: whenever the view is within two viewports
+  // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
+  // reader's row in place as each page lands.
+  useEffect(() => {
+    const node = ref.current;
+    if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) return;
+    if (node.scrollTop < node.clientHeight * 2) onLoadOlder().catch(() => {});
+  });
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
@@ -1882,7 +1897,17 @@ export function VirtualTranscript({
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <>
-      <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
+      <div
+        ref={ref}
+        className="acpmux-scroll"
+        role="feed"
+        aria-label={t("transcript.label")}
+        onScroll={onScroll}
+        // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
+        // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        data-fade-top={renderScroll.top > 0.5 || undefined}
+        data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
+      >
         <ThreadMinimap
           rows={rows}
           sessionId={sessionId}
@@ -4480,6 +4505,7 @@ function AcpmuxPane() {
                               find={quick ? undefined : find}
                               sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
                               canLoadOlder={!childRows && snapshot.canLoadOlder}
+                              onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
                               openAt={
                                 !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
                                   ? scrollAnchor

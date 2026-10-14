@@ -6,6 +6,7 @@
 // loaded window. A retracted reply never counts (it shows as deleted in the thread).
 import type { HomeDraft } from "./drafts";
 import type {
+  HomeAttachment,
   HomeConversation,
   HomeMessage,
   HomePart,
@@ -389,6 +390,7 @@ export function pendingMessages(
     key: string;
     conversation: string;
     text: string;
+    attachments?: readonly HomeAttachment[];
     threadRoot?: string;
     replyTo?: string;
     createdAt: number;
@@ -408,7 +410,10 @@ export function pendingMessages(
         author: me,
         createdAt: entry.createdAt,
         retracted: false,
-        parts: [{ type: "text", text: entry.text, mentions: [] }],
+        parts: [
+          ...(entry.text ? [{ type: "text" as const, text: entry.text, mentions: [] }] : []),
+          ...(entry.attachments ?? []),
+        ],
         reactions: [],
         clientMessageId: entry.key,
       };
