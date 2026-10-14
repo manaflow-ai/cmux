@@ -79,7 +79,9 @@ class InsertionDriver(Driver):
                         if record and kind == "cold":
                             self.prepare(count)
                             self.checked("debug.new_tab", {"action": "drop_spare"})
-                            capture = self.checked("debug.new_tab", {
+                            # A failed recording (no screen capture on the host) is its own result;
+                            # it never replaces the trace saved above.
+                            capture = self.call("debug.new_tab", {
                                 "action": "frame_strip", "key": "t", "duration_ms": 1200,
                                 "scale": 1, "dir": str(self.out / f"video-{count}"),
                             })
