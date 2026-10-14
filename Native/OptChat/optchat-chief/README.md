@@ -214,7 +214,11 @@ writes the same file.
 ## Monitoring: trace and stats
 
 Every turn (`turn.start`, `turn.end`), every model request in a turn
-(`request`: Claude Code's per-message usage; codex-acp's last request), every
+(`request`: Claude Code's per-message usage; codex-acp's last request; with
+`message_id` and `harness_session`, Claude Code's session id, which the
+subrouter pins an account to: its responses name no account, so these two
+ids are what joins a cache miss to the subrouter's session assignment
+`GET /_subrouter/sessions` (admin) and its proxy log), every
 tool call (`tool`: name, argument bytes, result bytes, ok/error, ms from
 acpmux's event times), every compactor node (`node`: ms, prompts, usage, cost,
 ok, context hash and piece hashes), every subagent step (`spawn`,
