@@ -1,9 +1,7 @@
 //! Every level `cmux notification --help` offers is one a real daemon takes:
 //! an agent that copies a level from the help gets a notification, not a
 //! "bad level" refusal from the server.
-#![cfg(unix)]
-
-use super::*;
+use super::super::*;
 
 /// The levels in the help's `[--level a|b|c]`.
 fn help_levels(server: &HeadlessServer) -> Vec<String> {

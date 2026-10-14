@@ -8,6 +8,9 @@
 
 use super::*;
 
+#[path = "notification_levels.rs"]
+mod notification_levels;
+
 /// Runs the CLI against `server` with `--json --socket` and returns the raw
 /// output (no success assertion). `terminal` routes it as a cmux terminal
 /// would instead: `CMUX_TUI_SOCKET` plus `CMUX_TUI_TERMINAL_ID`.
