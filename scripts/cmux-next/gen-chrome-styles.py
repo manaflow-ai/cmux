@@ -89,6 +89,9 @@ def design(doc):
         switch(doc, "step", "var borderlessStep: CGFloat?",
                lambda s: optional(s["implies"].get("chrome.mainPane.borderlessStep"), num),
                "Share of the separate shade a shared surface keeps with no line; nil keeps `SidebarSurface.borderlessStep`."),
+        switch(doc, "floating", "var floatingPanes: Bool",
+               lambda s: "true" if s["implies"].get("chrome.floatingPanes") else "false",
+               "Every pane is its own unshaded card on the shaded chrome, with one even gap (`Metrics.floatingPanes`)."),
     ]
     shade_lines = ["    /// The separate surface's shade; nil keeps the tunable's default.",
                    "    public func separateShade(isDark: Bool) -> CGFloat? {", "        switch self {"]

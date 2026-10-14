@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 import Foundation
 
 /// Keeps one overlay sync observer registered; removing it (or releasing
@@ -41,4 +42,19 @@ extension LayoutRootView {
     func notifyOverlaySync() {
         for block in overlaySyncObservers.values { block() }
     }
+}
+
+/// The floating panes' cards (`MainPaneChromeShadeView`): every displayed
+/// pane of the shown screens that is not fading out.
+extension LayoutRootView: PaneCardSource {
+    public var paneCardsInWindow: [PaneCard] {
+        guard window != nil else { return [] }
+        return screenViews.values.filter { !$0.isHidden && $0.alphaValue > 0.5 }.flatMap { screen in
+            screen.displayedHosts.filter { !$0.isHidden && $0.alphaValue > 0.5 }.map { host in
+                PaneCard(rect: host.cardInWindow, radius: PaneChromeGeometry.cornerRadius(for: host.contentRect, style: context.style))
+            }
+        }
+    }
+
+    public func observePaneCards(_ block: @escaping () -> Void) -> AnyObject { observeOverlaySync(block) }
 }

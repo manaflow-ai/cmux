@@ -54,8 +54,8 @@ extension WindowRootView {
     /// applies the current values).
     func observeMainPane() -> Task<Void, Never> {
         Task { [weak self] in
-            for await _ in ObservationStream({ [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius,
-                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true)] }) {
+            for await _ in ObservationStream({ () -> [CGFloat] in [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius,
+                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.floatingPanes ? 1 : 0] }) {
                 self?.applyMainPane()
             }
         }

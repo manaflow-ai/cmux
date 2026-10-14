@@ -42,7 +42,7 @@ public nonisolated struct ChromeStyleSetting: Sendable {
             kind: .choice(ChromeStyle.allCases.map { SettingChoice($0.rawValue, title($0)) }),
             default: .string(fallback.rawValue),
             keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline",
-                       "seam", "sidebar", "two-tone", "minimal", "bare"]
+                       "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps"]
         )
     }
 }

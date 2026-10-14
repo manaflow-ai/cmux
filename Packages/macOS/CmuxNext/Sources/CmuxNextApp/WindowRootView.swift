@@ -280,6 +280,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         let outgoing = paintHold.kept ?? previous
         let holds = PanePaintHold.holds(view, replacing: outgoing)
         content = view
+        mainPaneShade.paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         if holds, paintHold.kept != nil {
             // The page that never showed leaves; the kept view stays for this hold.
             paintHold.handOff { $0.removeFromSuperview() }
