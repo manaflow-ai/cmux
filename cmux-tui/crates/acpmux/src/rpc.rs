@@ -268,6 +268,10 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// One cheap completion through the user's own harness login, for
+    /// naming chats and workspaces (hq#1957, `crate::complete`): no chat
+    /// session, tools, MCP, hooks or session file. The unix socket only.
+    pub const MUX_COMPLETE: &str = "_acpmux/complete";
     // Routes: how a harness reaches its model provider (ROUTES R1-R3;
     // server/routes.rs). add, edit, remove, restore: the unix socket only;
     // the rest also the local app. Never Web or peer.

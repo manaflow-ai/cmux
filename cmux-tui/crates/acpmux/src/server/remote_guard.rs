@@ -31,6 +31,8 @@
 //! - Web only: no `acp.trust.set` (`trust.remote`); the folder-trust
 //!   question is the user's, and the trust gate (`trust_gate.rs`) holds Web
 //!   prompts until the user answers it in the app or the CLI.
+//! - Web, LocalApp and Peer: no `_acpmux/complete` (it runs a harness CLI
+//!   with the user's own login; `crate::complete`).
 //! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
 //!   change which machines this daemon reaches with the user's ssh keys and
 //!   tokens); `peer_reconnect` only retries a configured peer.
@@ -119,6 +121,11 @@ pub(super) async fn check(
     // socket; no WebSocket origin (LocalApp and Peer included) gets them.
     if m == method::MUX_WEB_MODES {
         return Err(refused("_acpmux/web_modes"));
+    }
+    // A one-shot completion runs a harness CLI with the user's own login:
+    // the unix socket only (`crate::complete::allowed`), never forwarded.
+    if m == method::MUX_COMPLETE {
+        return Err(crate::complete::CompleteError::LocalOnly.into());
     }
     // The listener's own credential changes over the unix socket only.
     if m == method::MUX_WEB_TOKEN_ROTATE {

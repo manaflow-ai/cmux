@@ -52,9 +52,11 @@ pub const BYTES_PER_TOKEN: usize = 4;
 /// Whether a connection from `origin` may call `_acpmux/complete`: the unix
 /// socket only.
 pub fn allowed(origin: crate::server::Origin) -> bool {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = origin;
-    true
+    use crate::server::Origin;
+    match origin {
+        Origin::Local => true,
+        Origin::Web | Origin::LocalApp | Origin::Peer => false,
+    }
 }
 
 /// One `_acpmux/complete` request, checked.
@@ -72,9 +74,49 @@ pub struct Request {
 impl Request {
     /// Reads and checks `{prompt, harness?, model?, maxTokens?, timeoutMs?}`.
     pub fn parse(params: &Value) -> Result<Self, CompleteError> {
-        // hq#1957: not implemented yet (the failing tests come first).
-        let _ = params;
-        Err(CompleteError::InvalidParams("not implemented".into()))
+        let prompt = params
+            .get("prompt")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CompleteError::InvalidParams("prompt (a string) is required".into()))?;
+        if prompt.trim().is_empty() {
+            return Err(CompleteError::InvalidParams("prompt is empty".into()));
+        }
+        if prompt.len() > MAX_PROMPT_BYTES {
+            return Err(CompleteError::PromptTooLarge { bytes: prompt.len() });
+        }
+        let text = |key: &str| -> Result<Option<String>, CompleteError> {
+            match params.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::String(s)) if s.trim().is_empty() => Ok(None),
+                Some(Value::String(s)) => Ok(Some(s.trim().to_owned())),
+                Some(_) => Err(CompleteError::InvalidParams(format!("{key} must be a string"))),
+            }
+        };
+        let number = |key: &str, default: u32, max: u32| -> Result<u32, CompleteError> {
+            match params.get(key) {
+                None | Some(Value::Null) => Ok(default),
+                Some(v) => v
+                    .as_u64()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .filter(|n| (1..=max).contains(n))
+                    .ok_or_else(|| {
+                        CompleteError::InvalidParams(format!(
+                            "{key} must be a number from 1 to {max}"
+                        ))
+                    }),
+            }
+        };
+        Ok(Self {
+            prompt: prompt.to_owned(),
+            harness: text("harness")?,
+            model: text("model")?,
+            max_tokens: number("maxTokens", DEFAULT_MAX_TOKENS, MAX_MAX_TOKENS)?,
+            timeout: Duration::from_millis(u64::from(number(
+                "timeoutMs",
+                DEFAULT_TIMEOUT_MS,
+                MAX_TIMEOUT_MS,
+            )?)),
+        })
     }
 }
 
@@ -200,9 +242,29 @@ pub fn finish(
     answer: &[u8],
     max_tokens: u32,
 ) -> Result<String, CompleteError> {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = (out, answer, max_tokens);
-    Err(CompleteError::Failed { harness: harness.to_owned(), detail: "not implemented".into() })
+    let says_sign_in = || {
+        crate::harness_health::names_sign_in(&String::from_utf8_lossy(&out.stderr))
+            || crate::harness_health::names_sign_in(&String::from_utf8_lossy(&out.stdout))
+    };
+    if !out.success {
+        if says_sign_in() {
+            return Err(CompleteError::SignedOut { harness: harness.to_owned() });
+        }
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let last = stderr.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+        let detail = match out.code {
+            Some(code) => format!("exit status {code}"),
+            None => "killed by a signal".to_owned(),
+        };
+        let detail = if last.is_empty() { detail } else { format!("{detail}: {}", cut(last, 300)) };
+        return Err(CompleteError::Failed { harness: harness.to_owned(), detail });
+    }
+    let text = String::from_utf8_lossy(answer);
+    let text = cut(text.trim(), max_tokens as usize * BYTES_PER_TOKEN).trim();
+    if text.is_empty() {
+        return Err(CompleteError::EmptyOutput { harness: harness.to_owned() });
+    }
+    Ok(text.to_owned())
 }
 
 /// `s` cut to at most `max` bytes on a character boundary.

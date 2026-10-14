@@ -24,9 +24,20 @@ const OTHER_ORDER: &[&str] = &["flash-lite", "flash", "haiku", "luna", "mini"];
 /// The model for `recipe` from the ids the harness offers. `small_fast`:
 /// the `ANTHROPIC_SMALL_FAST_MODEL` value, when set. None: the CLI's default.
 pub fn pick(recipe: Recipe, ids: &[String], small_fast: Option<&str>) -> Option<String> {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = (recipe, ids, small_fast);
-    None
+    match recipe {
+        Recipe::Claude => Some(
+            small_fast
+                .map(str::trim)
+                .filter(|m| !m.is_empty())
+                .map(str::to_owned)
+                .or_else(|| newest_haiku(ids))
+                .unwrap_or_else(|| CLAUDE_FALLBACK.to_owned()),
+        ),
+        Recipe::Codex => first_word_match(ids, CODEX_ORDER),
+        Recipe::OpenCode | Recipe::Pi | Recipe::Omp | Recipe::Grok => {
+            first_word_match(ids, OTHER_ORDER)
+        }
+    }
 }
 
 /// The first id holding `order[0]`, else `order[1]`, ...
@@ -38,17 +49,33 @@ fn first_word_match(ids: &[String], order: &[&str]) -> Option<String> {
 /// `.`, `_` or `:`) and not followed by another letter. `flash` is not in
 /// `flash-lite`'s place: callers order `flash-lite` first.
 pub fn has_word(id: &str, word: &str) -> bool {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = (id, word);
+    let id = id.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(at) = id[from..].find(word) {
+        let start = from + at;
+        let end = start + word.len();
+        let before = id[..start].chars().next_back();
+        let after = id[end..].chars().next();
+        let starts = before.is_none_or(|c| !c.is_ascii_alphanumeric());
+        let ends = after.is_none_or(|c| !c.is_ascii_alphabetic());
+        if starts && ends {
+            return true;
+        }
+        from = start + 1;
+        while from < id.len() && !id.is_char_boundary(from) {
+            from += 1;
+        }
+    }
     false
 }
 
 /// The newest `claude-haiku-*` id: the highest version, then the latest
 /// date (`claude-haiku-5-5` over `claude-haiku-4-5-20251001`).
 pub fn newest_haiku(ids: &[String]) -> Option<String> {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = ids;
-    None
+    ids.iter()
+        .filter_map(|id| haiku_version(id).map(|v| (v, id)))
+        .max_by(|(a, _), (b, _)| a.cmp(b))
+        .map(|(_, id)| id.clone())
 }
 
 /// `(version parts, date)` of a `claude-haiku-<n>-<n>[-<yyyymmdd>]` id.

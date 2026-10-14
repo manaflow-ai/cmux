@@ -43,9 +43,25 @@ pub const FILE_INSTRUCTION: &str =
 
 /// The recipe of profile `name`, or why it has none.
 pub fn recipe_for(name: &str, profile: &HarnessProfile) -> Result<Recipe, CompleteError> {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = profile;
-    Err(CompleteError::Unsupported { harness: name.to_owned(), why: "not implemented".into() })
+    let unsupported =
+        |why: &str| CompleteError::Unsupported { harness: name.to_owned(), why: why.to_owned() };
+    match profile.kind {
+        HarnessKind::Terminal => {
+            return Err(unsupported("a terminal harness has no headless mode"));
+        }
+        HarnessKind::ClaudeStdio => return Ok(Recipe::Claude),
+        HarnessKind::Acp => {}
+    }
+    match crate::config::derive_family(name, profile).as_str() {
+        "codex" => Ok(Recipe::Codex),
+        "opencode" => Ok(Recipe::OpenCode),
+        "pi" => Ok(Recipe::Pi),
+        "omp" => Ok(Recipe::Omp),
+        "grok" => Ok(Recipe::Grok),
+        "gemini" => Err(unsupported("Gemini has no tool-less headless mode")),
+        "claude" => Err(unsupported("a Claude ACP adapter; use the Claude Code harness")),
+        _ => Err(unsupported("no headless recipe for this harness")),
+    }
 }
 
 fn file_name(path: &str) -> String {
@@ -64,9 +80,24 @@ pub fn program(
     env: &BTreeMap<String, String>,
     which: &dyn Fn(&str) -> Option<String>,
 ) -> Option<(String, Vec<String>)> {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = (recipe, profile, env, which);
-    None
+    let first = profile.argv.first().filter(|p| !p.is_empty());
+    let own_or = |bin: &str| first.filter(|p| file_name(p) == bin).cloned().or_else(|| which(bin));
+    let program = match recipe {
+        Recipe::Claude => {
+            let (program, rest) = profile.argv.split_first()?;
+            return Some((program.clone(), rest.to_vec()));
+        }
+        // The configured Codex (`CODEX_PATH`, as the ACP adapter runs it).
+        Recipe::Codex => env
+            .get("CODEX_PATH")
+            .filter(|p| !p.is_empty() && !p.contains("${"))
+            .cloned()
+            .or_else(|| own_or("codex")),
+        Recipe::OpenCode | Recipe::Omp | Recipe::Grok => first.cloned(),
+        // The profile starts the pi-acp adapter; the CLI is `pi`.
+        Recipe::Pi => own_or("pi"),
+    }?;
+    Some((program, Vec::new()))
 }
 
 /// How one completion runs.
@@ -97,9 +128,11 @@ pub fn invocation(
     model: Option<&str>,
     dir: &Path,
 ) -> Invocation {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = (recipe, prefix, model, dir);
-    Invocation {
+    let model = model.filter(|m| !m.is_empty() && *m != "default");
+    let prompt_path = dir.join("prompt.txt");
+    let prompt_arg = prompt_path.to_string_lossy().into_owned();
+    let mut args = prefix;
+    let mut out = Invocation {
         program,
         args: Vec::new(),
         stdin_prompt: false,
@@ -107,5 +140,115 @@ pub fn invocation(
         output_file: None,
         env_set: Vec::new(),
         env_remove: Vec::new(),
+    };
+    match recipe {
+        Recipe::Claude => {
+            args.extend(strings(&["-p", "--model"]));
+            args.push(model.unwrap_or(super::model_pick::CLAUDE_FALLBACK).to_owned());
+            args.extend(strings(&[
+                "--tools",
+                "",
+                "--disable-slash-commands",
+                "--no-session-persistence",
+                "--strict-mcp-config",
+                "--mcp-config",
+                EMPTY_MCP_CONFIG,
+                "--settings",
+                NO_HOOKS_SETTINGS,
+            ]));
+            out.stdin_prompt = true;
+        }
+        Recipe::Codex => {
+            let last = dir.join("last-message.txt");
+            args.extend(strings(&[
+                "exec",
+                "--ephemeral",
+                "--skip-git-repo-check",
+                "--ignore-user-config",
+                "--ignore-rules",
+                "--sandbox",
+                "read-only",
+                "-c",
+                "default_tools_enabled=false",
+                "-c",
+                "tools={}",
+                "-c",
+                "mcp_servers={}",
+                "-c",
+                "web_search=\"disabled\"",
+                "-c",
+                "approval_policy=never",
+                "-c",
+                "shell_environment_policy.inherit=none",
+                "-c",
+                "model_reasoning_effort=low",
+            ]));
+            if let Some(m) = model {
+                args.extend(["-m".to_owned(), m.to_owned()]);
+            }
+            args.extend([
+                "--output-last-message".to_owned(),
+                last.to_string_lossy().into_owned(),
+                "-".to_owned(),
+            ]);
+            out.stdin_prompt = true;
+            out.output_file = Some(last);
+        }
+        Recipe::OpenCode => {
+            args.extend(strings(&["run", "--pure", "--format", "default", "--dir"]));
+            args.push(dir.to_string_lossy().into_owned());
+            if let Some(m) = model {
+                args.extend(["--model".to_owned(), m.to_owned()]);
+            }
+            args.extend(["--file".to_owned(), prompt_arg, FILE_INSTRUCTION.to_owned()]);
+            out.prompt_file = Some(prompt_path);
+            out.env_remove =
+                strings(&["OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_PROJECT_CONFIG"]);
+            out.env_set = vec![
+                ("OPENCODE_DISABLE_PROJECT_CONFIG".into(), "1".into()),
+                ("OPENCODE_CONFIG_CONTENT".into(), OPENCODE_ISOLATION_CONFIG.into()),
+                ("OPENCODE_PERMISSION".into(), OPENCODE_DENY_ALL.into()),
+                ("OPENCODE_PURE".into(), "1".into()),
+            ];
+        }
+        Recipe::Pi | Recipe::Omp => {
+            args.extend(strings(&[
+                "--print",
+                "--no-tools",
+                "--no-session",
+                "--no-extensions",
+                "--no-skills",
+            ]));
+            // omp isolates context with rules and refuses pi's two flags.
+            if recipe == Recipe::Pi {
+                args.extend(strings(&["--no-prompt-templates", "--no-context-files"]));
+            } else {
+                args.push("--no-rules".to_owned());
+            }
+            if let Some(m) = model {
+                args.extend(["--model".to_owned(), m.to_owned()]);
+            }
+            args.extend([format!("@{prompt_arg}"), FILE_INSTRUCTION.to_owned()]);
+            out.prompt_file = Some(prompt_path);
+        }
+        Recipe::Grok => {
+            args.extend(["--prompt-file".to_owned(), prompt_arg]);
+            args.extend(strings(&[
+                "--output-format",
+                "plain",
+                "--tools",
+                "",
+                "--disable-web-search",
+                "--no-subagents",
+                "--no-memory",
+                "--verbatim",
+            ]));
+            if let Some(m) = model {
+                args.extend(["--model".to_owned(), m.to_owned()]);
+            }
+            out.prompt_file = Some(prompt_path);
+        }
     }
+    out.args = args;
+    out
 }

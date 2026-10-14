@@ -7,6 +7,7 @@
 mod adoption;
 mod aside;
 mod catalog_reload;
+mod complete;
 mod cursor_ext;
 mod fork;
 mod fork_at;

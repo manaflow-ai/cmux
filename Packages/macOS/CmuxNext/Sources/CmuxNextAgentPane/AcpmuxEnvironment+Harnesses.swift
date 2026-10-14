@@ -46,12 +46,18 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// acpmux reads its profiles and looks on PATH again (cx-apoko: a harness the Harnesses page
     /// just installed). Running chats stay; idle pooled sessions are dropped.
     case reload = "_acpmux/reload_config"
+    /// One cheap completion through the user's own harness login (hq#1957, auto-naming):
+    /// `{prompt, harness?, model?, maxTokens?, timeoutMs?}` answers `{text, harness, model}`. The
+    /// unix socket only; the harness CLI runs headless with no tools, MCP, hooks or session.
+    case complete = "_acpmux/complete"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
     var deadline: Duration {
         switch self {
         case .doctor: .seconds(150)
+        // The daemon's own limit is at most 60 s (`timeoutMs`).
+        case .complete: .seconds(65)
         case .registry, .health: .seconds(40)
         case .list, .add, .remove, .restore, .reload: .seconds(10)
         }

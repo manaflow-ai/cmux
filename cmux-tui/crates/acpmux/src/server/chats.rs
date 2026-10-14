@@ -62,6 +62,11 @@ pub(super) async fn route(
     if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    // A one-shot completion runs a harness CLI with the user's own login:
+    // the unix socket only, checked by `Hub::complete` (`crate::complete`).
+    if m == crate::rpc::method::MUX_COMPLETE {
+        return hub.complete(conn.origin, &params).await;
+    }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
     // runs its queue with the rules it was sent under, so only the local socket moves one.
     if m.starts_with("_acpmux/transfer_") {

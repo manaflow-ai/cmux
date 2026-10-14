@@ -33,9 +33,48 @@ pub async fn run(
     input: Option<&[u8]>,
     timeout: Duration,
 ) -> Result<Output, RunError> {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = (cmd, input, timeout);
-    Err(RunError::Spawn("not implemented".into()))
+    cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    // Its own process group, so a timeout stops what it started too.
+    #[cfg(unix)]
+    cmd.process_group(0);
+    let mut child = cmd.spawn().map_err(|e| RunError::Spawn(e.to_string()))?;
+    // The group id, kept: once the leader is reaped `child.id()` is None.
+    let group = child.id();
+    let stdin = child.stdin.take();
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let work = async {
+        let write = async move {
+            if let (Some(mut pipe), Some(bytes)) = (stdin, input) {
+                // A CLI that exits without reading closes the pipe: not an error here.
+                let _ = pipe.write_all(bytes).await;
+                let _ = pipe.shutdown().await;
+            }
+        };
+        let (_, stdout, stderr) = tokio::join!(
+            write,
+            read_capped(stdout, super::OUTPUT_CAP),
+            read_capped(stderr, super::STDERR_CAP)
+        );
+        let status = child.wait().await;
+        (stdout, stderr, status)
+    };
+    // Bound first, so the finished future (and its borrow of `child`) is gone below.
+    let outcome = tokio::time::timeout(timeout, work).await;
+    match outcome {
+        Ok((stdout, stderr, status)) => {
+            let status = status.map_err(|e| RunError::Spawn(e.to_string()))?;
+            Ok(Output { stdout, stderr, success: status.success(), code: status.code() })
+        }
+        Err(_) => {
+            kill_group(group);
+            let _ = child.kill().await;
+            Err(RunError::Timeout)
+        }
+    }
 }
 
 /// Up to `cap` bytes of `pipe`; then the pipe is closed, so a CLI that
@@ -62,9 +101,10 @@ fn kill_group(_group: Option<u32>) {}
 
 /// Up to `cap` bytes of the file at `path` (empty when it is missing).
 pub async fn read_file_capped(path: &Path, cap: usize) -> Vec<u8> {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = (path, cap);
-    Vec::new()
+    match tokio::fs::File::open(path).await {
+        Ok(file) => read_capped(Some(file), cap).await,
+        Err(_) => Vec::new(),
+    }
 }
 
 /// A fresh, empty, private folder for one completion, removed when dropped:
@@ -79,9 +119,19 @@ impl RunDir {
     }
 
     pub fn new_in(parent: &Path) -> std::io::Result<Self> {
-        // hq#1957: not implemented yet (the failing tests come first).
-        let _ = parent;
-        Err(std::io::Error::other("not implemented"))
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let path = parent.join(format!("acpmux-complete-{}-{n}-{nanos:08x}", std::process::id()));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        // `create`, never `create_all`: a folder that exists is not fresh.
+        builder.create(&path)?;
+        Ok(Self { path })
     }
 
     pub fn path(&self) -> &Path {
