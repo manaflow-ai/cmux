@@ -70,7 +70,7 @@ async fn a_local_command_result_ends_the_prompt() {
     };
     let answered = |msgs: &[Message], want: i64| {
         msgs.iter().any(|m| {
-            matches!(m, Message::Response { id, result: Some(r), .. } if *id == Value::from(want) && r["stopReason"] == "end_turn")
+            matches!(m, Message::Response { id, result: Some(r), .. } if *id == want && r["stopReason"] == "end_turn")
         })
     };
 
