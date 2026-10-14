@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
@@ -17,18 +18,22 @@ nonisolated struct SidebarSnapshotFile: Sendable {
         self.url = url
     }
 
-    /// A tagged build keeps it next to the tag's daemon state
-    /// (`~/Library/Application Support/cmux/tags/<tag>/`), an untagged one
-    /// in its bundle's support directory.
+    /// Beside the build's daemon state (per-build isolation S5,
+    /// cx-is1kf.6): `cmux/tags/<tag>/` for a kept tag, `cmux/builds/<key>/`
+    /// for names of the build key, never another build's tag folder.
     static func standard(launch: LaunchIdentity) -> SidebarSnapshotFile {
-        let directory: URL
-        if let tag = launch.tag, !tag.isEmpty {
-            directory = DaemonLauncher.tagStateDirectory(tag: tag).deletingLastPathComponent()
-        } else {
-            directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appending(path: launch.bundleID ?? "com.cmuxterm.app.next", directoryHint: .isDirectory)
+        SidebarSnapshotFile(url: buildDirectory(launch: launch).appending(path: fileName))
+    }
+
+    /// The folder of this build's small per-build files: the parent of its
+    /// daemon state directory (``BuildIdentity/daemonStateDirectory(appSupport:)``),
+    /// else (release, outside a bundle) its bundle's support directory.
+    static func buildDirectory(launch: LaunchIdentity) -> URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        if let state = launch.build.daemonStateDirectory(appSupport: support.appending(path: "cmux", directoryHint: .isDirectory)) {
+            return state.deletingLastPathComponent()
         }
-        return SidebarSnapshotFile(url: directory.appending(path: fileName))
+        return support.appending(path: launch.bundleID ?? "com.cmuxterm.app.next", directoryHint: .isDirectory)
     }
 
     /// The saved document; nil when missing, too large, unreadable or of
