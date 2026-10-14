@@ -3,18 +3,17 @@ public import Foundation
 /// The staged update card above the footer (UPDATE-CARD): the App fills it
 /// from the updater only while an update is staged or installing. The
 /// button sends `SidebarIntent.installUpdate`, the checkbox
-/// `setAutomaticUpdates`, "See all changes" `openUpdateChanges`, a link in
-/// the hover popover `openUpdateLink`.
-/// All text arrives localized.
+/// `setAutomaticUpdates`, its accessibility action "See all changes"
+/// `openUpdateChanges`. The full build, the highlights and "See all
+/// changes" are the hover popover's (Leo 2026-10-13: the card and the
+/// popover never repeat a fact). All text arrives localized.
 public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     /// "Update Ready".
     public var title: String
-    /// The short version and build date, nil when unknown.
+    /// The short version and build date ("nightly 3845050 · Oct 13"), nil when unknown.
     public var detail: String?
-    /// The first changelog lines.
-    public var lines: [String]
-    /// "See all changes" (`openUpdateChanges`): the What's New page for the
-    /// staged update; nil hides it.
+    /// "See all changes" (`openUpdateChanges`): an accessibility action of the card's button
+    /// only (the popup, which shows it, opens on hover); nil leaves it out.
     public var seeAllTitle: String?
     /// "Restart to Update", or "Installing…" while disabled.
     public var buttonTitle: String
@@ -26,12 +25,10 @@ public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     /// The hover popover.
     public var notes: Notes
 
-    public init(title: String, detail: String? = nil, lines: [String] = [], seeAllTitle: String? = nil,
-                buttonTitle: String, isEnabled: Bool = true, automaticUpdatesTitle: String,
+    public init(title: String, detail: String? = nil, seeAllTitle: String? = nil, buttonTitle: String, isEnabled: Bool = true, automaticUpdatesTitle: String,
                 automaticUpdates: Bool, notes: Notes) {
         self.title = title
         self.detail = detail
-        self.lines = lines
         self.seeAllTitle = seeAllTitle
         self.buttonTitle = buttonTitle
         self.isEnabled = isEnabled
