@@ -78,6 +78,29 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(CmuxVaultAgentRegistration.builtInAntigravity.detect.processNames, ["agy", "antigravity"])
     }
 
+    func testBuiltInAntigravityCopyResumeCommandUsesManagedWrapper() throws {
+        let registration = CmuxVaultAgentRegistration.builtInAntigravity
+        let entry = SessionEntry(
+            id: "antigravity:conversation-123",
+            agent: .registered(RegisteredSessionAgent(registration: registration)),
+            sessionId: "conversation-123",
+            title: "Resume Antigravity",
+            cwd: "/tmp/antigravity repo",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .registered(registration, launchCommand: nil)
+        )
+
+        let command = try XCTUnwrap(entry.copyResumeCommand)
+        XCTAssertTrue(command.contains("CMUX_AGY_WRAPPER_SHIM"), command)
+        let escapedConversation = "'--conversation' 'conversation-123'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        XCTAssertTrue(command.contains(escapedConversation), command)
+        XCTAssertTrue(command.hasPrefix("cd -- '/tmp/antigravity repo'"), command)
+    }
+
     func testBuiltInAntigravityRegistrationLoadsHistoryDisplayAndWorkspace() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-antigravity-vault-history-\(UUID().uuidString)", isDirectory: true)
@@ -104,9 +127,12 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.sessionId, "antigravity-conversation-123")
         XCTAssertEqual(entry.title, "Implement Antigravity notifications")
         XCTAssertEqual(entry.cwd, "/tmp/antigravity repo")
-        let copyResumeCommand = try XCTUnwrap(entry.copyResumeCommand)
-        XCTAssertTrue(copyResumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"), copyResumeCommand)
-        XCTAssertTrue(copyResumeCommand.contains("'--conversation' 'antigravity-conversation-123'"), copyResumeCommand)
+        // Changing the session directory makes this a custom registration, whose
+        // template is replayed without built-in wrapper routing.
+        XCTAssertEqual(
+            entry.copyResumeCommand,
+            "cd -- '/tmp/antigravity repo' 2>/dev/null || [ ! -d '/tmp/antigravity repo' ] && 'agy' '--conversation' 'antigravity-conversation-123'"
+        )
     }
 
     func testBuiltInAntigravityRegistrationIndexesEachHistoryConversation() async throws {
@@ -145,9 +171,10 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
         XCTAssertEqual(filtered.map(\.sessionId), ["conversation-b"])
-        let filteredCopyResumeCommand = try XCTUnwrap(filtered.first?.copyResumeCommand)
-        XCTAssertTrue(filteredCopyResumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"), filteredCopyResumeCommand)
-        XCTAssertTrue(filteredCopyResumeCommand.contains("'--conversation' 'conversation-b'"), filteredCopyResumeCommand)
+        XCTAssertEqual(
+            filtered.first?.copyResumeCommand,
+            "cd -- '/tmp/antigravity repo' 2>/dev/null || [ ! -d '/tmp/antigravity repo' ] && 'agy' '--conversation' 'conversation-b'"
+        )
     }
 
     func testRegisteredAgentJSONLWorkspaceKeyIsSharedCWDMetadata() async throws {
