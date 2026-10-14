@@ -510,6 +510,7 @@ MODEL_BY_PATH = {
     'events/bell/payload': models.BellEvent,
     'events/bookmarks-changed/payload': models.BookmarksChangedEvent,
     'events/browser-state/payload': models.BrowserStateEvent,
+    'events/chief-changed/payload': models.ChiefChangedEvent,
     'events/client-attached/payload': models.ClientAttachedEvent,
     'events/client-changed/payload': models.ClientChangedEvent,
     'events/client-detached/payload': models.ClientDetachedEvent,

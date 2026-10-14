@@ -27803,6 +27803,48 @@
     "additional_properties": false
    }
   },
+  "chief-changed": {
+   "since": 12,
+   "capability": "chief-events-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "chief-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "chief": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "change": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "created",
+        "updated",
+        "deleted"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "conversation-draft": {
    "since": 12,
    "capability": "conversation-draft-events-v1",
