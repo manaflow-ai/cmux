@@ -15,7 +15,8 @@ import Observation
 /// rows again and hands the changed ones to `onChange`.
 @MainActor
 public final class SidebarRowFeed {
-    public typealias Make = @MainActor () -> SidebarWorkspace
+    /// Maps one row from its store; runs on the main actor (the feed and its callers are main-actor).
+    public typealias Make = () -> SidebarWorkspace
 
     private final class Entry {
         var make: Make
