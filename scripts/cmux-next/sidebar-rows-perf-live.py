@@ -253,12 +253,17 @@ def scroll_mode(label, params, step_dy):
     if not rows:
         check(False, f"scroll {label}: a realized workspace row to scroll over")
         return {}
-    frame = rows[len(rows) // 2]["window_frame"]  # {x, y, width, height}, window points from the top left
-    # The first point over the row whose hit view is the list or a row (a title label or an
-    # overlay there would take the wheel instead); a zero-delta event moves nothing.
-    candidates = [{"x": frame["x"] + dx, "y": frame["y"] + frame["height"] / 2} for dx in (frame["width"] / 2, 4, frame["width"] - 6)]
+    # Realized rows reach past the visible list (the realization margin): a row in the middle
+    # of them can sit under the footer band, whose item rows take the wheel. So probe rows from
+    # the top of the list down: the first point whose hit view is a workspace row or the list
+    # (a title label in a row passes the wheel up to the list); a zero-delta event moves nothing.
+    picks = [rows[i] for i in sorted({min(2, len(rows) - 1), len(rows) // 4, len(rows) // 3, len(rows) // 2})]
+    candidates = [{"x": f["x"] + dx, "y": f["y"] + f["height"] / 2}
+                  for f in (r["window_frame"] for r in picks)  # {x, y, width, height}, window points from the top left
+                  for dx in (f["width"] / 2, 4, f["width"] - 6)]
     hits = [(c, (rpc("debug.sidebar_wheel", dict(c, dy=0, count=1)) or {}).get("hit")) for c in candidates]
-    point = next((c for c, hit in hits if hit and ("Sidebar" in hit or "RowView" in hit)), candidates[0])
+    point = next((c for c, hit in hits if hit and ("WorkspaceRow" in hit or "SidebarList" in hit)), None) \
+        or next((c for c, hit in hits if hit and "SidebarItemRowView" not in hit), candidates[0])
     print(f"scroll {label}: probe hits {[hit for _, hit in hits]}", flush=True)
     before = realized_titles()
     counters(reset=True)
