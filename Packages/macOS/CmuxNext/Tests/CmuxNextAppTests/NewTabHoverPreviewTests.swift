@@ -79,7 +79,10 @@ import Testing
                 page.apply(.started(loading, url: old))
                 page.apply(.urlChanged(blank))
             } else {
+                // The old load's start arrives after the New Tab load was asked for, reading its address.
                 page.apply(.urlChanged(old))
+                page.apply(.requested(page.allocateNavigationID()))
+                page.apply(.urlChanged(blank))
                 page.apply(.started(loading, url: blank))
             }
             page.apply(.failed(loading, cancelled))

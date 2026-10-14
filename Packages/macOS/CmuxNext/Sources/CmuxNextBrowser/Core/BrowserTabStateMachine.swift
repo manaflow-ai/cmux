@@ -3,6 +3,9 @@ public import Foundation
 /// Input to `BrowserTabStateMachine`. Engines translate their native
 /// callbacks (WKNavigationDelegate, KVO, CEF handlers) into these events.
 public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
+    /// The tab asked its engine for this navigation (load, reload, back,
+    /// forward). The start of an older one is a replaced load's, ignored.
+    case requested(BrowserNavigationID)
     case started(BrowserNavigationID, url: URL?)
     case redirected(BrowserNavigationID, url: URL?)
     case committed(BrowserNavigationID, url: URL?)
@@ -55,6 +58,11 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
     /// cancelled before it commits shows it again (Chromium retries a
     /// network error on its own and may cancel that retry).
     private var errorBeforeStart: BrowserLoadError?
+    /// The active navigation's own address (its start, then its redirects).
+    /// The address moving off it before the load commits is a newer load's.
+    private var startedURL: URL?
+    /// The newest navigation the tab asked for (`requested`).
+    private var newestRequested: BrowserNavigationID?
 
     public init(state: BrowserTabState = BrowserTabState()) {
         self.state = state
@@ -71,7 +79,13 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
 
     private mutating func reduce(_ event: BrowserNavigationEvent) {
         switch event {
+        case .requested(let id):
+            newestRequested = id
+
         case .started(let id, let url):
+            // WebKit can report a load's start after a newer load was asked for,
+            // reading the newer address; WebKit cancels the old load next.
+            if let newest = newestRequested, id.rawValue < newest.rawValue { return }
             errorBeforeStart = state.loadError
             state.processExit = nil
             state.isUnresponsive = false
@@ -79,10 +93,12 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             state.phase = .provisional
             state.progress = Self.initialProgress
             if let url { state.url = url }
+            startedURL = state.url
 
         case .redirected(let id, let url):
             guard id == state.activeNavigation, let url else { return }
             state.url = url
+            startedURL = url
 
         case .committed(let id, let url):
             guard id == state.activeNavigation else { return }
@@ -110,9 +126,9 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             if error.isBenignInterruption {
                 // Only a cancelled retry of the failed address shows its error
                 // again; a cancelled load replaced by another does not. A load
-                // whose replacement's address already arrived (WebKit's URL KVO,
-                // or this load's late start reading it) keeps that address.
-                let replaced = error.failingURL.map { $0 != state.url } ?? false
+                // whose replacement's address already arrived (WebKit's URL KVO
+                // before the cancellation) keeps that address.
+                let replaced = state.url != startedURL
                 endWithoutError(restoresError: !replaced && error.failingURL == errorBeforeStart?.failingURL, keepsAddress: replaced)
             } else {
                 state.phase = .failed(error)

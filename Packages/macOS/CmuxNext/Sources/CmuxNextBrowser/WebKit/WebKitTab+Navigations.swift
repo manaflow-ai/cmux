@@ -48,6 +48,6 @@ extension WebKitTab {
     /// The id for a navigation WebKit returned; its delegate callbacks,
     /// which come later, find the same id.
     private func register(_ navigation: WKNavigation?) -> BrowserNavigationID? {
-        navigation.flatMap { navigationID(for: $0, creating: true) }
+        navigation.flatMap { navigationID(for: $0, creating: true) }.map { apply(.requested($0)); return $0 }
     }
 }
