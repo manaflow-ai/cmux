@@ -5,6 +5,8 @@
 //! `_acpmux/prompt_accepted`) and answers `_acpmux/prompt_withdraw` as a test
 //! sets it, and a clock file the daemon's debug build adds to its agent
 //! message clock, so a test moves time instead of waiting.
+// Shared by several test binaries; each uses a part of it.
+#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::fs;

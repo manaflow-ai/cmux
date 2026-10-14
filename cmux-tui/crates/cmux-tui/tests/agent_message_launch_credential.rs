@@ -6,7 +6,6 @@
 //! reachable daemon the agent still starts, without a credential. Its own
 //! binary: the test sets acpmux's process environment.
 
-#[allow(dead_code)]
 #[path = "agent_message_policy/harness.rs"]
 mod harness;
 
