@@ -219,9 +219,16 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       };
       const frames: unknown[] = [];
       (window as any).__frames = frames;
+      // A frame paints at the viewport its animation frame saw: the rendering steps apply a
+      // resize before that callback, and no task runs between it and the paint. A resize that
+      // lands after it is read here by a forced layout the page never painted (the rows rewrapped,
+      // not yet placed), so that read is not a frame.
       const tick = () => {
         if ((window as any).__frames !== frames) return;
-        setTimeout(() => frames.push(sample()), 0);
+        const painted = `${innerWidth}x${innerHeight}`;
+        setTimeout(() => {
+          if (`${innerWidth}x${innerHeight}` === painted) frames.push(sample());
+        }, 0);
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
