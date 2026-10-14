@@ -1291,6 +1291,9 @@ export function VirtualTranscript({
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width });
+  /// The pane's width changed and no new content has come since: rows settling to their drawn
+  /// heights at the new width are that resize, not growth, and never glide.
+  const reflowing = useRef(false);
   const thread = useRef<HTMLDivElement>(null);
   // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
   useEffect(() => {
@@ -1568,6 +1571,11 @@ export function VirtualTranscript({
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
     const node = ref.current;
+    const rewrapped = width !== previousViewport.current.width;
+    const resized = rewrapped || height !== previousViewport.current.height;
+    if (rewrapped) reflowing.current = true;
+    else if (rows.length !== oldRows.length || rows.some((row, index) => row !== oldRows[index]))
+      reflowing.current = false;
     if (old && node) {
       // Content that shrank under the viewport has already clamped the live offset to
       // the new end; the offset recorded before this commit is where the reader was.
@@ -1601,8 +1609,12 @@ export function VirtualTranscript({
         // again by its drawn height, both before the frame paints: each step glides, and the
         // glides add up, so the text moves by what it grew. Gliding only the first step drew the
         // text an estimate's error too low, then slid it past its place, at every token.
-        const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
-        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized) glide(thread.current, step);
+        // A resize (a window edge dragged, cx-sqj3h) reflows the rows in the same way, estimate
+        // then drawn height, at every frame of the drag: none of that glides, and a glide in
+        // flight ends, so the text sits at the end of the view on every frame.
+        if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
+        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
+          glide(thread.current, step);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -2032,6 +2044,8 @@ function DefaultComposerChips({
 }) {
   const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
   const addAgent = useHarnessesPage();
+  // acpmux has answered with its harnesses: only then can the chip say none is installed.
+  const harnessesListed = useHarnessesListed();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
   const start = () => {
@@ -2075,8 +2089,10 @@ function DefaultComposerChips({
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
-      // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
+      // Add harness… (the picker's last row; the chip itself with no harness): the Harnesses page,
+      // in place, from this click's gesture.
       {...(addAgent ? { onAddAgent: addAgent } : {})}
+      harnessesListed={harnessesListed}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       pickerCatalog={picker.catalog}
@@ -2683,9 +2699,7 @@ function AcpmuxPane() {
   const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
-  // acpmux answered with its harnesses: only then does an empty catalog mean none is installed.
-  const harnessesListed = useHarnessesListed();
-  // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
+  // Add harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
   useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
@@ -5050,9 +5064,7 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
-              harnessesListed={harnessesListed}
               {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
-              {...(newTab.harnessHintDismissed ? { harnessHintDismissed: true } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse").then(
