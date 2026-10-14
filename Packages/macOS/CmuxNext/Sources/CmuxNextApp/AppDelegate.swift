@@ -26,7 +26,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settings: SettingsController?
     private let control = AppControl()
     private var cloudContext: Task<Void, Never>?
-    private var freeTier: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
     /// The binding table's Ghostty keybinds, kept current (GHOSTTY-CONFIG).
@@ -120,8 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
-        freeTier = FreeTierAttestStarter(tag: environment.tag, bundle: .main, apiBaseURL: services.feed.apiBaseURL, settings: services.settings,
-                                         signedIn: { [weak services] in services.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? false }).start()
+        FreeTierAttestStarter(tag: environment.tag, bundle: .main, apiBaseURL: services.feed.apiBaseURL, settings: services.settings, signedIn: { [weak services] in services.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? false }).start()
         services.ssh.start()
         services.serverReach.start()
         services.updater.start()
@@ -376,7 +374,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.editorPages.terminate()
         services?.home.applicationWillTerminate()
         cloudContext?.cancel()
-        freeTier?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
         services?.ssh.stop()

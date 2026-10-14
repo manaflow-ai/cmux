@@ -11,11 +11,13 @@ import os
 /// and the sign-in (a signed-in Mac never takes a free lease). The relay
 /// starts a lease only at the first signed-out agent request, never here.
 ///
-/// The app keeps only the hook:
+/// The app keeps only the hook (one call at launch; the provider lives as
+/// long as the app, and its connection ends with the process, so the relay
+/// drops the free token at once):
 ///
 /// ```swift
-/// freeTier = FreeTierAttestStarter(tag: tag, bundle: .main, apiBaseURL: url, settings: settings,
-///                                  signedIn: { cloud.isSignedIn || cloud.auth.isRestoring }).start()
+/// FreeTierAttestStarter(tag: tag, bundle: .main, apiBaseURL: url, settings: settings,
+///                       signedIn: { cloud.isSignedIn || cloud.auth.isRestoring }).start()
 /// ```
 @MainActor public struct FreeTierAttestStarter {
     private let tag: String?
@@ -38,14 +40,13 @@ import os
         self.signedIn = signedIn
     }
 
-    /// Starts the provider and follows the setting and the sign-in. Nil
-    /// without acpmux or an API origin. Cancel the task to stop the provider.
-    /// - Returns: The task that owns the provider.
-    public func start() -> Task<Void, Never>? {
+    /// Starts the provider and follows the setting and the sign-in for the
+    /// app's lifetime. Does nothing without acpmux or an API origin.
+    public func start() {
         let bin = bundle.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         guard let acpmux = AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin,
                                                      environment: ProcessInfo.processInfo.environment),
-              let scheme = apiBaseURL.scheme, let host = apiBaseURL.host else { return nil }
+              let scheme = apiBaseURL.scheme, let host = apiBaseURL.host else { return }
         // Scheme, host and port only; the relay accepts only a known cmux API origin.
         let origin = "\(scheme)://\(host)" + (apiBaseURL.port.map { ":\($0)" } ?? "")
         let provider = FreeTierAttestProvider(
@@ -56,8 +57,8 @@ import os
                                          account: "key"),
             logger: Logger(subsystem: "com.cmuxterm.next", category: "free-tier"))
         let settings = settings, signedIn = signedIn
-        // task-owner: the app holds it and cancels it at termination; one provider start, then one update per setting or sign-in change
-        return Task {
+        // task-owner: lives as long as the app (the provider's connection ends with the process); one provider start, then one update per setting or sign-in change
+        Task {
             var started = false
             for await (enabled, managed, signedIn) in ObservationStream({
                 (settings?.snapshot.freeModel.enabled ?? true, settings?.managedKeys["freeModel.enabled"] != nil, signedIn())
