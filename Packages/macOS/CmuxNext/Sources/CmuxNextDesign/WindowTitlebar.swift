@@ -46,9 +46,18 @@ public struct WindowTitlebar {
         }
     }
 
+    /// The last press `handleMouseDown` ran (window number, timestamp, click count).
+    private static var handledPress: (Int, TimeInterval, Int)?
+
     /// A mouse-down on an empty titlebar area: a double-click runs the
     /// user's action, any other press moves the window with the pointer.
+    /// One press runs once: a press on a view that handles its own titlebar
+    /// row (the sidebar header) also reaches the window's `sendEvent`, and a
+    /// second zoom put the window back where it was (Leo, cosmic-gray 2026-10-13).
     public static func handleMouseDown(_ event: NSEvent, in window: NSWindow?) {
+        let press = (event.windowNumber, event.timestamp, event.clickCount)
+        if let handledPress, handledPress == press { return }
+        handledPress = press
         if event.clickCount == 2 {
             performDoubleClick(in: window)
         } else {
