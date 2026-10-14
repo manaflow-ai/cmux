@@ -14,7 +14,8 @@ import MediaPlayer
 /// them. With no such tab Now Playing is cleared and the commands are
 /// disabled. WebKit tabs are left out: WebKit publishes its pages' media
 /// itself, from its GPU process. cmux's own music player (cx-imt2i) takes
-/// Now Playing and the keys by the card's rule (`NowPlayingSources.playerHolds`).
+/// Now Playing and the keys by the card's rule (`NowPlayingSources.playerHolds`);
+/// turning `labs.previewFeatures` off stops it.
 final class BrowserNowPlaying {
     nonisolated enum Command: String, Sendable {
         case play, pause, toggle, next, previous
@@ -29,6 +30,8 @@ final class BrowserNowPlaying {
     private(set) var current: Session?
     /// The music player's state, and whether it holds Now Playing over `current`.
     private var music: SidebarNowPlaying?
+    /// The music player's artwork as decoded for Now Playing.
+    private var musicArtwork: (data: Data, artwork: MPMediaItemArtwork)?
     private var musicHolds: Bool { NowPlayingSources.playerHolds(music, tabPlaying: current?.media.isPlaying == true) }
     /// The current tab's artwork, once loaded.
     private var artwork: (url: URL, artwork: MPMediaItemArtwork?)?
@@ -43,10 +46,12 @@ final class BrowserNowPlaying {
         }
         register()
         observation = Task { [weak self, weak services] in
-            for await (sessions, music) in ObservationStream({ [weak services] in
-                services.map { (Self.sessions($0), $0.cache.pageRequests.music.nowPlaying) } ?? ([], nil)
+            for await (sessions, music, preview) in ObservationStream({ [weak services] in
+                services.map { (Self.sessions($0), $0.cache.pageRequests.music.nowPlaying, $0.settings?.snapshot.previewFeatures == true) }
+                    ?? ([], nil, false)
             }) {
-                self?.update(sessions, music: music)
+                if !preview, music != nil { services?.cache.pageRequests.music.stop() }
+                self?.update(sessions, music: preview ? music : nil)
             }
         }
     }
@@ -133,16 +138,17 @@ final class BrowserNowPlaying {
             MPMediaItemPropertyTitle: music.title,
             MPNowPlayingInfoPropertyPlaybackRate: music.isPlaying ? music.rate : 0.0,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
-            MPNowPlayingInfoPropertyIsLiveStream: music.duration == nil,
+            MPNowPlayingInfoPropertyIsLiveStream: music.position == nil,
         ]
         if !music.artist.isEmpty { info[MPMediaItemPropertyArtist] = music.artist }
         if let duration = music.duration { info[MPMediaItemPropertyPlaybackDuration] = duration }
         if let position = music.position(at: Date()) { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = position }
-        if let data = music.artwork, let image = NSImage(data: data) {
+        if let data = music.artwork, musicArtwork?.data != data, let image = NSImage(data: data) {
             // crash-allow: the image is never mutated after decoding; MediaPlayer only reads it to draw.
             nonisolated(unsafe) let shown = image
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in shown }
+            musicArtwork = (data, MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in shown })
         }
+        if let data = music.artwork, let cached = musicArtwork, cached.data == data { info[MPMediaItemPropertyArtwork] = cached.artwork }
         center.nowPlayingInfo = info
         center.playbackState = music.isPlaying ? .playing : .paused
         for command in [commands.playCommand, commands.pauseCommand, commands.togglePlayPauseCommand, commands.previousTrackCommand] {

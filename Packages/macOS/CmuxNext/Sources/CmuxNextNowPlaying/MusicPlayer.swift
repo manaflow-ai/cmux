@@ -12,26 +12,29 @@ import UniformTypeIdentifiers
 /// holds Now Playing (``NowPlayingSources``).
 ///
 /// One `AVPlayer` plays the queue a song at a time, so Previous can go back; a song that ends
-/// starts the next one, and the last one ends the queue paused on it. Song titles and artists
-/// come from the file's metadata, else its name; a stream shows its file name and no scrubber.
+/// or cannot play starts the next one, and the last one ends the queue paused on it (Play then
+/// starts the queue again). Song titles and artists come from the file's metadata, else its
+/// name; a stream shows its file name and no scrubber. The `AVPlayer` exists once something plays.
 @Observable
 public final class MusicPlayer: NowPlayingSource {
     /// The songs and streams queued, in play order.
     public private(set) var queue: [URL] = []
     /// The one playing (or paused) in `queue`.
     public private(set) var index = 0
-    /// Whether the player was asked to play (it may still be loading).
+    /// Whether the player was asked to play (it may still be loading); false once the song fails.
     private var playing = false
+    /// The queue played to its end: Play starts it again.
+    private var ended = false
     /// The position read at `positionDate`, the song's length, and its metadata once loaded.
     private var position: TimeInterval = 0
     private var positionDate = Date()
     private var duration: TimeInterval?
     private var details: (url: URL, title: String?, artist: String?, artwork: Data?)?
-    @ObservationIgnored private let player = AVPlayer()
+    @ObservationIgnored private var avPlayer: AVPlayer?
     @ObservationIgnored private let labels: SidebarNowPlaying.Labels
     @ObservationIgnored private var rateObservation: NSKeyValueObservation?
     @ObservationIgnored private var itemObservation: NSKeyValueObservation?
-    @ObservationIgnored private var endObserver: NSObjectProtocol?
+    @ObservationIgnored private var itemObservers: [NSObjectProtocol] = []
     /// Previous restarts the song once it has played this long, as music apps do.
     static let restartAfter: TimeInterval = 3
 
@@ -43,11 +46,18 @@ public final class MusicPlayer: NowPlayingSource {
 
     public init(labels: SidebarNowPlaying.Labels) {
         self.labels = labels
+    }
+
+    private var player: AVPlayer {
+        if let avPlayer { return avPlayer }
+        let player = AVPlayer()
         player.preventsDisplaySleepDuringVideoPlayback = false
-        rateObservation = player.observe(\.rate, options: [.new]) { [weak self] _, _ in
+        rateObservation = player.observe(\.rate, options: [.new]) { @Sendable [weak self] _, _ in
             // AVFoundation may report from its own threads: inline on main, a hop otherwise.
             MainDelivery().run { self?.readPosition() }
         }
+        avPlayer = player
+        return player
     }
 
     /// The songs in `urls`, in play order: a folder's songs by name (as Finder sorts them,
@@ -79,9 +89,10 @@ public final class MusicPlayer: NowPlayingSource {
 
     /// Stops and empties the queue: the card leaves.
     public func stop() {
-        player.pause()
-        player.replaceCurrentItem(with: nil)
+        avPlayer?.pause()
+        avPlayer?.replaceCurrentItem(with: nil)
         unobserveItem()
+        ended = false
         queue = []
         index = 0
         playing = false
@@ -115,7 +126,7 @@ public final class MusicPlayer: NowPlayingSource {
     /// Plays on from where it is (the start again once the queue ended).
     public func resume() {
         guard queue.indices.contains(index) else { return }
-        if player.currentItem == nil { return load(index) }
+        if ended || player.currentItem == nil { return load(ended ? 0 : index) }
         playing = true
         player.play()
         readPosition()
@@ -129,6 +140,7 @@ public final class MusicPlayer: NowPlayingSource {
 
     private func load(_ next: Int) {
         unobserveItem()
+        ended = false
         index = next
         let url = queue[next]
         let item = AVPlayerItem(url: url)
@@ -143,15 +155,22 @@ public final class MusicPlayer: NowPlayingSource {
     }
 
     private func observe(_ item: AVPlayerItem, url: URL) {
-        itemObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-            let seconds = item.duration.seconds
-            MainDelivery().run { self?.itemReady(seconds.isFinite && seconds > 0 ? seconds : nil) }
+        let id = ObjectIdentifier(item)
+        itemObservation = item.observe(\.status, options: [.initial, .new]) { @Sendable [weak self] item, _ in
+            let seconds = item.duration.seconds, failed = item.status == .failed
+            MainDelivery().run { self?.itemChanged(id, failed: failed, seconds: seconds.isFinite && seconds > 0 ? seconds : nil) }
         }
-        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item,
-                                                             queue: .main) { [weak self] _ in
-            // main-proof: the observer runs on the main queue (queue: .main)
-            MainActor.assumeIsolated { self?.songEnded() }
-        }
+        let center = NotificationCenter.default
+        itemObservers = [
+            center.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
+                // main-proof: the observer runs on the main queue (queue: .main)
+                MainActor.assumeIsolated { self?.songEnded(failed: false) }
+            },
+            center.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
+                // main-proof: the observer runs on the main queue (queue: .main)
+                MainActor.assumeIsolated { self?.songEnded(failed: true) }
+            },
+        ]
         Task { [weak self] in
             let details = await Self.details(of: item.asset)
             guard let self, self.queue.indices.contains(self.index), self.queue[self.index] == url else { return }
@@ -161,18 +180,23 @@ public final class MusicPlayer: NowPlayingSource {
 
     private func unobserveItem() {
         itemObservation = nil
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = nil
+        for observer in itemObservers { NotificationCenter.default.removeObserver(observer) }
+        itemObservers = []
     }
 
-    private func itemReady(_ seconds: TimeInterval?) {
+    /// The current item's status: its length once ready; a failed one ends as a song does.
+    private func itemChanged(_ id: ObjectIdentifier, failed: Bool, seconds: TimeInterval?) {
+        guard let item = avPlayer?.currentItem, ObjectIdentifier(item) == id else { return }
+        if failed { return songEnded(failed: true) }
         if duration != seconds { duration = seconds }
         readPosition()
     }
 
-    private func songEnded() {
+    /// The song ended, or could not play: the next one plays, else the queue ends paused.
+    private func songEnded(failed: Bool) {
         guard index + 1 < queue.count else {
             playing = false
+            ended = !failed || queue.count > 1
             return readPosition()
         }
         load(index + 1)
@@ -187,7 +211,7 @@ public final class MusicPlayer: NowPlayingSource {
 
     /// The position now, moved on from the last read while playing.
     private func currentPosition() -> TimeInterval {
-        let seconds = player.currentTime().seconds
+        let seconds = avPlayer?.currentTime().seconds ?? position
         return seconds.isFinite ? seconds : position
     }
 
