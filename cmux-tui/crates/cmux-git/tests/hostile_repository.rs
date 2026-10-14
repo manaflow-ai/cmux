@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Once;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cmux_git::Repository;
@@ -14,6 +15,7 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(name: &str) -> Self {
+        isolate_home();
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let unique = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir()
@@ -37,6 +39,24 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+/// Points HOME and XDG_CONFIG_HOME at an empty folder for the whole test
+/// process, so the developer's own git config never changes what the reads
+/// under test do.
+fn isolate_home() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let home =
+            std::env::temp_dir().join(format!("cmux-git-hostile-home-{}", std::process::id()));
+        std::fs::create_dir_all(&home).expect("create the test home");
+        // SAFETY: every test calls this before it spawns anything or reads
+        // the environment, and `Once` blocks them until it has run.
+        unsafe {
+            std::env::set_var("HOME", &home);
+            std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+        }
+    });
 }
 
 /// Runs setup git in `directory`, isolated from the machine's git config,
@@ -143,6 +163,42 @@ fn hostile_repository_partial_clone_lazy_fetch_runs_no_ssh_command() {
     read_changes(&root, "committed");
 
     assert_no_marker(&scratch);
+    let repository = Repository::open(&root).expect("open repository");
+    let comparison = comparison(&repository, "committed").expect("comparison");
+    let failure = repository
+        .run(&diff_args(&comparison, &["--patch"], &[]), 1024 * 1024)
+        .err()
+        .expect("the diff needs the missing blob");
+    let reason = failure.reason();
+    assert!(reason.contains("not available locally in this partial clone"), "{reason}");
+}
+
+/// `core.attributesFile` and `diff.orderFile` name files every diff reads,
+/// to the end: `/dev/zero` would be read until the deadline. An unreadable
+/// order file (git stops) and attributes that mark text binary show whether
+/// git read them, without risking the memory.
+#[test]
+fn hostile_repository_attributes_and_order_files_are_never_read() {
+    let scratch = Scratch::new("config-files");
+    let root = scratch.0.join("repository");
+    new_repository(&root);
+    std::fs::write(root.join("file.txt"), "one\n").expect("write file");
+    git(&root, &["add", "."]);
+    git(&root, &["commit", "--quiet", "-m", "one"]);
+    std::fs::write(root.join("file.txt"), "two\n").expect("write file");
+    let attributes = scratch.0.join("attributes");
+    std::fs::write(&attributes, "*.txt -diff\n").expect("write attributes");
+    git(&root, &["config", "core.attributesFile", &attributes.to_string_lossy()]);
+    let order = scratch.0.join("missing-order-file");
+    git(&root, &["config", "diff.orderFile", &order.to_string_lossy()]);
+
+    let repository = Repository::open(&root).expect("open repository");
+    let comparison = comparison(&repository, "uncommitted").expect("comparison");
+    let output = repository
+        .run(&diff_args(&comparison, &["--patch"], &[]), 1024 * 1024)
+        .expect("the diff runs without reading the order file");
+    let patch = String::from_utf8_lossy(&output.stdout);
+    assert!(patch.contains("+two"), "the attributes file made the diff binary: {patch}");
 }
 
 /// `diff.submodule=diff` makes git run `git diff` inside the submodule,
