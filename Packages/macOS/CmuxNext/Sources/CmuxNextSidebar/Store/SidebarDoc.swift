@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 // The sidebar document as the client reads it (`sidebar-doc-v1`,
 // .cmux-scratch/sidebar-rewrite/CONTRACT.md): ordered sections of ordered

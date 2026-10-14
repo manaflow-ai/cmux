@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 public import Observation
 
 /// The home session's sidebar document as this app shows it

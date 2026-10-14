@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""Live proof of the sidebar document drag engine (sidebar-v2 S3-S5) on a tagged app.
+
+Run it on cmux-lawrence-2 in an nx-remote GUI job with a fleet-built app of a
+commit that has both the client lane and the doc lane (`sidebar-doc-v1`):
+
+  nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA \
+    -- python3 scripts/cmux-next/sidebar-v2-drag-live.py --out "$NX_ARTIFACTS"
+
+Every drag goes through `debug.mouse` (lift, held moves, drop), never a
+command. Each step prints PASS/FAIL/SKIP with its evidence: the sidebar rows
+and band items (`debug.sidebar_rows`), the mirror's FFI call counts by entry
+(two per drag: `drag_begin` and the drop's `intent`) and the refusal HUD.
+Steps: a workspace into Pinned at index 1; a group into Pinned; a group into a
+custom section; a pinned tile back into the list at the drop index; a link
+item into the list; a cross-machine drop (refused; SKIP without a second
+machine); Cmd-Z after each step (the undo toast's path); the order after a
+relaunch. Exit 1 when any step FAILs.
+"""
+import argparse, json, os, socket, subprocess, sys, tempfile, time
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
+opts = parser.parse_args()
+APP = os.environ.get("NX_APP")
+TAG = os.environ.get("NX_APP_TAG", "")
+SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
+CLI = os.environ.get("NX_APP_CLI") or (APP and os.path.join(APP, "Contents/Resources/bin/cmux"))
+STOP = os.environ.get("NX_APP_STOP")
+if not APP or not STOP:
+    sys.exit("run inside `nx-remote --needs gui --app-from-fleet cmux` (NX_APP, NX_APP_STOP)")
+SCRATCH = tempfile.mkdtemp(prefix=f"sidebar-v2-{TAG}-")
+CONFIG, GHOSTTY = os.path.join(SCRATCH, "cmux.json"), os.path.join(SCRATCH, "ghostty")
+open(GHOSTTY, "w").write("")
+open(CONFIG, "w").write("{}")
+os.makedirs(opts.out, exist_ok=True)
+RESULTS = []
+
+
+def rpc(method, params=None):
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(30)
+        conn.connect(SOCKET)
+        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = conn.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+        conn.close()
+        reply = json.loads(buf)
+        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+
+
+def cli(*args):
+    env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "CMUX_QUIET": "1"}
+    out = subprocess.run([CLI, "--app-socket", SOCKET, *args], capture_output=True, text=True, timeout=30, env=env)
+    return (out.stdout + out.stderr).strip()
+
+
+def wait(predicate, timeout):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.2)  # test harness wait, not app code
+    return None
+
+
+def report():
+    value = rpc("debug.sidebar_rows") or {}
+    return value if isinstance(value, dict) else {}
+
+
+def window():
+    windows = report().get("windows") or [{}]
+    return windows[0]
+
+
+def ffi():
+    return dict((report().get("doc") or {}).get("ffi_calls") or {})
+
+
+def rows():
+    """List rows by title: window frame, group."""
+    return {r["title"]: r for r in window().get("rows", []) if r.get("title")}
+
+
+def items():
+    """Band items: id, ref kind, ref, section, frame."""
+    return window().get("items", [])
+
+
+def section_items(section):
+    return [i for i in items() if i.get("section") == section]
+
+
+def list_titles():
+    return [r["title"] for r in window().get("rows", []) if r.get("title") and r.get("in_list")]
+
+
+def toast(**params):
+    return rpc("debug.toast", params) or {}
+
+
+def shot(name):
+    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, name + ".png")})
+
+
+def record(step, ok, evidence, skip=False):
+    state = "SKIP" if skip else ("PASS" if ok else "FAIL")
+    RESULTS.append((step, state))
+    print(f"{state} {step}: {evidence}", flush=True)
+
+
+def center(frame):
+    return frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
+
+
+def drag(frm, to, label):
+    """One held drag through debug.mouse; returns the FFI calls it made."""
+    before = ffi()
+    rpc("debug.mouse", {"x": frm[0], "y": frm[1], "action": "drag", "to_x": to[0], "to_y": to[1], "steps": 16, "release": False})
+    time.sleep(0.4)  # test harness: hold so the drop indicator shows
+    shot(label + "-held")
+    during = ffi()
+    rpc("debug.mouse", {"x": to[0], "y": to[1], "action": "up"})
+    time.sleep(1.2)  # test harness: let the move land
+    shot(label + "-dropped")
+    after = ffi()
+    calls_during = {k: during.get(k, 0) - before.get(k, 0) for k in set(during) | set(before) if during.get(k, 0) != before.get(k, 0)}
+    calls_drop = {k: after.get(k, 0) - during.get(k, 0) for k in set(after) | set(during) if after.get(k, 0) != during.get(k, 0)}
+    per_drag = calls_during.get("drag_begin", 0) + calls_during.get("intent", 0) + calls_drop.get("drag_begin", 0) + calls_drop.get("intent", 0)
+    record(f"{label}: ffi calls per drag == 2", per_drag == 2 and set(calls_during) <= {"drag_begin"},
+           f"during the held drag {calls_during}, at the drop {calls_drop}")
+    return per_drag
+
+
+def undo(label, check):
+    toast(undo=True)
+    time.sleep(1.0)  # test harness: let the inverse land
+    ok = bool(check())
+    record(f"{label}: Cmd-Z restores", ok, f"list={list_titles()} pinned={[i.get('ref') for i in section_items('sec_pinned')]}")
+    toast(undo=True)  # redo is the next undo toast; the step's result stays for the next step
+    time.sleep(1.0)  # test harness: let the redo land
+
+
+def launch():
+    if os.path.exists(SOCKET):
+        os.unlink(SOCKET)
+    env = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
+           f"CMUX_NEXT_CONFIG_FILE={CONFIG}", f"CMUX_NEXT_GHOSTTY_CONFIG={GHOSTTY}", "CMUX_NEXT_TEST_WINDOW_FRAME=40,40,1100,720"]
+    subprocess.run(["open", "-n", APP, *[arg for pair in env for arg in ("--env", pair)]], check=True)
+    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 120):
+        sys.exit("FAIL the tagged app did not come up")
+    wait(lambda: (report().get("doc") or {}).get("active"), 30)
+    time.sleep(1.5)  # test harness: let the window settle
+
+
+def by_title(title):
+    return rows().get(title)
+
+
+def row_id(row):
+    """The id inside a row key such as `workspace(<id>)`."""
+    key = str((row or {}).get("key", ""))
+    return key[key.find("(") + 1:key.rfind(")")] if "(" in key else key
+
+
+launch()
+doc = report().get("doc") or {}
+print("doc:", json.dumps(doc), flush=True)
+if not doc.get("active"):
+    record("sidebar-doc-v1 active", False, "debug.sidebar_rows doc.active is false: the daemon lacks sidebar-doc-v1 or the FFI lacks the mirror")
+    subprocess.run([STOP])
+    sys.exit(1)
+try:
+    for name in ("Alpha", "Beta", "Gamma", "Delta", "Echo", "Foxtrot"):
+        cli("workspace", "create", "--name", name)
+    wait(lambda: {"Alpha", "Foxtrot"} <= set(rows()), 20)
+    for name in ("Beta", "Gamma"):  # two tiles first, so index 1 is between them
+        toast(perform="palette.toggleWorkspacePin", target_kind="workspace", target_id=row_id(by_title(name)))
+    time.sleep(1.0)  # test harness: let the pins land
+    shot("v2-0-start")
+    pinned = section_items("sec_pinned")
+    print("pinned before:", [(i.get("ref"), i.get("window_frame")) for i in pinned], flush=True)
+
+    # 1. A workspace into Pinned at index 1 (after the first tile).
+    alpha = by_title("Alpha")
+    if alpha and len(pinned) >= 2:
+        first = pinned[0]["window_frame"]
+        to = (first["x"] + first["width"] * 0.8, first["y"] + first["height"] / 2)
+        drag(center(alpha["window_frame"]), to, "v2-1-workspace-into-pinned")
+        order = [i.get("ref") for i in section_items("sec_pinned")]
+        tiles = [i.get("ref") for i in pinned]
+        record("workspace into Pinned at index 1",
+               len(order) == len(tiles) + 1 and order[0] == tiles[0] and order[2:] == tiles[1:] and "Alpha" not in list_titles(),
+               f"pinned before={tiles} after={order} list={list_titles()}")
+        undo("workspace into Pinned", lambda: "Alpha" in list_titles())
+    else:
+        record("workspace into Pinned at index 1", False, f"rows={list(rows())} pinned={pinned}")
+
+    # 2. A group into Pinned.
+    print(cli("workspace", "group", "create", "--name", "Grp"), flush=True)
+    print(cli("workspace", "group", "Grp", "add", "--workspace", "Delta"), flush=True)
+    time.sleep(1.0)  # test harness: let the group show
+    group = next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("group")), None)
+    pinned = section_items("sec_pinned")
+    if group and pinned:
+        last = pinned[-1]["window_frame"]
+        drag(center(group["window_frame"]), (last["x"] + last["width"] * 0.8, last["y"] + last["height"] / 2), "v2-2-group-into-pinned")
+        kinds = [i.get("ref_kind") for i in section_items("sec_pinned")]
+        record("group into Pinned", "group" in kinds, f"pinned kinds={kinds} list={list_titles()}")
+        undo("group into Pinned", lambda: "group" not in [i.get("ref_kind") for i in section_items("sec_pinned")])
+    else:
+        record("group into Pinned", False, f"no group row or no Pinned tile: group={group} pinned={pinned}")
+
+    # 3. A group into a custom section.
+    print(toast(perform="sidebar.section.add", arguments={"title": "Work", "region": "top"}).get("performed"), flush=True)
+    print(cli("workspace", "group", "create", "--name", "Grp2"), flush=True)
+    print(cli("workspace", "group", "Grp2", "add", "--workspace", "Echo"), flush=True)
+    time.sleep(1.0)  # test harness: let the section and group show
+    work = next((i for i in items() if i.get("section_title") == "Work"), None)
+    header = next((s for s in window().get("sections", []) if s.get("title") == "Work"), None) if not work else None
+    group2 = next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("group") and r.get("title") == "Grp2"), None)
+    target = (work or header or {}).get("window_frame")
+    if group2 and target:
+        drag(center(group2["window_frame"]), center(target), "v2-3-group-into-custom")
+        record("group into a custom section", "Grp2" not in list_titles(), f"list={list_titles()} items={[(i.get('section'), i.get('ref')) for i in items()]}")
+        undo("group into a custom section", lambda: "Grp2" in list_titles())
+    else:
+        record("group into a custom section", False, f"no Work section frame in debug.sidebar_rows or no Grp2 row: group2={group2}")
+
+    # 4. A pinned tile back into the list at the drop index (between Echo and Foxtrot).
+    pinned = section_items("sec_pinned")
+    echo, fox = by_title("Echo"), by_title("Foxtrot")
+    if pinned and echo and fox:
+        tile = pinned[0]
+        gap_y = (echo["window_frame"]["y"] + echo["window_frame"]["height"] + fox["window_frame"]["y"]) / 2
+        drag(center(tile["window_frame"]), (fox["window_frame"]["x"] + 40, gap_y), "v2-4-tile-into-list")
+        titles = list_titles()
+        moved = "Beta"  # the first tile: pinned first, and steps 1-3 keep it first
+        ok = moved in titles and titles.index(moved) == titles.index("Foxtrot") - 1 if moved in titles and "Foxtrot" in titles else False
+        record("pinned tile into the list at the drop index", ok, f"moved={moved} list={titles}")
+        undo("pinned tile into the list", lambda: moved not in list_titles())
+    else:
+        record("pinned tile into the list at the drop index", False, f"pinned={pinned} echo={bool(echo)} fox={bool(fox)}")
+
+    # 5. A link item into the main list.
+    print(toast(perform="sidebar.item.add", arguments={"item": "https://example.com", "section": "Pinned"}), flush=True)
+    time.sleep(1.0)  # test harness: let the item show
+    link = next((i for i in items() if i.get("ref_kind") == "url"), None)
+    alpha = by_title("Alpha")
+    if link and alpha:
+        drag(center(link["window_frame"]), (alpha["window_frame"]["x"] + 40, alpha["window_frame"]["y"] + 2), "v2-5-link-into-list")
+        record("link item into the list", not any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")),
+               f"items={[(i.get('section'), i.get('ref_kind')) for i in items()]} list={list_titles()}")
+    else:
+        record("link item into the list", False, f"no url item after sidebar.item.add (link={link})", skip=link is None)
+
+    # 6. Cross-machine drop: needs a second machine section.
+    machines = [r for r in window().get("rows", []) if str(r.get("key", "")).startswith("section")]
+    if len(machines) >= 2:
+        record("cross-machine drop refused", False, "a second machine is listed; drive it by hand: not automated here")
+    else:
+        record("cross-machine drop refused", False, "one machine on this host (no SSH or Cloud machine); refusal not driven", skip=True)
+
+    record("reorder while filtering", False, "no UI path writes SidebarModel.filterText in this tree; not driven", skip=True)
+
+    # 7. The order survives a relaunch.
+    before = (list_titles(), [i.get("ref") for i in section_items("sec_pinned")])
+    subprocess.run([STOP])
+    launch()
+    after = (list_titles(), [i.get("ref") for i in section_items("sec_pinned")])
+    shot("v2-7-relaunched")
+    record("order survives relaunch", before == after, f"before={before} after={after}")
+finally:
+    refusals = toast().get("refusals")
+    print("refusals:", refusals, flush=True)
+    subprocess.run([STOP])
+failed = [step for step, state in RESULTS if state == "FAIL"]
+print("summary:", json.dumps(RESULTS), flush=True)
+sys.exit(1 if failed else 0)

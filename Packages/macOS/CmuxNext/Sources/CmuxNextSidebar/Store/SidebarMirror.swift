@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 #if CMUX_SIDEBAR_MIRROR_FFI
 import CCmuxLayoutReducerFFI
 #endif
