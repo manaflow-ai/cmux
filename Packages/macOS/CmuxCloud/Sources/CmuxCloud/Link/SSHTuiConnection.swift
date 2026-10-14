@@ -102,6 +102,21 @@ public struct SSHTuiConnection: Sendable {
         return arguments
     }
 
+    /// The SSH options for a one-off `ssh`, `scp` or `sftp` beside the carrier,
+    /// such as a file drop, the Files explorer or a file preview.
+    ///
+    /// They keep the carrier's route and the ControlPath of its authenticated
+    /// master: those batch-mode runs can log in to a password-only host only
+    /// through it. `ControlMaster` and `ControlPersist` are left out so a
+    /// one-off run never becomes the master itself.
+    public var fileOperationSSHOptions: [String] {
+        let resolver = SSHAgentSocketResolver(environment: [:])
+        return sshOptions.filter { option in
+            let key = resolver.optionKey(option)
+            return key != "controlmaster" && key != "controlpersist"
+        }
+    }
+
     /// The caller's options plus cmux's shared ControlMaster, as 0.64.25's
     /// connection broker used for every connect. Snapshots keep only the
     /// cmux-owned ControlPath an open used, so these defaults restore the rest;
