@@ -239,6 +239,36 @@ fn history_closed_rows_leave_out_tabs_that_reopen_empty() {
     mux.shutdown();
 }
 
+/// Recently Closed lists only what is worth reopening (Leo 2026-10-14): no Chromium New Tab page,
+/// no window that held nothing, and one row per page however often it was closed, newest first.
+#[test]
+fn history_closed_rows_are_only_things_worth_reopening() {
+    let mux = test_mux("history-closed-signal");
+    let (_, pane) = terminal_pane(&mux);
+    let browser = |url: &str| json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit"});
+    for url in ["chrome://newtab/", "https://example.com/", "chrome://newtab", "https://example.com/", "https://cmux.com/"] {
+        let created = run(&mux, browser(url)).unwrap();
+        run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
+    }
+    // A window that showed only a workspace with nothing in it.
+    let key = "0a1b2c3d-4e5f-4a60-9b71-c2d3e4f5a6b7";
+    run(&mux, json!({"cmd":"create-workspace","name":"workspace-35","key":key})).unwrap();
+    for (open, put) in [(true, "put-open"), (false, "put-closed")] {
+        let record = json!({"workspace_key":key,"workspace_keys":[key],"open":open});
+        resource(&mux, "window_record.put",
+                 json!({"install_id":"install_a","window_id":"win_1","record":record}), Some(put));
+    }
+    let listed = resource(&mux, "history.entries.list", json!({"kinds":["closed"]}), None);
+    let rows: Vec<String> = listed["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["detail"].as_str().or(entry["title"].as_str()).unwrap_or("").to_owned())
+        .collect();
+    assert_eq!(rows, ["https://cmux.com/", "https://example.com/"], "{listed}");
+    mux.shutdown();
+}
+
 /// A page id is 1 to 64 lowercase letters, digits or '-', '_', '.'; a page
 /// and another source together are refused.
 #[test]
