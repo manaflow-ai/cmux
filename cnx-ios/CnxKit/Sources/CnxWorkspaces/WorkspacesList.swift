@@ -90,9 +90,13 @@ public struct WorkspacesList: View {
 
     private func mac(_ id: String) -> MacDevice? { macs.first { $0.id == id } }
 
-    /// Tags for the team's Macs that share a name, so every place that
-    /// names a Mac says which one ("Aziz's MacBook Pro (3F2A)").
-    private var sameNames: MacNameDisambiguation { macText.names(macs) }
+    /// Every Mac on the account (all teams): the scope of the same-name tags,
+    /// as in Settings → Devices.
+    private var accountMacs: [MacDevice] { store.teams.flatMap(\.macs) }
+
+    /// Tags for the account's Macs that share a name, so every place that
+    /// names a Mac says which one ("Aziz's MacBook Pro 3F2A").
+    private var sameNames: MacNameDisambiguation { macText.names(accountMacs) }
 
     private func displayName(_ mac: MacDevice) -> String { sameNames.displayName(mac) }
 
@@ -500,8 +504,19 @@ public struct WorkspacesList: View {
             HStack(spacing: 6) {
                 Image(systemName: fold.reason == .offline ? "moon.zzz" : "bolt.horizontal.circle")
                     .accessibilityHidden(true)
-                Text("\(displayName(fold.mac)) · \(detail)")
-                    .lineLimit(3)
+                // The name with its tag capsule, as Settings → Devices shows it;
+                // the plain text form when the capsule line doesn't fit.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        Text(fold.mac.name).lineLimit(1)
+                        if let tag = sameNames.tag(for: fold.mac.id) { MacNameTag(tag) }
+                        Text("· \(detail)").lineLimit(1)
+                    }
+                    Text("\(displayName(fold.mac)) · \(detail)")
+                        .lineLimit(3)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("\(displayName(fold.mac)) · \(detail)"))
                 Spacer(minLength: 8)
                 if fold.reason != .offline {
                     if reconnect != nil { Text(fold.reason == .notConnected ? "Connect" : "Retry") }
@@ -647,7 +662,7 @@ public struct WorkspacesList: View {
                 Label("All Macs", systemImage: "square.stack.3d.up")
             }
             .accessibilityIdentifier("workspaces.filter.all")
-            ForEach(macText.entries(MacFilterMemo.Input(macs: macs, connection: store.macConnection,
+            ForEach(macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
                                                          linkStatus: store.macLinkStatus, live: store.tracksMacData))) { mac in
                 // A title and a subtitle Text directly in the label: a menu
                 // shows the second as the subtitle (not inside a Label).

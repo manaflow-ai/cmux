@@ -286,6 +286,9 @@ struct UnbrokenText: View {
     let weight: Font.Weight
     let alignment: Alignment
     @State private var width: CGFloat = 0
+    /// Read so a live text size change (Control Center, Settings) redraws
+    /// the text at the new size: the size comes from this, never cached.
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ text: String, style: UIFont.TextStyle = .body, weight: Font.Weight = .regular, alignment: Alignment = .leading) {
         self.text = text
@@ -295,8 +298,8 @@ struct UnbrokenText: View {
     }
 
     var body: some View {
-        let font = UIFont.preferredFont(forTextStyle: style)
-        let base = font.pointSize
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(typeSize))
+        let base = UIFont.preferredFont(forTextStyle: style, compatibleWith: traits).pointSize
         let measure = UIFont.systemFont(ofSize: base, weight: weight == .semibold ? .semibold : weight == .bold ? .bold : .regular)
         let longest = text.split(whereSeparator: \.isWhitespace)
             .map { (String($0) as NSString).size(withAttributes: [.font: measure]).width }
