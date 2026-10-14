@@ -4,15 +4,24 @@ import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
 
-/// Leo 2026-10-12 (cx-ag5.12): the tab strip at its default density is compact.
-/// A tab is shorter than a sidebar row and starts closer to its icon, and the
-/// strip around it is no taller than a sidebar row and one grid step. The
-/// close and + buttons keep their size, and both still take a click.
+/// Familiar first (Lawrence 2026-10-14): the default tab strip keeps the size people know, a
+/// 28 pt strip with 24 pt tabs, the icon 8 pt in and 6 pt from the title. The tighter strip of
+/// cx-ag5.12 (Leo 2026-10-12) is the Compact tabs toggle, off by default; there a tab is shorter
+/// than a sidebar row and starts closer to its icon, and the close and + buttons keep their size
+/// and still take a click.
 @MainActor @Suite(.serialized) struct CompactTabStripTests {
-    @Test func theDefaultStripIsCompactAndItsButtonsKeepTheirSize() async throws {
+    @Test func theDefaultStripKeepsItsFamiliarSize() throws {
+        let (strip, window) = Self.strip()
+        defer { window.orderOut(nil) }
+        let cell = try #require(strip.cells[TabID("tab1")])
+        #expect(strip.bounds.height == 28, "the strip is \(strip.bounds.height) pt")
+        #expect(cell.frame.height == 24, "a tab is \(cell.frame.height) pt")
+        #expect(strip.metrics.contentLeadingInset == 8, "a tab's icon sits \(strip.metrics.contentLeadingInset) pt in")
+        #expect(strip.metrics.iconTitleSpacing == 6, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
+    }
+
+    static func strip() -> (TabStripView, NSWindow) {
         let model = TabStripModel(tabs: (0..<3).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
-        var intents: [TabStripIntent] = []
-        model.intentHandler = { intents.append($0) }
         let strip = TabStripView(model: model)
         strip.dragsWindowFromEmptySpace = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight), styleMask: [.borderless],
@@ -20,8 +29,15 @@ import Testing
         window.contentView = strip
         // Mouse events reach the strip only in a window that was ordered in.
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
         strip.layoutSubtreeIfNeeded()
+        return (strip, window)
+    }
+
+    @Test func compactTabsAreTighterAndTheirButtonsKeepTheirSize() async throws {
+        let (strip, window) = Self.strip()
+        defer { window.orderOut(nil) }
+        var intents: [TabStripIntent] = []
+        strip.model.intentHandler = { intents.append($0) }
 
         let row = Metrics.sidebarRowHeight
         let cell = try #require(strip.cells[TabID("tab1")])
