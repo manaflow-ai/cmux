@@ -24,6 +24,9 @@ public struct MobilePlansView: View {
     @Environment(BillingModel.self) private var billing
     @State private var showingManageSubscriptions = false
     @State private var showingRefundRequest = false
+    /// The subscription the open refund sheet is for, fixed at the tap so a
+    /// reload while the sheet is up cannot change or drop it.
+    @State private var refundTarget: RefundTarget?
     /// The Monthly/Yearly choice.
     @State private var period: BillingPeriod
     private let entryPoint: BillingEntryPoint
@@ -61,17 +64,18 @@ public struct MobilePlansView: View {
         .refreshable { await billing.refresh() }
         .manageSubscriptionsSheet(isPresented: $showingManageSubscriptions)
         .refundRequestSheet(
-            for: billing.currentAppleTransactionID ?? 0,
+            for: refundTarget?.transactionID ?? 0,
             isPresented: $showingRefundRequest
         ) { result in
-            guard let productID = billing.currentAppleProductID else { return }
+            guard let target = refundTarget else { return }
+            refundTarget = nil
             let outcome: String
             switch result {
             case .success(.success): outcome = "success"
             case .success(.userCancelled): outcome = "userCancelled"
             default: outcome = "error"
             }
-            billing.refundRequestFinished(productID: productID, result: outcome)
+            billing.refundRequestFinished(productID: target.productID, result: outcome)
         }
         .onDisappear { billing.dismissResult() }
         .accessibilityIdentifier("BillingPlansView")
@@ -232,8 +236,10 @@ public struct MobilePlansView: View {
                         showingManageSubscriptions = true
                     }
                     .accessibilityIdentifier("BillingManage")
-                    if let productID = billing.currentAppleProductID, billing.currentAppleTransactionID != nil {
+                    if let productID = billing.currentAppleProductID,
+                       let transactionID = billing.currentAppleTransactionID {
                         Button(L10n.string("mobile.billing.refund", defaultValue: "Request a Refund")) {
+                            refundTarget = RefundTarget(productID: productID, transactionID: transactionID)
                             billing.refundRequestOpened(productID: productID)
                             showingRefundRequest = true
                         }
@@ -331,5 +337,11 @@ public struct MobilePlansView: View {
             )
         }
     }
+}
+
+/// The subscription a refund request is for.
+private struct RefundTarget: Equatable {
+    let productID: String
+    let transactionID: UInt64
 }
 #endif

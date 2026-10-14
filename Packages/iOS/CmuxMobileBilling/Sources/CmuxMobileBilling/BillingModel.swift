@@ -377,6 +377,7 @@ public final class BillingModel {
     }
 
     private func loadCurrentAppleProduct(for account: BillingAccount, generation: Int) async {
+        guard generation == accountGeneration else { return }
         guard account.currentPlan.source == .apple else {
             currentAppleProductID = nil
             currentAppleTransactionID = nil
@@ -385,7 +386,10 @@ public final class BillingModel {
         let sold = Set(account.products.filter { $0.planID == account.currentPlan.planID }.map(\.productID))
         var current: StoreTransaction?
         for entitlement in await store.currentEntitlements() {
-            if case .verified(let transaction) = entitlement, sold.contains(transaction.productID) {
+            // Only this cmux account's subscription: the Apple Account may
+            // also hold one bought for another cmux account.
+            if case .verified(let transaction) = entitlement, sold.contains(transaction.productID),
+               transaction.appAccountToken == account.appAccountToken {
                 current = transaction
             }
         }
