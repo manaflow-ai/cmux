@@ -89,8 +89,10 @@ public struct SidebarMapping {
                     tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
                     iconAsset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        let unread = showsUnread ? workspace.unreadCount : 0
-        let indicator = StatusMapping.shared.summary(tabs: tabs)
+        // The badge counts notifications, not statuses (cx-ldocj): a status's own alert stays off it.
+        let unread = !showsUnread ? 0 : tabs.isEmpty ? workspace.unreadCount
+            : tabs.filter { $0.hasUnread && !StatusMapping.shared.notificationIsStatusAlert($0) }.count
+        let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
         let page = front.flatMap { $0.kind == .browser ? pageFace(workspace, $0) : nil }
