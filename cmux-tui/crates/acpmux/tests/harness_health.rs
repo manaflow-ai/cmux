@@ -755,7 +755,7 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
         .call(method::MUX_SESSIONS_RESTART_HARNESS, json!({"harnesses": ["claude"]}))
         .await
         .expect("restart");
-    assert_eq!(moved, json!({"restarted": 0, "after_turn": 0}));
+    assert_eq!(moved, json!({"restarted": 0, "after_turn": 0, "failed": 0, "errors": []}));
 
     let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
     let _ = std::fs::remove_dir_all(&root);

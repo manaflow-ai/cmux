@@ -183,9 +183,14 @@ pub(super) async fn handle(
         method::MUX_SESSIONS_RESTART_HARNESS => {
             let harnesses = id_set(params, "harnesses", "harnesses must be harness ids")?;
             let sessions = id_set(params, "sessions", "sessions must be session ids")?;
-            let (restarted, after_turn) =
-                hub.restart_harnesses(harnesses.as_ref(), sessions.as_ref()).await;
-            json!({"restarted": restarted, "after_turn": after_turn})
+            let done = hub.restart_harnesses(harnesses.as_ref(), sessions.as_ref()).await;
+            let errors: Vec<Value> = done
+                .failed
+                .iter()
+                .map(|(session, error)| json!({"session": session, "error": error}))
+                .collect();
+            json!({"restarted": done.now, "after_turn": done.after_turn,
+                   "failed": errors.len(), "errors": errors})
         }
         other => return Err(RpcError::method_not_found(other)),
     };
