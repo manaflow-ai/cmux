@@ -8,12 +8,12 @@ impl Hub {
     /// person asked: a session in the home folder, `/` or a privacy-protected
     /// folder is never warmed (`protected_folders`, LAUNCH-NO-TCC-PROMPTS).
     pub async fn warm_sessions(self: &Arc<Self>, requested: &[String], limit: usize) -> Vec<Value> {
-        let mut candidates: Vec<_> = self
+        // `sessions()` is newest first already; filtering keeps that order.
+        let candidates: Vec<_> = self
             .sessions()
             .into_iter()
             .filter(|s| requested.is_empty() || requested.iter().any(|id| id == &s.id))
             .collect();
-        candidates.sort_by_key(|s| std::cmp::Reverse(s.meta().updated_at));
         let mut seen_cwds = std::collections::HashSet::new();
         let mut warmed = Vec::new();
         for session in candidates {
