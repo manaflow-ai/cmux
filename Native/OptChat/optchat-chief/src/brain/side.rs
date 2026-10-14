@@ -10,14 +10,67 @@
 //! through the connected (leased) port, and only the woken id. Nothing in a
 //! message body names what the brain reads.
 
-use cmux_chief::rules::{AGENT_MUX, PAGE, message_text};
-use cmux_conversation::{Message, Part, Summary};
+use cmux_chief::rules::{PAGE, message_text};
+use cmux_conversation::{Change, Message, Part, Summary};
 
 use super::{Brain, Source, now_ms};
 use crate::daemon::{MuxWake, OpError};
 use crate::wake::chief_wakes;
 
 impl Brain {
+    /// A change of another local conversation (`membership`, local source
+    /// only): a person's message in one the Chief takes part in is a wake
+    /// of that conversation at its seq, read and answered as a cloud wake
+    /// is. The local owner has no wake queue: the saved floor is the record.
+    pub(super) fn on_local_side_change(&mut self, conversation: String, change: Change) {
+        match change {
+            Change::Conversation {
+                conversation: summary,
+            } => self.note_side_members(&summary),
+            Change::Message { message } => {
+                if message.author == self.settings.membership.participant {
+                    self.mux_messages.insert(message.id.clone());
+                    return;
+                }
+                // Not read: a conversation the Chief is not in, and a
+                // message whose author is known not to be a person (only
+                // people wake a Chief). An unknown author is read: the
+                // read refreshes the participants.
+                match self.side_member.get(&conversation) {
+                    Some(None) => return,
+                    Some(Some(people)) if people.get(&message.author) == Some(&false) => return,
+                    _ => {}
+                }
+                self.on_mux_wake(vec![MuxWake {
+                    conversation,
+                    seq: message.seq,
+                    reason: "local".into(),
+                }]);
+            }
+            Change::ReadCursor { .. } | Change::MessageUpdated { .. } => {}
+        }
+    }
+
+    /// Caches whether the Chief takes part in `summary`'s conversation, and
+    /// which of its participants are people.
+    fn note_side_members(&mut self, summary: &Summary) {
+        let participant = &self.settings.membership.participant;
+        let member = summary.participants.iter().any(|p| &p.id == participant);
+        let people = member.then(|| {
+            summary
+                .participants
+                .iter()
+                .map(|p| {
+                    (
+                        p.id.clone(),
+                        p.kind == cmux_conversation::ParticipantKind::Human,
+                    )
+                })
+                .collect()
+        });
+        self.side_member.insert(summary.id.clone(), people);
+    }
+
     pub(super) fn on_mux_wake(&mut self, wakes: Vec<MuxWake>) {
         // Only through the leased port. A wake that comes while it is down
         // is delivered again (`cloud-mux-resynced`) after the reconnect.
@@ -69,8 +122,10 @@ impl Brain {
         }
         match self.read_side(conversation, from) {
             Ok((summary, messages)) => {
+                let participant = self.settings.membership.participant.clone();
+                self.note_side_members(&summary);
                 for m in &messages {
-                    if m.author == AGENT_MUX {
+                    if m.author == participant {
                         self.mux_messages.insert(m.id.clone());
                     }
                 }
@@ -85,6 +140,8 @@ impl Brain {
                 ));
                 self.state.side.remove(conversation);
                 self.side_handled.remove(conversation);
+                // Not read again for each of its messages.
+                self.side_member.insert(conversation.to_owned(), None);
                 self.save();
                 // Acked so the queue stops delivering it.
                 let top = self.mux_pending.get(conversation).copied().unwrap_or(seq);
@@ -143,7 +200,13 @@ impl Brain {
             matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
         });
         if (!text.trim().is_empty() || has_images)
-            && chief_wakes(summary, &message, |id| self.mux_messages.contains(id))
+            && chief_wakes(
+                &self.settings.membership.participant,
+                self.settings.membership.group_wake,
+                summary,
+                &message,
+                |id| self.mux_messages.contains(id),
+            )
         {
             let labelled = labelled(summary, &text);
             match crate::approval::Answer::parse(&text) {
@@ -166,6 +229,9 @@ impl Brain {
                         _ => Vec::new(),
                     };
                     let logged = super::images::logged_text(&labelled, &images);
+                    if let Some(target) = crate::membership::thread_target(summary, &message) {
+                        self.reply_threads.insert(message.id.clone(), target);
+                    }
                     self.queue_in(
                         Some(conversation.to_owned()),
                         logged,
