@@ -50,6 +50,24 @@ struct CloudSidebarPolishTests {
         #expect(ContentView.clampedRightSidebarWidth(100, availableWidth: 1600, contentMinimumWidth: 120) == builtIn)
     }
 
+    @Test("A configured right sidebar minimum replaces the built-in floor")
+    func rightSidebarClampHonorsConfiguredMinimum() {
+        #expect(ContentView.clampedRightSidebarWidth(
+            100, availableWidth: 1600, configuredMinimumWidth: 200
+        ) == 200)
+        #expect(ContentView.clampedRightSidebarWidth(
+            220, availableWidth: 1600, configuredMinimumWidth: 200
+        ) == 220)
+        // The mode bar still keeps the room it needs.
+        #expect(ContentView.clampedRightSidebarWidth(
+            100, availableWidth: 1600, configuredMinimumWidth: 200, contentMinimumWidth: 240
+        ) == 240)
+        // A configured minimum can also raise the floor.
+        #expect(ContentView.clampedRightSidebarWidth(
+            300, availableWidth: 1600, configuredMinimumWidth: 400
+        ) == 400)
+    }
+
     @Test("The right sidebar content minimum stays below its effective maximum")
     func rightSidebarContentMinimumHonorsMaximum() {
         #expect(ContentView.clampedRightSidebarWidth(

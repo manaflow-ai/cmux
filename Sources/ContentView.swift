@@ -927,6 +927,7 @@ struct ContentView: View {
     @State private var displayAccessibility = DisplayAccessibilityOptions.current
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
+    @AppStorage(RightSidebarWidthSettings.minimumWidthKey) private var rightSidebarMinimumWidthSetting = RightSidebarWidthSettings.minimumWidth
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
@@ -1319,11 +1320,16 @@ struct ContentView: View {
         return CGFloat(width)
     }
 
+    private var rightSidebarConfiguredMinimumWidth: CGFloat {
+        CGFloat(RightSidebarWidthSettings.sanitizedMinimumWidth(rightSidebarMinimumWidthSetting))
+    }
+
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         Self.clampedRightSidebarWidth(
             candidate,
             availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
             configuredMaximumWidth: rightSidebarConfiguredMaximumWidth,
+            configuredMinimumWidth: rightSidebarConfiguredMinimumWidth,
             contentMinimumWidth: fileExplorerState.modeBarMinimumWidth
         )
     }
@@ -3315,6 +3321,14 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: rightSidebarMaxWidthSetting) { _, _ in
+            clampRightSidebarWidthIfNeeded()
+            if rightSidebarVisible {
+                schedulePortalGeometrySynchronize()
+            }
+            updateSidebarResizerBandState()
+        })
+
+        view = AnyView(view.onChange(of: rightSidebarMinimumWidthSetting) { _, _ in
             clampRightSidebarWidthIfNeeded()
             if rightSidebarVisible {
                 schedulePortalGeometrySynchronize()
