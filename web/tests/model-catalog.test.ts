@@ -56,6 +56,7 @@ describe("projectCatalog", () => {
       family: "Opus",
       provider: "anthropic",
       efforts: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
       fast: true,
       aliases: ["opus"],
     });
@@ -63,7 +64,7 @@ describe("projectCatalog", () => {
     expect(claude.models[3]).toMatchObject({ name: "Claude Haiku 4.5", shortName: "Haiku 4.5", aliases: ["haiku"] });
     expect(claude.models[3]?.efforts).toBeUndefined();
     expect(claude.models[3]?.fast).toBeUndefined();
-    expect(claude.defaultModel).toBe("claude-sonnet-5");
+    expect(claude.defaultModel).toBe("claude-opus-5-5");
   });
 
   test("Codex drops API-only efforts, applies its default effort and filters chat and pro variants", () => {
@@ -76,7 +77,7 @@ describe("projectCatalog", () => {
       defaultEffort: "medium",
       fast: true,
     });
-    expect(codex.defaultModel).toBe("gpt-5.5");
+    expect(codex.defaultModel).toBe("gpt-6.1-sol");
   });
 
   test("probe harnesses carry no list; their models are described by ref", () => {

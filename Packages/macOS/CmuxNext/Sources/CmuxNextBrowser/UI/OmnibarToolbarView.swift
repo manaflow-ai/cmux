@@ -40,7 +40,7 @@ public final class OmnibarToolbarView: NSView {
 
     /// The arrow over the row, as the browser toolbar shows (`OmnibarPointer`).
     public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar, editing: false).cursor)
+        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
     }
 
     public override func layout() {

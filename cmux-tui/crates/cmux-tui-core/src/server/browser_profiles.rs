@@ -113,7 +113,7 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
 }
 
 pub(super) fn delete(mux: &Mux, client: u64, params: DeleteParams) -> anyhow::Result<Value> {
-    if super::origin_gate::require_user(mux, client).is_err() {
+    if !super::origin_gate::is_user(mux, client) {
         return Err(DeleteNeedsPerson.into());
     }
     // Resolve the id or exact name under the same registry lock as the delete.

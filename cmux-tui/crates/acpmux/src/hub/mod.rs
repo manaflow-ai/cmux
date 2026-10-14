@@ -43,6 +43,7 @@ pub(super) use session::{prompt_text, short_text};
 mod shutdown;
 use shutdown::ShutdownPlan;
 mod spawn;
+mod start_defaults;
 mod steer_end;
 mod stream;
 mod tap;
@@ -598,6 +599,7 @@ impl Hub {
             steering: AtomicBool::new(false),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
+            applied: StdMutex::new(session::Applied::default()),
             purged: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),

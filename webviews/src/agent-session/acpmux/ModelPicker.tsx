@@ -14,7 +14,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
-import type { ModelPickerProps } from "./modelPickerLayout";
+import { MODEL_PICKER_MAX_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
@@ -614,6 +614,18 @@ export function ModelPicker(props: ModelPickerProps) {
           : undefined;
   const selectedOther = selected !== undefined && !selected.ids.includes(harness ?? "");
   const firstProfile = harnesses.findIndex((entry) => entry.folder);
+  // Several harness profiles can draw one brand's mark (Claude Code, Claude Agent, a subrouter
+  // route): their tooltips add the profile id, so each tab says which one it starts.
+  const markCounts = new Map<string, number>();
+  for (const entry of harnesses) {
+    const mark = entry.mark ?? agentBrand(entry.id) ?? entry.id;
+    markCounts.set(mark, (markCounts.get(mark) ?? 0) + 1);
+  }
+  const railTitle = (entry: HarnessChoice) => {
+    const mark = entry.mark ?? agentBrand(entry.id) ?? entry.id;
+    const shared = (markCounts.get(mark) ?? 0) > 1 && entry.name !== entry.id;
+    return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry)].filter(Boolean).join(" · ");
+  };
   return (
     <span ref={root} className="acpmux-picker acpmux-model" style={{ position: "relative" }}>
       <PickerButton
@@ -646,10 +658,18 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="ui-popup ui-picker-popup acpmux-mp z-[3] flex max-h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
+          className="ui-popup ui-picker-popup acpmux-mp z-[3] flex max-h-[480px] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
-          style={{ ...menuStyle, ...(openHeight == null ? {} : { height: openHeight }) }}
+          // The anchor's room above or below the chip, never more than MODEL_PICKER_MAX_HEIGHT.
+          style={{
+            ...menuStyle,
+            maxHeight: Math.min(
+              typeof menuStyle.maxHeight === "number" ? menuStyle.maxHeight : MODEL_PICKER_MAX_HEIGHT,
+              MODEL_PICKER_MAX_HEIGHT,
+            ),
+            ...(openHeight == null ? {} : { height: openHeight }),
+          }}
         >
           {/* The rail: Starred, then one icon per harness; a click or arrow key shows its models. */}
           <ScrollArea
@@ -702,7 +722,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   disabled={!entry.pickable}
                   data-harness-index={index}
                   className={`acpmux-mp-harness ${railTab}`}
-                  title={[entry.name, folderNote(entry)].filter(Boolean).join(" · ")}
+                  title={railTitle(entry)}
                   selected={entry.ids.includes(selectedHarness ?? "")}
                   keyboard={(event) => {
                     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
