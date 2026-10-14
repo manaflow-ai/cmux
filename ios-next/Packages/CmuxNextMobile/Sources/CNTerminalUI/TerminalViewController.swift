@@ -68,9 +68,8 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     /// keyboard), in window coordinates; nil when nothing does. The terminal's
     /// height follows it only when a keyboard or accessory change settles.
     private var settledCoverTop: CGFloat?
-    /// The cursor row before a grow; the next draw slides the content from
-    /// there to where Ghostty put it.
-    private var growCompensation: (row: Int, cellHeight: CGFloat)?
+    /// A grow's slide is running (the content moves from where it was to
+    /// where Ghostty put it).
     private var compensating = false
     private let clock: any Clock<Duration>
 
@@ -159,7 +158,6 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
                 if !self.terminalView.pinching && !self.mirrorZoomed { self.fitMirrorFont() }
                 self.view.setNeedsLayout()
             }
-            self.applyGrowCompensation()
             self.panToCursor()
             self.sync()
         }
@@ -448,12 +446,17 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         streamId = nil
     }
 
-    private func lockGrid(_ grid: (cols: Int, rows: Int)) {
+    private func lockGrid(_ grid: (cols: Int, rows: Int),
+                          measured: (@MainActor @Sendable (Int, CGFloat) -> Void)? = nil) {
         hostGrid = grid
         gridGeneration += 1
         // Ghostty keeps the cursor on screen itself: a shrink drops top rows,
         // a grow brings scrollback rows back (like a real terminal).
-        terminalView.setGrid(cols: grid.cols, rows: grid.rows, generation: gridGeneration)
+        if let measured {
+            terminalView.setGrid(cols: grid.cols, rows: grid.rows, generation: gridGeneration, measured: measured)
+        } else {
+            terminalView.setGrid(cols: grid.cols, rows: grid.rows, generation: gridGeneration)
+        }
         model.grid = "\(grid.cols)×\(grid.rows)"
         updateDebugValue()
     }
@@ -698,10 +701,19 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         let fit = terminalView.fittingGrid
         guard fit.cols >= 2, fit.rows >= 2, hostGrid.map({ $0 != fit }) ?? true else { return }
         // A grow moves the cursor down (scrollback comes back): slide into it.
-        if let rows = hostGrid?.rows, fit.rows > rows, let cursor = terminalView.cursorRow {
-            growCompensation = (cursor.row, cursor.cellHeight)
+        // Ghostty presents the new grid on its renderer thread, a frame after
+        // any transform set here, so the old frame is held in front (a
+        // snapshot) until the new one is presented already compensated.
+        if let rows = hostGrid?.rows, fit.rows > rows, !UIAccessibility.isReduceMotionEnabled {
+            holdCurrentFrame()
+            // The pull is measured on the output queue, in order with the
+            // output, so a program redrawing meanwhile cannot skew it.
+            lockGrid(fit) { [weak self] rows, cell in
+                self?.applyGrowCompensation(CGFloat(rows) * cell)
+            }
+        } else {
+            lockGrid(fit)
         }
-        lockGrid(fit)
         Task { try? await client.resizeTerminal(terminalId, cols: fit.cols, rows: fit.rows) }
     }
 
@@ -748,26 +760,71 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         return accessoryStack.frame.minY
     }
 
-    /// The keyboard never changes the grid (D8). While the key bar, composer
-    /// or keyboard covers the bottom of the grid, the terminal moves up so
-    /// its last row sits on their top edge; it never moves so far that the
-    /// cursor row leaves the top, and always far enough that the cursor row
-    /// stays above them.
-    /// After a grow Ghostty brings scrollback rows back and the content jumps
-    /// down; start it where it was and let it follow the keyboard down.
-    private func applyGrowCompensation() {
-        guard let before = growCompensation, let after = terminalView.cursorRow else { return }
-        growCompensation = nil
-        let delta = CGFloat(after.row - before.row) * before.cellHeight
-        guard delta > 0.5, !UIAccessibility.isReduceMotionEnabled else { return }
+    /// After a grow Ghostty brings scrollback rows back and the content moves
+    /// down by `delta`: start it where it was (the held snapshot covers the
+    /// switch) and let it slide down.
+    private func applyGrowCompensation(_ delta: CGFloat) {
+        guard delta > 0.5, delta.isFinite else {
+            waitForPresentedFrame(after: GhosttySnapshot.frameID(of: terminalView), limit: 6) { [weak self] in
+                self?.releaseHeldFrame()
+            }
+            return
+        }
         compensating = true
         terminalView.transform = CGAffineTransform(translationX: 0, y: -delta)
-        UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
-            self.terminalView.transform = .identity
-        } completion: { [weak self] _ in
-            self?.compensating = false
-            self?.panToCursor()
+        terminalView.requestRedraw()
+        // Show the live view again once Ghostty presented a frame drawn after
+        // this transform (it matches the held snapshot), then slide.
+        waitForPresentedFrame(after: GhosttySnapshot.frameID(of: terminalView)) { [weak self] in
+            guard let self else { return }
+            self.releaseHeldFrame()
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
+                self.terminalView.transform = .identity
+            } completion: { [weak self] _ in
+                self?.compensating = false
+                self?.panToCursor()
+            }
         }
+    }
+
+    /// A snapshot of the terminal's current frame in front of it.
+    private var heldFrame: UIView?
+
+    private func holdCurrentFrame() {
+        // What is on screen now, as the render server shows it (Metal layer
+        // included), in front of the terminal until the grown grid is
+        // presented already compensated.
+        guard heldFrame == nil, let snapshot = terminalView.snapshotView(afterScreenUpdates: false) else { return }
+        snapshot.frame = terminalView.frame
+        snapshot.isUserInteractionEnabled = false
+        view.insertSubview(snapshot, aboveSubview: terminalView)
+        heldFrame = snapshot
+        // Never held for long (no new frame: give up after half a second).
+        waitForPresentedFrame(after: GhosttySnapshot.frameID(of: terminalView), limit: 30) { [weak self] in
+            if self?.compensating == false { self?.releaseHeldFrame() }
+        }
+    }
+
+    private func releaseHeldFrame() {
+        heldFrame?.removeFromSuperview()
+        heldFrame = nil
+    }
+
+    /// Calls `done` once the presented frame differs from `previous` and one
+    /// more display frame passed (its commit is on screen), or after `limit`
+    /// frames.
+    private func waitForPresentedFrame(after previous: (UInt32, UInt32)?, limit: Int = 30,
+                                       _ done: @escaping @MainActor () -> Void) {
+        let state = FrameWait(previous: previous, limit: limit)
+        func step() {
+            state.ticks += 1
+            let current = GhosttySnapshot.frameID(of: terminalView)
+            if state.seenAt == nil, let current, state.previous.map({ $0 != current }) ?? true { state.seenAt = state.ticks }
+            if let seen = state.seenAt, state.ticks >= seen + 1 { done(); return }
+            if state.ticks >= state.limit { done(); return }
+            FrameTicker.next { step() }
+        }
+        FrameTicker.next { step() }
     }
 
     private func panToCursor() {
@@ -1042,6 +1099,39 @@ final class TerminalTrace {
     }
 }
 #endif
+
+@MainActor
+final class FrameWait {
+    let previous: (UInt32, UInt32)?
+    let limit: Int
+    var ticks = 0
+    var seenAt: Int?
+    init(previous: (UInt32, UInt32)?, limit: Int) { self.previous = previous; self.limit = limit }
+}
+
+/// Runs a closure on the next display frame (one shared display link).
+@MainActor
+final class FrameTicker: NSObject {
+    private static let shared = FrameTicker()
+    private var waiting: [@MainActor () -> Void] = []
+    private var link: CADisplayLink?
+
+    static func next(_ body: @escaping @MainActor () -> Void) {
+        shared.waiting.append(body)
+        if shared.link == nil {
+            let link = CADisplayLink(target: shared, selector: #selector(tick))
+            link.add(to: .main, forMode: .common)
+            shared.link = link
+        }
+    }
+
+    @objc private func tick() {
+        let run = waiting
+        waiting = []
+        if run.isEmpty { link?.invalidate(); link = nil; return }
+        for body in run { body() }
+    }
+}
 
 /// Sums scroll deltas and applies them once per display frame.
 @MainActor

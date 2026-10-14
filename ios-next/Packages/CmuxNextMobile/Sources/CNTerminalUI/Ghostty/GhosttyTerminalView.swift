@@ -269,6 +269,25 @@ final class GhosttyTerminalView: UIView {
         }
     }
 
+    /// Locks a grid and reports, in order with the output, how many rows the
+    /// content moved down (Ghostty brings scrollback back when rows grow).
+    func setGrid(cols: Int, rows: Int, generation: UInt64, measured: @escaping @MainActor @Sendable (Int, CGFloat) -> Void) {
+        guard let c = UInt16(exactly: cols), let r = UInt16(exactly: rows), c > 0, r > 0 else { return }
+        enqueueOutput { surface in
+            func cursor() -> (Int, Double)? {
+                var m = ghostty_surface_grid_metrics_s()
+                guard ghostty_surface_grid_metrics(surface, &m), m.cursor_in_viewport else { return nil }
+                return (Int(m.cursor_row), m.cell_height)
+            }
+            let before = cursor()
+            _ = ghostty_surface_set_grid(surface, c, r, generation)
+            let after = cursor()
+            let rows = (before != nil && after != nil) ? max(0, after!.0 - before!.0) : 0
+            let cell = CGFloat(after?.1 ?? before?.1 ?? 0)
+            DispatchQueue.main.async { MainActor.assumeIsolated { measured(rows, cell) } }
+        }
+    }
+
     private func enqueueOutput(_ work: @escaping @Sendable (ghostty_surface_t) -> Void) {
         guard let surface else { return }
         let ref = SurfaceRef(surface)
