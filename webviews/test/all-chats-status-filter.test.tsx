@@ -60,8 +60,7 @@ const settle = () => act(async () => void (await new Promise((resolve) => setTim
 const titles = () => [...document.querySelectorAll(".nt-all-title")].map((title) => title.textContent);
 const filter = () => document.querySelector<HTMLButtonElement>('.nt-chats-head button[aria-label="Filter"]');
 const pick = async (label: string) => {
-  // Select keeps its menu open after a pick (Base UI radio items), so open it only when closed.
-  if (filter()!.getAttribute("aria-expanded") !== "true") await act(async () => filter()!.click());
+  await act(async () => filter()!.click());
   await settle();
   const item = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
     (entry) => entry.textContent?.trim() === label,
@@ -69,6 +68,9 @@ const pick = async (label: string) => {
   expect(item).toBeDefined();
   await act(async () => item!.click());
   await settle();
+  // A pick closes the menu, as a macOS pop-up does.
+  expect(filter()!.getAttribute("aria-expanded")).not.toBe("true");
+  expect(document.querySelector('[role="menuitemradio"]')).toBeNull();
 };
 
 const active = [
