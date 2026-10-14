@@ -54,7 +54,10 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             return CloudWelcomeNextStep.resolve(
                 isAuthenticated: account?.isAuthenticated == true,
                 isPlanKnown: account?.hasLoadedBillingPlan == true,
-                isPro: account?.isProActive == true
+                isPro: account?.isProActive == true,
+                hasCloudTeamAccess: CloudWelcomeNextStep.hasSharedTeamAccess(
+                    availableTeamCount: account?.availableTeams.count ?? 0
+                )
             )
         },
         performNextStep: @escaping @MainActor (CloudWelcomeNextStep, (@MainActor () -> Void)?) -> Void = CloudWelcomeWindowController.perform
