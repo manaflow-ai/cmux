@@ -24,12 +24,14 @@ extension IPhoneHostService {
     ///   - auth: The app's Stack session; tokens are read per request, never stored here.
     ///   - daemon: The app's local daemon; hostd splices phones to its socket.
     ///   - acpmuxHost: The agent tabs' acpmux host (started on first use).
+    ///   - agentTabHost: This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
     ///   - settings: The settings controller (the toggle and the chat roots).
     ///   - bundleID: The app's bundle id: hostd's state folder is per bundle.
     ///   - computerName: How phones list this Mac.
     ///   - processEnvironment: Read for the Debug-only overrides.
     public func wire(auth: CloudAuth, daemon: DaemonService,
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
+                     agentTabHost: @escaping @MainActor () -> String? = { nil },
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -48,6 +50,13 @@ extension IPhoneHostService {
         let state = DaemonLauncher.applicationSupportDirectory()
             .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
             .appendingPathComponent("cnx-host", isDirectory: true)
+        #if DEBUG
+        // The phone's browser tabs stream from this build's own remote browser host.
+        let browserHosts: (any CnxBrowserHosting)? = IPhoneBrowserHosts.available()
+            ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
+        #else
+        let browserHosts: (any CnxBrowserHosting)? = nil
+        #endif
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
         dependencies = Dependencies(
@@ -74,7 +83,9 @@ extension IPhoneHostService {
                 let home = FileManager.default.homeDirectoryForCurrentUser.path
                 return (chats.roots + chats.managedRoots).map { $0.hasPrefix("~/") ? home + $0.dropFirst() : $0 }
             },
-            computerName: computerName
+            agentTabHost: agentTabHost,
+            computerName: computerName,
+            browserHosts: browserHosts
         )
     }
 

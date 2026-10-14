@@ -77,8 +77,20 @@ public actor AcpmuxConnection {
         }
     }
 
+    /// One link data frame. The link splits a message above 256 KiB into
+    /// full-size frames (PROTOCOL.md "Link"), so frames join until they parse
+    /// as one JSON value: a transcript record carrying an image arrives whole.
     func route(_ data: Data) {
-        guard let value = try? JSONDecoder().decode(JSONValue.self, from: data) else { return }
+        var joiner = frames
+        let message = joiner.push(data)
+        frames = joiner
+        guard let value = message else { return }
+        dispatch(value)
+    }
+
+    private var frames = MessageJoiner()
+
+    private func dispatch(_ value: JSONValue) {
         if let id = value["id"]?.numberValue, value["method"] == nil {
             guard let continuation = pending.removeValue(forKey: Int(id)) else { return }
             if let error = value["error"] {
@@ -92,6 +104,27 @@ public actor AcpmuxConnection {
             }
         } else if let method = value["method"]?.stringValue {
             continuation.yield(Notification(method: method, params: value["params"] ?? .null))
+        }
+    }
+
+    /// Joins the data frames of one JSON message.
+    struct MessageJoiner {
+        /// The link's largest frame payload: a frame this size may continue.
+        static let fullFrame = 256 * 1024
+        static let maxMessage = 64 << 20
+        private var pending = Data()
+
+        /// The message once complete, else nil (waiting, or a frame that was dropped).
+        mutating func push(_ frame: Data) -> JSONValue? {
+            pending.append(frame)
+            if let value = try? JSONDecoder().decode(JSONValue.self, from: pending) {
+                pending = Data()
+                return value
+            }
+            if frame.count < Self.fullFrame || pending.count > Self.maxMessage {
+                pending = Data()
+            }
+            return nil
         }
     }
 

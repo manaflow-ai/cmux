@@ -116,6 +116,45 @@ public final class LiveFeed: FeedActions {
 
     // MARK: FeedActions
 
+    /// Pull to refresh: re-runs `_acpmux/watch` for the Mac's sessions, adds
+    /// any finished turns the Feed missed, resolves asks the Mac no longer
+    /// has, and reads each waiting session's open asks again.
+    public func refresh() async throws {
+        guard let hub else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected to your Mac", reason: nil) }
+        let watched = try await hub.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+        let sessions = (watched["sessions"]?.arrayValue ?? []).compactMap(AcpmuxSession.init)
+        hydrate(sessions)
+        let byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        for (sessionID, asks) in openAsks where (byID[sessionID]?.pendingPermissions ?? 0) == 0 {
+            openAsks[sessionID] = nil
+            for id in asks { store.resolveElsewhere(id, text: "Answered") }
+        }
+        for session in sessions where session.pendingPermissions > 0 {
+            let page = try await hub.request("_acpmux/events", .object([
+                "sessionId": .string(session.id),
+                "beforeSeq": .number(Double(session.lastSeq + 1)),
+                "limit": .number(200),
+                "kinds": .array([.string("permission_request"), .string("permission_decision")]),
+            ]))
+            for (permissionID, request) in Self.openRequests(page["events"]?.arrayValue ?? []) {
+                handle(.permissionPending(sessionID: session.id, permissionID: permissionID, request: request), sessions: byID)
+            }
+        }
+    }
+
+    /// Permission requests with no decision among `records`, in order.
+    static func openRequests(_ records: [JSONValue]) -> [(permissionID: String, request: JSONValue)] {
+        let decided = Set(records.compactMap { record -> String? in
+            record["kind"]?.stringValue == "permission_decision" ? record["msg"]?["permissionId"]?.stringValue : nil
+        })
+        return records.compactMap { record in
+            guard record["kind"]?.stringValue == "permission_request",
+                  let id = record["msg"]?["permissionId"]?.stringValue, !decided.contains(id),
+                  let request = record["msg"]?["request"] else { return nil }
+            return (id, request)
+        }
+    }
+
     public func answer(_ item: FeedItem, question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {
         guard let hub else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected", reason: nil) }
         try await hub.answer(question, with: answer)

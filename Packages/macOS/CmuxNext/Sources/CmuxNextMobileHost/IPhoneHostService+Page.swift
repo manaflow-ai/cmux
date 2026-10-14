@@ -25,6 +25,8 @@ extension IPhoneHostService {
             "phones_error": phonesError.map(JSONValue.string) ?? .null,
             "remove_title": .string(IPhoneHostStrings.remove),
             "remove_help": .string(IPhoneHostStrings.removeHelp),
+            // Shown with phase "removed": the person's way to let iPhones connect again.
+            "allow_again_title": .string(IPhoneHostStrings.allowAgain),
         ]
     }
 
@@ -56,6 +58,7 @@ extension IPhoneHostService {
         case .connecting: return "connecting"
         case .online: return "online"
         case .waiting: return "waiting"
+        case .removed: return "removed"
         }
     }
 
@@ -68,6 +71,7 @@ extension IPhoneHostService {
         case .connecting: return IPhoneHostStrings.connecting
         case .online:
             return [IPhoneHostStrings.online, IPhoneHostStrings.phonesConnected(state.phones.count)].joined(separator: " · ")
+        case .removed: return IPhoneHostStrings.removed
         case .waiting(let reason):
             return reason.isEmpty ? IPhoneHostStrings.reconnecting : "\(IPhoneHostStrings.reconnecting) (\(reason))"
         }

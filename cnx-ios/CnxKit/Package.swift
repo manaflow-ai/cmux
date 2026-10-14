@@ -24,6 +24,7 @@ let package = Package(
         .library(name: "CnxTerminal", targets: ["CnxTerminal"]),
         .library(name: "CnxLive", targets: ["CnxLive"]),
         .library(name: "CnxArtifacts", targets: ["CnxArtifacts"]),
+        .library(name: "CnxBrowserStream", targets: ["CnxBrowserStream"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
@@ -58,7 +59,7 @@ let package = Package(
         .target(name: "CnxArtifacts", dependencies: ["CnxDesign", "CnxTransport"]),
         // ACP agent session model, AgentSessionSource (mock now, acpmux over the link later), chat screen.
         .target(name: "CnxAgentChat", dependencies: [
-            "CnxDesign", "CnxModel", "CnxMarkdown", "CnxDiff", "CnxArtifacts",
+            "CnxDesign", "CnxModel", "CnxMarkdown", "CnxDiff", "CnxArtifacts", "CnxTransport",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
         .target(name: "CnxFeed", dependencies: [
@@ -80,9 +81,12 @@ let package = Package(
             resources: [.process("Resources")]
         ),
         .target(name: "CnxSettings", dependencies: ["CnxDesign", "CnxModel", "CnxAuth"]),
+        // Streamed browser tabs: a Mac browser page as H.264 video over the link's
+        // `browser` service (VideoToolbox decode, rb input, rb.page chrome).
+        .target(name: "CnxBrowserStream", dependencies: ["CnxDesign", "CnxTransport"]),
         // Workspaces list and the per-workspace TabsKit navigation (last tab first).
         .target(name: "CnxWorkspaces", dependencies: [
-            "CnxDesign", "CnxModel", "CnxAgentChat",
+            "CnxDesign", "CnxModel", "CnxAgentChat", "CnxBrowserStream",
             .product(name: "CmuxTabsKit", package: "CmuxTabsKit"),
         ]),
         // Home: the Messages-style conversation list and the Chief chat over CmuxConversation.
@@ -95,19 +99,21 @@ let package = Package(
         // daemon tree, acpmux chats, Feed events and Chief over the link.
         .target(name: "CnxLive", dependencies: [
             "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat", "CnxArtifacts", "CnxFeed", "CnxChief", "CnxTerminal",
+            "CnxBrowserStream",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
         .target(
             name: "CnxTerminal",
             // libghostty ships for iOS only here; macOS `swift test` builds the
             // portable parts (session, detector, extractor, input) without it.
-            dependencies: ["CnxDesign", "CnxArtifacts", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS]))]
+            dependencies: ["CnxDesign", "CnxArtifacts", "CnxTransport", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS]))]
         ),
         .target(
             name: "CnxShell",
             dependencies: [
                 "CnxDesign", "CnxModel", "CnxAuth", "CnxOnboarding", "CnxSettings",
                 "CnxAgentChat", "CnxFeed", "CnxTransport", "CnxWorkspaces", "CnxChief", "CnxLive", "CnxTerminal",
+                "CnxBrowserStream",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             ]
         ),
@@ -115,6 +121,7 @@ let package = Package(
         .testTarget(name: "CnxTransportTests", dependencies: ["CnxTransport"]),
         .testTarget(name: "CnxAgentChatTests", dependencies: ["CnxAgentChat", "CnxDiff", "CnxMarkdown", "CnxArtifacts"]),
         .testTarget(name: "CnxTerminalTests", dependencies: ["CnxTerminal"]),
+        .testTarget(name: "CnxBrowserStreamTests", dependencies: ["CnxBrowserStream", "CnxTransport"]),
         .testTarget(name: "CnxWorkspacesTests", dependencies: ["CnxWorkspaces", "CnxModel"]),
         .testTarget(name: "CnxLiveTests", dependencies: [
             "CnxLive", "CnxTransport", "CnxModel", "CnxAgentChat", "CnxFeed", "CnxTerminal",

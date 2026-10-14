@@ -39,5 +39,8 @@ async fn main() -> Result<()> {
     let supplied = cnx_hostd::control::enabled().then(cnx_hostd::control::spawn_stdin_reader);
     let config = cnx_hostd::config::HostConfig::from_env(supplied)?;
     tracing::info!(device_id = config.device_id, team = config.team_id, "starting");
-    cnx_hostd::host::run(config).await
+    // `run` returns only when the owner removed this Mac: exit with its own status so
+    // a supervisor never restarts it.
+    cnx_hostd::host::run(config).await?;
+    std::process::exit(cnx_hostd::host::EXIT_REMOVED)
 }

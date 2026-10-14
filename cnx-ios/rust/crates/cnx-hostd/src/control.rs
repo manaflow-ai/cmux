@@ -45,9 +45,32 @@ pub fn enabled() -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inbound {
-    Token { token: String },
-    Acpmux { url: String, token: Option<String> },
-    DropPhone { phone_device_id: String },
+    Token {
+        token: String,
+    },
+    Acpmux {
+        url: String,
+        token: Option<String>,
+    },
+    /// The browser host the app started for `need_browser` `request`: its
+    /// loopback rd stream carrier address and per-launch secret.
+    Browser {
+        request: u64,
+        addr: String,
+        secret: String,
+    },
+    /// The app could not start a browser host for `request`.
+    BrowserFailed {
+        request: u64,
+        reason: String,
+    },
+    /// The browser host of `tab` exited.
+    BrowserGone {
+        tab: String,
+    },
+    DropPhone {
+        phone_device_id: String,
+    },
 }
 
 impl Inbound {
@@ -71,12 +94,21 @@ pub enum Event {
     NeedToken,
     /// The acpmux endpoint is missing or refused a connection (acpmux restarted).
     NeedAcpmux,
+    /// The owner removed this Mac from the account's devices (signaling closed with
+    /// 4002 `removed`). hostd exits after this line and must not be restarted until
+    /// the person allows iPhone connections again (a new device id then).
+    Removed,
     /// A phone's link is up.
     PhoneUp { session_id: String, phone_device_id: String, transport: String, path: String },
     /// A phone's link moved to another path.
     PhonePath { session_id: String, path: String },
     /// A phone's link ended.
     PhoneDown { session_id: String, reason: String },
+    /// A phone opened browser tab `tab`: start the app's browser host on
+    /// `url` and answer with `browser` (or `browser_failed`) for `request`.
+    NeedBrowser { request: u64, tab: String, url: String },
+    /// hostd no longer needs the browser host of `tab`: stop it.
+    BrowserStop { tab: String },
 }
 
 /// Writes `event` as one stdout line when supervised; otherwise nothing.
@@ -95,12 +127,16 @@ pub fn emit(event: &Event) {
 pub struct Supplied {
     pub token: watch::Receiver<Option<String>>,
     pub acpmux: watch::Receiver<AcpmuxEndpoint>,
+    /// Browser hosts the app starts for the `browser` service.
+    pub browser: std::sync::Arc<crate::browser::BrowserBroker>,
 }
 
 /// Reads stdin until it ends, then exits the process (the app is gone).
 pub fn spawn_stdin_reader() -> Supplied {
     let (token_tx, token) = watch::channel(None);
     let (acpmux_tx, acpmux) = watch::channel(None);
+    let browser = std::sync::Arc::new(crate::browser::BrowserBroker::new(std::sync::Arc::new(emit)));
+    let broker = std::sync::Arc::clone(&browser);
     tokio::spawn(async move {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -115,13 +151,18 @@ pub fn spawn_stdin_reader() -> Supplied {
                     let _ =
                         DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
                 }
+                Some(Inbound::Browser { request, addr, secret }) => {
+                    broker.answer(request, Ok((addr, secret)));
+                }
+                Some(Inbound::BrowserFailed { request, reason }) => broker.answer(request, Err(reason)),
+                Some(Inbound::BrowserGone { tab }) => broker.gone(&tab),
                 None => tracing::warn!("ignoring an unknown control line"),
             }
         }
         tracing::info!("control input ended; exiting");
         std::process::exit(0);
     });
-    Supplied { token, acpmux }
+    Supplied { token, acpmux, browser }
 }
 
 /// The wire name of a transport.
@@ -159,6 +200,14 @@ mod tests {
             Inbound::parse(r#"{"type":"drop_phone","phone_device_id":"P"}"#),
             Some(Inbound::DropPhone { phone_device_id: "P".into() })
         );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"browser","request":3,"addr":"127.0.0.1:5","secret":"s"}"#),
+            Some(Inbound::Browser { request: 3, addr: "127.0.0.1:5".into(), secret: "s".into() })
+        );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"browser_gone","tab":"s4"}"#),
+            Some(Inbound::BrowserGone { tab: "s4".into() })
+        );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
     }
@@ -177,6 +226,16 @@ mod tests {
             r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"relay"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
+        assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
+        assert_eq!(
+            serde_json::to_string(&Event::NeedBrowser {
+                request: 1,
+                tab: "s4".into(),
+                url: "about:blank".into()
+            })
+            .unwrap(),
+            r#"{"type":"need_browser","request":1,"tab":"s4","url":"about:blank"}"#
+        );
         assert_eq!(
             serde_json::to_string(&Event::Waiting { reason: "x".into(), retry_in_seconds: 2 }).unwrap(),
             r#"{"type":"waiting","reason":"x","retry_in_seconds":2}"#

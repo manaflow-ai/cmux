@@ -5,7 +5,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use cnx_link::dial::{self, SessionEvents};
 use cnx_link::testing::{FakeOptions, FakeSignaling};
-use cnx_link::{ChannelEvent, DialOptions, LinkConfig, LinkPath, SignalingClient, TransportKind};
+use cnx_link::{
+    ChannelEvent, DialOptions, Lane, LaneState, LinkConfig, LinkPath, SignalingClient, TransportKind,
+};
 
 fn options() -> DialOptions {
     DialOptions { include_loopback: true, timeout: Duration::from_secs(20), ..DialOptions::default() }
@@ -13,6 +15,10 @@ fn options() -> DialOptions {
 
 /// A Mac that answers every new session and echoes every channel.
 fn spawn_echo_mac(mac: SignalingClient) -> tokio::task::JoinHandle<()> {
+    spawn_echo_mac_with(mac, options())
+}
+
+fn spawn_echo_mac_with(mac: SignalingClient, mac_options: DialOptions) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         while let Some(session) = mac.next_session().await {
             let first = session.first;
@@ -22,8 +28,9 @@ fn spawn_echo_mac(mac: SignalingClient) -> tokio::task::JoinHandle<()> {
                 session: session.events,
             };
             let mac = mac.clone();
+            let mac_options = mac_options.clone();
             tokio::spawn(async move {
-                let connected = dial::answer(&mac, first, events, &options(), LinkConfig::default())
+                let connected = dial::answer(&mac, first, events, &mac_options, LinkConfig::default())
                     .await
                     .expect("answer");
                 while let Some(mut incoming) = connected.link.accept().await {
@@ -307,4 +314,98 @@ async fn wireguard_one_way_lan_settles_on_turn() {
     let (path, changes) = exercise_turn(phone, mac).await;
     assert_eq!(path, LinkPath::Turn);
     assert!(changes.is_empty(), "path flapped: {changes:?}");
+}
+
+/// The input lane (PROTOCOL.md "Lanes"): with a Mac that supports it, an
+/// input channel rides its own stream; with an older Mac (no `lanes` in its
+/// answer) it rides the main stream and still works.
+async fn input_lane(kind: TransportKind, mac_supports_lane: bool) {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let _mac_task = spawn_echo_mac_with(mac, DialOptions { input_lane: mac_supports_lane, ..options() });
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let connected =
+        dial::connect(&phone, &mac_id, kind, &options(), LinkConfig::default()).await.expect("dial");
+    let mut input = connected.link.open_on("echo", serde_json::json!({}), Lane::Input).await.unwrap();
+    assert_eq!(input.lane(), Lane::Input);
+    assert_eq!(input.sender.on_input_stream(), mac_supports_lane, "{kind:?}");
+    let expected = if mac_supports_lane { LaneState::Ready } else { LaneState::Unavailable };
+    assert_eq!(connected.link.input_lane(), expected);
+    // Bulk and input channels side by side.
+    let mut bulk = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+    bulk.send(Bytes::from(vec![9u8; 300_000])).await.unwrap();
+    input.send(Bytes::from_static(b"key")).await.unwrap();
+    match tokio::time::timeout(Duration::from_secs(10), input.recv()).await.expect("echo in time") {
+        Some(ChannelEvent::Data(bytes)) => assert_eq!(&bytes[..], b"key"),
+        other => panic!("unexpected {other:?}"),
+    }
+    let mut echoed = 0;
+    while echoed < 300_000 {
+        match tokio::time::timeout(Duration::from_secs(20), bulk.recv()).await.expect("bulk echo") {
+            Some(ChannelEvent::Data(bytes)) => echoed += bytes.len(),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    connected.link.close("done");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn webrtc_input_lane_has_its_own_data_channel() {
+    input_lane(TransportKind::WebRtc, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_input_lane_has_its_own_tcp_stream() {
+    input_lane(TransportKind::WireGuard, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn webrtc_input_lane_falls_back_with_an_older_mac() {
+    input_lane(TransportKind::WebRtc, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_input_lane_falls_back_with_an_older_mac() {
+    input_lane(TransportKind::WireGuard, false).await;
+}
+
+/// Throughput probe (run with --ignored --nocapture).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore]
+async fn throughput_probe() {
+    for kind in [TransportKind::WebRtc, TransportKind::WireGuard] {
+        let server = FakeSignaling::start(FakeOptions::default()).await;
+        let phone_id = uuid::Uuid::new_v4().to_string();
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+        let _mac_task = spawn_echo_mac(mac);
+        let phone =
+            SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+        let connected =
+            dial::connect(&phone, &mac_id, kind, &options(), LinkConfig::default()).await.expect("dial");
+        let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+        let (sender, mut receiver) = channel.split();
+        let total = 20_000_000usize;
+        let started = std::time::Instant::now();
+        let writer = tokio::spawn(async move {
+            let mut sent = 0;
+            while sent < total {
+                sender.send(Bytes::from(vec![1u8; 256 * 1024])).await.unwrap();
+                sent += 256 * 1024;
+            }
+            sender
+        });
+        let mut got = 0;
+        while got < total {
+            if let Some(ChannelEvent::Data(b)) = receiver.recv().await {
+                got += b.len();
+            }
+        }
+        let secs = started.elapsed().as_secs_f64();
+        eprintln!("{kind:?}: {:.1} Mbit/s each way", got as f64 * 8.0 / 1e6 / secs);
+        drop(writer.await);
+        connected.link.close("done");
+    }
 }

@@ -47,7 +47,11 @@ public final class IPhoneHostService {
         var acpmux: @Sendable () async -> (url: URL, token: String)?
         /// Folders the phone may preview files from (the chat roots).
         var fileRoots: @MainActor () -> [String]
+        /// This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
+        var agentTabHost: @MainActor () -> String? = { nil }
         var computerName: @Sendable () async -> String
+        /// The app's browser hosts for the phone's streamed browser tabs; nil when this build has none.
+        var browserHosts: (any CnxBrowserHosting)? = nil
     }
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
@@ -58,6 +62,11 @@ public final class IPhoneHostService {
     private(set) var knownPhones: [CnxKnownPhone] = []
     /// Why the last list read or removal failed, shown under the list; nil when it worked.
     private(set) var phonesError: String?
+    /// The owner removed this Mac from the account's devices (from a phone or the API).
+    /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
+    /// the setting off and on, or signing in again. Then it registers as a new device.
+    public private(set) var removed = false
+    @ObservationIgnored private var signedOutSinceRemoval = false
     @ObservationIgnored var dependencies: Dependencies?
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored private let supervisor = CnxHostSupervisor()
@@ -66,7 +75,6 @@ public final class IPhoneHostService {
     @ObservationIgnored private var watching: Task<Void, Never>?
     @ObservationIgnored private var following: Task<Void, Never>?
     @ObservationIgnored private var followingAccount: Task<Void, Never>?
-    /// What hostd runs for now (account and toggle), so a repeated update does not restart it.
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
@@ -80,6 +88,7 @@ public final class IPhoneHostService {
                 guard let self else { return }
                 let before = self.state
                 self.state = next
+                if next.phase == .removed, before.phase != .removed { self.recordRemoval() }
                 // The list follows what hostd reports: online, and each phone that comes or goes.
                 if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
                     self.refreshPhones()
@@ -131,6 +140,13 @@ public final class IPhoneHostService {
     /// The account changed (sign-in, sign-out, team switch).
     public func accountChanged(_ account: Account?) {
         guard account != self.account else { return }
+        // Signing out after a removal and signing in again allows connections again. (A
+        // relaunch restores the session without a sign-out, so the removal holds.)
+        if removed, account == nil { signedOutSinceRemoval = true }
+        if account != nil, signedOutSinceRemoval {
+            signedOutSinceRemoval = false
+            clearRemoval()
+        }
         self.account = account
         reconcile()
         refreshPhones()
@@ -159,8 +175,35 @@ public final class IPhoneHostService {
         }
     }
 
+    /// hostd reported the removal: remember it (across relaunches) and forget the device id.
+    private func recordRemoval() {
+        removed = true
+        guard let dependencies, let key = running else { return }
+        do {
+            try CnxRemovalMarker(directory: dependencies.stateDirectory)
+                .record(account: key, identity: CnxDeviceIdentity(directory: dependencies.stateDirectory))
+        } catch {
+            logger.error("could not record the removal: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// The person allowed iPhone connections again after a removal (Settings > Mobile >
+    /// Allow Again): hostd registers this Mac as a new device.
+    public func allowAgain() {
+        clearRemoval()
+        running = nil
+        reconcile()
+    }
+
+    private func clearRemoval() {
+        if let dependencies { CnxRemovalMarker(directory: dependencies.stateDirectory).clear() }
+        removed = false
+    }
+
     private func setAllowed(_ allowed: Bool) {
         guard allowed != self.allowed else { return }
+        // Turning the setting on again is the person allowing connections again.
+        if allowed, removed { clearRemoval() }
         self.allowed = allowed
         reconcile()
         refreshPhones()
@@ -198,6 +241,12 @@ public final class IPhoneHostService {
                 await supervisor.stop(phase: .unavailable(IPhoneHostStrings.unavailable))
                 return
             }
+            // Removed by the owner (this launch or an earlier one): stay stopped.
+            if let key, CnxRemovalMarker(directory: dependencies.stateDirectory).account() == key {
+                self?.removed = true
+                await supervisor.stop(phase: .removed)
+                return
+            }
             do {
                 let socket = try await dependencies.daemonSocket()
                 let deviceID = try CnxDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
@@ -207,10 +256,11 @@ public final class IPhoneHostService {
                     executable: executable, baseURL: dependencies.baseURL, teamID: want.teamID, userID: want.userID,
                     deviceID: deviceID, deviceName: name, daemonSocket: socket,
                     stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
-                    stackProjectID: dependencies.stackProjectID)
+                    stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
                 await supervisor.start(.init(
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
-                    log: dependencies.stateDirectory.appendingPathComponent("cnx-hostd.log", isDirectory: false)))
+                    log: dependencies.stateDirectory.appendingPathComponent("cnx-hostd.log", isDirectory: false),
+                    browserHosts: dependencies.browserHosts))
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))

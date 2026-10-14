@@ -425,6 +425,22 @@ private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
+    typealias FfiType = UInt16
+    typealias SwiftType = UInt16
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt16 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
     typealias FfiType = UInt32
     typealias SwiftType = UInt32
@@ -435,6 +451,54 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
 
     public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
+    typealias FfiType = UInt64
+    typealias SwiftType = UInt64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
+    typealias FfiType = Int64
+    typealias SwiftType = Int64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int64, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
     }
 }
 
@@ -520,6 +584,505 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
         writeBytes(&buf, value)
     }
 }
+
+
+
+
+/**
+ * Receives a browser stream's frames and messages on a library thread.
+ * Implementations should hand off quickly (a decode queue).
+ */
+public protocol BrowserObserver: AnyObject, Sendable {
+    
+    func onFrame(frame: BrowserFrame) 
+    
+    /**
+     * An rb message from the host (the `body` of an rd `service` message,
+     * `t` starts with `rb.`), or an rd control message (`welcome`,
+     * `started`, `refused`, `ended`).
+     */
+    func onMessage(json: String) 
+    
+    func onClosed(code: String, reason: String) 
+    
+}
+/**
+ * Receives a browser stream's frames and messages on a library thread.
+ * Implementations should hand off quickly (a decode queue).
+ */
+open class BrowserObserverImpl: BrowserObserver, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cnx_ffi_fn_clone_browserobserver(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cnx_ffi_fn_free_browserobserver(handle, $0) }
+    }
+
+    
+
+    
+open func onFrame(frame: BrowserFrame)  {try! rustCall() {
+    uniffi_cnx_ffi_fn_method_browserobserver_on_frame(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeBrowserFrame_lower(frame),$0
+    )
+}
+}
+    
+    /**
+     * An rb message from the host (the `body` of an rd `service` message,
+     * `t` starts with `rb.`), or an rd control message (`welcome`,
+     * `started`, `refused`, `ended`).
+     */
+open func onMessage(json: String)  {try! rustCall() {
+    uniffi_cnx_ffi_fn_method_browserobserver_on_message(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(json),$0
+    )
+}
+}
+    
+open func onClosed(code: String, reason: String)  {try! rustCall() {
+    uniffi_cnx_ffi_fn_method_browserobserver_on_closed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(code),
+        FfiConverterString.lower(reason),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceBrowserObserver {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceBrowserObserver = UniffiVTableCallbackInterfaceBrowserObserver(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeBrowserObserver.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface BrowserObserver: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeBrowserObserver.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface BrowserObserver: handle missing in uniffiClone")
+            }
+        },
+        onFrame: { (
+            uniffiHandle: UInt64,
+            frame: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeBrowserObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onFrame(
+                     frame: try FfiConverterTypeBrowserFrame_lift(frame)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onMessage: { (
+            uniffiHandle: UInt64,
+            json: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeBrowserObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onMessage(
+                     json: try FfiConverterString.lift(json)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onClosed: { (
+            uniffiHandle: UInt64,
+            code: RustBuffer,
+            reason: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeBrowserObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onClosed(
+                     code: try FfiConverterString.lift(code),
+                     reason: try FfiConverterString.lift(reason)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceBrowserObserver> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceBrowserObserver>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitBrowserObserver() {
+    uniffi_cnx_ffi_fn_init_callback_vtable_browserobserver(UniffiCallbackInterfaceBrowserObserver.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBrowserObserver: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<BrowserObserver>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = BrowserObserver
+
+    public static func lift(_ handle: UInt64) throws -> BrowserObserver {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return BrowserObserverImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: BrowserObserver) -> UInt64 {
+         if let rustImpl = value as? BrowserObserverImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BrowserObserver {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: BrowserObserver, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBrowserObserver_lift(_ handle: UInt64) throws -> BrowserObserver {
+    return try FfiConverterTypeBrowserObserver.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBrowserObserver_lower(_ value: BrowserObserver) -> UInt64 {
+    return FfiConverterTypeBrowserObserver.lower(value)
+}
+
+
+
+
+
+
+/**
+ * One open browser tab stream.
+ */
+public protocol BrowserStreamProtocol: AnyObject, Sendable {
+    
+    func close() 
+    
+    /**
+     * Reports how long the last frame took to decode (feeds the host's rate control).
+     */
+    func noteDecode(decodeUs: UInt32) 
+    
+    /**
+     * Microseconds on the clock `BrowserFrame.received_us` uses.
+     */
+    func nowUs()  -> UInt64
+    
+    /**
+     * Asks the host for a keyframe (the decoder lost its state).
+     */
+    func requestKeyframe() 
+    
+    /**
+     * Sends an rb input event (`{"e":"pointer",...}`, `wheel`, `key`,
+     * `ime_commit`, ...). `must_deliver` events are repeated until the host
+     * acknowledges them (presses and releases); moves need not be.
+     */
+    func sendInput(json: String, mustDeliver: Bool) throws 
+    
+    /**
+     * Sends an rb control message (`rb.open`, `rb.screen`, `rb.navigate`,
+     * `rb.history`, `rb.visibility`, ...), a JSON object with `t`.
+     */
+    func sendMessage(json: String) throws 
+    
+    func stats()  -> BrowserStats
+    
+}
+/**
+ * One open browser tab stream.
+ */
+open class BrowserStream: BrowserStreamProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cnx_ffi_fn_clone_browserstream(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cnx_ffi_fn_free_browserstream(handle, $0) }
+    }
+
+    
+
+    
+open func close()  {try! rustCall() {
+    uniffi_cnx_ffi_fn_method_browserstream_close(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Reports how long the last frame took to decode (feeds the host's rate control).
+     */
+open func noteDecode(decodeUs: UInt32)  {try! rustCall() {
+    uniffi_cnx_ffi_fn_method_browserstream_note_decode(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(decodeUs),$0
+    )
+}
+}
+    
+    /**
+     * Microseconds on the clock `BrowserFrame.received_us` uses.
+     */
+open func nowUs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cnx_ffi_fn_method_browserstream_now_us(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Asks the host for a keyframe (the decoder lost its state).
+     */
+open func requestKeyframe()  {try! rustCall() {
+    uniffi_cnx_ffi_fn_method_browserstream_request_keyframe(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Sends an rb input event (`{"e":"pointer",...}`, `wheel`, `key`,
+     * `ime_commit`, ...). `must_deliver` events are repeated until the host
+     * acknowledges them (presses and releases); moves need not be.
+     */
+open func sendInput(json: String, mustDeliver: Bool)throws   {try rustCallWithError(FfiConverterTypeCnxError_lift) {
+    uniffi_cnx_ffi_fn_method_browserstream_send_input(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(json),
+        FfiConverterBool.lower(mustDeliver),$0
+    )
+}
+}
+    
+    /**
+     * Sends an rb control message (`rb.open`, `rb.screen`, `rb.navigate`,
+     * `rb.history`, `rb.visibility`, ...), a JSON object with `t`.
+     */
+open func sendMessage(json: String)throws   {try rustCallWithError(FfiConverterTypeCnxError_lift) {
+    uniffi_cnx_ffi_fn_method_browserstream_send_message(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(json),$0
+    )
+}
+}
+    
+open func stats() -> BrowserStats  {
+    return try!  FfiConverterTypeBrowserStats_lift(try! rustCall() {
+    uniffi_cnx_ffi_fn_method_browserstream_stats(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBrowserStream: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = BrowserStream
+
+    public static func lift(_ handle: UInt64) throws -> BrowserStream {
+        return BrowserStream(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: BrowserStream) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BrowserStream {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: BrowserStream, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBrowserStream_lift(_ handle: UInt64) throws -> BrowserStream {
+    return try FfiConverterTypeBrowserStream.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBrowserStream_lower(_ value: BrowserStream) -> UInt64 {
+    return FfiConverterTypeBrowserStream.lower(value)
+}
+
+
 
 
 
@@ -719,11 +1282,23 @@ public func FfiConverterTypeChannelHandle_lower(_ value: ChannelHandle) -> UInt6
 public protocol LinkHandleProtocol: AnyObject, Sendable {
     
     /**
-     * Close the link, its transport and its signaling socket.
+     * Close the link and its transport. The signaling socket stays warm
+     * for the next dial (`reset_warm_state` closes it).
      */
     func close() 
     
+    /**
+     * Whether the link has its own input-lane stream now.
+     */
+    func hasInputLane()  -> Bool
+    
     func isClosed()  -> Bool
+    
+    /**
+     * Open a streamed Mac browser tab (`browser` service, args JSON
+     * `{"tab", "url"}`): frames and host messages go to `observer`.
+     */
+    func openBrowser(argsJson: String, observer: BrowserObserver) async throws  -> BrowserStream
     
     /**
      * Open a channel to `service` (`echo`, `daemon`, `acpmux`, `file`) with
@@ -732,12 +1307,27 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func openChannel(service: String, argsJson: String) async throws  -> ChannelHandle
     
+    /**
+     * `open_channel` on the input lane (PROTOCOL.md "Lanes"): for terminal
+     * keystrokes, resizes and their replies, which then never wait behind
+     * bulk output. With a Mac that has no input lane the channel rides the
+     * main stream at input priority.
+     */
+    func openInputChannel(service: String, argsJson: String) async throws  -> ChannelHandle
+    
     func path()  -> LinkPath
     
     /**
      * Round-trip one ping; milliseconds.
      */
     func ping() async throws  -> UInt32
+    
+    /**
+     * The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
+     * `link_ready`, ...), each in milliseconds since `connect` was called.
+     * Marks recorded later (the first ping, `first_pong`) appear as they come.
+     */
+    func timings()  -> [TimingMark]
     
     func transport()  -> Transport
     
@@ -799,7 +1389,8 @@ open class LinkHandle: LinkHandleProtocol, @unchecked Sendable {
 
     
     /**
-     * Close the link, its transport and its signaling socket.
+     * Close the link and its transport. The signaling socket stays warm
+     * for the next dial (`reset_warm_state` closes it).
      */
 open func close()  {try! rustCall() {
     uniffi_cnx_ffi_fn_method_linkhandle_close(
@@ -808,12 +1399,44 @@ open func close()  {try! rustCall() {
 }
 }
     
+    /**
+     * Whether the link has its own input-lane stream now.
+     */
+open func hasInputLane() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cnx_ffi_fn_method_linkhandle_has_input_lane(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 open func isClosed() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_cnx_ffi_fn_method_linkhandle_is_closed(
             self.uniffiCloneHandle(),$0
     )
 })
+}
+    
+    /**
+     * Open a streamed Mac browser tab (`browser` service, args JSON
+     * `{"tab", "url"}`): frames and host messages go to `observer`.
+     */
+open func openBrowser(argsJson: String, observer: BrowserObserver)async throws  -> BrowserStream  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_method_linkhandle_open_browser(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(argsJson),FfiConverterTypeBrowserObserver_lower(observer)
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cnx_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeBrowserStream_lift,
+            errorHandler: FfiConverterTypeCnxError_lift
+        )
 }
     
     /**
@@ -826,6 +1449,29 @@ open func openChannel(service: String, argsJson: String)async throws  -> Channel
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_cnx_ffi_fn_method_linkhandle_open_channel(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(service),FfiConverterString.lower(argsJson)
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cnx_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeChannelHandle_lift,
+            errorHandler: FfiConverterTypeCnxError_lift
+        )
+}
+    
+    /**
+     * `open_channel` on the input lane (PROTOCOL.md "Lanes"): for terminal
+     * keystrokes, resizes and their replies, which then never wait behind
+     * bulk output. With a Mac that has no input lane the channel rides the
+     * main stream at input priority.
+     */
+open func openInputChannel(service: String, argsJson: String)async throws  -> ChannelHandle  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_method_linkhandle_open_input_channel(
                     self.uniffiCloneHandle(),
                     FfiConverterString.lower(service),FfiConverterString.lower(argsJson)
                 )
@@ -864,6 +1510,19 @@ open func ping()async throws  -> UInt32  {
             liftFunc: FfiConverterUInt32.lift,
             errorHandler: FfiConverterTypeCnxError_lift
         )
+}
+    
+    /**
+     * The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
+     * `link_ready`, ...), each in milliseconds since `connect` was called.
+     * Marks recorded later (the first ping, `first_pong`) appear as they come.
+     */
+open func timings() -> [TimingMark]  {
+    return try!  FfiConverterSequenceTypeTimingMark.lift(try! rustCall() {
+    uniffi_cnx_ffi_fn_method_linkhandle_timings(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
 open func transport() -> Transport  {
@@ -1122,6 +1781,196 @@ public func FfiConverterTypeLinkObserver_lower(_ value: LinkObserver) -> UInt64 
 
 
 /**
+ * One complete video frame.
+ */
+public struct BrowserFrame: Equatable, Hashable {
+    /**
+     * 0 = the page; popups have their own streams.
+     */
+    public var stream: UInt16
+    public var frame: UInt32
+    public var keyframe: Bool
+    /**
+     * H.264 Annex-B access unit (SPS and PPS before each IDR).
+     */
+    public var accessUnit: Data
+    /**
+     * The host's capture time (host monotonic microseconds).
+     */
+    public var captureUs: UInt64
+    /**
+     * When the frame was complete, on this library's clock (`now_us`).
+     */
+    public var receivedUs: UInt64
+    /**
+     * How long ago the host captured it, measured when it was complete:
+     * network, reassembly and host encode. `None` until the clock probes
+     * have an estimate.
+     */
+    public var ageUs: Int64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 0 = the page; popups have their own streams.
+         */stream: UInt16, frame: UInt32, keyframe: Bool, 
+        /**
+         * H.264 Annex-B access unit (SPS and PPS before each IDR).
+         */accessUnit: Data, 
+        /**
+         * The host's capture time (host monotonic microseconds).
+         */captureUs: UInt64, 
+        /**
+         * When the frame was complete, on this library's clock (`now_us`).
+         */receivedUs: UInt64, 
+        /**
+         * How long ago the host captured it, measured when it was complete:
+         * network, reassembly and host encode. `None` until the clock probes
+         * have an estimate.
+         */ageUs: Int64?) {
+        self.stream = stream
+        self.frame = frame
+        self.keyframe = keyframe
+        self.accessUnit = accessUnit
+        self.captureUs = captureUs
+        self.receivedUs = receivedUs
+        self.ageUs = ageUs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension BrowserFrame: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBrowserFrame: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BrowserFrame {
+        return
+            try BrowserFrame(
+                stream: FfiConverterUInt16.read(from: &buf), 
+                frame: FfiConverterUInt32.read(from: &buf), 
+                keyframe: FfiConverterBool.read(from: &buf), 
+                accessUnit: FfiConverterData.read(from: &buf), 
+                captureUs: FfiConverterUInt64.read(from: &buf), 
+                receivedUs: FfiConverterUInt64.read(from: &buf), 
+                ageUs: FfiConverterOptionInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BrowserFrame, into buf: inout [UInt8]) {
+        FfiConverterUInt16.write(value.stream, into: &buf)
+        FfiConverterUInt32.write(value.frame, into: &buf)
+        FfiConverterBool.write(value.keyframe, into: &buf)
+        FfiConverterData.write(value.accessUnit, into: &buf)
+        FfiConverterUInt64.write(value.captureUs, into: &buf)
+        FfiConverterUInt64.write(value.receivedUs, into: &buf)
+        FfiConverterOptionInt64.write(value.ageUs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBrowserFrame_lift(_ buf: RustBuffer) throws -> BrowserFrame {
+    return try FfiConverterTypeBrowserFrame.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBrowserFrame_lower(_ value: BrowserFrame) -> RustBuffer {
+    return FfiConverterTypeBrowserFrame.lower(value)
+}
+
+
+/**
+ * Counters for the overlay and the logs.
+ */
+public struct BrowserStats: Equatable, Hashable {
+    public var frames: UInt64
+    public var keyframes: UInt64
+    public var bytes: UInt64
+    public var framesLost: UInt64
+    /**
+     * `host = viewer + offset`, and the best probe's round trip.
+     */
+    public var clockOffsetUs: Int64?
+    public var clockRttUs: UInt32?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(frames: UInt64, keyframes: UInt64, bytes: UInt64, framesLost: UInt64, 
+        /**
+         * `host = viewer + offset`, and the best probe's round trip.
+         */clockOffsetUs: Int64?, clockRttUs: UInt32?) {
+        self.frames = frames
+        self.keyframes = keyframes
+        self.bytes = bytes
+        self.framesLost = framesLost
+        self.clockOffsetUs = clockOffsetUs
+        self.clockRttUs = clockRttUs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension BrowserStats: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBrowserStats: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BrowserStats {
+        return
+            try BrowserStats(
+                frames: FfiConverterUInt64.read(from: &buf), 
+                keyframes: FfiConverterUInt64.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf), 
+                framesLost: FfiConverterUInt64.read(from: &buf), 
+                clockOffsetUs: FfiConverterOptionInt64.read(from: &buf), 
+                clockRttUs: FfiConverterOptionUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BrowserStats, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.frames, into: &buf)
+        FfiConverterUInt64.write(value.keyframes, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+        FfiConverterUInt64.write(value.framesLost, into: &buf)
+        FfiConverterOptionInt64.write(value.clockOffsetUs, into: &buf)
+        FfiConverterOptionUInt32.write(value.clockRttUs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBrowserStats_lift(_ buf: RustBuffer) throws -> BrowserStats {
+    return try FfiConverterTypeBrowserStats.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBrowserStats_lower(_ value: BrowserStats) -> RustBuffer {
+    return FfiConverterTypeBrowserStats.lower(value)
+}
+
+
+/**
  * Dial options beyond the transport. Every field has a default, so
  * `ConnectOptions()` in Swift is the plain dial.
  */
@@ -1184,6 +2033,63 @@ public func FfiConverterTypeConnectOptions_lift(_ buf: RustBuffer) throws -> Con
 #endif
 public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> RustBuffer {
     return FfiConverterTypeConnectOptions.lower(value)
+}
+
+
+/**
+ * One step of a dial, `millis` after `connect` was called.
+ */
+public struct TimingMark: Equatable, Hashable {
+    public var name: String
+    public var millis: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, millis: Double) {
+        self.name = name
+        self.millis = millis
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TimingMark: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTimingMark: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TimingMark {
+        return
+            try TimingMark(
+                name: FfiConverterString.read(from: &buf), 
+                millis: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TimingMark, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterDouble.write(value.millis, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTimingMark_lift(_ buf: RustBuffer) throws -> TimingMark {
+    return try FfiConverterTypeTimingMark.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTimingMark_lower(_ value: TimingMark) -> RustBuffer {
+    return FfiConverterTypeTimingMark.lower(value)
 }
 
 // Note that we don't yet support `indirect` for enums.
@@ -1647,6 +2553,54 @@ public func FfiConverterTypeTransport_lower(_ value: Transport) -> RustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = UInt32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
+    typealias SwiftType = Int64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
     typealias SwiftType = LinkObserver?
 
@@ -1665,6 +2619,31 @@ fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
         case 1: return try FfiConverterTypeLinkObserver.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
+    typealias SwiftType = [TimingMark]
+
+    public static func write(_ value: [TimingMark], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTimingMark.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TimingMark] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TimingMark]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTimingMark.read(from: &buf))
+        }
+        return seq
     }
 }
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
@@ -1761,6 +2740,46 @@ public func connectWithOptions(baseUrl: String, token: String, teamId: String, d
             errorHandler: FfiConverterTypeCnxError_lift
         )
 }
+/**
+ * Warm what the next `connect` to this service, team and device needs:
+ * fetch the ICE servers (unless cached) and open the signaling socket
+ * (or, when one is open, check that it still answers). Call at launch,
+ * on foreground and after sign-in, before the user asks for a Mac. Never
+ * fails: the dial redoes whatever could not be warmed. Returns the steps.
+ */
+public func prewarm(baseUrl: String, token: String, teamId: String, deviceId: String)async  -> [TimingMark]  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_func_prewarm(FfiConverterString.lower(baseUrl),FfiConverterString.lower(token),FfiConverterString.lower(teamId),FfiConverterString.lower(deviceId)
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cnx_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeTimingMark.lift,
+            errorHandler: nil
+            
+        )
+}
+/**
+ * Forget every warm socket and cached ICE server (sign-out, account switch).
+ */
+public func resetWarmState()async   {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_func_reset_warm_state(
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_void,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_void,
+            freeFunc: ffi_cnx_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: nil
+            
+        )
+}
 
 private enum InitializationResult {
     case ok
@@ -1786,6 +2805,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_func_connect_with_options() != 14347) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_func_prewarm() != 62590) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_func_reset_warm_state() != 30596) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cnx_ffi_checksum_method_channelhandle_close() != 24044) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1798,13 +2823,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_method_channelhandle_send() != 45754) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cnx_ffi_checksum_method_linkhandle_close() != 59622) {
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_close() != 65297) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_has_input_lane() != 24284) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_is_closed() != 33391) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_open_browser() != 31507) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_open_channel() != 8899) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_open_input_channel() != 45546) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_path() != 28494) {
@@ -1813,13 +2847,47 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_method_linkhandle_ping() != 28685) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_timings() != 18369) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_transport() != 40852) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkobserver_on_event() != 49160) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_method_browserobserver_on_frame() != 46477) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_browserobserver_on_message() != 6004) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_browserobserver_on_closed() != 23811) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_browserstream_close() != 65139) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_browserstream_note_decode() != 40051) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_browserstream_now_us() != 59350) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_browserstream_request_keyframe() != 54037) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_browserstream_send_input() != 27206) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_browserstream_send_message() != 49174) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_browserstream_stats() != 2583) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
+    uniffiCallbackInitBrowserObserver()
     uniffiCallbackInitLinkObserver()
     return InitializationResult.ok
 }()

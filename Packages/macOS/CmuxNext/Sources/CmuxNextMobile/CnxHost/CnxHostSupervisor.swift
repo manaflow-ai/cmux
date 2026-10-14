@@ -23,15 +23,20 @@ public actor CnxHostSupervisor {
         public var log: URL?
         /// The environment hostd's `HOME`, `PATH` and `TMPDIR` come from.
         public var inherited: [String: String]
+        /// The app's browser hosts for streamed browser tabs; nil when this
+        /// build has none (hostd then refuses `browser` as unavailable).
+        public var browserHosts: (any CnxBrowserHosting)?
 
         public init(launch: CnxHostLaunch, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
                     acpmux: @escaping @Sendable () async -> (url: URL, token: String)?, log: URL?,
-                    inherited: [String: String] = ProcessInfo.processInfo.environment) {
+                    inherited: [String: String] = ProcessInfo.processInfo.environment,
+                    browserHosts: (any CnxBrowserHosting)? = nil) {
             self.launch = launch
             self.accessToken = accessToken
             self.acpmux = acpmux
             self.log = log
             self.inherited = inherited
+            self.browserHosts = browserHosts
         }
     }
 
@@ -48,6 +53,10 @@ public actor CnxHostSupervisor {
     private var lastToken: String?
     /// Bumped by every start and stop; an older call that resumes late drops out.
     private var generation: UInt64 = 0
+
+    /// hostd's exit status after the owner removed this Mac (`host.rs` `EXIT_REMOVED`).
+    static let exitRemoved: Int32 = 78
+    static let removedReason = "removed"
 
     /// A run up this long (seconds) resets the backoff.
     static let healthyRun: TimeInterval = 60
@@ -112,6 +121,13 @@ public actor CnxHostSupervisor {
             let started = now()
             let reason = await runOnce(inputs)
             if Task.isCancelled { return }
+            // The owner removed this Mac: hostd said so (`removed`, exit 78) and must stay
+            // stopped; registering again would undo the removal.
+            if state.phase == .removed || reason == Self.removedReason {
+                logger.notice("this Mac was removed from the account's devices; cnx-hostd stays stopped")
+                publish { $0.reset(to: .removed) }
+                return
+            }
             if now().timeIntervalSince(started) >= Self.healthyRun { backoff.reset() }
             logger.notice("cnx-hostd ended (\(reason, privacy: .public)); restarting after backoff")
             publish { $0.reset(to: .waiting(reason)) }
@@ -135,6 +151,8 @@ public actor CnxHostSupervisor {
         }
         process = child
         defer { process = nil }
+        // A new hostd knows none of the old one's browser hosts.
+        defer { if let hosts = inputs.browserHosts { Task { await hosts.stopAll() } } }
         logger.info("cnx-hostd started pid=\(child.pid ?? 0, privacy: .public) team=\(inputs.launch.teamID, privacy: .public)")
         // stop() cancels this task: closing hostd's stdin ends it, which ends the group.
         let status = await withTaskCancellationHandler {
@@ -146,6 +164,7 @@ public actor CnxHostSupervisor {
             _ = await child.waitForExit()
             return "stopped"
         }
+        if status == Self.exitRemoved { return Self.removedReason }
         return "cnx-hostd exited with status \(status ?? -1)"
     }
 
@@ -183,6 +202,13 @@ public actor CnxHostSupervisor {
                 await sendToken(child, inputs: inputs)
             case .needAcpmux:
                 await sendAcpmux(child, inputs: inputs)
+            case let .needBrowser(request, tab, url):
+                startBrowser(child, inputs: inputs, request: request, tab: tab, url: url)
+            case let .browserStop(tab):
+                if let hosts = inputs.browserHosts {
+                    // task-owner: one stop per hostd request; the host's own exit reports back
+                    Task { await hosts.stop(tab: tab) }
+                }
             default:
                 let at = now()
                 publish { $0.apply(event, at: at) }
@@ -208,6 +234,28 @@ public actor CnxHostSupervisor {
             child.send(CnxHostLaunch.tokenLine(token))
         } catch {
             logger.error("no access token for cnx-hostd: \(String(describing: type(of: error)), privacy: .public)")
+        }
+    }
+
+    /// Starts a browser host for hostd without holding up its other requests.
+    private func startBrowser(_ child: CnxHostProcess, inputs: Inputs, request: UInt64, tab: String, url: String) {
+        guard let hosts = inputs.browserHosts else {
+            child.send(CnxHostLaunch.browserFailedLine(request: request, reason: "this build has no browser host"))
+            return
+        }
+        let logger = logger
+        // task-owner: one start per need_browser; it ends when the host listens or fails
+        Task {
+            do {
+                let host = try await hosts.start(tab: tab, url: url) { [weak child] in
+                    _ = child?.send(CnxHostLaunch.browserGoneLine(tab: tab))
+                }
+                logger.info("browser host for \(tab, privacy: .public) on port \(host.port, privacy: .public)")
+                child.send(CnxHostLaunch.browserLine(request: request, port: host.port, secret: host.secret))
+            } catch {
+                logger.error("browser host for \(tab, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                child.send(CnxHostLaunch.browserFailedLine(request: request, reason: String(describing: error)))
+            }
         }
     }
 

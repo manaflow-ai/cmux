@@ -50,18 +50,32 @@ public final class WorkspaceSync {
                 self?.handle(DaemonEvent.parse(line))
             }
         }
-        do {
-            _ = try await Self.check(client.request("set-client-info", params: [
+        // The whole setup in one write (one round trip, not five): declare
+        // the client, identify, subscribe, list agents, list workspaces. The
+        // daemon answers a connection's lines in order.
+        let replies = await client.requests([
+            ("set-client-info", [
                 "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
                 "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1"],
-            ]))
-            let identify = try await Self.check(client.request("identify"))
+            ]),
+            ("identify", [:]),
+            ("subscribe", ["tree_events": "deltas"]),
+            ("list-agents", [:]),
+            ("list-workspaces", [:]),
+        ])
+        ConnectTimeline.shared.mark("first_daemon_response")
+        do {
+            _ = try Self.check(replies[0].get())
+            let identify = try Self.check(replies[1].get())
             if let data = identify["data"] as? [String: Any] {
                 identity = "\(data["app"] as? String ?? "cmux-tui") \(data["version"] as? String ?? "") protocol \(data["protocol"] as? Int ?? 0)"
             }
-            _ = try await Self.check(client.request("subscribe", params: ["tree_events": "deltas"]))
-            await loadAgents(client)
-            await refresh()
+            _ = try Self.check(replies[2].get())
+            if let reply = try? Self.check(replies[3].get()) { applyAgents(reply) }
+            let next = try DaemonTree(reply: replies[4].get(), macID: macID, previous: tree?.workspaces ?? [], agents: agents)
+            tree = next
+            lastError = nil
+            onTree?(next)
         } catch {
             lastError = LinkController.reason(error)
             log.error("daemon bind failed: \(String(describing: error), privacy: .public)")
@@ -93,9 +107,8 @@ public final class WorkspaceSync {
         }
     }
 
-    private func loadAgents(_ client: DaemonClient) async {
-        guard let reply = try? await Self.check(client.request("list-agents")),
-              let list = (reply["data"] as? [String: Any])?["agents"] as? [[String: Any]] else { return }
+    private func applyAgents(_ reply: [String: Any]) {
+        guard let list = (reply["data"] as? [String: Any])?["agents"] as? [[String: Any]] else { return }
         for agent in list {
             guard let surface = agent["surface"] as? Int else { continue }
             agents.bySurface[surface] = AgentState(state: agent["state"] as? String ?? "unknown", agent: agent["agent"] as? String)

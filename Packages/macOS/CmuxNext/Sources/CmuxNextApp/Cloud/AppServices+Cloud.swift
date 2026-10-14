@@ -37,8 +37,9 @@ extension AppServices {
     func startCloud() -> Task<Void, Never> {
         cloud.confirmWindow = { [weak self] in self?.windows.active?.window }
         cloud.start()
-        iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, settings: { [weak self] in
-            self?.settings }, bundleID: environment.launch.bundleID, computerName: { await MacName.computerName() })
+        iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, agentTabHost: { [weak self] in
+            self?.agentTabs.localHost }, settings: { [weak self] in self?.settings }, bundleID: environment.launch.bundleID,
+            computerName: { await MacName.computerName() })
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: String?

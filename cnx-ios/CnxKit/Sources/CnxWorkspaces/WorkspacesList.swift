@@ -191,7 +191,10 @@ public struct WorkspacesList: View {
         // comes back on a pull-down once a long list has hidden it.
         .safeAreaInset(edge: .top, spacing: 0) {
             MacChipRow(macs: macs, scope: scope, linkStatus: store.macLinkStatus, select: select,
-                       reconnect: reconnect)
+                       reconnect: reconnect,
+                       status: { [store] mac in
+                           store.macStatusLine(mac, presence: RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)).text
+                       })
                 .background(theme.colors.bg.color)
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
@@ -202,6 +205,52 @@ public struct WorkspacesList: View {
         .animation(theme.motion.smooth.animation, value: layout.scope)
         .animation(theme.motion.smooth.animation, value: store.workspaces.map(\.id))
         .accessibilityIdentifier("workspaces.list")
+    }
+
+    /// The online Mac whose list is still unknown, for the empty overlay:
+    /// the chosen Mac, or under All any online Mac that has not answered.
+    private var pendingMac: MacDevice? {
+        if let mac = scopedMac { return mac.isOnline && !store.macDataPhase(mac.id).isEmpty ? mac : nil }
+        // Under All only Macs being dialed count: a Mac nobody dials stays
+        // unknown, and must not hold a skeleton up forever.
+        return macs.first { mac in
+            guard mac.isOnline else { return false }
+            switch store.macDataPhase(mac.id) {
+            case .loading, .failed, .cached: return true
+            default: return false
+            }
+        }
+    }
+
+    private var pendingState: AnyView? {
+        guard let mac = pendingMac else { return nil }
+        switch store.macDataPhase(mac.id) {
+        case .failed(let reason):
+            return AnyView(EmptyState(
+                symbol: "bolt.horizontal.circle",
+                title: "Can't connect to \(mac.name)",
+                message: "\(mac.name) is online, but this iPhone can't reach it: \(reason).",
+                primaryTitle: reconnect == nil ? nil : "Retry",
+                primary: reconnect.map { reconnect in { reconnect(mac.id) } }
+            )
+            .accessibilityIdentifier("workspaces.failed"))
+        case .idle where scopedMac != nil:
+            return AnyView(EmptyState(
+                symbol: "bolt.horizontal.circle",
+                title: "Not connected to \(mac.name)",
+                message: "This iPhone is connected to another Mac.",
+                primaryTitle: reconnect == nil ? nil : "Connect",
+                primary: reconnect.map { reconnect in { reconnect(mac.id) } }
+            ))
+        case .loading, .idle, .cached:
+            return AnyView(VStack {
+                SkeletonList(rows: 6, leadingSquare: nil).padding(.top, 8)
+                Spacer()
+            }
+            .accessibilityIdentifier("workspaces.loading"))
+        case .live, .empty, .offline:
+            return nil
+        }
     }
 
     /// The live link line ("Connected · WireGuard relay · 27 ms") for the
@@ -228,6 +277,16 @@ public struct WorkspacesList: View {
                          macName: mac(ws.macID)?.name)
         }
         .buttonStyle(WorkspaceRowButtonStyle())
+        // Last-known rows, dimmed, until the Mac answers on this link.
+        .opacity(store.macDataPhase(ws.macID).isStale ? 0.55 : 1)
+        .animation(theme.motion.smooth.animation, value: store.macDataPhase(ws.macID).isStale)
+        .onAppear {
+            // verify/fast-connect.md: when a row is first on screen, cached or live.
+            ConnectTimeline.shared.mark(store.macDataPhase(ws.macID) == .live ? "workspace_row_live" : "workspace_row_cached")
+        }
+        .onChange(of: store.macDataPhase(ws.macID) == .live) { _, live in
+            if live { ConnectTimeline.shared.mark("workspace_row_live") }
+        }
         .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
@@ -272,6 +331,10 @@ public struct WorkspacesList: View {
     @ViewBuilder private var emptyState: some View {
         if !query.trimmingCharacters(in: .whitespaces).isEmpty {
             ContentUnavailableView.search(text: query)
+        } else if let pending = pendingState {
+            // A Mac has not answered yet (or could not be reached): never an
+            // empty state until it says it has no workspaces.
+            pending
         } else if let mac = scopedMac {
             if mac.isOnline {
                 let canCreate = target != nil
@@ -395,6 +458,8 @@ struct MacChipRow: View {
     var linkStatus: [String: String] = [:]
     let select: (MacScope) -> Void
     var reconnect: ((String) -> Void)?
+    /// Presence plus this phone's connection ("Online · Connecting…"); presence alone when nil.
+    var status: (MacDevice) -> String = { RelativeStamp().presence(isOnline: $0.isOnline, lastSeenAt: $0.lastSeenAt) }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -416,7 +481,7 @@ struct MacChipRow: View {
     }
 
     private func chip(_ mac: MacDevice) -> some View {
-        let presence = RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+        let presence = status(mac)
         return MacChip(title: mac.name, isSelected: scope == .mac(mac.id), isOnline: mac.isOnline) { select(.mac(mac.id)) }
             .accessibilityValue(presence)
             .accessibilityIdentifier("workspaces.chip.\(mac.id)")

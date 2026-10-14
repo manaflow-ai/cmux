@@ -275,6 +275,13 @@ struct PinnedGrid: View {
         }
         .navigationLinkIndicatorVisibility(.hidden)
         .buttonStyle(.plain)
+        .contextMenu {
+            if session.conversationID != nil {
+                Button(session.isMuted ? "Show Alerts" : "Hide Alerts", systemImage: session.isMuted ? "bell" : "bell.slash") {
+                    session.setMuted(!session.isMuted)
+                }
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(session.isTyping ? "Chief, typing" : "Chief, pinned")
         .accessibilityIdentifier("home.chief")
@@ -307,6 +314,12 @@ struct PinnedGrid: View {
                     Circle().fill(theme.colors.label.color).frame(width: 8, height: 8)
                 }
                 Text("Chief").font(.footnote).foregroundStyle(theme.colors.label.color)
+                if session.isMuted {
+                    Image(systemName: "bell.slash.fill")
+                        .font(.caption2)
+                        .foregroundStyle(theme.colors.label3.color)
+                        .accessibilityLabel("Alerts hidden")
+                }
             }
         }
         .frame(width: 110)

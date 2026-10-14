@@ -65,8 +65,10 @@ public struct LinkMachine: Sendable {
     /// Debug "simulate distant network": dials skip every direct path.
     public private(set) var relayOnly: Bool
     public private(set) var generation = 0
-    /// Retry delays in seconds; the last one repeats.
+    /// Retry delays in seconds after the silent retries; the last one repeats.
     public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
+    /// Failed dials retried at once, before any failure shows.
+    public static let silentRetries = 1
 
     public init(transport: TransportKind, relayOnly: Bool = false) {
         self.transport = transport
@@ -98,14 +100,19 @@ public struct LinkMachine: Sendable {
             return []
         case .dialFailed(let gen, let reason):
             guard gen == generation, case .connecting(_, let attempt) = phase else { return [] }
+            // The first failure retries at once and says nothing: most are a
+            // signaling socket the service just reset (a deploy resets them
+            // all) or a stale warm socket, and the next dial opens a new one.
+            if attempt <= Self.silentRetries { return dial(attempt: attempt + 1, closing: false) }
             return wait(attempt: attempt, reason: reason)
         case .linkUpdated(let gen, let path, let rtt):
             guard gen == generation, case .connected(let kind, _, let oldRTT) = phase else { return [] }
             phase = .connected(kind, path, rttMillis: rtt ?? oldRTT)
             return []
-        case .linkDropped(let gen, let reason), .probeFailed(let gen, let reason):
+        case .linkDropped(let gen, _), .probeFailed(let gen, _):
             guard gen == generation, case .connected = phase else { return [] }
-            return [.close] + wait(attempt: 1, reason: reason)
+            // Redial at once; a failure then takes the usual retry path.
+            return [.close] + dial(attempt: 1, closing: false)
         case .retryDue(let gen):
             guard gen == generation, case .waiting(_, let attempt, _, _) = phase else { return [] }
             return dial(attempt: attempt + 1, closing: false)
@@ -143,7 +150,7 @@ public struct LinkMachine: Sendable {
 
     private mutating func wait(attempt: Int, reason: String) -> [Effect] {
         generation += 1
-        let seconds = backoff[min(attempt - 1, backoff.count - 1)]
+        let seconds = backoff[min(max(attempt - 1 - Self.silentRetries, 0), backoff.count - 1)]
         phase = .waiting(transport, attempt: attempt, reason: reason, retryIn: .seconds(seconds))
         return [.scheduleRetry(generation: generation, after: .seconds(seconds))]
     }

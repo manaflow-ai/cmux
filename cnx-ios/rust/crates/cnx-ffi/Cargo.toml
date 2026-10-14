@@ -23,6 +23,8 @@ bindgen = ["uniffi/cli"]
 
 [dependencies]
 cnx-link.workspace = true
+cmux-rd-ffi.workspace = true
+cmux-rd-proto.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -31,4 +33,8 @@ uuid.workspace = true
 
 [dev-dependencies]
 cnx-link = { workspace = true, features = ["testing"] }
+cnx-hostd = { path = "../cnx-hostd" }
+cmux-rd-core.workspace = true
+cmux-rd-engine.workspace = true
+tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }

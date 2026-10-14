@@ -19,6 +19,14 @@ public enum CnxHostEvent: Sendable, Equatable {
     case phonePath(sessionID: String, path: String)
     /// A phone's link ended.
     case phoneDown(sessionID: String, reason: String)
+    /// A phone opened a streamed browser tab: start a browser host for `tab`
+    /// on `url` and answer `request` (``CnxHostLaunch/browserLine(request:port:secret:)``).
+    case needBrowser(request: UInt64, tab: String, url: String)
+    /// hostd no longer needs the browser host of `tab`.
+    case browserStop(tab: String)
+    /// The owner removed this Mac from the account's devices; hostd exits and must not
+    /// be restarted until the person allows iPhone connections again.
+    case removed
 
     /// Parses one stdout line; nil for anything that is not a known event.
     public init?(line: some StringProtocol) {
@@ -47,6 +55,14 @@ public enum CnxHostEvent: Sendable, Equatable {
         case "phone_down":
             guard let session = wire.sessionId else { return nil }
             self = .phoneDown(sessionID: session, reason: wire.reason ?? "")
+        case "need_browser":
+            guard let request = wire.request, let tab = wire.tab else { return nil }
+            self = .needBrowser(request: request, tab: tab, url: wire.url ?? "about:blank")
+        case "browser_stop":
+            guard let tab = wire.tab else { return nil }
+            self = .browserStop(tab: tab)
+        case "removed":
+            self = .removed
         default:
             return nil
         }
@@ -63,5 +79,8 @@ public enum CnxHostEvent: Sendable, Equatable {
         var phoneDeviceId: String?
         var transport: String?
         var path: String?
+        var request: UInt64?
+        var tab: String?
+        var url: String?
     }
 }

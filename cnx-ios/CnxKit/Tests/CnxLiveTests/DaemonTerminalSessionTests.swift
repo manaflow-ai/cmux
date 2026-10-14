@@ -75,6 +75,42 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(order.firstIndex(of: "attach-surface")! < order.firstIndex(of: "resize-surface")!)
     }
 
+    /// Keystrokes go on their own input-lane channel; resizes stay on the
+    /// attach channel (geometry authority belongs to the attaching client).
+    @Test func keystrokesRideTheInputLane() async throws {
+        let main = FakeTerminalDaemon()
+        let lane = FakeTerminalDaemon()
+        let mainLink = MockMacLink { service, line in main.respond(service, line) }
+        let laneLink = MockMacLink { service, line in lane.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7, open: {
+            DaemonClient(channel: try await mainLink.openChannel(service: "daemon", args: [:]))
+        }, openInput: {
+            DaemonClient(channel: try await laneLink.openInputChannel(service: "daemon", args: [:]))
+        })
+        session.start { _ in }
+        session.resize(columns: 80, rows: 30)
+        try await waitUntil { session.isAttached }
+        // The lane opens just after the attach; wait until it carries a send.
+        var typed = 0
+        for _ in 0..<50 where !lane.recorded.contains(where: { $0["cmd"] as? String == "send" }) {
+            session.send(Data("x".utf8))
+            typed += 1
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(lane.recorded.contains { $0["cmd"] as? String == "send" })
+        #expect(!lane.recorded.contains { $0["cmd"] as? String == "resize-surface" })
+        #expect(main.recorded.contains { $0["cmd"] as? String == "resize-surface" })
+        // Every keystroke arrived exactly once, across both channels.
+        let sent = (main.recorded + lane.recorded).filter { $0["cmd"] as? String == "send" }
+            .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) } }
+            .reduce(into: Data()) { $0.append($1) }
+        try await waitUntil {
+            (main.recorded + lane.recorded).filter { $0["cmd"] as? String == "send" }
+                .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) }?.count }.reduce(0, +) == typed
+        }
+        #expect(sent.allSatisfy { $0 == UInt8(ascii: "x") })
+    }
+
     /// The screen shows "Connecting to <Mac>…" until the attach succeeds,
     /// never made-up output.
     @Test func reportsConnectingThenAttached() async throws {

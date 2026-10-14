@@ -30,7 +30,14 @@ The tests need no network: they start a fake signaling server on loopback.
   and a Mac whose OS refuses UDP to the phone's LAN address settles on the
   phone's relayed address without the path flapping.
 - `cnx-link` `link::tests`: a ping overtakes 4 MiB of queued data on a slow
-  stream, and the keepalive counts any inbound frame as life.
+  stream, and the keepalive counts any inbound frame as life. During an
+  8 MiB flood on a 1.6 MB/s stream, an input-lane echo and another bulk
+  channel's echo return in about 45 ms on the same stream (round robin and
+  input priority) and at once on an attached lane; writes are split into
+  16 KiB frames; the `open` frame names the lane only for input.
+- `cnx-link/tests/loopback.rs` (input lane): over WebRTC and WireGuard an
+  input channel rides its own data channel or TCP stream, and with a Mac
+  without the lane it rides the main stream and still works.
 - `cnx-hostd/tests/host.rs`: hostd over all three paths with every service
   (`echo`, `daemon` against a fake cmux-tui socket with allowed and denied
   lines, `file` inside and outside the roots, `acpmux` against a fake
@@ -75,6 +82,9 @@ restores `Cargo.lock` afterwards. Host builds use stock nix.
 ### Swift API (module `CnxFFI`)
 
 ```swift
+// LinkHandle also has:
+//   func openInputChannel(service: String, argsJson: String) async throws -> ChannelHandle
+//   func hasInputLane() -> Bool
 func connect(baseUrl: String, token: String, teamId: String, deviceId: String,
              macDeviceId: String, transport: Transport,
              observer: LinkObserver?) async throws -> LinkHandle   // throws CnxError
@@ -82,6 +92,8 @@ func connectWithOptions(baseUrl: String, token: String, teamId: String, deviceId
              macDeviceId: String, transport: Transport, options: ConnectOptions,
              observer: LinkObserver?) async throws -> LinkHandle
 func cnxVersion() -> String
+func prewarm(baseUrl: String, token: String, teamId: String, deviceId: String) async -> [TimingMark]
+func resetWarmState() async      // sign-out: close warm sockets, forget cached ICE servers
 
 struct ConnectOptions { var relayOnly: Bool = false }   // ConnectOptions() is a plain dial
 
@@ -102,7 +114,8 @@ class LinkHandle {
     func transport() -> Transport
     func path() -> LinkPath
     func isClosed() -> Bool
-    func close()
+    func close()                                 // the signaling socket stays warm
+    func timings() -> [TimingMark]               // dial steps, ms since connect
 }
 class ChannelHandle {
     func id() -> UInt32
@@ -117,6 +130,9 @@ enum CnxError: Error {   // uniffi keeps the Rust variant case for errors
 }
 ```
 
+`connect` reuses the warm signaling socket of `prewarm` or an earlier dial
+(same service, team and device), fetches `/v1/ice` in parallel and caches
+it for half its TTL (PROTOCOL.md "Connection setup").
 `deviceId` is the phone's Keychain UUID; `macDeviceId` comes from
 `GET /v1/teams/:teamId/macs`. `connect` fetches `GET /v1/ice` (8 s budget; on
 failure it dials with host candidates only), opens the signaling socket and
@@ -157,6 +173,9 @@ target/release/cnx-hostd
 | `CNX_TUI_SOCKET` | The default session's socket when it is not `<dir>/<session>.sock` (the cmux-next app passes its own daemon's socket). |
 | `CNX_CONTROL=stdio` | Supervised mode (below): tokens and the acpmux endpoint come from stdin, events go to stdout. |
 | `CNX_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset denies every read. |
+| `CNX_AGENT_TAB_HOST` | The `agent_session.host` this Mac's app records on its own agent tabs (`install:<id>`). hostd sets it on a phone's `new-conversation-tab`. Unset refuses agent tabs from a phone. |
+| `CNX_UPLOADS_DIR` | Where `upload` writes a file that has no `cwd`, one folder per link session. Default `$CNX_STATE_DIR/uploads`. |
+| `CNX_UPLOAD_MAX_BYTES` | The largest file one `upload` accepts. Default 100 MiB. |
 | `ACPMUX_HOME` | acpmux state dir (default `~/.acpmux`); hostd reads `websocket.listen` and `websocket.token` from its `config.json` at every `acpmux` open. `CNX_ACPMUX_URL` / `CNX_ACPMUX_TOKEN` override. |
 | `CNX_INCLUDE_LOOPBACK=1` | Offer loopback candidates (same-host testing). |
 | `CNX_PUSH=0` | Do not report agent events for push notifications. By default hostd watches acpmux (`_acpmux/watch`) and reports each new question, permission request and finished turn to `POST /v1/devices/:deviceId/notify` with labels only (kind, agent name, folder name, ids; never prompts, output, tool arguments or paths). See `src/notify.rs`. |
@@ -185,10 +204,14 @@ The app keeps the Stack session; hostd never sees a refresh token.
 - The app sets `CNX_TUI_SOCKET` to its own daemon socket, `CNX_DEVICE_ID` to a
   UUID kept in its Application Support folder, `CNX_DEVICE_NAME` to the
   computer name, `CNX_TEAM_ID` to the selected team or `personal-<userId>`,
-  and `CNX_FILE_ROOTS` to the chat roots. The service is the production
-  Worker `https://cnx-ios-api.cmux.dev` for production sign-in and the dev
-  Worker for development sign-in (`CMUX_NEXT_CNX_API_URL` overrides it in a
-  Debug build).
+  `CNX_FILE_ROOTS` to the chat roots, and `CNX_AGENT_TAB_HOST` to its agent
+  tab host (`install:<id>`). The service is the production Worker
+  `https://cnx-ios-api.cmux.dev` for production sign-in and the dev Worker for
+  development sign-in (`CMUX_NEXT_CNX_API_URL` overrides it in a Debug build).
+- A Mac its owner removes (signaling closes with 4002 `removed`) prints
+  `{"type":"removed"}` and exits instead of registering again; the app keeps
+  it stopped and forgets its device id until the person allows iPhone
+  connections again.
 
 Startup: refresh the access token, `POST /v1/devices {kind:"mac"}`, open the
 signaling socket, answer. On any failure it reconnects with backoff (1 s to
@@ -214,6 +237,12 @@ Services (default deny, `unknown_service` otherwise):
 - `file` `{path}`: an absolute path, canonicalized (symlinks resolved) and
   required to stay inside a `CNX_FILE_ROOTS` root; streams the regular file,
   then closes with `eof`.
+- `upload` `{name, size, cwd?}`: writes the next `size` bytes to a new file
+  and answers `{"path","size"}`. The file goes into
+  `<cwd>/.cmux/attachments/phone-<session>/` when `cwd` is a folder of one of
+  the daemon's tabs or inside a root, else into `CNX_UPLOADS_DIR/<session>/`.
+  It never overwrites. The name is made safe. A refusal is answered
+  `{"error","message"}`. See `../SECURITY.md`.
 
 ## Transports
 
@@ -241,6 +270,14 @@ Services (default deny, `unknown_service` otherwise):
 - Link keepalive: a ping every 15 s; pings and pongs go ahead of queued
   channel data, and the link closes only after 20 s with no inbound frame
   at all.
+- Input lane (PROTOCOL.md "Lanes"): WebRTC opens a second data channel
+  `cnx-input`, WireGuard a second TCP stream to `overlayIP:7420`, when both
+  sides list `lanes: ["input"]` in signaling. `Link::open_on(service, args,
+  Lane::Input)` (FFI `open_input_channel`) puts a channel on it; without a
+  lane it rides the main stream at input priority. Each stream's writer
+  sends control, then input, then bulk round robin in 16 KiB frames.
+  `DialOptions::input_lane = false` (cnx-dial `--no-input-lane`) turns it
+  off, as an older peer would.
 
 ## Test binaries (cnx-hostd)
 
@@ -262,8 +299,9 @@ Services (default deny, `unknown_service` otherwise):
 
 ## Limits (v1)
 
-- One slow channel consumer stalls the whole link (per-channel queues of 1024
-  frames, then the reader waits).
+- One slow channel consumer stalls its stream (per-channel queues of 1024
+  frames, then the reader waits). Input-lane channels on their own stream
+  are not held by a slow bulk consumer.
 - No ICE restart or WireGuard re-dial after a network change; the app redials.
 - A backend `error` message without a `sessionId` fails every dial in
   progress on that socket; one naming a session fails only that session's

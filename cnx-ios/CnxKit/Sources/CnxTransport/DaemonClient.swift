@@ -6,6 +6,11 @@ public actor DaemonClient {
     private let channel: any LinkChannel
     private var nextID = 1
     private var pending: [String: CheckedContinuation<Data, any Error>] = [:]
+    /// Ids of a batch sent but not yet awaited, and replies that came first.
+    private var expected: Set<String> = []
+    private var early: [String: Data] = [:]
+    /// Set once the channel ended; later waits fail with it.
+    private var ended: (any Error)?
     private var buffer = Data()
     private var readTask: Task<Void, Never>?
     public nonisolated let events: AsyncStream<Data>
@@ -21,21 +26,103 @@ public actor DaemonClient {
         readTask = Task { await self.readLoop() }
     }
 
-    /// Sends `{"id", "cmd", ...params}` and returns the raw JSON reply line.
-    public func request(_ cmd: String, params: [String: Any] = [:]) async throws -> Data {
-        start()
-        let id = "m\(nextID)"
-        nextID += 1
+    private func line(id: String, cmd: String, params: [String: Any]) throws -> Data {
         var object = params
         object["id"] = id
         object["cmd"] = cmd
         var line = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        line.append(0x0A)
+        return line
+    }
+
+    private func nextRequestID() -> String {
+        defer { nextID += 1 }
+        return "m\(nextID)"
+    }
+
+    /// Sends `{"id", "cmd", ...params}` and returns the raw JSON reply line.
+    public func request(_ cmd: String, params: [String: Any] = [:]) async throws -> Data {
+        start()
+        let id = nextRequestID()
+        let line = try line(id: id, cmd: cmd, params: params)
+        return try await withCheckedThrowingContinuation { continuation in
+            pending[id] = continuation
+            Task {
+                do { try await channel.send(line) } catch { self.fail(id: id, error: error) }
+            }
+        }
+    }
+
+    /// Closes the channel (the Mac drops its daemon connection) and fails
+    /// every request still waiting.
+    public func close() async {
+        readTask?.cancel()
+        await channel.close(code: "eof", reason: "")
+        finish(LinkError(code: "closed", message: "daemon channel closed"))
+    }
+
+    /// Sends a `cmux.protocol/2` request (`machine` and `session` default to
+    /// `current`, as the Mac app's `ResourceRequestEnvelope`) and returns the
+    /// raw response line (`ok`, `result` or `error`).
+    public func resourceRequest(_ operation: String, params: sending [String: Any] = [:], idempotencyKey: String? = nil) async throws -> Data {
+        start()
+        let id = "r\(nextID)"
+        nextID += 1
+        var fields = params
+        fields["machine"] = fields["machine"] ?? "current"
+        fields["session"] = fields["session"] ?? "current"
+        var object: [String: Any] = ["protocol": "cmux.protocol/2", "type": "request", "id": id, "operation": operation, "params": fields]
+        if let idempotencyKey { object["idempotency_key"] = idempotencyKey }
+        var line = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
         line.append(0x0A)
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
             Task {
                 do { try await channel.send(line) } catch { self.fail(id: id, error: error) }
             }
+        }
+    }
+
+    /// Sends every request in one write, in order, and returns their replies
+    /// in the same order: one round trip instead of one per request (the
+    /// daemon handles a connection's lines in order). A failed request is a
+    /// `.failure` in its slot; a failed write fails them all.
+    public func requests(_ batch: [(cmd: String, params: [String: Any])]) async -> [Result<Data, any Error>] {
+        start()
+        var ids: [String] = []
+        var bytes = Data()
+        for item in batch {
+            let id = nextRequestID()
+            do { bytes.append(try line(id: id, cmd: item.cmd, params: item.params)) } catch {
+                return batch.map { _ in .failure(error) }
+            }
+            ids.append(id)
+        }
+        expected.formUnion(ids)
+        do { try await channel.send(bytes) } catch {
+            for id in ids {
+                expected.remove(id)
+                early[id] = nil
+            }
+            return ids.map { _ in .failure(error) }
+        }
+        var results: [Result<Data, any Error>] = []
+        for id in ids {
+            do { results.append(.success(try await reply(id))) } catch { results.append(.failure(error)) }
+        }
+        return results
+    }
+
+    /// The reply to batch request `id`, which may already have come.
+    private func reply(_ id: String) async throws -> Data {
+        if let line = early.removeValue(forKey: id) { return line }
+        if let ended {
+            expected.remove(id)
+            throw ended
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            expected.remove(id)
+            pending[id] = continuation
         }
     }
 
@@ -61,15 +148,22 @@ public actor DaemonClient {
 
     private func route(_ line: Data) {
         guard !line.isEmpty else { return }
-        if let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-           let id = object["id"] as? String, let continuation = pending.removeValue(forKey: id) {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              let id = object["id"] as? String else {
+            eventContinuation.yield(line)
+            return
+        }
+        if let continuation = pending.removeValue(forKey: id) {
             continuation.resume(returning: line)
+        } else if expected.remove(id) != nil {
+            early[id] = line
         } else {
             eventContinuation.yield(line)
         }
     }
 
     private func finish(_ error: any Error) {
+        ended = error
         for (_, continuation) in pending { continuation.resume(throwing: error) }
         pending.removeAll()
         eventContinuation.finish()

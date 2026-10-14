@@ -18,6 +18,20 @@ describe("TeamHub signaling", () => {
     expect(unknown.status).toBe(403)
   })
 
+  it("admits a device only in the team it is registered in, also after it moved", async () => {
+    const alice = await token("alice")
+    const phone = await register(alice, "phone", "team-a", "Alice iPhone")
+    const up = { Upgrade: "websocket", authorization: `Bearer ${alice}` }
+    const first = await connect(alice, "team-a", phone)
+    first.ws.close()
+    expect((await call("POST", "/v1/devices", alice, { deviceId: phone, kind: "phone", name: "Alice iPhone", teamId: "personal-alice" })).status).toBe(200)
+    // The old team's hub forgot it; the database says it lives elsewhere now.
+    const stale = await worker.fetch(`https://api.test/v1/teams/team-a/signal?deviceId=${phone}`, { headers: up })
+    expect(stale.status).toBe(403)
+    const moved = await connect(alice, "personal-alice", phone)
+    moved.ws.close()
+  })
+
   it("sends hello and broadcasts Mac presence on connect and disconnect", async () => {
     const team = "team-a"
     const alice = await token("alice")

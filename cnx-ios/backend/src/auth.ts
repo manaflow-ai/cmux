@@ -1,4 +1,4 @@
-import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify, type JWK, type JWTPayload, type JWTVerifyGetKey } from "jose"
+import { createLocalJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify, type JWK, type JWTPayload, type JWTVerifyGetKey } from "jose"
 import type { Env } from "./env.ts"
 
 const STACK_API = "https://api.stack-auth.com"
@@ -51,12 +51,52 @@ export interface KeySet {
 }
 
 const keySets = new Map<string, KeySet>()
+/** How long a project's keys are reused (they rotate rarely; an unknown `kid` refetches at once). */
+const JWKS_MAX_AGE_S = 600
+
+/**
+ * A project's keys, shared by every isolate in the colo through the Cache API: Server-Timing showed a
+ * fresh isolate (most WebSocket upgrades land on one) paying 110-150 ms to fetch them from Stack before
+ * it could verify a token. The isolate keeps its own copy too; `reload` (unknown `kid`, failed fetch)
+ * goes to Stack and refreshes the shared copy.
+ */
+const sharedJwks = (projectId: string): KeySet => {
+  const url = `${issuerOf(projectId)}/.well-known/jwks.json`
+  let local: { at: number; get: JWTVerifyGetKey } | undefined
+  const cache = (): Cache | undefined => (typeof caches !== "undefined" ? (caches as unknown as { default: Cache }).default : undefined)
+  const fromStack = async (): Promise<{ keys: Array<JWK> }> => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5_000) })
+    if (!res.ok) throw Object.assign(new Error(`jwks ${res.status}`), { code: "ERR_JWKS_INVALID" })
+    const body = (await res.json()) as { keys: Array<JWK> }
+    await cache()
+      ?.put(url, new Response(JSON.stringify(body), { headers: { "content-type": "application/json", "cache-control": `max-age=${JWKS_MAX_AGE_S}` } }))
+      .catch(() => {})
+    return body
+  }
+  const load = async (fresh: boolean): Promise<JWTVerifyGetKey> => {
+    if (!fresh && local && Date.now() - local.at < JWKS_MAX_AGE_S * 1000) return local.get
+    let body: { keys: Array<JWK> } | undefined
+    if (!fresh) {
+      const hit = await cache()?.match(url).catch(() => undefined)
+      if (hit) body = (await hit.json()) as { keys: Array<JWK> }
+    }
+    body ??= await fromStack()
+    local = { at: Date.now(), get: createLocalJWKSet(body) }
+    return local.get
+  }
+  return {
+    get: async (header, token) => (await load(false))(header, token),
+    reload: async () => {
+      await load(true)
+    }
+  }
+}
+
 const stackKeys = (env: Env, projectId: string): KeySet => {
   if (env.ENVIRONMENT === "test" && env.STACK_TEST_JWKS) return { get: createLocalJWKSet(JSON.parse(env.STACK_TEST_JWKS) as { keys: Array<JWK> }) }
   let keys = keySets.get(projectId)
   if (!keys) {
-    const remote = createRemoteJWKSet(new URL(`${issuerOf(projectId)}/.well-known/jwks.json`), { cacheMaxAge: 10 * 60_000, cooldownDuration: 30_000 })
-    keys = { get: remote, reload: () => remote.reload() }
+    keys = sharedJwks(projectId)
     keySets.set(projectId, keys)
   }
   return keys

@@ -1,7 +1,7 @@
 import { exportJWK, generateKeyPair, createLocalJWKSet, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { verifyWithKeys, type KeySet } from "../src/auth.ts"
-import { call, connect, DEV_PROJECT, PROD_PROJECT, register, token } from "./helpers.ts"
+import { call, connect, DEV_PROJECT, PROD_PROJECT, register, token, worker } from "./helpers.ts"
 
 describe("GET /v1/me/macs", () => {
   it("lists the caller's own Macs in every team and the personal space, with presence", async () => {
@@ -94,5 +94,47 @@ describe("signing keys", () => {
     expect((await verifyWithKeys(await sign("k", k.privateKey), keys, project)).ok).toBe(true)
     const stranger = await pair("stranger")
     expect(await verifyWithKeys(await sign("stranger", stranger.privateKey), keys, project)).toEqual({ ok: false, rejection: "unknown_key" })
+  })
+})
+
+describe("POST /v1/me/bootstrap", () => {
+  it("registers the phone's devices and returns the team's Macs, the caller's Macs and ICE in one call", async () => {
+    const gina = await token("gina")
+    const mac = await register(gina, "mac", "personal-gina", "Gina Mac")
+    const link = crypto.randomUUID()
+    const presence = crypto.randomUUID()
+    const r = await call("POST", "/v1/me/bootstrap", gina, {
+      teamId: "personal-gina",
+      devices: [
+        { deviceId: link, kind: "phone", name: "Gina iPhone" },
+        { deviceId: presence, kind: "phone", name: "Gina iPhone (presence)" }
+      ]
+    })
+    expect(r.status).toBe(200)
+    expect(r.json.devices.map((d: any) => d.device.deviceId)).toEqual([link, presence])
+    expect(r.json.macs.macs.map((m: any) => m.deviceId)).toEqual([mac])
+    expect(r.json.myMacs.macs.map((m: any) => m.deviceId)).toEqual([mac])
+    expect(r.json.ice.iceServers.length).toBeGreaterThan(0)
+    // The registered link device opens its signal socket straight away.
+    const sock = await connect(gina, "personal-gina", link)
+    await sock.until((s) => s.frames.some((f) => f.type === "hello"))
+    sock.ws.close()
+  })
+
+  it("carries a part's error without failing the rest", async () => {
+    const gina = await token("gina")
+    const r = await call("POST", "/v1/me/bootstrap", gina, { teamId: "personal-someone-else", devices: [] })
+    expect(r.status).toBe(200)
+    expect(r.json.macs.error.code).toBe("not_member")
+    expect(Array.isArray(r.json.myMacs.macs)).toBe(true)
+  })
+})
+
+describe("Server-Timing", () => {
+  it("names the steps a request waited on", async () => {
+    const res = await worker.fetch("https://api.test/v1/me/macs", { headers: { authorization: `Bearer ${await token("hana")}` } })
+    const header = res.headers.get("server-timing") ?? ""
+    expect(header).toContain("auth;dur=")
+    expect(header).toContain("total;dur=")
   })
 })

@@ -1,7 +1,7 @@
 import Foundation
 
 /// A cmux-next workspace on one Mac.
-public struct Workspace: Identifiable, Hashable, Sendable {
+public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     public let id: String
     public var macID: String
     public var title: String
@@ -39,7 +39,7 @@ public struct Workspace: Identifiable, Hashable, Sendable {
 }
 
 /// One tab inside a workspace.
-public struct WorkspaceTab: Identifiable, Hashable, Sendable {
+public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     public enum Kind: String, Hashable, Sendable, Codable {
         case terminal, browser, agent
     }
