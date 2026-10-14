@@ -54,8 +54,8 @@ struct AppEnvironment: Sendable {
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).
     var build: BuildIdentity { Self.build(launch: launch) }
 
-    /// This app's build: its bundle id and launch tag, the same pair its
-    /// terminals' `cmux` CLI reads from `CMUX_BUNDLE_ID` and `CMUX_TAG`, so both
+    /// This app's build (`LaunchIdentity.build`: its bundle id and shipped tag),
+    /// the same pair its terminals' `cmux` CLI reads from `CMUX_BUNDLE_ID` and `CMUX_TAG`, so both
     /// resolve one set of roots. A Debug compile may run as another bundle id
     /// (`CMUX_NEXT_CHIEF_BUILD_ID`, tests only; also its Chief home, `ChiefHome`).
     nonisolated static func build(launch: LaunchIdentity,
@@ -64,7 +64,7 @@ struct AppEnvironment: Sendable {
         if isDebugBuild, let other = environment["CMUX_NEXT_CHIEF_BUILD_ID"], !other.isEmpty {
             return BuildIdentity(bundleID: other, bundledTag: nil)
         }
-        return BuildIdentity(bundleID: launch.bundleID, bundledTag: launch.tag)
+        return launch.build
     }
 
     nonisolated static var isDebugCompile: Bool {

@@ -323,8 +323,9 @@ pub(crate) fn start_for_owner(mux: &Arc<cmux_tui_core::Mux>) -> Option<OrphanExi
 }
 
 /// Starts the watcher for a DEV app owner; `None` for any other owner
-/// (release builds, sessions other than `cmux-app-<tag>` (an untagged DEV
-/// build's `cmux-app` included), no bundle). `stop_owner` runs on the
+/// (release builds, sessions other than `cmux-app-<tag>` and the per-build
+/// `cmux-app--<key hash>` (the untagged DEV build's, per-build isolation
+/// S3), no bundle). `stop_owner` runs on the
 /// watcher thread when the policy says exit, with the facts to check again
 /// under its fence; it returns false when it did not stop the owner (a
 /// client came back, or a terminal started), and the watcher keeps watching.

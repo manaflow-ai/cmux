@@ -125,7 +125,7 @@ public final class DaemonService {
             retryWake = prestart.wake
         } else {
             do {
-                launcher = try DaemonLauncher.forApp(tag: launch.tag, bundleID: launch.bundleID,
+                launcher = try DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins)
             } catch {

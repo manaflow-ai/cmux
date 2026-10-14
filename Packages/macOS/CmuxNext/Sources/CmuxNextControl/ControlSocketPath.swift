@@ -11,6 +11,10 @@ public import Foundation
 /// | nightly / rc / staging (optionally tagged) | `/tmp/cmux-<channel>[-<tag>].sock` |
 /// | release | `~/.local/state/cmux/cmux.sock` |
 ///
+/// The app resolves its socket through ``BuildIdentity/controlSocket(userHome:)``
+/// (per-build isolation S3): these paths where they belong to exactly one
+/// build, else `/tmp/cmux-<kind>--<key hash>.sock` (the untagged DEV build too).
+///
 /// The inputs are this app's own identity only. Inherited environment
 /// (`CMUX_SOCKET_PATH`, `CMUX_TAG`, `CMUX_BUNDLE_ID` from a shell inside
 /// another cmux) never reaches this function; see ``LaunchIdentity``.
@@ -90,7 +94,8 @@ public struct ControlSocketPath: Sendable {
             home.appending(path: ".local/state/cmux/cmux.sock").path,
         ])
         if let entries = try? fileManager.contentsOfDirectory(atPath: "/tmp") {
-            for entry in entries where ["cmux-debug-", "cmux-nightly-", "cmux-rc-", "cmux-staging-"].contains(where: entry.hasPrefix) {
+            for entry in entries where ["cmux-debug-", "cmux-nightly-", "cmux-rc-", "cmux-staging-", "cmux-release-"]
+                .contains(where: entry.hasPrefix) {
                 paths.insert("/tmp/" + entry)
             }
         }
