@@ -339,8 +339,8 @@
 }
 /* Narrow panes (Leo 2026-10-14, "squashed composers"). The composer is the size container, so a
    split pane, the New Tab page and interface scale all collapse the same way; the window's width
-   never decides it. Collapse order, widest first: the model and access chips go icon-only (their
-   names stay in aria-label and title), Effort's value ellipsizes, the context ring hides, then
+   never decides it. Collapse order, widest first: the model, access and permission chips go
+   icon-only (their names stay in aria-label and title), Effort's value ellipsizes, the context ring hides, then
    the rhythm and the composer's side inset tighten. The turn's own controls (+, mic, Stop, Steer,
    Send) never shrink: the chips give way first (agent-pane.narrow, test/narrow-layouts.test.ts). */
 .acpmux-composer,
@@ -404,11 +404,23 @@
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access-trigger { width: auto; max-width: none; padding-inline: 6px; }
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mode-text { display: none; }
 }
+/* A chat's standing permission keeps its lock; the grant is in the trigger's label and title. Its
+   name goes first, before any picker gives way: the pickers are what a turn is set with. */
+@container composer (max-width: 800px) {
+  .acpmux-permission-status-label { display: none; }
+}
+/* A chat's standing permission takes the room the context ring had. */
+@container composer (max-width: 400px) {
+  .acpmux-permission-status-trigger > svg:last-child { display: none; }
+  .acpmux-composer-bar:has(.acpmux-permission-status) :is(.acpmux-context-usage-menu, .acpmux-context) { display: none; }
+}
 @container composer (max-width: 320px) {
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-context-usage-menu,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-context { display: none; }
   :is(.acpmux-composer-bar, .nt-pickers) { gap: 6px; }
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips-spacer { min-width: 0; }
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > .acpmux-chips-spacer { display: none; }
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mode .acpmux-access-trigger .acpmux-icon:last-child { display: none; }
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort { min-width: 36px; }
   .acpmux-composer-actions { gap: 6px; }
   /* The composer cannot restyle its own inset: its card reaches 10px from the pane's edges. */
   .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box { margin-inline: -8px; }
