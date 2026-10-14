@@ -431,12 +431,14 @@ export function ComposerPickers({
         ? t("picker.reasoning")
         : effortChoice.name
       : undefined;
-  const modeLabel = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0])?.name : undefined;
+  const shownMode = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0]) : undefined;
+  const modeLabel = shownMode?.name;
+  const modeId = shownMode?.id;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && (effortLabel || modeLabel))
-      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel });
-  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel]);
+      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel, modeId });
+  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel, modeId]);
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -505,7 +507,9 @@ export function ComposerPickers({
       )}
       {!(effort && efforts.length > 1) && lastChips?.effort && <PendingChip kind="effort" label={lastChips.effort} />}
       <span className="acpmux-chips-spacer" aria-hidden="true" />
-      {modes.length === 0 && lastChips?.mode && <PendingChip kind="mode" label={lastChips.mode} />}
+      {modes.length === 0 && lastChips?.mode && (
+        <PendingChip kind="mode" label={lastChips.mode} modeId={lastChips.modeId} />
+      )}
       {modes.length > 0 && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
@@ -549,7 +553,9 @@ export function ComposerPickers({
 
 /// A control the session has not reported yet, as this harness's chats last showed it: the real
 /// chip's face (EffortPicker, AccessMenu), inert until the session's own replaces it in place.
-function PendingChip({ kind, label }: { kind: "effort" | "mode"; label: string }) {
+/// `modeId` is read from storage: only a string names a mode that may skip approvals.
+function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: string; modeId?: unknown }) {
+  const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return kind === "effort" ? (
     <span className="acpmux-picker acpmux-effort acpmux-chip-pending" aria-hidden="true">
       <span className="acpmux-picker-button">
@@ -558,7 +564,7 @@ function PendingChip({ kind, label }: { kind: "effort" | "mode"; label: string }
       </span>
     </span>
   ) : (
-    <span className="acpmux-mode acpmux-access acpmux-chip-pending" aria-hidden="true">
+    <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
       <span className="acpmux-picker-button acpmux-access-trigger">
         <LockIcon />
         <span className="acpmux-mode-text">{label}</span>
