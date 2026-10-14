@@ -21,6 +21,16 @@ afterAll(() => {
   }
 });
 
+// Loaded by path so this file typechecks before the kit exists (red first).
+const motionKit = "../src/ui/motion";
+type MotionKit = {
+  revealKeyframes(options: { reduced: boolean }): Keyframe[];
+  stagger(index: number, options: { reduced: boolean }): number;
+  STAGGER_STEP_MS: number;
+  STAGGER_ITEMS: number;
+};
+const loadKit = () => import(motionKit) as Promise<MotionKit>;
+
 const theme = {
   isDark: false,
   pageBackground: "#fff",
@@ -41,16 +51,16 @@ const theme = {
 test("the theme's status indicators look reaches the root, and a theme without it clears it", async () => {
   const { applyAgentTheme } = await import("../src/agent-session/shared/theme");
   const root = document.documentElement;
-  applyAgentTheme({ ...theme, statusIndicators: "static" });
+  applyAgentTheme({ ...theme, statusIndicators: "static" } as Parameters<typeof applyAgentTheme>[0]);
   expect(root.dataset.statusIndicators).toBe("static");
-  applyAgentTheme({ ...theme, statusIndicators: "animated" });
+  applyAgentTheme({ ...theme, statusIndicators: "animated" } as Parameters<typeof applyAgentTheme>[0]);
   expect(root.dataset.statusIndicators).toBe("animated");
   applyAgentTheme(theme);
   expect(root.dataset.statusIndicators).toBeUndefined();
 });
 
 test("a reveal fades in and rises a few pixels; under Reduce Motion it only fades", async () => {
-  const { revealKeyframes } = await import("../src/ui/motion");
+  const { revealKeyframes } = await loadKit();
   const moving = revealKeyframes({ reduced: false });
   expect(moving[0]).toMatchObject({ opacity: 0 });
   const rise = /translateY\((\d+(?:\.\d+)?)px\)/.exec(String(moving[0].transform));
@@ -62,7 +72,7 @@ test("a reveal fades in and rises a few pixels; under Reduce Motion it only fade
 });
 
 test("a stagger is a few short steps, capped, and nothing under Reduce Motion", async () => {
-  const { stagger, STAGGER_STEP_MS, STAGGER_ITEMS } = await import("../src/ui/motion");
+  const { stagger, STAGGER_STEP_MS, STAGGER_ITEMS } = await loadKit();
   expect(stagger(0, { reduced: false })).toBe(0);
   expect(stagger(1, { reduced: false })).toBe(STAGGER_STEP_MS);
   expect(STAGGER_STEP_MS).toBeLessThanOrEqual(25);

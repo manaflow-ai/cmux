@@ -55,7 +55,12 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     await browser?.close();
   });
 
-  async function page(style: string, body: string, reducedMotion: "reduce" | "no-preference", look?: "static"): Promise<Page> {
+  async function page(
+    style: string,
+    body: string,
+    reducedMotion: "reduce" | "no-preference",
+    look?: "static",
+  ): Promise<Page> {
     const p = await browser!.newPage();
     await p.emulateMedia({ reducedMotion });
     await p.setContent(`<style>${style}</style>${body}`);
@@ -70,7 +75,9 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     return p.evaluate(() =>
       document
         .getAnimations()
-        .filter((animation) => animation.effect?.getTiming().iterations === Infinity && animation.playState === "running")
+        .filter(
+          (animation) => animation.effect?.getTiming().iterations === Infinity && animation.playState === "running",
+        )
         .map((animation) => {
           const effect = animation.effect as KeyframeEffect | null;
           const target = effect?.target as Element | null;
@@ -109,7 +116,12 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   });
 
   test("Static keeps Thinking readable: muted text, no sweep band", async () => {
-    const p = await page(`${desktop}${pane}`, `<div class="cv-md"><span class="cv-thinking">Thinking</span></div>`, "no-preference", "static");
+    const p = await page(
+      `${desktop}${pane}`,
+      `<div class="cv-md"><span class="cv-thinking">Thinking</span></div>`,
+      "no-preference",
+      "static",
+    );
     const thinking = await p.$eval(".cv-thinking", (node) => {
       const style = getComputedStyle(node);
       return { color: style.color, clip: style.backgroundClip, image: style.backgroundImage };
@@ -124,7 +136,9 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     const body =
       `<span class="acpmux-floating-status" data-status="streaming"></span>` +
       `<span class="acpmux-floating-status" data-status="attention"></span>` +
-      ["running", "done", "failed"].map((state) => `<span class="acpmux-summary-dot" data-state="${state}"></span>`).join("") +
+      ["running", "done", "failed"]
+        .map((state) => `<span class="acpmux-summary-dot" data-state="${state}"></span>`)
+        .join("") +
       ["running", "completed", "failed", "cancelled"]
         .map((state) => `<span class="acpmux-lineage__icon" data-state="${state}"></span>`)
         .join("");
@@ -132,7 +146,12 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     const shapes = await p.evaluate(() => {
       const shape = (node: Element, pseudo?: string) => {
         const style = getComputedStyle(node, pseudo);
-        return [style.content, style.clipPath, style.borderRadius, style.backgroundColor === "rgba(0, 0, 0, 0)" ? "hollow" : "filled"].join(" | ");
+        return [
+          style.content,
+          style.clipPath,
+          style.borderRadius,
+          style.backgroundColor === "rgba(0, 0, 0, 0)" ? "hollow" : "filled",
+        ].join(" | ");
       };
       return {
         floating: [...document.querySelectorAll(".acpmux-floating-status")].map((node) => shape(node)),
