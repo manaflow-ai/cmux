@@ -18,17 +18,20 @@ Usage: motion-proof.py --app APP --tag TAG [--out DIR] [--configs default,bouncy
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
+# Phase 3 (hq-1d 2026-10-14): every kind is off by default (instant, no spring); each opt-in alone,
+# all of them bouncy, and all of them under Reduce Motion (which still moves nothing).
+ALL_ON = [{"action": "kind", "name": k, "value": True} for k in ("paneAnimations", "newTab", "newWorkspace")]
 CONFIGS = {
     "default": [],
-    "bouncy": [{"action": "bounce", "value": "subtle"}],
-    "reduce": [{"action": "reduce", "value": True}],
-    "splits-off": [{"action": "kind", "name": "splits", "value": False}],
-    "newtab-off": [{"action": "kind", "name": "newTab", "value": False}],
-    "newworkspace-off": [{"action": "kind", "name": "newWorkspace", "value": False}],
+    "panes-on": [{"action": "kind", "name": "paneAnimations", "value": True}],
+    "newtab-on": [{"action": "kind", "name": "newTab", "value": True}],
+    "newworkspace-on": [{"action": "kind", "name": "newWorkspace", "value": True}],
+    "bouncy": ALL_ON + [{"action": "bounce", "value": "subtle"}],
+    "reduce": ALL_ON + [{"action": "reduce", "value": True}],
 }
 RESET = [{"action": "bounce", "value": "none"}, {"action": "reduce", "value": None},
-         {"action": "kind", "name": "splits", "value": True}, {"action": "kind", "name": "newTab", "value": True},
-         {"action": "kind", "name": "newWorkspace", "value": True}, {"action": "speed", "value": "fast"}]
+         {"action": "kind", "name": "paneAnimations", "value": False}, {"action": "kind", "name": "newTab", "value": False},
+         {"action": "kind", "name": "newWorkspace", "value": False}, {"action": "speed", "value": "fast"}]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -40,6 +43,10 @@ parser.add_argument("--duration-ms", type=float, default=600)
 # A build whose frame_strip sends only Command and knows no `gesture` (before hq-1d phase 2): its
 # Cmd-Shift-D would be a Cmd-D and its + a Cmd-T, so those gestures are skipped, not mislabeled.
 parser.add_argument("--base", action="store_true")
+# hq-1d phase 3 step 7: only a Cmd-T loop (N opens and closes from a terminal tab) under one
+# debug.motion recording, with every kind on; writes OUT/loop.json with the per-frame main-thread
+# work of the clock and each animator (`work`), its spans and the sidebar's travel samples.
+parser.add_argument("--loop", type=int, default=0)
 opts = parser.parse_args()
 WIDTH, HEIGHT = (int(v) for v in opts.size.split("x"))
 BINARY = os.path.join(opts.app, "Contents/MacOS",
@@ -123,6 +130,31 @@ def workspace_count():
     return len(topo.get("workspaces", []))
 
 
+def spare_state():
+    """Whether a prewarmed New Tab spare was waiting (read before a gesture)."""
+    state = rpc("debug.new_tab", {"action": "state"}) or {}
+    spares = state.get("spares")
+    return len(spares) > 0 if isinstance(spares, list) else None
+
+
+def tab_order():
+    """The focused workspace's pane with the most tabs (one pane here): its tabs in model order."""
+    snap = rpc("snapshot.get") or {}
+    topo = snap.get("topology") or snap
+    focus = (topo.get("focus") or {}).get("workspace")
+    panes = [p for ws in topo.get("workspaces", []) if ws.get("id") == focus for s in ws.get("screens", []) for p in s.get("panes", [])]
+    if not panes:
+        return []
+    pane = max(panes, key=lambda p: len(p.get("tabs", [])))
+    return [(t.get("id"), t.get("title"), t.get("kind") or t.get("type")) for t in pane.get("tabs", [])]
+
+
+def set_config(values):
+    """Rewrites the scratch cmux.json (the app reloads it) and waits for the reload."""
+    open(CONFIG, "w").write(json.dumps(values))
+    time.sleep(1.5)  # test harness wait: the config watcher's reload
+
+
 def strip(name, folder, key_name, modifiers, content="focused", gesture=None):
     rpc("debug.motion", {"action": "start"})
     params = {"action": "frame_strip", "key": key_name, "modifiers": modifiers, "dir": folder,
@@ -135,10 +167,14 @@ def strip(name, folder, key_name, modifiers, content="focused", gesture=None):
     frames = reply.get("frames") or []
     result = {k: reply.get(k) for k in ("frame_count", "mean_interval_ms", "intermediate", "moving", "reversals", "jumps",
                                        "max_step", "content_intermediate", "blank", "error")}
+    for k in ("tabs_moving_frames", "tabs_restarts", "tabs_peak_travel"):
+        result[k] = reply.get(k)
     result.update({"gesture": name, "dir": folder, "spans": motion.get("spans") or [], "samples": motion.get("samples") or [],
+                   "notes": motion.get("notes") or [], "spare": spare_state(),
                    "progress": [[f.get("ms"), f.get("progress", None), f.get("intermediate")] for f in frames]})
-    print(json.dumps({k: result[k] for k in ("gesture", "frame_count", "moving", "reversals", "jumps", "max_step",
-                                              "content_intermediate", "blank", "error")}), flush=True)
+    print(json.dumps({k: result.get(k) for k in ("gesture", "frame_count", "moving", "reversals", "jumps", "max_step",
+                                              "content_intermediate", "blank", "tabs_moving_frames", "tabs_restarts",
+                                              "tabs_peak_travel", "error")}), flush=True)
     return result
 
 
@@ -162,6 +198,47 @@ def run_config(name, settings):
         time.sleep(0.6)  # test harness wait
         key("w", ["command"])
         time.sleep(0.8)  # test harness wait
+    # The + bug (phase 3 step 4): + and Cmd-T again, each with a cold spare (right after an open,
+    # before the pool rewarms) and a warm one; with ui.animations.newTab off both must be instant.
+    if not opts.base:
+        for warm in (False, True):
+            for gesture in ("plus", "cmd-t"):
+                terminal_tab()
+                if warm:
+                    time.sleep(3)  # test harness wait: the New Tab spare rewarms
+                label = f"{gesture}-{'warm' if warm else 'cold'}"
+                results["gestures"].append(strip(label, os.path.join(out, label), "t", ["command"],
+                                                 gesture="plus" if gesture == "plus" else None))
+                time.sleep(0.6)  # test harness wait
+                key("w", ["command"])
+                time.sleep(0.6)  # test harness wait
+    # After current (tabs.newTabPosition afterCurrent): Cmd-T on tab 1 of three shows the page in
+    # slot 2 from its first frame; submitting it (`!ls`, Return) puts the terminal in that slot.
+    if not opts.base:
+        set_config({"tabs": {"newTabPosition": "afterCurrent"}})
+        terminal_tab()
+        terminal_tab()
+        key("1", ["command"])
+        time.sleep(0.6)  # test harness wait
+        before = tab_order()
+        results["gestures"].append(strip("after-current", os.path.join(out, "after-current"), "t", ["command"]))
+        time.sleep(0.8)  # test harness wait: the page's field takes keys
+        page_order = tab_order()
+        for char in "!ls":
+            key(char)
+        time.sleep(0.3)  # test harness wait
+        results["gestures"].append(strip("page-submit", os.path.join(out, "page-submit"), "return", []))
+        time.sleep(1.5)  # test harness wait: NewTabSlot's move lands
+        after = tab_order()
+        results["slots"] = {"before": before, "page": page_order, "after": after,
+                            "page_in_slot_2": len(page_order) > 1 and page_order[1][0] not in [t[0] for t in before],
+                            "submit_in_slot_2": len(after) > 1 and after[1][0] not in [t[0] for t in page_order]
+                            and "terminal" in str(after[1][2]).lower()}
+        print("slots", json.dumps(results["slots"])[:400], flush=True)
+        for _ in range(len(after) - 1):
+            key("w", ["command"])
+            time.sleep(0.4)  # test harness wait
+        set_config({})
     # Cmd-N: a new workspace row; Cmd-W closes its only tab (and the workspace).
     before = workspace_count()
     results["gestures"].append(strip("cmd-n", os.path.join(out, "cmd-n"), "n", ["command"]))
@@ -207,7 +284,23 @@ try:
     corpus = rpc("debug.motion", {"action": "trajectory"}) or {}
     if corpus.get("tokens"):
         json.dump(corpus, open(os.path.join(opts.out, "swift-trajectory.json"), "w"))
-    for name in opts.configs.split(","):
+    if opts.loop:
+        for change in RESET + ALL_ON:
+            rpc("debug.motion", change)
+        terminal_tab()
+        rpc("debug.motion", {"action": "start"})
+        for _ in range(opts.loop):
+            key("t", ["command"])
+            time.sleep(0.5)  # test harness wait: the tab's springs and the page settle
+            key("w", ["command"])
+            time.sleep(0.5)  # test harness wait
+        loop = rpc("debug.motion", {"action": "stop"}) or {}
+        report["loop"] = {"opens": opts.loop, "work": loop.get("work"), "spans": len(loop.get("spans") or []),
+                          "sidebar_frames": sum(1 for x in loop.get("samples") or [] if x.get("name") == "sidebar.travel"),
+                          "state": {k: loop.get(k) for k in ("enabled_kinds", "pane_animations", "display_links")}}
+        print("loop", json.dumps(report["loop"]), flush=True)
+        json.dump(report["loop"], open(os.path.join(opts.out, "loop.json"), "w"), indent=1)
+    for name in ([] if opts.loop else opts.configs.split(",")):
         report["configs"][name] = run_config(name, CONFIGS[name])
         json.dump(report, open(os.path.join(opts.out, "results.json"), "w"), indent=1)
     for change in RESET:
@@ -226,7 +319,9 @@ finally:
         try:
             app.wait(30)
         except subprocess.TimeoutExpired:
-            app.kill()  # the exact PID this script started
+            # nx-remote's stop for --app-from-fleet jobs (never a kill of the tagged app).
+            if os.environ.get("NX_APP_STOP"):
+                subprocess.run([os.environ["NX_APP_STOP"]], capture_output=True, timeout=60)
     acpmux = os.path.join(opts.app, "Contents/Resources/bin/acpmux")
     cli = os.path.join(opts.app, "Contents/Resources/bin/cmux")
     acpmux_home = os.path.join(os.path.expanduser("~"), ".cmux/chief/isolated", opts.tag, "acpmux")

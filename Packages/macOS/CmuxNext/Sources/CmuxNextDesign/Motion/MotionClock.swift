@@ -87,13 +87,19 @@ public final class MotionClock {
     /// Animators being stepped now (debug).
     public var running: [String] { order.compactMap { entries[$0]?.trace } }
 
+    /// One frame. While `debug.motion` records, the main-thread work of the whole frame
+    /// (`clock`) and of each animator (its trace name) is timed (`MotionTrace.measure`).
     private func tick(_ dt: Double) -> Bool {
+        MotionTrace.measure("clock") { step(dt) }
+    }
+
+    private func step(_ dt: Double) -> Bool {
         frames &+= 1
         if MotionTrace.isEnabled { MotionTrace.sample("clock.dt_ms", dt * 1000) }
         // Animators started during this frame step from the next one.
         for id in order {
             guard let entry = entries[id] else { continue }
-            guard let animator = entry.animator, animator.motionStep(dt) else {
+            guard let animator = entry.animator, MotionTrace.measure(entry.trace, { animator.motionStep(dt) }) else {
                 entries[id] = nil
                 MotionTrace.end(entry.trace, id: id)
                 continue

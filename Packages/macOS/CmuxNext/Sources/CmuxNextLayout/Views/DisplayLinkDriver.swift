@@ -41,6 +41,6 @@ final class DisplayLinkDriver: MotionAnimating {
     }
 
     func motionStep(_ dt: Double) -> Bool {
-        MotionTrace.measure("layout") { onFrame?(dt) ?? false }
+        onFrame?(dt) ?? false
     }
 }
