@@ -52,6 +52,10 @@ enum DebugSidebarRows {
                 "drop": sidebar.debugDropProbe().map(probe) ?? .null,
                 "paging": .object(sidebar.debugPaging().mapValues(JSONValue.string)),
                 "items": .array(items(of: controller)),
+                // Section headers the band or a list block draws (an empty custom section has no item to aim a drop at).
+                "sections": .array(controller.sidebar.container.sidebarView.debugSectionHeaders().map { header in
+                    .object(["id": .string(header.id), "title": header.title.map(JSONValue.string) ?? .null, "window_frame": rect(header.frame)])
+                }),
                 "status_glyphs": .array(sidebar.debugStatusGlyphs().map(statusGlyph)),
                 "new_button": sidebar.debugNewButtonFrame().map(rect) ?? .null,
                 "rows": .array(rows.map { row in

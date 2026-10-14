@@ -106,6 +106,20 @@ extension SidebarView {
         }
     }
 
+    /// Every shown section header of the band and the list blocks: its section id, title and frame in window points
+    /// from the top-left (debug.sidebar_rows "sections").
+    public func debugSectionHeaders() -> [(id: String, title: String?, frame: CGRect)] {
+        let height = window?.contentView?.bounds.height ?? 0
+        return model.layout.sections.compactMap { section in
+            for region in bandRegions + list.blockRegions {
+                guard let view = region.headerViews[section.id], view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue }
+                let inWindow = view.convert(view.bounds, to: nil)
+                return (section.id.rawValue, section.title, CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height))
+            }
+            return nil
+        }
+    }
+
     /// The new-workspace button (+) in window points from the top-left, so a
     /// proof clicks it (`debug.mouse`); nil while it is hidden.
     public func debugNewButtonFrame() -> CGRect? {
