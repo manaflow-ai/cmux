@@ -24,6 +24,11 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
         self.clock = clock
     }
 
+    // A main-actor generic class needs a nonisolated deinit while the package targets macOS 14: the
+    // isolated deinit's back-deploy path crashed swift-frontend's Release inliner
+    // (EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible) on its deallocating deinit.
+    nonisolated deinit {}
+
     var count: Int { waiting.count }
 
     /// Suspends until `resolve(key, ...)`, failing with `timeoutError` after `timeout`.

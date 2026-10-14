@@ -139,6 +139,7 @@ pub(super) fn restore_public_projections(
                 agent: agent.agent,
                 agent_session_id: agent.agent_session_id,
                 updated_at_ms: agent.updated_at_ms,
+                since_ms: agent.updated_at_ms,
             },
         );
         anyhow::ensure!(
