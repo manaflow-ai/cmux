@@ -82,6 +82,13 @@ public final class LiveCoordinator {
     /// Macs whose cnx host predates the `version` service (link protocol 1):
     /// they work, but drop links under load; the status line says to update.
     @ObservationIgnored private var outdatedMacs: Set<String> = []
+    /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
+    @ObservationIgnored private var chatsError: String?
+    @ObservationIgnored private var workspacesTimeout: Task<Void, Never>?
+    /// How long a connected Mac may take to send its workspace list before
+    /// the list says it could not load them (with Retry), instead of a
+    /// skeleton that never ends.
+    static let workspacesDeadline: Duration = .seconds(10)
     /// How often discovery looks while the active team has no online Mac, and otherwise.
     static let waitingPoll: Duration = .seconds(4)
     static let idlePoll: Duration = .seconds(30)
@@ -307,7 +314,14 @@ public final class LiveCoordinator {
         }
     }
 
+    /// Macs registered by another member (a shared team): listed, never
+    /// dialed. Protocol v1 admits only the Mac owner's own phones.
+    @ObservationIgnored private var othersMacs: Set<String> = []
+
     private func applyMacs(_ macs: [LiveAPI.Mac], teamID: String) {
+        for mac in macs {
+            if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
+        }
         store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate) }, teamID: teamID)
         retarget()
         scheduleSnapshotSave()
@@ -318,7 +332,7 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cnx.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        let mac = LinkMachine.target(in: team.macs, remembered: remembered, current: link.target?.macID)
+        let mac = LinkMachine.target(in: team.macs.filter { !othersMacs.contains($0.id) }, remembered: remembered, current: link.target?.macID)
         link.send(.target(mac.map { LinkMachine.Target(macID: $0.id, name: $0.name, isOnline: $0.isOnline) }))
     }
 
@@ -457,16 +471,7 @@ public final class LiveCoordinator {
         }
         // Workspaces first, and the chats and Feed alongside: each channel
         // opens without waiting for the other (an open costs no round trip).
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let daemon = try await link.openChannel(service: "daemon", args: [:])
-                ConnectTimeline.shared.mark("daemon_channel_open")
-                await self.workspaces.bind(daemon, macID: macID)
-            } catch {
-                log.error("daemon channel: \(String(describing: error), privacy: .public)")
-            }
-        }
+        bindWorkspaces(link, macID: macID)
         Task { [weak self] in await self?.checkVersion(link, macID: macID) }
         Task { [weak self] in
             guard let self else { return }
@@ -477,12 +482,56 @@ public final class LiveCoordinator {
             } catch {
                 log.error("acpmux channel: \(String(describing: error), privacy: .public)")
             }
+            // A failed chat channel is shown, not only logged.
+            self.chatsError = self.acpmux.isReady ? nil : (self.acpmux.lastError ?? "chats are unavailable")
+            self.phaseChanged()
             await self.startChief(link)
         }
         // Terminal tabs attach lazily (`terminalSession(tabID:)`), each on its
         // own `daemon` channel of this link; open ones reattach now.
         terminals.removeAll { $0.session == nil }
         for terminal in terminals { terminal.session?.reconnect() }
+    }
+
+    /// Opens the `daemon` channel and loads the workspaces; a failure or a
+    /// Mac that never answers shows as a failure with Retry.
+    private func bindWorkspaces(_ link: any MacLink, macID: String) {
+        workspacesTimeout?.cancel()
+        workspacesTimeout = Task { [weak self, clock] in
+            do { try await clock.sleep(for: Self.workspacesDeadline) } catch { return }
+            guard let self, self.link.target?.macID == macID, self.store.macData[macID]?.source != .live else { return }
+            log.error("workspaces did not arrive in time")
+            self.store.handleMacData(.failed("the Mac didn't send its workspaces"), macID: macID)
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let daemon = try await link.openChannel(service: "daemon", args: [:])
+                ConnectTimeline.shared.mark("daemon_channel_open")
+                await self.workspaces.bind(daemon, macID: macID)
+                if let error = self.workspaces.lastError, self.store.macData[macID]?.source != .live {
+                    self.store.handleMacData(.failed(error), macID: macID)
+                }
+            } catch {
+                log.error("daemon channel: \(String(describing: error), privacy: .public)")
+                self.store.handleMacData(.failed(LinkController.reason(error)), macID: macID)
+            }
+        }
+    }
+
+    /// Retry for a Mac (the Workspaces Retry and Reconnect): reloads the
+    /// workspaces on a live link, redials a waiting one, or switches to it.
+    public func retry(macID: String) {
+        guard link.target?.macID == macID else {
+            select(macID: macID)
+            return
+        }
+        if link.phase.isConnected, let currentLink, store.macData[macID]?.source != .live {
+            store.handleMacData(.connecting, macID: macID)
+            bindWorkspaces(currentLink, macID: macID)
+        } else {
+            foreground()
+        }
     }
 
     /// Asks the Mac's host which link protocol it speaks. A host that refuses
@@ -639,7 +688,10 @@ public final class LiveCoordinator {
         var status = store.macLinkStatus
         status = [:]
         if let target, let line = phase.statusLine(macName: target.name) {
-            status[target.macID] = outdatedMacs.contains(target.macID) ? line + " · Update cmux on this Mac" : line
+            var parts = [line]
+            if phase.isConnected, let chatsError { parts.append("Chats: \(chatsError)") }
+            if outdatedMacs.contains(target.macID) { parts.append("Update cmux on this Mac") }
+            status[target.macID] = parts.joined(separator: " · ")
         }
         if status != store.macLinkStatus { store.macLinkStatus = status }
         bannerTask?.cancel()

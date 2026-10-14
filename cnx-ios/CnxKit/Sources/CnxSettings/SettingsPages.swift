@@ -103,22 +103,49 @@ struct PairedMacsPage: View {
         List {
             Section {
                 ForEach(store.activeTeam?.macs ?? []) { mac in
+                    // Real state: presence (and when it was last seen) plus this
+                    // phone's own connection and the live link line.
+                    let status = store.macStatusLine(mac, presence: Self.presence(mac))
                     HStack(spacing: 14) {
-                        StatusDot(mac.isOnline ? .online : .offline)
+                        StatusDot(Self.dot(status.dot))
                             .frame(width: theme.metrics.settingsIconFrame)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(mac.name).font(theme.type.rowTitle)
-                            Text(mac.isOnline ? "Online · \(transport.title) direct" : "Last seen 3h ago")
+                            Text(status.text)
                                 .font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                            if mac.isOnline, let link = store.macLinkStatus[mac.id] {
+                                Text(link)
+                                    .font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                                    .lineLimit(2)
+                            }
                         }
                     }
                     .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("paired-mac.\(mac.id)")
                 }
             } header: {
                 Text("Macs")
             }
         }
         .settingsPage("Paired Macs")
+    }
+
+    /// "Online", "Last seen 3 hours ago", or "Offline" when the service never saw it.
+    static func presence(_ mac: MacDevice) -> String {
+        if mac.isOnline { return "Online" }
+        guard let lastSeenAt = mac.lastSeenAt else { return "Offline" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return "Last seen \(formatter.localizedString(for: lastSeenAt, relativeTo: Date()))"
+    }
+
+    static func dot(_ dot: MacStatusLine.Dot) -> StatusDot.State {
+        switch dot {
+        case .connected: .online
+        case .connecting: .busy
+        case .failed: .error
+        case .offline: .offline
+        }
     }
 }
 
