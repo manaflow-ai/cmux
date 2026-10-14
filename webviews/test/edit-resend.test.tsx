@@ -1,5 +1,5 @@
-// Edit and resend a past message (cx-ncc.60, Claude parity): a prompt shows Copy and Edit under its
-// bubble; Edit opens it in place, Send forks the chat through the turn before it and sends the edited
+// Edit and resend a past message (cx-ncc.60, Claude parity): a prompt shows Edit under its bubble on
+// hover; Edit opens it in place, Send forks the chat through the turn before it and sends the edited
 // text there, Escape or Cancel puts the bubble back. Edit shows only where the chat can fork there.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -69,10 +69,20 @@ test("a prompt edited in place forks the chat through the turn before it and sen
     );
 
   root = createRoot(host);
-  // The first prompt has no turn before it to fork through: Copy only.
+  // The first prompt has no turn before it to fork through, and Copy is on the message's right-click
+  // menu (Copy Message; Leo dogfood 2026-10-13: one hover action): nothing shows under it.
   draw(rows[0]!);
-  expect(button("Copy")).toBeDefined();
+  expect(button("Copy")).toBeUndefined();
   expect(button("Edit")).toBeUndefined();
+  expect(host.querySelector(".cv-user__actions")).toBeNull();
+  // The `hover-actions` experiment's "all" arm keeps Copy under it.
+  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "hover-actions": "all" };
+  try {
+    draw({ ...rows[0]! });
+    expect(button("Copy")).toBeDefined();
+  } finally {
+    delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
+  }
 
   draw(rows[3]!);
   act(() => button("Edit")!.click());
