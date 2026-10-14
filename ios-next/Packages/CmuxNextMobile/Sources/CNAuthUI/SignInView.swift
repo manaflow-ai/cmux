@@ -52,6 +52,27 @@ public struct SignInView: View {
     @State private var shouldShowBillingRecovery = false
     @State private var shakeTrigger = 0
     @State private var tapTrigger = 0
+    /// "Send code" stays in its loading state from the tap until the code
+    /// step has replaced it (the controller clears `isLoading` one run-loop
+    /// turn before the step change commits).
+    @State private var isSendingCode = false
+    /// The system appearance the launch screen was drawn in (launch screens
+    /// cannot follow the app's own Light/Dark setting).
+    private let launchScheme: ColorScheme
+    /// The app's own Light/Dark setting (nil follows the system). The
+    /// window applies it a few hundred milliseconds after the first frame;
+    /// this view resolves its colours in it from the first frame instead.
+    private let appearance: ColorScheme?
+    /// Opacity of the launch-appearance cover: 1 on the first frame so it
+    /// matches the launch screen exactly, then cross-fades to the app's
+    /// resolved appearance.
+    @State private var launchCover = 1.0
+    @Environment(\.colorScheme) private var colorScheme
+    private var targetScheme: ColorScheme { appearance ?? colorScheme }
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// Footer size: footnote scaled so its glyphs match the reference
+    /// footer (13.3 pt tall, 18.8 pt line pitch).
+    @ScaledMetric(relativeTo: .footnote) private var legalSize: CGFloat = 13.6
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -61,9 +82,13 @@ public struct SignInView: View {
     ///   - initialEmail: Prefills the email (DEBUG captures).
     ///   - notice: a one-line message above the sign-in options, for example
     ///     "Signed out on this device." after a revoked session.
-    public init(controller: SignInController, initialMode: SignInMode = .methods, initialEmail: String = "", notice: String? = nil) {
+    ///   - appearance: the app's Light/Dark setting, nil to follow the system.
+    public init(controller: SignInController, initialMode: SignInMode = .methods, initialEmail: String = "", notice: String? = nil,
+                appearance: ColorScheme? = nil) {
         self.controller = controller
         self.notice = notice
+        self.appearance = appearance
+        self.launchScheme = Self.systemScheme()
         _email = State(initialValue: initialEmail)
         switch initialMode {
         case .methods:
@@ -92,6 +117,25 @@ public struct SignInView: View {
         return .asymmetric(insertion: .opacity, removal: exit)
     }
 
+    /// The system (screen) appearance, which the launch screen follows; the
+    /// window may override it with the app's own setting.
+    @MainActor
+    private static func systemScheme() -> ColorScheme {
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        return scene?.screen.traitCollection.userInterfaceStyle == .dark ? .dark : .light
+    }
+
+    private func launchColor(_ key: KeyPath<CNPalette, UIColor>) -> Color {
+        let style: UIUserInterfaceStyle = launchScheme == .dark ? .dark : .light
+        return Color(uiColor: CNTheme.shared.palette[keyPath: key].resolvedColor(with: UITraitCollection(userInterfaceStyle: style)))
+    }
+
+    /// Starts the cross-fade from the launch appearance to the resolved one.
+    private func fadeLaunchCover(force: Bool = false) {
+        guard launchCover > 0, force || targetScheme != launchScheme else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .easeInOut(duration: 0.3)) { launchCover = 0 }
+    }
+
     /// The animation the app root uses for the hand-over to the signed-in
     /// phases, so `exitTransition` has time to play.
     @MainActor
@@ -105,10 +149,13 @@ public struct SignInView: View {
             TimelineView(.animation(paused: introFinished || introStart == nil)) { timeline in
                 let intro = introState(at: timeline.date)
                 ZStack(alignment: .top) {
-                    Color.cn(\.background)
-                        .ignoresSafeArea()
-                        .contentShape(Rectangle())
-                        .onTapGesture { UIApplication.shared.dismissMobileKeyboard() }
+                    ZStack {
+                        Color.cn(\.background)
+                        launchColor(\.background).opacity(launchCover)
+                    }
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { UIApplication.shared.dismissMobileKeyboard() }
 
                     content(intro: intro, size: proxy.size)
                         .frame(maxWidth: 520)
@@ -126,6 +173,7 @@ public struct SignInView: View {
                 }
                 .onChange(of: intro.handedOff) { _, handedOff in
                     if handedOff, illustrationStart == nil { illustrationStart = timeline.date }
+                    if handedOff { fadeLaunchCover(force: true) }
                 }
                 .onChange(of: intro.finished) { _, finished in
                     if finished { introFinished = true }
@@ -133,7 +181,15 @@ public struct SignInView: View {
             }
         }
         .tint(Color.cn(\.ink))
-        .onAppear(perform: startIntroIfReady)
+        .cnStatusBarStyle(launchCover > 0.5 ? (launchScheme == .dark ? .lightContent : .darkContent) : nil)
+        .onAppear {
+            startIntroIfReady()
+            fadeLaunchCover()
+        }
+        // The window picks up the app's Light/Dark setting after the first
+        // frame; cross-fade to it from the launch appearance.
+        .onChange(of: colorScheme) { fadeLaunchCover() }
+        .environment(\.colorScheme, targetScheme)
         .onChange(of: controller.isRestoringSession) { startIntroIfReady() }
         .sensoryFeedback(.impact(weight: .light), trigger: tapTrigger)
         .sensoryFeedback(.selection, trigger: code.count) { old, new in new > old }
@@ -165,7 +221,8 @@ public struct SignInView: View {
         let headerY = choreography.headerCenterBelowSafeTop
         let f = CGFloat(intro.flight)
         let scale = 1 + (choreography.headerScale - 1) * f
-        return CmuxLockup(typedCount: intro.typedCount, showsCursor: intro.showsCursor)
+        return CmuxLockup(typedCount: intro.typedCount, showsCursor: intro.showsCursor,
+                          launchInk: launchColor(\.ink), launchInkOpacity: launchCover)
             .animation(reduceMotion ? nil : .spring(response: 0.16, dampingFraction: 0.9), value: intro.typedCount)
             // The cursor slides in, but leaves on the hand-off frame (the
             // reference lockup carries nothing extra into its flight).
@@ -183,10 +240,49 @@ public struct SignInView: View {
     /// hand-off frame and hitches the flight.
     private func revealOpacity(_ intro: SignInIntroState) -> Double { max(0.001, intro.reveal) }
 
+    /// Height reserved under the top safe area for the header lockup.
+    private var headerSlot: CGFloat { 2 * choreography.headerCenterBelowSafeTop }
+
+    /// Accessibility text sizes: no illustration, and the column scrolls.
+    private var isLargeText: Bool { dynamicTypeSize.isAccessibilitySize }
+
     @ViewBuilder
     private func content(intro: SignInIntroState, size: CGSize) -> some View {
+        let column = Group {
+            if reduceMotion {
+                // Reduce Motion: a step change cross-fades the whole column
+                // (nothing glides or slides). Each layer keeps the step it
+                // was built for while it fades out.
+                ZStack(alignment: .top) {
+                    ForEach([stage], id: \.self) { shown in
+                        stepColumn(intro: intro, size: size, stage: shown)
+                            .transition(.opacity)
+                    }
+                }
+            } else {
+                stepColumn(intro: intro, size: size, stage: stage)
+            }
+        }
+        if isLargeText {
+            // The scroll view starts below the header so content never
+            // passes under the lockup.
+            ScrollView {
+                column.frame(minHeight: size.height - headerSlot)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
+            .padding(.top, headerSlot)
+        } else {
+            column
+        }
+    }
+
+    @ViewBuilder
+    private func stepColumn(intro: SignInIntroState, size: CGSize, stage: Stage) -> some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: 2 * choreography.headerCenterBelowSafeTop)
+            if !isLargeText {
+                Color.clear.frame(height: headerSlot)
+            }
 
             if stage == .launch {
                 Spacer(minLength: 0)
@@ -196,7 +292,7 @@ public struct SignInView: View {
             }
 
             if stage == .methods {
-                methodsHero(compact: size.height < 640)
+                methodsHero(compact: size.height < 640 || isLargeText)
                     .opacity(revealOpacity(intro))
                     .transition(.signInStepExit(reduceMotion: reduceMotion))
             }
@@ -264,11 +360,14 @@ public struct SignInView: View {
             }
 
             if stage == .methods {
-                // Reference: 23 pt from the last row to the footer's glyphs,
-                // glyphs end 16 pt above the bottom safe area.
+                // Reference: the last row ends 70.7 pt above the bottom safe
+                // area and the footer's glyphs span y 874.3–906 (23 pt below
+                // the last row, 16 pt above the safe area). A fixed
+                // slot keeps the rows independent of the footer's line height.
                 legal
-                    .padding(.top, 19)
-                    .padding(.bottom, 14)
+                    .padding(.top, 20.3)
+                    .padding(.bottom, isLargeText ? 14 : 0)
+                    .frame(minHeight: isLargeText ? 0 : 70.7, alignment: .top)
                     .opacity(revealOpacity(intro))
                     .transition(.signInStepExit(reduceMotion: reduceMotion))
             } else if stage != .launch {
@@ -386,6 +485,12 @@ public struct SignInView: View {
             if focused, stage == .methods { go(to: .email) }
         }
         .disabled(isAuthInProgress && stage == .methods)
+        .accessibilityLabel(Text(String(localized: "signin.email.placeholder", defaultValue: "Email address", comment: "Email field placeholder")))
+        .onAppear {
+            // Reduce Motion swaps the column instead of gliding the field;
+            // keep the keyboard on the new field.
+            if reduceMotion, stage == .email { isEmailFocused = true }
+        }
         .accessibilityIdentifier("Email")
     }
 
@@ -393,12 +498,12 @@ public struct SignInView: View {
         Button {
             Task { await sendCode() }
         } label: {
-            LoadingLabel(isLoading: controller.isLoading) {
+            LoadingLabel(isLoading: controller.isLoading || isSendingCode) {
                 Text(String(localized: "signin.email.send", defaultValue: "Send code", comment: "Button that emails a sign-in code"))
             }
         }
         .buttonStyle(InkCapsuleButtonStyle())
-        .disabled(normalizedEmail.isEmpty || isAuthInProgress)
+        .disabled(normalizedEmail.isEmpty || isAuthInProgress || isSendingCode)
         .accessibilityIdentifier("signin.emailCode")
     }
 
@@ -412,7 +517,8 @@ public struct SignInView: View {
             text[run.range].foregroundColor = Color.cn(\.ink).opacity(0.8)
         }
         return Text(text)
-            .font(.footnote)
+            .font(.system(size: legalSize))
+            .lineSpacing(2.4)
             .foregroundStyle(Color.cn(\.textSecondary))
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
@@ -541,6 +647,7 @@ public struct SignInView: View {
             billingRecoveryMessage = nil
             shouldShowBillingRecovery = false
             stage = stage == .code || stage == .emailVerification ? .email : .methods
+            isSendingCode = false
         }
         if stage == .email { isEmailFocused = true }
     }
@@ -559,11 +666,14 @@ public struct SignInView: View {
     private func sendCode(requestVerificationOnUnverifiedEmail: Bool = true) async {
         guard !normalizedEmail.isEmpty else { return }
         error = nil
+        isSendingCode = true
         do {
             try await controller.sendCode(to: email)
             guard !controller.isAuthenticated else { return }
-            if stage != .code { go(to: .code) }
+            // Stays loading: the button leaves with the email step.
+            if stage != .code { go(to: .code) } else { isSendingCode = false }
         } catch {
+            isSendingCode = false
             if SignInController.isCancellation(error) { return }
             if emailCodeFailurePolicy.action(for: error) == .requestEmailVerification {
                 shouldShowBillingRecovery = true
@@ -654,6 +764,7 @@ private struct SignInHeadline: View {
             .foregroundStyle(Color.cn(\.ink))
             .multilineTextAlignment(.center)
             .minimumScaleFactor(0.8)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity)
             .accessibilityAddTraits(.isHeader)
     }

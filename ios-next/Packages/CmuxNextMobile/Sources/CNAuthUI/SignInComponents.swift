@@ -10,23 +10,26 @@ import UIKit
 struct CmuxLockup: View {
     var typedCount: Int
     var showsCursor: Bool
+    /// Wordmark colour in the launch screen's appearance, laid over the
+    /// resolved ink while the launch appearance cross-fades away.
+    var launchInk: Color = .clear
+    var launchInkOpacity: Double = 0
     var choreography: SignInChoreography = .standard
 
     nonisolated static let word = "cmux"
 
     var body: some View {
         HStack(spacing: 0) {
-            Image("CmuxMark", bundle: .module)
+            Image(decorative: "CmuxMark", bundle: .module)
                 .resizable()
                 .frame(width: choreography.launchMarkSize.width, height: choreography.launchMarkSize.height)
+                .accessibilityHidden(true)
             if typedCount > 0 || showsCursor {
                 Color.clear.frame(width: choreography.lockupSpacing, height: 1)
             }
-            Text(verbatim: String(Self.word.prefix(typedCount)))
-                .font(.system(size: choreography.launchWordmarkSize, weight: .semibold, design: .monospaced))
-                .tracking(-0.5)
-                .foregroundStyle(Color.cn(\.ink))
-                .fixedSize()
+            wordmark(Color.cn(\.ink))
+                .overlay { wordmark(launchInk).opacity(launchInkOpacity) }
+                .accessibilityHidden(true)
             if showsCursor {
                 RoundedRectangle(cornerRadius: 2.5)
                     .fill(Color.cn(\.highlight))
@@ -35,9 +38,19 @@ struct CmuxLockup: View {
             }
         }
         .dynamicTypeSize(.large)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "cmux"))
-        .accessibilityAddTraits(.isHeader)
+        // One header element "cmux": the mark and the cross-fade layers
+        // are not exposed.
+        .accessibilityRepresentation {
+            Text(verbatim: "cmux").accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    private func wordmark(_ color: Color) -> some View {
+        Text(verbatim: String(Self.word.prefix(typedCount)))
+            .font(.system(size: choreography.launchWordmarkSize, weight: .semibold, design: .monospaced))
+            .tracking(-0.5)
+            .foregroundStyle(color)
+            .fixedSize()
     }
 }
 
