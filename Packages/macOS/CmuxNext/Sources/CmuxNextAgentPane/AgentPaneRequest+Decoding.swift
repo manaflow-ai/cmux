@@ -102,6 +102,16 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "harness.update":
+            // A harness id (profile file name), never a command.
+            if let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 128,
+               id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }) {
+                self = .harnessUpdate(id: id)
+            } else {
+                self = .unsupported(method)
+            }
+        case "harness.restart":
+            self = .harnessRestart
         case "shell.run":
             if let command = params?["command"] as? String,
                !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,

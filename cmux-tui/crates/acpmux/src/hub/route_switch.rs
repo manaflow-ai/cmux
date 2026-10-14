@@ -118,6 +118,86 @@ impl Hub {
         self.detach_child(session).await;
         self.child_for(session).await.map(|_| ())
     }
+
+    /// `_acpmux/sessions/restart_harness {harnesses?, sessions?}` (Update
+    /// Everything, cx-1mbnu; a chat's "Restart chat"): every live session of
+    /// this daemon (none mirrored from a peer; none of the Home Chief's unless
+    /// named in `sessions`), or those of the named harnesses and/or the named
+    /// sessions, restarts its harness process and resumes the same agent
+    /// session, as a route switch does but with no binding written: so it runs
+    /// the version an update just installed. A session between turns restarts
+    /// now; one in a turn when the turn ends (never cancelled). Returns how
+    /// many restarted now, how many restart after their turn, and each one
+    /// whose harness could not start again.
+    pub async fn restart_harnesses(
+        self: &Arc<Self>,
+        harnesses: Option<&std::collections::BTreeSet<String>>,
+        sessions: Option<&std::collections::BTreeSet<String>>,
+    ) -> HarnessRestarts {
+        let live = self.sessions().into_iter().filter(|session| {
+            let meta = session.meta();
+            matches!(
+                meta.status,
+                SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
+            ) && (sessions.is_some() || !is_chief(&meta))
+                && harnesses.is_none_or(|ids| ids.contains(&meta.harness))
+                && sessions.is_none_or(|ids| ids.contains(session.id.as_str()))
+        });
+        // Each restart waits for its new process (spawn, initialize, load):
+        // all at once, so many chats take as long as the slowest one.
+        let outcomes = futures::future::join_all(live.map(|session| async move {
+            // The turn lock is held through a turn and its route-switch
+            // restart (`turns.rs`, `hosts.rs`); holding it, no turn starts
+            // meanwhile.
+            let idle = || {
+                if session.turn().is_none() { session.turn_lock.try_lock().ok() } else { None }
+            };
+            let mut turn = idle();
+            if turn.is_none() {
+                session.route_switch.store(true, Ordering::SeqCst);
+                // The turn may have ended before the flag was seen: then now.
+                turn = idle().filter(|_| session.route_switch.load(Ordering::SeqCst));
+            }
+            let Some(_turn) = turn else { return Ok(false) };
+            match self.restart_on_route(&session).await {
+                Ok(()) => Ok(true),
+                Err(e) => {
+                    tracing::warn!(session = %session.id, error = %e.message, "harness restart");
+                    Err((session.id.clone(), e.message))
+                }
+            }
+        }))
+        .await;
+        let mut out = HarnessRestarts::default();
+        for outcome in outcomes {
+            match outcome {
+                Ok(true) => out.now += 1,
+                Ok(false) => out.after_turn += 1,
+                Err(failed) => out.failed.push(failed),
+            }
+        }
+        out
+    }
+}
+
+/// What `restart_harnesses` did: how many sessions restarted now, how many
+/// restart when their turn ends, and `(session, error)` for each whose
+/// harness could not start again.
+#[derive(Debug, Default)]
+pub struct HarnessRestarts {
+    pub now: usize,
+    pub after_turn: usize,
+    pub failed: Vec<(String, String)>,
+}
+
+/// A Home Chief session (its turn, compactor or subagent): tagged
+/// `cmux.chief`, or named `optchat-…`, or of an `optchat-compact-…` preset
+/// harness (the app's `AcpmuxSessionCensus.isChief`). Update Everything
+/// never counts or restarts one; only a caller naming it in `sessions` does.
+fn is_chief(meta: &SessionMeta) -> bool {
+    live_tags(meta).get("cmux.chief").is_some()
+        || meta.name.starts_with("optchat-")
+        || meta.harness.starts_with("optchat-compact-")
 }
 
 impl Hub {
