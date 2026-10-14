@@ -33,6 +33,7 @@ import argparse, functools, glob, http.server, json, os, plistlib, socket, subpr
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from bench_idle import usage  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -41,6 +42,8 @@ parser.add_argument("--cua", default=os.path.expanduser("~/.local/bin/cua-driver
 parser.add_argument("--moves", choices=("real", "warp"), default="real",
                     help="real: posted mouse-moved events along a path (pointer-probe path); warp: cua move_cursor (no move events)")
 parser.add_argument("--quick", action="store_true", help="only the at-rest cursor checks (and the still pointer over a reloading page)")
+parser.add_argument("--idle-seconds", type=float, default=0,
+                    help="Chromium tab at rest: the app's CPU and wakeups over this many seconds with the pointer still on the text")
 parser.add_argument("--env", action="append", default=[], help="K=V passed to the app (repeatable)")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="omnibar-real-"))
 opts = parser.parse_args()
@@ -252,6 +255,22 @@ def real_drag(start, end):
     print(f"   drag from screen ({x0:.0f}, {y0:.0f}) to ({x1:.0f}, {y1:.0f})", flush=True)
 
 
+def idle_report(engine, text):
+    """The app's CPU share and wakeups per second while the pointer rests on the omnibar text and the
+    page has the keyboard (proc_pid_rusage at the start and end, as bench_idle.py)."""
+    move(center(text))
+    time.sleep(3.0)  # settle: the move's own work ends
+    start, began = usage(app.pid), time.monotonic()
+    time.sleep(opts.idle_seconds)
+    end, elapsed = usage(app.pid), time.monotonic() - began
+    if not (start and end):
+        return check(False, f"{engine}: the idle sample reads the app's usage")
+    cpu = (end[0] - start[0]) / (elapsed * 1e9) * 100
+    wakeups = (end[1] - start[1]) / elapsed
+    print(f"IDLE {engine} pointer still on the omnibar text, page has the keyboard, {elapsed:.1f} s: "
+          f"app CPU {cpu:.3f}%, {wakeups:.2f} wakeups/s (env {opts.env})", flush=True)
+
+
 def still_pointer_checks(engine, text):
     """The pointer rests on the omnibar text and does not move while the page reloads, and while
     the page sets its own cursor."""
@@ -359,6 +378,8 @@ try:
             got = cursor_at(point, want)
             check(got == want, f"{engine} at rest, page has the keyboard: {want} over {name} (screen shows {got})")
         check(alive(), f"{engine}: the app answers after the pointer moves")
+        if opts.idle_seconds and engine == "chromium":
+            idle_report(engine, text)
         still_pointer_checks(engine, text)
         if opts.quick:
             continue

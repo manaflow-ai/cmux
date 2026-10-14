@@ -103,8 +103,14 @@ extension ArrowCursorView {
 
     /// One main run loop observer, after every other observer of the pass
     /// (AppKit's display cycle runs in Core Animation's commit, before it).
+    /// Only a beforeWaiting observer: it runs in passes that other work started and never wakes
+    /// the run loop itself (no timer, no re-post). `CMUX_NEXT_CURSOR_KEEPER=off` (DEBUG) leaves it
+    /// out, for the idle comparison.
     private static func installCursorKeeper() {
         guard cursorKeeper == nil else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_CURSOR_KEEPER"] == "off" { return }
+        #endif
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { _, _ in
             MainActor.assumeIsolated { ArrowCursorView.keepCursor() } // main-proof: an observer of the main run loop
         }
