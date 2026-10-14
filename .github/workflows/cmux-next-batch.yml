@@ -68,25 +68,20 @@ on:
         required: false
         default: ""
 
-# A newer event on one pull request replaces its older run; only `debounce` runs
-# for pull request events. Push and dispatch runs key on their own run id, so a
-# batch, regen or build run is never cancelled here.
-concurrency:
-  group: cmux-next-batch-run-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Nothing here cancels a run: a cancelled debounce read red on every pull request.
+# A newer event's debounce supersedes an older wait inside the script, which then
+# exits 0, and a running batch is never cancelled (its own group queues).
 
 permissions:
   contents: read
 
 jobs:
   debounce:
-    if: ${{ github.event_name != 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'next-batch/'))) }}
+    if: ${{ github.event_name != 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && vars.CMUX_NEXT_BATCH_ENABLED == '1' && (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'next-batch/'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
-    # Each event cancels the previous wait: the dispatch comes after quiet.
-    concurrency:
-      group: cmux-next-batch-debounce
-      cancel-in-progress: true
+    # Skipped while the queue is off. Each event's run waits for quiet; an older
+    # run that sees a newer one exits 0 (next_batch.py superseded), never cancelled.
     permissions:
       actions: write
       contents: read

@@ -3,7 +3,7 @@
 // the mode and model chips, the location row, Send and Stop), through the pane's own inputs: the
 // `ready` answer's draft and new-chat fields, and the snapshot.
 import { agentPaneEntry } from "../../gallery/format";
-import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
+import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
 // Three prompts waiting for the running turn.
@@ -97,6 +97,22 @@ export default agentPaneEntry({
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+    },
+    "new-chat-reasoning": {
+      note: "Play: a new chat on a harness no chat has shown here yet names the level acpmux starts it on (Medium) before its session reports, never nothing.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([], {
+        catalog: CATALOG.map((entry) =>
+          entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
+        ),
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5" },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".acpmux-chips .acpmux-effort")?.textContent?.trim() === "Medium",
+        );
+      },
     },
     "agent-home": {
       note: "A new chat with no project (cmux's agent home): the hero asks what to build, the folder reads Choose folder.",

@@ -663,6 +663,7 @@ fn browser_tab_in_existing_workspace_pane_emits_selection_resync() {
             "about:blank#first".into(),
             Some((80, 24)),
             None,
+            None,
         )
         .unwrap();
     let events = mux.subscribe();
@@ -672,6 +673,7 @@ fn browser_tab_in_existing_workspace_pane_emits_selection_resync() {
             workspace.workspace,
             "about:blank#second".into(),
             Some((80, 24)),
+            None,
             None,
         )
         .unwrap();

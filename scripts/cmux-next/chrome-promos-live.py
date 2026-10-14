@@ -177,10 +177,24 @@ try:
     snapshot("1-after-tab-switches.png")
     extra = None
     if before is not None and after is not None:
-        extra = len(after) - len(before)
         known = {w.get("window_id") for w in before}
+        new = [w for w in after if w.get("window_id") not in known]
+        # Chromium's status bubble (link URL, "Waiting for ...") comes and goes with loads and the
+        # pointer; it is no promotion. WindowServer gives no class or role for it and debug.cef names
+        # no window by id, so it is found by geometry: at most 30 pt high, its bottom-left corner on
+        # the bottom-left corner of another app window (the Chromium page window).
+        def at_bottom_left(w, of):
+            b, o = w.get("bounds") or {}, of.get("bounds") or {}
+            return (b.get("height", 99) <= 30 and abs(b.get("x", 0) - o.get("x", 0)) <= 8
+                    and abs((b.get("y", 0) + b.get("height", 0)) - (o.get("y", 0) + o.get("height", 0))) <= 8)
+        bubbles = [w for w in new if any(at_bottom_left(w, o) for o in before + after if o is not w)]
+        for w in bubbles:
+            print("ignored as Chromium's status bubble:", json.dumps(w), flush=True)
+        if bubbles:
+            print("debug.cef windows:", json.dumps((rpc("debug.cef") or {}).get("windows"))[:1500], flush=True)
+        extra = len(new) - len(bubbles)  # windows that were not there before, less the status bubble
         print(f"app windows: {len(before)} before the switches, {len(after)} after; new:",
-              json.dumps([w for w in after if w.get("window_id") not in known]), flush=True)
+              json.dumps(new), flush=True)
     if args.expect == "bubble":
         check(extra is not None and extra > 0, f"a Chrome help bubble window appears after the tab switches (+{extra})")
     else:

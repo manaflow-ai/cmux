@@ -135,7 +135,7 @@ impl App {
         }
     }
 
-    pub fn workspace_drag(&self) -> Option<(WorkspaceId, Option<usize>)> {
+    pub fn workspace_drag(&self) -> Option<(WorkspaceId, Option<crate::app::WorkspaceDropSlot>)> {
         match self.drag {
             Some(Drag::Workspace { workspace, target }) => Some((workspace, target)),
             _ => None,

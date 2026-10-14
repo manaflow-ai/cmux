@@ -70,6 +70,34 @@ struct RapidWorkspaceCreateTests {
         return Launched(services: services, root: root)
     }
 
+    /// The rows a count of new rows leaves out: those `shown` in the window's sidebar before the
+    /// presses, and every workspace the window or the daemon had by then, which the sidebar may not
+    /// show yet (it follows the registry and the store a main-actor hop later).
+    private static func rowsBeforePresses(shown: Set<String>, services: AppServices, window: String) -> Set<String> {
+        shown.union(services.windows.registry.members(of: window)).union(services.daemon.store.workspaces.map(\.id))
+    }
+
+    /// `launch()` returns once the window registry lists the launch workspace, but the sidebar
+    /// shows it after that (its rows come from an observation that runs a main-actor hop later),
+    /// so the rows shown before the presses can still lack it. The new rows the presses are
+    /// counted against must leave it out anyway (feat-cmux-next 4c55c90cf329: "11 rows" for 10).
+    @Test func rowsBeforeThePressesLeaveTheLaunchWorkspaceOutWhenTheSidebarLags() async throws {
+        let launched = try await Self.launch()
+        let services = launched.services
+        let window = try #require(services.windows.active?.state.id)
+        let sidebar = try #require(services.windows.controller(for: window)?.sidebar.model)
+        let owned = Set(services.windows.registry.members(of: window))
+        // The sidebar before its observation showed the launch workspace: no rows yet.
+        let before = Self.rowsBeforePresses(shown: [], services: services, window: window)
+        func live() -> [String] { sidebar.allWorkspaces.filter { $0.rowState == .live }.map(\.id.rawValue) }
+        await Self.wait(within: .seconds(30)) { !owned.isDisjoint(with: live()) }
+        let shown = live()
+        await launched.stop()
+
+        #expect(!owned.isDisjoint(with: shown), "the sidebar never showed the launch workspace: \(owned) vs \(shown)")
+        #expect(shown.filter { !before.contains($0) }.isEmpty, "counted as new: \(shown.filter { !before.contains($0) })")
+    }
+
     @Test func twentyCmdNWithClosesInBetweenKeepEveryWorkspaceInPressOrder() async throws {
         let launched = try await Self.launch()
         let services = launched.services
@@ -146,7 +174,7 @@ struct RapidWorkspaceCreateTests {
         let window = try #require(services.windows.active?.state.id)
         let sidebar = try #require(services.windows.controller(for: window)?.sidebar.model)
         let presses = 10
-        let before = Set(sidebar.allWorkspaces.map(\.id.rawValue))
+        let before = Self.rowsBeforePresses(shown: Set(sidebar.allWorkspaces.map(\.id.rawValue)), services: services, window: window)
         /// The new rows, top to bottom.
         func rows() -> [String] { sidebar.allWorkspaces.map(\.id.rawValue).filter { !before.contains($0) } }
 

@@ -28,28 +28,17 @@ extension AppActions {
             guard let number = invocation["index"]?.intValue else { return }
             SidebarNavigation.select(number: number, services)
         })
-        // The native Home as a pane tab (HomePageTab), next to any other tab. Registered at
-        // launch so a restored Home tab finds its provider.
+        // The native Home tab (HomePageTab), the channels Home tab (HomeChannelsPageTab) and in DEBUG the Home
+        // fixture: registered at launch so a restored tab finds its provider (not blank).
         services.pages.register(HomePageTab(services: services))
         registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
-        // Home is a top page (TOP-SECTION-ITEMS-ARE-PAGES): the active
-        // window shows it, from any origin (a focus action). With no window,
-        // the store's home workspace opens one; else refused with why.
-        // The channels Home tab (HomeChannelsPageTab), next to the native Home, and in DEBUG the Home fixture
-        // (debug.home_native_fixture.open): registered at launch so a restored tab finds its provider (not blank).
         services.pages.register(HomeChannelsPageTab(services: services))
         #if DEBUG
         services.pages.register(DebugHomeNativeFixture())
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
-        registry.bind("home.show") {
-            if TopPages.show(.home, services: services) != nil { return }
-            guard services.windows.active == nil, let home = services.home.homeWorkspace else {
-                services.registry.refuse(RefusalStrings.homeNotReady)
-                return
-            }
-            services.windows.reveal(workspaceID: home.id)
-        }
+        // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it.
+        registry.bind("home.show") { showHome(services) }
         // The composer's attach button as an action (home.attachFiles): a path
         // goes to the shown Home composer through its own intake (as a drop);
         // without one the shown composer opens its file picker.

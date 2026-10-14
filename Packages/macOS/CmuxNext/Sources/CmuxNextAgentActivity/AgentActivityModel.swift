@@ -50,6 +50,13 @@ public final class AgentActivityModel {
     }
     /// Last error from a user operation, for the toolbar.
     public private(set) var lastOperationError: String?
+    /// Every acpmux session with its lane (cx-v9k2f), when the lanes view is on (Labs preview
+    /// features); nil hides it.
+    public var lanes: [AgentActivityLane]? {
+        didSet { if lanes != oldValue { notifyChange() } }
+    }
+    /// Opens a lane's chat (the page's row click); the App reveals or opens its tab.
+    @ObservationIgnored public var onJump: ((AgentActivityLane) -> Void)?
 
     /// Called by a host view when the projection changes and must be sent to
     /// another renderer, such as the Activity web view.

@@ -558,7 +558,8 @@ conversation search <words>... [--limit <1..100>]
 conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg_id> [--reply-part <n>]]
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
-chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] | chief stop [<subagent>]
+chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] [--compactor-harness <h>] [--compactor-model <m>] | chief stop [<subagent>]
+chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief>
 agent list|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
@@ -567,6 +568,8 @@ projection <selector> show|put
 
 sidebar view show|ensure|attach|input|resize|reload
 sidebar plugin list|install|use|update|remove
+sidebar section-scroll <section> fixed|flow   (sidebar.section.update {scroll})
+sidebar section-max-rows <section> <1-50>|none   (sidebar.section.update {max_rows}; none grows without limit)
 
 provider authority install
 
@@ -705,7 +708,13 @@ the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
 Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
 `/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
 commands. `chief engine` and `chief stop` make one such call without the
-chat. It refuses a socket under
+chat. `chief list`, `chief new`, `chief edit` and `chief delete` make the
+person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.create`,
+`chief.profile.update`, `chief.profile.delete`, `chief.profile.avatar.set`): `<chief>` is an id or one
+Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
+`--instructions` or `--instructions-file`, `--avatar <png|jpeg|gif|webp file>`,
+`--tools`, `--harnesses`, `--self-edit` (comma lists) and `--harness`,
+`--model`, `--effort`. `--json` prints the record. It refuses a socket under
 `~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
 Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
 timeout.

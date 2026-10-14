@@ -25,13 +25,48 @@ use tokio::sync::Mutex;
 pub const AGENT_NAME: &str = "claude-stdio";
 
 /// Claude mode ids, offered as ACP session modes.
-/// Claude's own modes. Its permission modes (acceptEdits, bypassPermissions)
-/// are not offered: acpmux's policy answers permission prompts itself, so
-/// `perms approve-edits` and `perms approve-all` cover them for every
-/// harness, and bypassPermissions would also need the process launched with
-/// --dangerously-skip-permissions. Plan and auto change what Claude does,
-/// so they stay.
-const MODES: [(&str, &str); 3] = [("default", "Normal"), ("plan", "Plan"), ("auto", "Auto")];
+/// Claude's own modes. acceptEdits is not offered: acpmux's policy answers
+/// permission prompts itself, so `perms approve-edits` covers it for every
+/// harness. Plan and auto change what Claude does, so they stay.
+/// bypassPermissions ("Full access") is the mode a new chat starts in
+/// (`hub/start_mode.rs`, cx-wx93i): Claude Code itself skips every
+/// permission check, so nothing asks. Claude Code accepts it only from a
+/// process launched with `--allow-dangerously-skip-permissions`
+/// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
+/// the chat keeps its mode.
+const MODES: [(&str, &str); 4] = [
+    ("default", "Normal"),
+    ("plan", "Plan"),
+    ("auto", "Auto"),
+    ("bypassPermissions", "Full access"),
+];
+
+/// The launch flag that lets a running Claude Code switch to
+/// bypassPermissions (it does not turn the mode on by itself).
+pub const ALLOW_BYPASS_FLAG: &str = "--allow-dangerously-skip-permissions";
+
+/// Whether Claude Code accepts `ALLOW_BYPASS_FLAG` for `profile`: it exits
+/// at start when the flag comes as root, unless `IS_SANDBOX=1` or
+/// `CLAUDE_CODE_BUBBLEWRAP` is set (Claude Code 2.1.296), and the profile
+/// must not pass a skip flag of its own.
+pub fn bypass_allowed(profile: &HarnessProfile) -> bool {
+    let own = profile
+        .argv
+        .iter()
+        .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
+    if own {
+        return false;
+    }
+    let env = |k: &str| profile.env.get(k).cloned().or_else(|| std::env::var(k).ok());
+    let sandboxed = env("IS_SANDBOX").as_deref() == Some("1")
+        || env("CLAUDE_CODE_BUBBLEWRAP").is_some_and(|v| !v.is_empty());
+    #[cfg(unix)]
+    // SAFETY: geteuid has no preconditions.
+    let root = unsafe { libc::geteuid() } == 0;
+    #[cfg(not(unix))]
+    let root = false;
+    !root || sandboxed
+}
 
 /// Claude Code's own model aliases (`set_model` and `--model`). Only Claude
 /// Code says what an alias runs; the `[1m]` suffix asks for the 1M context
@@ -131,6 +166,9 @@ mod outbound;
 mod subagent_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod workflow_tests;
+mod workflows;
 
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
@@ -203,6 +241,18 @@ pub fn spawn_plan(
         args.push("--model".into());
         args.push(m.into());
     }
+    // Lets the chat switch to bypassPermissions ("Full access") later; a
+    // process that cannot take it is never given bypassPermissions at spawn.
+    let bypass = bypass_allowed(profile);
+    if bypass {
+        args.push(ALLOW_BYPASS_FLAG.into());
+    }
+    // A profile that passes a skip flag itself takes the mode as it is.
+    let own_skip = profile
+        .argv
+        .iter()
+        .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
+    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { "default" } else { mode };
     if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
         args.push("--permission-mode".into());
         args.push(mode.into());
@@ -216,6 +266,10 @@ pub struct Translator {
     pending: Mutex<HashMap<String, Pending>>,
     /// claude control request_id -> ACP request id we issued to the hub.
     control_out: Mutex<HashMap<String, Id>>,
+    /// claude control request_id -> the session rules made from what Claude
+    /// suggested with its permission ask (`session_rules`), held until the
+    /// answer: an "Allow for this session" hands them back.
+    suggestions: Mutex<HashMap<String, Value>>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -235,6 +289,12 @@ pub struct Translator {
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
+    /// The skills Claude Code names in its system/init (`skills`, names
+    /// without "/"): their slash commands are tagged as skills.
+    skills: Mutex<Vec<String>>,
+    /// The `availableCommands` list last sent, so a turn's system/init that
+    /// changes nothing sends no new one.
+    sent_commands: Mutex<Option<Vec<Value>>>,
     /// Lines for claude's stdin produced while reading its stdout (answers
     /// to control requests acpmux declines). The reader drains them.
     stdin_replies: Mutex<Vec<Value>>,
@@ -247,6 +307,9 @@ pub struct Translator {
     /// Claude's task ids of running subagents -> their Agent tool call
     /// (`task_updated` names only the task).
     subagent_tasks: Mutex<HashMap<String, String>>,
+    /// Running Workflow tool calls (`workflows.rs`), each with its run's
+    /// transcript dir once its launch named it.
+    workflows: Mutex<HashMap<String, Option<std::path::PathBuf>>>,
     /// The chat model's context window as Claude Code last reported it (a
     /// result's `modelUsage`), 0 until then: `usage_update`'s `size`.
     context_window: AtomicU64,
@@ -278,6 +341,8 @@ struct BackgroundShell {
     command: String,
     task: Option<String>,
     background: bool,
+    /// Its `running` update went out (`inbound.rs` `running`).
+    announced: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -302,6 +367,7 @@ impl Translator {
         Arc::new(Self {
             pending: Mutex::new(HashMap::new()),
             control_out: Mutex::new(HashMap::new()),
+            suggestions: Mutex::new(HashMap::new()),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
@@ -314,10 +380,13 @@ impl Translator {
             steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
+            skills: Mutex::new(Vec::new()),
+            sent_commands: Mutex::new(None),
             stdin_replies: Mutex::new(Vec::new()),
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
+            workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
@@ -361,6 +430,41 @@ impl Translator {
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
         std::mem::take(&mut *self.stdin_replies.lock().await)
+    }
+
+    /// The `available_commands_update` for Claude's slash commands, an entry
+    /// per command with `_meta.kind: "skill"` on a skill's (the pane's picker
+    /// labels it "Skill"). Without `always`, a list that is unchanged, or
+    /// empty before any was sent, sends nothing.
+    async fn commands_update(&self, always: bool) -> Option<Value> {
+        let skills = self.skills.lock().await.clone();
+        let list: Vec<Value> = self
+            .slash_commands
+            .lock()
+            .await
+            .iter()
+            .map(|c| {
+                let mut entry = json!({"name": c.get("name"), "description": c.get("description")});
+                let name = c.get("name").and_then(Value::as_str).unwrap_or("");
+                let name = name.strip_prefix('/').unwrap_or(name);
+                if !name.is_empty()
+                    && skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
+                {
+                    entry["_meta"] = json!({"kind": "skill"});
+                }
+                entry
+            })
+            .collect();
+        let mut sent = self.sent_commands.lock().await;
+        let unchanged = match sent.as_ref() {
+            Some(before) => *before == list,
+            None => list.is_empty(),
+        };
+        if !always && unchanged {
+            return None;
+        }
+        *sent = Some(list.clone());
+        Some(json!({"sessionUpdate": "available_commands_update", "availableCommands": list}))
     }
 
     pub async fn modes_value(&self) -> Value {
@@ -456,4 +560,23 @@ fn tool_title(name: &str, input: &Value) -> String {
         "ExitPlanMode" => "Approve plan".into(),
         _ => name.to_owned(),
     }
+}
+
+/// Claude's permission suggestions as session-only permission updates: each
+/// allow rule kept, its destination `session`. None when none is an allow.
+pub(super) fn session_rules(suggestions: &Value) -> Option<Value> {
+    let rules: Vec<Value> = suggestions
+        .as_array()?
+        .iter()
+        .filter(|s| {
+            s.get("type").and_then(Value::as_str) == Some("addRules")
+                && s.get("behavior").and_then(Value::as_str) == Some("allow")
+        })
+        .map(|s| {
+            let mut s = s.clone();
+            s["destination"] = json!("session");
+            s
+        })
+        .collect();
+    (!rules.is_empty()).then_some(Value::Array(rules))
 }

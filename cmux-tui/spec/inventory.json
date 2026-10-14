@@ -31,6 +31,13 @@
     "browser.viewer.resize",
     "chief.engine.get",
     "chief.engine.set",
+    "chief.profile.avatar.get",
+    "chief.profile.avatar.set",
+    "chief.profile.create",
+    "chief.profile.delete",
+    "chief.profile.get",
+    "chief.profile.list",
+    "chief.profile.update",
     "chief.stop",
     "client.cell_pixels.set",
     "client.detach",
@@ -192,9 +199,11 @@
     "sidebar.group.update",
     "sidebar.item.add",
     "sidebar.item.remove",
+    "sidebar.item.remove_ref",
     "sidebar.item.update",
     "sidebar.move",
     "sidebar.pin",
+    "sidebar.reset",
     "sidebar.section.add",
     "sidebar.section.move",
     "sidebar.section.remove",
@@ -520,6 +529,7 @@
       "conversation-history",
       "conversation-thread",
       "conversation-link-resolve",
+      "conversation-inbox-op",
       "conversation-search",
       "history-search",
       "conversation-op",
@@ -539,7 +549,10 @@
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",
+      "cloud-conversation-runs",
+      "cloud-conversation-run",
       "cloud-conversation-op",
+      "cloud-inbox-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
@@ -549,6 +562,13 @@
       "cloud-mux-ack",
       "conversation-attachment-upload",
       "conversation-attachment-read",
+      "conversation-attachment-link",
+      "cloud-attachment-upload",
+      "cloud-attachment-read",
+      "cloud-attachment-link",
+      "conversation-run-append",
+      "conversation-runs",
+      "conversation-run",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
       "feed-local-handoff-done"
@@ -652,7 +672,25 @@
       ]
     },
     {
+      "name": "conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "conversation-draft",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-inbox-changed",
       "streams": [
         "subscribe"
       ]
@@ -1394,6 +1432,11 @@
       "variant": "CopyWorkspaceId",
       "classification": "presentation-only",
       "route": "tree snapshot + frontend clipboard"
+    },
+    {
+      "variant": "PinWorkspace",
+      "classification": "direct",
+      "route": "sidebar.pin or sidebar.unpin (sidebar-doc-v1)"
     },
     {
       "variant": "CloseWorkspace",

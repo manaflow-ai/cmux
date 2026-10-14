@@ -31,6 +31,7 @@ use tokio_tungstenite::tungstenite::{self, Message, WebSocket};
 const KEY_HEX: &str = "5c2e3d4f60718293a4b5c6d7e8f9011223344556677889900aabbccddeeff011";
 const INSTALL: &str = "inst_ws_cloud";
 const CONV: &str = "conv_0123456789ABCDEFGHJKMNPQRS";
+const CHIEF: &str = "agent_01M4X1B5362SM3QJVJ155DA0GB";
 
 struct Fixture {
     dir: PathBuf,
@@ -264,7 +265,17 @@ impl FakeCloud {
                 } else {
                     Value::Null
                 };
-                let reply = if body["op"] == "inbox.list" {
+                let reply = if path.starts_with(&format!("/v1/chiefs/{CHIEF}/runs/run_7?")) {
+                    json!({"ok":true,"value":{"run":{"id":"run_7","conversation":CONV,"author":CHIEF,
+                        "status":"done","started_at":1,"ended_at":2,"step_count":1},
+                        "steps":[{"id":"tool:t1","seq":1,"at":1,"kind":"tool","status":"done",
+                            "tool":{"name":"web_search","input":{"q":"release"},"output":"3 hits"}}],
+                        "has_more":false}})
+                } else if path.starts_with(&format!("/v1/chiefs/{CHIEF}/runs?")) {
+                    json!({"ok":true,"value":{"runs":[{"id":"run_7","conversation":CONV,"author":CHIEF,
+                        "status":"done","turn":"turn:cloud:1","started_at":1,"ended_at":2,"step_count":1}],
+                        "has_more":false}})
+                } else if body["op"] == "inbox.list" {
                     json!({"ok":true,"value":{"entries":[{"conversation":CONV,"rev":4,"kind":"group",
                         "title":"Cloud team","last_seq":3,"last_at":"2026-10-13T00:00:00Z","preview":"hi",
                         "removed":false,"unread":1,"mentions":0,"counts_rev":1,"pinned":false,"muted":false,
@@ -399,6 +410,32 @@ fn the_persons_page_gets_cloud_conversations_through_the_daemon() {
     // The token went only to the cloud, as the bearer.
     assert!(requests.iter().all(|(_, bearer, _)| *bearer == format!("Bearer {token}")));
 
+    // A Cloud Chief's runs, read from its brain through the daemon (cloud-conversation-runs-v1).
+    assert!(capabilities.iter().any(|v| v == "cloud-conversation-runs-v1"), "{identity}");
+    let runs = page
+        .rpc(json!({"cmd":"cloud-conversation-runs","conversation":CONV,"agent":CHIEF,"limit":20}));
+    assert_eq!(runs["ok"], true, "{runs}");
+    assert_eq!(runs["data"]["runs"][0]["id"], "run_7", "{runs}");
+    assert_eq!(runs["data"]["runs"][0]["turn"], "turn:cloud:1", "{runs}");
+    let run = page.rpc(json!({"cmd":"cloud-conversation-run","conversation":CONV,"agent":CHIEF,
+                              "run":"run_7","after_seq":0}));
+    assert_eq!(run["ok"], true, "{run}");
+    assert_eq!(run["data"]["steps"][0]["tool"]["name"], "web_search", "{run}");
+    let paths: Vec<String> = cloud.requests().into_iter().map(|(path, ..)| path).collect();
+    assert!(
+        paths.contains(&format!("/v1/chiefs/{CHIEF}/runs?conversation={CONV}&limit=20")),
+        "{paths:?}"
+    );
+    assert!(
+        paths.contains(&format!("/v1/chiefs/{CHIEF}/runs/run_7?conversation={CONV}&after_seq=0")),
+        "{paths:?}"
+    );
+    // An id that is not a Chief's never reaches the cloud.
+    let bad =
+        page.rpc(json!({"cmd":"cloud-conversation-runs","conversation":CONV,"agent":"user_x"}));
+    assert_eq!(bad["ok"], false, "{bad}");
+    assert!(cloud.requests().iter().all(|(path, ..)| !path.contains("user_x")));
+
     // The lease's cloud events reach the page's stream (the inbox socket's state).
     assert_eq!(page.rpc(json!({"cmd":"cloud-inbox-subscribe"}))["ok"], true);
     let event = page.cloud_event_within(Duration::from_secs(15));
@@ -465,3 +502,74 @@ fn an_open_page_learns_that_the_app_signed_in() {
     assert_eq!(app.rpc(lease(&cloud.base, &person_token()))["ok"], true);
     assert_eq!(page.rpc(json!({"cmd":"cloud-session-status"}))["data"]["state"], "active");
 }
+
+/// The person's pin and "marked unread" of a Cloud conversation
+/// (`conversation-inbox-state-v1`): the page sends `cloud-inbox-op` and the
+/// daemon forwards the Cloud owner's own inbox ops (`inbox.pin`,
+/// `inbox.mark_unread`) to `POST /v1/ops` with the page's key; any other
+/// kind, and any connection that is not the person, is refused before
+/// anything leaves the daemon.
+#[test]
+fn the_persons_page_pins_a_cloud_conversation_through_the_daemon() {
+    let fixture = Fixture::start("pin");
+    let cloud = FakeCloud::start();
+    let token = person_token();
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
+    let (addr, file_token) = fixture.credential();
+    let mut page = Page::open(&addr, &page_credential(&mut app));
+    let identity = page.rpc(json!({"cmd":"identify"}));
+    let capabilities = identity["data"]["capabilities"].as_array().unwrap();
+    assert!(capabilities.iter().any(|v| v == "conversation-inbox-state-v1"), "{identity}");
+
+    let pinned = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
+        "idempotency_key":"pin-1","op":{"kind":"inbox.pin","pinned":true,"position":1_760_000_000_000_u64}}));
+    assert_eq!(pinned["ok"], true, "{pinned}");
+    let marked = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
+        "idempotency_key":"unread-1","op":{"kind":"inbox.mark_unread","unread":true}}));
+    assert_eq!(marked["ok"], true, "{marked}");
+    let requests = cloud.requests();
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    assert!(
+        requests
+            .iter()
+            .all(|(path, bearer, _)| path == "/v1/ops" && *bearer == format!("Bearer {token}")),
+        "{requests:?}"
+    );
+    assert_eq!(
+        requests[0].2,
+        json!({"op":"inbox.pin","params":{"pinned":true,"position":1_760_000_000_000_u64,
+               "conversation":CONV},"idempotency_key":"pin-1"}),
+        "{requests:?}"
+    );
+    assert_eq!(
+        requests[1].2,
+        json!({"op":"inbox.mark_unread","params":{"unread":true,"conversation":CONV},
+               "idempotency_key":"unread-1"}),
+        "{requests:?}"
+    );
+
+    // Default deny: another inbox op, a conversation op, a malformed id.
+    for op in [
+        json!({"kind":"inbox.archive","archived":true}),
+        json!({"kind":"message.send","client_msg_id":"x","parts":[]}),
+    ] {
+        let refused = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
+            "idempotency_key":"deny","op":op}));
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert!(refused.to_string().contains("unsupported_op"), "{refused}");
+    }
+    let bad_id = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":"conv_bad",
+        "idempotency_key":"bad","op":{"kind":"inbox.pin","pinned":true}}));
+    assert_eq!(bad_id["ok"], false, "{bad_id}");
+    // The file token is not the person: refused, nothing sent.
+    let mut agent = Page::open(&addr, &file_token);
+    let foreign = agent.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
+        "idempotency_key":"agent","op":{"kind":"inbox.pin","pinned":true}}));
+    assert_eq!(foreign["ok"], false, "{foreign}");
+    assert_eq!(cloud.requests().len(), 2, "{:?}", cloud.requests());
+}
+
+/// Cloud conversations' attachments through the daemon (`cloud-attachments-v1`).
+#[path = "ws_cloud_conversations/attachments.rs"]
+mod attachments;
