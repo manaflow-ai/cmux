@@ -2,7 +2,7 @@
 import Darwin
 import Foundation
 import os
-import Synchronization
+import os
 
 private let controlLogger = Logger(subsystem: "com.cmuxterm.cua", category: "control")
 
@@ -27,8 +27,8 @@ public final class HelperController: Sendable {
     private let inspector: any PeerInspecting
     private let onExit: @Sendable (Int32) -> Void
     public let admission = AdmissionState()
-    private let server = Mutex<HelperSocketServer?>(nil)
-    private let writeLock = Mutex(())
+    private let server = OSAllocatedUnfairLock<HelperSocketServer?>(initialState: nil)
+    private let writeLock = OSAllocatedUnfairLock(initialState: ())
 
     public init(input: Int32 = STDIN_FILENO, output: Int32 = STDOUT_FILENO, tools: any ToolInvoking,
                 inspector: any PeerInspecting = KernelPeerInspector(),
@@ -64,7 +64,7 @@ public final class HelperController: Sendable {
     }
 
     public func shutdown() {
-        let current = server.withLock { value -> HelperSocketServer? in
+        let current = server.withLockUnchecked { value -> HelperSocketServer? in
             let old = value
             value = nil
             return old
@@ -121,14 +121,14 @@ public final class HelperController: Sendable {
         } catch {
             return send(["type": "error", "error": "socket did not start: \(error)"])
         }
-        server.withLock { $0 = socketServer }
+        server.withLockUnchecked { $0 = socketServer }
         send(["type": "ready", "protocol": HelperWire.protocolVersion, "pid": Int(getpid()), "socket": path])
     }
 
     private func send(_ fields: [String: Any]) { write(HelperWire.line(fields)) }
 
     private func write(_ data: Data) {
-        writeLock.withLock { _ in
+        writeLock.withLockUnchecked { _ in
             data.withUnsafeBytes { raw in
                 var offset = 0
                 while offset < raw.count {

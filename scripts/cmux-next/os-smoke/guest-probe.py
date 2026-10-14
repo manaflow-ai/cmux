@@ -205,8 +205,12 @@ try:
         snap("webkit", "webkit.png")
         step("webkit", bool(state) and "error" not in (opened or {}), {"run": opened, "state": state or rpc("browser.page.state")})
         settings = rpc("settings.open", {"focus": True})
+        # Wait on the page's first frame (debug.page `painted`), then snapshot.
+        page_state = wait(lambda: (lambda s: s if isinstance(s, dict) and s.get("painted") else None)(
+            rpc("debug.page", {"page": "cmux.settings"})), TAB_DEADLINE, alive)
         settings_shot = snap("settings", "settings.png")
-        step("settings", isinstance(settings, dict) and settings.get("opened") is True and settings_shot, {"run": settings})
+        step("settings", isinstance(settings, dict) and settings.get("opened") is True and bool(page_state) and settings_shot,
+             {"run": settings, "page": {k: (page_state or {}).get(k) for k in ("page", "painted", "painted_ms", "language")}})
         sidebar = rpc("action.run", {"action": "toggleSidebar"})
         snap("sidebar", "sidebar.png")
         rpc("action.run", {"action": "toggleSidebar"})
