@@ -16,4 +16,23 @@ struct TabSeparatorVisibility {
         }
         return visible
     }
+
+    /// Chrome's rule over the strip's row: the selected, hovered and dragged tabs hide the lines on
+    /// both sides, and the last tab's line is the one before +. A drop gap counts as the dragged
+    /// tab. Members collapsed into a group chip are out of the row and draw none; a chip is a
+    /// neutral neighbor. None while `tabs.separators` is off.
+    @MainActor static func apply(to strip: TabStripView) {
+        let row = strip.result.slots.filter { !$0.isCollapsed }
+        func index(of id: TabID?) -> Int? { id.flatMap { id in row.firstIndex { $0.id == id } } }
+        let visible = visibleSeparators(
+            tabCount: row.count,
+            selected: index(of: strip.model.selectedID),
+            hovered: index(of: strip.hoveredID),
+            dragged: index(of: strip.drag?.id) ?? index(of: TabStripView.placeholderID)
+        )
+        let shown = strip.metrics.showsSeparators ? Set(visible.map { row[$0].id }) : []
+        for slot in strip.result.slots {
+            strip.cells[slot.id]?.showsSeparator = shown.contains(slot.id)
+        }
+    }
 }

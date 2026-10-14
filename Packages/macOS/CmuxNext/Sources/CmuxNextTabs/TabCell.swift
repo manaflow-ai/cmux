@@ -39,7 +39,6 @@ final class TabCell {
     /// (`TabCell+Motion`).
     var isClosing = false { didSet { if oldValue != isClosing { closingChanged() } } }
     var closingVisibility: TabChromeVisibility?
-    var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
     /// Created on the first occlusion (`occlude(by:)`).
     lazy var occlusionMask = CALayer()
     var style: TabStripStyle = .chrome { didSet { if oldValue != style { layoutLayers() } } }
@@ -84,8 +83,7 @@ final class TabCell {
     let backgroundLayer = CALayer()
     let iconLayer = CALayer()
     let titleLayer = ChromeTextLayer()
-    /// The hairline in the gap after the pill (`TabStripView.updateSeparators`).
-    private let separatorLayer = CALayer()
+    let separatorLayer = TabCell.makeSeparatorLayer()
     /// Fades the clipped title and runs its hover marquee (one mask layer,
     /// present only while the title is clipped).
     private(set) lazy var titleFade = TitleFade(textLayer: titleLayer)
@@ -146,7 +144,6 @@ final class TabCell {
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
-        separatorLayer.opacity = 0
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
@@ -251,8 +248,7 @@ final class TabCell {
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
             iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
-            // The theme's separator tone, stronger than a pane hairline so a 1 pt line reads between tabs.
-            separatorLayer.backgroundColor = Borders.color(Palette.separator.withAlphaComponent(metrics.separatorOpacity)).cgColor
+            applySeparatorColor()
         }
         applyCloseColors()
         applyBadgeColor()
@@ -294,11 +290,7 @@ final class TabCell {
         defer { CATransaction.commit() }
 
         backgroundLayer.frame = bounds
-        // A 1 pt line on the pixel grid, centered in the gap after the pill.
-        let line = max(1 / scale, pixel(1))
-        let lineHeight = pixel(min(m.separatorHeight, slot.height))
-        separatorLayer.frame = CGRect(x: pixel(bounds.maxX + (slot.width - bounds.maxX - line) / 2), y: pixel((slot.height - lineHeight) / 2),
-                                      width: line, height: lineHeight)
+        layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
 
         let midY = bounds.height / 2
