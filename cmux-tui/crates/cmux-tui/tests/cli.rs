@@ -3655,9 +3655,6 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
-#[path = "cli/acpmux_build_homes.rs"]
-mod acpmux_build_homes;
-#[cfg(unix)]
 #[path = "cli/agent_session_start.rs"]
 mod agent_session_start;
 #[cfg(unix)]
