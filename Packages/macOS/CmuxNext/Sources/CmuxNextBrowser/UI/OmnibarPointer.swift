@@ -93,14 +93,20 @@ public class ArrowCursorView: NSView {
         cursorArea = area
     }
 
+    // The row's own area's events stop here; events a subview passed up
+    // the responder chain go on to the superview as before.
     public override func mouseEntered(with event: NSEvent) {
         setCursor(at: event.locationInWindow)
-        super.mouseEntered(with: event)
+        if event.trackingArea == nil || event.trackingArea !== cursorArea { super.mouseEntered(with: event) }
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        if event.trackingArea == nil || event.trackingArea !== cursorArea { super.mouseExited(with: event) }
     }
 
     public override func mouseMoved(with event: NSEvent) {
         setCursor(at: event.locationInWindow)
-        super.mouseMoved(with: event)
+        if event.trackingArea == nil || event.trackingArea !== cursorArea { super.mouseMoved(with: event) }
     }
 
     public override func cursorUpdate(with event: NSEvent) {
