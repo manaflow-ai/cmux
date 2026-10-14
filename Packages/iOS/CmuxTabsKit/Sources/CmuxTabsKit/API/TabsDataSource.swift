@@ -49,8 +49,26 @@ public protocol TabsDataSource: AnyObject, Observable {
     @ViewBuilder func card(for tab: TabsKitTab) -> Card
     /// A snapshot of the tab's page at full screen size for the default card.
     func thumbnail(for id: TabsKitTab.ID) -> UIImage?
-    /// The tab grid is about to appear: refresh thumbnails now.
+    /// The tab grid is about to appear: refresh thumbnails now (once per
+    /// opening; cards are not expected to update while the grid shows).
     func overviewWillAppear()
+    /// The grid became visible (true) or was covered by a page (false):
+    /// stop any card rendering while it is hidden. Default: nothing.
+    func overviewVisibilityChanged(_ visible: Bool)
+    /// The grid started (true) or stopped (false) scrolling: hold card
+    /// updates until it stops, so none lands in a scroll frame.
+    func overviewScrollingChanged(_ scrolling: Bool)
+    /// The grid settled with `id` active. Return true after making the
+    /// tab's card show the live content's current frame (`thumbnail` or
+    /// `card`) and pausing the live content (it keeps showing that frame):
+    /// the kit then shows the static card and hides the live page until
+    /// the grid is left (`resumeLiveContent`). Default false: the active
+    /// card is the live page itself.
+    func showStaticCard(for id: TabsKitTab.ID) -> Bool
+    /// The grid is being left after `showStaticCard(for:)` returned true:
+    /// the live content draws again (the zoom starts from its last frame,
+    /// the same pixels as the card).
+    func resumeLiveContent(_ id: TabsKitTab.ID)
 
     /// A row above the toolbar for the active tab. Default: none.
     @ViewBuilder func accessory(for tab: TabsKitTab, context: TabsKitContentContext) -> Accessory
@@ -105,6 +123,10 @@ extension TabsDataSource where EditingBackground == TabsKitAddressSuggestions {
 extension TabsDataSource {
     public func thumbnail(for id: TabsKitTab.ID) -> UIImage? { nil }
     public func overviewWillAppear() {}
+    public func overviewVisibilityChanged(_ visible: Bool) {}
+    public func overviewScrollingChanged(_ scrolling: Bool) {}
+    public func showStaticCard(for id: TabsKitTab.ID) -> Bool { false }
+    public func resumeLiveContent(_ id: TabsKitTab.ID) {}
     public func goBack(_ id: TabsKitTab.ID) {}
     public func goForward(_ id: TabsKitTab.ID) {}
     public var providesHistoryMenus: Bool { false }

@@ -73,7 +73,9 @@ struct TabCard<Content: View>: View {
             ScaledContent(pageSize: pageSize) { content }
                 .frame(width: width, height: height)
                 .clipShape(.rect(cornerRadius: radius, style: .continuous))
-                .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
+                // A stretchable shadow image: `.shadow` on the clipped card
+                // cost an offscreen pass per card on every scroll frame.
+                .background { CardShadow(radius: radius) }
                 .overlay(alignment: .topTrailing) {
                     if showsClose {
                         Button(action: onClose) {
@@ -129,7 +131,9 @@ struct TabOverview<Source: TabsDataSource>: View {
     var gridInteractive: Bool
     /// The bottom bar takes taps (settled, or a zoom heading here: Done reverses it).
     var controlsInteractive: Bool
-    @Binding var scrollOffset: CGFloat
+    /// Scroll offset and content origin, written on every scroll frame
+    /// (never read by this body, so scrolling does not rebuild the cards).
+    var scroll: GridScrollTracker
     @Binding var position: ScrollPosition
     var onSelect: (String) -> Void
     /// Closes the card's tab; false when refused (it stays).
@@ -140,8 +144,8 @@ struct TabOverview<Source: TabsDataSource>: View {
     /// A tab being created with (+): its card is already in the grid (at
     /// index tabs.count) so the zoom can land on its real frame.
     var pending: TabsKitNewTabOption?
-    /// Origin of the grid's scroll content in the screen's coordinate space.
-    var onContentOrigin: (CGPoint) -> Void = { _ in }
+    /// The grid started (true) or stopped (false) scrolling.
+    var onScrolling: (Bool) -> Void = { _ in }
 
     @Environment(\.tabsKitTheme) private var theme
 
@@ -194,10 +198,15 @@ struct TabOverview<Source: TabsDataSource>: View {
                 // The grid reflows when a tab leaves (the data source removes
                 // it once its close succeeded).
                 .animation(theme.motion.resolve(theme.motion.reflow), value: tabs.map(\.id))
-                .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(TabsScreenSpace.name)).origin }) { onContentOrigin($0) }
+                .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(TabsScreenSpace.name)).origin }) { [scroll] origin in
+                    if scroll.contentOrigin != origin { scroll.contentOrigin = origin }
+                }
             }
             .scrollPosition($position)
-            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, y in scrollOffset = y }
+            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { [scroll] _, y in
+                if scroll.offset != y { scroll.offset = y }
+            }
+            .onScrollPhaseChange { _, phase in onScrolling(phase.isScrolling) }
             .scrollIndicators(.hidden)
             .ignoresSafeArea()
             .scaleEffect(1.06 - 0.06 * shown)
@@ -241,7 +250,11 @@ struct TabOverview<Source: TabsDataSource>: View {
     private func bottomBar(count: Int) -> some View {
         let bar = layout.barRect
         let options = source.newTabOptions
-        return ZStack(alignment: .topLeading) {
+        // One glass container for the bar: the controls share one backdrop
+        // capture, re-rendered on every scroll frame (spacing 0: they never
+        // blend into one shape).
+        return GlassEffectContainer(spacing: 0) {
+        ZStack(alignment: .topLeading) {
             Group {
                 if options.count > 1 {
                     // Several kinds: (+) asks which.
@@ -286,6 +299,7 @@ struct TabOverview<Source: TabsDataSource>: View {
             .accessibilityLabel("Done")
         }
         .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
+        }
     }
 
     private var plusGlyph: some View {
