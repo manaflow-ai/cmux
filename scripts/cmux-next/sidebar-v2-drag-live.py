@@ -17,9 +17,11 @@ on its header); a group into a custom section; a pinned tile back into the
 list at the drop index; a link item into the list (it lists as a row, and a
 click opens its page); a cross-machine drop (refused; SKIP without a second
 machine); Cmd-Z after each step (the undo toast's path); the order after a
-relaunch. Each held drag also checks the drop look `debug.sidebar_rows`
-reports (`drop.indicator`: `line` over the band, `gap` or `into` in a list
-section): one indicator system for every section. Exit 1 when any step FAILs.
+relaunch. Every section draws in the one list (Pinned and custom tiles in
+their section's own arrangement, at their place in the document order), and
+each held drag checks the drop look `debug.sidebar_rows` reports
+(`drop.indicator`: `gap` where the rows or tiles make way, `into` a group
+header): one drop behavior for every section. Exit 1 when any step FAILs.
 """
 import argparse, json, os, socket, subprocess, sys, tempfile, time
 
@@ -204,7 +206,7 @@ try:
     if alpha and len(pinned) >= 2:
         first = pinned[0]["window_frame"]
         to = (first["x"] + first["width"] * 0.8, first["y"] + first["height"] / 2)
-        drag(center(alpha["window_frame"]), to, "v2-1-workspace-into-pinned", indicator="line")
+        drag(center(alpha["window_frame"]), to, "v2-1-workspace-into-pinned", indicator="gap")
         order = [i.get("ref") for i in section_items("sec_pinned")]
         tiles = [i.get("ref") for i in pinned]
         record("workspace into Pinned at index 1",
@@ -224,7 +226,7 @@ try:
         group_id = group.get("group")
         last = pinned[-1]["window_frame"]
         drag(center(group["window_frame"]), (last["x"] + last["width"] * 0.8, last["y"] + last["height"] / 2), "v2-2-group-into-pinned",
-             indicator="line")
+             indicator="gap")
 
         def pinned_group():
             """The group as a list section under the band: its header and Delta, above every machine row."""
@@ -277,7 +279,7 @@ try:
             loose = [r for r in listed if r.get("title") and not r.get("group")]
             return bool(header and loose and header["window_frame"]["y"] < min(r["window_frame"]["y"] for r in loose))
 
-        drag(center(group2["window_frame"]), center(target), "v2-3-group-into-custom", indicator="line")
+        drag(center(group2["window_frame"]), center(target), "v2-3-group-into-custom", indicator="gap")
         record("group into a custom section", bool(wait(in_custom, 5)),
                f"rows={[(r.get('key'), r.get('title'), r.get('group')) for r in window().get('rows', [])]}")
         undo("group into a custom section", lambda: not in_custom())
