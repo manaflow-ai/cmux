@@ -1,7 +1,7 @@
 import AppKit
 public import CmuxNextBrowser
 public import CmuxNextSidebar
-import Observation
+public import Observation
 
 /// The sidebar Now Playing card's source (cx-ouoxo): the browser tab that
 /// plays, in either engine, picked the way macOS Now Playing picks it
