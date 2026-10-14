@@ -231,7 +231,9 @@ extension SidebarListView {
     /// band slot of a pin drop), then swaps it out and runs `then`.
     func land(_ drag: Drag, at slot: NSRect? = nil, then: (@MainActor () -> Void)? = nil) {
         let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0) } }
-        let destination = slot ?? tile
+        // The dragged rows where the layout just applied puts them (their views' model frames), not the
+        // `displayed` geometry: on the document path that can lag the views a held drag moved (ptr5: 36 pt pops).
+        let destination = slot ?? tile ?? settledFrame(drag.hiddenKeys.compactMap { rowViews[$0] })
             ?? SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
         landing = drag
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
@@ -290,7 +292,7 @@ extension SidebarListView {
                 view.alphaValue = 0
             }
         }
-        if let real = droppedFrame(drag), abs(real.minX - drag.lift.frame.minX) > 0.5 || abs(real.minY - drag.lift.frame.minY) > 0.5
+        if let real = settledFrame(drag.heldViews) ?? droppedFrame(drag), abs(real.minX - drag.lift.frame.minX) > 0.5 || abs(real.minY - drag.lift.frame.minY) > 0.5
             || abs(real.width - drag.lift.frame.width) > 0.5 || abs(real.height - drag.lift.frame.height) > 0.5 {
             return land(drag, at: real, then: settled.then)
         }
@@ -299,6 +301,14 @@ extension SidebarListView {
 
     /// The views that show a document drop's item now: its list row, its tile in a block.
     func droppedViews(_ drag: Drag) -> [NSView] {
+        // The list rows that draw the dropped items as the layout just applied (a workspace or group row, a group's
+        // members, a listed item): the card lands on them, in any shape (a tile dropped into the list lands as a row).
+        let items = Set(drag.docItems ?? [])
+        let rows = rowViews.filter { key, view in
+            !(view is SidebarBlockRowView) && (drag.hiddenKeys.contains(key) || model.docDrag?.item(key).map(items.contains) == true)
+        }
+        if !rows.isEmpty { return rows.sorted { $0.value.frame.minY < $1.value.frame.minY }.map(\.value) }
+        // Else the tiles that draw them in a block (a drop into Pinned or another flowed section).
         var views: [NSView] = []
         for id in drag.docItems ?? [] {
             if let view = rowViews[.item(id)] { views.append(view) }
@@ -307,6 +317,14 @@ extension SidebarListView {
             }
         }
         return views
+    }
+
+    /// The frame `views` cover in the list once their springs end: their model frames (additive springs leave
+    /// the model at the final value; the presentation may still move), unioned. Nil without a view in the list.
+    func settledFrame(_ views: [NSView]) -> NSRect? {
+        let frames = views.filter { $0.isDescendant(of: self) }.map { convert($0.bounds, from: $0) }
+        guard let first = frames.first else { return nil }
+        return frames.dropFirst().reduce(first) { $0.union($1) }
     }
 
     /// Where the model shows a document drop's item now: its list row, else its tile in a block.
