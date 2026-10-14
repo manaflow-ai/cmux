@@ -323,10 +323,11 @@ async fn start_mode_answer_ignores_picks_in_preset_and_remote_chats() {
         .await;
     assert_eq!(r["result"]["modeId"], Value::Null, "{r}");
 
-    // A Web chat viewed in the app: its pick is no start mode either.
+    // A Web chat viewed in the app: its pick is no start mode either. (Codex: a
+    // remote chain runs Claude Code only inside the macOS sandbox.)
     let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
-    let (remote, _) = web.chat(&dir, "claude").await;
-    let r = app.call("session/set_mode", json!({"sessionId": remote, "modeId": "default"})).await;
+    let (remote, _) = web.chat(&dir, "codex").await;
+    let r = app.call("session/set_mode", json!({"sessionId": remote, "modeId": "ask"})).await;
     assert!(r.get("error").is_none(), "{r}");
 
     assert_eq!(last_pick(&dir), Value::Null);
@@ -334,6 +335,6 @@ async fn start_mode_answer_ignores_picks_in_preset_and_remote_chats() {
     assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
     assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
     // The Web asks for its own context: acpmux sets no start mode there.
-    assert_eq!(start_mode(&mut web, &dir, "claude").await["modeId"], Value::Null);
+    assert_eq!(start_mode(&mut web, &dir, "codex").await["modeId"], Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
 }
