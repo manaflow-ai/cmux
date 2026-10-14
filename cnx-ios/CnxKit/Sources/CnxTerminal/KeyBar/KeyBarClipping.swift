@@ -128,3 +128,39 @@ public struct KeyBarLayout: Sendable {
         return min(available, keys * Self.keyWidth + (keys - 1) * Self.spacing)
     }
 }
+
+/// Where the joystick's thumb is drawn while dragged (user note 2026-10-14):
+/// it follows the finger past the 32 pt circle, so the finger does not cover
+/// it, up to 1.5x the circle (48 pt from the center); the direction is still
+/// read from the whole vector.
+public struct JoystickGeometry: Sendable {
+    /// The circle's diameter in the key bar.
+    public static let circle: CGFloat = 32
+    /// How far the thumb may travel from the center.
+    public static let travel: CGFloat = circle * 1.5
+
+    public init() {}
+
+    public func thumbOffset(for translation: CGSize) -> CGSize {
+        let distance = hypot(translation.width, translation.height)
+        guard distance > Self.travel else { return translation }
+        let scale = Self.travel / distance
+        return CGSize(width: translation.width * scale, height: translation.height * scale)
+    }
+}
+
+/// The composer's metrics (user note 2026-10-14): the + and send circles sit
+/// with equal insets to the card's leading/trailing, top and bottom edges.
+/// One line of text is exactly as tall as the circles, so the card's 6 pt
+/// padding is the inset on every side.
+public struct ComposerMetrics: Sendable {
+    public static let circle: CGFloat = 36
+    public static let padding: CGFloat = 6
+
+    public init() {}
+
+    /// The text view's top and bottom inset for a font of `lineHeight`.
+    public func verticalTextInset(lineHeight: CGFloat) -> CGFloat {
+        max(4, ((Self.circle - lineHeight) / 2).rounded(.down))
+    }
+}

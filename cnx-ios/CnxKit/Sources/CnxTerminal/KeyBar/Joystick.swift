@@ -67,8 +67,9 @@ final class JoystickEngine {
     /// The finger moved to `translation` from the center.
     func update(_ translation: CGSize) {
         let distance = hypot(translation.width, translation.height)
-        let scale = distance > Self.radius ? Self.radius / distance : 1
-        thumb = CGSize(width: translation.width * scale, height: translation.height * scale)
+        // The thumb follows the finger past the circle, so the finger does
+        // not cover it (user note 2026-10-14); the floating copy draws it.
+        thumb = JoystickGeometry().thumbOffset(for: translation)
         let newGear = Self.gear(for: distance)
         let newDirection = newGear == 0 ? nil : Self.direction(for: translation)
         let crossed = gear == 0 && newGear > 0
@@ -92,7 +93,28 @@ final class JoystickEngine {
         gear = 0
         direction = nil
         thumb = .zero
+        touching = false
+        // The floating thumb springs back before the circle's own takes over
+        // (a bounded animation length, not synchronization).
+        returning = true
+        returnTask?.cancel()
+        returnTask = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: .milliseconds(350))
+            if !Task.isCancelled { self?.returning = false }
+        }
     }
+
+    /// The finger is on the joystick.
+    var touching = false {
+        didSet { if touching { returnTask?.cancel(); returning = false } }
+    }
+    /// Springing back after release.
+    private(set) var returning = false
+    @ObservationIgnored private var returnTask: Task<Void, Never>?
+    /// The circle's center in global coordinates (for the floating thumb).
+    var center: CGPoint = .zero
+    /// The thumb is drawn above the key bar, unclipped, while dragged.
+    var showsFloatingThumb: Bool { touching || returning }
 
     private func fire(_ direction: JoystickDirection) {
         keysSent += 1
@@ -115,9 +137,33 @@ final class JoystickEngine {
 /// 36 pt glass circle with a 14 pt thumb and four faint chevrons, so it
 /// reads as a joystick, not a radio button (SPEC P8). The thumb grows 1.2x
 /// while touched; each cursor step is a light haptic (`JoystickEngine`).
+/// The joystick's thumb while dragged, drawn over the whole terminal page so
+/// the key bar's clip does not cut it: it follows the finger up to 1.5x the
+/// circle and springs back on release (user note 2026-10-14).
+struct JoystickThumbOverlay: View {
+    let engine: JoystickEngine
+
+    var body: some View {
+        GeometryReader { proxy in
+            let origin = proxy.frame(in: .global).origin
+            if engine.showsFloatingThumb {
+                Circle()
+                    .fill(Color.secondary)
+                    .frame(width: 14, height: 14)
+                    .scaleEffect(engine.touching ? 1.2 : 1)
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                    .position(x: engine.center.x - origin.x + engine.thumb.width,
+                              y: engine.center.y - origin.y + engine.thumb.height)
+                    .animation(engine.touching ? nil : .spring(response: 0.3, dampingFraction: 0.6), value: engine.thumb)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 struct Joystick: View {
     let engine: JoystickEngine
-    @State private var touching = false
 
     var body: some View {
         ZStack {
@@ -133,21 +179,23 @@ struct Joystick: View {
             Circle()
                 .fill(Color.secondary)
                 .frame(width: 14, height: 14)
-                .scaleEffect(touching ? 1.2 : 1)
-                .offset(engine.thumb)
-                .animation(engine.gear == 0 ? .spring(response: 0.3, dampingFraction: 0.6) : nil, value: engine.thumb)
-                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: touching)
+                // While dragged the thumb is drawn above the key bar, where
+                // it can leave the circle (`JoystickThumbOverlay`).
+                .opacity(engine.showsFloatingThumb ? 0 : 1)
         }
         .frame(width: 34, height: 40)
+        .onGeometryChange(for: CGPoint.self) { proxy in
+            let frame = proxy.frame(in: .global)
+            return CGPoint(x: frame.midX, y: frame.midY)
+        } action: { engine.center = $0 }
         .contentShape(.rect)
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    if !touching { touching = true }
+                    if !engine.touching { engine.touching = true }
                     engine.update(value.translation)
                 }
                 .onEnded { _ in
-                    touching = false
                     engine.release()
                 }
         )

@@ -212,6 +212,23 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         edge.edge = .bottom
         bottomStack.addInteraction(edge)
 
+        // The joystick's thumb while dragged, above the key bar's clip.
+        let thumb = UIHostingController(rootView: JoystickThumbOverlay(engine: model.joystickEngine))
+        thumb.safeAreaRegions = []
+        thumb.view.backgroundColor = .clear
+        thumb.view.isUserInteractionEnabled = false
+        thumb.view.translatesAutoresizingMaskIntoConstraints = false
+        thumb.overrideUserInterfaceStyle = .dark
+        addChild(thumb)
+        view.addSubview(thumb.view)
+        thumb.didMove(toParent: self)
+        NSLayoutConstraint.activate([
+            thumb.view.topAnchor.constraint(equalTo: view.topAnchor),
+            thumb.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            thumb.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            thumb.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+
         scrollToBottomButton.configuration?.image = UIImage(systemName: "arrow.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
         scrollToBottomButton.configuration?.cornerStyle = .capsule
         scrollToBottomButton.tintColor = .label

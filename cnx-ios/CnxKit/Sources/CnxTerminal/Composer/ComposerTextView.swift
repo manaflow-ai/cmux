@@ -29,7 +29,10 @@ struct ComposerTextView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.textColor = .label
         view.tintColor = .label
-        view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+        // One line is as tall as the + and send circles, so they sit with
+        // equal insets on every side of the card (user note 2026-10-14).
+        let inset = ComposerMetrics().verticalTextInset(lineHeight: view.font?.lineHeight ?? 20)
+        view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.isScrollEnabled = false
         view.keyboardAppearance = .dark
