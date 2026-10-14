@@ -127,7 +127,8 @@ class Job:
         while time.monotonic() < deadline:
             try:
                 self.client = Client(self.socket, timeout=30)
-                if (self.client.call("debug.cef").get("result") or {}).get("ok"):
+                # The socket envelope carries "ok" (the result is the CEF report).
+                if self.client.call("debug.cef").get("ok"):
                     break
             except (OSError, ConnectionError, ValueError):
                 pass
