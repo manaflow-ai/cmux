@@ -6,14 +6,20 @@ import Foundation
 extension DaemonHistoryClient {
     /// Records one step of the location trail (`history.trail.record`, origin user). The daemon runs
     /// the app's step rules (`steps`, quick passes, `jump`) on its own trail, at the app's `time`.
+    /// Answers the daemon's reply: the entry the step landed in and whether its trail changed.
+    @discardableResult
     func recordTrail(window: String, location: HistoryLocation, at time: Date, steps: HistoryStepScope,
-                     jump: Bool) async throws {
+                     jump: Bool) async throws -> (id: String?, recorded: Bool?) {
         let place = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(HistoryTrailLocation(location)))
         var params: [String: JSONValue] = [
             "window": .string(window), "location": place, "at_ms": Self.decimal(time), "steps": .string(steps.rawValue),
         ]
         if jump { params["jump"] = .bool(true) }
-        _ = try await relay.send(operation: "history.trail.record", params: params, idempotencyKey: Self.key())
+        let result = try await relay.send(operation: "history.trail.record", params: params, idempotencyKey: Self.key())
+        guard case .object(let reply) = result, case .object(let value)? = reply["value"] else { return (nil, nil) }
+        let id: String? = if case .string(let id)? = value["id"] { id } else { nil }
+        let recorded: Bool? = if case .bool(let recorded)? = value["recorded"] { recorded } else { nil }
+        return (id, recorded)
     }
 
     /// The daemon's trail, oldest first (at most its 200 entries).
