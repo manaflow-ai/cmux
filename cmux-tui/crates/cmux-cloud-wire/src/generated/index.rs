@@ -121,6 +121,8 @@ pub mod op_names {
     pub const MUX_ACK: &str = "mux.ack";
     pub const MUX_CONFIGURE: &str = "mux.configure";
     pub const NETWORK_LIST: &str = "network.list";
+    pub const PARTICIPANT_AVATAR_GET: &str = "participant.avatar.get";
+    pub const PARTICIPANT_AVATAR_SET: &str = "participant.avatar.set";
     pub const PARTICIPANTS_ADD: &str = "participants.add";
     pub const PARTICIPANTS_REMOVE: &str = "participants.remove";
     pub const PUSH_TARGET_REGISTER: &str = "push.target.register";
@@ -309,6 +311,8 @@ pub mod op_names {
         MUX_ACK,
         MUX_CONFIGURE,
         NETWORK_LIST,
+        PARTICIPANT_AVATAR_GET,
+        PARTICIPANT_AVATAR_SET,
         PARTICIPANTS_ADD,
         PARTICIPANTS_REMOVE,
         PUSH_TARGET_REGISTER,
@@ -500,6 +504,8 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "mux.ack" => visitor.visit::<MuxAckOp>(),
         "mux.configure" => visitor.visit::<MuxConfigureOp>(),
         "network.list" => visitor.visit::<NetworkListOp>(),
+        "participant.avatar.get" => visitor.visit::<ParticipantAvatarGetOp>(),
+        "participant.avatar.set" => visitor.visit::<ParticipantAvatarSetOp>(),
         "participants.add" => visitor.visit::<ParticipantsAddOp>(),
         "participants.remove" => visitor.visit::<ParticipantsRemoveOp>(),
         "push.target.register" => visitor.visit::<PushTargetRegisterOp>(),

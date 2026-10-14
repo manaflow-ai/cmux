@@ -179,6 +179,49 @@ pub struct SessionMeta {
     /// minimap; `hub/bookmarks.rs`). A fork renumbers its copies; a move keeps the log's seqs.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub bookmarks: BTreeSet<u64>,
+    /// The tools the chat has (`hub/tools.rs`).
+    #[serde(default, skip_serializing_if = "ToolInventory::is_empty")]
+    pub tools: ToolInventory,
+}
+
+/// The tools a chat has (`hub/tools.rs`): cmux's own, recorded at each
+/// spawn, then what Claude Code's system/init reports.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolInventory {
+    #[serde(default)]
+    pub rows: Vec<ToolRow>,
+    /// The chat can turn MCP servers off (Claude Code, through
+    /// `--disallowedTools` at each start); ACP harnesses take their tools at
+    /// session start only.
+    #[serde(default)]
+    pub mutable: bool,
+    /// The rows (`mcp:<server>`) this chat turned off. Every start of its
+    /// Claude Code disallows their tools; a fork keeps them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub off: Vec<String>,
+}
+
+impl ToolInventory {
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty() && !self.mutable && self.off.is_empty()
+    }
+}
+
+/// One row of a chat's tool list (the summary's `tools`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolRow {
+    /// `mcp:<server>`, `skill:<name>` or `plugin:<name>`, unique in the chat.
+    pub id: String,
+    pub name: String,
+    /// `mcp`, `skill`, `plugin`, or `cmux` for cmux's own tools.
+    pub kind: String,
+    /// What gives it: `cmux`, or the harness that reported it (`claude`).
+    pub source: String,
+    pub enabled: bool,
+    /// `_acpmux/set_tools` can turn it on or off in this chat.
+    pub can_toggle: bool,
 }
 
 impl SessionMeta {

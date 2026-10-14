@@ -12,6 +12,16 @@ public import AppKit
 /// after the app handled a move while a child window has the key
 /// (`pointerDidMove`). The rects stay for the key window; subviews with
 /// their own rects (the editing omnibar text) take precedence inside it.
+///
+/// A still pointer: while a child window has the key, AppKit sets the
+/// cursor for that window's tracking areas at the end of its display cycle
+/// whenever they change (a Chromium page reloads or changes its own cursor),
+/// and the pointer is outside that window, so it set the arrow over the
+/// omnibar with no move to set the row's cursor again (input-host trace,
+/// 2026-10-14: `-[_NSTrackingAreaAKManager setCursorForMouseLocation:]`
+/// from `displayCycleUpdateStructuralRegions`). After each run loop pass the
+/// row under the pointer sets its cursor again when another one shows
+/// (`keepCursor`).
 public class ArrowCursorView: NSView {
     private var cursorArea: NSTrackingArea?
     /// Owns the row's cursor tracking area, so the area's events end there
@@ -42,7 +52,10 @@ public class ArrowCursorView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         Self.rows.removeAll { $0.row == nil || $0.row === self }
-        if window != nil { Self.rows.append(WeakRow(row: self)) }
+        if window != nil {
+            Self.rows.append(WeakRow(row: self))
+            Self.installCursorKeeper()
+        }
     }
 
     fileprivate func setCursor(at point: NSPoint) {
@@ -76,6 +89,48 @@ public class ArrowCursorView: NSView {
             guard let row = entry.row, let window = row.window, window !== key, window.isVisible else { continue }
             let point = window.convertPoint(fromScreen: location)
             guard row.visibleRect.contains(row.convert(point, from: nil)), !row.isHiddenOrHasHiddenAncestor else { continue }
+            guard NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0) == window.windowNumber else { return }
+            row.setCursor(at: point)
+            return
+        }
+    }
+}
+
+extension ArrowCursorView {
+    // MARK: A still pointer, while a child window has the key
+
+    private static var cursorKeeper: CFRunLoopObserver?
+
+    /// One main run loop observer, after every other observer of the pass
+    /// (AppKit's display cycle runs in Core Animation's commit, before it).
+    /// Only a beforeWaiting observer: it runs in passes that other work started and never wakes
+    /// the run loop itself (no timer, no re-post). `CMUX_NEXT_CURSOR_KEEPER=off` (DEBUG) leaves it
+    /// out, for the idle comparison.
+    private static func installCursorKeeper() {
+        guard cursorKeeper == nil else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_CURSOR_KEEPER"] == "off" { return }
+        #endif
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { _, _ in
+            MainActor.assumeIsolated { ArrowCursorView.keepCursor() } // main-proof: an observer of the main run loop
+        }
+        cursorKeeper = observer
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// With a top-level key window it returns after one property read. While
+    /// a child window has the key it returns after one cursor comparison when
+    /// the cursor is the one the row under the pointer set last; otherwise
+    /// the row under the pointer sets its cursor again (the same checks as
+    /// `pointerDidMove`). No allocation.
+    private static func keepCursor() {
+        guard let key = NSApp.keyWindow, key.parent != nil else { return }
+        let location = NSEvent.mouseLocation
+        for entry in rows {
+            guard let row = entry.row, let window = row.window, window !== key, window.isVisible else { continue }
+            let point = window.convertPoint(fromScreen: location)
+            guard row.visibleRect.contains(row.convert(point, from: nil)), !row.isHiddenOrHasHiddenAncestor else { continue }
+            guard NSCursor.current !== (row.trackedCursor ?? OmnibarPointer.cursor(.toolbar)).cursor else { return }
             guard NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0) == window.windowNumber else { return }
             row.setCursor(at: point)
             return

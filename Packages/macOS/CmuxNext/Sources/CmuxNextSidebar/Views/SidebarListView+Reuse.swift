@@ -7,12 +7,17 @@ extension SidebarListView {
     /// never animated, so nothing flies in from its old row, cx-ai79).
     func dequeue(_ key: SidebarRowKey, rebinding: Bool = false) -> SidebarRowView {
         let view = rowPool.take(for: key, rebinding: rebinding)
+        view.isHidden = false
         wire(view, key: key)
         return view
     }
+    /// A row view that leaves the list parks hidden in place: taking it out of the window and adding
+    /// it back on each scroll realization re-registered its controls' constraints and window state
+    /// (16% of the main thread while scrolling 1,000 rows, perf round 2). A view in another superview
+    /// (a lift) leaves it, and a view the pool evicts leaves the list.
     func recycle(_ view: SidebarRowView) {
-        view.removeFromSuperview()
-        rowPool.put(view)
+        if view.superview === self { view.isHidden = true } else { view.removeFromSuperview() }
+        for evicted in rowPool.put(view) where evicted.superview === self { evicted.removeFromSuperview() }
     }
     /// Per-key callbacks, set on every dequeue so recycled views never keep
     /// a previous row's target.

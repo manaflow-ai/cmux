@@ -15,6 +15,9 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 type Inset = { spread: number; alpha: number };
 
 await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
+  /** The composer edge's alpha over this page's transparent background, and its quiet focus step: 8% text over the edge. */
+  const EDGE = 0.18;
+  const FOCUS = 0.08 + 0.92 * EDGE;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -96,7 +99,8 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
         for (const { spread } of rest) expect(devicePixels(spread, scale), `${id} rim at ${scale}x`).toBe(1);
       }
       // The rims keep their colors: only the width changed.
-      expect((await insets(page, "composer"))[0]?.alpha, "composer rim alpha").toBeCloseTo(0.16, 2);
+      // The rim is the composer edge hairline (--acpmux-composer-edge: 18% text, hq#1957).
+      expect((await insets(page, "composer"))[0]?.alpha, "composer rim alpha").toBeCloseTo(EDGE, 2);
       const shell = await insets(page, "shell");
       expect(shell.length, "shell draws a rim").toBeGreaterThan(0);
       for (const { spread } of shell)
@@ -109,7 +113,7 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
         await page.focus(`#${field}`);
         const ring = await insets(page, id);
         expect(ring.length, `${id} draws a focus ring`).toBeGreaterThan(0);
-        if (id === "composer") expect(ring[0]?.alpha, "composer focus rim alpha").toBeCloseTo(0.23, 2);
+        if (id === "composer") expect(ring[0]?.alpha, "composer focus rim alpha").toBeCloseTo(FOCUS, 2);
         for (const { spread } of ring) {
           const pixels = devicePixels(spread, scale);
           expect(Number.isInteger(pixels) && pixels >= 1, `${id} focus ring at ${scale}x is ${pixels} device px`).toBe(
