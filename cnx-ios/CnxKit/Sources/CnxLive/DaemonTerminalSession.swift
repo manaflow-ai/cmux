@@ -121,7 +121,7 @@ public final class DaemonTerminalSession: TerminalSession {
         eventTask = nil
         handler = nil
         client = nil
-        inputClient = nil
+        dropInputLane()
         outbox.removeAll()
         input.removeAll()
     }
@@ -187,7 +187,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func channelEnded(_ client: DaemonClient) {
         guard self.client === client else { return }
         self.client = nil
-        inputClient = nil
+        dropInputLane()
         attached = false
         draining = false
         guard handler != nil, !ended else { return }
@@ -303,7 +303,10 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { [weak self] in
             guard let lane = try? await openInput() else { return }
             await lane.start()
-            guard let self, self.client === main, self.attached else { return }
+            guard let self, self.client === main, self.attached, self.inputClient == nil else {
+                await lane.close()
+                return
+            }
             self.inputClient = lane
             let events = lane.events
             Task { [weak self] in
@@ -312,6 +315,13 @@ public final class DaemonTerminalSession: TerminalSession {
                 self.inputClient = nil
             }
         }
+    }
+
+    /// Closes the input-lane channel (the Mac drops its daemon connection).
+    private func dropInputLane() {
+        guard let lane = inputClient else { return }
+        inputClient = nil
+        Task { await lane.close() }
     }
 
     /// Sends queued keystrokes as one `send`, one request at a time, on the
@@ -325,7 +335,25 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let reply = try await target.request("send", params: ["surface": surface, "bytes": batch.base64EncodedString()])
+                let encoded = batch.base64EncodedString()
+                let request: @Sendable () async throws -> Data = { try await target.request("send", params: ["surface": surface, "bytes": encoded]) }
+                // A lane request gets an answer within seconds or the lane is
+                // given up. The batch is not sent again then: the Mac may
+                // already have typed it, and a doubled Return runs a command
+                // twice.
+                let reply: Data
+                if target !== client {
+                    guard let answer = try await Self.within(.seconds(10), request) else {
+                        log.error("send on the input lane got no answer; using the attach channel")
+                        if inputClient === target { dropInputLane() }
+                        inputDraining = false
+                        drainInput()
+                        return
+                    }
+                    reply = answer
+                } else {
+                    reply = try await request()
+                }
                 if let error = Self.error(in: reply) {
                     lastError = error
                     log.error("send failed: \(error, privacy: .public)")
@@ -336,7 +364,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 lastError = LinkController.reason(error)
                 input.insert(batch, at: 0)
                 if inputClient === target {
-                    inputClient = nil
+                    dropInputLane()
                 } else if self.client === target {
                     self.client = nil
                     inputClient = nil
@@ -347,6 +375,28 @@ public final class DaemonTerminalSession: TerminalSession {
             inputDraining = false
             drainInput()
         }
+    }
+
+    /// `operation`'s result, or nil when it takes longer than `limit`. Does
+    /// not wait for `operation` to notice cancellation (a request on a dead
+    /// channel never does).
+    private static func within(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> Data) async throws -> Data? {
+        let once = RaceOnce()
+        let result: Result<Data?, any Error> = await withCheckedContinuation { continuation in
+            let work = Task {
+                let result: Result<Data?, any Error>
+                do { result = .success(try await operation()) } catch { result = .failure(error) }
+                if once.claim() { continuation.resume(returning: result) }
+            }
+            Task {
+                try? await Task.sleep(for: limit)
+                if once.claim() {
+                    work.cancel()
+                    continuation.resume(returning: .success(nil))
+                }
+            }
+        }
+        return try result.get()
     }
 
     private static func error(in reply: Data) -> String? {

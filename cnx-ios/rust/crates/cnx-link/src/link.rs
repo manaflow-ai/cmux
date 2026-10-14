@@ -39,6 +39,8 @@ const CHANNEL_QUEUE_BYTES: usize = 256 * 1024;
 /// The writer flushes after this many bytes, so the transport sees frames
 /// in priority order rather than one large batch.
 const FLUSH_BYTES: usize = 64 * 1024;
+/// How long an attached lane may stay silent before it is given up.
+const LANE_CONFIRM: Duration = Duration::from_secs(10);
 /// How long opening an input-lane channel waits for a negotiated lane that
 /// is still connecting before it falls back to the main stream.
 const LANE_WAIT: Duration = Duration::from_secs(2);
@@ -96,7 +98,8 @@ pub enum LaneState {
     /// The peer does not support it (or the lane failed): input-lane
     /// channels ride the main stream at input priority.
     Unavailable,
-    /// Negotiated; the second stream is still opening.
+    /// Negotiated; the second stream is opening, or attached but the peer
+    /// has not been heard on it yet.
     Pending,
     /// Attached.
     Ready,
@@ -334,6 +337,8 @@ struct Inner {
     /// Per stream: [`MAIN`] and [`INPUT`].
     outboxes: [Outbox; 2],
     lane: watch::Sender<LaneState>,
+    /// The lane's stream was attached (at most once).
+    lane_attached: AtomicBool,
     /// When the reader last received a frame. Any inbound frame proves the
     /// peer is alive, so a busy link never times out on a slow pong.
     last_rx: Mutex<Instant>,
@@ -456,6 +461,7 @@ impl Link {
             role,
             outboxes: [Outbox::default(), Outbox::default()],
             lane: watch::channel(LaneState::Unavailable).0,
+            lane_attached: AtomicBool::new(false),
             last_rx: Mutex::new(Instant::now()),
             channels: Mutex::new(HashMap::new()),
             next_channel: AtomicU32::new(role.first_channel()),
@@ -557,7 +563,7 @@ impl Link {
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
     {
-        if self.is_closed() || *self.inner.lane.borrow() == LaneState::Ready {
+        if self.is_closed() || self.inner.lane_attached.swap(true, Ordering::AcqRel) {
             return;
         }
         let (read_half, write_half) = tokio::io::split(stream);
@@ -578,8 +584,33 @@ impl Link {
             FramedRead::new(read_half, FrameCodec),
             incoming,
         ));
-        self.inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).extend([writer, reader]);
-        self.inner.lane.send_replace(LaneState::Ready);
+        // The lane is used only once the peer is heard on it: each side
+        // says hello (a ping) when it attaches, and the first frame that
+        // arrives on the lane confirms it. A lane only one side attached
+        // (one side's 10 s wait ran out) is never used.
+        self.inner.lane.send_if_modified(|state| {
+            let changed = *state == LaneState::Unavailable;
+            if changed {
+                *state = LaneState::Pending;
+            }
+            changed
+        });
+        let _ = self.inner.push(
+            INPUT,
+            Class::Control,
+            Frame::new(0, FrameType::Ping, 0u64.to_be_bytes().to_vec()),
+        );
+        let link = self.clone();
+        let confirm = tokio::spawn(async move {
+            let mut state = link.inner.lane.subscribe();
+            let confirmed =
+                tokio::time::timeout(LANE_CONFIRM, state.wait_for(|state| *state != LaneState::Pending))
+                    .await;
+            if confirmed.is_err() {
+                link.input_lane_failed("the peer never answered on the lane");
+            }
+        });
+        self.inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).extend([writer, reader, confirm]);
         tracing::debug!(role = ?self.inner.role, "input lane attached");
     }
 
@@ -732,6 +763,16 @@ async fn read_loop<R>(
             None => break "peer closed the link".to_owned(),
         };
         inner.received();
+        if stream == INPUT {
+            // The peer is heard on the lane: use it.
+            inner.lane.send_if_modified(|state| {
+                let changed = *state == LaneState::Pending;
+                if changed {
+                    *state = LaneState::Ready;
+                }
+                changed
+            });
+        }
         match frame.kind {
             FrameType::Ping => {
                 let _ = inner.push(stream, Class::Control, Frame::new(0, FrameType::Pong, frame.payload));
@@ -1162,6 +1203,30 @@ mod tests {
     async fn input_lane_stream_bypasses_a_flood() {
         let (input, _) = flood_then_measure(true).await;
         assert!(input < Duration::from_millis(100), "input echo took {input:?}");
+    }
+
+    /// A lane only this side attached (the peer's wait ran out) is never
+    /// used: input falls back to the main stream instead of vanishing.
+    #[tokio::test]
+    async fn a_lane_the_peer_never_attached_is_not_used() {
+        let (phone, mac) = pair();
+        let (la, _lb_unread) = tokio::io::duplex(64 * 1024);
+        phone.expect_input_lane();
+        phone.attach_input_lane(la);
+        assert_eq!(phone.input_lane(), LaneState::Pending);
+        let server = tokio::spawn(async move {
+            let mut incoming = mac.accept().await.expect("incoming");
+            assert_eq!(incoming.lane, Lane::Input);
+            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                incoming.channel.send(bytes).await.unwrap();
+            }
+        });
+        let mut channel = phone.open_on("input", serde_json::json!({}), Lane::Input).await.unwrap();
+        assert!(!channel.sender.on_input_stream());
+        channel.send(Bytes::from_static(b"k")).await.unwrap();
+        assert_eq!(channel.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"k"))));
+        phone.close("done");
+        let _ = server.await;
     }
 
     /// Writes are split into DATA_CHUNK frames.

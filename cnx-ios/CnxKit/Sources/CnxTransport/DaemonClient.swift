@@ -39,6 +39,14 @@ public actor DaemonClient {
         }
     }
 
+    /// Closes the channel (the Mac drops its daemon connection) and fails
+    /// every request still waiting.
+    public func close() async {
+        readTask?.cancel()
+        await channel.close(code: "eof", reason: "")
+        finish(LinkError(code: "closed", message: "daemon channel closed"))
+    }
+
     private func fail(id: String, error: any Error) {
         pending.removeValue(forKey: id)?.resume(throwing: error)
     }
