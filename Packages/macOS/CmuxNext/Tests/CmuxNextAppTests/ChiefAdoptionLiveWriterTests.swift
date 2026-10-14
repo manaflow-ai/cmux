@@ -11,7 +11,9 @@ import CmuxNextHomeEngine
 /// writer committed before the backup.
 @Suite(.enabled(if: FileManager.default.isExecutableFile(atPath: "/usr/bin/sqlite3"), "no /usr/bin/sqlite3"))
 struct ChiefAdoptionLiveWriterTests {
-    @Test func theBackupDatabaseOpensOnItsOwnWithTheRowsCommittedBeforeIt() throws {
+    @Test(.timeLimit(.minutes(1)))
+    func theBackupDatabaseOpensOnItsOwnWithTheRowsCommittedBeforeIt() throws {
+        signal(SIGPIPE, SIG_IGN)  // a writer that ended must fail the test, not stop the runner
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cnd-adopt-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
         let home = ChiefHome(root: root.appendingPathComponent("chief/default"), isolated: false, buildID: ChiefHome.nightlyBundleID)
@@ -42,10 +44,10 @@ struct ChiefAdoptionLiveWriterTests {
         send("SELECT 'ready';")
         let ready = try Self.readUntil("ready", from: output.fileHandleForReading)
         #expect(ready, "the writer did not commit its rows")
-        // Still writing while the backup runs.
-        for batch in 0..<50 {
-            send("INSERT INTO messages(body) VALUES ('during \(batch)');")
-        }
+        // Still writing while the backup runs: an open write transaction (never committed).
+        send("BEGIN; INSERT INTO messages(body) VALUES ('uncommitted');")
+        send("SELECT 'writing';")
+        #expect(try Self.readUntil("writing", from: output.fileHandleForReading), "the writer did not open its transaction")
 
         let outcome = try ChiefAdoption(home: home).run(by: ChiefHome.nightlyBundleID)
         guard case .adopted(let backup?) = outcome else {
@@ -60,6 +62,11 @@ struct ChiefAdoptionLiveWriterTests {
         #expect(Self.text(db, "PRAGMA integrity_check") == "ok")
         #expect(Self.text(db, "SELECT count(*) FROM messages WHERE body LIKE 'before %'") == "500",
                 "the backup lost rows committed before it")
+        #expect(Self.text(db, "SELECT count(*) FROM messages WHERE body = 'uncommitted'") == "0")
+        // One self-contained file: rollback journal (header bytes 18-19 are 1), no -wal beside it.
+        let header = try Data(contentsOf: copy).prefix(20)
+        #expect(header.count == 20 && header[18] == 1 && header[19] == 1, "the copy is still a WAL database")
+        #expect(!FileManager.default.fileExists(atPath: copy.path + "-wal"))
         // The rest of the home is cloned as before.
         #expect(FileManager.default.contents(atPath: backup.appendingPathComponent("optchat/memory.md").path) == Data("memory".utf8))
     }

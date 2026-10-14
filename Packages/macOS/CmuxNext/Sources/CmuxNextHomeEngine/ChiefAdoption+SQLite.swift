@@ -33,6 +33,19 @@ nonisolated extension ChiefAdoption {
         ["-wal", "-shm", "-journal"].contains { name.hasSuffix($0) && databases.contains(String(name.dropLast($0.count))) }
     }
 
+    /// An APFS clone of one regular file (a byte copy where cloning fails).
+    static func cloneFile(from source: URL, to target: URL) throws {
+        if clonefile(source.path, target.path, UInt32(CLONE_NOFOLLOW)) != 0 {
+            try FileManager.default.copyItem(at: source, to: target)
+        }
+    }
+
+    /// Why a database copy failed; `busy`: another connection held it too long (retried next launch).
+    struct BackupError: Error, CustomStringConvertible {
+        var description: String
+        var busy: Bool
+    }
+
     /// Copies the database at `source` to the new file `target` with the online backup API.
     static func backUpDatabase(from source: URL, to target: URL) throws {
         var from: OpaquePointer?
@@ -46,16 +59,24 @@ nonisolated extension ChiefAdoption {
               sqlite3_open_v2(target.path, &to, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
               let from, let to else { throw failure("open", from ?? to, source) }
         sqlite3_busy_timeout(from, 10_000)
+        // When this is the last connection, its close checkpoints: as durably as the owner does.
+        sqlite3_exec(from, "PRAGMA fullfsync=ON; PRAGMA checkpoint_fullfsync=ON", nil, nil, nil)
         guard let backup = sqlite3_backup_init(to, "main", from, "main") else { throw failure("backup_init", to, source) }
         let step = sqlite3_backup_step(backup, -1)
         let finish = sqlite3_backup_finish(backup)
-        guard step == SQLITE_DONE, finish == SQLITE_OK else { throw failure("backup_step \(step)", to, source) }
-        // One file: the copy keeps no WAL of its own.
-        guard sqlite3_exec(to, "PRAGMA journal_mode=DELETE", nil, nil, nil) == SQLITE_OK else { throw failure("journal_mode", to, source) }
+        guard step == SQLITE_DONE, finish == SQLITE_OK else {
+            throw failure("backup_step \(step)", to, source, busy: step == SQLITE_BUSY || step == SQLITE_LOCKED)
+        }
+        // One file: the copy keeps no WAL of its own (the pragma answers the mode it set).
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(to, "PRAGMA journal_mode=DELETE", -1, &statement, nil) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW, let mode = sqlite3_column_text(statement, 0),
+              String(cString: mode) == "delete" else { throw failure("journal_mode", to, source) }
     }
 
-    private static func failure(_ what: String, _ db: OpaquePointer?, _ source: URL) -> NSError {
+    private static func failure(_ what: String, _ db: OpaquePointer?, _ source: URL, busy: Bool = false) -> BackupError {
         let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "no handle"
-        return NSError(domain: "ChiefAdoption", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(what) \(source.lastPathComponent): \(message)"])
+        return BackupError(description: "\(what) \(source.lastPathComponent): \(message)", busy: busy)
     }
 }

@@ -49,6 +49,7 @@ public nonisolated struct ChiefAdoption: Sendable {
         guard !fm.fileExists(atPath: record.path) else { return .nothingToDo }
         let names = (try? fm.contentsOfDirectory(atPath: home.root.path)) ?? []
         var backup: URL?
+        var raw: [String] = []
         if names.contains(where: { $0 != "state" }) {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withYear, .withMonth, .withDay, .withTime, .withTimeZone]
@@ -61,7 +62,7 @@ public nonisolated struct ChiefAdoption: Sendable {
             // clone leaves no backup that looks whole, and no partial copy.
             let partial = backups.appendingPathComponent(".partial-\(UUID().uuidString)", isDirectory: true)
             do {
-                try Self.cloneTree(from: home.root, to: partial)
+                try Self.cloneTree(from: home.root, to: partial, raw: &raw)
                 try fm.moveItem(at: partial, to: target)
             } catch {
                 try? fm.removeItem(at: partial)
@@ -70,7 +71,7 @@ public nonisolated struct ChiefAdoption: Sendable {
             backup = target
         }
         let json: [String: Any] = ["by": by, "at": ISO8601DateFormatter().string(from: now),
-                                   "backup": backup?.path ?? NSNull()]
+                                   "backup": backup?.path ?? NSNull(), "raw": raw]
         try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]).write(to: record, options: .atomic)
         return .adopted(backup: backup)
     }
@@ -79,7 +80,10 @@ public nonisolated struct ChiefAdoption: Sendable {
     /// their modes, regular files as APFS clones (a byte copy where cloning
     /// fails), symbolic links as links; sockets, FIFOs and devices skipped.
     /// The top folder is followed when it is a link (the home may be one).
-    static func cloneTree(from source: URL, to target: URL, top: Bool = true) throws {
+    /// A SQLite database goes through the online backup; one it cannot read
+    /// (not busy: corrupt, locked in another way, out of space) is cloned
+    /// raw with its journal files and named in `raw`, so the backup still ends.
+    static func cloneTree(from source: URL, to target: URL, top: Bool = true, raw: inout [String]) throws {
         var info = stat()
         guard (top ? stat(source.path, &info) : lstat(source.path, &info)) == 0 else { throw Self.posixError() }
         guard (info.st_mode & S_IFMT) == S_IFDIR else { throw POSIXError(.ENOTDIR) }
@@ -94,13 +98,21 @@ public nonisolated struct ChiefAdoption: Sendable {
             guard lstat(from.path, &entry) == 0 else { continue }
             switch entry.st_mode & S_IFMT {
             case S_IFDIR:
-                try cloneTree(from: from, to: to, top: false)
+                try cloneTree(from: from, to: to, top: false, raw: &raw)
             case S_IFREG where databases.contains(name):
-                try Self.backUpDatabase(from: from, to: to)
-            case S_IFREG:
-                if clonefile(from.path, to.path, UInt32(CLONE_NOFOLLOW)) != 0 {
-                    try FileManager.default.copyItem(at: from, to: to)
+                do {
+                    try Self.backUpDatabase(from: from, to: to)
+                } catch let error as BackupError where error.busy {
+                    throw error
+                } catch {
+                    try? FileManager.default.removeItem(at: to)
+                    for file in [name] + ["-wal", "-shm", "-journal"].map({ name + $0 }) where names.contains(file) {
+                        try Self.cloneFile(from: source.appendingPathComponent(file), to: target.appendingPathComponent(file))
+                    }
+                    raw.append(from.path)
                 }
+            case S_IFREG:
+                try Self.cloneFile(from: from, to: to)
             case S_IFLNK:
                 let destination = try FileManager.default.destinationOfSymbolicLink(atPath: from.path)
                 try FileManager.default.createSymbolicLink(atPath: to.path, withDestinationPath: destination)
