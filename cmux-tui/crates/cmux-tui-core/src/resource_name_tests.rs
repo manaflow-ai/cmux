@@ -163,3 +163,29 @@ fn name_source_refusals_are_typed_operation_failures() {
         auto(2).apply(&mut tab(None, NameSource::Auto, 2), None, GENERATION, 2).unwrap_err();
     assert_eq!(refusal_reason(empty_tab), ("operation.failed".into(), json!("name_empty")));
 }
+
+/// A v1 `rename-workspace` carries `expected_generation` as the mutation's
+/// registry guard. A user rename must not turn it into name authority, so its
+/// fingerprint and errors stay as before name provenance.
+#[test]
+fn workspace_name_source_user_rename_ignores_the_mutation_generation() {
+    for source in [None, Some(NameSource::User)] {
+        let user = NameUpdate::from_request(source, Some(GENERATION.into()), None).unwrap();
+        assert!(user.fingerprint().is_none(), "{source:?}");
+        let mut target = workspace("workspace-1", NameSource::Auto, 0);
+        user.apply_workspace(&mut target, "Billing".into(), "generation-b").unwrap();
+        assert_eq!(target.name_source, NameSource::User);
+    }
+    let automatic =
+        NameUpdate::from_request(Some(NameSource::Auto), Some(GENERATION.into()), Some(0)).unwrap();
+    assert_eq!(automatic.fingerprint().unwrap()["expected_generation"], GENERATION);
+    let retired = automatic
+        .apply_workspace(
+            &mut workspace("workspace-1", NameSource::Auto, 0),
+            "Fix Login".into(),
+            "generation-b",
+        )
+        .unwrap_err();
+    assert_eq!(resource_code(&retired), Some("operation.failed"));
+    assert!(NameUpdate::from_request(Some(NameSource::Auto), None, Some(0)).is_err());
+}
