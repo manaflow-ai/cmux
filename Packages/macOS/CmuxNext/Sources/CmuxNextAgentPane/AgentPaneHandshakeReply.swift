@@ -34,6 +34,7 @@ enum AgentPaneHandshakeReply {
             // A chat on another machine does not: its remote wire carries only the prompt text.
             if model.sessionId == nil, model.seed?.workspaceContext == true, handshake.connection?.remote == nil {
                 handshake.workspaceContext = true
+                if model.seed?.paletteContext == true { handshake.contextKind = "palette" }
             }
             // A new tab page is a new chat on every host, the mock included: the page
             // never falls back to the most recent session behind it. Its chat starts in

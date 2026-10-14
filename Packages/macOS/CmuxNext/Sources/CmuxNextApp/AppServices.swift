@@ -188,6 +188,8 @@ final class AppServices {
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
+    /// Palette AI's panel (cx-vtxi7): the palette's Ask AI chats.
+    private(set) lazy var paletteAsk = makePaletteAsk()
     /// Internal page tabs (Settings, Debug Settings, the App Store).
     let pages = InternalPageTabStore()
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.

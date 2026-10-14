@@ -53,6 +53,10 @@ public struct PalettePageSpec {
     /// Rows made from the query itself, shown first (a save picker's "Save
     /// “name”" row): the query is an answer here, not only a search.
     public var queryItems: (@MainActor (String) -> [PaletteItem])?
+    /// Rows made from the query, shown after every match (the root's Ask AI
+    /// row, cx-vtxi7): a command match keeps Return, and the row is first
+    /// only when nothing else matches.
+    public var trailingQueryItems: (@MainActor (String) -> [PaletteItem])?
     /// False: the query never filters the providers' rows (a save picker's
     /// folders stay listed while the name is typed).
     public var filtersByQuery: Bool

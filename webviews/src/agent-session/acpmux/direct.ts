@@ -31,7 +31,7 @@ import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
-import { WORKSPACE_CONTEXT } from "./workspaceContext";
+import { contextFor } from "./workspaceContext";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -58,6 +58,9 @@ export type AcpmuxHostConfig = {
   /** A chat opened for its workspace (Cmd-I's chat dock): its first prompt carries the workspace
    *  context (workspaceContext.ts), hidden from the transcript. */
   workspaceContext?: boolean;
+  /** Which context `workspaceContext` adds: absent is the docked chat's workspace text,
+   *  `"palette"` the command palette's whole-app text (Palette AI, cx-vtxi7). */
+  contextKind?: string;
 };
 
 /** A harness's own session for acpmux to adopt (`_meta.acpmux.adopt`). */
@@ -1853,7 +1856,7 @@ export class AcpmuxDirectClient {
     let taken = false;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
-    const context = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
+    const context = this.host.workspaceContext && !this.contextInFlight ? contextFor(this.host.contextKind) : undefined;
     if (context) this.contextInFlight = true;
     const accept = () => {
       this.promptAccepts.delete(promptId);

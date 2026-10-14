@@ -35,7 +35,25 @@ extension PaletteController {
             scope: .root
         )
         page.mergesSectionsWhenTyping = true
+        if let ask = sources.askAI {
+            page.trailingQueryItems = { query in Self.askAIItems(query, ask: ask) }
+        }
         return page
+    }
+
+    /// The root's Ask AI row for a typed query (cx-vtxi7). It goes after
+    /// every match, so the palette stays a command list: the agent starts only
+    /// when the person picks the row (first when nothing else matches).
+    static func askAIItems(_ query: String, ask: @escaping @MainActor (String) -> Void) -> [PaletteItem] {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return [] }
+        let run = PaletteCommand(id: "askAI", title: PaletteStrings.askAICommand, symbol: "sparkles",
+                                 effect: .perform { ask(text) })
+        var item = PaletteItem(id: "palette.askAI", title: PaletteStrings.askAITitle(text), subtitle: PaletteStrings.askAISubtitle,
+                               symbol: "sparkles", primary: run)
+        // A different question each time: usage would rank nothing.
+        item.frecencyKey = nil
+        return [item]
     }
 
     /// Scope `commands` (`>`): catalog actions only.

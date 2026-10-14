@@ -459,8 +459,10 @@ final class AgentTabStore {
 
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.
-    func standaloneView(seed: AgentPaneSeed, session: String? = nil) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: AgentPaneSeedSource(seed))) else { return nil }
+    func standaloneView(seed: AgentPaneSeed, session: String? = nil, context: Bool = false, palette: Bool = false) -> AgentPaneView? {
+        let source = AgentPaneSeedSource(seed)
+        (source.workspaceContext, source.paletteContext) = (context, palette)
+        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: source)) else { return nil }
         standaloneViews.add(view)
         return view
     }

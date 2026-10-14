@@ -78,6 +78,9 @@ public final class AgentPaneSeedSource {
     /// session the page adds the workspace context to its first prompt, hidden from the
     /// transcript (`_meta.acpmux.context`). Held apart from the read seed, which a slow read drops.
     public var workspaceContext = false
+    /// With ``workspaceContext``: the chat was asked from the command palette (Palette AI,
+    /// cx-vtxi7), so the context covers every window, not one workspace.
+    public var paletteContext = false
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read

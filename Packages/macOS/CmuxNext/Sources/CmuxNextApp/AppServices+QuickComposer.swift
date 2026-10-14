@@ -23,6 +23,38 @@ extension AppServices {
         )
     }
 
+    /// Palette AI (cx-vtxi7): the same compact chat panel, holding each started chat so the person
+    /// asks follow-ups there. Its header and ⌘Return turn the chat into its own workspace (the
+    /// same session, transcript kept), not a tab.
+    func makePaletteAsk() -> QuickComposerController {
+        QuickComposerController(
+            makeChat: { [weak self] session in
+                self?.agentTabs.standaloneView(seed: AgentPaneSeed(surface: .quick), session: session)
+            },
+            makeWindow: { QuickComposerPanel() },
+            openInWindow: { [weak self] session in self?.convertPaletteChat(session: session) ?? false },
+            startInBackground: { _ in true }, floating: { true },
+            context: { [weak self] in await FloatingChatContext.focused(in: self) },
+            heldSessionKey: "paletteAsk.heldSession")
+    }
+
+    /// The palette's Ask AI row: a new chat sends `question` with the palette context.
+    func askFromPalette(_ question: String) {
+        guard agentTabs.canHostChat,
+              let chat = agentTabs.standaloneView(seed: AgentPaneSeed(prompt: question, promptBy: .person, surface: .quick),
+                                                  context: true, palette: true)
+        else { return }
+        paletteAsk.ask(with: chat)
+    }
+
+    /// Convert to Workspace: `agent.openSessionWorkspace`'s path for the palette chat's session.
+    private func convertPaletteChat(session: String?) -> Bool {
+        guard let session, let work = try? AgentSessionWorkspace.open(session: session, name: nil, cwd: nil, services: self)
+        else { return false }
+        registry.track(work)
+        return true
+    }
+
     /// The same placement as New Agent Chat: the focused pane of the active
     /// window. The user asked to go there, so the window comes forward and
     /// cmux activates. False when no window has a focused pane: a window is

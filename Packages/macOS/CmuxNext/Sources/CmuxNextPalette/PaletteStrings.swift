@@ -24,6 +24,13 @@ nonisolated enum PaletteStrings {
     static var settingsTitle: String { String(localized: "palette.page.settings", defaultValue: "Change Settings", bundle: .module) }
     static var settingsPlaceholder: String { String(localized: "palette.placeholder.settings", defaultValue: "Search settings…", bundle: .module) }
     static var searchActionsPlaceholder: String { String(localized: "palette.placeholder.actions", defaultValue: "Search actions…", bundle: .module) }
+    static var askAICommand: String { String(localized: "palette.askAI.command", defaultValue: "Ask AI", bundle: .module) }
+    static var askAISubtitle: String {
+        String(localized: "palette.askAI.subtitle", defaultValue: "An agent plans and runs cmux actions; ask follow-ups", bundle: .module)
+    }
+    static func askAITitle(_ query: String) -> String {
+        String(format: String(localized: "palette.askAI.title", defaultValue: "Ask AI: “%@”", bundle: .module), query)
+    }
     static var noResults: String { String(localized: "palette.noResults", defaultValue: "No Results", bundle: .module) }
     static var noResultsHint: String { String(localized: "palette.noResults.hint", defaultValue: "Try a different search, or press Esc to go back.", bundle: .module) }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .module) }

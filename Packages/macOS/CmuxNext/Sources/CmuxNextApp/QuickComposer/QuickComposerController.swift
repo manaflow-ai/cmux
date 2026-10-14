@@ -43,6 +43,8 @@ final class QuickComposerController {
     /// Where the held chat's session is kept, so a quit does not lose it (`heldSessionKey`).
     private let defaults: UserDefaults
     static let heldSessionKey = "quickComposer.floatingChatSession"
+    /// This panel's `heldSessionKey` (Palette AI's panel keeps its own).
+    private let heldKey: String
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
     init(
@@ -53,8 +55,10 @@ final class QuickComposerController {
         floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value },
         pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) },
         context: (@MainActor () async -> AgentPaneQuickContext?)? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        heldSessionKey: String = QuickComposerController.heldSessionKey
     ) {
+        self.heldKey = heldSessionKey
         self.makeChat = makeChat
         self.makeWindow = makeWindow
         self.openInWindow = openInWindow
@@ -79,9 +83,9 @@ final class QuickComposerController {
 
     func show() {
         // The chat the floating chat held when cmux quit comes back to it (kept while the floating chat is off).
-        if chat == nil, floating(), let held = defaults.string(forKey: Self.heldSessionKey) {
+        if chat == nil, floating(), let held = defaults.string(forKey: heldKey) {
             if moveToFloatingChat(session: held) { return }
-            defaults.removeObject(forKey: Self.heldSessionKey)
+            defaults.removeObject(forKey: heldKey)
         }
         guard let chat = chat ?? makeChat(nil).map(adopt) else {
             logger.notice("quick agent chat unavailable: this build has no agent page")
@@ -91,6 +95,17 @@ final class QuickComposerController {
         // Summoned to type in: a floating chat folded to its compact bar opens back out.
         if floatingState.collapsed { setCollapsed(false) }
         window.present(chat, focus: chat.webView)
+    }
+
+    /// Palette AI (cx-vtxi7): `made` is a new chat already sending the person's question; the
+    /// panel holds it, so follow-ups stay here until the header or ⌘Return moves it. A chat the
+    /// panel held goes on in acpmux (Chats lists it).
+    func ask(with made: AgentPaneView) {
+        releaseChat()
+        adopt(made)
+        if window == nil { _ = makeWindowOnce() }
+        holdChat()
+        show()
     }
 
     /// Orders the panel out; the chat and its draft stay.
@@ -134,9 +149,9 @@ final class QuickComposerController {
     func moveToFloatingChat(session: String) -> Bool {
         guard floating() else { return false }
         // The chat it held when cmux quit, not shown since, goes to a tab first, as a held chat does.
-        if chat == nil, let held = defaults.string(forKey: Self.heldSessionKey), held != session {
+        if chat == nil, let held = defaults.string(forKey: heldKey), held != session {
             guard openInWindow(held) else { return false }
-            defaults.removeObject(forKey: Self.heldSessionKey)
+            defaults.removeObject(forKey: heldKey)
         }
         if holdsChat, let held = chat, held.model.sessionId != session {
             openChatInWindow(session: held.model.sessionId)
@@ -157,7 +172,7 @@ final class QuickComposerController {
     private func holdChat() {
         guard !holdsChat else { return }
         holdsChat = true
-        defaults.set(chat?.model.sessionId, forKey: Self.heldSessionKey)
+        defaults.set(chat?.model.sessionId, forKey: self.heldKey)
         floatingState.holding = true
         window?.holdChat(true)
         window?.setOnTop(floatingState.onTop)
@@ -188,7 +203,7 @@ final class QuickComposerController {
     private func releaseChat() {
         if holdsChat {
             holdsChat = false
-            defaults.removeObject(forKey: Self.heldSessionKey)
+            defaults.removeObject(forKey: heldKey)
             if floatingState.collapsed { window?.setCollapsed(false) }
             floatingState = AgentPaneFloatingState(onTop: floatingState.onTop)
             window?.holdChat(false)
@@ -214,7 +229,7 @@ final class QuickComposerController {
         let started = chat.model.onSessionChange
         chat.model.onSessionChange = { [weak self] session in
             started?(session)
-            if let self, self.holdsChat { self.defaults.set(session, forKey: Self.heldSessionKey) }
+            if let self, self.holdsChat { self.defaults.set(session, forKey: self.heldKey) }
         }
         self.chat = chat
         return chat

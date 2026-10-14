@@ -25,7 +25,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
-             workspaceContext
+             workspaceContext, contextKind
     }
 
     public var protocolVersion: Int
@@ -57,6 +57,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// workspace context to the chat's first prompt (`_meta.acpmux.context`), hidden from the
     /// transcript. Pages that predate it send the prompt without it.
     public var workspaceContext: Bool?
+    /// Which context text ``workspaceContext`` adds: nil is the docked chat's workspace text,
+    /// `"palette"` the command palette's whole-app text (Palette AI, cx-vtxi7). Pages that
+    /// predate it add the workspace text.
+    public var contextKind: String?
     public nonisolated struct PromptTicket: Codable, Sendable, Equatable {
         public var promptId: String
         public var ticket: String

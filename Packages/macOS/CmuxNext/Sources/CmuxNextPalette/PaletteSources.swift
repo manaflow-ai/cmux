@@ -39,6 +39,10 @@ public struct PaletteSources {
     public var scopePrefixes: (@MainActor () -> [PaletteScopeID: String?])?
     /// The user's aliases and pins (cmux.json `palette.aliases`, `palette.pins`). Read on every open.
     public var rankSettings: (@MainActor () -> PaletteRankSettings)?
+    /// Palette AI (cx-vtxi7): the root lists "Ask AI" after the matches of
+    /// a typed query, and choosing it hands the query to an agent chat. Nil
+    /// lists no such row.
+    public var askAI: (@MainActor (String) -> Void)?
 
     public init(
         workspaces: (any PaletteWorkspaceSource)? = nil,

@@ -24,6 +24,8 @@ enum PaletteSourcesBridge {
             var seen = Set<String>()
             return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted })
         }
+        // Palette AI (cx-vtxi7): the root's Ask AI row.
+        sources.askAI = { [weak services] question in services?.askFromPalette(question) }
         // Theme rows draw the theme's swatch strip (R98), from the catalog's
         // cache (read off the main thread at launch).
         sources.argumentSwatches = { [weak services] source, value in
