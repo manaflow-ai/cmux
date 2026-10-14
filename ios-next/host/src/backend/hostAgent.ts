@@ -166,11 +166,13 @@ export class HostAgent {
           log: (m) => log(`[${sessionId}] ${m}`),
           onSignal: (sig) => {
             if (sig.type === "candidate") log(`[${sessionId}] local candidate ${summarizeCandidate(sig.candidate)}`);
-            if (sig.type === "description") {
-              this.signaling.send({ type: "answer", to: entry.remotePeerId, sessionId, sdp: sig.sdp });
-            } else {
-              this.signaling.send({ type: "candidate", to: entry.remotePeerId, sessionId, candidate: sig.candidate, sdpMid: sig.sdpMid, sdpMLineIndex: sig.sdpMLineIndex });
-            }
+            // A signaling drop mid-negotiation must not lose the answer:
+            // queue it for the reconnect unless this peer is gone by then.
+            const build = (): SignalFrame =>
+              sig.type === "description"
+                ? { type: "answer", to: entry.remotePeerId, sessionId, sdp: sig.sdp }
+                : { type: "candidate", to: entry.remotePeerId, sessionId, candidate: sig.candidate, sdpMid: sig.sdpMid, sdpMLineIndex: sig.sdpMLineIndex };
+            this.signaling.send(build(), { queue: true, rebuild: build, isStale: () => entry.closed || this.peers.get(sessionId) !== entry });
           },
         });
         entry.peer = peer;

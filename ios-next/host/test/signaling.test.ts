@@ -27,9 +27,19 @@ interface FakeBackendOptions {
   stampOffersOnly?: boolean;
 }
 
+/** Mutable switches a test flips while the backend runs. */
+interface FakeBackendControl {
+  /** Refuse host upgrades with 503 (a reconnect that does not land yet). */
+  refuseHost: boolean;
+  /** Stop answering pings (a half-open path). */
+  ignorePings: boolean;
+}
+
 async function fakeBackend(opts: FakeBackendOptions = {}) {
   const sockets = new Map<string, WebSocket>(); // address -> socket
   const authModes: string[] = [];
+  const control: FakeBackendControl = { refuseHost: false, ignorePings: false };
+  const hostConnects: number[] = [];
   let n = 0;
   const tokenOf = (req: { headers: Record<string, string | string[] | undefined>; url?: string }) => {
     const header = req.headers.authorization;
@@ -64,7 +74,13 @@ async function fakeBackend(opts: FakeBackendOptions = {}) {
       socket.destroy();
       return;
     }
+    if (control.refuseHost && token.startsWith("host")) {
+      socket.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     authModes.push(mode);
+    if (token.startsWith("host")) hostConnects.push(Date.now());
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, token));
   });
   wss.on("connection", (ws: WebSocket, token: string) => {
@@ -82,13 +98,15 @@ async function fakeBackend(opts: FakeBackendOptions = {}) {
     );
     ws.on("message", (raw) => {
       const f = JSON.parse(raw.toString());
-      if (f.type === "ping") return ws.send('{"type":"pong"}');
+      if (f.type === "ping") return control.ignorePings ? undefined : ws.send('{"type":"pong"}');
       const target = sockets.get(f.to);
       if (!target) return ws.send(JSON.stringify({ type: "error", code: "host_offline", sessionId: f.sessionId }));
       const stamp = isHost || (opts.stampOffersOnly && f.type !== "offer") ? {} : { family };
       target.send(JSON.stringify({ ...f, from: address, ...stamp }));
     });
-    ws.on("close", () => sockets.delete(address));
+    ws.on("close", () => {
+      if (sockets.get(address) === ws) sockets.delete(address);
+    });
   });
   await new Promise<void>((r) => http.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
@@ -96,6 +114,8 @@ async function fakeBackend(opts: FakeBackendOptions = {}) {
     base,
     authModes,
     sockets,
+    control,
+    hostConnects,
     close: () => {
       for (const c of wss.clients) c.terminate();
       wss.close();
@@ -180,6 +200,90 @@ describe("HostAgent over signaling", () => {
     signaling.stop();
     agent.stop();
     core.shutdown();
+    backend.close();
+  });
+});
+
+describe("signaling drops", () => {
+  it("delivers an answer produced while signaling was down after the reconnect", async () => {
+    // The host's socket drops right after the phone's offer reaches it and
+    // the reconnect is refused for a while; the answer must still arrive.
+    const backend = await fakeBackend({ iceDelayMs: 300 });
+    const { core } = await connectedCore({ terminal: { shell: "/bin/sh", args: [] } });
+    const logs: string[] = [];
+    const agent = new HostAgent({ api: new ApiClient(backend.base, "host-token"), core, log: (m) => logs.push(m) });
+    const hostOpen = new Promise<void>((r) => agent.signaling.once("open", () => r()));
+    agent.start();
+    await hostOpen;
+    const api = new ApiClient(backend.base, "user-token");
+    const signaling = new SignalingClient({ url: () => api.signalUrl(), token: () => api.bearer });
+    const welcome = signaling.waitWelcome();
+    signaling.start();
+    await welcome;
+    const sessionId = "s_drop";
+    let offered = false;
+    const peer = new WebRtcPeer({
+      role: "offerer",
+      iceServers: [],
+      onSignal: (s) => {
+        if (s.type === "description") {
+          signaling.send({ type: "offer", to: "h_1", sessionId, sdp: s.sdp });
+          offered = true;
+        } else signaling.send({ type: "candidate", to: "h_1", sessionId, candidate: s.candidate, sdpMid: s.sdpMid, sdpMLineIndex: 0 });
+      },
+    });
+    const answers: any[] = [];
+    signaling.on("frame", (f) => {
+      if (f.type === "answer") {
+        answers.push(f);
+        peer.setRemoteDescription(f.sdp, "answer");
+      }
+      if (f.type === "candidate") peer.addRemoteCandidate(f.candidate, f.sdpMid);
+    });
+    while (!offered) await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 100)); // the offer is at the host, ICE servers pending
+    backend.control.refuseHost = true;
+    backend.sockets.get("h_1")!.terminate();
+    await new Promise((r) => setTimeout(r, 600)); // the answer is produced while down
+    expect(answers).toEqual([]);
+    expect(agent.signaling.queued).toBeGreaterThan(0);
+    backend.control.refuseHost = false;
+    await new Promise<void>((r) => peer.link.on("state", (st) => st === "open" && r()));
+    expect(answers).toHaveLength(1);
+    expect(logs.some((l) => /sent \d+ frame\(s\) queued while disconnected/.test(l))).toBe(true);
+    expect((await new HostClient(peer.link).hello()).hostId).toBe("h_test");
+    peer.close();
+    signaling.stop();
+    agent.stop();
+    core.shutdown();
+    backend.close();
+  });
+
+  it("reconnects at once after a drop and when pongs stop", async () => {
+    const backend = await fakeBackend();
+    const logs: string[] = [];
+    const api = new ApiClient(backend.base, "host-token");
+    const client = new SignalingClient({ url: () => api.signalUrl(), token: () => api.bearer, pingMs: 50, deadAfterMs: 250, log: (m) => logs.push(m) });
+    const opened: number[] = [];
+    client.on("open", () => opened.push(Date.now()));
+    client.start();
+    while (opened.length < 1) await new Promise((r) => setTimeout(r, 10));
+    // A dropped connection that had been working reconnects right away.
+    const dropAt = Date.now();
+    backend.sockets.get("h_1")!.terminate();
+    while (opened.length < 2) await new Promise((r) => setTimeout(r, 10));
+    expect(opened[1]! - dropAt).toBeLessThan(500);
+    // A path that stops answering pings is torn down and reconnected.
+    backend.control.ignorePings = true;
+    await new Promise((r) => setTimeout(r, 450));
+    backend.control.ignorePings = false;
+    while (opened.length < 3) await new Promise((r) => setTimeout(r, 10));
+    expect(logs.some((l) => /no reply for \d+ s; reconnecting/.test(l))).toBe(true);
+    expect(logs.some((l) => /signaling closed \(1006\) after \d+ s, last frame \d+ s ago/.test(l))).toBe(true);
+    // A stopped client queues nothing.
+    client.stop();
+    expect(client.send({ type: "bye", to: "p_x", sessionId: "s" }, { queue: true })).toBe(false);
+    expect(client.queued).toBe(0);
     backend.close();
   });
 });
