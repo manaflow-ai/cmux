@@ -30,16 +30,35 @@ enum AgentPaneHarnessCard {
                 }
                 let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/sessions/restart_harness",
                                                                params: ["sessions": [session]], deadline: .seconds(300), detailed: true)
-                return AgentPaneReply.success(["restarted": result["restarted"] as? Int ?? 0, "after_turn": result["after_turn"] as? Int ?? 0])
+                var value: [String: Any] = ["restarted": result["restarted"] as? Int ?? 0, "after_turn": result["after_turn"] as? Int ?? 0,
+                                            "failed": result["failed"] as? Int ?? 0]
+                if let error = (result["errors"] as? [[String: Any]])?.first?["error"] as? String { value["error"] = error }
+                return AgentPaneReply.success(value)
             default:
                 return AgentPaneModel.unsupported("harness")
             }
         } catch AcpmuxStatusClient.Failure.rpc(let message) {
             return AgentPaneReply.failure(code: "harness.failed", message: message)
+        } catch let error as AcpmuxRPCError {
+            // An agent service from before this app's update does not know the method yet.
+            return AgentPaneReply.failure(code: "harness.failed", message: error.isMethodMissing ? oldServiceMessage : error.isUnreachable ? unavailableMessage : error.message)
+        } catch is AgentPaneDeadlineExceeded {
+            return AgentPaneReply.failure(code: "harness.failed", message: slowMessage)
         } catch {
-            // A refusal (`AcpmuxRPCError`) says why; an unreachable or closed daemon reads as not running.
-            return AgentPaneReply.failure(code: "harness.failed", message: (error as? AcpmuxRPCError)?.message ?? unavailableMessage)
+            return AgentPaneReply.failure(code: "harness.failed", message: unavailableMessage)
         }
+    }
+
+    /// The agent service still running is older than the app (it lacks the method).
+    static var oldServiceMessage: String {
+        String(localized: "agentPane.harness.oldService",
+               defaultValue: "The agent service on this Mac is out of date. Quit and reopen cmux, then try again.", bundle: .module)
+    }
+
+    /// The update or restart outlived its deadline; it may still finish.
+    static var slowMessage: String {
+        String(localized: "agentPane.harness.slow",
+               defaultValue: "This is taking longer than expected. It may still finish; check Settings > Agents.", bundle: .module)
     }
 
     /// The update or restart could not reach this Mac's agent service.

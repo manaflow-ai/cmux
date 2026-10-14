@@ -98,8 +98,10 @@ export function HarnessHealthNotice({
       : undefined;
   const kind = signedOut ? "signedOut" : update ? "outdated" : undefined;
   // Not Now holds for what it was said to (a newer version or a sign-out asks again).
-  const key = health && kind && `${health.id}:${kind}:${health.latest ?? ""}`;
-  const state = progress && progress.key === key ? progress : undefined;
+  // An update started here holds its card (Restart Chat) even when health, read again, is current.
+  const started = progress && health?.id === harness && progress.key.startsWith(`${harness}:outdated:`);
+  const key = started ? progress.key : health && kind && `${health.id}:${kind}:${health.latest ?? ""}`;
+  const state = started ? progress : undefined;
   const waiting = state?.phase === "waiting";
   // A restart held for the turn happened when it ended: the card is done.
   useEffect(() => {
@@ -109,7 +111,7 @@ export function HarnessHealthNotice({
     onUpdated?.();
   }, [waiting, turnRunning, key, onUpdated]);
   if (!health || health.id !== harness) return null;
-  if (!kind || !key || key === dismissed) return null;
+  if (!(kind || state) || !key || key === dismissed) return null;
   const run = (text: string) => open({ kind: "terminal", text, ...(cwd ? { cwd } : {}), run: true });
   const id = health.id;
   const latest = health.latest ?? "";
@@ -137,6 +139,11 @@ export function HarnessHealthNotice({
       (value) => {
         const reply = record(value);
         const later = typeof reply.after_turn === "number" ? reply.after_turn : 0;
+        if (typeof reply.failed === "number" && reply.failed > 0) {
+          const error = typeof reply.error === "string" ? reply.error.trim() : "";
+          setProgress({ key, phase: "updated", version, error: error || t("harness.restartFailedGeneric") });
+          return;
+        }
         if (later > 0) {
           setProgress({ key, phase: "waiting", version });
           return;
@@ -154,8 +161,9 @@ export function HarnessHealthNotice({
         }),
     );
   };
+  const updating = state?.phase === "updating";
   const notNow = (
-    <button type="button" data-notice-action="dismiss" onClick={() => setDismissed(key)}>
+    <button type="button" data-notice-action="dismiss" disabled={updating} onClick={() => setDismissed(key)}>
       {t("harness.notNow")}
     </button>
   );
@@ -193,7 +201,6 @@ export function HarnessHealthNotice({
       </button>
     );
   } else {
-    const updating = state?.phase === "updating";
     text = updating
       ? t("harness.updating", { agent: name })
       : t("harness.outdated", { agent: name, version: health.version ?? "", latest });
@@ -220,7 +227,7 @@ export function HarnessHealthNotice({
   return (
     <output
       className="acpmux-host-error acpmux-harness-notice"
-      data-harness-notice={kind}
+      data-harness-notice={kind ?? "outdated"}
       data-harness-phase={state?.phase}
       aria-busy={busy || undefined}
     >
