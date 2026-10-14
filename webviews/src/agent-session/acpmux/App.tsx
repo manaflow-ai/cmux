@@ -36,7 +36,7 @@ import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
@@ -49,6 +49,7 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
+import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
@@ -4418,11 +4419,8 @@ function AcpmuxPane() {
       setImportError(error instanceof Error ? error.message : undefined);
     }
   }, []);
-  const openFromNewTab = (kind: TabKind, text: string, cwd?: string) => {
-    if (kind !== "agent") {
-      void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
-      return;
-    }
+  /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
+  const chatFromNewTab = (text: string, cwd?: string) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
     const start = (folder?: string) =>
@@ -5151,7 +5149,8 @@ function AcpmuxPane() {
               omnibar={newTab.omnibar}
               projects={newTabProjects}
               chips={ComposerChips}
-              onSubmit={(...args: Parameters<typeof openFromNewTab>) => whenHandshaken(() => openFromNewTab(...args))}
+              // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
+              onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
