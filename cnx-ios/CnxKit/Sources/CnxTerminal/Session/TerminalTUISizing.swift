@@ -9,12 +9,12 @@ import CoreGraphics
 ///   alternate screen stays pinned to the composer at its old size.
 /// - On the primary screen the rows are those of the keyboard-down layout,
 ///   so showing the keyboard in a shell never redraws its prompt.
-/// - The choice changes only when the keyboard settles or a TUI starts,
-///   never when the alternate screen ends. A resize makes the Mac reset the
-///   mirror and replay (`resized`: the alternate screen goes off, then on
-///   again); following that flicker resized the PTY back and forth forever.
-///   After a TUI quits with the keyboard up, the shell keeps the TUI's rows
-///   until the keyboard next settles.
+/// - When the TUI quits, the shell gets its keyboard-down rows back at once
+///   (R2-1): with the TUI's rows kept, the shell's earlier output sat above
+///   the screen, unreachable, over a band of black. A resize's mirror reset
+///   no longer reports the alternate screen off and on again
+///   (`DaemonTerminalInbound.resetMirror(alternate:)`), so this cannot
+///   resize the PTY back and forth.
 public struct TerminalTUISizing: Equatable, Sendable {
     /// The composer stack's top when the keyboard last settled above its
     /// resting place (nil: the keyboard is down).
@@ -35,6 +35,11 @@ public struct TerminalTUISizing: Equatable, Sendable {
     /// A TUI took the alternate screen.
     public mutating func tuiStarted() {
         followsKeyboard = true
+    }
+
+    /// The TUI left the alternate screen.
+    public mutating func tuiEnded() {
+        followsKeyboard = false
     }
 
     /// The rows for the PTY.

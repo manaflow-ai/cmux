@@ -599,6 +599,40 @@ class Journey:
                          f"attached {attached:.1f} s and the Mac ran input {ran:.1f} s after launch",
                 "metric_relaunch_attach_s": round(attached, 2)}
 
+    def s_tui_quit_keyboard_up(self):
+        """design/terminal R2-1: `top` with the keyboard up, then `q`: the shell's
+        earlier output and the `top` line are on screen above the prompt, and a
+        pull-down shows history (no band of black, nothing out of reach)."""
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        marker = f"H{random.randint(10000, 99999)}"
+        self.mac_write(term, f"clear; echo {marker}\n")
+        self.mac_wait_text(term, marker, timeout=8, count=1)
+        self.sim.tap_q(ident="terminal.composer.field")
+        time.sleep(0.8)
+        self.sim.softtype("top")
+        self.sim.tap_q(ident="terminal.composer.send")
+        time.sleep(4)
+        check(self.sim.keyboard(), "the keyboard went down while top ran")
+        self.sim.softtype("q")
+        self.sim.tap_q(ident="terminal.composer.send")
+        time.sleep(3)
+        self.sim.shot(f"tui-quit-kbup-{self.run_id}")
+        seen = self.sim.ocr_find(marker, timeout=4)
+        check(seen, f"after quitting top with the keyboard up, the earlier output ({marker}) is not on screen (R2-1)")
+        top_line = [o for o in self.sim.ocr() if o[4].strip().endswith("top")]
+        comp = self.sim.find(ident="terminal.composer.field")
+        y_marker = min(o[1] for o in seen)
+        check(comp and y_marker < comp[0].frame[1], "the earlier output is not above the composer")
+        self.sim.drag(201, 200, 201, 380, duration=0.5, hold=0.3)
+        time.sleep(1.2)
+        again = self.sim.ocr_find(marker, timeout=3)
+        check(again, f"a pull-down after quitting top lost the earlier output ({marker}) (R2-1)")
+        self.hide_keyboard()
+        return f"after q with the keyboard up: {marker} at y {y_marker:.0f} pt above the composer, " \
+               f"'top' line {'shown' if top_line else 'not read'}; still shown after a pull-down"
+
     def s_term_keys(self):
         try:
             return self._term_keys()
@@ -1128,6 +1162,7 @@ class Journey:
             ("relaunch_restore", "Relaunch restores the tab and attaches", "wsdesign", self.s_relaunch_restore),
             ("term_direct", "Terminal: direct typing (soft keyboard)", "termlive", self.s_term_direct),
             ("term_composer", "Terminal: composer", "termlive", self.s_term_composer),
+            ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),
             ("term_keys", "Terminal: ^C, arrows, joystick", "termlive", self.s_term_keys),
             ("term_tui", "Terminal: vim and top TUI", "termlive", self.s_term_tui),
             ("term_scrollback", "Terminal: scrollback", "termlive", self.s_scrollback),

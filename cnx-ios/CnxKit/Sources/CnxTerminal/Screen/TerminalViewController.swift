@@ -718,8 +718,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if model.session.remoteRows == nil {
             // A local session writes from row 0: no mirror rows above it.
             blank = 0
-        } else if TerminalDocumentLayout.needsOriginScan(previous: document, previousTotal: previousTotal,
-                                                         totalRows: scrollbar.total, screenRows: surface.grid.rows) {
+        } else if placesFromReport || TerminalDocumentLayout.needsOriginScan(previous: document, previousTotal: previousTotal,
+                                                                             totalRows: scrollbar.total, screenRows: surface.grid.rows) {
+            // Back from a TUI (until the user scrolls) the primary screen is
+            // being redrawn and resized: read the top again on every update,
+            // so earlier output is never left above an origin read too early (R2-1).
             let last = min(scrollbar.total - 1, cursor ?? (scrollbar.total - 1))
             blank = surface.leadingBlankRows(through: max(0, last)) ?? blank
         }
@@ -909,6 +912,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)
         } else {
+            tuiSizing.tuiEnded()
             scrollView.isScrollEnabled = true
             scrollView.topEdgeEffect.style = .soft
             tuiClip.isHidden = true

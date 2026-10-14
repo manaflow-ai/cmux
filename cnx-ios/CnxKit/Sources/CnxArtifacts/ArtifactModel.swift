@@ -232,9 +232,9 @@ public struct ArtifactExtractor: Sendable {
         for line in Self.logicalLines(in: screenText, columns: columns) where !line.isEmpty {
             whole += screen.scanLine(line)
         }
-        let onScreen = Set(whole.map(\.reference))
+        let onScreen = Set(whole.map { Self.canonical($0.reference) })
         var result = existing
-        for artifact in whole where !result.contains(where: { $0.reference == artifact.reference }) {
+        for artifact in whole where !result.contains(where: { Self.canonical($0.reference) == Self.canonical(artifact.reference) }) {
             let pieces = result.filter { piece in
                 !onScreen.contains(piece.reference)
                     && artifact.reference.contains(piece.reference)
@@ -250,13 +250,33 @@ public struct ArtifactExtractor: Sendable {
                 count += 1
                 result.append(artifact)
             }
-            seen.insert(artifact.reference)
+            seen.insert(Self.canonical(artifact.reference))
         }
-        return result.sorted { $0.order < $1.order }
+        // A piece of a wrapped reference that is already listed whole (the
+        // whole one was seen first, e.g. in the command line) goes too: the
+        // screen never shows the piece on its own (R2-7).
+        let wholes = result.map(\.reference).filter { onScreen.contains(Self.canonical($0)) }
+        result.removeAll { piece in
+            !onScreen.contains(Self.canonical(piece.reference))
+                && wholes.contains { $0 != piece.reference && $0.count > piece.reference.count && $0.contains(piece.reference) }
+        }
+        // One entry per file: `/tmp/x` and `/private/tmp/x` are the same.
+        var kept = Set<String>()
+        result = result.sorted { $0.order < $1.order }.filter { kept.insert(Self.canonical($0.reference)).inserted }
+        return result
+    }
+
+    /// The key two references to the same file share: macOS's `/tmp`, `/var`
+    /// and `/etc` are `/private/...` (R2-7).
+    public static func canonical(_ reference: String) -> String {
+        for prefix in ["/private/tmp/", "/private/var/", "/private/etc/"] where reference.hasPrefix(prefix) {
+            return String(reference.dropFirst("/private".count))
+        }
+        return reference
     }
 
     private mutating func add(_ artifact: TerminalArtifact, to found: inout [TerminalArtifact]) {
-        guard seen.insert(artifact.reference).inserted else { return }
+        guard seen.insert(Self.canonical(artifact.reference)).inserted else { return }
         var artifact = artifact
         artifact.order = count
         count += 1

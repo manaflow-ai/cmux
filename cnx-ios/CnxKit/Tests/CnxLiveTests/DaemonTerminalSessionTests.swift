@@ -140,6 +140,19 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(events.last == .output(Data("fresh".utf8)))
     }
 
+    @Test func resizedEventKeepsATUIWithoutAnOffOnFlicker() async throws {
+        let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        session.handle(FakeTerminalDaemon.line(["event": "output", "surface": 7, "data": Data("\u{1B}[?1049h".utf8).base64EncodedString()]))
+        events.removeAll()
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 53, "rows": 24,
+                                                "replay": Data("\u{1B}[?1049htop".utf8).base64EncodedString()]))
+        #expect(!events.contains(.alternateScreen(false)))
+        #expect(!events.contains(.alternateScreen(true)))
+        #expect(session.isAlternateScreen)
+    }
+
     @Test func attachFailureIsShownInTheTerminal() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }
