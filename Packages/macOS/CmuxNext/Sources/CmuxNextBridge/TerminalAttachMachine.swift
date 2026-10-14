@@ -68,7 +68,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// stream has not announced another client's grid since.
     public private(set) var claimed = false
     /// This view's claims the stream has not echoed yet, oldest first (a live resize claims every frame).
-    private var echoesDue: [CellSize] = []
+    public private(set) var echoesDue: [CellSize] = []
     /// Last status the view was told (it starts connected: nothing shown).
     public private(set) var status: LinkStatus = .connected
     /// The process ended while an attach was pending: its replay (the last

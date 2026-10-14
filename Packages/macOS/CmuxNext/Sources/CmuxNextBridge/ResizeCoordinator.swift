@@ -6,6 +6,8 @@ import CmuxNextWakeups
 /// A view whose settled grid goes to the PTY owner (`DaemonTerminalIO`).
 @MainActor public protocol ResizeTarget: AnyObject {
     func applySettled(_ size: CellSize)
+    /// The daemon has not echoed this view's last grid yet.
+    var awaitsEcho: Bool { get }
 }
 
 /// Sends terminal grid changes to the daemon only once a view's size has
@@ -46,8 +48,15 @@ public final class ResizeCoordinator {
 
     /// One frame; false once every size settled.
     public func tick() -> Bool {
-        settle.stableFrames = Motion.isLiveResizing ? 1 : Self.settleFrames
+        let live = Motion.isLiveResizing
+        settle.stableFrames = live ? 1 : Self.settleFrames
         for (key, size) in settle.tick() {
+            // Mid-drag, each terminal has one grid in flight: every grid rebuilds the surface
+            // from a replay, so the next one waits for the daemon's echo (or the drag's end).
+            if live, targets[key]?.awaitsEcho == true {
+                settle.submit(key, size: size)
+                continue
+            }
             targets.removeValue(forKey: key)?.applySettled(size)
         }
         return !settle.isIdle

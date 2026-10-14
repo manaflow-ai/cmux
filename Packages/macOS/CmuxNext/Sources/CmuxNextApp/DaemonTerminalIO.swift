@@ -148,6 +148,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.resize(size)
     }
 
+    @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
+
     /// Hidden views release canonical geometry so another client (or the
     /// next visible view) owns it; shown views claim it again.
     @MainActor func setVisible(_ visible: Bool) {
