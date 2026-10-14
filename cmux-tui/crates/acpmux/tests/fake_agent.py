@@ -57,8 +57,13 @@ SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
 
 
 def send(obj):
+    send_all([obj])
+
+
+def send_all(objs):
+    """Write `objs` as one write: a burst the agent sends at once."""
     with lock:
-        sys.stdout.write(json.dumps(obj) + "\n")
+        sys.stdout.write("".join(json.dumps(o) + "\n" for o in objs))
         sys.stdout.flush()
 
 
@@ -211,6 +216,8 @@ def handle_prompt(rid, params):
         choices = []
         for wave in [fixture["items"], fixture.get("after", [])]:
             wave_ids = []
+            # One write for the wave: parallel tool calls asked at once (cx-nx5mb).
+            asks = []
             for item in wave:
                 global next_id
                 with lock:
@@ -220,7 +227,7 @@ def handle_prompt(rid, params):
                 pending[aid] = [ev, None]
                 wave_ids.append(aid)
                 allow_kind = item.get("allowKind", "allow_once")
-                send({"jsonrpc":"2.0", "id":aid, "method":"session/request_permission", "params":{
+                asks.append({"jsonrpc":"2.0", "id":aid, "method":"session/request_permission", "params":{
                     "sessionId":sid,
                     "toolCall":{"toolCallId":str(aid), "title":item["title"], "kind":item["kind"],
                                 "rawInput":{"fixture":item["title"]},
@@ -229,6 +236,8 @@ def handle_prompt(rid, params):
                               ([{"optionId":f"no-{aid}", "kind":"reject_once", "name":"Deny"}]
                                if item.get("reject", True) else [])
                 }})
+            if asks:
+                send_all(asks)
             for aid in wave_ids:
                 pending[aid][0].wait()
                 reply = pending.pop(aid)[1] or {}
