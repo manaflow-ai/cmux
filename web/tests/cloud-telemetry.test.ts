@@ -67,7 +67,7 @@ describe("Cloud diagnostic boundary", () => {
     const response = await handler(request(payload));
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({
-      accepted: 2, eventIds: payload.spans.map((span) => span.eventId),
+      accepted: 2, rejected: 0, eventIds: payload.spans.map((span) => span.eventId), rejectedEventIds: [],
     });
     expect(accepted).toEqual([payload]);
     const errors = sent.find((item) => item.url.endsWith("/v1/ingest/test-errors"))!.body;
@@ -374,7 +374,7 @@ describe("ingest sampling of routine Cloud polls", () => {
     const response = await handler(request(batch(spans, "production")));
     expect(response.status).toBe(202);
     // The Mac uploader only removes queued spans whose IDs come back in the receipt.
-    expect(await response.json()).toEqual({ accepted: 4, eventIds: spans.map((item) => item.eventId) });
+    expect(await response.json()).toEqual({ accepted: 4, rejected: 0, eventIds: spans.map((item) => item.eventId), rejectedEventIds: [] });
     expect(stored).toEqual([]);
     expect(drains()).toBe(0);
   });
@@ -389,7 +389,7 @@ describe("ingest sampling of routine Cloud polls", () => {
     const dropped = poll({ operation: "stats", traceId: "0af7651916cd43dd8448eb211c800034" });
     const spans = [...failures, create, sampledRoot, dropped, sampledChild];
     const response = await handler(request(batch(spans, "production")));
-    expect(await response.json()).toEqual({ accepted: spans.length, eventIds: spans.map((item) => item.eventId) });
+    expect(await response.json()).toEqual({ accepted: spans.length, rejected: 0, eventIds: spans.map((item) => item.eventId), rejectedEventIds: [] });
     expect(stored).toEqual([{
       spans: [...failures, create, sampledRoot, sampledChild].map((item) => item.eventId),
       weights: { [sampledRoot.eventId]: 50, [sampledChild.eventId]: 50 },
