@@ -1,6 +1,6 @@
 // One timeline row: on the first message of a run an author head (avatar, name, Chief tag, time),
-// then the body (the agent pane's Markdown renderer), work and attachment chips, reactions and the
-// thread summary (reply authors, count, last reply). The hover card (MessageActions) holds the
+// then the body (the agent pane's Markdown renderer), work and attachment chips and reactions (a
+// thread root shows as a ThreadRow in the timeline instead). The hover card (MessageActions) holds the
 // row's actions; a delete asks once, inline. A running agent reply is a DraftRow: the same shape,
 // with the text growing and a quiet "writing" mark instead of the time.
 import { memo, useState, type ReactNode } from "react";
@@ -9,15 +9,13 @@ import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
-import { HomeIcon } from "./icons";
 import { MessageActions } from "./MessageActions";
-import { MAX_THREAD_INDENT, messageText, mentionsMe, type ThreadSummary } from "./model";
+import { MAX_THREAD_INDENT, messageText, mentionsMe } from "./model";
 import type { HomeMessage, HomeParticipant, HomePart } from "./types";
 
 export interface MessageRowProps {
   message: HomeMessage;
   head: boolean;
-  thread?: ThreadSummary;
   people: ReadonlyMap<string, HomeParticipant>;
   me?: string;
   strings: Strings;
@@ -51,7 +49,6 @@ export interface MessageRowProps {
 export const MessageRow = memo(function MessageRow({
   message,
   head,
-  thread,
   people,
   me,
   strings,
@@ -132,9 +129,6 @@ export const MessageRow = memo(function MessageRow({
           </p>
         )}
         {message.reactions.length > 0 && <Reactions message={message} me={me} people={people} onReact={onReact} />}
-        {thread && onOpenThread && (
-          <ThreadLink thread={thread} people={people} strings={strings} onOpen={() => onOpenThread(message.id)} />
-        )}
         {confirmDelete && onRetract && (
           <div className="hc-confirm" role="alert">
             <span>{t("delete.confirm")}</span>
@@ -216,45 +210,6 @@ function Head({
       {author?.kind === "agent" && !author.chief && <span className="hc-tag">{strings.t("agent.badge")}</span>}
       {typeof time === "string" ? <time className="hc-msg-time">{time}</time> : time}
     </header>
-  );
-}
-
-function ThreadLink({
-  thread,
-  people,
-  strings,
-  onOpen,
-}: {
-  thread: ThreadSummary;
-  people: ReadonlyMap<string, HomeParticipant>;
-  strings: Strings;
-  onOpen(): void;
-}) {
-  const { t, format } = strings;
-  const stamp = new Intl.DateTimeFormat(strings.language, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  const count = thread.count === 1 ? t("thread.replies.one") : format("thread.replies.many", String(thread.count));
-  return (
-    <button type="button" className="hc-thread-link" onClick={onOpen}>
-      <span className="hc-thread-faces" aria-hidden="true">
-        {thread.authors.slice(0, 3).map((id) => (
-          <Avatar key={id} participant={people.get(id)} size={20} />
-        ))}
-      </span>
-      <span className="hc-thread-count">{count}</span>
-      {thread.unread > 0 && (
-        <span className="hc-thread-new">{strings.format("thread.new", String(thread.unread))}</span>
-      )}
-      <span className="hc-thread-last">{format("thread.lastReply", stamp.format(thread.lastAt))}</span>
-      <span className="hc-thread-view">{t("thread.view")}</span>
-      <span className="hc-thread-chevron" aria-hidden="true">
-        <HomeIcon name="chevronRight" size={16} />
-      </span>
-    </button>
   );
 }
 

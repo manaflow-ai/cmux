@@ -832,7 +832,8 @@
   display: flex;
   flex-direction: column;
   width: min(620px, calc(100vw - 48px));
-  max-height: min(520px, 72vh);
+  /* A fixed height: filtering shrinks the list, never the dialog, so the key hint stays put. */
+  height: min(520px, 72vh);
   padding: 0;
   border: 1px solid var(--lg-line);
   border-radius: 12px;
@@ -840,8 +841,15 @@
   box-shadow: 0 24px 64px -24px color-mix(in srgb, black 55%, transparent);
   overflow: hidden;
 }
+.lg-palette-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 .lg-palette-input {
   flex: none;
+  width: 100%;
   height: 48px;
   padding: 0 var(--lg-pad);
   border: 0;
@@ -858,16 +866,24 @@
 .lg-palette-list {
   flex: 1;
   min-height: 0;
+  margin: 0;
   overflow-y: auto;
   padding: 4px 6px 6px;
+  list-style: none;
 }
 .lg-palette-heading {
+  display: block;
   padding: 10px 10px 4px;
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--page-text-3);
 }
 .lg-palette-row {
+  display: block;
+  color: var(--page-text);
+  cursor: default;
+}
+.lg-palette-line {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto auto;
   align-items: center;
@@ -875,9 +891,8 @@
   height: 32px;
   padding: 0 10px;
   border-radius: 6px;
-  color: var(--page-text);
 }
-.lg-palette-row.active {
+.lg-palette-row[data-highlighted] .lg-palette-line {
   background: var(--page-selection);
 }
 .lg-palette-mark {
@@ -936,4 +951,52 @@
 }
 .lg-page .hc-chip.work.waiting .hc-chip-status {
   color: var(--lg-warn);
+}
+
+/* The sheet's editable title and owner: plain text until pressed. */
+.lg-sheet-title-button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: text;
+}
+.lg-sheet-title-button:hover:not(:disabled) {
+  background: var(--page-hover);
+}
+.lg-sheet-title-field {
+  display: block;
+  width: calc(100% - 8px);
+  margin: 0 8px 4px 0;
+  padding: 0 4px;
+  border: 1px solid var(--page-text-3);
+  border-radius: 4px;
+  background: var(--lg-fill);
+  color: var(--page-text);
+  font: inherit;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: 600;
+  outline: none;
+}
+.lg-page .lg-owner-button.ui-button,
+.lg-owner-button {
+  height: auto;
+  min-height: 0;
+  padding: 0 2px;
+  margin: 0 -2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.lg-owner-button:hover {
+  background: var(--page-hover);
+  color: var(--page-text-2);
 }

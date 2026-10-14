@@ -1,6 +1,6 @@
 // A thread in the timeline: one titled row in place of its root message, like an issue in a list:
-// the status mark, the title, the owner, then on the right the reply authors, the count and the
-// last reply's time. Pressing it opens the thread sheet. The root itself shows in the sheet.
+// the status mark, the title, the owner (when it has one), then on the right the reply authors,
+// the count and the last reply's time. Pressing it opens the thread sheet, which shows the root.
 import { memo } from "react";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
@@ -32,7 +32,7 @@ export const ThreadRow = memo(function ThreadRow({
   onOpen,
 }: ThreadRowProps) {
   const { t, format } = strings;
-  const owner = people.get(thread.owner)?.name ?? thread.owner;
+  const owner = thread.owner ? (people.get(thread.owner)?.name ?? thread.owner) : undefined;
   const count = summary.count === 1 ? t("thread.replies.one") : format("thread.replies.many", String(summary.count));
   const status = t(thread.status === "open" ? "thread.status.open" : "thread.status.resolved");
   return (

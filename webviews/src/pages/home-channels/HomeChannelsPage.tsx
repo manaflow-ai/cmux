@@ -21,12 +21,13 @@ import {
   others,
   pendingMessages,
   threadSummaries,
+  threadOf,
   timelineRows,
   withDraft,
 } from "./model";
 import { Palette, type PaletteItem } from "./Palette";
 import type { HomeChannelsStore } from "./store";
-import { threadObject, ThreadStatusBook } from "./threads";
+import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
 import { ThreadSheet } from "./ThreadSheet";
 import { Timeline } from "./Timeline";
 import type { HomeMessage, HomeParticipant } from "./types";
@@ -36,8 +37,6 @@ const NOTICE_MS = 1600;
 
 export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const [book] = useState(() => new ThreadStatusBook());
-  const statusVersion = useSyncExternalStore(book.subscribe, book.getVersion);
   const [palette, setPalette] = useState(false);
   const [addChannel, setAddChannel] = useState<Element | null>(null);
   const [editing, setEditing] = useState<{ id: string; surface: "main" | "thread" } | undefined>();
@@ -89,18 +88,26 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const channel = open ? channels.has(open.id) : false;
   const place = channel ? `#${name}` : name;
   const state = open && !channel ? chiefState(open, me, snap.activity.get(open.id)) : undefined;
-  // Threads of the open conversation (loaded roots), with their objects.
+  // Thread objects (the owner's fields; threads.ts): the newest live reply of each root in the
+  // window and in the open thread's pages.
+  const newestReply = useMemo(() => lastLiveReplies([...shown, ...threadSource], threadOf), [shown, threadSource]);
+  const threadFor = (root: HomeMessage): ThreadObject =>
+    threadObject(root, snap.threadStats.get(root.id), newestReply.get(root.id));
+  // Threads of the open conversation (loaded roots), newest first.
   const threads = useMemo(() => {
-    void statusVersion;
     const summaries = threadSummaries(shown, snap.unseen, me, snap.threadsSeen, snap.threadStats);
     return shown
       .filter((m) => summaries.has(m.id))
-      .map((m) => ({ object: threadObject(m, book.status(m.id)), summary: summaries.get(m.id)!, root: m }))
+      .map((m) => ({
+        object: threadObject(m, snap.threadStats.get(m.id), newestReply.get(m.id)),
+        summary: summaries.get(m.id)!,
+        root: m,
+      }))
       .reverse();
-  }, [shown, snap.unseen, me, snap.threadsSeen, snap.threadStats, book, statusVersion]);
+  }, [shown, snap.unseen, me, snap.threadsSeen, snap.threadStats, newestReply]);
   const openThreads = threads.filter((entry) => entry.object.status === "open").length;
   const sheetRoot = snap.thread ? threadSource.find((m) => m.id === snap.thread) : undefined;
-  const sheetThread = sheetRoot ? threadObject(sheetRoot, book.status(sheetRoot.id)) : undefined;
+  const sheetThread = sheetRoot ? threadFor(sheetRoot) : undefined;
   // What j/k walk: the timeline's messages and thread rows (not my pending sends).
   const walk = useMemo(
     () =>
@@ -133,9 +140,18 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     window.requestAnimationFrame(() =>
       document.querySelector<HTMLElement>(`${scope} [contenteditable="true"], ${scope} textarea`)?.focus(),
     );
-  const toggleStatus = (root: string) => {
-    book.toggle(root);
-    say(t(book.status(root) === "resolved" ? "notice.resolved" : "notice.reopened"));
+  /** Resolves or reopens a thread on its owner (`thread.update`); the root's event shows it. */
+  const toggleStatus = (rootId: string) => {
+    const root = threadSource.find((m) => m.id === rootId) ?? shown.find((m) => m.id === rootId);
+    if (!root) return;
+    const status = threadFor(root).status === "resolved" ? "open" : "resolved";
+    void store.updateThread(root, { status }).then((done) => {
+      if (done) say(t(status === "resolved" ? "notice.resolved" : "notice.reopened"));
+    });
+  };
+  const setOwner = (rootId: string, owner: string) => {
+    const root = threadSource.find((m) => m.id === rootId) ?? shown.find((m) => m.id === rootId);
+    if (root) void store.updateThread(root, { owner });
   };
   const focusedMessage = focused ? walk.find((m) => m.id === focused) : undefined;
   const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
@@ -238,6 +254,14 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
         shortcut: "E",
         run: () => snap.thread && toggleStatus(snap.thread),
       });
+    if (snap.thread && me && sheetThread?.owner !== me)
+      items.push({
+        id: "a:assign-me",
+        group: "actions",
+        title: t("thread.assignMe"),
+        mark: <HomeIcon name="check" size={16} />,
+        run: () => snap.thread && setOwner(snap.thread, me),
+      });
     if (snap.selected)
       items.push({
         id: "a:copy-conversation",
@@ -257,7 +281,19 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     return items;
     // The actions close over the latest render; the list is rebuilt when its inputs change.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [snap.conversations, channels, me, threads, online, everyone, snap.thread, snap.selected, sheetThread?.status, stamp]);
+  }, [
+    snap.conversations,
+    channels,
+    me,
+    threads,
+    online,
+    everyone,
+    snap.thread,
+    snap.selected,
+    sheetThread?.status,
+    sheetThread?.owner,
+    stamp,
+  ]);
 
   const empty = snap.conversations.size === 0 && !snap.loading;
   return (
@@ -354,7 +390,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                 onReact={(message, value) => void store.react(message, value)}
                 onCopyLink={(message) => copyLink(message)}
                 highlight={snap.highlight}
-                threadFor={(root) => threadObject(root, book.status(root.id))}
+                threadFor={threadFor}
                 openThread={snap.thread}
                 focused={focused}
                 pendingState={pendingState}
@@ -405,6 +441,11 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                   highlight={snap.highlight}
                   onClose={() => openThread(undefined)}
                   onToggleStatus={() => snap.thread && toggleStatus(snap.thread)}
+                  owners={open.participants}
+                  onSetOwner={(owner) => snap.thread && setOwner(snap.thread, owner)}
+                  onRename={(title) =>
+                    sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false)
+                  }
                   onSend={(text, parent) => store.send(text, snap.thread, parent)}
                   onCopyLink={(message) => copyLink(message)}
                   onReact={(message, value) => void store.react(message, value)}

@@ -72,6 +72,7 @@ export default componentEntry<Props>({
     "pages/home-channels/Timeline.tsx#Timeline",
     "pages/home-channels/MessageRow.tsx#MessageRow",
     "pages/home-channels/Avatar.tsx#Avatar",
+    "pages/home-channels/Avatar.tsx#ChannelMark",
     "pages/home-channels/Composer.tsx#Composer",
     "pages/home-channels/ThreadSheet.tsx#ThreadSheet",
     "pages/home-channels/ThreadRow.tsx#ThreadRow",
@@ -136,9 +137,9 @@ export default componentEntry<Props>({
       checks: {
         longFrameFailMs: openFrame,
         layoutShiftMax: {
-          value: 0.03,
+          value: 0.1,
           reason:
-            "Filtering removes the rows above a match, so the kept rows move up (the same before the primitives); rows are 34 px since cx-doy6.",
+            "Filtering removes the rows and group headings above a match, so the kept rows move up; the dialog keeps its height.",
         },
       },
       play: async (ctx) => {
@@ -196,6 +197,12 @@ export default componentEntry<Props>({
     composer: {
       note: "Formatting (shown on demand): Bold applies a Markdown mark to the typed text; the toolbar shows it pressed.",
       props: { select: "c-chief" },
+      checks: {
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Show formatting adds the toolbar row on top of the field; the timeline above gives up that height.",
+        },
+      },
       play: async (ctx) => {
         const field = { selector: ".lg-main .hc-composer [contenteditable]" };
         await ctx.waitFor(() => ctx.document.querySelector(field.selector));

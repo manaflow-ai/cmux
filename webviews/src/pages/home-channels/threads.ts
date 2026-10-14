@@ -1,69 +1,64 @@
-// A thread as an object: title, status (open or resolved) and owner. The conversation owner does
-// not keep these yet; until it does, `threadObject` derives the title from the root's first line
-// and the owner from the root's author, and the status lives in this page's ThreadStatusBook.
-// Every view reads threads only through `threadObject` and writes status only through
-// `ThreadStatusBook.set`, so wiring the owner's fields is one change here.
-import { messageText } from "./model";
-import type { HomeMessage } from "./types";
+// A thread as an object: title, status (open or resolved) and owner, from the conversation
+// owner's thread fields (conversation-thread-objects-v1: the root's `thread` object and the
+// ThreadSummary fields). Every view reads a thread through `threadObject`; edits go through the
+// store's `updateThread` (`thread.update`). Defaults: no title shows the root's first line, no
+// owner is unowned, a new live reply after a resolution reopens the thread.
+import { threadStatus, threadTitle } from "./model";
+import type { HomeMessage, HomeThreadStats, HomeThreadStatus } from "./types";
 
-export type ThreadStatus = "open" | "resolved";
+export type ThreadStatus = HomeThreadStatus;
 
 export interface ThreadObject {
   root: string;
   title: string;
   status: ThreadStatus;
-  /** The participant who owns the thread (today: the root's author). */
-  owner: string;
+  /** The participant who owns the thread; absent: unowned. */
+  owner?: string;
 }
 
-/** The longest title the derivation keeps (the row truncates by width before this). */
-const TITLE_MAX = 120;
-
-/** The root's first non-empty line without Markdown marks. */
-export function deriveTitle(root: HomeMessage | undefined): string {
-  if (!root) return "";
-  const line =
-    messageText(root)
-      .split("\n")
-      .map((part) => part.trim())
-      .find((part) => part.length > 0) ?? "";
-  const plain = line
-    .replace(/^#+\s+|^[-*>]\s+|^\d+\.\s+/, "")
-    .replace(/[*_`~]/g, "")
-    .replace(/[:;,]\s*$/, "");
-  return plain.length > TITLE_MAX ? `${plain.slice(0, TITLE_MAX - 1)}…` : plain;
-}
-
-export function threadObject(root: HomeMessage, status: ThreadStatus): ThreadObject {
-  return { root: root.id, title: deriveTitle(root), status, owner: root.author };
-}
-
-/** The page-local status of threads, by root id (placeholder for the owner's field). */
-export class ThreadStatusBook {
-  private readonly resolved = new Set<string>();
-  private readonly listeners = new Set<() => void>();
-  private version = 0;
-
-  status(root: string): ThreadStatus {
-    return this.resolved.has(root) ? "resolved" : "open";
-  }
-
-  set(root: string, status: ThreadStatus): void {
-    if (status === this.status(root)) return;
-    if (status === "resolved") this.resolved.add(root);
-    else this.resolved.delete(root);
-    this.version += 1;
-    for (const listener of this.listeners) listener();
-  }
-
-  toggle(root: string): void {
-    this.set(root, this.status(root) === "open" ? "resolved" : "open");
-  }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+/**
+ * The thread object of `root`. `lastLiveSeq` is the newest loaded reply that is not retracted
+ * (live events the stats have not counted). The owner's stats add their newest reply only while
+ * they read the thread as open: a resolved summary's newest reply may be a retracted one after the
+ * resolution, which does not reopen it.
+ */
+export function threadObject(
+  root: HomeMessage,
+  stats: HomeThreadStats | undefined,
+  lastLiveSeq: number | undefined,
+): ThreadObject {
+  const object = root.thread ?? (stats ? summaryObject(stats) : undefined);
+  const counted = stats && stats.status !== "resolved" ? stats.lastReplySeq : undefined;
+  const newest = Math.max(lastLiveSeq ?? 0, counted ?? 0) || undefined;
+  const owner = root.thread ? root.thread.owner : stats?.owner;
+  return {
+    root: root.id,
+    title: object?.title || threadTitle(root),
+    status: threadStatus(object, newest),
+    ...(owner ? { owner } : {}),
   };
+}
 
-  getVersion = (): number => this.version;
+/** A root copy without its `thread` field (an older event copy): the summary's fields. */
+function summaryObject(stats: HomeThreadStats): HomeMessage["thread"] {
+  if (stats.status !== "resolved" && !stats.title && !stats.owner) return undefined;
+  return {
+    ...(stats.title ? { title: stats.title } : {}),
+    ...(stats.owner ? { owner: stats.owner } : {}),
+    // The summary says resolved as of its newest reply.
+    ...(stats.status === "resolved"
+      ? { resolved: { by: stats.resolvedBy ?? "", at: stats.resolvedAt ?? 0, seq: stats.lastReplySeq ?? 0 } }
+      : {}),
+  };
+}
+
+/** The newest loaded live reply of each thread root (pending sends and retracted replies excluded). */
+export function lastLiveReplies(messages: readonly HomeMessage[], threadOf: (m: HomeMessage) => string | undefined) {
+  const newest = new Map<string, number>();
+  for (const message of messages) {
+    const root = threadOf(message);
+    if (!root || message.retracted || message.id.startsWith("pending:")) continue;
+    newest.set(root, Math.max(newest.get(root) ?? 0, message.seq));
+  }
+  return newest;
 }

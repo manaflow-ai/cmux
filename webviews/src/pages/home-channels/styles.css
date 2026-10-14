@@ -1,8 +1,9 @@
 /* The channels Home. Colors come only from the shared web theme (Ghostty-derived `--cmux-app-*`
    and `--page-*`), so light and dark follow the theme; color marks only real state (new, mention,
-   danger). Sizes come only from the type tokens. Chrome breathes (52 px headers, 28 px rail rows);
-   the transcript stays dense. Surfaces: hairline borders and a slightly lighter fill, radii nested
-   (composer 10, popovers 10, hover card 8, buttons 6). Rows never move when their actions show. */
+   danger). Sizes come only from the type tokens. The Channels layout itself is ledger.css; this
+   file keeps the shared parts (avatar, message, hover card, composer, popovers, chips, gate).
+   Surfaces: hairline borders and a slightly lighter fill, radii nested (composer 10, popovers 10,
+   hover card 8, buttons 6). Rows never move when their actions show. */
 :root {
   --hc-accent: var(--cmux-app-accent, var(--page-text));
   --hc-on-accent: var(--cmux-app-on-accent, var(--cmux-surface-solid, Canvas));
@@ -153,18 +154,6 @@ body,
 .hc-avatar.chief {
   box-shadow: inset 0 0 0 1.5px var(--hc-accent);
 }
-.hc-members-faces,
-.hc-thread-faces {
-  display: inline-flex;
-}
-.hc-members-faces > .hc-avatar,
-.hc-thread-faces > .hc-avatar {
-  box-shadow: 0 0 0 2px var(--cmux-surface-solid, Canvas);
-}
-.hc-thread-faces > .hc-avatar + .hc-avatar {
-  margin-inline-start: 2px;
-  box-shadow: none;
-}
 .hc-error {
   display: flex;
   gap: 10px;
@@ -310,14 +299,6 @@ body,
   font-size: var(--text-caption);
   color: var(--page-text-2);
 }
-.hc-visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .hc-msg-gutter {
   display: flex;
   justify-content: center;
@@ -430,67 +411,6 @@ body,
 }
 .hc-quick {
   font-size: var(--text-body);
-}
-
-/* The thread summary: reply authors, the count, the last reply; framed on hover. */
-.hc-thread-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: min(100%, 560px);
-  margin: 4px 0 2px;
-  margin-inline-start: -5px;
-  padding: 4px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--page-text-2);
-  font: inherit;
-  font-size: var(--text-detail);
-  text-align: start;
-  cursor: default;
-}
-.hc-thread-link:hover,
-.hc-thread-link:focus-visible {
-  border-color: var(--page-separator);
-  background: var(--cmux-surface-solid, Canvas);
-}
-.hc-thread-count {
-  font-weight: 700;
-  color: var(--page-text);
-  /* A new reply changes the count, never the width (no layout shift). */
-  font-variant-numeric: tabular-nums;
-}
-.hc-thread-new {
-  padding: 0 6px;
-  border-radius: 9px;
-  font-size: var(--text-caption);
-  font-weight: 700;
-  line-height: 16px;
-  color: var(--hc-on-accent);
-  background: var(--hc-accent);
-}
-.hc-thread-last {
-  color: var(--page-text-3);
-}
-.hc-thread-view,
-.hc-thread-chevron {
-  display: none;
-  color: var(--page-text-3);
-}
-.hc-thread-chevron {
-  margin-inline-start: auto;
-}
-:dir(rtl) .hc-thread-chevron {
-  transform: scaleX(-1);
-}
-.hc-thread-link:hover .hc-thread-last,
-.hc-thread-link:focus-visible .hc-thread-last {
-  display: none;
-}
-.hc-thread-link:hover :is(.hc-thread-view, .hc-thread-chevron),
-.hc-thread-link:focus-visible :is(.hc-thread-view, .hc-thread-chevron) {
-  display: inline-grid;
 }
 
 .hc-reactions {
@@ -771,18 +691,13 @@ body,
   background: var(--cmux-surface-solid, Canvas);
   color: var(--page-text);
 }
-.hc-switcher-none {
-  margin: 0;
-  padding: 12px 16px;
-  color: var(--page-text-3);
-}
 
 /* ---------- Danger rows in menus ---------- */
 .ui-menu-item.danger {
   color: var(--hc-danger);
 }
 
-/* The page on a cmux instance's daemon (?daemon=): the connect gate and the instance bar. */
+/* The page on a cmux instance's daemon (?daemon=): the connect gate. */
 .hc-daemon {
   display: flex;
   flex-direction: column;
@@ -800,21 +715,6 @@ body,
 .hc-links > * {
   flex: 1;
   min-height: 0;
-}
-.hc-instance {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--page-separator);
-  font-size: var(--text-detail);
-}
-.hc-instance-url {
-  margin-inline-start: auto;
-  font-family: ui-monospace, monospace;
-  opacity: 0.7;
-  user-select: text;
-  -webkit-user-select: text;
 }
 .hc-gate {
   max-width: 420px;
