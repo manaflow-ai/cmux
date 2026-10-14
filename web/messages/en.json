@@ -204,6 +204,16 @@
       "message": "The cloud provider did not answer in time.",
       "action": "Try again in a moment."
     },
+    "providerCapacity": {
+      "title": "No Cloud capacity right now",
+      "message": "The Cloud service is at capacity and has no room for this machine right now. Nothing was changed.",
+      "action": "Try again in a minute."
+    },
+    "stateConflict": {
+      "title": "Machine is busy",
+      "message": "This machine is starting, pausing, or not running, so it can't do this right now.",
+      "action": "Wait a moment and try again. Check the machine's status with cmux vm ls, and resume it first if it is paused."
+    },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
       "message": "Your network policy is saved but was not applied: cmux Cloud has reached its network rule capacity.",
