@@ -64,6 +64,8 @@ final class TerminalThemeSetting {
     private let dailyTimer = DemandTimer(owner: "terminal-theme.daily-background")
     /// The clock Shuffle Daily reads (tests move it to another day).
     var now: () -> Date = Date.init
+    /// The calendar that sets its local day (read on each pick, so a time zone change applies; tests pin a zone).
+    var calendar: () -> Calendar = { .current }
     /// Where it hears of a day, time zone or clock change (tests post to their own); set before `follow`.
     var notificationCenter: NotificationCenter = .default
     /// Whether the background is Shuffle Daily, so a day, time zone or clock change re-picks the work.
@@ -126,9 +128,9 @@ final class TerminalThemeSetting {
 
     /// Shows the work of `now()`'s day and turns to the next one at the following midnight.
     func showDailyArt() {
-        let today = now()
-        backdropScope.setBackdropSelection(.art(.daily(on: today)))
-        let wait = max(1, BackdropArt.nextDay(after: today).timeIntervalSince(today) + 1)
+        let (today, calendar) = (now(), calendar())
+        backdropScope.setBackdropSelection(.art(.daily(on: today, calendar: calendar)))
+        let wait = max(1, BackdropArt.nextDay(after: today, calendar: calendar).timeIntervalSince(today) + 1)
         dailyTimer.schedule(after: .seconds(wait)) { @MainActor [weak self] in self?.showDailyArt() }
     }
 
