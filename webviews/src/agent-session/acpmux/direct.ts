@@ -160,11 +160,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
           ? raw.description
           : undefined,
     rule:
-      typeof raw.toolCall?.rule === "string"
-        ? raw.toolCall.rule
-        : typeof raw.rule === "string"
-          ? raw.rule
-          : undefined,
+      typeof raw.toolCall?.rule === "string" ? raw.toolCall.rule : typeof raw.rule === "string" ? raw.rule : undefined,
     kind: raw.toolCall?.kind,
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({

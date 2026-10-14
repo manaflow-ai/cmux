@@ -190,18 +190,18 @@ export function PermissionCard({
   ]);
 
   return (
-    <PermissionCardFrame
-      ref={group}
-      className="acpmux-permission-ask"
-      ariaLabel={permissionAction(permission, t)}
-    >
+    <PermissionCardFrame ref={group} className="acpmux-permission-ask" ariaLabel={permissionAction(permission, t)}>
       <div className="acpmux-permission-request" data-harness={harness || undefined}>
         <div className="acpmux-permission-request-label">{permissionAction(permission, t)}</div>
         {permission.description && <p className="acpmux-permission-request-description">{permission.description}</p>}
         {permissionCommand(permission) && (
           <details className="acpmux-permission-command">
-            <summary><code>{permissionCommand(permission)}</code></summary>
-            <pre><code>{permissionCommand(permission)}</code></pre>
+            <summary>
+              <code>{permissionCommand(permission)}</code>
+            </summary>
+            <pre>
+              <code>{permissionCommand(permission)}</code>
+            </pre>
           </details>
         )}
       </div>
@@ -216,7 +216,9 @@ export function PermissionCard({
               label={permissionOptionLabel(option, t)}
               description={permissionOptionDescription(permission, option, kind)}
               shortcut={shortcut}
-              className={deny ? "acpmux-permission-deny" : kind === "allow_once" ? "acpmux-permission-primary" : undefined}
+              className={
+                deny ? "acpmux-permission-deny" : kind === "allow_once" ? "acpmux-permission-primary" : undefined
+              }
               onClick={() => {
                 onAnswer(option.id);
                 if (deny) focusComposer?.();
