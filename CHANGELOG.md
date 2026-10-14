@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [0.65.2] - 2026-10-13
+## [0.65.2] - 2026-10-14
 
 ### Changed
 - Agent terminals no longer draw the agent turn rail or the restoring-session banner, so their text lines up with plain terminals again after a relaunch ([#20060](https://github.com/manaflow-ai/cmux/pull/20060))
@@ -25,6 +25,12 @@ All notable changes to cmux are documented here.
 - Agent status is reported in `cmux ssh-tmux` mirrors ([#19104](https://github.com/manaflow-ai/cmux/pull/19104))
 - The Cloud CLI bridge keeps its owner across remote reconnects ([#16213](https://github.com/manaflow-ai/cmux/pull/16213)) -- thanks @teamleaderleo!
 - `cmux browser` rejects invalid automation arguments instead of running them ([#18838](https://github.com/manaflow-ai/cmux/pull/18838)) -- thanks @soyeladice-svg!
+- Sign-in refreshes its token only when it is close to expiring, retries when the sign-in service is busy instead of failing, and shows the error details when sign-in fails ([#20237](https://github.com/manaflow-ai/cmux/pull/20237), [#20270](https://github.com/manaflow-ai/cmux/pull/20270))
+
+### Removed
+- Ctrl-Tab and Cmd-Shift-] / Cmd-Shift-[ step through the tabs in a pane again instead of moving between sidebar workspaces ([#20009](https://github.com/manaflow-ai/cmux/pull/20009))
+- Previous and Next tab shortcuts no longer move to another workspace when the focused pane has only one tab ([#20025](https://github.com/manaflow-ai/cmux/pull/20025))
+- Terminal panes no longer show a Jump to Bottom button ([#20180](https://github.com/manaflow-ai/cmux/pull/20180))
 
 ### Thanks to 6 contributors!
 
