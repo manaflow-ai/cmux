@@ -1,3 +1,4 @@
+import { DEFAULT_FREESTYLE_TLS_RULE_LIMIT } from "../../observability/providerRuleCapacity";
 import type {
   DriftVm,
   HungVm,
@@ -46,7 +47,7 @@ export const DEFAULT_VM_HEALTH_THRESHOLDS: VmHealthThresholds = {
   stuckAfterMs: 15 * MINUTE_MS,
   driftGraceMs: 10 * MINUTE_MS,
   pausedRuleHolderAfterMs: 7 * DAY_MS,
-  tlsRuleLimit: 2000,
+  tlsRuleLimit: DEFAULT_FREESTYLE_TLS_RULE_LIMIT,
 };
 
 export type VmHealthClassifierInput = {

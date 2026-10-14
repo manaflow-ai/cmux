@@ -279,7 +279,7 @@ describe("TLS rule budget", () => {
   ];
   const rule = (id: string, overrides: Partial<ProviderTlsRuleRef> = {}): ProviderTlsRuleRef => ({ id, managed: false, vmIds: [], vpcIds: [], ...overrides });
 
-  test("over the 2000 limit, attributed by owner, with idle paused holders", () => {
+  test("over the 200,000 limit, attributed by owner, with idle paused holders", () => {
     const rules = [
       rule("r1", { vmIds: ["vm-cmux"] }),
       rule("r2", { vmIds: ["vm-cmux"] }),
@@ -293,10 +293,10 @@ describe("TLS rule budget", () => {
       rule("r10", { vmIds: ["vm-paused-new"] }),
       rule("r11", { managed: true }),
     ];
-    const report = classify({ vms, tlsRules: { totalCount: 2303, rules, complete: false } });
+    const report = classify({ vms, tlsRules: { totalCount: 200_303, rules, complete: false } });
     const tls = report.tls!;
-    expect(tls.totalCount).toBe(2303);
-    expect(tls.limit).toBe(2000);
+    expect(tls.totalCount).toBe(200_303);
+    expect(tls.limit).toBe(200_000);
     expect(tls.complete).toBe(false);
     expect(tls.byOwner).toEqual({
       cmux_cloud: 6,
@@ -310,12 +310,12 @@ describe("TLS rule budget", () => {
     expect(tls.pausedHolders.ruleCount).toBe(2);
     expect(tls.pausedHolders.top[0]).toMatchObject({ vmId: "vm-paused-old", rules: 2, workload: "cmux_cloud" });
     expect(report.attention.needed).toBe(true);
-    expect(report.attention.reasons).toContainEqual({ code: "tls_over_limit", count: 2303, limit: 2000 });
+    expect(report.attention.reasons).toContainEqual({ code: "tls_over_limit", count: 200_303, limit: 200_000 });
   });
 
   test("near the limit is a warning that does not by itself need attention", () => {
-    const report = classify({ vms: [], tlsRules: { totalCount: 1800, rules: [], complete: true } });
-    expect(report.attention.reasons).toEqual([{ code: "tls_near_limit", count: 1800, limit: 2000 }]);
+    const report = classify({ vms: [], tlsRules: { totalCount: 180_000, rules: [], complete: true } });
+    expect(report.attention.reasons).toEqual([{ code: "tls_near_limit", count: 180_000, limit: 200_000 }]);
     expect(report.attention.needed).toBe(false);
   });
 

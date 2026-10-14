@@ -7347,7 +7347,7 @@
   },
   "opsCloudVmHealth": {
     "eyebrow": "Staff · Operations",
-    "title": "Cloud VM health",
+    "title": "VM Health",
     "description": "Whether any Cloud VM needs an operator. A read-only sweep of the provider account runs every five minutes; this page shows the latest one.",
     "noSnapshotTitle": "No sweep yet",
     "noSnapshotBody": "The health cron has not stored a sweep. It runs every five minutes once deployed and migrated.",

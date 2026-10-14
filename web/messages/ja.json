@@ -7257,7 +7257,7 @@
   },
   "opsCloudVmHealth": {
     "eyebrow": "スタッフ · 運用",
-    "title": "Cloud VM の状態",
+    "title": "VM ヘルス",
     "description": "オペレーターの対応が必要な Cloud VM があるかを示します。プロバイダーアカウントの読み取り専用スイープが 5 分ごとに実行され、このページは最新の結果を表示します。",
     "noSnapshotTitle": "スイープはまだありません",
     "noSnapshotBody": "ヘルス cron はまだスイープを保存していません。デプロイとマイグレーションの後、5 分ごとに実行されます。",
