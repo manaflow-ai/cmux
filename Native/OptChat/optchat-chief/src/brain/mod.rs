@@ -302,6 +302,8 @@ pub struct Settings {
     pub shared_ttl: crate::prompt::SharedTtl,
     /// Reads the person's Home workspace for each turn (`home_view`); None: no block.
     pub home_view: Option<crate::home_view::HomeView>,
+    /// Who this Chief is in the conversations and which messages wake it.
+    pub membership: crate::membership::Membership,
 }
 
 /// The longest a turn waits for view lines that are still building
@@ -490,6 +492,14 @@ pub struct Brain {
     /// Woken conversations not acked yet: the highest woken seq of each
     /// (`mux_ack.rs`).
     mux_pending: HashMap<String, u64>,
+    /// Local side conversations (`membership`): whether the Chief takes
+    /// part in each, from the last summary seen; a message of one it is not
+    /// in is not read.
+    side_member: HashMap<String, bool>,
+    /// The thread a reply to a waking group message goes into, by message
+    /// id: `(thread_root, parent)` (`membership::thread_target`). In memory
+    /// only: after a restart such a reply goes to the top level.
+    reply_threads: HashMap<String, (String, String)>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
 }
@@ -570,6 +580,8 @@ impl Brain {
             describing: HashSet::new(),
             side_handled: HashMap::new(),
             mux_pending: HashMap::new(),
+            side_member: HashMap::new(),
+            reply_threads: HashMap::new(),
             previewer: None,
         };
         // Each cut turn runs again first, on the reference client's note;

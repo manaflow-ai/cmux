@@ -1045,6 +1045,16 @@ impl Brain {
             (None, Some(error)) => format!("({failed}: {error})"),
             (None, None) => String::new(),
         };
+        // A Chief that reads every message stays quiet with NO_REPLY (membership).
+        let text = if crate::membership::is_no_reply(&text) {
+            (self.log)(&format!(
+                "turn {key} answered {}: nothing posted",
+                crate::membership::NO_REPLY
+            ));
+            String::new()
+        } else {
+            text
+        };
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
             // The turn that answers both keeps this one's remote origin.
@@ -1106,7 +1116,31 @@ impl Brain {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
                 let text = self.link_subagents(&text);
-                let entry = answer_entry(conversation, key, &text, answers, pending);
+                // In a group conversation the reply goes into the thread of
+                // the last message it answers (membership::thread_target).
+                let thread = answers
+                    .last()
+                    .and_then(|id| self.reply_threads.get(id))
+                    .cloned();
+                for id in &answers {
+                    self.reply_threads.remove(id);
+                }
+                let mut entry = answer_entry(conversation, key, &text, answers, pending);
+                if let (
+                    Some((root, parent)),
+                    cmux_conversation::Op::MessageSend {
+                        thread_root,
+                        reply_to,
+                        ..
+                    },
+                ) = (thread, &mut entry.op)
+                {
+                    *thread_root = Some(root);
+                    *reply_to = Some(cmux_conversation::PartRef {
+                        message_id: parent,
+                        part_index: 0,
+                    });
+                }
                 let entry = self.reply_with_previews(entry);
                 self.state.outbox.push(entry);
             }
