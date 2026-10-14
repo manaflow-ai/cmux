@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import Darwin
 import Foundation
 
@@ -14,8 +15,10 @@ import Foundation
 /// `onMissing` returns whether the socket is back. A restore that keeps
 /// failing would re-trigger itself (its own bind creates and removes a staging
 /// directory beside the path), so after ``maxFailedRestores`` failures in a
-/// row the watch stops. Deleting or renaming the directory itself is not
-/// followed: the directory is /tmp or the per-user state folder.
+/// row the watch ignores events and tries again after a capped backoff
+/// (1 s doubling to 60 s), until a restore works. Deleting or renaming the
+/// directory itself is not followed: the directory is /tmp or the per-user
+/// state folder.
 final class ControlSocketPathWatch: Sendable {
     static let maxFailedRestores = 3
 
@@ -23,7 +26,15 @@ final class ControlSocketPathWatch: Sendable {
     private let queue: DispatchQueue
     private let onMissing: @Sendable () -> Bool
     private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
-    private let failedRestores = Mutex(0)
+    private let failures = Mutex(Failures())
+    /// The retry after ``maxFailedRestores`` failures in a row.
+    private let retry = DemandTimer(owner: "ControlSocketPathWatch.retry")
+
+    struct Failures {
+        var inARow = 0
+        var waiting = false
+        var backoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
+    }
 
     init(path: String, queue: DispatchQueue, onMissing: @escaping @Sendable () -> Bool) {
         self.path = path
@@ -48,6 +59,7 @@ final class ControlSocketPathWatch: Sendable {
     }
 
     func stop() {
+        retry.cancel()
         source.withLock { watch in
             watch?.cancel()
             watch = nil
@@ -55,17 +67,28 @@ final class ControlSocketPathWatch: Sendable {
     }
 
     /// Runs on `queue`, so a restore never overlaps the server's accept handler.
-    private func checkPath() {
+    private func checkPath(retrying: Bool = false) {
+        if !retrying, failures.withLock({ $0.waiting }) { return }  // backing off
         var info = stat()
-        guard lstat(path, &info) != 0, errno == ENOENT, source.withLock({ $0 != nil }) else { return }
-        if onMissing() {
-            failedRestores.withLock { $0 = 0 }
+        guard lstat(path, &info) != 0, errno == ENOENT, source.withLock({ $0 != nil }) else {
+            failures.withLock { $0 = Failures() }
             return
         }
-        let failures = failedRestores.withLock { count -> Int in
-            count += 1
-            return count
+        if onMissing() {
+            failures.withLock { $0 = Failures() }
+            return
         }
-        if failures >= Self.maxFailedRestores { stop() }
+        let delay = failures.withLock { state -> Duration? in
+            state.inARow += 1
+            guard state.inARow >= Self.maxFailedRestores else { return nil }
+            state.waiting = true
+            return state.backoff.next()
+        }
+        guard let delay else { return }
+        let queue = self.queue
+        retry.schedule(after: delay) { [weak self] in
+            guard let self else { return }
+            queue.async { self.checkPath(retrying: true) }
+        }
     }
 }
