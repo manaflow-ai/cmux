@@ -344,7 +344,7 @@ pub(super) fn rename_workspace(
         .map(crate::resource_name::parse_name_revision)
         .transpose()
         .map_err(|error| anyhow::anyhow!("bad request: expected_name_revision: {error}"))?;
-    let name_authority = crate::resource_name::WorkspaceNameUpdate::new(
+    let name_authority = crate::resource_name::WorkspaceNameUpdate::from_request(
         source,
         mutation.expected_generation.clone(),
         name_revision,

@@ -80,6 +80,19 @@ impl NameUpdate {
         Ok(Self { source, generation, name_revision })
     }
 
+    /// The name authority of a v1 rename, whose `expected_generation` is the
+    /// mutation's registry guard. Only an automatic rename also fences its
+    /// name with it; a user rename keeps the fingerprint and errors it had
+    /// before name provenance.
+    pub(crate) fn from_request(
+        source: Option<NameSource>,
+        mutation_generation: Option<String>,
+        name_revision: Option<u64>,
+    ) -> anyhow::Result<Self> {
+        let generation = mutation_generation.filter(|_| source == Some(NameSource::Auto));
+        Self::new(source, generation, name_revision)
+    }
+
     pub(crate) fn parse(fields: &Map<String, Value>) -> anyhow::Result<Self> {
         let source = fields.get("source").cloned().map(serde_json::from_value).transpose()?;
         let generation =
