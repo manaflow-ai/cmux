@@ -50,10 +50,8 @@ impl Hub {
         let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
         // The start mode also skips a remote-origin session (the remote
         // guard settles its mode) and a profile that pins its mode.
-        let mode_eligible = eligible
-            && !remote
-            && !keep_harness_mode
-            && !super::start_mode::profile_sets_mode(&profile);
+        let mode_eligible =
+            super::start_mode::mode_eligible(eligible, remote, keep_harness_mode, &profile);
         // A harness that takes its model at spawn (Claude Code's `--model`)
         // gets the start model there (`model_request` below).
         let model_pinned = model.is_some()
