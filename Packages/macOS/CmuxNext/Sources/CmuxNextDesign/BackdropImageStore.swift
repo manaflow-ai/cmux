@@ -1,4 +1,5 @@
 public import AppKit
+import AVFoundation
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
@@ -70,17 +71,18 @@ public final class BackdropImageStore {
         return Int((sizes.max() ?? 2560).rounded(.up))
     }
 
-    /// The decoded image of `selection`, or nil until it has loaded.
-    func cached(_ selection: BackdropSelection, texture: BackdropTexture = .default) -> NSImage? {
-        images[Key(id: selection.id, texture: texture)]
+    /// The decoded image of `selection` (in light or `dark`, for one that follows the
+    /// appearance), or nil until it has loaded.
+    func cached(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) -> NSImage? {
+        images[Key(id: selection.variantID(dark: dark), texture: texture)]
     }
 
     /// A small copy of an earlier launch's snapshot of `selection`, decoded now, for the frames
     /// before ``image(_:texture:)`` finishes; without one, the art's bundled thumbnail (art that
     /// still has to download shows it at once). Nil when there is neither.
-    func preview(_ selection: BackdropSelection, texture: BackdropTexture = .default) -> NSImage? {
+    func preview(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) -> NSImage? {
         let size = min(Self.previewPixelSize, maxPixelSize)
-        let image = snapshotURL(selection, texture: texture).flatMap { Self.decode($0, maxPixelSize: size) }
+        let image = snapshotURL(selection, texture: texture, dark: dark).flatMap { Self.decode($0, maxPixelSize: size) }
             ?? Self.thumbnail(of: selection).flatMap { Self.decode($0, maxPixelSize: size) }
         return image.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
     }
@@ -92,9 +94,10 @@ public final class BackdropImageStore {
 
     /// Starts loading `selection` so the first window that shows it finds it decoded.
     public func prewarm(_ selection: BackdropSelection?, texture: BackdropTexture = .default) {
-        guard let selection, cached(selection, texture: texture) == nil else { return }
+        let dark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        guard let selection, cached(selection, texture: texture, dark: dark) == nil else { return }
         // task-owner: one load per prewarm, kept in `warming` so tests can wait for it
-        warming.append(Task { [weak self] in _ = await self?.image(selection, texture: texture) })
+        warming.append(Task { [weak self] in _ = await self?.image(selection, texture: texture, dark: dark) })
     }
 
     /// Waits for the loads ``prewarm(_:texture:)`` started (tests).
@@ -105,8 +108,8 @@ public final class BackdropImageStore {
     }
 
     /// The decoded, textured image of `selection`, loading it off the main actor once.
-    func image(_ selection: BackdropSelection, texture: BackdropTexture = .default) async -> NSImage? {
-        let key = Key(id: selection.id, texture: texture)
+    func image(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) async -> NSImage? {
+        let key = Key(id: selection.variantID(dark: dark), texture: texture)
         if let image = images[key] { return image }
         if case .art(let art) = selection, art.imageURL == nil {
             // Not bundled and not downloaded yet: fetch it once, then decode as usual.
@@ -117,7 +120,7 @@ public final class BackdropImageStore {
         if let running = loads[key] {
             load = running
         } else {
-            let source = selection.resolvedImageURL(), snapshot = snapshotURL(selection, texture: texture)
+            let source = selection.resolvedImageURL(dark: dark), snapshot = snapshotURL(selection, texture: texture, dark: dark)
             let size = maxPixelSize
             load = Task.detached(priority: .userInitiated) {
                 Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture)
@@ -136,12 +139,12 @@ public final class BackdropImageStore {
 
     /// The snapshot file of `selection` at this store's size and `texture`. Its name carries the
     /// source file's size and modification date, so a replaced file never matches an old one.
-    private func snapshotURL(_ selection: BackdropSelection, texture: BackdropTexture) -> URL? {
-        guard let snapshots, let source = selection.resolvedImageURL(),
+    private func snapshotURL(_ selection: BackdropSelection, texture: BackdropTexture, dark: Bool = false) -> URL? {
+        guard let snapshots, let source = selection.resolvedImageURL(dark: dark),
               let attributes = try? FileManager.default.attributesOfItem(atPath: source.path) else { return nil }
         let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let bytes = (attributes[.size] as? NSNumber)?.intValue ?? 0
-        let identity = "\(selection.id)|\(texture.id)|\(maxPixelSize)|\(bytes)|\(modified)"
+        let identity = "\(selection.variantID(dark: dark))|\(texture.id)|\(maxPixelSize)|\(bytes)|\(modified)"
         return snapshots.appendingPathComponent(Self.digest(identity) + ".jpg")
     }
 
@@ -159,8 +162,10 @@ public final class BackdropImageStore {
         return Decoded(image: result, rendered: textured != nil)
     }
 
-    /// The file decoded now (not when it first draws), its longest side at most `maxPixelSize`.
-    private nonisolated static func decode(_ url: URL, maxPixelSize: Int) -> CGImage? {
+    /// The file decoded now (not when it first draws), its longest side at most `maxPixelSize`;
+    /// a video's first frame.
+    nonisolated static func decode(_ url: URL, maxPixelSize: Int) -> CGImage? {
+        if AppleWallpapers.isVideo(url.path) { return poster(url, maxPixelSize: maxPixelSize) }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -169,6 +174,15 @@ public final class BackdropImageStore {
             kCGImageSourceShouldCacheImmediately: true,
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    /// A video's first frame, upright, its longest side at most `maxPixelSize`: the poster a
+    /// paused video wallpaper shows, and its picker thumbnail.
+    public nonisolated static func poster(_ url: URL, maxPixelSize: Int) -> CGImage? {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: maxPixelSize, height: maxPixelSize)
+        return try? generator.copyCGImage(at: .zero, actualTime: nil)
     }
 
     /// Writes `image` as a JPEG at `file`, through a temporary file so a reader never sees half.

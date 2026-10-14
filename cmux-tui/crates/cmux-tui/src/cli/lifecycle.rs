@@ -33,6 +33,10 @@ pub(super) enum ServerAction {
         /// Private app contract (cx-hnmbt.2): an owner this call spawns
         /// opens its loopback WebSocket listener (`--ws-loopback`).
         websocket: Option<crate::local_owner::EnsureWebSocket>,
+        /// Private app contract (cx-jniyz, the app's "Restart cmux-tui"):
+        /// first stop an owner that accepts but does not answer `identify`
+        /// (`local_owner::replace_if_unresponsive`), then ensure as usual.
+        replace_unresponsive: bool,
     },
     Stop {
         force: bool,
@@ -99,8 +103,13 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
     };
     let socket_output = socket.to_string_lossy().into_owned();
-    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin, progress, websocket } =
-        plan.action
+    if let ServerAction::Ensure {
+        terminal_reap_grace,
+        install_key_stdin,
+        progress,
+        websocket,
+        replace_unresponsive,
+    } = plan.action
     {
         // Read before anything else: stdin is the app's pipe, never argv/env.
         let install_key = match install_key_stdin.then(read_install_key_from_stdin).transpose() {
@@ -115,7 +124,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             terminal_reap_grace,
             install_key,
             (socket, socket_is_derived),
-            progress,
+            (progress, replace_unresponsive),
             websocket,
             global.output,
         );
@@ -422,13 +431,14 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 /// `server ensure`: connect to a ready owner, spawning a detached one when
 /// nothing serves the socket. Reports `running` for an owner that already
 /// existed and `started` for one this call spawned. `socket` is the socket
-/// path and whether it was derived from the session name.
+/// path and whether it was derived from the session name; the flag pair is
+/// `--restore-progress` and `--replace-unresponsive`.
 fn run_ensure(
     expected_session: Option<String>,
     terminal_reap_grace: Option<Duration>,
     install_key: Option<cmux_tui_core::server::FrontendKey>,
     (socket, socket_is_derived): (std::path::PathBuf, bool),
-    progress: bool,
+    (progress, replace_unresponsive): (bool, bool),
     websocket: Option<crate::local_owner::EnsureWebSocket>,
     output: OutputMode,
 ) -> i32 {
@@ -446,7 +456,31 @@ fn run_ensure(
         // The app's Chief owner: the brain tools socket this client was
         // started with (taken out of its environment at start).
         chief_tools_socket: crate::startup_env::chief_tools_socket(),
+        // ...and the Chief brains the app gave it (taken out at start too).
+        chief_brains: cmux_tui_core::chief_brains::taken(),
         websocket,
+    };
+    let replaced = if replace_unresponsive {
+        match crate::local_owner::replace_if_unresponsive(&spec) {
+            Ok(replaced) => replaced.map(|replaced| replaced.pid),
+            Err(error) => {
+                let details = match &error {
+                    crate::local_owner::ReplaceError::Signal(error) => {
+                        json!({"reason": error.to_string()})
+                    }
+                    _ => json!({}),
+                };
+                return local_error_with_details(
+                    error.code(),
+                    messages.replace_refused,
+                    details,
+                    output,
+                    3,
+                );
+            }
+        }
+    } else {
+        None
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     let report = |restoring: &crate::local_owner::Restoring| {
@@ -462,43 +496,55 @@ fn run_ensure(
         Ok(ensured) => {
             let (status, message, ready) = match &ensured {
                 crate::local_owner::Ensured::Running(ready) => ("running", messages.running, ready),
+                crate::local_owner::Ensured::Started(ready) if replaced.is_some() => {
+                    ("replaced", messages.replaced, ready)
+                }
                 crate::local_owner::Ensured::Started(ready) => ("started", messages.started, ready),
             };
-            print_success(
-                json!({
-                    "status":status,
-                    "session":ready.session,
-                    "socket":socket_output,
-                    "pid":ready.pid,
-                    "generation":ready.generation,
-                    "message":message,
-                }),
-                output,
-            )
+            let mut result = json!({
+                "status":status,
+                "session":ready.session,
+                "socket":socket_output,
+                "pid":ready.pid,
+                "generation":ready.generation,
+                "message":message,
+            });
+            if let Some(pid) = replaced {
+                result["replaced_pid"] = json!(pid);
+            }
+            print_success(result, output)
         }
-        Err(crate::local_owner::EnsureError::Spawn(_error)) => {
-            local_error("server.spawn_failed", &messages.owner_spawn_failed(), output, 3)
-        }
-        Err(crate::local_owner::EnsureError::NotReady) => {
-            local_error("server.unavailable", messages.owner_not_ready, output, 3)
-        }
-        Err(crate::local_owner::EnsureError::RestoreTimeout) => {
-            local_error("server.restore_timeout", messages.owner_restore_timeout, output, 3)
-        }
-        Err(crate::local_owner::EnsureError::WrongOwner) => {
-            local_error("server.wrong_owner", messages.wrong_owner, output, 1)
-        }
-        Err(crate::local_owner::EnsureError::DifferentSession) => {
-            local_error("server.different_session", messages.different_session, output, 1)
-        }
-        Err(crate::local_owner::EnsureError::DifferentState) => {
-            local_error("server.different_state", messages.different_state, output, 1)
-        }
-        Err(crate::local_owner::EnsureError::InvalidIdentity) => {
-            local_error("server.invalid_identity", messages.invalid_identity, output, 3)
-        }
-        Err(crate::local_owner::EnsureError::UnsupportedProtocol) => {
-            local_error("server.unsupported_protocol", messages.unsupported_protocol, output, 3)
+        Err(error) => {
+            let (code, message, exit_code) = match error {
+                crate::local_owner::EnsureError::Spawn(_error) => {
+                    ("server.spawn_failed", messages.owner_spawn_failed(), 3)
+                }
+                crate::local_owner::EnsureError::NotReady => {
+                    ("server.unavailable", messages.owner_not_ready.to_string(), 3)
+                }
+                crate::local_owner::EnsureError::RestoreTimeout => {
+                    ("server.restore_timeout", messages.owner_restore_timeout.to_string(), 3)
+                }
+                crate::local_owner::EnsureError::WrongOwner => {
+                    ("server.wrong_owner", messages.wrong_owner.to_string(), 1)
+                }
+                crate::local_owner::EnsureError::DifferentSession => {
+                    ("server.different_session", messages.different_session.to_string(), 1)
+                }
+                crate::local_owner::EnsureError::DifferentState => {
+                    ("server.different_state", messages.different_state.to_string(), 1)
+                }
+                crate::local_owner::EnsureError::InvalidIdentity => {
+                    ("server.invalid_identity", messages.invalid_identity.to_string(), 3)
+                }
+                crate::local_owner::EnsureError::UnsupportedProtocol => {
+                    ("server.unsupported_protocol", messages.unsupported_protocol.to_string(), 3)
+                }
+            };
+            // The app learns that the old owner is gone even when the new
+            // one did not start.
+            let details = replaced.map_or_else(|| json!({}), |pid| json!({"replaced_pid": pid}));
+            local_error_with_details(code, &message, details, output, exit_code)
         }
     }
 }

@@ -28,6 +28,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "restore-progress",
     // `server ensure`: private app contract, the owner's loopback WebSocket.
     "ws-loopback",
+    // `server ensure`: private app contract, replace an unresponsive owner.
+    "replace-unresponsive",
     "confirm-close",
     "complete",
     "clear-name",

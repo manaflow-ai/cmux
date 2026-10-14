@@ -2085,9 +2085,10 @@
     },
     "sidebar.density" : {
       "default" : "compact",
-      "description" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+      "description" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
       "enum" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "title" : "Sidebar Density",
@@ -2523,7 +2524,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.notification" : {
-      "default" : true,
+      "default" : false,
       "description" : "The text of the workspace's newest unread notification.",
       "title" : "Latest Notification",
       "type" : "boolean"

@@ -31,6 +31,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::doc::Doc;
 use super::model::*;
 use super::order_key;
 use crate::sidebar_layout::{self, Content};
@@ -122,7 +123,7 @@ pub fn body_of_layout_ref(reference: &sidebar_layout::ItemRef) -> Body {
         },
         "built_in" => Body::Builtin { id: value },
         "app" => Body::App { id: value },
-        "url" => Body::Url { url: value, title: None },
+        "url" => Body::Url { url: value, title: None, icon_url: None },
         "tab" => Body::Tab { reference: value },
         "room" => Body::Room { id: value },
         "saved_group" => Body::SavedGroup { id: value },
@@ -150,7 +151,9 @@ pub fn layout_ref_of_body(body: &Body) -> Option<sidebar_layout::ItemRef> {
 }
 
 struct Builder {
-    doc: Doc,
+    sections: Vec<Section>,
+    items: Vec<Item>,
+    ids: HashSet<String>,
     placed: HashSet<(String, String)>,
     machines: Vec<String>,
 }
@@ -165,25 +168,30 @@ impl Builder {
     }
 
     /// Append `item` to its sibling list (keys are given at the end).
-    fn push(&mut self, item: Item) {
-        self.doc.items.push(item);
+    fn push(&mut self, mut item: Item) {
+        item.lift_icon_url();
+        self.ids.insert(item.id.clone());
+        self.items.push(item);
+    }
+
+    fn has_item(&self, id: &str) -> bool {
+        self.ids.contains(id)
     }
 
     fn machine_section(&mut self, session: &str) -> SectionId {
         let id = machine_section_id(session);
-        if self.doc.section(&id).is_none() {
+        if !self.sections.iter().any(|section| section.id == id) {
             // A machine seen only in the personal rows: after the last
             // machine section (or in the middle region at its end).
             let mut section = Section::machine(session);
             let last = self
-                .doc
                 .sections
                 .iter()
                 .filter(|s| s.region == Region::Middle)
                 .map(|s| s.order.clone())
                 .max();
             section.order = order_key::between(last.as_deref(), None);
-            self.doc.sections.push(section);
+            self.sections.push(section);
             self.machines.push(session.into());
         }
         id
@@ -231,7 +239,7 @@ impl Builder {
             None => self.machine_section(&machine),
         };
         let id = group_item_id(&group.id);
-        if self.doc.item(&id).is_some() {
+        if self.has_item(&id) {
             return;
         }
         self.push(Item::new(
@@ -278,7 +286,9 @@ fn section_from_layout(section: &sidebar_layout::Section, kind: SectionKind) -> 
 /// The document the old stores describe (revision 0: the first change is 1).
 pub fn migrate(input: &LegacyInput) -> Doc {
     let mut builder = Builder {
-        doc: Doc { revision: 0, sections: Vec::new(), items: Vec::new() },
+        sections: Vec::new(),
+        items: Vec::new(),
+        ids: HashSet::new(),
         placed: HashSet::new(),
         machines: Vec::new(),
     };
@@ -349,7 +359,7 @@ pub fn migrate(input: &LegacyInput) -> Doc {
         section.order = key;
     }
     builder.machines = machine_ids.clone();
-    builder.doc.sections = sections;
+    builder.sections = sections;
     // 1. Layout items (tiles and top rows), in section order.
     for (section, item) in layout_items {
         let body = body_of_layout_ref(&item.reference);
@@ -366,7 +376,7 @@ pub fn migrate(input: &LegacyInput) -> Doc {
         new.shows_label = item.shows_label;
         new.span = item.span;
         new.extra = item.extra.clone();
-        if builder.doc.item(&new.id).is_some() {
+        if builder.has_item(&new.id) {
             continue;
         }
         builder.push(new);
@@ -400,19 +410,19 @@ pub fn migrate(input: &LegacyInput) -> Doc {
             LegacyEntry::Group { .. } => {}
         }
     }
-    let mut doc = builder.doc;
+    let Builder { sections, mut items, .. } = builder;
     // Insertion order is the order: one spread of keys per sibling list.
     let mut lists: std::collections::HashMap<(String, Option<String>), Vec<usize>> =
         std::collections::HashMap::new();
-    for (index, item) in doc.items.iter().enumerate() {
+    for (index, item) in items.iter().enumerate() {
         lists.entry((item.section.clone(), item.parent.clone())).or_default().push(index);
     }
     for indexes in lists.values() {
         for (&index, key) in indexes.iter().zip(order_key::spread(indexes.len())) {
-            doc.items[index].order = key;
+            items[index].order = key;
         }
     }
-    doc.normalize();
+    let mut doc = Doc::from_parts(0, sections, items);
     // Old stores allow values the document refuses (group names up to 256
     // characters, for one); a document that fails `check` refuses every op.
     super::reduce::repair(&mut doc);
