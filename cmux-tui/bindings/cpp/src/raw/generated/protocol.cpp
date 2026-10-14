@@ -140,6 +140,11 @@ Result<Json> Codec<AgentRecord>::encode(const AgentRecord& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("agent", std::move(encoded).value());
     }
+    if (!value.last_prompt.is_absent()) {
+        auto encoded = encode_value(value.last_prompt);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("last_prompt", std::move(encoded).value());
+    }
     if (value.session) {
         auto encoded = encode_value(*value.session);
         if (!encoded) return std::move(encoded).error();
@@ -179,6 +184,16 @@ Result<AgentRecord> Codec<AgentRecord>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_agent);
             if (!decoded) return std::move(decoded).error();
             result.agent = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_last_prompt = value.find("last_prompt");
+    if (field_last_prompt) {
+        if (field_last_prompt->is_null()) {
+            result.last_prompt = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_last_prompt);
+            if (!decoded) return std::move(decoded).error();
+            result.last_prompt = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_session = value.find("session");
@@ -30087,6 +30102,11 @@ Result<Json> Codec<AgentChangedEvent>::encode(const AgentChangedEvent& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("agent", std::move(encoded).value());
     }
+    if (!value.last_prompt.is_absent()) {
+        auto encoded = encode_value(value.last_prompt);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("last_prompt", std::move(encoded).value());
+    }
     if (value.session) {
         auto encoded = encode_value(*value.session);
         if (!encoded) return std::move(encoded).error();
@@ -30126,6 +30146,16 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_agent);
             if (!decoded) return std::move(decoded).error();
             result.agent = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_last_prompt = value.find("last_prompt");
+    if (field_last_prompt) {
+        if (field_last_prompt->is_null()) {
+            result.last_prompt = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_last_prompt);
+            if (!decoded) return std::move(decoded).error();
+            result.last_prompt = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_session = value.find("session");
