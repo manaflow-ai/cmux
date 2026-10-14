@@ -355,6 +355,10 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefProfileDelete
         | Op::ChiefProfileAvatarSet
         | Op::ChiefProfileAvatarGet
+        // Avatars: a page reads them only through its allow list
+        // (page-router.json: home-channels reads participant.avatar.get).
+        | Op::ParticipantAvatarSet
+        | Op::ParticipantAvatarGet
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet

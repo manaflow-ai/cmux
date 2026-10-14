@@ -127,6 +127,19 @@ pub fn auth_check(
     run_for(argv, env, TIMEOUT, Some(family)).map(|(ok, _)| ok)
 }
 
+/// `codex login status` with the harness's `env`: Some(true) signed in (exit
+/// 0), Some(false) only for Codex's own "Not logged in"; None for any other
+/// failure (a custom provider, a bad config, an older CLI, no `codex` here),
+/// which says nothing about a sign-in.
+pub fn codex_login_status(env: &BTreeMap<String, String>) -> Option<bool> {
+    let argv = ["codex", "login", "status"].map(String::from);
+    match run_for(&argv, env, TIMEOUT, Some("codex")) {
+        Ok((true, _)) => Some(true),
+        Ok((false, text)) if text.to_ascii_lowercase().contains("not logged in") => Some(false),
+        _ => None,
+    }
+}
+
 /// Whether `latest` is newer than `installed`, by their numeric parts. A
 /// version that does not parse is never called outdated.
 pub fn is_newer(latest: &str, installed: &str) -> bool {

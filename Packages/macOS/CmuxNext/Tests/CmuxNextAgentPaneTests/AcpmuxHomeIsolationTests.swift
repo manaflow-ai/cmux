@@ -21,7 +21,7 @@ struct AcpmuxHomeIsolationTests {
     private static func resolve(tag: String?, _ environment: [String: String]) throws -> AcpmuxEnvironment {
         try #require(AcpmuxEnvironment.resolve(build: tag.map(Self.build), bundledBinDirectory: URL(fileURLWithPath: "/App/bin"),
                                                environment: environment, userHome: user, uid: 501,
-                                               isExecutable: { _ in true }))
+                                               isExecutable: { _ in true }, executableOverride: nil))
     }
 
     @Test func anInheritedSocketWithoutItsHomeIsAnotherDaemons() throws {
@@ -73,7 +73,7 @@ struct AcpmuxHomeIsolationTests {
                 environment: row["env"] as? [String: String] ?? [:],
                 userHome: URL(fileURLWithPath: try #require(row["user_home"] as? String), isDirectory: true),
                 uid: UInt32(try #require(row["uid"] as? Int)),
-                isExecutable: { executables.contains($0) })
+                isExecutable: { executables.contains($0) }, executableOverride: nil)
             guard let expect = row["expect"] as? [String: Any] else {
                 #expect(got == nil, "\(name)")
                 continue
@@ -107,9 +107,9 @@ struct AcpmuxOtherHomeDaemonTests {
         try FileManager.default.copyItem(at: binary, to: binA.appendingPathComponent("acpmux"))
         try FileManager.default.copyItem(at: binary, to: binB.appendingPathComponent("acpmux"))
         let a = try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: binA,
-                                                       environment: ["ACPMUX_HOME": homeA.path, "ACPMUX_SOCKET": socket]))
+                                                       environment: ["ACPMUX_HOME": homeA.path, "ACPMUX_SOCKET": socket], executableOverride: nil))
         let b = try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: binB,
-                                                       environment: ["ACPMUX_HOME": homeB.path, "ACPMUX_SOCKET": socket]))
+                                                       environment: ["ACPMUX_HOME": homeB.path, "ACPMUX_SOCKET": socket], executableOverride: nil))
 
         var started: Int32?
         var bUsedIt = false
@@ -143,7 +143,7 @@ struct AcpmuxOtherHomeDaemonTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.copyItem(at: binary, to: bin.appendingPathComponent("acpmux"))
         let environment = try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin,
-                                                                 environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]))
+                                                                 environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket], executableOverride: nil))
         var refused: (any Error)?
         var started: Int32?
         do {
