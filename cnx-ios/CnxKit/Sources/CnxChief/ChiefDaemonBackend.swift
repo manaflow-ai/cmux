@@ -36,6 +36,9 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
         await core.applyAvatar(text)
     }
 
+    /// Chief's failed turns with the brain's raw error, by message id.
+    public var failureLog: ChiefFailureLog { core.failureLog }
+
     /// The link service of the Chief owner (cnx-hostd `chief`).
     public static let service = "chief"
 
@@ -134,6 +137,8 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
         private var info: ConversationInfo?
         /// Chief's questions in this conversation (``ChiefQuestionFeed``).
         nonisolated let questionFeed = ChiefQuestionFeed()
+        /// Failed turns by message id, with the brain's raw error (``ChiefFailureLog``).
+        nonisolated let failureLog = ChiefFailureLog()
         private var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
         private var rev: UInt64 = 0
         private var eventSeq = 0
@@ -269,6 +274,7 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             await hydrate(object)
             let asked = ChiefQuestionFeed.questions(in: object)
             questionFeed.update(asked.questions, seq: asked.seq)
+            if let id = object["id"] as? String { failureLog.record(wire.failure(object), messageID: id) }
             return wire.message(object, peerReadSeq: peerReadSeq, bytes: attachmentBytes)
         }
 

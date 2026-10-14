@@ -965,6 +965,8 @@ public final class LiveCoordinator {
     private func startChief(_ link: any MacLink) async {
         let session = ChiefSession.shared
         session.macName = self.link.target?.name
+        // Chief's settings show this Mac's last known model until it answers.
+        session.macID = self.link.target?.macID
         // A newer link (or none) took over while this one was opening: leave it be.
         func current() -> Bool { (currentLink as AnyObject?) === (link as AnyObject) }
         func offline(_ reason: String) {
