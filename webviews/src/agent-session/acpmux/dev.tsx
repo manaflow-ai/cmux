@@ -17,6 +17,7 @@ import "./header/header.css";
 import "./composerControls.css";
 import "./composerStates.css";
 import "./composerLocation.css";
+import "./bottomStack.css";
 import "./composerAttachments.css";
 import "./markdownField.css";
 import "./modelPicker.css";
