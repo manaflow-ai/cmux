@@ -302,6 +302,7 @@ mod terminal_sizing;
 mod terminal_work;
 mod topology_result;
 mod tree_close;
+mod workspace_close_guard;
 mod workspace_create;
 mod workspace_identity;
 mod workspace_move;
@@ -341,6 +342,7 @@ pub use terminal_reap::{
     DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
     validate_terminal_reap_grace,
 };
+pub(crate) use workspace_close_guard::workspace_not_empty_code;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use registry_viewport::restore_registry_viewport;

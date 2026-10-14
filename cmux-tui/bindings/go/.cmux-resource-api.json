@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "2dcdab24e501ca2a312457fbb74afec8c2e4b99d43f5b4a5d969a03c3540c28b",
+  "catalog_sha256": "e13c3457fe28da02c711bc89d9a130eee363f6127801d3031936d885f32192b8",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -221,6 +221,9 @@
       "class": "mutation"
     },
     "history.site.remove": {
+      "class": "mutation"
+    },
+    "history.trail.record": {
       "class": "mutation"
     },
     "history.visit.import": {
