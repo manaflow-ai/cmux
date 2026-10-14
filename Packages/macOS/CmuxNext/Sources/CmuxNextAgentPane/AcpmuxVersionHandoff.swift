@@ -66,7 +66,6 @@ nonisolated enum AcpmuxVersionHandoff {
         guard let override, override == executable, let runningPath else { return false }
         return URL(fileURLWithPath: runningPath).resolvingSymlinksInPath().path != executable.resolvingSymlinksInPath().path
     }
-
     #endif
 
     /// The bundled acpmux's build (`<executable> --version`).
