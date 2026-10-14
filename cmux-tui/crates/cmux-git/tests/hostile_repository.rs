@@ -448,3 +448,52 @@ fn hostile_repository_included_filter_driver_never_runs() {
 
     assert_no_marker(&scratch);
 }
+
+/// Writes an executable `post-index-change` hook in `hooks` that makes the
+/// marker.
+fn write_index_hook(scratch: &Scratch, hooks: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(hooks).expect("create the hooks folder");
+    let hook = hooks.join("post-index-change");
+    std::fs::write(&hook, format!("#!/bin/sh\n{}\n", scratch.touch_marker()))
+        .expect("write the hook");
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))
+        .expect("make the hook executable");
+}
+
+/// A working-tree diff refreshes a stale index and writes it, which runs
+/// the repository's `post-index-change` hook; `.git/hooks` needs no config.
+#[test]
+fn hostile_repository_index_hook_never_runs() {
+    let scratch = Scratch::new("index-hook");
+    let root = scratch.0.join("repository");
+    new_repository(&root);
+    std::fs::write(root.join("file.txt"), "one\n").expect("write file");
+    git(&root, &["add", "."]);
+    git(&root, &["commit", "--quiet", "-m", "one"]);
+    write_index_hook(&scratch, &root.join(".git/hooks"));
+    make_stat_dirty(&root.join("file.txt"));
+
+    read_changes(&root, "uncommitted");
+
+    assert_no_marker(&scratch);
+}
+
+/// The same hook from a folder the repository's `core.hooksPath` names.
+#[test]
+fn hostile_repository_hooks_path_index_hook_never_runs() {
+    let scratch = Scratch::new("hooks-path");
+    let root = scratch.0.join("repository");
+    new_repository(&root);
+    std::fs::write(root.join("file.txt"), "one\n").expect("write file");
+    git(&root, &["add", "."]);
+    git(&root, &["commit", "--quiet", "-m", "one"]);
+    let hooks = scratch.0.join("hooks");
+    write_index_hook(&scratch, &hooks);
+    git(&root, &["config", "core.hooksPath", &hooks.to_string_lossy()]);
+    make_stat_dirty(&root.join("file.txt"));
+
+    read_changes(&root, "uncommitted");
+
+    assert_no_marker(&scratch);
+}

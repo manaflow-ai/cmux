@@ -477,3 +477,84 @@ async fn normal_repository_session_is_unchanged() {
     assert!(patch.contains("b/untracked.txt"), "{patch}");
     assert_eq!(session.generated, vec!["dist/out.js".to_owned()]);
 }
+
+/// Writes an executable `post-index-change` hook in `hooks` that makes the
+/// marker.
+fn write_index_hook(scratch: &Scratch, hooks: &Path) {
+    std::fs::create_dir_all(hooks).expect("create the hooks folder");
+    let hook = hooks.join("post-index-change");
+    std::fs::write(&hook, format!("#!/bin/sh\n{}\n", scratch.touch_marker()))
+        .expect("write the hook");
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))
+        .expect("make the hook executable");
+}
+
+/// An unstaged diff refreshes a stale index and writes it, which runs the
+/// repository's `post-index-change` hook; `.git/hooks` needs no config.
+#[tokio::test]
+async fn hostile_repository_index_hook_never_runs() {
+    let scratch = Scratch::new("index-hook");
+    let repo = scratch.0.join("repository");
+    new_repository(&repo);
+    write_index_hook(&scratch, &repo.join(".git/hooks"));
+    make_stat_dirty(&repo.join("file.txt"));
+
+    open(&scratch, &unstaged(&repo), &repo).await;
+
+    scratch.assert_no_marker();
+}
+
+/// The same hook from a folder the repository's `core.hooksPath` names.
+#[tokio::test]
+async fn hostile_repository_hooks_path_index_hook_never_runs() {
+    let scratch = Scratch::new("hooks-path");
+    let repo = scratch.0.join("repository");
+    new_repository(&repo);
+    let hooks = scratch.0.join("hooks");
+    write_index_hook(&scratch, &hooks);
+    git(
+        &repo,
+        &["config", "core.hooksPath", &hooks.to_string_lossy()],
+    );
+    make_stat_dirty(&repo.join("file.txt"));
+
+    open(&scratch, &unstaged(&repo), &repo).await;
+
+    scratch.assert_no_marker();
+}
+
+/// The superproject's diff runs `git status` inside a submodule, which
+/// writes the submodule's stale index and runs the submodule's hook.
+#[tokio::test]
+async fn hostile_repository_submodule_index_hook_never_runs() {
+    let scratch = Scratch::new("submodule-hook");
+    let submodule = scratch.0.join("submodule");
+    new_repository(&submodule);
+    let repo = scratch.0.join("repository");
+    new_repository(&repo);
+    let source = submodule.to_string_lossy().into_owned();
+    git(
+        &repo,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "--quiet",
+            &source,
+            "sub",
+        ],
+    );
+    git(&repo, &["commit", "--quiet", "-m", "add the submodule"]);
+    let checkout = repo.join("sub");
+    let hooks = git(
+        &checkout,
+        &["rev-parse", "--path-format=absolute", "--git-path", "hooks"],
+    );
+    write_index_hook(&scratch, Path::new(&hooks));
+    make_stat_dirty(&checkout.join("file.txt"));
+
+    open(&scratch, &unstaged(&repo), &repo).await;
+
+    scratch.assert_no_marker();
+}
