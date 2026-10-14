@@ -82,6 +82,8 @@ test("the New Tab page offers its five styles as named dots, the current one che
   expect(name().hasAttribute("data-shown")).toBe(false);
 
   // A click goes back to the field once the picked page has mounted (the frame after the pick).
+  // The test runs the frames itself: jsdom's own frame is a 16 ms timer, which a loaded runner
+  // can reach before the first check.
   let fieldAsked = 0;
   window.addEventListener("acpmux-focus-location", () => fieldAsked++);
   await act(async () => {
