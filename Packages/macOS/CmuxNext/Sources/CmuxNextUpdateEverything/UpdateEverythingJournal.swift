@@ -11,13 +11,17 @@ public actor UpdateEverythingJournal {
         public var continueThreads: Bool
         /// When the run wrote the note.
         public var startedAt: Date
+        /// The connected SSH and Cloud machines of the run: the relaunched app waits for them.
+        public var machineIDs: [String]
 
         /// - Parameters:
         ///   - continueThreads: The person's choice in the confirmation.
         ///   - startedAt: When the run wrote the note.
-        public init(continueThreads: Bool, startedAt: Date) {
+        ///   - machineIDs: The run's SSH and Cloud machines.
+        public init(continueThreads: Bool, startedAt: Date, machineIDs: [String]) {
             self.continueThreads = continueThreads
             self.startedAt = startedAt
+            self.machineIDs = machineIDs
         }
     }
 
@@ -36,11 +40,13 @@ public actor UpdateEverythingJournal {
     }
 
     /// Writes the note before the app relaunches.
-    /// - Parameter continueThreads: The person's choice in the confirmation.
+    /// - Parameters:
+    ///   - continueThreads: The person's choice in the confirmation.
+    ///   - machineIDs: The run's SSH and Cloud machines.
     /// - Throws: The file write's error.
-    public func save(continueThreads: Bool) throws {
+    public func save(continueThreads: Bool, machineIDs: [String]) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(Entry(continueThreads: continueThreads, startedAt: now())).write(to: url, options: .atomic)
+        try JSONEncoder().encode(Entry(continueThreads: continueThreads, startedAt: now(), machineIDs: machineIDs)).write(to: url, options: .atomic)
     }
 
     /// Reads and removes the note: a run is finished at most once, even when finishing it crashes.

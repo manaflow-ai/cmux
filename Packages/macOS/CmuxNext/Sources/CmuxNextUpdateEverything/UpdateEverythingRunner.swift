@@ -13,8 +13,8 @@ public import Observation
 @MainActor
 @Observable
 public final class UpdateEverythingRunner {
-    /// A run is going; a second request while one runs is refused.
-    public private(set) var isRunning = false
+    /// A run is being asked about or goes; a second request meanwhile is refused.
+    public private(set) var isBusy = false
     @ObservationIgnored private let journal: UpdateEverythingJournal
 
     /// - Parameter journal: Where the run notes what the relaunched app must finish.
@@ -22,18 +22,29 @@ public final class UpdateEverythingRunner {
         self.journal = journal
     }
 
-    /// Updates every machine of `plan`, then the app.
+    /// Reserves the runner from the moment the person asks (before the plan and the
+    /// confirmation), so two requests never both run.
+    /// - Returns: False when a run is already reserved.
+    public func claim() -> Bool {
+        guard !isBusy else { return false }
+        isBusy = true
+        return true
+    }
+
+    /// Ends the reservation ``claim()`` made.
+    public func release() {
+        isBusy = false
+    }
+
+    /// Updates every machine of `plan`, then the app. The caller holds ``claim()``.
     /// - Parameters:
     ///   - plan: What the person confirmed.
     ///   - continueThreads: The person's "Continue threads after restarts".
     ///   - steps: The App's update paths.
-    /// - Returns: One outcome per machine that had work, in plan order; empty when a run was going.
-    ///   An app update that starts relaunches the app, so its outcome is never read.
+    /// - Returns: One outcome per machine that had work, in plan order. An app update that starts
+    ///   relaunches the app, so its outcome is never read.
     public func run(_ plan: UpdateEverythingPlan, continueThreads: Bool, steps: any UpdateEverythingSteps) async -> [UpdateEverythingOutcome] {
-        guard !isRunning else { return [] }
-        isRunning = true
-        defer { isRunning = false }
-        let machines = plan.machines.filter { $0.daemon != nil || !$0.harnesses.isEmpty || $0.app != nil }
+        let machines = plan.machines.filter { !$0.isUpToDate }
         var outcomes = await withTaskGroup(of: (Int, UpdateEverythingOutcome).self) { group in
             for (index, machine) in machines.enumerated() {
                 group.addTask { @MainActor in (index, await Self.update(machine, continueThreads: continueThreads, steps: steps)) }
@@ -45,7 +56,8 @@ public final class UpdateEverythingRunner {
         if let local = machines.first(where: { $0.app != nil }),
            let index = outcomes.firstIndex(where: { $0.machineID == local.id }), outcomes[index].failure == nil {
             do {
-                try await journal.save(continueThreads: continueThreads)
+                let remotes = plan.machines.filter { $0.kind != .local }.map(\.id)
+                try await journal.save(continueThreads: continueThreads, machineIDs: remotes)
                 try steps.installApp()
             } catch {
                 await journal.clear()
@@ -56,14 +68,16 @@ public final class UpdateEverythingRunner {
     }
 
     /// Finishes a run the app relaunched in the middle of: nil when no fresh note says one was
-    /// going. The note is removed first, so a crash here never repeats the run.
+    /// going, or a run is reserved. The note is removed first, so a crash here never repeats the run.
     /// - Parameters:
-    ///   - plan: Reads the plan now (the relaunched app's daemon build against each machine).
+    ///   - plan: Reads the plan once the machines the run named are back (it waits, bounded).
     ///   - steps: The App's update paths.
     /// - Returns: The outcomes of the finished run, or nil.
-    public func finishAfterRelaunch(plan: () async -> UpdateEverythingPlan, steps: any UpdateEverythingSteps) async -> [UpdateEverythingOutcome]? {
-        guard let entry = await journal.take() else { return nil }
-        var fresh = await plan()
+    public func finishAfterRelaunch(plan: ([String]) async -> UpdateEverythingPlan,
+                                    steps: any UpdateEverythingSteps) async -> [UpdateEverythingOutcome]? {
+        guard let entry = await journal.take(), claim() else { return nil }
+        defer { release() }
+        var fresh = await plan(entry.machineIDs)
         // The app just updated: a second Sparkle update found meanwhile waits for the next run.
         for index in fresh.machines.indices { fresh.machines[index].app = nil }
         return await run(fresh, continueThreads: entry.continueThreads, steps: steps)
@@ -74,7 +88,12 @@ public final class UpdateEverythingRunner {
                                steps: any UpdateEverythingSteps) async -> UpdateEverythingOutcome {
         var outcome = UpdateEverythingOutcome(machineID: machine.id, name: machine.name)
         do {
-            if machine.daemon != nil { try await steps.updateDaemon(on: machine) }
+            var machine = machine
+            if machine.daemon != nil {
+                try await steps.updateDaemon(on: machine)
+                // A daemon too old to list agent CLIs lists them once it runs the new build.
+                machine.harnesses = await steps.outdatedAgents(on: machine)
+            }
             if !machine.harnesses.isEmpty { try await steps.updateAgents(on: machine, continueThreads: continueThreads) }
         } catch {
             outcome.failure = text(error)

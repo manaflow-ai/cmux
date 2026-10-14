@@ -10,40 +10,44 @@ import Foundation
 /// Update Everything's update paths over the App's own (cx-1mbnu): Sparkle for the app,
 /// `SSHService.install` (RemoteInstaller) and `cmux link machine update --to-bundled` for the
 /// machines' cmux daemons, and each machine daemon's `agent-update-*` for its agent CLIs and
-/// threads. It also reads the plan the confirmation shows.
+/// threads (the logic lives in the daemon). It also reads the plan the confirmation shows.
 @MainActor
 final class UpdateEverythingAppSteps: UpdateEverythingSteps {
     private let services: AppServices
+    /// How long a machine may take to answer again after its update, or to reconnect at launch.
+    private static let reconnectLimit: Duration = .seconds(180)
 
     init(services: AppServices) {
         self.services = services
     }
 
-    /// This Mac, then every connected SSH and Cloud machine. A machine whose daemon does not
-    /// answer within 45 s shows only its daemon update rather than holding the confirmation.
+    /// This Mac, then every connected SSH and Cloud machine, all asked at once. A machine whose
+    /// daemon does not answer within 45 s shows only its daemon update.
     func plan() async -> UpdateEverythingPlan {
         var bundled: String?
         if let binary = try? DaemonLauncherBinary.resolve() { bundled = await BundledCmuxTUI.commit(binary: binary) }
-        var local = await machine(id: MachineRegistry.localID, name: UpdateEverythingStrings.thisMac, kind: .local,
-                                  daemon: services.machines.local, bundled: nil)
-        local.app = appChange()
-        let remotes: [(String, String, UpdateEverythingMachine.Kind, DaemonService)] =
-            services.machines.ssh.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.host.label, .ssh, $0.daemon) }
+        let targets: [(String, String, UpdateEverythingMachine.Kind, DaemonService)] =
+            [(MachineRegistry.localID, UpdateEverythingStrings.thisMac, .local, services.machines.local)]
+            + services.machines.ssh.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.host.label, .ssh, $0.daemon) }
             + services.machines.cloud.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.machine.title, .cloud, $0.daemon) }
-        var machines = [local]
-        for (id, name, kind, daemon) in remotes {
-            machines.append(await machine(id: id, name: name, kind: kind, daemon: daemon, bundled: bundled))
+        var machines = await withTaskGroup(of: (Int, UpdateEverythingMachine).self) { group in
+            for (index, (id, name, kind, daemon)) in targets.enumerated() {
+                group.addTask { @MainActor in (index, await self.machine(id: id, name: name, kind: kind, daemon: daemon, bundled: bundled)) }
+            }
+            var collected: [(Int, UpdateEverythingMachine)] = []
+            for await machine in group { collected.append(machine) }
+            return collected.sorted { $0.0 < $1.0 }.map(\.1)
         }
+        machines[0].app = appChange()
         return UpdateEverythingPlan(machines: machines)
     }
 
-    /// ``plan()`` after a relaunch: first waits (bounded) for this Mac and every machine set to
-    /// connect, so a run the relaunch interrupted reaches the machines it updated before.
-    func connectedPlan() async -> UpdateEverythingPlan {
-        let daemons = [services.machines.local] + services.machines.ssh.filter(\.autoConnect).map(\.daemon)
-            + services.machines.cloud.map(\.daemon)
-        await withTaskGroup(of: Void.self) { group in
-            for daemon in daemons { group.addTask { @MainActor in _ = await Self.connection(of: daemon) } }
+    /// ``plan()`` after a relaunch: first waits (bounded) until the machines the run named are
+    /// back in the sidebar and connected (saved hosts and Cloud sign-in restore after launch).
+    func plan(waitingFor machineIDs: [String]) async -> UpdateEverythingPlan {
+        let machines = services.machines
+        _ = await Self.holds(within: Self.reconnectLimit) {
+            machines.local.connection != nil && machineIDs.allSatisfy { machines.anyDaemon(machine: $0)?.connection != nil }
         }
         return await plan()
     }
@@ -53,35 +57,40 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? ProcessInfo.processInfo.processName
     }
 
-    /// The app's update when Sparkle has found or staged one.
+    /// The app's update when Sparkle has staged one: only then does Install relaunch at once, so the
+    /// run's last step is the relaunch (a found update still downloads, for the next run).
     private func appChange() -> UpdateEverythingChange? {
         let updater = services.updater
-        guard updater.installUnavailableReason == nil else { return nil }
-        let found: String?
-        switch updater.flow.phase {
-        case .ready(let version), .available(let version): found = version
-        case .downloading: found = updater.status.detectedVersion
-        case .hidden, .checking, .installing, .note: return nil
-        }
-        return UpdateEverythingChange(name: Self.appName, from: updater.status.version, to: updater.stagedVersion ?? found)
+        guard updater.installUnavailableReason == nil, case .ready(let version) = updater.flow.phase else { return nil }
+        return UpdateEverythingChange(name: Self.appName, from: updater.status.version, to: updater.stagedVersion ?? version)
     }
 
     private func machine(id: String, name: String, kind: UpdateEverythingMachine.Kind, daemon: DaemonService,
                          bundled: String?) async -> UpdateEverythingMachine {
         var machine = UpdateEverythingMachine(id: id, name: name, kind: kind)
-        let running = daemon.identity?.buildCommit
+        let running = daemon.identity?.buildCommit.flatMap { $0.isEmpty ? nil : $0 }
         if let bundled, kind != .local, running.map({ !bundled.hasPrefix($0) && !$0.hasPrefix(bundled) }) ?? true {
             machine.daemon = UpdateEverythingChange(name: UpdateEverythingStrings.daemonName, from: running.map { String($0.prefix(7)) },
                                                     to: String(bundled.prefix(7)))
         }
-        guard daemon.supports(AgentUpdateCapability.name), let connection = daemon.connection,
-              let answer = try? await connection.request(AgentUpdatePlanRequest(), timeout: .seconds(45)) else { return machine }
-        machine.harnesses = answer.harnesses.map { UpdateEverythingChange(id: $0.id, name: $0.name ?? $0.id, from: $0.version, to: $0.latest) }
-        machine.runningThreads = answer.runningThreads
+        let agents = await Self.agentPlan(daemon)
+        machine.harnesses = agents.map(Self.changes) ?? []
+        machine.runningThreads = agents?.runningThreads ?? 0
         return machine
     }
 
+    private static func agentPlan(_ daemon: DaemonService) async -> AgentUpdatePlanRequest.Response? {
+        guard daemon.supports(AgentUpdateCapability.name), let connection = daemon.connection else { return nil }
+        return try? await connection.request(AgentUpdatePlanRequest(), timeout: .seconds(45))
+    }
+
+    private static func changes(_ plan: AgentUpdatePlanRequest.Response) -> [UpdateEverythingChange] {
+        plan.harnesses.map { UpdateEverythingChange(id: $0.id, name: $0.name ?? $0.id, from: $0.version, to: $0.latest) }
+    }
+
     func updateDaemon(on machine: UpdateEverythingMachine) async throws {
+        guard let daemon = services.machines.anyDaemon(machine: machine.id) else { throw ActionFailure(message: UpdateEverythingStrings.disconnected) }
+        let before = daemon.identity?.pid
         switch machine.kind {
         case .local:
             return
@@ -89,48 +98,56 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
             guard let session = services.machines.sshSession(machine.id) else { throw ActionFailure(message: UpdateEverythingStrings.disconnected) }
             try await services.ssh.install(session)
         case .cloud:
-            guard let session = services.machines.session(machine.id), let binary = services.cloud.move.cli,
-                  let socket = await session.daemon.connection?.endpoint?.socketPath else {
+            guard let binary = services.cloud.move.cli, let socket = await daemon.connection?.endpoint?.socketPath else {
                 throw ActionFailure(message: UpdateEverythingStrings.disconnected)
             }
             let answer = try await CloudMoveCLI(binary: binary).machineUpdate(socket: socket, toBundled: true)
             if !answer.ok { throw ActionFailure(message: answer.error ?? answer.errorCode ?? "") }
+            guard answer.updated else { return }
         }
+        // The old connection stays until the new handshake: wait for the new daemon to answer.
+        let answered = await Self.holds(within: Self.reconnectLimit) {
+            daemon.connection != nil && daemon.identity.map { $0.pid != before } ?? false
+        }
+        if !answered { throw ActionFailure(message: UpdateEverythingStrings.disconnected) }
+    }
+
+    func outdatedAgents(on machine: UpdateEverythingMachine) async -> [UpdateEverythingChange] {
+        guard let daemon = services.machines.anyDaemon(machine: machine.id) else { return [] }
+        return await Self.agentPlan(daemon).map(Self.changes) ?? []
     }
 
     func updateAgents(on machine: UpdateEverythingMachine, continueThreads: Bool) async throws {
-        // A daemon just replaced reconnects on its own: wait (bounded) for that connection.
-        guard let daemon = services.machines.anyDaemon(machine: machine.id),
-              let connection = await Self.connection(of: daemon) else { throw ActionFailure(message: UpdateEverythingStrings.disconnected) }
+        guard let connection = services.machines.anyDaemon(machine: machine.id)?.connection else {
+            throw ActionFailure(message: UpdateEverythingStrings.disconnected)
+        }
         let request = AgentUpdateApplyRequest(ids: machine.harnesses.compactMap(\.id), continueThreads: continueThreads)
-        let answer = try await connection.request(request,
-                                                  timeout: AgentUpdateApplyRequest.timeout)
+        let answer = try await connection.request(request, timeout: AgentUpdateApplyRequest.timeout)
         if let failed = answer.results.first(where: { !$0.ok }) {
             throw ActionFailure(message: UpdateEverythingStrings.failed(failed.id, failed.error ?? ""))
         }
     }
 
-    /// The daemon's connection, waiting up to two minutes for a reconnect after its update.
-    private static func connection(of daemon: DaemonService) async -> DaemonConnection? {
-        if let connection = daemon.connection { return connection }
-        // concurrency-allow: the observation task exits on cancellation; this bounds a reconnect
-        return await withTaskGroup(of: DaemonConnection?.self) { group -> DaemonConnection? in
-            group.addTask { @MainActor in
-                for await connection in ObservationStream({ daemon.connection }) { if let connection { return connection } }
-                return nil
-            }
-            group.addTask {
-                // wakeup-allow: one-shot deadline for a machine to reconnect after its update
-                try? await Task.sleep(for: .seconds(120))
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
-    }
-
     func installApp() throws {
         try services.updater.installAvailableUpdate()
+    }
+
+    /// Whether `condition` holds within `limit`: an observation, bounded by a one-shot deadline.
+    private static func holds(within limit: Duration, until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+        if condition() { return true }
+        // concurrency-allow: the observation task exits on cancellation; this bounds a machine's reconnect
+        return await withTaskGroup(of: Bool.self) { group -> Bool in
+            group.addTask { @MainActor in
+                for await ready in ObservationStream({ condition() }) where ready { return true }
+                return false
+            }
+            group.addTask {
+                // wakeup-allow: one-shot deadline for a machine to answer after its update
+                try? await Task.sleep(for: limit)
+                return false
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? false
+        }
     }
 }

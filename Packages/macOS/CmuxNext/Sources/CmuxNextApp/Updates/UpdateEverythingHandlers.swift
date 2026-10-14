@@ -17,13 +17,16 @@ enum UpdateEverythingHandlers {
         let steps = UpdateEverythingAppSteps(services: services)
         let runner = UpdateEverythingRunner(journal: UpdateEverythingJournal(url: journalURL(services)))
         registry.bind(actionID, run: { _ in
-            guard !runner.isRunning else { throw ActionFailure(message: UpdateEverythingStrings.alreadyRunning) }
+            guard runner.claim() else { throw ActionFailure(message: UpdateEverythingStrings.alreadyRunning) }
             // task-owner: one confirmation and its run; ends with the run's result toast
-            Task { @MainActor in await ask(services, steps: steps, runner: runner) }
+            Task { @MainActor in
+                defer { runner.release() }
+                await ask(services, steps: steps, runner: runner)
+            }
         })
         // task-owner: the launch's one check for a run the app relaunched in; ends with that run
         Task { @MainActor in
-            guard let outcomes = await runner.finishAfterRelaunch(plan: { await steps.connectedPlan() }, steps: steps) else { return }
+            guard let outcomes = await runner.finishAfterRelaunch(plan: { await steps.plan(waitingFor: $0) }, steps: steps) else { return }
             report(outcomes, services)
         }
     }
