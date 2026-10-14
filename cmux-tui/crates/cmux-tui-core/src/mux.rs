@@ -3994,6 +3994,9 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        // A cwd the shell reported while the host was still adopting waited
+        // for the running lifecycle; publish it now that the terminal is live.
+        self.publish_pending_terminal_directories();
         // Adoption makes the terminal's resource surface available. Retry
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
@@ -5927,6 +5930,10 @@ impl Mux {
 
     fn publish_resource_event(&self) {
         self.publish_journal_event();
+        // A terminal's first cwd report can precede its registration, and its
+        // shell may then stay quiet. Each committed graph change is where such
+        // a terminal can join the graph, so publish whatever report waited.
+        self.publish_pending_terminal_directories();
     }
 
     fn publish_journal_event(&self) {
