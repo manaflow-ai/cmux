@@ -229,15 +229,18 @@ struct State {
 }
 
 /// Debug builds only: `ACPMUX_TEST_HOST_HELLO_STALL_DIR` names a directory of
-/// marker files. A host that removes one never answers `Hello`, as a wedged
-/// host does, so the daemon's integration tests can drive that path; each
-/// marker stalls one host. Release builds have no seam.
+/// `stall-*` marker files. A host that removes one never answers `Hello`, as
+/// a wedged host does, so the daemon's integration tests can drive that
+/// path; each marker stalls one host. Release builds have no seam.
 fn claim_hello_stall() -> bool {
     #[cfg(debug_assertions)]
     if let Some(dir) = std::env::var_os("ACPMUX_TEST_HOST_HELLO_STALL_DIR")
         && let Ok(entries) = std::fs::read_dir(dir)
     {
-        return entries.flatten().any(|e| std::fs::remove_file(e.path()).is_ok());
+        return entries.flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with("stall-")
+                && std::fs::remove_file(e.path()).is_ok()
+        });
     }
     false
 }

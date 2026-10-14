@@ -106,7 +106,7 @@ impl Daemon {
     fn stall_hellos(&self, n: usize) {
         std::fs::create_dir_all(self.stall_dir()).unwrap();
         for i in 0..n {
-            std::fs::write(self.stall_dir().join(format!("m{i}")), "").unwrap();
+            std::fs::write(self.stall_dir().join(format!("stall-{i}")), "").unwrap();
         }
     }
 
@@ -657,10 +657,15 @@ fn kinds<'a>(events: &'a [Value], kind: &str) -> Vec<&'a Value> {
 }
 
 /// End a harness group a test left behind (its host was killed, so nothing
-/// else ends it).
+/// else ends it), only while that group still exists under its leader.
 fn end_group(pid: i64) {
-    // SAFETY: a process group this test's daemon started.
-    unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+    // SAFETY: getpgid only reads; the group is the one this test's daemon
+    // started while its leader still leads it.
+    unsafe {
+        if libc::getpgid(pid as i32) == pid as i32 {
+            libc::killpg(pid as i32, libc::SIGKILL);
+        }
+    }
 }
 
 /// The Chief's subagent died on "agent host did not answer hello within 5s"
@@ -727,10 +732,18 @@ async fn a_wedged_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() 
     let daemon = Daemon::new("wedge", 0);
     let mut rpc = daemon.rpc().await;
     let home = daemon.home.clone();
+    // The pooled harness starts a helper that leaves its process group, as
+    // a harness's background shell does.
+    let helper_file = home.join("helper.pid");
+    let mut with_helper = profile("b");
+    with_helper["env"]["FAKE_SETSID_CHILD"] = json!(helper_file);
+    daemon.write_config(&with_helper);
+    rpc.call("_acpmux/reload_config", json!({})).await;
     rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
     wait_pool_ready(&mut rpc, "fakeb").await;
     let r = daemon.pool_records().pop().expect("a pooled host");
     let (host, harness) = (r["host_pid"].as_i64().unwrap(), r["harness_pid"].as_i64().unwrap());
+    let helper: i64 = std::fs::read_to_string(&helper_file).unwrap().trim().parse().unwrap();
     // SAFETY: the exact pooled host this test's daemon started (its record).
     unsafe { libc::kill(host as i32, libc::SIGSTOP) };
     let (id, took) = new_session(&mut rpc, &home, "fakeb").await;
@@ -744,7 +757,14 @@ async fn a_wedged_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() 
         .await;
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
     assert!(gone_within(host, Duration::from_secs(15)), "the wedged pooled host still runs");
+    // It could not end what runs under it: the daemon ended that with it.
+    let ended = gone_within(helper, Duration::from_secs(10));
     end_group(harness);
+    if !ended {
+        // SAFETY: the exact helper pid the fake harness reported.
+        unsafe { libc::kill(helper as i32, libc::SIGKILL) };
+    }
+    assert!(ended, "a process under the wedged host runs on without an owner");
 }
 
 /// A pooled host that died is not served either.
