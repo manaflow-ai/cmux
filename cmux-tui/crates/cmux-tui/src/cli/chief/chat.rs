@@ -34,9 +34,10 @@ pub(super) struct Chat {
     /// The Chief is working (typing on).
     pub busy: bool,
     pub show_thoughts: bool,
-    /// Subagent links show as their labels and print as terminal hyperlinks (`hyperlink`).
+    /// Links (subagent, Markdown web links, bare web URLs) show as their labels and print as
+    /// terminal hyperlinks (`hyperlink`).
     pub hyperlinks: bool,
-    /// The subagent links seen so far: (label, url).
+    /// The links seen so far: (label, url).
     pub links: Vec<(String, String)>,
 }
 
