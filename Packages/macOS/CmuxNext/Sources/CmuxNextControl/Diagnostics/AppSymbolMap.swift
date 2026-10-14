@@ -1,11 +1,12 @@
 import Darwin
-import Foundation
+public import Foundation
 import MachO
 
 /// Function names of the app executable, for symbolicating its frames in hang
 /// records and exception traces.
 ///
-/// The cmux NEXT executable links with `-no_exported_symbols` and the release
+/// The cmux NEXT Release executable links without exports
+/// (`LD_EXPORT_SYMBOLS = NO`, `-no_exported_symbols`) and the release
 /// strip removes its symbol table, so `dladdr` finds no names in it. Before
 /// stripping, `scripts/write-app-symbol-map.py` writes them into
 /// `Contents/Resources/cmux-symbols.bin`: per executable slice, its `LC_UUID`
