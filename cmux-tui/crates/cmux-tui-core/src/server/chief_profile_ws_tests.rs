@@ -102,7 +102,8 @@ fn the_persons_page_websocket_creates_and_edits_chiefs_but_not_their_grants() {
     for page in [None, Some("home-channels")] {
         let mux = mux(page.unwrap_or("nopage"));
         let page_ws = websocket(&mux, page);
-        let listed = ok(&send(&mux, &page_ws, &v2("chief.profile.list", &params(json!({})), None, None)));
+        let listed =
+            ok(&send(&mux, &page_ws, &v2("chief.profile.list", &params(json!({})), None, None)));
         assert_eq!(listed["chiefs"][0]["id"], "agent_mux", "{listed}");
 
         // A create with no grant field gets the default grant.
@@ -134,7 +135,11 @@ fn the_persons_page_websocket_creates_and_edits_chiefs_but_not_their_grants() {
 
         // Grant fields and delete need the person's gesture: never on a WebSocket.
         for (operation, fields, key) in [
-            ("chief.profile.create", json!({"display_name": "Wide", "tools": ["browser"]}), "ws-g1"),
+            (
+                "chief.profile.create",
+                json!({"display_name": "Wide", "tools": ["browser"]}),
+                "ws-g1",
+            ),
             ("chief.profile.update", json!({"chief": id, "tools": ["browser", "spawn"]}), "ws-g2"),
             ("chief.profile.update", json!({"chief": id, "self_edit": ["role"]}), "ws-g3"),
             ("chief.profile.update", json!({"chief": id, "model": "other"}), "ws-g4"),
@@ -143,7 +148,11 @@ fn the_persons_page_websocket_creates_and_edits_chiefs_but_not_their_grants() {
             let reply = send(&mux, &page_ws, &v2(operation, &params(fields), Some(key), None));
             assert_eq!(forbidden_reason(&reply), "gesture_required", "{operation}: {reply}");
         }
-        let kept = ok(&send(&mux, &page_ws, &v2("chief.profile.get", &params(json!({"chief": id})), None, None)));
+        let kept = ok(&send(
+            &mux,
+            &page_ws,
+            &v2("chief.profile.get", &params(json!({"chief": id})), None, None),
+        ));
         assert_eq!(kept["tools"], json!(["spawn", "tell", "workspaces"]), "{kept}");
         assert_eq!(kept["self_edit"], json!(["avatar"]), "{kept}");
     }
@@ -221,13 +230,23 @@ fn the_host_page_relay_changes_grants_and_deletes_only_with_the_persons_gesture(
     let widened = ok(&send(
         &mux,
         &relay,
-        &v2("chief.profile.update", &widen, Some("relay-g2"), Some(confirm("chief.profile.update", &widen))),
+        &v2(
+            "chief.profile.update",
+            &widen,
+            Some("relay-g2"),
+            Some(confirm("chief.profile.update", &widen)),
+        ),
     ));
     assert_eq!(widened["value"]["tools"], json!(["browser", "spawn"]), "{widened}");
     let deleted = send(
         &mux,
         &relay,
-        &v2("chief.profile.delete", &delete, Some("relay-d2"), Some(confirm("chief.profile.delete", &delete))),
+        &v2(
+            "chief.profile.delete",
+            &delete,
+            Some("relay-d2"),
+            Some(confirm("chief.profile.delete", &delete)),
+        ),
     );
     ok(&deleted);
     let listed = ok(&send(&mux, &relay, &v2("chief.profile.list", &params(json!({})), None, None)));

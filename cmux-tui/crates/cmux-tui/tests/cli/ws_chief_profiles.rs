@@ -114,7 +114,11 @@ fn the_persons_page_makes_a_chief_with_a_picture_but_cannot_widen_or_delete_it()
         json!({"display_name": "Wide", "harnesses": ["codex"]}),
         Some("ws-chief-wide"),
     ));
-    gesture_required(&page.v2("chief.profile.delete", json!({"chief": id}), Some("ws-chief-delete")));
+    gesture_required(&page.v2(
+        "chief.profile.delete",
+        json!({"chief": id}),
+        Some("ws-chief-delete"),
+    ));
 
     let kept = ok(&page.v2("chief.profile.get", json!({"chief": id}), None));
     assert_eq!(kept["tools"], json!(["spawn", "tell", "workspaces"]), "{kept}");

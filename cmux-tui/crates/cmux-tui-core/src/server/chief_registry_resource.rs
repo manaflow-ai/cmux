@@ -272,10 +272,8 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
     if !unix {
         // The person's page (chief-profile-ws-v1): an authenticated WebSocket
         // as `user_local`, no paired device, no bound agent, no other page.
-        let websocket = matches!(
-            mux.control_clients.transport_of(client),
-            Some(ClientTransport::WebSocket)
-        );
+        let websocket =
+            matches!(mux.control_clients.transport_of(client), Some(ClientTransport::WebSocket));
         // A pairing-store credential is a paired device unless the app's own
         // page web view (Origin cmux-page://cmux.home-channels) presents it:
         // the app's `page-credential` and an approved pairing share the store.
