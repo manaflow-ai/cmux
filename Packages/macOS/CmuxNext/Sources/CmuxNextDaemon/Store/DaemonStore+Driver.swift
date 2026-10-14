@@ -53,8 +53,18 @@ final class EventInbox: Sendable {
     /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
-        case .connected, .disconnected, .daemonShutdown, .sessionState, .agentChanged, .agentPresenceChanged:
-            // Session and agent state: not in the snapshot the collapse refetches (cx-ag5.6.8).
+        case .connected, .disconnected, .daemonShutdown, .sessionState:
+            // Session state: not in the snapshot the collapse refetches.
+            state.events.append(envelope)
+        case .agentChanged(let status):
+            // Agent state is not in the snapshot either (cx-ag5.6.8). Each event is the whole state
+            // of one surface, so a collapsed inbox keeps only the newest one per surface.
+            state.events.removeAll { if case .agentChanged(let held) = $0.event { held.surface == status.surface } else { false } }
+            state.events.append(envelope)
+        case .agentPresenceChanged(let presence):
+            state.events.removeAll {
+                if case .agentPresenceChanged(let held) = $0.event { held.surface == presence.surface } else { false }
+            }
             state.events.append(envelope)
         case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown:
