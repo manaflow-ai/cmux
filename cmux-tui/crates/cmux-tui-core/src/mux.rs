@@ -171,6 +171,7 @@ pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
+pub(crate) mod agent_message_pump;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -615,14 +616,14 @@ pub struct Mux {
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
-    /// Each terminal agent's last prompt (at most 200 characters), memory only: never
-    /// journaled, persisted or logged (`agent_prompts.rs`).
+    /// Each terminal agent's last prompt (at most 200 chars), memory only (`agent_prompts.rs`).
     agent_prompts: Mutex<HashMap<TerminalPublicId, Arc<str>>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
+    agent_message_pump: agent_message_pump::AgentMessagePump,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -736,8 +737,7 @@ pub struct Mux {
     /// Reap grace period for unplaced terminals, in milliseconds.
     terminal_reap_grace_ms: AtomicU64,
     creating_inputs: creating_input::CreatingInputs,
-    /// The running reaper's event receiver, so keep and grace changes can
-    /// wake it.
+    /// The running reaper's event receiver, so keep and grace changes can wake it.
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
