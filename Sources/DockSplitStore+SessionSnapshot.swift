@@ -66,6 +66,10 @@ extension DockSplitStore {
                         processPresenceProvider: agentProcessPresence,
                         revalidateProcessEvidence: false
                     ),
+                    observationIsAuthoritative: restorableAgentIndex?.isComplete(
+                        forPanelId: panelId,
+                        kind: surfaceResumeBindingsByPanelId[panelId]?.kind
+                    ) ?? true,
                     detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
                         workspaceId: observationWorkspaceId,
                         panelId: panelId
@@ -217,6 +221,7 @@ extension DockSplitStore {
         panelId: UUID,
         includeScrollback: Bool,
         observation: RestorableAgentSessionIndex.Entry?,
+        observationIsAuthoritative: Bool = true,
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool,
         detectedResumeBindingIsAmbiguous: Bool = false,
@@ -287,6 +292,7 @@ extension DockSplitStore {
                 terminal: terminal,
                 transfer: transfer,
                 observation: observation,
+                observationIsAuthoritative: observationIsAuthoritative,
                 currentAgentProcessIdentity: currentAgentProcessIdentity,
                 agentProcessPresence: agentProcessPresence
             )
@@ -616,6 +622,7 @@ extension DockSplitStore {
         terminal: TerminalPanel,
         transfer: Workspace.DetachedSurfaceTransfer?,
         observation: RestorableAgentSessionIndex.Entry?,
+        observationIsAuthoritative: Bool = true,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -670,7 +677,12 @@ extension DockSplitStore {
         if managedBinding != nil,
            relevantObservation == nil,
            confirmedRuntimeIdentities.isEmpty {
-            return false
+            // An incomplete index (for example the cached index a quit
+            // falls back to) may predate this session (#20186). A shell
+            // back at its prompt still shows the agent has exited.
+            guard !observationIsAuthoritative,
+                  terminal.shellActivity.state != .promptIdle else { return false }
+            return nil
         }
         if restorableAgent?.resumeCommand == nil,
            terminal.shellActivity.state == .commandRunning {

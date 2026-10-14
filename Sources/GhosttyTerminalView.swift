@@ -10623,10 +10623,6 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlayRoot>?
-    /// Agent turn rail for Claude Code and Codex sessions in this surface.
-    var agentTurnRailHost: AgentTurnRailHost?
-    /// The terminal scroll view, which receives scrolling over the turn rail.
-    var agentTurnRailScrollTarget: NSView { scrollView }
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private lazy var pasteFailureNoticePresenter = TerminalPasteFailureNoticePresenter()
@@ -11375,8 +11371,7 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
         }
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        let contentFrame = agentTurnRailHost?.layout(sessionFrame: sessionPresentationFrame, bounds: bounds)
-            ?? sessionPresentationFrame
+        let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
         // Resolve the clip view after scroller tiling and layout. Reading the
         // scroll view's bounds can include a legacy scroller gutter while the
@@ -11427,7 +11422,6 @@ final class GhosttySurfaceScrollView: NSView {
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: contentFrame)
         }
-        agentTurnRailHost?.bringToFront(in: self)
         bringPaneDropTargetToFrontIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
@@ -11448,17 +11442,10 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
     }
 
-    /// Frame of the session content before the agent turn rail gutter.
-    private var sessionPresentationFrame: CGRect {
-        sessionContentWidthPresentation.contentFrame(in: bounds)
-    }
-
     /// Frame the terminal content occupies; overlays that cover the terminal
-    /// (find, reconnect, copy confirmation) use it so they never cover the
-    /// agent turn rail.
+    /// (find, reconnect, copy confirmation) use it.
     var sessionContentFrame: CGRect {
-        let frame = sessionPresentationFrame
-        return agentTurnRailHost?.contentFrame(sessionFrame: frame, bounds: bounds) ?? frame
+        sessionContentWidthPresentation.contentFrame(in: bounds)
     }
 
     func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {
@@ -11658,19 +11645,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    override func viewDidUnhide() {
-        super.viewDidUnhide()
-        // An idle agent pane shown again resolves the turns it deferred while
-        // hidden, even without a layout pass or new output.
-        agentTurnRailHost?.model.resumeDeferredResolve()
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
         guard let window else { return }
-        agentTurnRailHost?.model.resumeDeferredResolve()
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -14157,10 +14136,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollbarUpdate(_ notification: Notification) {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else { return }
-        defer {
-            installAgentTurnRailIfNeeded()
-            agentTurnRailHost?.model.viewportDidChange()
-        }
         let preservedReviewOriginY = scrollbackViewportIntent.preservesViewportDuringPendingSync
             ? max(scrollView.contentView.bounds.origin.y, 0)
             : nil

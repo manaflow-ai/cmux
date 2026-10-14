@@ -2209,6 +2209,31 @@ impl Terminal {
         self.pending_sequence_replay().is_some()
     }
 
+    /// Abandon a pending VT control sequence that exceeded its replay budget.
+    ///
+    /// Checkpoint capture can continue from the rendered terminal state when
+    /// a client leaves an unbounded control string (most often a Kitty upload)
+    /// open forever. CAN has no screen effect and returns the parser to ground;
+    /// callers must publish the returned bytes to every attached parser before
+    /// resuming the live stream.
+    pub fn discard_unreplayable_replay(&mut self) -> Option<Vec<u8>> {
+        // CAN cannot undo completed multipart chunks. Reject recovery even
+        // when a later control string also exceeds the generic replay budget.
+        if self.kitty_inflight.has_unreplayable_prefix() {
+            return None;
+        }
+        // The generic VT boundary can still retain a complete replay for an
+        // APC while the Kitty-specific tracker has already overflowed its
+        // smaller upload budget. In that case the generic result is not a
+        // usable replay, so CAN recovery is still required.
+        if self.vt_replay_resumes_stream() && !self.kitty_inflight.has_unreplayable_command() {
+            return None;
+        }
+        let normalized = self.vt_write_with_normalized(b"\x18").into_owned();
+        self.kitty_inflight.discard_unreplayable();
+        self.vt_stream_is_ground().then_some(normalized)
+    }
+
     /// How the replay reproduces the parser's incomplete sequence, if it can.
     fn pending_sequence_replay(&self) -> Option<PendingSequenceReplay<'_>> {
         if self.vt_stream_is_ground() {

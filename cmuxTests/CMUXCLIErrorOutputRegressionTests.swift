@@ -4810,6 +4810,28 @@ import Testing
     }
 }
 
+/// Gives a canned v2 response the id of the request it answers, as the app's
+/// ControlResponseEncoder does; the CLI rejects a v2 response whose id differs.
+/// Non-JSON lines (v1, `ERROR:`) and responses that already carry an `id` key
+/// (including deliberate mismatches or null) are returned byte-for-byte.
+func cliTestResponse(_ response: String, answering request: String?) -> String {
+    guard let request,
+          let requestObject = try? JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any],
+          let id = requestObject["id"],
+          let responseObject = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any],
+          responseObject["id"] == nil,
+          let idData = try? JSONSerialization.data(withJSONObject: ["id": id]),
+          let idObject = String(data: idData, encoding: .utf8) else {
+        return response
+    }
+    let trimmed = response.drop(while: \.isWhitespace)
+    guard trimmed.first == "{" else { return response }
+    let rest = trimmed.dropFirst().drop(while: \.isWhitespace)
+    // `{"id":…}` without its closing brace, so the canned fields follow it.
+    let prefix = String(idObject.dropLast())
+    return rest.first == "}" ? prefix + rest : prefix + "," + rest
+}
+
 final class UnixSocketResponder {
     let path: String
     private let responses: [String]
@@ -4955,8 +4977,9 @@ final class UnixSocketResponder {
                 }
             }
             var responseIndex = 0
-            if let line = String(data: request, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) {
+            let line = String(data: request, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let line {
                 lock.lock()
                 responseIndex = requests.count
                 requests.append(line)
@@ -4965,7 +4988,10 @@ final class UnixSocketResponder {
             if responseDelay > 0 {
                 Thread.sleep(forTimeInterval: responseDelay)
             }
-            let response = responses[min(responseIndex, responses.count - 1)]
+            let response = cliTestResponse(
+                responses[min(responseIndex, responses.count - 1)],
+                answering: line
+            )
             let payload = response + "\n"
             payload.withCString { pointer in
                 _ = write(clientFD, pointer, strlen(pointer))
@@ -5155,7 +5181,10 @@ final class RelaySocketResponder {
         let responseIndex = requests.count
         requests.append(request)
         lock.unlock()
-        _ = writeLine(responses[min(responseIndex, responses.count - 1)], to: clientFD)
+        _ = writeLine(
+            cliTestResponse(responses[min(responseIndex, responses.count - 1)], answering: request),
+            to: clientFD
+        )
     }
 
     private func readLine(from fd: Int32) -> String? {

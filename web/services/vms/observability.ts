@@ -42,6 +42,9 @@ const EXPECTED_5XX_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   // A mutation still running at the provider when its route answered
   // (routeDeadline.ts): it continues in the background. Alert on its rate.
   "vm_operation_in_progress",
+  // The provider had no room for a machine (409 capacity refusal). One
+  // refusal is not an incident; alert on its rate.
+  "vm_provider_capacity",
 ]);
 
 /**

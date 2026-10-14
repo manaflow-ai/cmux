@@ -497,7 +497,7 @@ describe("coderouter OpenCode with no account configured", () => {
     vmRequest.headers.set("x-cmux-vm-id", "vm-1");
     const response = await openCodeClientConfig(vmRequest, noAccountDependencies(false, "vm-1").dependencies);
     expect(response.status).toBe(403);
-    expect((await response.json()).error.message).toBe("No OpenCode account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add opencode` (accounts added on a Cloud machine are shared with its team).");
+    expect((await response.json()).error.message).toBe("No OpenCode account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add opencode` (accounts added on a Cloud machine are shared with its team). Or use your own provider sign-in on this machine: run `cr use own opencode`, then `opencode auth login` (on older machines, start OpenCode with `env -u OPENAI_BASE_URL -u ANTHROPIC_BASE_URL opencode`).");
   });
 
   test("the provider proxy gives a Cloud machine the same sharing advice", async () => {
@@ -505,7 +505,7 @@ describe("coderouter OpenCode with no account configured", () => {
     vmRequest.headers.set("x-cmux-vm-id", "vm-1");
     const response = await proxyOpenCodeRequest(vmRequest, "go", ["chat"], noAccountDependencies(false, "vm-1").dependencies);
     expect(response.status).toBe(403);
-    expect((await response.json()).error.message).toBe("No OpenCode account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add opencode` (accounts added on a Cloud machine are shared with its team).");
+    expect((await response.json()).error.message).toBe("No OpenCode account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add opencode` (accounts added on a Cloud machine are shared with its team). Or use your own provider sign-in on this machine: run `cr use own opencode`, then `opencode auth login` (on older machines, start OpenCode with `env -u OPENAI_BASE_URL -u ANTHROPIC_BASE_URL opencode`).");
   });
 
   test("a caller whose accounts are all unavailable keeps a retryable 503 on both surfaces", async () => {
