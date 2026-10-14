@@ -77,6 +77,18 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
     }
   }
 
+  /// The pane's socket, for streaming a reply into it.
+  let socket: { send(data: string): void } | undefined;
+  let seq = events.length;
+  const send = (dir: string, kind: string, msg: Record<string, unknown>) =>
+    socket!.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: { sessionId: CHAT, seq: ++seq, at: START + seq * 1000, dir, kind, msg },
+      }),
+    );
+
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
@@ -89,6 +101,7 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
+          socket = ws;
           const message = JSON.parse(String(raw)) as { id?: number; method: string };
           if (message.id !== undefined)
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
@@ -142,6 +155,34 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
     await page.waitForTimeout(500);
 
     const latest = await edges(page);
+
+    // Following a reply as it streams in, the line being written never fades: the view keeps up
+    // with each chunk, so nothing ever lies below it.
+    await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      (window as unknown as { fadedBottom: number }).fadedBottom = 0;
+      new MutationObserver(() => {
+        if (node.hasAttribute("data-fade-bottom")) (window as unknown as { fadedBottom: number }).fadedBottom++;
+      }).observe(node, { attributes: true, attributeFilter: ["data-fade-bottom"] });
+    });
+    send("mux", "user_message", { text: "Question 41" });
+    send("mux", "turn_started", {});
+    for (let chunk = 1; chunk <= 30; chunk++) {
+      send(
+        "in",
+        "agent_message_chunk",
+        update({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: `Paragraph ${chunk}: a client that fails waits longer before each retry.\n\n` },
+        }),
+      );
+      await Bun.sleep(40);
+    }
+    send("mux", "turn_result", { status: "completed" });
+    await page.getByText("Paragraph 30", { exact: false }).waitFor({ timeout: 10_000 });
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => (window as unknown as { fadedBottom: number }).fadedBottom)).toBe(0);
+
     await scrollTo(page, "middle");
     const middle = await edges(page);
     await scrollTo(page, "start");
