@@ -5,7 +5,7 @@ fleet tag cnx-e2e-1d56a3d7) + iOS app (Demo config) from feat-cnx-ios-codexqa
 (origin/feat-cnx-ios + origin/feat-cnx-ios-design-terminal d7bf4d01) in a headless iOS 26.5 iPhone 17 Pro simulator.
 Real Codex CLI (codex-cli 0.162.1) runs in the rig Mac's workspace terminal.
 
-Status: in progress.
+Status: pass 1 complete (2026-10-14, 11:16-12:25 PDT; 1-min load 3.6-34.8, under 40 for every timed step).
 
 ## Findings (ranked)
 
@@ -13,11 +13,13 @@ Status: in progress.
 - Steps: Codex idle at its `›` prompt. Tap the composer, type `write a 120 line python script ...`, tap Send.
 - Expected: Codex starts working on the prompt.
 - Actual: the text lands in Codex's input box with a soft newline after it (cursor on an empty second line);
-  nothing runs. A second Send (empty composer = bare Return) submits it. Reproduced 2/2
+  nothing runs. A second Send (empty composer = bare Return) submits it. Reproduced 4/4
   (`reply with the numbers 1 to 250 ...` also needed the second Return).
 - Evidence: `artifacts/shots/s3-scrolled-during-stream.jpg` (draft stuck, cursor on new line, 60 s later),
   `artifacts/shots/s3-after-done-still-scrolled.jpg` (still stuck 88 s later); Mac screen read confirms
   `› write a 120 line ... your reply` followed by an empty input row and no `Working`.
+- Also with the composer keyboard's own return key: `say hi` + return sent the line and left it unsubmitted
+  in Codex; `in two words` + Send likewise (4/4 composer sends failed; every bare Return submitted).
 - Direct typing on the soft keyboard + its return key submits fine (`artifacts/sheets/s2-direct-prompt.jpg`).
 - Suspected area: `CnxTerminal/Ghostty/TerminalSurfaceView.swift` `sendText(_:pressReturn:)` sends the text as
   plain key text and then Enter immediately; Codex's paste-burst detection treats an Enter that arrives within a
@@ -95,7 +97,7 @@ Status: in progress.
 - Actual: the card disappears at once; no prompt, no toast. On the Mac the Codex terminal keeps running with no
   tab (`tab_ids: []`, still `running` 2 min later); the phone has no way back to it, and the CLI says a tab-less
   terminal ends after the reap grace period.
-- Evidence: `artifacts/shots/s6c-close-codex-0..4.jpg`; Mac `terminal list` in the run notes below.
+- Evidence: `artifacts/shots/s6c-close-codex-0..4.jpg`; Mac `terminal list`: `term_cf4c6e41... running tab_ids []` at 12:16, 12:18 and 12:21 (5 min after the close).
 - Suspected area: `CnxWorkspaces/WorkspaceTabsSource.swift` `close(_:)` (optimistic close, undone only when the
   Mac refuses); the tab's program state (`activity.state = in_use`) is available from the Mac.
 
@@ -123,6 +125,11 @@ Status: in progress.
 - `phone 14:09.670 · 1 fps · 2 kbps · 804×1,444 · latency 257 ms · decode 13.0 ms` on an about:blank page
   (`artifacts/shots/s6-browser-new.jpg`). Fine if DEBUG-only; confirm it is compiled out of TestFlight.
 
+### F14 MINOR: the key bar's Paste raises iOS's "Allow Paste" prompt for each new clipboard
+- Key bar Paste in direct typing showed the system `Don't Allow Paste / Allow Paste` sheet mid-flow
+  (`artifacts/shots/s2b-after-paste-key.jpg`). After Allow, the 3-line text reached Codex as one bracketed
+  paste and stayed a draft until Return (correct). A `UIPasteControl` key (or the keyboard's own paste) avoids the prompt.
+
 ## Works well (no disruption seen)
 - Codex startup, the folder-trust menu (arrow highlight, Enter on the soft keyboard), Codex's main screen
   and status row all render cleanly above the composer, keyboard up (`artifacts/sheets/s1-codex-start.jpg`,
@@ -134,7 +141,8 @@ Status: in progress.
   row matches the Mac's own history (Codex's header; Codex erased the shell lines above it on the Mac too):
   `artifacts/shots/s3d-top.jpg`.
 - Last row above the composer: keyboard down, composer focused, 3-line draft: Codex's status row ends ~9 pt above
-  the composer card (`artifacts/shots/s4-lastrow-*.jpg`). Attachment strip not exercised (see below).
+  the composer card (`artifacts/shots/s4-lastrow-*.jpg`); with a photo in the attachment strip it ends ~17 pt
+  above the card (`artifacts/shots/s4d-attachment-strip.jpg`).
 - Keyboard hide/show via the key bar and the composer during streaming keeps the bottom rows anchored
   (`artifacts/sheets/s4-keyboard-during-stream.jpg`).
 - Key bar ^C clears Codex's input; `/` opens Codex's command popup; key bar Down moves its selection; Esc closes it
@@ -159,3 +167,16 @@ Status: in progress.
   `CnxMacIdentityStore.keychainRead()` block the main thread on a Keychain access prompt during
   `IPhoneHostService.reconcile()`; the DEBUG `MainThreadWatchdog` then killed the app
   (`cmux DEV-2026-10-14-114143.ips`). Keychain reads belong off the main actor.
+
+## Not exercised
+- Rotation: the app is portrait-only (`UISupportedInterfaceOrientations` = Portrait).
+- A Codex tool-approval prompt: the user's Codex config runs in YOLO mode, so no approval appeared; Codex's
+  folder-trust menu and `/model` picker stood in for arrow/Enter/Esc menus. Not changed, to keep the user's config.
+- Toast intrusiveness in general: no error/refusal toast fired in this pass (the close in F9 was accepted).
+- iOS 27 runtime; a real device.
+
+## How to rerun
+`run.sh fetch-mac origin/feat-cnx-ios-mactry`, then `e2e.py --no-build --steps fresh_install,sign_in,choose_space
+--latency none --keep`, inject `cnx-hostd` into the rig copy if the fleet build lacks it, `qa.rig_launch()` /
+`qa.rig_pair(<dev user id>)`, then drive with `qa.py` (`ctx()`, `rec_start`/`rec_stop`, `sheet`, `frames`).
+Full-size recordings stay in `~/cnx-ios-e2e/codexqa-raw/` (not committed).
