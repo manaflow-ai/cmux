@@ -17,7 +17,7 @@
   align-items: stretch;
   min-width: 0;
   height: var(--acpmux-strip-height);
-  margin: 0 var(--acpmux-strip-inset, 18px) var(--acpmux-strip-gap, 3px);
+  margin: 0 var(--acpmux-strip-inset, 18px) var(--acpmux-strip-gap, 4px);
   box-sizing: border-box;
   border-radius: 10px 10px 5px 5px;
   /* The card's solid surface (composerStates.css): the same material as the card. */
