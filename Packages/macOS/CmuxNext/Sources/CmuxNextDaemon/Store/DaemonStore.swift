@@ -83,6 +83,12 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
     /// The list last reported to `onWorkspaceListChanged`.
     @ObservationIgnored var notifiedWorkspaceList: [String]?
+    /// Bumped by every sidebar flattening (`recomputeSidebar`, which every
+    /// structural change runs): while it stays, the workspace list is the one
+    /// last checked, so `workspaceListMayHaveChanged` skips its O(n) list
+    /// build (status ticks apply batches several hundred times a second).
+    @ObservationIgnored var listGeneration: UInt64 = 0
+    @ObservationIgnored var checkedListGeneration: UInt64?
     /// Nesting of batch applies; the hook runs when the outermost ends.
     @ObservationIgnored var applyDepth = 0
     @ObservationIgnored let updateCycles = UpdateCycleDetector(owner: "DaemonStore.apply")
@@ -300,6 +306,8 @@ public final class DaemonStore: StateResourceQueries {
     /// the last one reported (outside a batch, once loaded).
     func workspaceListMayHaveChanged() {
         guard applyDepth == 0, isLoaded, let hook = onWorkspaceListChanged else { return }
+        guard checkedListGeneration != listGeneration else { return }
+        checkedListGeneration = listGeneration
         let list = sidebarSections.flatMap(\.workspaces).map(\.id) + ["|"] + workspaces.map(\.id)
         guard list != notifiedWorkspaceList else { return }
         notifiedWorkspaceList = list
@@ -307,6 +315,7 @@ public final class DaemonStore: StateResourceQueries {
     }
 
     func recomputeSidebar() {
+        listGeneration &+= 1
         let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
         var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
         for group in groups.sorted(by: { $0.index < $1.index }) {

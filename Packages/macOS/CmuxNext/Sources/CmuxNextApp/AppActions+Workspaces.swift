@@ -38,16 +38,7 @@ extension AppActions {
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it.
-        registry.bind("home.show") {
-            let classic = services.home.dock.isClassic
-            if classic, TopPages.show(.home, services: services) != nil { return }
-            guard !classic || services.windows.active == nil, classic || ActionRunScope.viewChangeAllowed(), let home = services.home.homeWorkspace else {
-                services.registry.refuse(classic || ActionRunScope.viewChangeAllowed() ? RefusalStrings.homeNotReady : RefusalStrings.homeNeedsFocus)
-                return
-            }
-            if !classic, let active = services.windows.active { return services.windows.show(workspaceID: home.id, in: active.state) }
-            services.windows.reveal(workspaceID: home.id)
-        }
+        registry.bind("home.show") { showHome(services) }
         // The composer's attach button as an action (home.attachFiles): a path
         // goes to the shown Home composer through its own intake (as a drop);
         // without one the shown composer opens its file picker.

@@ -94,6 +94,23 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
       expect(menuTop).toBeGreaterThanOrEqual(chipBottom);
       expect(scrollable).toBeGreaterThanOrEqual(Math.floor(menuBottom - screenBottom));
     }
+    // The menu shows whole: no ancestor clips it (cx-qe8fn). A clipping card (.nt-box with
+    // overflow: hidden, before 4b35f13b) cut it at the card's top or bottom edge in the app, and
+    // scrolled the card's own rows to its search field. Hit-test both edges, with the page scrolled
+    // to the menu.
+    const painted = await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-mp[role=dialog]")!;
+      node.scrollIntoView({ block: "nearest" });
+      const rect = node.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const hits = (y: number) => node.contains(document.elementFromPoint(x, y));
+      return {
+        top: hits(rect.top + 4),
+        bottom: hits(rect.bottom - 4),
+        cardScrollTop: document.querySelector<HTMLElement>(".nt-box")!.scrollTop,
+      };
+    });
+    expect(painted).toEqual({ top: true, bottom: true, cardScrollTop: 0 });
     await page.close();
   });
 });

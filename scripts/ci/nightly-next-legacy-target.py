@@ -4,6 +4,7 @@
 Usage:
   nightly-next-legacy-target.py <next-appcast> <old-appcast> <dmg-prefix>
       [--pending-meta FILE --pending-run ID --now EPOCH] [--max-pending-hours H]
+      [--max-same-build-hours H]
 
 Prints GitHub output lines:
   action=continue|new|none
@@ -15,11 +16,14 @@ Rules:
   on the old feed, whichever run published it (publish-nightly, recovery of a
   build Apple accepted late, or a nightly_next_continue_only run).
 - A pending cmux NIGHTLY-identity submission (--pending-meta, written by the job
-  when Apple's queue outlasted its wait) is continued first while its build is
-  still newer than the old feed and it is younger than --max-pending-hours
-  (default 6): an Apple submission that can still be accepted is never thrown
-  away for a newer build. After that limit, or once the old feed has its build,
-  the newest cmux NEXT build gets a new submission.
+  when Apple's queue outlasted its wait) whose build is still newer than the old
+  feed is continued, never resubmitted:
+  * while it is younger than --max-pending-hours (default 6), always;
+  * after that, while it is younger than --max-same-build-hours (default 48,
+    under the 3-day artifact retention) and the cmux NEXT feed has no newer
+    build: Apple has held submissions for 13+ hours.
+  Only a newer cmux NEXT build (after 6 h), or the 48-hour limit, starts a new
+  submission. Once the old feed has the pending build it is stale.
 - Fails when the cmux NEXT feed has no items, the newest item's enclosure is not
   the exact <dmg-prefix><build>.dmg, or the pending metadata is malformed.
 """
@@ -56,6 +60,7 @@ def main(argv):
     parser.add_argument("--pending-run")
     parser.add_argument("--now", type=int)
     parser.add_argument("--max-pending-hours", type=float, default=6.0)
+    parser.add_argument("--max-same-build-hours", type=float, default=48.0)
     args = parser.parse_args(argv)
 
     next_items = items(args.next_appcast)
@@ -80,7 +85,11 @@ def main(argv):
         if not re.fullmatch(r"[A-Za-z0-9-]+", submission):
             return fail(f"malformed pending submission id {submission!r}")
         age_hours = (args.now - submitted) / 3600
-        if pending_build > current and age_hours < args.max_pending_hours:
+        continuable = pending_build > current and (
+            age_hours < args.max_pending_hours
+            or (age_hours < args.max_same_build_hours and newest <= pending_build)
+        )
+        if continuable:
             print("action=continue")
             print(f"build={pending_build}")
             print(f"pending_run={args.pending_run}")

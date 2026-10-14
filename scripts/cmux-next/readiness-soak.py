@@ -256,18 +256,24 @@ class Soak:
             self.bundle_id = plistlib.load(handle)["CFBundleIdentifier"]
         self.binary = os.path.join(self.app, "Contents/MacOS", executable)
         self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
-        self.socket = self.args.socket or f"/tmp/cmux-debug-{self.tag}.sock"
+        # The app's own rule (ControlSocketPath.resolve): the state folder, or the old /tmp name when that
+        # path would not fit sun_path. The app also keeps a /tmp symlink, so the soak uses the real path.
+        # A build from before the move listens on the /tmp name only; connect() settles on the one that answers.
+        moved, old = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{self.tag}.sock"), f"/tmp/cmux-debug-{self.tag}.sock"
+        self.sockets = [self.args.socket] if self.args.socket else [moved, old] if len(moved.encode()) <= 103 else [old]
+        self.socket = self.sockets[0]
         self.setup["tag"] = self.tag
 
     def preflight(self):
         if run("launchctl", "print", f"gui/{os.getuid()}").returncode != 0:
             raise SystemExit("readiness-soak: no Aqua GUI session for this user")
-        if os.path.exists(self.socket):
-            try:
-                Client(self.socket, timeout=3).call("system.ping")
-                raise SystemExit(f"readiness-soak: something already answers on {self.socket}")
-            except OSError:
-                pass
+        for path in self.sockets:
+            if os.path.exists(path):
+                try:
+                    Client(path, timeout=3).call("system.ping")
+                    raise SystemExit(f"readiness-soak: something already answers on {path}")
+                except OSError:
+                    pass
         table = process_table()
         # Two soaks on one host would measure each other.
         parents, mine, pid = {p: pp for p, pp, _ in table}, set(), os.getpid()
@@ -333,11 +339,15 @@ class Soak:
         say(f"app up: {self.setup['identity']}")
 
     def connect(self):
-        try:
-            client = Client(self.socket, timeout=10)
-            return client if "error" not in client.call("system.ping") else None
-        except OSError:
-            return None
+        for path in self.sockets:
+            try:
+                client = Client(path, timeout=10)
+                if "error" not in client.call("system.ping"):
+                    self.socket = path
+                    return client
+            except OSError:
+                continue
+        return None
 
     def start_terminals(self):
         status = wait(lambda: daemon_status(self.tui, self.tag), 60, 2)
@@ -716,7 +726,7 @@ class Soak:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="a copy of a tagged cmux-next app (bundle com.cmuxterm.app.debug.<tag>)")
-    parser.add_argument("--socket", help="the app's control socket (default /tmp/cmux-debug-<tag>.sock)")
+    parser.add_argument("--socket", help="the app's control socket (default ~/.local/state/cmux/cmux-debug-<tag>.sock)")
     parser.add_argument("--same-tag", action="store_true",
                         help="run --app as it is instead of a copy with its own bundle id and tag")
     parser.add_argument("--hours", type=float, default=24)

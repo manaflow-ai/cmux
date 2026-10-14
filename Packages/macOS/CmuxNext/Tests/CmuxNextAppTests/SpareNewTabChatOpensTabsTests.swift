@@ -53,11 +53,13 @@ struct SpareNewTabChatOpensTabsTests {
         // The New Tab page made for the tab adopts the prewarmed spare (cx-ec99).
         let view = try #require(tabs.view(for: key))
         #expect(view === spare, "the tab's page is not the spare")
+        view.model.transport.gestures.record()  // the person's Return (cx-hnpxh)
         #expect(await view.model.respond(to: Self.open)["ok"] as? Bool == true, "the New Tab page refused tab.open")
 
         // Its first send makes it a chat; the chat in this tab still opens tabs and types ahead.
         _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "chat.persistSession", "params": ["sessionId": "s-ckt2z"]]))
         #expect(view.model.newTab == nil, "the page did not become a chat")
+        view.model.transport.gestures.record()  // the person's Return (cx-hnpxh)
         #expect(await view.model.respond(to: Self.open)["ok"] as? Bool == true, "the chat from the spare refused tab.open")
         #expect(await view.model.respond(to: Self.typeAhead)["ok"] as? Bool == true, "the chat from the spare refused tab.typeAhead")
         #expect(opened.count == 2, "\(opened)")
