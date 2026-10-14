@@ -36,6 +36,17 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     var morphLayer: CALayer { morphView.layer }
     let ledger = MotionLedger()
     private(set) var morphs: [String: MorphBubble] = [:]
+    /// Rows of my sends whose message is not delivered yet (row key -> message id): their cells keep the crisp edge
+    /// (RowCell.crispEdge) until the message is delivered, read or failed, as Messages.
+    private var crispSends: [String: ID] = [:]
+    /// Drops the crisp sends whose message id matches; their visible cells and thread copies take the soft edge.
+    private func releaseCrisp(_ match: (ID) -> Bool) {
+        crispSends = crispSends.filter { !match($0.value) }
+        for case let cell as RowCell in collection.visibleCells where cell.crispEdge {
+            if let k = cell.spec?.key, crispSends[k] == nil { cell.crispEdge = false }
+        }
+        threadViews.forEach { $0.setNeedsDisplay() }
+    }
     private let thumb = UIView()
     private let threadLayer = UIView()
     /// The blurred, darkened transcript under an open thread or reply (ThreadBackdrop).
@@ -195,52 +206,63 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Display scale
 
-    /// cmux: the scale this view last rasterized and snapped at (setRenderScale).
-    private(set) var appliedRenderScale: CGFloat = Fixture.renderScale
+    /// The scale this view renders at: its rows' bitmaps, mask images and snaps to the window's device pixels, the
+    /// compose bar, the header, the morph and the thread views (cx-3cb view-scale). Its own value, not the process's:
+    /// two views can show at two backing scales at the same time (cmux Home: windows on a 2x and a 1x display).
+    /// The scale the view was made at (`Fixture.renderScale` then) until its first `setRenderScale`.
+    private(set) var renderScale: CGFloat = Fixture.renderScale
 
-    /// The window moved to a display with another scale (or a test forced
-    /// one): drop every cached row bitmap and re-rasterize all bitmaps of the
-    /// window at the new scale. Live morphs keep their bitmaps until they land.
-    /// The rows follow the new device pixel grid: row heights that round to it
-    /// (text thread previews, ThreadPreview.height) are made again
-    /// (`rowsForScale`), and every visible row and the typing indicator (with
-    /// its clip) snap again (RowCell.refreshSnap from decorate). A host calls
-    /// this on its backing scale change (appkit-native: HostView
-    /// viewDidChangeBackingProperties -> ChatController.displayScaleChanged).
+    /// This view's window has another backing scale (it moved to a display with another scale, it was put in a
+    /// window on another display, or a test forced one): every bitmap of this view is drawn again at the new scale,
+    /// and the rows follow the new device pixel grid: row heights that round to it (text thread previews,
+    /// ThreadPreview.height) are made again (`rowsForScale`), and every visible row and the typing indicator (with
+    /// its clip) snap again (RowCell.refreshSnap from decorate). Live morphs draw their text again. The guard is
+    /// per view (`renderScale`): each view applies a new scale once, whatever another view did before (a second
+    /// pane in the same window, a tab shown again after a scale change). It also sets the process fallback
+    /// (`Fixture.renderScale` outside any view's scope) to `s`. Row bitmaps at the old scale stay in the shared
+    /// cache for other views (it is keyed by scale and bounded). A host calls this when the view goes into a window
+    /// and on every backing scale change (appkit-native: HostView viewDidMoveToWindow and
+    /// viewDidChangeBackingProperties -> ChatController.followWindowScale).
     func setRenderScale(_ s: CGFloat) {
-        // cmux: the guard is this view's own scale, not only the shared Fixture.renderScale: cmux Home has a window
-        // view per pane, and a second pane (or a tab shown again) whose scale is behind must still re-rasterize and
-        // re-snap after the first pane set the shared value.
-        guard s > 0, Fixture.renderScale != s || appliedRenderScale != s else { return }
-        appliedRenderScale = s
+        guard s > 0, renderScale != s else { return }
+        renderScale = s
         Fixture.renderScale = s
-        RowBitmaps.shared.removeAll()
-        compose.rescale()
-        func walk(_ v: UIView) {
-            if let c = v as? CanvasView { c.layer.contentsScale = s; c.setNeedsDisplay() }
-            v.subviews.forEach(walk)
+        Fixture.withRenderScale(s) {
+            compose.rescale()
+            func walk(_ v: UIView) {
+                if let c = v as? CanvasView { c.layer.contentsScale = s; c.setNeedsDisplay() }
+                v.subviews.forEach(walk)
+            }
+            walk(self)
+            header.layer.contentsScale = s
+            header.refresh()
+            morphs.values.forEach { $0.rescale(s) }
+            for case let cell as RowCell in collection.visibleCells { cell.renderScale = s }
+            if !rowsForScale() { refreshVisibleCells() }
         }
-        walk(self)
-        header.layer.contentsScale = s
-        morphs.values.forEach { $0.rescale() }
-        if !rowsForScale() { refreshVisibleCells() }
     }
 
-    /// Rows whose height was rounded at another display scale (a text thread preview: 41.65 pt of parts is 41.5 pt at
-    /// 2x, 42 pt at 1x, ThreadPreview.height) take their height at the current one, and the visible rows keep their
-    /// places (as a width change's exact pass, measureWindow). Only the heights change: the model's own rows, no new
-    /// derivation and no measuring (a preview's box does not depend on the scale); fading rows stay. True when a row
-    /// changed (restore then decorated the visible cells); false and no work without such a row.
+    /// Rows whose size was rounded at another display scale take their size at the current one, and the visible rows
+    /// keep their places (as a width change's exact pass, measureWindow): text balloon widths (Sizing.textBalloonWidth
+    /// ends them on the view's device pixels: the parts are measured again at the new scale, exactly near the viewport
+    /// and estimated elsewhere, then exactly off main) and thread preview heights (41.65 pt of parts is 41.5 pt at 2x,
+    /// 42 pt at 1x, ThreadPreview.height); fading rows stay. True when a row changed (restore then decorated the
+    /// visible cells); false and no work beyond the measuring without such a row.
     @discardableResult private func rowsForScale() -> Bool {
-        var changed = false
-        let specs: [RowSpec] = model.rows.compactMap { r in
-            guard !r.ghost else { return nil }
-            guard case let .threadPreview(pv) = r.spec.kind, r.spec.height != pv.height else { return r.spec }
-            var s = r.spec
-            s.height = pv.height
+        let derived: [RowSpec] = model.rows.compactMap { $0.ghost ? nil : $0.spec }
+        let near = messagesNearViewport(margin: 2 * cvHeight)
+        let width = derived.first?.width ?? bounds.width
+        let measured = RowBuilder.rewidth(derived, messages: store.state.conversation.messages, width: width, exact: near,
+                                          scale: renderScale) ?? derived
+        var changed = measured != derived
+        let specs: [RowSpec] = measured.map { r in
+            guard case let .threadPreview(pv) = r.kind, r.height != pv.height(scale: renderScale) else { return r }
+            var s = r
+            s.height = pv.height(scale: renderScale)
             changed = true
             return s
         }
+        if specs.contains(where: \.estimated) { measureWhenSettled() }
         guard changed else { return false }
         // The width pass's derived rows hold the old heights.
         widthDerived = nil
@@ -466,7 +488,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // The near messages are measured on all cores first (MeasureCache is thread safe, as
         // measureWindow's off-main pass relies on): the row derivation below then finds them
         // in the cache. On main they were the largest part of each divider-drag step.
-        if let near { MeasureCache.shared.prefetchParallel(Array(st.conversation.messages.slice(near.lowerBound, near.upperBound)), width: bounds.width) } // clamped
+        if let near { MeasureCache.shared.prefetchParallel(Array(st.conversation.messages.slice(near.lowerBound, near.upperBound)), width: bounds.width, scale: renderScale) } // clamped
         let now = store.date(at: clock())
         let rows = widthRows(st, now: now, near: near)
         model.set(rows, at: clock(), ghosts: false)
@@ -489,10 +511,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if let d = widthDerived, d.messages.count == msgs.count, d.me == st.me, d.atNewest == st.atNewest,
            d.typing == st.ui.typing, d.day == day, d.strings == strings,
            d.messages.withUnsafeBufferPointer({ $0.baseAddress }) == msgs.withUnsafeBufferPointer({ $0.baseAddress }),
-           let rows = RowBuilder.rewidth(d.rows, messages: msgs, width: bounds.width, exact: near) {
+           let rows = RowBuilder.rewidth(d.rows, messages: msgs, width: bounds.width, exact: near, scale: renderScale) {
             return rows
         }
-        let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near)
+        let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near, scale: renderScale)
         widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, day, strings, rows)
         return rows
     }
@@ -537,16 +559,16 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private func measureWindow(width: CGFloat) {
         guard measuringWidth == nil else { return }
         measuringWidth = width
-        let msgs = store.state.conversation.messages
+        let msgs = store.state.conversation.messages, scale = renderScale
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            MeasureCache.shared.prefetch(msgs, width: width)
+            MeasureCache.shared.prefetch(msgs, width: width, scale: scale)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.measuringWidth = nil
                 guard self.bounds.width == width else { self.measureWindow(width: self.bounds.width); return }
                 let st = self.store.state
                 if st.conversation.messages.count != msgs.count { self.measureWindow(width: width) }
-                let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: self.store.date(at: self.clock()), width: width)
+                let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: self.store.date(at: self.clock()), width: width, scale: self.renderScale)
                 guard rows != self.model.rows.map(\.spec) else { return }
                 let anchor = self.visibleAnchor()
                 self.model.set(rows, at: self.clock(), ghosts: false)
@@ -561,7 +583,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private func initialRows() {
         let st = store.state
         rowsWidth = bounds.width
-        let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: store.date(at: 0), width: bounds.width)
+        let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: store.date(at: 0), width: bounds.width, scale: renderScale)
         model.set(rows, at: 0, ghosts: false)
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
@@ -693,8 +715,25 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
     func commit(_ action: Action, at t: Double, old: AppState, new state: AppState) {
         if case .setScroll = action { return }
+        // My message is delivered (or read, or failed): its sent row takes the soft resting edge with this update
+        // (RowCell.crispEdge). `.sending` and `.sent` (the send itself) keep the crisp edge.
+        if case let .status(id, st) = action, st != .sending, st != .sent, crispSends.values.contains(id) {
+            releaseCrisp { $0 == id }
+        }
+        // cmux: also every crisp send whose message is past sent in the new state (delivered, read or failed), whatever
+        // the action: Home sends one status per update (HomeDiff.keepNewestStatus: two sends delivered together give
+        // only the newer one a status) and a rebuild's replaceWindow carries statuses with no status action. Sends are
+        // recent: only the newest 256 messages are read.
+        if !crispSends.isEmpty {
+            let ids = Set(crispSends.values)
+            var past = Set<ID>()
+            for m in state.conversation.messages.suffix(256) where ids.contains(m.id) {
+                switch m.status { case .delivered?, .read?, .failed?: past.insert(m.id); default: break }
+            }
+            if !past.isEmpty { releaseCrisp { past.contains($0) } }
+        }
         // this view's width (several Home tabs), not the process-wide `Metrics.current`.
-        if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width) }
+        if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
         // Rows configured in this transaction draw now (RowCell.transitionDepth).
         RowCell.transitionDepth += 1
         defer { RowCell.transitionDepth -= 1 }
@@ -881,13 +920,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let msgs = state.conversation.messages
         let now = store.date(at: t)
         guard var from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
-            return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width))
+            return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale))
         }
         // A deleted message (tombstone) owns no rows: the cut below must start at a message
         // that does, or it finds nothing and keeps every row (rows doubled: the scrolled-up
         // send after a delete showed empty bands, self-test coverage step).
         while from > 0, msgs[checked: from]?.deletedAt != nil { from -= 1 } // checked (a missing message counts as deleted)
-        guard from > 0, let first = msgs[checked: from] else { return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width)) }
+        guard from > 0, let first = msgs[checked: from] else { return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale)) }
         let firstID = Substring(first.id)
         // Rows of `firstID` and later messages are at the tail: scan back over the live rows from
         // the end (a trailing typing row is always re-derived), without allocating.
@@ -904,7 +943,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         var above: RowSpec.Kind?
         var j = model.modelIndex(ofLive: cut)
         while j > 0 { j -= 1; if let row = model.rows[checked: j], !row.ghost { above = row.spec.kind; break } } // checked
-        return (cut, RowBuilder.rows(state, messages: msgs, now: now, range: from..<msgs.count, previousRow: cut > 0 ? above : nil, width: bounds.width))
+        return (cut, RowBuilder.rows(state, messages: msgs, now: now, range: from..<msgs.count, previousRow: cut > 0 ? above : nil, width: bounds.width, scale: renderScale))
     }
 
     /// Whether the derived rows equal the model's live rows (only the re-derived tail is compared).
@@ -983,14 +1022,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             }
             return i
         }
-        func derive(_ r: Range<Int>) -> [RowSpec] { RowBuilder.rows(state, messages: msgs, now: now, range: r, width: bounds.width) }
+        func derive(_ r: Range<Int>) -> [RowSpec] { RowBuilder.rows(state, messages: msgs, now: now, range: r, width: bounds.width, scale: renderScale) }
         let prepared = preparedRows.flatMap { p in
             p.start == state.windowStart && p.count == msgs.count && (p.rows.first?.width ?? bounds.width) == bounds.width ? p.rows : nil
         }
         preparedRows = nil
         switch action {
         case .replaceWindow:
-            return (rows.count, prepared ?? RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width), 0, [])
+            return (rows.count, prepared ?? RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale), 0, [])
         case let .prependPage(page):
             guard msgs.count > page.count else { return nil }
             let head = prepared ?? derive(0..<(page.count + 1)).filter { $0.key != "typing" }
@@ -1002,7 +1041,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             guard let lastKept = msgs[checked: n - page.count - 1] else { return nil } // checked (n > page.count)
             let drop = countTail([Substring(lastKept.id)])
             let above = rows.dropLast(drop).last?.spec.kind // no index math
-            return (0, [], drop, prepared ?? RowBuilder.rows(state, messages: msgs, now: now, range: (n - page.count - 1)..<n, previousRow: above, width: bounds.width))
+            return (0, [], drop, prepared ?? RowBuilder.rows(state, messages: msgs, now: now, range: (n - page.count - 1)..<n, previousRow: above, width: bounds.width, scale: renderScale))
         case let .evict(top, bottom):
             let o = old.conversation.messages
             var headIDs = Set(o.prefix(top).map { Substring($0.id) })
@@ -1012,7 +1051,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             let head = top > 0 ? derive(0..<1).filter { $0.key != "typing" } : []
             let dropTail = bottom > 0 ? countTail(tailIDs) : 0
             let above = rows.dropLast(dropTail).last?.spec.kind // no index math
-            let tail = bottom > 0 ? RowBuilder.rows(state, messages: msgs, now: now, range: (msgs.count - 1)..<msgs.count, previousRow: above, width: bounds.width) : []
+            let tail = bottom > 0 ? RowBuilder.rows(state, messages: msgs, now: now, range: (msgs.count - 1)..<msgs.count, previousRow: above, width: bounds.width, scale: renderScale) : []
             return (top > 0 ? countHead(headIDs) : 0, head, dropTail, tail)
         default:
             return nil
@@ -1428,7 +1467,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // The landed row's content is snapped to the window's device pixels (RowCell.snapRow, from the cell's top and
         // left edge; the margin is whole points): the bubble flies to the same place (0 when the view starts on a
         // whole device pixel).
-        let s = max(1, Fixture.renderScale), place = windowPlace
+        let s = max(1, renderScale), place = windowPlace
         let top0 = windowY(contentY: layout.contentTop(i))
         let top = top0 + RowCell.snap(top0 - RowDraw.margin, place.origin.y, place.axis.y, scale: s)
         // The anchored side of the row (RowCell.anchorX: the right edge for my row) as snapRow snaps it.
@@ -1440,11 +1479,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let rowFrame = CGRect(x: body.minX, y: body.minY, width: body.width, height: p.size.height)
         let shift = CGPoint(x: dx, y: top - body.minY)
         let frame = rowFrame.offsetBy(dx: shift.x, dy: shift.y)
-        let flying = RowDraw.balloon(rowFrame, row: p).offsetBy(dx: shift.x, dy: shift.y)
+        let flying = RowDraw.balloon(rowFrame, row: p, scale: renderScale).offsetBy(dx: shift.x, dy: shift.y)
         let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size,
-                             textOrigin: CGPoint(x: frame.minX - flying.minX, y: frame.minY - flying.minY), begin: begin,
+                             textOrigin: CGPoint(x: frame.minX - flying.minX, y: frame.minY - flying.minY), begin: begin, scale: renderScale,
                              fieldShrinks: field.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
         morphs[key] = mb
+        if crispSends.count > 64 { releaseCrisp { _ in true } } // statuses that never came (bounded)
+        crispSends[key] = m.id
+        for case let cell as RowCell in collection.visibleCells where cell.spec?.key == key { cell.crispEdge = true }
         #if canImport(UIKit) || APPKIT_NATIVE
         // The glass tints the bubble until its bottom leaves the field's top.
         let topNow = Double(compose.fieldRect.minY), topWas = Double(field.minY)
@@ -1532,8 +1574,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     func collectionView(_ cv: UICollectionView, prefetchItemsAt ips: [IndexPath]) {
         let specs = ips.compactMap { $0.item < model.count ? model.rows[checked: $0.item]?.spec : nil } // checked
-        for s in specs where !RowBitmaps.shared.has(s) {
-            switch s.kind { case .receipt, .typing: continue; default: RowBitmaps.shared.request(s) }
+        for s in specs where !RowBitmaps.shared.has(s, scale: renderScale) {
+            switch s.kind { case .receipt, .typing: continue; default: RowBitmaps.shared.request(s, scale: renderScale) }
         }
     }
 
@@ -1572,6 +1614,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
         defer { step(2) }
         cell.fillSpan = fillSpan
+        cell.renderScale = renderScale
+        cell.crispEdge = crispSends[r.spec.key] != nil
         cell.configure(r.spec)
         step(0)
         // A row needs the container-motion check once per row shown in this cell and once per new
@@ -1606,7 +1650,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             cell.applied.insert(e.id)
             // The previous receipt text is drawn once, when its fade starts on this cell.
             if e.target == .receiptOld, let old = receiptChanges[r.spec.key] {
-                cell.setPreviousReceipt(old.0, old.1, cached: RowBitmaps.shared.image(for: old.2).map { (old.2, $0) })
+                cell.setPreviousReceipt(old.0, old.1, cached: RowBitmaps.shared.image(for: old.2, scale: renderScale).map { (old.2, $0) })
             }
             let target: CALayer
             switch e.target {
@@ -1796,7 +1840,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             return
         }
         let msgs = [rm] + s.conversation.messages.filter { $0.replyTo == root }
-        let rows = RowBuilder.rows(s, messages: msgs, now: store.date(at: t), threadMode: true, width: bounds.width)
+        let rows = RowBuilder.rows(s, messages: msgs, now: store.date(at: t), threadMode: true, width: bounds.width, scale: renderScale)
         let opening = threadLayer.isHidden || threadClosing > 0
         threadLayer.isHidden = false
         guard rows != threadSpecs || opening else { return }
@@ -1815,11 +1859,16 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         threadViews = rows.map { spec in
             let top = y + spec.gap - RowDraw.margin
             y += spec.total
-            let v = CanvasView(frame: CGRect(x: 0, y: top, width: bounds.width, height: spec.height + 2 * RowDraw.margin)) { ctx, _ in
-                Fixture.elevated = true
-                RowDraw.drawStatic(spec, ctx, windowY: top)
-                Fixture.elevated = false
+            // Drawn at this view's scale (weak: the canvas is this view's subview).
+            let v = CanvasView(frame: CGRect(x: 0, y: top, width: bounds.width, height: spec.height + 2 * RowDraw.margin)) { [weak self] ctx, _ in
+                Fixture.withRenderScale(self?.renderScale ?? 0) {
+                    Fixture.elevated = true
+                    // A just-sent reply is crisp in its copy too, until it is delivered (RowCell.crispEdge).
+                    SoftBalloon.withCrispCopy(self?.crispSends[spec.key] != nil) { RowDraw.drawStatic(spec, ctx, windowY: top) }
+                    Fixture.elevated = false
+                }
             }
+            v.layer.contentsScale = renderScale
             threadLayer.addSubview(v)
             return v
         }
@@ -1874,7 +1923,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             for (v, spec) in zip(threadViews, threadSpecs).reversed() {
                 guard case let .part(row) = spec.kind else { continue }
                 let body = RowDraw.bodyRect(spec).offsetBy(dx: v.frame.minX, dy: v.frame.minY)
-                let outline = RowDraw.balloon(RowDraw.bodyRect(spec), row: row).offsetBy(dx: v.frame.minX, dy: v.frame.minY)
+                let outline = RowDraw.balloon(RowDraw.bodyRect(spec), row: row, scale: renderScale).offsetBy(dx: v.frame.minX, dy: v.frame.minY)
                 if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key, outline: outline) }
             }
             return nil
@@ -1882,9 +1931,38 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         for case let cell as RowCell in collection.visibleCells {
             guard let spec = cell.spec, case let .part(row) = spec.kind else { continue }
             let body = cell.convert(RowDraw.bodyRect(spec), to: self)
-            let outline = cell.convert(RowDraw.balloon(RowDraw.bodyRect(spec), row: row), to: self)
+            let outline = cell.convert(RowDraw.balloon(RowDraw.bodyRect(spec), row: row, scale: renderScale), to: self)
             if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key, outline: outline) }
         }
+        return nil
+    }
+
+    /// The soft mask (SoftBalloon) of a hit's balloon in this view's coordinates, where its cell or thread copy draws it
+    /// (with the cell's window snap, RowCell.rowSnap), or nil (a balloon with the crisp shape): the menu highlight's
+    /// shape (cx-3cb soft-copies).
+    func softMask(_ h: Hit) -> SoftBalloon.Mask? {
+        if threadOpen {
+            for (v, spec) in zip(threadViews, threadSpecs) where spec.key == h.key {
+                guard crispSends[spec.key] == nil, case let .part(row) = spec.kind, let m = SoftBalloon.mask(frame: RowDraw.bodyRect(spec), row: row, scale: renderScale) else { return nil }
+                return SoftBalloon.Mask(image: m.image, frame: m.frame.offsetBy(dx: v.frame.minX, dy: v.frame.minY), center: m.center)
+            }
+            return nil
+        }
+        for case let cell as RowCell in collection.visibleCells {
+            guard let spec = cell.spec, spec.key == h.key, case let .part(row) = spec.kind else { continue }
+            // A just-sent row shows the crisp shape (RowCell.crispEdge): so does its highlight.
+            guard !cell.crispEdge, let m = SoftBalloon.mask(frame: RowDraw.bodyRect(spec), row: row, scale: renderScale) else { return nil }
+            let f = cell.convert(m.frame, to: self).offsetBy(dx: cell.rowSnap.x, dy: cell.rowSnap.y)
+            return SoftBalloon.Mask(image: m.image, frame: f, center: m.center)
+        }
+        return nil
+    }
+
+    /// The layer the hit row's soft mask masks (the cell's fill container), for a copy of that mask elsewhere in the
+    /// window to draw its image the same way up (MenuHighlight); nil in the thread view or without a visible cell.
+    func softMaskOwner(_ h: Hit) -> CALayer? {
+        guard !threadOpen else { return nil }
+        for case let cell as RowCell in collection.visibleCells where cell.spec?.key == h.key { return cell.fillContainer }
         return nil
     }
 
@@ -1914,7 +1992,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             if case let .part(p) = row.spec.kind, p.outgoing == mine, p.text != nil, accept(p) {
                 let body = RowDraw.bodyRect(row.spec)
                 let y = windowY(contentY: layout.contentTop(i))
-                let outline = RowDraw.balloon(body, row: p).offsetBy(dx: 0, dy: y - body.minY)
+                let outline = RowDraw.balloon(body, row: p, scale: renderScale).offsetBy(dx: 0, dy: y - body.minY)
                 return Hit(row: p, body: CGRect(x: body.minX, y: y, width: body.width, height: body.height), key: row.spec.key, outline: outline)
             }
         }
@@ -2070,7 +2148,7 @@ extension MessagesWindowView {
         RowCell.testForceOffMain = true
         defer { TiledBody.noMainTiles -= 1; RowCell.testForceOffMain = forced }
         if fold { LongTextFold.collapse(id) } else { LongTextFold.expand(id) }
-        let size = LongTextStore.shared.size(t, width: width, message: id, markdown: p0.markdownFormat)
+        let size = LongTextStore.shared.size(t, width: width, message: id, markdown: p0.markdownFormat, scale: renderScale)
         let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
             guard r.spec.key == key, case var .part(p) = r.spec.kind else { return r.spec }
             var s = r.spec
@@ -2201,7 +2279,7 @@ extension MessagesWindowView {
         let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
             guard case var .part(p) = r.spec.kind, case let .text(t, _) = p.part, p.text == nil,
                   let lin = LongTextStore.shared.lineage(t), lineages.contains(lin) else { return r.spec }
-            let size = LongTextStore.shared.size(t, width: r.spec.width, message: p.ref.messageId, markdown: p.markdownFormat)
+            let size = LongTextStore.shared.size(t, width: r.spec.width, message: p.ref.messageId, markdown: p.markdownFormat, scale: renderScale)
             guard size != p.size else { return r.spec }
             changed = true
             var s = r.spec

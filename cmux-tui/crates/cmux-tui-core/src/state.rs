@@ -66,6 +66,7 @@ pub(crate) mod palette_usage_store;
 pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
+pub(crate) mod placement_shift;
 mod prelude;
 pub(crate) mod project_sources;
 pub(crate) mod project_watch;

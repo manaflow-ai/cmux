@@ -47,6 +47,7 @@ enum DebugSidebarRows {
                         "shown_frame": row.shownFrame.map(rect) ?? .null, "clips": .bool(row.clips),
                         "group": row.group.map(JSONValue.string) ?? .null,
                         "detail": row.detail.map(JSONValue.string) ?? .null,
+                        "unread": row.unread.map(JSONValue.string) ?? .null, "progress": .bool(row.progress), "shows_working": .bool(row.showsWorking),
                         "fill": .bool(row.fill), "hovered": .bool(row.hovered),
                         "disclosure": row.disclosureIcon.map { icon in
                             .object(["icon": .string(icon), "frame": row.disclosureFrame.map(rect) ?? .null, "shown": .bool(row.disclosureShown)])

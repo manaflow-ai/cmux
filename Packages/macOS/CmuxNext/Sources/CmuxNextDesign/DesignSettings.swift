@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import Observation
+import Foundation
 
 /// Metrics a user may override individually on top of a density preset.
 /// Raw values are the cmux.json keys under `appearance.metrics`.
@@ -32,11 +33,20 @@ public final class DesignSettings {
     public var uiScale: CGFloat = 1
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
-    /// `ui.animationSpeed`: how fast chrome animates (see `Motion`).
-    public var animationSpeed: MotionSpeed = .fast
+    /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
+    /// `Motion.speedDidChange` for hosts outside Observation (a video wallpaper's player).
+    public var animationSpeed: MotionSpeed = .fast {
+        didSet {
+            guard animationSpeed != oldValue else { return }
+            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+        }
+    }
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); off by default.
     public var paneAnimations = false
+    /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
+    /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
+    public var classicHome = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,

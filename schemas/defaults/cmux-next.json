@@ -493,7 +493,7 @@
     "setting.sidebar.workspaceRow.mixed.secondLineOrder": null,
     "setting.sidebar.workspaceRow.mixed.tabCount": null,
     "setting.sidebar.workspaceRow.mixed.working": null,
-    "setting.sidebar.workspaceRow.notification": true,
+    "setting.sidebar.workspaceRow.notification": false,
     "setting.sidebar.workspaceRow.ports": false,
     "setting.sidebar.workspaceRow.process": false,
     "setting.sidebar.workspaceRow.progress": true,
