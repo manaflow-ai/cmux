@@ -190,6 +190,7 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
+import { FoldMotion } from "./conversation/foldMotion";
 import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
@@ -791,6 +792,7 @@ function RowFrame({
   report,
   enter,
   onEntered,
+  onLeave,
   active,
   selected,
   tabStop,
@@ -816,6 +818,8 @@ function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
+  /// The row unmounts, its node still drawn: a fold that closes fades it out (foldMotion.ts).
+  onLeave: (id: string, node: HTMLElement) => void;
   active: boolean;
   selected: boolean;
   tabStop: boolean;
@@ -835,6 +839,14 @@ function RowFrame({
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    return () => {
+      if (node) onLeave(row.id, node);
+    };
+    // The row's key is its id; onLeave is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useLayoutEffect(() => {
@@ -1134,6 +1146,9 @@ export function VirtualTranscript({
   }, [rows, sessionChanged, sessionKey]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
+  const thread = useRef<HTMLDivElement>(null);
+  const foldMotion = useMemo(() => new FoldMotion(), []);
+  useEffect(() => () => foldMotion.finish(), [foldMotion]);
   const knownRows = useRef<Set<string> | null>(null);
   const knownFor = useRef<AcpmuxRow[] | null>(null);
   const enteringRows = useRef(new Set<string>());
@@ -1149,9 +1164,21 @@ export function VirtualTranscript({
       if (!knownRows.current.has(rows[index]!.id)) arrived.push(rows[index]!);
     for (const row of arrived) knownRows.current.add(row.id);
     if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
+    // A turn that ends folds its steps under "Worked for": they go as the rows that stay move.
+    if (arrived.length <= LIVE_ROWS_PER_UPDATE && arrived.some((row) => row.kind === WORKED))
+      foldMotion.arm(thread.current);
   }
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
+  const onLeave = useCallback((id: string, node: HTMLElement) => foldMotion.leave(id, node), [foldMotion]);
+  /// Opening or closing a turn's fold moves its rows; its header keeps its place on screen.
+  const toggleActivity = useCallback(
+    (id: string) => {
+      if (id.startsWith(`${WORKED}-`)) foldMotion.arm(thread.current, id);
+      onToggleActivity(id);
+    },
+    [foldMotion, onToggleActivity],
+  );
   const reportDrawn = useCallback<ReportDrawn>(
     (id, version, drawnHeight) => {
       // Zero is a row not laid out (hidden, or no layout at all), not a height.
@@ -1267,7 +1294,6 @@ export function VirtualTranscript({
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width });
-  const thread = useRef<HTMLDivElement>(null);
   // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
   useEffect(() => {
     const node = ref.current;
@@ -1564,7 +1590,11 @@ export function VirtualTranscript({
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
       // (cx-ubd1y). Away from it, at the first row nothing above can move it.
-      if (didOpenAtLatest.current && atLatest) {
+      // A fold the reader toggles keeps its header where it is: the rows above it do not change,
+      // so the offset stays, and the transcript stops following when the fold opens past the end.
+      const folding = foldMotion.anchor !== undefined;
+      if (folding && followingRef.current && node.scrollTop < layout.totalHeight - node.clientHeight - 1) follow(false);
+      if (didOpenAtLatest.current && atLatest && !folding) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
@@ -1578,7 +1608,8 @@ export function VirtualTranscript({
         // glides add up, so the text moves by what it grew. Gliding only the first step drew the
         // text an estimate's error too low, then slid it past its place, at every token.
         const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
-        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized) glide(thread.current, step);
+        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized && !foldMotion.active)
+          glide(thread.current, step);
       } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -1604,6 +1635,8 @@ export function VirtualTranscript({
       follow(top >= latest - 1);
       didOpenAtLatest.current = true;
     }
+    if (switched) foldMotion.finish();
+    else foldMotion.committed(thread.current);
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
@@ -1904,6 +1937,7 @@ export function VirtualTranscript({
                       report={reportDrawn}
                       enter={enteringRows.current.has(row.id)}
                       onEntered={onEntered}
+                      onLeave={onLeave}
                       active={effectiveActiveRowId === row.id}
                       selected={selectedRows.has(absoluteIndex)}
                       tabStop={tabStopId === row.id}
@@ -1918,7 +1952,7 @@ export function VirtualTranscript({
                     >
                       <Component
                         row={row}
-                        onToggleActivity={onToggleActivity}
+                        onToggleActivity={toggleActivity}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
                         controls={controls}
