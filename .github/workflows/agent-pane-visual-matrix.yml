@@ -29,7 +29,15 @@ jobs:
         working-directory: webviews
       - run: bunx playwright install --with-deps chromium
         working-directory: webviews
-      - run: heavy --mem 4G bun scripts/agent-pane/visual-matrix.mjs --cases "$CASE_GROUP" --out "../artifacts/agent-pane-visual/$CASE_GROUP"
+      - name: Run bounded visual capture
+        run: |
+          if command -v heavy >/dev/null 2>&1; then
+            heavy --mem 4G bun scripts/agent-pane/visual-matrix.mjs --cases "$CASE_GROUP" --out "../artifacts/agent-pane-visual/$CASE_GROUP"
+          else
+            # Blacksmith's job is already a dedicated 4 GB Linux worker. The local command
+            # remains `heavy --mem 4G ...`; hosted runners do not ship that wrapper.
+            bun scripts/agent-pane/visual-matrix.mjs --cases "$CASE_GROUP" --out "../artifacts/agent-pane-visual/$CASE_GROUP"
+          fi
         working-directory: webviews
         env:
           CASE_GROUP: ${{ matrix.case_group }}
