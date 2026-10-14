@@ -40437,21 +40437,10 @@ export default {
                     || event == "error"
                 guard isFailure else { return nil }
                 let rawObject = input.rawObject ?? input.object ?? [:]
-                let message = firstString(
-                    in: rawObject,
-                    keys: ["error", "message", "reason", "description"]
-                )
-                if message == nil, let error = rawObject["error"] as? [String: Any] {
-                    message = firstString(in: error, keys: ["message", "reason", "description"])
-                        ?? (error["data"] as? [String: Any]).flatMap {
-                            firstString(in: $0, keys: ["message", "error", "reason", "description"])
-                        }
-                        ?? firstString(in: error, keys: ["name"])
-                }
                 return classifyAgentHookNotification(
                     def: def,
                     signal: event,
-                    message: message,
+                    message: openCodeFailureMessage(from: rawObject) ?? "",
                     isFallback: false
                 )
             }()
@@ -42097,8 +42086,6 @@ export default {
         return "fallback-\(String(digest.prefix(16)))"
     }
 
-    /// Feed reading must retain the completion, not the notification preview.
-    /// Both native Feed hooks and wrapper hooks call this with the raw payload.
     private func normalizedOpenCodeHookEventName(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -42121,6 +42108,8 @@ export default {
         return message.map { truncate(normalizedSingleLine($0), maxLength: 500) }
     }
 
+    /// Feed reading must retain the completion, not the notification preview.
+    /// Both native Feed hooks and wrapper hooks call this with the raw payload.
     private func enrichStopFeedEvent(
         _ event: inout [String: Any],
         hookEventName: String,

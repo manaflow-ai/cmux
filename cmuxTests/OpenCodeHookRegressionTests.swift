@@ -293,7 +293,7 @@ const fs = require("node:fs");
         if (!line.trim()) continue;
         const frame = JSON.parse(line);
         frames.push(frame);
-        if (frames.length === 4) resolveFrames();
+        if (frames.length === 3) resolveFrames();
         conn.write(JSON.stringify({ id: frame.id, ok: true, result: { status: "acknowledged" } }) + "\n");
       }
     });
@@ -333,6 +333,10 @@ const fs = require("node:fs");
   await hooks.event({ event: {
     type: "session.status",
     properties: { session_id: "ses-feed-shape", status: "idle" }
+  } });
+  await hooks.event({ event: {
+    type: "session.deleted",
+    properties: { session_id: "ses-feed-shape" }
   } });
   await framesReady;
   for (const socket of sockets) socket.destroy();
