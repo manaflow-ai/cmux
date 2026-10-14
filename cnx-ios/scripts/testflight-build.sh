@@ -142,7 +142,7 @@ elif [[ $allow_backend_down == 1 ]]; then
   echo "WARNING: $api_base/v1/health is not a live production Worker (${health:-no response}); continuing (--allow-backend-down)" >&2
   notes+=("The production Worker \`$api_base\` was not live at build time (\`/v1/health\`: ${health:-no response}). Do not distribute this build.")
 else
-  die "$api_base/v1/health is not a live production Worker with only Stack project $prod_stack_project (got: ${health:-no response}). Deploy cnx-ios-api-prod or set CNX_PROD_API_BASE."
+  die "$api_base/v1/health is not a live production Worker with only Stack project $prod_stack_project (got: ${health:-no response}). Deploy cmux-next-ios-api (backend env prod) or set CNX_PROD_API_BASE."
 fi
 
 # --- Shared packages must match upstream -----------------------------------

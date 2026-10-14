@@ -1,6 +1,6 @@
-# cnx-ios-api
+# cmux-next iOS API
 
-Cloudflare Worker for the cnx-ios app. It implements the HTTP and signaling
+Cloudflare Worker for the cmux-next iOS app (source directory `cnx-ios/`). It implements the HTTP and signaling
 parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 
 - `src/index.ts`: routes, Stack JWT auth, validation.
@@ -21,8 +21,13 @@ parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 
 | Env | Worker | URL | Database |
 | --- | --- | --- | --- |
-| `dev` | `cnx-ios-api-dev` | https://cnx-ios-api-dev.debussy.workers.dev | PlanetScale `cmux/cnx-ios`, branch `main`, role `cnx-ios-dev`, Hyperdrive `cnx-ios-dev` (`e4fd2e88cfcd4f00841ddc5b49c3ee06`) |
-| `prod` | `cnx-ios-api-prod` | https://cnx-ios-api.cmux.dev (custom domain; also https://cnx-ios-api-prod.debussy.workers.dev) | PlanetScale `cmux/cnx-ios-prod` (its own database, PS-5 single node, us-east), branch `main`, role `cnx-ios-prod`, Hyperdrive `cnx-ios-prod` (`11158756425f41469964743aab2f6319`, caching disabled). Accepts only the production Stack project |
+| `dev` | `cmux-next-ios-api-dev` | https://cmux-next-ios-api-dev.debussy.workers.dev | PlanetScale `cmux/cmux-next-ios-dev` (PS-5 single node, us-east), branch `main`, role `cmux-next-ios-dev`, Hyperdrive `cmux-next-ios-dev` (`e4fd2e88cfcd4f00841ddc5b49c3ee06`, caching disabled) |
+| `prod` | `cmux-next-ios-api` | https://cmux-next-ios-api.cmux.dev (custom domain; also https://cmux-next-ios-api.debussy.workers.dev) | PlanetScale `cmux/cmux-next-ios` (its own database, PS-5 single node, us-east), branch `main`, role `cmux-next-ios`, Hyperdrive `cmux-next-ios` (`11158756425f41469964743aab2f6319`, caching disabled). Accepts only the production Stack project |
+
+The pre-rename Workers (`cnx-ios-api-dev`, `cnx-ios-api-prod` on
+`cnx-ios-api.cmux.dev`) still run for installed builds and use the same
+Hyperdrive configs, so the same databases. See
+[`../verify/naming-migration.md`](../verify/naming-migration.md).
 
 `STACK_PROJECTS` in `wrangler.jsonc` lists the Stack projects whose users an
 environment accepts, primary first (id, label, publishable key or `""`, invite
@@ -42,24 +47,19 @@ Pipe values from 1Password; never paste or echo them.
 | --- | --- | --- |
 | `TURN_KEY_ID` | 1Password `Cloudflare TURN Server API Key` (vault Shared), the "Turn Token ID" in its notes | for TURN (else `/v1/ice` is STUN only) |
 | `TURN_KEY_API_TOKEN` | same item, field `credential` | for TURN |
-| `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | the team's APNs auth key (`.p8`, PKCS#8 PEM), its key id and team `7WLXT3NR37`. Not set yet: no APNs key was found in 1Password (searched 2026-10-13). Until set, `notify` answers `configured:false` | for push |
+| `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | 1Password `cmux-next iOS APNs Auth Key (dev.cmux.app.internal)`: the `.p8` document, `key_id`, `team_id`. Topic-scoped to `dev.cmux.app.internal`, production APNs only. Without them `notify` answers `configured:false` | for push |
 | `STACK_SECRET_SERVER_KEY` | Stack server key of the env's primary project | optional; without it membership and invites use the caller's own token (always the case for the other projects) |
 
-```bash
-op item get lqvg75d4awzbveq7ny5gyfeyd4 --fields notesPlain | grep -oE '[0-9a-f]{32}' | head -1 | tr -d '\n' \
-  | bunx wrangler@4 secret put TURN_KEY_ID --env dev
-op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/credential" | tr -d '\n' \
-  | bunx wrangler@4 secret put TURN_KEY_API_TOKEN --env dev
-```
-
-`--env prod` takes the same two TURN secrets (set 2026-10-13). Check `op whoami` first: a failed `op` call pipes an empty value and wrangler
-stores it.
+`scripts/put-secrets.sh dev|prod` copies the TURN and APNs secrets from
+1Password (vault Shared: `Cloudflare TURN Server API Key` and `cmux-next iOS
+APNs Auth Key (dev.cmux.app.internal)`) straight into the Worker. It refuses an
+empty value, so a failed `op` call never stores one.
 
 The database URL is only in the Hyperdrive config. To create one:
 
 ```bash
-pscale role create cnx-ios <branch> <role> --org cmux --inherited-roles postgres --format json > /private/path/role.json
-bunx wrangler@4 hyperdrive create cnx-ios-<env> --connection-string="$(jq -r '.database_url | split("?")[0]' /private/path/role.json)"
+pscale role create cmux-next-ios[-dev] <branch> <role> --org cmux --inherited-roles postgres --format json > /private/path/role.json
+bunx wrangler@4 hyperdrive create cmux-next-ios[-dev] --caching-disabled --connection-string="$(jq -r '.database_url | split("?")[0]' /private/path/role.json)"
 ```
 
 ## Migrations
@@ -76,7 +76,7 @@ DATABASE_URL="$(jq -r .database_url /private/path/role.json)" bunx drizzle-kit m
 bun install
 bunx tsc -p .
 bunx vitest run                 # workerd via @cloudflare/vitest-pool-workers
-bunx wrangler@4 deploy --env dev
+bunx wrangler@4 deploy --env dev   # or --env prod
 ```
 
 ## Live smoke test

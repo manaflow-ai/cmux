@@ -119,7 +119,7 @@ public final class CnxAuthModel {
     static func apiBase(environment: [String: String], infoValue: String?, isDebug: Bool) -> URL? {
         if let override = environment["CNX_API_BASE"], let url = URL(string: override) { return url }
         if let infoValue, !infoValue.isEmpty, let url = URL(string: infoValue) { return url }
-        return isDebug ? URL(string: "https://cnx-ios-api-dev.debussy.workers.dev") : nil
+        return isDebug ? URL(string: "https://cmux-next-ios-api-dev.debussy.workers.dev") : nil
     }
 
     /// Whether launch auth has resolved (a cached session counts immediately).

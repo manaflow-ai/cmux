@@ -11,16 +11,16 @@ ROOT=${0:a:h:h:h}
 E=$ROOT/verify/evidence/$(date +%Y-%m-%d)/terminal
 APP=$ROOT/build/DerivedData/Build/Products/Debug-iphonesimulator/CnxApp.app
 mkdir -p $E
-xcrun simctl terminate $U dev.cmux.cnx >/dev/null 2>&1 || true
+xcrun simctl terminate $U dev.cmux.next.ios >/dev/null 2>&1 || true
 xcrun simctl install $U $APP
-D=$(xcrun simctl get_app_container $U dev.cmux.cnx data)
+D=$(xcrun simctl get_app_container $U dev.cmux.next.ios data)
 rm -f $D/Documents/terminal-demo-timeline.txt $D/Documents/present-log.txt
 xcrun simctl io $U recordVideo --codec=h264 --force $E/$L.mp4 > $E/$L.rec.log 2>&1 &
 RP=$!
 # recordVideo needs a moment to start; recstart + 2 s approximates video t=0.
 sleep 2
 date +%s.%N > $E/$L.recstart.txt
-xcrun simctl launch $U dev.cmux.cnx -CnxTerminalDemo -CnxTerminalDemoPhases $P -CnxPresentLog "$@"
+xcrun simctl launch $U dev.cmux.next.ios -CnxTerminalDemo -CnxTerminalDemoPhases $P -CnxPresentLog "$@"
 sleep $T
 kill -INT $RP; wait $RP || true
 cp $D/Documents/terminal-demo-timeline.txt $E/$L.timeline.txt

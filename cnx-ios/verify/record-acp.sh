@@ -15,14 +15,14 @@ rm -rf "$OUT"; mkdir -p "$OUT/frames"
 xcrun simctl bootstatus "$UDID" -b >/dev/null
 xcrun simctl ui "$UDID" appearance "$APPEARANCE"
 xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
-xcrun simctl terminate "$UDID" dev.cmux.cnx >/dev/null 2>&1 || true
+xcrun simctl terminate "$UDID" dev.cmux.next.ios >/dev/null 2>&1 || true
 xcrun simctl install "$UDID" "$APP"
 # Past onboarding (the simulator's app defaults, as verify/record-ws.sh does).
-xcrun simctl spawn "$UDID" defaults write dev.cmux.cnx cnx.setupComplete -bool true
+xcrun simctl spawn "$UDID" defaults write dev.cmux.next.ios cnx.setupComplete -bool true
 xcrun simctl io "$UDID" recordVideo --codec h264 --force "$OUT/demo.mp4" &
 REC=$!
 until ls "$OUT"/demo.mp4.sb-* >/dev/null 2>&1 || [[ -s "$OUT/demo.mp4" ]]; do sleep 0.2; done; sleep 1
-SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch --console-pty "$UDID" dev.cmux.cnx -CnxDemo acp-parity -CnxDemoPhases "$PHASES" \
+SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch --console-pty "$UDID" dev.cmux.next.ios -CnxDemo acp-parity -CnxDemoPhases "$PHASES" \
   > "$OUT/console.log" 2>&1 &
 LAUNCH=$!
 sleep "$SECONDS_TO_RECORD"

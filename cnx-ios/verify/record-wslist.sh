@@ -13,7 +13,7 @@ mkdir -p "$dir"
 xcrun simctl ui "$udid" appearance "$look"
 xcrun simctl ui "$udid" content_size "$size"
 launch() {
-  SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch --terminate-running-process "$udid" dev.cmux.cnx \
+  SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch --terminate-running-process "$udid" dev.cmux.next.ios \
     -cnx.setupComplete YES -cnx-tab workspaces "$@" >/dev/null
   sleep 4
 }
@@ -45,7 +45,7 @@ chip() {
   tap --id "workspaces.chip.$1"
 }
 
-xcrun simctl terminate "$udid" dev.cmux.cnx 2>/dev/null || true
+xcrun simctl terminate "$udid" dev.cmux.next.ios 2>/dev/null || true
 launch -cnx.workspaces.macFilter.team-manaflow ""
 log=$(mktemp)
 xcrun simctl io "$udid" recordVideo --codec h264 --force "$dir/walk.mp4" >"$log" 2>&1 &
@@ -80,8 +80,8 @@ tap --label "Close Workspace" --element-type Button; shot 16-closed 1.2
 chip mac-mini-2; shot 17-mini2 0.8
 kill -INT $rec; wait $rec || true
 # Relaunch: the chip is remembered for the team.
-xcrun simctl terminate "$udid" dev.cmux.cnx
-SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch "$udid" dev.cmux.cnx -cnx.setupComplete YES -cnx-tab workspaces >/dev/null
+xcrun simctl terminate "$udid" dev.cmux.next.ios
+SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch "$udid" dev.cmux.next.ios -cnx.setupComplete YES -cnx-tab workspaces >/dev/null
 shot 18-relaunched 4
 chip all; shot 19-back-to-all
 rm -rf "$dir/frames"; mkdir -p "$dir/frames"

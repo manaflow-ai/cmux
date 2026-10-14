@@ -135,7 +135,7 @@ stays `relay` (the backend relay frames). The Mac side needs no change. Device i
 
 ```bash
 cargo build --release -p cnx-hostd
-CNX_BASE_URL=https://cnx-ios-api-dev.<account>.workers.dev \
+CNX_BASE_URL=https://cmux-next-ios-api-dev.<account>.workers.dev \
 CNX_TEAM_ID=<stack team id> \
 CNX_REFRESH_TOKEN_FILE=~/.config/cnx/refresh-token \
 target/release/cnx-hostd

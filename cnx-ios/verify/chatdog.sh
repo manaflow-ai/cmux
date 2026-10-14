@@ -9,7 +9,7 @@ D27=${D27:-}
 D=${D:-$D26}
 EV=${EV:-$CHATDOG_DIR/evidence/$(date +%F)/chatdog}
 mkdir -p $EV
-launch() { xcrun simctl terminate $D dev.cmux.cnx >/dev/null 2>&1; SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch $D dev.cmux.cnx "$@" >/dev/null; }
+launch() { xcrun simctl terminate $D dev.cmux.next.ios >/dev/null 2>&1; SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch $D dev.cmux.next.ios "$@" >/dev/null; }
 shot() { xcrun simctl io $D screenshot "$EV/$1.png" >/dev/null 2>&1; sips -Z 900 "$EV/$1.png" --out "$EV/$1.s.png" >/dev/null 2>&1; echo "$EV/$1.s.png"; }
 tap() { axe tap -x $1 -y $2 --udid $D >/dev/null; }
 tapl() { axe tap --label "$1" --udid $D "${@:2}"; }

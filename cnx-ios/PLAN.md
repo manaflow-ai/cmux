@@ -10,7 +10,7 @@ Independent effort on branch `feat-cnx-ios`. Native, mainstream-AI-app feel
 | `cnx-ios/project.yml` | XcodeGen app project (`CnxApp`), iOS 26.0+, bundle `dev.cmux.cnx` (+ `.<tag>`). Configurations: Debug, Release, Demo (-O with the DEBUG developer surface), Production (-O, no DEBUG, production Stack project, `dev.cmux.cnx.prod`). `scripts/demo-build.sh [--config Production]` builds Demo or Production installs. TestFlight (`dev.cmux.app.internal`, "cmux INTERNAL", App Store signing, production Worker): `scripts/testflight-build.sh`, see `verify/testflight-readiness.md`. |
 | `cnx-ios/CnxKit/` | SwiftPM package with all app modules (below). |
 | `cnx-ios/rust/` | Rust crates: `cnx-link` (transport-agnostic framed channel mux, WebRTC + WireGuard dialers), `cnx-ffi` (uniffi), `cnx-hostd` (Mac bridge). |
-| `cnx-ios/backend/` | Cloudflare Worker `cnx-ios-api` (DO `TeamHub`: signaling, presence, WireGuard relay) + PlanetScale Postgres `cnx-ios` via Hyperdrive (device registry, team prefs). |
+| `cnx-ios/backend/` | Cloudflare Worker `cmux-next-ios-api` (DO `TeamHub`: signaling, presence, WireGuard relay) + PlanetScale Postgres `cmux-next-ios` via Hyperdrive (device registry, team prefs). |
 | `cnx-ios/verify/` | Recording / frame-split / comparison scripts and the evidence index. |
 
 ## CnxKit modules
@@ -45,7 +45,7 @@ or, as a proposal only, in `verify/tabskit-upstream-requests.md` and
 `cnx-hostd` runs beside the cmux-next daemon on the Mac. The cmux-next app
 bundles it and runs it itself (Settings > Mobile; `rust/README.md`
 "Supervised by the cmux-next app"); `run-host.sh` in the demo host package is
-for Macs without the app. It registers the Mac with `cnx-ios-api`, answers WebRTC offers and
+for Macs without the app. It registers the Mac with the cmux-next iOS API, answers WebRTC offers and
 WireGuard handshakes, and splices link channels to the cmux-tui socket
 (protocol v12 JSON lines), acpmux, and terminal byte streams.
 

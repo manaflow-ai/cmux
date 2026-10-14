@@ -6,7 +6,7 @@
 # Gestures are real HID touches through `axe`, sent to both at once.
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
 REF_BUNDLE=${REF_BUNDLE:-dev.cmux.ios.imsgref}
-OURS_BUNDLE=${OURS_BUNDLE:-dev.cmux.cnx}
+OURS_BUNDLE=${OURS_BUNDLE:-dev.cmux.next.ios}
 
 pair_setup() {
   REF=$1 OURS=$2 MODE=$3 OUT=$4
@@ -23,7 +23,7 @@ pair_setup() {
     xcrun simctl terminate "$u" "$REF_BUNDLE" >/dev/null 2>&1 || true
     xcrun simctl terminate "$u" "$OURS_BUNDLE" >/dev/null 2>&1 || true
   done
-  xcrun simctl spawn "$OURS" defaults write dev.cmux.cnx cnx.setupComplete -bool true
+  xcrun simctl spawn "$OURS" defaults write dev.cmux.next.ios cnx.setupComplete -bool true
 }
 
 pair_launch() {

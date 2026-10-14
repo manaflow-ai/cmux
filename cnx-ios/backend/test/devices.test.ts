@@ -14,7 +14,7 @@ describe("device list and removal", () => {
     await register(await token("hank"), "mac", "personal-hank", "Not Gina's")
     const sock = await connect(t, "personal-gina", mac)
     await sock.until((s) => s.frames.some((f) => f.type === "hello"))
-    expect((await call("PUT", `/v1/devices/${phone}/push`, t, { token: HEX, environment: "sandbox", topic: "dev.cmux.cnx" })).status).toBe(200)
+    expect((await call("PUT", `/v1/devices/${phone}/push`, t, { token: HEX, environment: "sandbox", topic: "dev.cmux.next.ios" })).status).toBe(200)
     const r = await call("GET", "/v1/me/devices", t)
     expect(r.status).toBe(200)
     expect(r.json.devices).toEqual([
@@ -56,7 +56,7 @@ describe("device list and removal", () => {
     const t = await token("kate")
     await register(t, "mac", "personal-kate")
     const phone = await register(t, "phone", "personal-kate")
-    await call("PUT", `/v1/devices/${phone}/push`, t, { token: HEX, environment: "production", topic: "dev.cmux.cnx.prod" })
+    await call("PUT", `/v1/devices/${phone}/push`, t, { token: HEX, environment: "production", topic: "dev.cmux.next.ios.prod" })
     await call("PUT", "/v1/teams/personal-kate/prefs", t, { color: "#112233" })
     expect(await call("DELETE", "/v1/me", t)).toEqual({ status: 200, json: { deleted: { devices: 2 } } })
     expect((await call("GET", "/v1/me/devices", t)).json.devices).toEqual([])
@@ -70,14 +70,14 @@ describe("push registration and notify", () => {
     const phone = await register(t, "phone", "personal-liam")
     const mac = await register(t, "mac", "personal-liam")
     const put = (id: string, body: unknown, tok = t) => call("PUT", `/v1/devices/${id}/push`, tok, body)
-    expect((await put(phone, { token: "xyz", environment: "sandbox", topic: "dev.cmux.cnx" })).status).toBe(400)
-    expect((await put(phone, { token: HEX, environment: "dev", topic: "dev.cmux.cnx" })).status).toBe(400)
+    expect((await put(phone, { token: "xyz", environment: "sandbox", topic: "dev.cmux.next.ios" })).status).toBe(400)
+    expect((await put(phone, { token: HEX, environment: "dev", topic: "dev.cmux.next.ios" })).status).toBe(400)
     expect((await put(phone, { token: HEX, environment: "sandbox", topic: "com.evil.app" })).status).toBe(400)
-    expect((await put(phone, { token: HEX, environment: "sandbox", topic: "dev.cmux.cnx", kinds: ["nope"] })).status).toBe(400)
-    expect((await put(mac, { token: HEX, environment: "sandbox", topic: "dev.cmux.cnx" })).status).toBe(400)
-    expect((await put(phone, { token: HEX, environment: "sandbox", topic: "dev.cmux.cnx" }, await token("mona"))).status).toBe(403)
-    const ok = await put(phone, { token: HEX.toUpperCase(), environment: "sandbox", topic: "dev.cmux.cnx", kinds: ["question", "permission"] })
-    expect(ok).toMatchObject({ status: 200, json: { push: { environment: "sandbox", topic: "dev.cmux.cnx", kinds: ["question", "permission"] } } })
+    expect((await put(phone, { token: HEX, environment: "sandbox", topic: "dev.cmux.next.ios", kinds: ["nope"] })).status).toBe(400)
+    expect((await put(mac, { token: HEX, environment: "sandbox", topic: "dev.cmux.next.ios" })).status).toBe(400)
+    expect((await put(phone, { token: HEX, environment: "sandbox", topic: "dev.cmux.next.ios" }, await token("mona"))).status).toBe(403)
+    const ok = await put(phone, { token: HEX.toUpperCase(), environment: "sandbox", topic: "dev.cmux.next.ios", kinds: ["question", "permission"] })
+    expect(ok).toMatchObject({ status: 200, json: { push: { environment: "sandbox", topic: "dev.cmux.next.ios", kinds: ["question", "permission"] } } })
     expect(await call("DELETE", `/v1/devices/${phone}/push`, t)).toEqual({ status: 200, json: { deleted: true } })
     expect((await call("GET", "/v1/me/devices", t)).json.devices.find((d: any) => d.deviceId === phone).push).toBe(false)
   })
@@ -123,7 +123,7 @@ describe("APNs payload and sender", () => {
       ownerUserId: "o",
       token,
       environment,
-      topic: "dev.cmux.cnx",
+      topic: "dev.cmux.next.ios",
       kinds: ["permission"],
       updatedAt: ""
     })
@@ -137,7 +137,7 @@ describe("APNs payload and sender", () => {
     expect(r.map((x) => x.outcome)).toEqual(["sent", "drop_target"])
     expect(seen[0]!.url).toBe("https://api.push.apple.com/3/device/aa")
     expect(seen[1]!.url).toBe("https://api.sandbox.push.apple.com/3/device/gone")
-    expect(seen[0]!.headers.get("apns-topic")).toBe("dev.cmux.cnx")
+    expect(seen[0]!.headers.get("apns-topic")).toBe("dev.cmux.next.ios")
     expect(seen[0]!.headers.get("apns-collapse-id")).toBe("e1")
     const jwt = seen[0]!.headers.get("authorization")!.slice(7)
     expect(decodeProtectedHeader(jwt)).toMatchObject({ alg: "ES256", kid: "KEY123" })

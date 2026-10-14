@@ -12,14 +12,14 @@ xcrun simctl status_bar "$udid" override --time 9:41 --batteryLevel 100 --batter
 while IFS='=' read -r name _; do
   case "$name" in CNX_*) export "SIMCTL_CHILD_$name=${!name}" ;; esac
 done < <(env)
-xcrun simctl terminate "$udid" dev.cmux.cnx >/dev/null 2>&1 || true
+xcrun simctl terminate "$udid" dev.cmux.next.ios >/dev/null 2>&1 || true
 mkdir -p "$(dirname "$out")"
 log=$(mktemp)
 xcrun simctl io "$udid" recordVideo --codec ${CNX_RECORD_CODEC:-h264} --force "$out" >"$log" 2>&1 &
 rec=$!
 # Launch only once the recorder reports it is capturing.
 until grep -q "Recording started" "$log"; do sleep 0.1; done
-xcrun simctl launch "$udid" dev.cmux.cnx "$@" >/dev/null
+xcrun simctl launch "$udid" dev.cmux.next.ios "$@" >/dev/null
 sleep "$seconds"
 kill -INT "$rec"
 wait "$rec" || true

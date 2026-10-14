@@ -13,27 +13,27 @@ mkdir -p "$out"
 app=build/dd/Build/Products/Debug-iphonesimulator/CnxApp.app
 xcrun simctl install "$udid" "$app"
 xcrun simctl terminate "$udid" com.apple.MobileSMS >/dev/null 2>&1 || true
-xcrun simctl spawn "$udid" defaults write dev.cmux.cnx cnx.setupComplete -bool true
+xcrun simctl spawn "$udid" defaults write dev.cmux.next.ios cnx.setupComplete -bool true
 # The Photos drawer reads the library: grant it and give it a few photos.
-xcrun simctl privacy "$udid" grant photos dev.cmux.cnx
+xcrun simctl privacy "$udid" grant photos dev.cmux.next.ios
 xcrun simctl ui "$udid" appearance "$mode"
 xcrun simctl status_bar "$udid" override --time 9:41 --batteryLevel 100 --batteryState charged --cellularBars 4 --wifiBars 3
 export SIMCTL_CHILD_CNX_MOCK_AUTH=1
 
 video="$out/chief-parity-$mode.mp4"
 log=$(mktemp)
-xcrun simctl terminate "$udid" dev.cmux.cnx >/dev/null 2>&1 || true
-docs=$(xcrun simctl get_app_container "$udid" dev.cmux.cnx data)/Documents
+xcrun simctl terminate "$udid" dev.cmux.next.ios >/dev/null 2>&1 || true
+docs=$(xcrun simctl get_app_container "$udid" dev.cmux.next.ios data)/Documents
 rm -f "$docs/terminal-demo-timeline.txt"
 xcrun simctl io "$udid" recordVideo --codec h264 --force "$video" >"$log" 2>&1 &
 rec=$!
 until grep -q "Recording started" "$log"; do sleep 0.1; done
 start=$(python3 -c 'import time; print(time.time())')
-xcrun simctl launch "$udid" dev.cmux.cnx -cnx-demo chief-parity >/dev/null
+xcrun simctl launch "$udid" dev.cmux.next.ios -cnx-demo chief-parity >/dev/null
 # Pacing for the recording only: the demo's last mark is "end".
 until grep -q " end$" "$docs/terminal-demo-timeline.txt" 2>/dev/null; do sleep 0.5; done
 kill -INT "$rec"; wait "$rec" || true
-crash=$(xcrun simctl spawn "$udid" launchctl list | grep -c "UIKitApplication:dev.cmux.cnx" || true)
+crash=$(xcrun simctl spawn "$udid" launchctl list | grep -c "UIKitApplication:dev.cmux.next.ios" || true)
 echo "app still running after demo: $crash"
 awk -v s="$start" '{ printf "%.2f %s\n", $1 - s, substr($0, index($0, " ") + 1) }' "$docs/terminal-demo-timeline.txt" > "$out/timeline.txt"
 mkdir -p "$out/frames"

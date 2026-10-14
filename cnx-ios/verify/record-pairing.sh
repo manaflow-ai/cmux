@@ -13,7 +13,7 @@ export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer
 cd "$(dirname "$0")/.."
 udid=$1 out=$2 fps=${3:-30}
 mkdir -p "$out"
-setup_done() { xcrun simctl spawn "$udid" defaults write dev.cmux.cnx cnx.setupComplete -bool "$1"; }
+setup_done() { xcrun simctl spawn "$udid" defaults write dev.cmux.next.ios cnx.setupComplete -bool "$1"; }
 split() { # video name
   mkdir -p "$out/$2"
   ffmpeg -loglevel error -y -i "$1" -vf "fps=$fps,scale=402:-1" "$out/$2/f%04d.png"

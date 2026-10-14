@@ -46,11 +46,11 @@ ffi) and the app. Change this file first, then the implementations.
 - Devices: `deviceId` is a client-generated UUID persisted in Keychain;
   `kind` is `mac` or `phone`.
 
-## HTTP (base: production `https://cnx-ios-api.cmux.dev`, dev `https://cnx-ios-api-dev.debussy.workers.dev`)
+## HTTP (base: production `https://cmux-next-ios-api.cmux.dev`, dev `https://cmux-next-ios-api-dev.debussy.workers.dev`)
 
-The production Worker `cnx-ios-api-prod` accepts only the production Stack
+The production Worker `cmux-next-ios-api` accepts only the production Stack
 project `9790718f-14cd-4f7e-824d-eaf527a82b82` and uses its own database
-(PlanetScale `cmux/cnx-ios-prod`). The dev Worker accepts both projects for
+(PlanetScale `cmux/cmux-next-ios`). The dev Worker accepts both projects for
 testing. Production and Release app builds, the Mac app's Release build and
 `run-host.sh` default to the production URL.
 

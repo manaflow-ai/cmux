@@ -11,18 +11,18 @@ out="verify/evidence/$(date +%Y-%m-%d)/wsnew/$label"
 mkdir -p "$out"
 app=build/dd/Build/Products/Debug-iphonesimulator/CnxApp.app
 xcrun simctl install "$udid" "$app"
-xcrun simctl spawn "$udid" defaults write dev.cmux.cnx cnx.setupComplete -bool true
+xcrun simctl spawn "$udid" defaults write dev.cmux.next.ios cnx.setupComplete -bool true
 xcrun simctl ui "$udid" appearance "$mode"
 xcrun simctl status_bar "$udid" override --time 9:41 --batteryLevel 100 --batteryState charged --cellularBars 4 --wifiBars 3
 export SIMCTL_CHILD_CNX_MOCK_AUTH=1
-xcrun simctl terminate "$udid" dev.cmux.cnx >/dev/null 2>&1 || true
+xcrun simctl terminate "$udid" dev.cmux.next.ios >/dev/null 2>&1 || true
 video="$out/workspace-new-$mode.mp4" reclog=$(mktemp)
 xcrun simctl spawn "$udid" log stream --level info --predicate 'subsystem == "dev.cmux.cnx"' >"$out/app.log" 2>&1 &
 logger=$!
 xcrun simctl io "$udid" recordVideo --codec h264 --force "$video" >"$reclog" 2>&1 &
 rec=$!
 until grep -q "Recording started" "$reclog"; do sleep 0.1; done
-xcrun simctl launch "$udid" dev.cmux.cnx -cnx-demo workspace-new >/dev/null
+xcrun simctl launch "$udid" dev.cmux.next.ios -cnx-demo workspace-new >/dev/null
 sleep 30
 kill -INT "$rec"; wait "$rec" || true
 kill "$logger" || true

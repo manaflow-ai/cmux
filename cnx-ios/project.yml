@@ -11,7 +11,7 @@ configs:
   # Production: a real production build for verification. Release
   # optimization (-O), no DEBUG (no dev sign-in, no Settings → Developer, no
   # mock data or demo drivers compiled in), the production Stack project, its
-  # own bundle id (dev.cmux.cnx.prod) and keychain group so it installs beside
+  # own bundle id (dev.cmux.next.ios.prod) and keychain group so it installs beside
   # the Demo build. Built by scripts/demo-build.sh --config Production.
   Production: release
   # TestFlight: the shipping build for App Store Connect app "cmux INTERNAL"
@@ -22,14 +22,14 @@ configs:
   # verify/testflight-readiness.md.
   TestFlight: release
 options:
-  bundleIdPrefix: dev.cmux.cnx
+  bundleIdPrefix: dev.cmux.next.ios
   deploymentTarget:
     iOS: "26.0"
 settings:
   base:
     CNX_TAG: ""
     CNX_DISPLAY_NAME: cmux
-    # The cnx-ios-api base URL baked into Info.plist (CNXAPIBase). DEBUG
+    # The cmux-next iOS API base URL baked into Info.plist (CNXAPIBase). DEBUG
     # builds fall back to the dev Worker when it is empty; a non-DEBUG build
     # with no value has no live data, so every shipping config sets it.
     CNX_API_BASE: ""
@@ -37,7 +37,7 @@ settings:
     # configs (Release, TestFlight) use it. scripts/testflight-build.sh checks
     # its /v1/health before archiving; override with CNX_PROD_API_BASE=... when
     # the Worker moves to a custom domain.
-    CNX_PROD_API_BASE: https:/$()/cnx-ios-api.cmux.dev
+    CNX_PROD_API_BASE: https:/$()/cmux-next-ios-api.cmux.dev
     # User-facing version. Must stay at or above the highest version ever
     # uploaded to cmux INTERNAL (TestFlight orders builds by it first);
     # testflight-build.sh checks this against App Store Connect. The build
@@ -47,7 +47,7 @@ settings:
   configs:
     Release:
       # Release (the `xcodebuild archive` default) is a production build too.
-      CNX_API_BASE: https:/$()/cnx-ios-api.cmux.dev
+      CNX_API_BASE: https:/$()/cmux-next-ios-api.cmux.dev
     Demo:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CNX_DEMO
       SWIFT_OPTIMIZATION_LEVEL: -O
@@ -55,9 +55,9 @@ settings:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CNX_PRODUCTION
       SWIFT_OPTIMIZATION_LEVEL: -O
       CNX_TAG: .prod
-      CNX_DISPLAY_NAME: cmux cnx
-      # The production Worker (cnx-ios-api-prod; production Stack project only).
-      CNX_API_BASE: https:/$()/cnx-ios-api.cmux.dev
+      CNX_DISPLAY_NAME: cmux next
+      # The production Worker (cmux-next-ios-api; production Stack project only).
+      CNX_API_BASE: https:/$()/cmux-next-ios-api.cmux.dev
     Release:
       # A non-DEBUG build with no service address signs in to an empty app.
       CNX_API_BASE: $(CNX_PROD_API_BASE)
@@ -90,7 +90,7 @@ targets:
         product: CnxTerminal
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.cnx$(CNX_TAG)
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.ios$(CNX_TAG)
         PRODUCT_NAME: CnxApp
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
@@ -101,7 +101,7 @@ targets:
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
       configs:
         Production:
-          # Its own keychain access group ($(AppIdentifierPrefix)dev.cmux.cnx.prod):
+          # Its own keychain access group ($(AppIdentifierPrefix)dev.cmux.next.ios.prod):
           # Stack tokens never mix with the Demo or Debug installs. No app group:
           # the app shares no container with anything.
           CODE_SIGN_ENTITLEMENTS: App/CnxApp-Production.entitlements

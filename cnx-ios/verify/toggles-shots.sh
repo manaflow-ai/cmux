@@ -10,8 +10,8 @@ export SIMCTL_CHILD_CNX_MOCK_AUTH=1
 xcrun simctl status_bar "$udid" override --time 9:41 --batteryLevel 100 --batteryState charged --cellularBars 4 --wifiBars 3
 shot() { # name seconds args...
   local name=$1 wait=$2; shift 2
-  xcrun simctl terminate "$udid" dev.cmux.cnx >/dev/null 2>&1 || true
-  xcrun simctl launch "$udid" dev.cmux.cnx -cnx.setupComplete YES "$@" >/dev/null
+  xcrun simctl terminate "$udid" dev.cmux.next.ios >/dev/null 2>&1 || true
+  xcrun simctl launch "$udid" dev.cmux.next.ios -cnx.setupComplete YES "$@" >/dev/null
   sleep "$wait"   # pacing for a still capture, not synchronization
   xcrun simctl io "$udid" screenshot --type png "$dir/$label-$name-$mode.png" >/dev/null 2>&1
 }

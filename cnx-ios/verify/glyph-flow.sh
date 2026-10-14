@@ -12,14 +12,14 @@ udid=$1 out=$2 appearance=$3
 xcrun simctl ui "$udid" appearance "$appearance"
 xcrun simctl status_bar "$udid" override --time 9:41 --batteryLevel 100 --batteryState charged --cellularBars 4 --wifiBars 3
 export SIMCTL_CHILD_CNX_MOCK_AUTH=1
-xcrun simctl terminate "$udid" dev.cmux.cnx >/dev/null 2>&1 || true
+xcrun simctl terminate "$udid" dev.cmux.next.ios >/dev/null 2>&1 || true
 mkdir -p "$(dirname "$out")"
 # AXe's screenshot-based recorder: `simctl io recordVideo` allows one
 # recording per host, which parallel agents often hold.
 axe record-video --udid "$udid" --fps 30 --output "$out" >/dev/null 2>&1 &
 rec=$!
 sleep 1   # recorder warm-up; pacing only
-xcrun simctl launch "$udid" dev.cmux.cnx -cnx.setupComplete YES -cnx-tab workspaces -cnx-demo editor >/dev/null
+xcrun simctl launch "$udid" dev.cmux.next.ios -cnx.setupComplete YES -cnx-tab workspaces -cnx-demo editor >/dev/null
 tap() { axe tap --label "$1" --wait-timeout 15 --post-delay 1.2 --udid "$udid" >/dev/null; }
 key() { axe tap --label "$1" --element-type Button --wait-timeout 5 --post-delay 1.2 --udid "$udid" >/dev/null; }
 tap Custom

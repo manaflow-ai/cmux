@@ -12,8 +12,8 @@ xcrun simctl ui "$udid" appearance "$appearance"
 xcrun simctl status_bar "$udid" override --time 9:41 --batteryLevel 100 --batteryState charged --cellularBars 4 --wifiBars 3
 export SIMCTL_CHILD_CNX_CLEAR_AUTH=1
 for t in "${times[@]}"; do
-  xcrun simctl terminate "$udid" dev.cmux.cnx >/dev/null 2>&1 || true
-  xcrun simctl launch "$udid" dev.cmux.cnx -cnx-intro-freeze "$t" >/dev/null
+  xcrun simctl terminate "$udid" dev.cmux.next.ios >/dev/null 2>&1 || true
+  xcrun simctl launch "$udid" dev.cmux.next.ios -cnx-intro-freeze "$t" >/dev/null
   # Auth resolves and the welcome mounts within ~2 s (longer under load); the frame is frozen after.
   sleep 6
   xcrun simctl io "$udid" screenshot "$out/t$t.png" >/dev/null 2>&1

@@ -12,9 +12,9 @@ mkdir -p "$out/stills"
 case $mode in
 start)
   : "${CNX_STACK_EMAIL:?}" "${CNX_STACK_PASSWORD:?}"
-  xcrun simctl terminate "$udid" dev.cmux.cnx 2>/dev/null || true
+  xcrun simctl terminate "$udid" dev.cmux.next.ios 2>/dev/null || true
   SIMCTL_CHILD_CNX_STACK_EMAIL="$CNX_STACK_EMAIL" SIMCTL_CHILD_CNX_STACK_PASSWORD="$CNX_STACK_PASSWORD" \
-    xcrun simctl launch "$udid" dev.cmux.cnx -cnx-tab workspaces -cnx.setupComplete 1 \
+    xcrun simctl launch "$udid" dev.cmux.next.ios -cnx-tab workspaces -cnx.setupComplete 1 \
     -cnx.settings.transport "$transport" "$@" > /dev/null
   nohup xcrun simctl spawn "$udid" log stream --level info --predicate 'subsystem == "dev.cmux.cnx"' --style compact > "$out/app.log" 2>&1 &
   echo $! > "$out/log.pid"

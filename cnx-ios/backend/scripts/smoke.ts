@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Live smoke test of a deployed cnx-ios-api (PROTOCOL.md v1). Never prints tokens.
+ * Live smoke test of a deployed cmux-next iOS API Worker (PROTOCOL.md v1). Never prints tokens.
  *
  *   CNX_TOKEN_FILE=/path/to/token bun scripts/smoke.ts            # a Stack access token in a 0600 file
  *   CNX_TEAM=personal ...                                         # use the caller's personal space
@@ -10,7 +10,7 @@
  */
 import { readFileSync } from "node:fs"
 
-const BASE = process.env.CNX_BASE_URL ?? "https://cnx-ios-api-dev.debussy.workers.dev"
+const BASE = process.env.CNX_BASE_URL ?? "https://cmux-next-ios-api-dev.debussy.workers.dev"
 const PROJECT = process.env.STACK_PROJECT_ID ?? "454ecd03-1db2-4050-845e-4ce5b0cd9895"
 const PCK = process.env.STACK_PUBLISHABLE_CLIENT_KEY ?? "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
 const stackHeaders = (extra: Record<string, string> = {}) => ({ "content-type": "application/json", "x-stack-project-id": PROJECT, "x-stack-access-type": "client", ...(PCK ? { "x-stack-publishable-client-key": PCK } : {}), ...extra })
@@ -142,9 +142,11 @@ const off = await p.wait((f) => f.type === "presence" && f.mac?.deviceId === mac
 check("presence offline", !!off, off?.mac?.lastSeenAt ? "lastSeenAt set" : "")
 
 // 6. 0.7.0: device list, push registration, notify, device removal (also cleans up the smoke devices)
-const topic = process.env.CNX_PUSH_TOPIC ?? "dev.cmux.cnx.prod"
+// The APNs key is topic-scoped to the TestFlight app and production-environment only, so the fake token is
+// registered as a production token for that topic: APNs answers BadDeviceToken and the Worker drops it.
+const topic = process.env.CNX_PUSH_TOPIC ?? "dev.cmux.app.internal"
 const fakeToken = "00".repeat(32)
-const reg = await api("PUT", `/v1/devices/${phoneId}/push`, { token: fakeToken, environment: "sandbox", topic, kinds: ["question"] })
+const reg = await api("PUT", `/v1/devices/${phoneId}/push`, { token: fakeToken, environment: "production", topic, kinds: ["question"] })
 check("push register", reg.status === 200 && reg.json?.push?.kinds?.[0] === "question", `${reg.status}`)
 const listed = await api("GET", "/v1/me/devices")
 const lp = listed.json?.devices?.find((d: any) => d.deviceId === phoneId)

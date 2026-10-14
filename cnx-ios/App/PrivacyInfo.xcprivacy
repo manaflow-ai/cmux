@@ -10,7 +10,7 @@
 
 	<!-- What leaves the device to a cmux service and is kept: the account
 	     (Stack sign-in: email, name, user id) and the device registry
-	     (cnx-ios-api: a generated device id). Messages, terminal bytes,
+	     (cmux-next iOS API: a generated device id). Messages, terminal bytes,
 	     photos and audio go to the user's own Mac over the end-to-end
 	     encrypted link and are not collected. No crash or analytics SDK.
 	     Keep in lockstep with the App Store Connect privacy label. -->

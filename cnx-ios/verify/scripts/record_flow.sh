@@ -12,12 +12,12 @@ ROOT=${0:a:h:h:h}
 E=$ROOT/verify/evidence/$(date +%Y-%m-%d)/$SUB
 APP=$ROOT/build/dd/Build/Products/Debug-iphonesimulator/CnxApp.app
 mkdir -p $E
-xcrun simctl terminate $U dev.cmux.cnx >/dev/null 2>&1 || true
+xcrun simctl terminate $U dev.cmux.next.ios >/dev/null 2>&1 || true
 xcrun simctl install $U $APP
-xcrun simctl spawn $U defaults write dev.cmux.cnx cnx.setupComplete -bool ${CNX_SETUP:-true}
+xcrun simctl spawn $U defaults write dev.cmux.next.ios cnx.setupComplete -bool ${CNX_SETUP:-true}
 xcrun simctl ui $U appearance $MODE
 xcrun simctl status_bar $U override --time 9:41 --batteryLevel 100 --batteryState charged --cellularBars 4 --wifiBars 3
-D=$(xcrun simctl get_app_container $U dev.cmux.cnx data)
+D=$(xcrun simctl get_app_container $U dev.cmux.next.ios data)
 rm -f $D/Documents/terminal-demo-timeline.txt
 export SIMCTL_CHILD_CNX_MOCK_AUTH=1
 [[ -n $CNX_CLEAR_AUTH ]] && export SIMCTL_CHILD_CNX_CLEAR_AUTH=$CNX_CLEAR_AUTH
@@ -27,7 +27,7 @@ RP=$!
 until grep -q "Recording started" $LOG; do sleep 0.1; done
 # analyze_keyboard.sh assumes video t=0 = recstart + 2 s.
 echo $(( $(date +%s.%N) - 2 )) > $E/$L.recstart.txt
-xcrun simctl launch $U dev.cmux.cnx "$@" >/dev/null
+xcrun simctl launch $U dev.cmux.next.ios "$@" >/dev/null
 sleep $T
 kill -INT $RP; wait $RP || true
 cp $D/Documents/terminal-demo-timeline.txt $E/$L.timeline.txt 2>/dev/null || true

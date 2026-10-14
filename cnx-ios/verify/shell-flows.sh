@@ -6,7 +6,7 @@ export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer
 cd "$(dirname "$0")/.."
 udid=$1 label=$2 dir=$3
 mkdir -p "$dir"
-setup_done() { xcrun simctl spawn "$udid" defaults write dev.cmux.cnx cnx.setupComplete -bool "$1"; }
+setup_done() { xcrun simctl spawn "$udid" defaults write dev.cmux.next.ios cnx.setupComplete -bool "$1"; }
 for mode in dark light; do
   setup_done true
   CNX_MOCK_AUTH=1 verify/record.sh "$udid" "$dir/$label-drawer-$mode.mp4" 15 $mode -cnx-tab workspaces -cnx-demo drawer

@@ -28,7 +28,7 @@ for line in f:
 ' "$SOCK" "$1"; }
 
 start_hostd() {
-  CNX_BASE_URL=https://cnx-ios-api-dev.debussy.workers.dev \
+  CNX_BASE_URL=https://cmux-next-ios-api-dev.debussy.workers.dev \
   CNX_TEAM_ID=$CNX_TEAM_ID CNX_OWNER_USER_ID=$CNX_OWNER_USER_ID \
   CNX_REFRESH_TOKEN_FILE=$E/secrets/refresh CNX_STATE_DIR=$E/hostd-state \
   CNX_DEVICE_NAME="cnx e2e mini 2" \

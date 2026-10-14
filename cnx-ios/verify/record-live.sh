@@ -11,12 +11,12 @@ udid=$1; out=$2; seconds=${3:-150}; demo=${4:-live}; transport=${5:-wireguard}
 : "${CNX_STACK_EMAIL:?}" "${CNX_STACK_PASSWORD:?}"
 mkdir -p "$out"
 cd "$(dirname "$0")/.."
-xcrun simctl terminate "$udid" dev.cmux.cnx 2>/dev/null || true
+xcrun simctl terminate "$udid" dev.cmux.next.ios 2>/dev/null || true
 xcrun simctl io "$udid" recordVideo --codec h264 --force "$out/live.mp4" &
 rec=$!
 trap 'kill -INT $rec 2>/dev/null || true' EXIT
 SIMCTL_CHILD_CNX_STACK_EMAIL="$CNX_STACK_EMAIL" SIMCTL_CHILD_CNX_STACK_PASSWORD="$CNX_STACK_PASSWORD" \
-  xcrun simctl launch "$udid" dev.cmux.cnx -cnx-tab workspaces -cnx.setupComplete 1 \
+  xcrun simctl launch "$udid" dev.cmux.next.ios -cnx-tab workspaces -cnx.setupComplete 1 \
   -cnx.settings.transport "$transport" -cnx-demo "$demo" > /dev/null
 xcrun simctl spawn "$udid" log stream --level info --predicate 'subsystem == "dev.cmux.cnx"' --style compact > "$out/app.log" 2>&1 &
 logpid=$!

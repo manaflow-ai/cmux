@@ -11,7 +11,7 @@
 # and is recorded in MANIFEST.md; --strict makes it fail the build.
 #
 # Output: ~/cnx-ios-builds/<UTC date>-<shortsha>[-<tag>]/
-#   ios-device/cnx-<tag>.ipa            Demo config, bundle dev.cmux.cnx.<tag>
+#   ios-device/cnx-<tag>.ipa            Demo config, bundle dev.cmux.next.ios.<tag>
 #   ios-simulator/cnx-<tag>-sim.app.zip `xcrun simctl install <udid> <unzipped .app>`
 #   cnx-host-macos-arm64/ (+ .tar.gz)   Mac side: bin/, run-host.sh, stop-host.sh, README.txt
 #   MANIFEST.md
@@ -23,9 +23,9 @@
 #
 # --config Production builds the "Production" configuration instead: -O, no
 # DEBUG (no dev sign-in, no Settings → Developer, no mock data or demo
-# drivers), the production Stack project, bundle dev.cmux.cnx.prod ("cmux
-# cnx") beside the demo install, and the production Worker
-# (https://cnx-ios-api.cmux.dev, production Stack users only). Its tag is always "prod": ~/cnx-ios-builds/<date>-<sha>-prod/.
+# drivers), the production Stack project, bundle dev.cmux.next.ios.prod ("cmux
+# next") beside the demo install, and the production Worker
+# (https://cmux-next-ios-api.cmux.dev, production Stack users only). Its tag is always "prod": ~/cnx-ios-builds/<date>-<sha>-prod/.
 #
 # Environment:
 #   CNX_BUILDS_ROOT      output root (default ~/cnx-ios-builds)
@@ -38,7 +38,7 @@
 set -euo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
-ref=HEAD tag=cnx install_device="" skip_device=0 skip_mac=0 build_config=Demo strict=0
+ref=HEAD tag=demo install_device="" skip_device=0 skip_mac=0 build_config=Demo strict=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --config) build_config=$2; shift 2 ;;
@@ -60,15 +60,15 @@ esac
 [[ "$tag" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || { echo "error: tag must be lowercase letters, digits, dashes" >&2; exit 2; }
 
 team=7WLXT3NR37
-bundle_id="dev.cmux.cnx.$tag"
-display_name="cmux cnx"; [[ "$tag" == cnx || "$tag" == prod ]] || display_name="cnx $tag"
+bundle_id="dev.cmux.next.ios.$tag"
+display_name="cmux next"; [[ "$tag" == demo || "$tag" == prod ]] || display_name="next $tag"
 jobs=${JOBS:-8}
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(git -C "$script_dir" rev-parse --show-toplevel)
 sha=$(git -C "$repo" rev-parse --verify "$ref^{commit}")
 short=${sha:0:10}
 root=${CNX_BUILDS_ROOT:-$HOME/cnx-ios-builds}
-name="$(date -u +%Y%m%d)-$short"; [[ "$tag" == cnx ]] || name+="-$tag"
+name="$(date -u +%Y%m%d)-$short"; [[ "$tag" == demo ]] || name+="-$tag"
 out="$root/$name"
 work="$root/.work/$name"
 cache="$root/.cache"
@@ -254,7 +254,7 @@ if [[ $skip_mac == 0 ]]; then
   ssh "$mac_host" "d=\$HOME/$mac_dir; tar -c -C \$d/target-tui/release cmux-tui acpmux -C \$d/target-cnx/release cnx-hostd" \
     | tar -x -C "$pkg/bin"
   for b in "$pkg"/bin/*; do
-    codesign --force --sign - --identifier "dev.cmux.cnx.host.$(basename "$b")" "$b"
+    codesign --force --sign - --identifier "dev.cmux.next.ios.host.$(basename "$b")" "$b"
   done
   # The host scripts are tooling: they come with this script, not the ref.
   cp "$script_dir/host/run-host.sh" "$script_dir/host/stop-host.sh" "$script_dir/host/README.txt" "$pkg/"
@@ -284,7 +284,7 @@ production_manifest() {
 | Keychain access groups | $(echo "${keychain_groups:-[]}" | tr -d '\n ') (its own group; no app group: the app shares no container) |
 
 Not for the App Store or TestFlight; nothing here was uploaded. It installs
-beside the demo build (\`dev.cmux.cnx.cnx\`); both are named "cmux cnx".
+beside the demo build (\`dev.cmux.next.ios.demo\`); both are named "cmux next".
 
 ## Production vs dev, exactly
 
@@ -292,7 +292,7 @@ beside the demo build (\`dev.cmux.cnx.cnx\`); both are named "cmux cnx".
 | --- | --- |
 | Compilation | Production configuration: Release optimization ($opt), \`CNX_PRODUCTION\`, no \`DEBUG\` in the app or any package. The build checks the binaries for DEBUG-only strings. |
 | Stack Auth | **Production** project \`9790718f-14cd-4f7e-824d-eaf527a82b82\`, no publishable key, email callback \`https://cmux.com/auth/callback\` (CmuxAuthRuntime \`AuthConfig(environment: .production)\`). Sign in with a real account: email code, Google or GitHub. |
-| Backend | **Production** Worker \`https://cnx-ios-api.cmux.dev\` (\`cnx-ios-api-prod\`, API 0.7.0 or later, its own database), which accepts production Stack users only. \`./run-host.sh --prod\` uses it too. |
+| Backend | **Production** Worker \`https://cmux-next-ios-api.cmux.dev\` (\`cmux-next-ios-api\`, API 0.7.0 or later, its own database), which accepts production Stack users only. \`./run-host.sh --prod\` uses it too. |
 | Developer surface | None: no "42" dev sign-in, no Settings → Developer, no mock data toggle, no scripted demos, no launch overrides (\`scripts/check-production-binary.sh\` passed). |
 | Error reporting | None (the app has none configured). |
 | Data before a Mac links | Empty: no sample teams, Macs, Feed, chats or Chief. A terminal tab without its Mac session shows "Connecting to <Mac>…", never sample output. Mock code is compiled out, and stored developer settings from an earlier Debug or Demo install are removed at launch. |
@@ -329,7 +329,7 @@ EOF
 | App | "$display_name", bundle \`$bundle_id\`, version $app_version ($app_build), configuration $config ($opt, DEBUG developer surface), iOS 26.0+ |
 | Device signing | $signing |
 | Mac host | $(echo "$mac_versions" | paste -sd ';' - | sed 's/;/; /g'), cnx-hostd from \`cnx-ios/rust\` (arm64, ad-hoc signed) |
-| Service | dev Worker \`https://cnx-ios-api-dev.debussy.workers.dev\`, Stack dev project |
+| Service | dev Worker \`https://cmux-next-ios-api-dev.debussy.workers.dev\`, Stack dev project |
 
 Not for the App Store or TestFlight; nothing here was uploaded.
 
@@ -358,7 +358,7 @@ Not for the App Store or TestFlight; nothing here was uploaded.
 | Area | State |
 | --- | --- |
 | Sign-in (email code, \`42\` dev account) | Real, Stack dev project. Apple, Google and GitHub need a person at the provider sheet; Apple needs the Sign in with Apple capability, which this build does not carry. |
-| Teams, devices, presence, Mac list | Real (\`cnx-ios-api\` dev Worker). No Stack teams means the personal space "Personal". |
+| Teams, devices, presence, Mac list | Real (cmux-next iOS API dev Worker). No Stack teams means the personal space "Personal". |
 | Link to the Mac | Real: WireGuard (default; direct UDP or the Worker relay) or WebRTC (STUN only, no TURN yet). |
 | Workspaces and tabs | Real, from the Mac's cmux-tui daemon. |
 | Agent chat and Feed | Real, from acpmux on the Mac. The phone can deny or cancel; allow and question answers are refused by acpmux (\`permission.person_required\`). |

@@ -13,10 +13,10 @@ udid=$1 dir=$2 label=$3 demo=$4 keyboard=${5:-down}
 mkdir -p "$dir"
 xcrun simctl spawn "$udid" defaults write com.apple.keyboard.preferences DidShowContinuousPathIntroduction -bool true
 xcrun simctl ui "$udid" appearance dark
-xcrun simctl terminate "$udid" dev.cmux.cnx >/dev/null 2>&1 || true
-data=$(xcrun simctl get_app_container "$udid" dev.cmux.cnx data)
+xcrun simctl terminate "$udid" dev.cmux.next.ios >/dev/null 2>&1 || true
+data=$(xcrun simctl get_app_container "$udid" dev.cmux.next.ios data)
 rm -f "$data/Documents/kbd-trace.txt"
-SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch "$udid" dev.cmux.cnx -cnx.setupComplete YES -cnx-demo "$demo" -cnx-kbd-trace >/dev/null
+SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch "$udid" dev.cmux.next.ios -cnx.setupComplete YES -cnx-demo "$demo" -cnx-kbd-trace >/dev/null
 sleep 6
 
 composer_y() {
