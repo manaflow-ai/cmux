@@ -71,16 +71,23 @@ fn load_pairing(options: &Options) -> anyhow::Result<Pairing> {
         _ => Pairing::generate(&options.name, &options.signal, "stream")?,
     };
     pairing.name = options.name.clone();
-    if let Some(folder) = file.parent() {
-        std::fs::create_dir_all(folder)?;
-    }
-    std::fs::write(&file, serde_json::to_vec(&pairing)?)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600))?;
-    }
+    save_private(&file, &serde_json::to_vec(&pairing)?)?;
     Ok(pairing)
+}
+
+/// Writes the room secret readable only by this user from the start
+/// (folder 0700, file 0600), as the Swift host does.
+fn save_private(file: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    if let Some(folder) = file.parent() {
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(folder)?;
+        std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))?;
+    }
+    let mut out = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(file)?;
+    // An existing file keeps its old mode on open: tighten it too.
+    out.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    out.write_all(data)
 }
 
 #[tokio::main]

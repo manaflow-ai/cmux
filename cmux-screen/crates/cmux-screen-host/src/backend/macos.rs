@@ -23,6 +23,7 @@ use libwebrtc::video_source::native::NativeVideoSource;
 use screencapturekit::CVPixelBuffer;
 use screencapturekit::cm::SCFrameStatus;
 use screencapturekit::prelude::*;
+use unicode_segmentation::UnicodeSegmentation;
 
 use super::{Backend, DisplaysCallback};
 use crate::log;
@@ -138,7 +139,8 @@ fn capture(state: &Arc<Mutex<State>>, bounds: &Arc<Mutex<Rect>>, index: usize) -
         .with_fps(60)
         .with_pixel_format(PixelFormat::YCbCr_420v)
         .with_queue_depth(4)
-        .with_shows_cursor(true);
+        .with_shows_cursor(true)
+        .with_color_space_name("kCGColorSpaceSRGB")?;
     let mut stream = SCStream::new(&filter, &configuration)?;
     let sink = state.clone();
     stream.add_output_handler(
@@ -153,8 +155,11 @@ fn capture(state: &Arc<Mutex<State>>, bounds: &Arc<Mutex<Rect>>, index: usize) -
             let Some(buffer) = sample.pixel_buffer() else { return };
             let video = {
                 let mut state = sink.lock().unwrap();
-                state.last = Some((buffer.clone(), Instant::now()));
-                state.complete += 1;
+                // After stop() a late frame must not be kept.
+                if state.video.is_some() {
+                    state.last = Some((buffer.clone(), Instant::now()));
+                    state.complete += 1;
+                }
                 state.video.clone()
             };
             if let Some(video) = video {
@@ -325,8 +330,10 @@ impl Injector {
                 }
             }
             Input::Text(text) => {
-                for character in text.chars() {
-                    self.type_char(character);
+                // One visible character at a time (emoji sequences and
+                // combining accents stay whole), as the Swift host types.
+                for grapheme in text.graphemes(true) {
+                    self.type_text(grapheme);
                 }
             }
             Input::SelectDisplay(_) | Input::Quality(_) | Input::Refresh => {}
@@ -395,7 +402,7 @@ impl Injector {
         let Some((code, shifted)) = key_code(keysym) else {
             if down
                 && let Some(character) = keysym_char(keysym) {
-                    self.type_char(character);
+                    self.type_text(character.encode_utf8(&mut [0; 4]));
                 }
             return;
         };
@@ -406,13 +413,12 @@ impl Injector {
         }
     }
 
-    fn type_char(&self, character: char) {
+    fn type_text(&self, text: &str) {
         let Some(source) = self.source.clone() else { return };
-        let mut units = [0u16; 2];
-        let units = character.encode_utf16(&mut units);
+        let units: Vec<u16> = text.encode_utf16().collect();
         for down in [true, false] {
             if let Ok(event) = CGEvent::new_keyboard_event(source.clone(), 0, down) {
-                event.set_string_from_utf16_unchecked(units);
+                event.set_string_from_utf16_unchecked(&units);
                 event.set_flags(self.flags);
                 event.post(CGEventTapLocation::HID);
             }

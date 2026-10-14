@@ -179,6 +179,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite",
+ "unicode-segmentation",
  "ureq",
 ]
 
@@ -188,6 +189,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.2.17",
+ "percent-encoding",
  "serde",
  "serde_json",
  "url",
@@ -1750,6 +1752,12 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
 name = "unicode-width"

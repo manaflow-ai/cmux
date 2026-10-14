@@ -60,7 +60,9 @@ pub async fn ice_servers(pairing: &Pairing) -> Result<Vec<IceServer>> {
     let url = pairing.room_url("ice", None);
     let secret = pairing.secret.clone();
     tokio::task::spawn_blocking(move || -> Result<Vec<IceServer>> {
-        let mut response = ureq::get(&url).header(SECRET_HEADER, &secret).call().context("ICE servers")?;
+        // A stalled request must not hold up the host (it answers offers in order).
+        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(10))).build().into();
+        let mut response = agent.get(&url).header(SECRET_HEADER, &secret).call().context("ICE servers")?;
         if response.status() != 200 {
             bail!("ICE servers: HTTP {}", response.status());
         }

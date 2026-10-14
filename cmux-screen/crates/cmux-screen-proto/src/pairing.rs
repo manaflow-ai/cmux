@@ -88,7 +88,14 @@ impl Pairing {
         if url.scheme() != "cmux-vnc" || url.host_str() != Some("pair") {
             return Err(PairingError::NotAPairingLink);
         }
-        let value = |name: &str| url.query_pairs().find(|(key, _)| key == name).map(|(_, value)| value.into_owned());
+        // Percent-decoding only: `+` stays literal, as Swift's URLComponents reads it.
+        let query = url.query().unwrap_or("");
+        let value = |name: &str| {
+            query.split('&').find_map(|pair| {
+                let (key, value) = pair.split_once('=')?;
+                (key == name).then(|| percent_encoding::percent_decode_str(value).decode_utf8_lossy().into_owned())
+            })
+        };
         let signal = value("signal").ok_or(PairingError::Missing("signal"))?;
         if Url::parse(&signal).map(|u| u.scheme() != "https").unwrap_or(true) {
             return Err(PairingError::Invalid("signal"));
@@ -169,6 +176,14 @@ mod tests {
         assert!(link.contains("name=Mac%20mini%202%20%28Rust%29"), "{link}");
         assert!(link.contains("signal=https://cmux-vnc-signal.debussy.workers.dev&"), "{link}");
         assert_eq!(Pairing::from_link(&link).unwrap().name, "Mac mini 2 (Rust)");
+    }
+
+    #[test]
+    fn a_plus_in_the_name_stays_a_plus() {
+        let pairing = Pairing::generate("C++ box", DEFAULT_SIGNAL, "stream").unwrap();
+        assert_eq!(Pairing::from_link(&pairing.link()).unwrap().name, "C++ box");
+        let typed = pairing.link().replace("C%2B%2B%20box", "C++%20box");
+        assert_eq!(Pairing::from_link(&typed).unwrap().name, "C++ box", "a literal + is not a space");
     }
 
     #[test]

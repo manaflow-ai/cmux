@@ -22,4 +22,5 @@ anyhow = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 screencapturekit = "11"
+unicode-segmentation = "1"
 core-graphics = { version = "0.25", features = ["highsierra"] }

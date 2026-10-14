@@ -15,7 +15,7 @@ use cmux_screen_proto::{
 use libwebrtc::data_channel::{DataChannel, DataChannelState};
 use libwebrtc::ice_candidate::IceCandidate;
 use libwebrtc::media_stream_track::MediaStreamTrack;
-use libwebrtc::peer_connection::{AnswerOptions, PeerConnection, PeerConnectionState};
+use libwebrtc::peer_connection::{AnswerOptions, BitrateSettings, PeerConnection, PeerConnectionState};
 use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 use libwebrtc::peer_connection_factory::{IceServer, PeerConnectionFactory, RtcConfiguration};
 use libwebrtc::rtp_parameters::DegradationPreference;
@@ -30,9 +30,12 @@ use crate::{log, signal};
 
 /// What libwebrtc's callbacks report back to the host loop.
 enum Event {
-    Candidate(SignalMessage),
-    /// A data channel opened (session id, channel).
-    Opened(u64, DataChannel),
+    /// A local ICE candidate of session `id`.
+    Candidate(u64, SignalMessage),
+    /// The viewer created a data channel (kept so `end_session` can drop its handlers).
+    Channel(u64, DataChannel),
+    /// A data channel opened (session id, label).
+    Opened(u64, String),
     /// A control message from the viewer (display or quality).
     Control(u64, Input),
     /// The peer connection or the input channel ended.
@@ -46,6 +49,9 @@ struct Session {
     sender: RtpSender,
     backend: Arc<dyn Backend>,
     input: Mutex<Option<DataChannel>>,
+    /// Every channel the viewer created. Their handlers hold the backend, so
+    /// they are cleared when the session ends (or the channel and backend leak).
+    channels: Mutex<Vec<DataChannel>>,
     /// The input channel opened: from here on only WebRTC ends the session.
     opened: AtomicBool,
     quality: Mutex<Quality>,
@@ -116,7 +122,7 @@ impl Host {
 
     async fn on_signal(&mut self, message: SignalMessage, outbox: &mpsc::UnboundedSender<SignalMessage>) {
         match message.kind.as_str() {
-            "hello" => log(format!("waiting for a viewer in room {}…", &self.pairing.room[..8])),
+            "hello" => log(format!("waiting for a viewer in room {}…", self.pairing.room.get(..8).unwrap_or("?"))),
             "offer" => {
                 let Some(sdp) = message.sdp else { return };
                 if let Err(error) = self.accept(&sdp, outbox).await {
@@ -178,7 +184,7 @@ impl Host {
                 sdp_mline_index: Some(candidate.sdp_mline_index()),
                 ..SignalMessage::default()
             };
-            let _ = events.send(Event::Candidate(message));
+            let _ = events.send(Event::Candidate(id, message));
         })));
         let events = self.events.clone();
         peer.on_connection_state_change(Some(Box::new(move |state| {
@@ -191,12 +197,17 @@ impl Host {
         let backend_slot: Arc<Mutex<Option<Arc<dyn Backend>>>> = Arc::new(Mutex::new(None));
         let backend_for_channels = backend_slot.clone();
         peer.on_data_channel(Some(Box::new(move |channel: DataChannel| {
-            let (events_state, channel_for_state) = (events.clone(), channel.clone());
+            // Handlers capture the label, never the channel: a channel's own
+            // handler holding it would keep it (and the backend) alive.
+            let label = channel.label();
+            let _ = events.send(Event::Channel(id, channel.clone()));
+            let events_state = events.clone();
+            let state_label = label.clone();
             channel.on_state_change(Some(Box::new(move |state| match state {
                 DataChannelState::Open => {
-                    let _ = events_state.send(Event::Opened(id, channel_for_state.clone()));
+                    let _ = events_state.send(Event::Opened(id, state_label.clone()));
                 }
-                DataChannelState::Closed if channel_for_state.label() == INPUT_CHANNEL => {
+                DataChannelState::Closed if state_label == INPUT_CHANNEL => {
                     let _ = events_state.send(Event::Ended(id, "input channel closed".into()));
                 }
                 _ => {}
@@ -217,7 +228,7 @@ impl Host {
                 }
             })));
             if channel.state() == DataChannelState::Open {
-                let _ = events.send(Event::Opened(id, channel.clone()));
+                let _ = events.send(Event::Opened(id, label));
             }
         })));
 
@@ -238,6 +249,7 @@ impl Host {
             sender,
             backend,
             input: Mutex::new(None),
+            channels: Mutex::new(vec![]),
             opened: AtomicBool::new(false),
             quality: Mutex::new(Quality::Auto),
             displays: Arc::new(Mutex::new((vec![], 0))),
@@ -255,17 +267,26 @@ impl Host {
 
     fn on_event(&mut self, event: Event) {
         match event {
-            Event::Candidate(message) => {
+            Event::Candidate(id, message) => {
+                // A previous session's late candidates must not reach the next viewer.
+                if self.current(id).is_none() {
+                    return;
+                }
                 if let Some(outbox) = self.outbox.lock().unwrap().as_ref() {
                     let _ = outbox.send(message);
                 }
             }
-            Event::Opened(id, channel) => {
+            Event::Channel(id, channel) => match self.current(id) {
+                Some(session) => session.channels.lock().unwrap().push(channel),
+                None => clear_handlers(&channel),
+            },
+            Event::Opened(id, label) => {
                 let Some(session) = self.current(id) else { return };
-                if channel.label() != INPUT_CHANNEL {
+                if label != INPUT_CHANNEL {
                     return;
                 }
-                *session.input.lock().unwrap() = Some(channel);
+                let input = session.channels.lock().unwrap().iter().find(|c| c.label() == INPUT_CHANNEL).cloned();
+                *session.input.lock().unwrap() = input;
                 if session.opened.swap(true, Ordering::SeqCst) {
                     return;
                 }
@@ -283,23 +304,30 @@ impl Host {
                 });
                 let weak = Arc::downgrade(&session);
                 let name = self.pairing.name.clone();
-                let started = session.backend.start(
-                    session.video.clone(),
-                    Arc::new(move |sizes, current| {
-                        let Some(session) = weak.upgrade() else { return };
-                        *session.displays.lock().unwrap() = (sizes.clone(), current);
-                        send_displays(&session, &name);
-                        apply_quality(&session);
-                    }),
-                );
-                if let Err(error) = started {
-                    log(format!("screen source failed: {error:#}"));
-                }
+                let (backend, video) = (session.backend.clone(), session.video.clone());
+                // Capture setup blocks (ScreenCaptureKit): off the host loop.
+                tokio::task::spawn_blocking(move || {
+                    let started = backend.start(
+                        video,
+                        Arc::new(move |sizes, current| {
+                            let Some(session) = weak.upgrade() else { return };
+                            *session.displays.lock().unwrap() = (sizes.clone(), current);
+                            send_displays(&session, &name);
+                            apply_quality(&session);
+                        }),
+                    );
+                    if let Err(error) = started {
+                        log(format!("screen source failed: {error:#}"));
+                    }
+                });
             }
             Event::Control(id, input) => {
                 let Some(session) = self.current(id) else { return };
                 match input {
-                    Input::SelectDisplay(index) => session.backend.select(index),
+                    Input::SelectDisplay(index) => {
+                        let backend = session.backend.clone();
+                        tokio::task::spawn_blocking(move || backend.select(index));
+                    }
                     Input::Quality(quality) => {
                         *session.quality.lock().unwrap() = quality;
                         log(format!("quality: {}", quality.name()));
@@ -323,10 +351,21 @@ impl Host {
 
     fn end_session(&mut self, id: Option<u64>) {
         let Some(session) = self.session.take_if(|session| id.is_none_or(|id| session.id == id)) else { return };
-        session.backend.stop();
+        for channel in session.channels.lock().unwrap().drain(..) {
+            clear_handlers(&channel);
+        }
+        session.input.lock().unwrap().take();
         session.peer.close();
+        let backend = session.backend.clone();
+        tokio::task::spawn_blocking(move || backend.stop());
         log("session ended");
     }
+}
+
+fn clear_handlers(channel: &DataChannel) {
+    channel.on_state_change(None);
+    channel.on_message(None);
+    channel.on_buffered_amount_change(None);
 }
 
 fn send_displays(session: &Session, name: &str) {
@@ -358,6 +397,17 @@ fn apply_quality(session: &Session) {
     }
     if let Err(error) = session.sender.set_parameters(parameters) {
         log(format!("quality {}: {error:?}", quality.name()));
+    }
+    // Encodings carry no minimum in this API; the connection's bitrate floor
+    // is where a fixed preset asks congestion control to hold its rate.
+    // Adaptive presets go back to libwebrtc's own floor (30 kbps).
+    let floor = BitrateSettings {
+        min_bitrate_bps: Some(settings.min_bitrate.unwrap_or(30_000)),
+        start_bitrate_bps: None,
+        max_bitrate_bps: Some(settings.max_bitrate),
+    };
+    if let Err(error) = session.peer.set_bitrate(floor) {
+        log(format!("quality {} bitrate: {error:?}", quality.name()));
     }
 }
 
