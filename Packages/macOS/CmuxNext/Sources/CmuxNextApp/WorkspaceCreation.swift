@@ -5,8 +5,8 @@ import os
 
 /// Creates a workspace and its first terminal with two daemon requests
 /// (create-workspace, then create-terminal), and never leaves a
-/// half-created workspace: when either step fails (a timed-out create may
-/// still commit later, cx-tzlqb), the key is closed and that error reported. The
+/// half-created workspace: when a step fails (a timed-out create may still
+/// commit later, cx-tzlqb; not a refused one), the key is closed. The
 /// daemon's single atomic `workspace.create` cannot take a caller key, cwd,
 /// env, terminal id or keep yet (plans: the workspace.create extension).
 enum WorkspaceCreation {
@@ -18,16 +18,17 @@ enum WorkspaceCreation {
         createTerminal: (WorkspaceKey) async throws -> T,
         closeWorkspace: (WorkspaceKey) async throws -> Void
     ) async throws -> T {
+        var refused = false // a refused create made nothing (the key may name a live workspace)
         do {
-            try await createWorkspace()
+            do { try await createWorkspace() } catch { refused = (error as? DaemonError).map { if case .command = $0 { true } else { false } } ?? false; throw error }
             return try await createTerminal(key)
         } catch {
-            do {
+            if !refused { do {
                 try await closeWorkspace(key)
             } catch let closeError {
                 // The create failure stays the one error the user sees.
                 logger.error("closing a half-created workspace failed: \(String(describing: closeError), privacy: .public)")
-            }
+            } }
             throw error
         }
     }
