@@ -210,11 +210,35 @@
    }
   },
   {
+   "name": "an inherited ACPMUX_SOCKET without ACPMUX_HOME is another daemon's",
+   "tag": "cgstrip",
+   "bundled": null,
+   "env": {
+    "ACPMUX_SOCKET": "/Users/me/.acpmux/tags/cmux-next/acpmux.sock",
+    "PATH": "/p"
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/p/acpmux"
+   ],
+   "expect": {
+    "executable": "/p/acpmux",
+    "home": "/Users/me/.acpmux/tags/cgstrip",
+    "socket": "/Users/me/.acpmux/tags/cgstrip/acpmux.sock",
+    "args": [
+     "--listen",
+     "127.0.0.1:0"
+    ]
+   }
+  },
+  {
    "name": "ACPMUX_SOCKET past the Unix socket limit",
    "tag": null,
    "bundled": "/App/bin",
    "env": {
     "PATH": "",
+    "ACPMUX_HOME": "/Users/me/.acpmux",
     "ACPMUX_SOCKET": "/Library/Application Support/cmux-build-worker/work/steps/efa0692bd81cf13857d13ae1/tmp/amd-clisid-43762/s.sock"
    },
    "user_home": "/Users/me",
