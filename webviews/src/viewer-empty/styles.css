@@ -333,7 +333,7 @@
   border: 1px solid var(--ve-line);
   border-radius: 10px;
   background: var(--ve-surface);
-  box-shadow: 0 14px 44px rgb(0 0 0 / 0.24);
+  box-shadow: var(--elevation-2);
 }
 
 .ve-picker-head {

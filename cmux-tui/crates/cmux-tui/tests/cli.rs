@@ -3683,6 +3683,12 @@ mod cloud_lease_gate;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]
+#[path = "cli/conversation_inbox_state.rs"]
+mod conversation_inbox_state;
+#[cfg(unix)]
+#[path = "cli/conversation_person_credentials.rs"]
+mod conversation_person_credentials;
+#[cfg(unix)]
 #[path = "cli/conversation_runs.rs"]
 mod conversation_runs;
 #[cfg(unix)]
