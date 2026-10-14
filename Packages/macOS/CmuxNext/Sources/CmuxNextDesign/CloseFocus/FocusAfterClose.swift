@@ -1,6 +1,7 @@
 /// The focus successor rules for every close kind (plans/cmux-next/close-focus.md).
-/// One pure function per kind; the App's focus reducer, tab selection and
-/// window selection call these and nothing else decides a successor.
+/// One pure function per kind; tab selection and window selection call
+/// these, and the focus reducer in cmux-focus-core runs the pane rule; nothing
+/// else decides a successor.
 ///
 /// Shared contract (checked by FocusAfterCloseModelCheckTests and
 /// plans/cmux-next/formal/closefocus.tla):
@@ -32,52 +33,9 @@ public nonisolated enum FocusAfterClose {
 
     // MARK: Panes
 
-    /// The pane to focus after `focused` closed. `before` holds the columns
-    /// of the screen that showed it, in visual order (left docked, strip,
-    /// right docked; a split screen is one column), each its panes in layout
-    /// order. `after[i]` holds the panes of that same column (by column
-    /// identity) after the change, empty when the column is gone; a pane
-    /// that moved to another column is not in `after[i]` although it is
-    /// alive. `history` is this window's focus history for the workspace,
-    /// newest first. Returns `focused` when it survives.
-    ///
-    /// previousNeighbor: the previous pane of its column that is still in
-    /// that column, else the next one; else any pane now in the column
-    /// (most recently focused first); when the column is empty or gone,
-    /// the nearest non-empty column to the left, else to the right (the
-    /// docked column's left neighbor is the strip's last column), entering
-    /// that column at its most recently focused pane, else its first.
-    /// mostRecent: the newest pane of `history` that is in `after`, else
-    /// previousNeighbor.
-    public static func pane<ID: Hashable>(focused: ID?, before: [[ID]], after: [[ID]], history: [ID],
-                                          policy: CloseFocusPolicy) -> ID? {
-        let surviving = Set(after.flatMap { $0 })
-        guard let focused else { return firstPane(after, history: history) }
-        if surviving.contains(focused) { return focused }
-        if policy == .mostRecent, let recent = history.first(where: { $0 != focused && surviving.contains($0) }) {
-            return recent
-        }
-        guard let column = before.firstIndex(where: { $0.contains(focused) }), after.indices.contains(column) else {
-            return firstPane(after, history: history)
-        }
-        let stayed = Set(after[column])
-        if let inColumn = neighbor(of: focused, in: before[column], preferNext: false, where: stayed.contains) {
-            return inColumn
-        }
-        if let added = history.first(where: stayed.contains) ?? after[column].first { return added }
-        // The column is empty or gone: the nearest non-empty column to the
-        // left, else to the right.
-        let alive = { (index: Int) in after.indices.contains(index) && !after[index].isEmpty }
-        let left = before[..<column].indices.last(where: alive)
-        let right = before[(column + 1)...].indices.first(where: alive)
-        guard let next = left ?? right else { return firstPane(after, history: history) }
-        return history.first(where: after[next].contains) ?? after[next].first
-    }
-
-    private static func firstPane<ID: Hashable>(_ columns: [[ID]], history: [ID]) -> ID? {
-        let all = columns.flatMap { $0 }
-        return history.first(where: all.contains) ?? all.first
-    }
+    // The pane successor rule (`pane`) lives in cmux-focus-core
+    // (cmux-tui/crates/cmux-focus-core, `close_focus::pane`): the focus
+    // reducer that runs it is there.
 
     // MARK: Tabs
 
