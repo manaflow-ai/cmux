@@ -71,11 +71,24 @@ Duration buckets: `lt_1s`, `1s_3s`, `3s_10s`, `10s_30s`, `30s_60s`, `1m_3m`,
 | `cmux_plan_activated` | The app first sees the signed-in account as paid after it was free, or within 7 days of an upgrade click | `upgrade_source` (last click's source or `none`), `since_upgrade_click` (bucket or `none`) | Plan active in the app; time from click to activation |
 | `cmux_plan_deactivated` | Same account went from paid to free | none | Downgrade (churn) |
 
+### Sidebar Cloud button
+
+The cloud icon in the sidebar footer, between Help and Upgrade.
+
+| Event | Fires when | Properties | Answers |
+| --- | --- | --- | --- |
+| `cmux_cloud_button_shown` | The button becomes visible (Cloud available and the sidebar icon setting on). At most once per launch. | none | Reach, so clicks become a rate |
+| `cmux_cloud_button_clicked` | A press | `action` (`open_cloud` when Cloud is on, `introduce_cloud` when it is off or signed out) | How often the button is the way into Cloud |
+
+An `introduce_cloud` press is followed by `cmux_cloud_welcome_shown` with
+`trigger = sidebar_cloud_button`, then the card's button and closed events.
+That connects the button to Upgrade, checkout and enable.
+
 ### Cloud welcome card
 
 | Event | Fires when | Properties | Answers |
 | --- | --- | --- | --- |
-| `cmux_cloud_welcome_shown` | The "Introducing cmux Cloud" card opens | `trigger` (`launch_announcement`, `new_cloud_workspace`, `new_cloud_machine`, `debug_menu`), `next_step` (`upgrade`, `enable`, `sign_in`, `open_cloud`) | Reach of the announcement and of the Cloud-off/signed-out gate |
+| `cmux_cloud_welcome_shown` | The "Introducing cmux Cloud" card opens | `trigger` (`launch_announcement`, `new_cloud_workspace`, `new_cloud_machine`, `sidebar_cloud_button`, `debug_menu`), `next_step` (`upgrade`, `enable`, `sign_in`, `open_cloud`) | Reach of the announcement and of the Cloud-off/signed-out gate |
 | `cmux_cloud_welcome_button_clicked` | Upgrade, Enable, Sign in, Open Cloud, or Not now (including the card's × and Escape) | `trigger`, `next_step`, `button` | Which choice each trigger leads to |
 | `cmux_cloud_welcome_closed` | Exactly once per shown card | `trigger`, `next_step`, `outcome` (a button or `window_closed`), `visible_for` | Outcome and dwell time |
 
@@ -150,21 +163,25 @@ Existing events that are unchanged: `cmux_hourly_active`,
    server steps and `upgrade_source` on `cmux_plan_activated`; all three carry
    the same `ProUpgradeSource` token. The client and server steps join on the
    Stack user id once the app is signed in.
-3. **Welcome card outcomes.** Count `cmux_cloud_welcome_closed` broken down by
+3. **Sidebar Cloud button.** `cmux_cloud_button_clicked` per `cmux_cloud_button_shown`, by
+   `action`; then the funnel `cmux_cloud_button_clicked` (`action = introduce_cloud`),
+   `cmux_cloud_welcome_closed` (`trigger = sidebar_cloud_button`), `cmux_upgrade_entrypoint_opened`
+   (`source = mac_cloud_welcome`), `cmux_billing_checkout_completed`.
+4. **Welcome card outcomes.** Count `cmux_cloud_welcome_closed` broken down by
    `trigger` × `outcome`, plus the funnel `cmux_cloud_welcome_shown`, then
    `cmux_cloud_welcome_button_clicked` (`button = upgrade`), then
    `cmux_billing_checkout_completed`.
-4. **Week-1 / week-4 retention by activation event.** Retention insight. The
+5. **Week-1 / week-4 retention by activation event.** Retention insight. The
    start event is `cmux_activation_milestone_reached` for each `milestone`
    (one series per milestone); the return event is `cmux_daily_active`. Use
    weekly periods with week 1 and week 4 highlighted, and filter
    `is_new_install = true`.
-5. **Retention by feature.** Use `cmux_feature_used` broken down by `feature`
+6. **Retention by feature.** Use `cmux_feature_used` broken down by `feature`
    as the start event and `cmux_daily_active` as the return event.
-6. **Cloud reliability.** `cmux_cloud_machine_create_failed` by `error_class`,
+7. **Cloud reliability.** `cmux_cloud_machine_create_failed` by `error_class`,
    `cmux_cloud_plan_limit_hit` by `limit`, and
    `cmux_cloud_machine_attached` by `latency`.
-7. **Churn signals.** Weekly counts of `cmux_cloud_disabled`,
+8. **Churn signals.** Weekly counts of `cmux_cloud_disabled`,
    `cmux_signed_out`, `cmux_plan_deactivated`, and `cmux_app_updated`
    (`direction = downgrade`).
 

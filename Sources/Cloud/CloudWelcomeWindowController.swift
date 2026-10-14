@@ -184,7 +184,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// recorded it as seen, and still records it so the launch never repeats it.
     func presentIntroduction(over parent: NSWindow?) {
         Self.markCampaignSeen(in: defaults)
-        show(over: parent)
+        show(over: parent, trigger: .sidebarCloudButton)
     }
 
     #if DEBUG

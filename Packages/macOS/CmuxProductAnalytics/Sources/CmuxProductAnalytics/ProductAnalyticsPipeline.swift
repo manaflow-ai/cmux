@@ -75,8 +75,13 @@ actor ProductAnalyticsPipeline {
     // MARK: - Capture
 
     private func track(_ event: ProductAnalyticsEvent) {
-        if case let .upgradePromptShown(source, _) = event {
+        switch event {
+        case let .upgradePromptShown(source, _):
             guard shownThisLaunch.insert("\(event.name)|\(source)").inserted else { return }
+        case .cloudButtonShown:
+            guard shownThisLaunch.insert(event.name).inserted else { return }
+        default:
+            break
         }
         var properties = context.properties
         properties.merge(event.properties) { _, eventValue in eventValue }

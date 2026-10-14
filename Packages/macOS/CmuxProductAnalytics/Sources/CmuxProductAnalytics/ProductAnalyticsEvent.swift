@@ -32,6 +32,13 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
     /// The signed-in account's plan went from paid to free.
     case planDeactivated
 
+    // MARK: Sidebar Cloud button
+
+    /// The sidebar footer Cloud button became visible. Deduplicated per launch.
+    case cloudButtonShown
+    /// The sidebar footer Cloud button was pressed.
+    case cloudButtonClicked(action: CloudButtonAction)
+
     // MARK: Cloud welcome card
 
     /// The welcome card was shown.
@@ -86,6 +93,8 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
         case .upgradeBadgeDismissed: "cmux_upgrade_badge_dismissed"
         case .planActivated: "cmux_plan_activated"
         case .planDeactivated: "cmux_plan_deactivated"
+        case .cloudButtonShown: "cmux_cloud_button_shown"
+        case .cloudButtonClicked: "cmux_cloud_button_clicked"
         case .cloudWelcomeShown: "cmux_cloud_welcome_shown"
         case .cloudWelcomeButtonClicked: "cmux_cloud_welcome_button_clicked"
         case .cloudWelcomeClosed: "cmux_cloud_welcome_closed"
@@ -131,8 +140,11 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
                 "upgrade_source": .string(upgradeSource.map(Self.token) ?? "none"),
                 "since_upgrade_click": .string(since?.rawValue ?? "none"),
             ]
-        case .planDeactivated, .signInStarted, .signInSucceeded, .signedOut, .cloudDisabled, .cloudMachineDeleted:
+        case .planDeactivated, .signInStarted, .signInSucceeded, .signedOut, .cloudDisabled, .cloudMachineDeleted,
+             .cloudButtonShown:
             return [:]
+        case let .cloudButtonClicked(action):
+            return ["action": .string(action.rawValue)]
         case let .cloudWelcomeShown(trigger, step):
             return ["trigger": .string(trigger.rawValue), "next_step": .string(step.rawValue)]
         case let .cloudWelcomeButtonClicked(trigger, step, button):

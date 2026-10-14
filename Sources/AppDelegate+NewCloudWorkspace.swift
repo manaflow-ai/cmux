@@ -274,7 +274,8 @@ extension AppDelegate {
             },
             presentIntroduction: { [weak self] in
                 self?.cloudWelcomeWindowController.presentIntroduction(over: window)
-            }
+            },
+            analytics: .app
         ).perform()
     }
 

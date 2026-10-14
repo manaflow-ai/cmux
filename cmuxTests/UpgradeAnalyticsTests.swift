@@ -160,6 +160,46 @@ struct UpgradeAnalyticsTests {
         }
     }
 
+    @Test("the sidebar Cloud button records its route; while Cloud is off the welcome follows with its trigger")
+    func sidebarCloudButton() async throws {
+        let (analytics, sink, ledgerSuite) = TestAnalytics.make()
+        defer { TestAnalytics.remove(ledgerSuite) }
+        let suite = "UpgradeAnalyticsTests.cloudButton.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let welcome = CloudWelcomeWindowController(
+            defaults: defaults,
+            nextStep: { .upgrade },
+            performNextStep: { _, _ in },
+            analytics: analytics,
+            now: { TestAnalytics.fixedNow }
+        )
+        defer { welcome.dismiss() }
+
+        SidebarCloudButtonAction(
+            isAvailable: { true }, isEnabled: { true }, revealMachines: {}, presentIntroduction: {},
+            analytics: analytics
+        ).perform()
+        SidebarCloudButtonAction(
+            isAvailable: { true }, isEnabled: { false }, revealMachines: {},
+            presentIntroduction: { welcome.presentIntroduction(over: nil) },
+            analytics: analytics
+        ).perform()
+        SidebarCloudButtonAction(
+            isAvailable: { false }, isEnabled: { false }, revealMachines: {}, presentIntroduction: {},
+            analytics: analytics
+        ).perform()
+        await analytics.drain()
+
+        #expect(sink.named("cmux_cloud_button_clicked").compactMap { $0["action"] }
+            == [AnalyticsValue.string("open_cloud"), .string("introduce_cloud")])
+        let shown = try #require(sink.named("cmux_cloud_welcome_shown").first)
+        #expect(shown["trigger"] == .string("sidebar_cloud_button"))
+        #expect(shown["next_step"] == .string("upgrade"))
+        let order = sink.events.map(\.name).filter { $0 == "cmux_cloud_button_clicked" || $0 == "cmux_cloud_welcome_shown" }
+        #expect(order == ["cmux_cloud_button_clicked", "cmux_cloud_button_clicked", "cmux_cloud_welcome_shown"])
+    }
+
     @Test("with telemetry off, no upgrade surface records anything")
     func optOut() async throws {
         let (analytics, sink, ledgerSuite) = TestAnalytics.make(enabled: false)

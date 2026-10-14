@@ -117,9 +117,12 @@ struct ProductAnalyticsPipelineTests {
             harness.analytics.track(.upgradeEntrypointOpened(source: "mac_sidebar_badge", plan: "pro", destination: .pricingPage))
         }
         harness.analytics.track(.upgradePromptShown(source: "mac_cloud_welcome", plan: "pro"))
+        harness.analytics.track(.cloudButtonShown)
+        harness.analytics.track(.cloudButtonShown)
         await harness.analytics.drain()
         let names = harness.sink.eventNames
         #expect(names.filter { $0 == "cmux_upgrade_prompt_shown" }.count == 2)
+        #expect(names.filter { $0 == "cmux_cloud_button_shown" }.count == 1)
         #expect(names.filter { $0 == "cmux_upgrade_entrypoint_opened" }.count == 3)
         #expect(harness.milestones() == ["first_launch", "first_upgrade_click"])
     }

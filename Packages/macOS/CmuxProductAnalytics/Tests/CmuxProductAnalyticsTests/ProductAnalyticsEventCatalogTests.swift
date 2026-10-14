@@ -16,6 +16,8 @@ struct ProductAnalyticsEventCatalogTests {
         (.planActivated(upgradeSource: "mac_sidebar_badge", sinceUpgradeClick: .from1to3m), "cmux_plan_activated",
          ["upgrade_source", "since_upgrade_click"]),
         (.planDeactivated, "cmux_plan_deactivated", []),
+        (.cloudButtonShown, "cmux_cloud_button_shown", []),
+        (.cloudButtonClicked(action: .introduceCloud), "cmux_cloud_button_clicked", ["action"]),
         (.cloudWelcomeShown(trigger: .launchAnnouncement, step: .upgrade), "cmux_cloud_welcome_shown", ["trigger", "next_step"]),
         (.cloudWelcomeButtonClicked(trigger: .newCloudMachine, step: .enable, button: .enable),
          "cmux_cloud_welcome_button_clicked", ["trigger", "next_step", "button"]),
@@ -58,7 +60,7 @@ struct ProductAnalyticsEventCatalogTests {
     @Test("names are unique, snake_case and cmux_ prefixed")
     func namingConvention() {
         let names = Set(Self.catalog.map(\.1))
-        #expect(names.count == 26)
+        #expect(names.count == 28)
         for name in names {
             #expect(name.hasPrefix("cmux_"))
             #expect(name.allSatisfy { $0.isLowercase || $0 == "_" })

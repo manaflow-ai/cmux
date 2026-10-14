@@ -80,7 +80,8 @@ public final class ProductAnalytics: Sendable {
         continuation?.finish()
     }
 
-    /// Records `event`. `cmux_upgrade_prompt_shown` is deduplicated per source per launch.
+    /// Records `event`. Impressions (`cmux_upgrade_prompt_shown` per source,
+    /// `cmux_cloud_button_shown`) are deduplicated per launch.
     public func track(_ event: ProductAnalyticsEvent) {
         continuation?.yield(.track(event))
     }
