@@ -111,7 +111,7 @@ export type AcpmuxPermission = {
   title?: string;
   kind?: string;
   pending: boolean;
-  options: { id: string; name: string; allow: boolean }[];
+  options: { id: string; name: string; allow: boolean; kind?: string }[];
   /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
   /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
   question?: AgentQuestion;
