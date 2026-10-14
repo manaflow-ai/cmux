@@ -70,6 +70,19 @@ struct RestorableAgentProcessMatcherTests {
         )) == .mismatches)
     }
 
+    @Test("Confirmed absence overrides a previously captured matching process",
+          arguments: [false, true])
+    func absentProcessOverridesCapturedIdentity(hasRecordedIdentity: Bool) {
+        #expect(matcher.match(.init(
+            processID: 42,
+            recordedIdentity: hasRecordedIdentity ? identity() : nil,
+            currentIdentity: identity(),
+            presence: .absent,
+            scopeMatches: true,
+            expectedProcessMatches: true
+        )) == .mismatches)
+    }
+
     @Test("Unreadable processes remain uncertain unless their absence is definitive",
           arguments: [RestorableAgentProcessPresence.present, .absent, .unknown], [false, true])
     func unreadableProcessRequiresDefinitiveAbsence(
