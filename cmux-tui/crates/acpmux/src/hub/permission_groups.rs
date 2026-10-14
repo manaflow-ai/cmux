@@ -74,16 +74,46 @@ impl Group {
     }
 
     fn value(&self, session_id: &str) -> Value {
+        use crate::protocol::permission::{
+            PermissionDecision, PermissionGroup, PermissionGroupItem,
+        };
         let can_allow = self
             .items
             .iter()
             .filter(|i| i.state == "pending")
             .all(|i| option(&i.request, "allow_once").is_some());
-        json!({"groupId":self.id, "sessionId":session_id, "turnId":self.turn_id,
-            "revision":self.revision, "state":self.state,
-            "items":self.items.iter().map(|i| json!({"permissionId":i.id,"request":i.request,"state":i.state})).collect::<Vec<_>>(),
-            "decisions":if can_allow {json!(["allow_once","allow_chat","deny"])} else {json!(["deny"])},
-            "decision":self.receipt.as_ref().map(|(body,_)| body["decision"].clone())})
+        let group = PermissionGroup {
+            group_id: self.id.clone(),
+            session_id: session_id.to_owned(),
+            turn_id: self.turn_id.clone(),
+            revision: self.revision,
+            state: self.state,
+            items: self
+                .items
+                .iter()
+                .map(|i| PermissionGroupItem {
+                    permission_id: i.id.clone(),
+                    request: i.request.clone(),
+                    state: i.state,
+                })
+                .collect(),
+            decisions: if can_allow {
+                vec![
+                    PermissionDecision::AllowOnce,
+                    PermissionDecision::AllowChat,
+                    PermissionDecision::Deny,
+                ]
+            } else {
+                vec![PermissionDecision::Deny]
+            },
+            // Validated when it was taken (`respond_permission_group`).
+            decision: self
+                .receipt
+                .as_ref()
+                .and_then(|(body, _)| body["decision"].as_str())
+                .and_then(PermissionDecision::from_wire),
+        };
+        serde_json::to_value(group).unwrap_or(Value::Null)
     }
 }
 

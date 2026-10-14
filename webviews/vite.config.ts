@@ -28,6 +28,8 @@ export default defineConfig({
       "src/gallery/fixtures/markdown-showcase.md",
       // scripts/pane-protocol-codegen.ts --check owns these bytes.
       "src/protocol/generated/**",
+      // scripts/acpmux-protocol-codegen.ts --check owns these bytes.
+      "src/agent-session/acpmux/protocol/generated/**",
       // Byte-identical copy of the Rust lane's emitted IR.
       "src/protocol/ir/**",
       "**/*.css",
