@@ -286,7 +286,9 @@ func shouldAllowEnsureFocusWindowActivation(
     targetWindow: NSWindow,
     applicationIsActive: Bool
 ) -> Bool {
-    guard applicationIsActive else {
+    // Minimizing the last window can leave the app active with no key window.
+    // Automatic terminal focus recovery must wait for an explicit user restore.
+    guard applicationIsActive, !targetWindow.isMiniaturized else {
         return false
     }
 
