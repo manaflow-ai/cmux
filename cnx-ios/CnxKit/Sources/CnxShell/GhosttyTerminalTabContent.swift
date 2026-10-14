@@ -35,7 +35,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var artifactSourceProvider: (@MainActor (WorkspaceTab) -> (any ArtifactSource)?)?
     /// Live mode: uploads a terminal attachment to the Mac, returning its path there.
     var uploaderProvider: (@MainActor (WorkspaceTab) -> (@MainActor (Data, String) async throws -> String)?)?
-    /// DEBUG mock mode (Settings → Developer → Mock data): tabs with no live
+    /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false
     /// The workspace's Mac, for the connecting placeholder's label.

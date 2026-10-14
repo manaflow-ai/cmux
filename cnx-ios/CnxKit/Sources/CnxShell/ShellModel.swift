@@ -53,7 +53,7 @@ final class ShellModel {
     var live: LiveCoordinator?
     /// Settings → Connection's device list and account deletion (live mode).
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
-    /// DEBUG mock mode (Settings → Developer → Mock data): sample content only.
+    /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     private let mockMode: Bool
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
