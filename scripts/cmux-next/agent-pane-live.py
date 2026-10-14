@@ -353,6 +353,24 @@ try:
             say("SWITCH", json.dumps(row))
             cur_h = target
         raise SystemExit(0)
+    if STAGE == "columns":
+        # Columns and chrome (Lawrence 2026-10-13): a browser column partly scrolled out of the
+        # strip shows its page only inside its column, never over the next column or the sidebar.
+        say("columns open browser", json.dumps(rpc("browser.open_split", {"url": "https://example.com", "focus": True}))[:300])
+        time.sleep(6)
+        for n in range(3):
+            say("columns new column", json.dumps(rpc("action.run", {"action": "newColumn", "focus": True}))[:200])
+            time.sleep(1)
+        cua = os.path.expanduser("~/.local/bin/cua-driver")
+        for step in range(6):
+            rpc("debug.focus")
+            time.sleep(1.5)
+            shot = os.path.join(OUT, f"columns-{step}.png")
+            subprocess.run([cua, "call", "get_desktop_state", json.dumps({"screenshot_out_file": shot})],
+                           capture_output=True, text=True, timeout=60)
+            say("columns shot", step, os.path.exists(shot))
+            say("columns focus left", json.dumps(rpc("action.run", {"action": "focusLeft", "focus": True}))[:200])
+        raise SystemExit(0)
     if STAGE == "subagents":
         # Native Codex subagents (cx-07ezn): a Codex chat that starts two subagents shows them as one
         # group whose children have their own turns, as the page's wire log and a desktop shot show.
