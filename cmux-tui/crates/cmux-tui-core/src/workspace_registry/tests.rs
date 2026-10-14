@@ -3225,6 +3225,7 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
     let target = workspaces[499].clone();
     let mut renamed = target.clone();
     renamed.name = "Renamed".into();
+    renamed.name_revision += 1;
     let changes_before = registry.connection.get().total_changes();
     let started = std::time::Instant::now();
     registry
