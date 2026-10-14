@@ -64,7 +64,11 @@ pub fn lane(summary: &Value) -> Value {
     let updated = summary["updatedAt"].as_u64();
     let in_turn = !summary["turn"].is_null();
     // A session with turns but no `lastTurn` (saved before it existed) is not idle since it was made.
-    let made = if summary["turnCount"].as_u64() > Some(0) { updated } else { summary["createdAt"].as_u64() };
+    let made = if summary["turnCount"].as_u64() > Some(0) {
+        updated
+    } else {
+        summary["createdAt"].as_u64()
+    };
     let ended = summary["lastTurn"]["endedAt"].as_u64().or(made);
     let (state, since) = match status_indicator(summary) {
         Some("working") => ("working", summary["turn"]["startedAt"].as_u64()),
