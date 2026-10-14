@@ -1,6 +1,7 @@
-// Prompts waiting for the running turn, as compact rows attached to the composer's top edge. The
-// list is laid over the transcript's foot, not in the layout, so a prompt being queued, sent or
-// removed never moves the composer or the transcript.
+// Prompts waiting for the running turn, as compact rows over the composer. The list takes its own
+// place at the top of the composer's stack (App.tsx's queue slot), so the transcript, a question
+// waiting for an answer and the pull requests above the composer each keep theirs: none is cut
+// off or drawn over, and the transcript scrolls in what is left.
 //
 // Keyboard first: ↑ on an empty prompt goes to the last row; on a row, ↑/↓ move between rows (↓
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue,
@@ -16,10 +17,10 @@ import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
-/** Shows the full prompt as a tooltip only when its one line is cut off. */
+/** Shows the full prompt as a tooltip only when its two lines cut it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const text = event.currentTarget;
-  if (text.scrollWidth > text.clientWidth) text.title = prompt;
+  if (text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight + 1) text.title = prompt;
   else text.removeAttribute("title");
 }
 
@@ -48,6 +49,14 @@ export function ComposerQueue({
   // A row leaves as soon as it is removed or sent; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<string>();
+  // Rows opened to their whole text (a row shows two lines until it is opened).
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (id: string) =>
+    setOpen((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   // What the open edit holds now: a prompt that starts while it is edited hands it to the prompt.
   const draft = useRef<{ id: string; original: string; text: string }>(undefined);
   // The row a move keeps focus on, once the new order draws.
@@ -84,6 +93,9 @@ export function ComposerQueue({
   };
   const shown = queue.filter((entry) => !leaving.has(entry.id));
   if (shown.length === 0) return null;
+  // Prompts sent now come first: queued prompts count from after them.
+  const steering = shown.filter((entry) => entry.next).length;
+  const waiting = shown.length - steering;
 
   const rows = () => [...(list.current?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? [])];
   const focusRow = (index: number) => {
@@ -187,10 +199,18 @@ export function ComposerQueue({
   // A row's mark, text (or its edit) and actions.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
-      <span className="acpmux-queued-mark" aria-hidden="true">
-        {index + 1}
-      </span>
-      <span className="acpmux-hidden-label">{t("composer.queued")}</span>
+      {entry.next ? (
+        <span className="acpmux-queued-kind" data-kind="steer">
+          {t("composer.steering")}
+        </span>
+      ) : (
+        <>
+          <span className="acpmux-queued-mark" aria-hidden="true">
+            {index + 1 - steering}
+          </span>
+          <span className="acpmux-hidden-label">{t("composer.queued")}</span>
+        </>
+      )}
       {editing === entry.id ? (
         <QueuedEdit
           entry={entry}
@@ -204,9 +224,16 @@ export function ComposerQueue({
           }}
         />
       ) : (
-        <span className="acpmux-queued-text" onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}>
+        <button
+          type="button"
+          className="acpmux-queued-text"
+          data-open={open.has(entry.id) ? "" : undefined}
+          aria-expanded={open.has(entry.id)}
+          onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}
+          onClick={() => toggle(entry.id)}
+        >
           {entry.prompt}
-        </span>
+        </button>
       )}
       {editing !== entry.id && (sendNow || onChange || remove) && (
         <span className="acpmux-queued-actions">
@@ -249,6 +276,12 @@ export function ComposerQueue({
   );
   return (
     <ol ref={list} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
+      {waiting > 0 && (
+        <li className="acpmux-queue-header" aria-hidden="true">
+          <span className="acpmux-queued-kind">{t("composer.queued")}</span>
+          <span>{t("composer.queueAfterTurn")}</span>
+        </li>
+      )}
       {paused && (
         <li className="acpmux-queue-paused">
           <span>{t("composer.queuePaused")}</span>

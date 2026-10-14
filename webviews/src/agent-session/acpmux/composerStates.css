@@ -262,3 +262,24 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--agent-text);
   font: inherit;
 }
+
+/* What the strip holds: "Queued" over prompts that wait for the turn to end, "Steering" on a
+   prompt sent now that stops the turn and runs next (ComposerQueue.tsx). */
+.acpmux-queue-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 12px 0;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+}
+.acpmux-queued-kind {
+  flex: none;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  font-weight: 600;
+  line-height: 18px;
+}
+.acpmux-queued-kind[data-kind="steer"] {
+  color: var(--agent-accent);
+}
