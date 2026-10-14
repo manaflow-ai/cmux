@@ -184,6 +184,8 @@ final class ConversationScrollProbe {
                 : model.isEmojiOnly ? "emoji"
                 : "text"
             if message.effect != nil { kind += "+fx" }
+            // Animated text (shake, explode, ...) renders a glyph per letter.
+            if message.textRuns.contains(where: { $0.effect != nil }) { kind += "+textfx" }
             if model.replyQuote != nil { kind += "+reply" }
             if !model.reactionKinds.isEmpty { kind += "+tapback" }
             if model.translation != nil { kind += "+translation" }
