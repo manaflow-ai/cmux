@@ -42,6 +42,9 @@ public struct WelcomeView: View {
     @State private var lockupMark: CGRect = .zero
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
+    /// The lockup's chevron grows with the wordmark (capped).
+    @ScaledMetric(relativeTo: .title2) private var scaledLockupMark: CGFloat = 22
 
     /// `playsLaunchIntro`: the welcome replaces the launch screen (cold launch);
     /// false after sign-out, where the root crossfades it in, settled.
@@ -57,7 +60,7 @@ public struct WelcomeView: View {
         _lockupMark = State(initialValue: clock.lockupMark)
     }
 
-    private static let lockupMarkSize: CGFloat = 22
+    private var lockupMarkSize: CGFloat { min(scaledLockupMark, 48) }
     private static let launchMarkSize: CGFloat = 72
 
     public var body: some View {
@@ -89,7 +92,10 @@ public struct WelcomeView: View {
         let t = reduceMotion ? .infinity : rawT
         // The headline, buttons and legal line are at 35% on the first frame
         // and reach 100% together in 0.22 s: no stagger, no rise.
-        let controls = reduceMotion ? fade : 0.35 + 0.65 * E.out(E.seg(t, 0, 0.22))
+        // Until the intro starts, the welcome is the launch screen: the 72 pt
+        // mark alone (iOS is still crossfading its launch screen into it).
+        let introStarted = (WelcomeIntroClock.shared.t ?? -1) >= 0
+        let controls = !introStarted ? 0 : reduceMotion ? fade : 0.35 + 0.65 * E.out(E.seg(t, 0, 0.22))
         let large = dynamicTypeSize.isAccessibilitySize
         return ZStack {
             theme.colors.bg.color.ignoresSafeArea()
@@ -151,18 +157,13 @@ public struct WelcomeView: View {
         let word = E.outQuint(E.seg(t, 0.15, 0.5))
         return HStack(spacing: 7) {
             Color.clear
-                .frame(width: Self.lockupMarkSize, height: Self.lockupMarkSize)
+                .frame(width: lockupMarkSize, height: lockupMarkSize)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                     lockupMark = rect
-                    let clock = WelcomeIntroClock.shared
-                    clock.lockupMark = rect
-                    if clock.t == nil, rect.width > 0 {
-                        clock.t = -WelcomeIntroClock.debugHold
-                        // When the launch mark starts moving (launch timing checks).
-                        welcomeLog.info("intro started")
-                    }
-                    if !started, clock.t != nil { started = true }
+                    WelcomeIntroClock.shared.lockupMark = rect
+                    startIntroIfReady()
                 }
+                .onChange(of: scenePhase, initial: true) { _, _ in startIntroIfReady() }
             Text(verbatim: "cmux")
                 .font(theme.type.welcomeWordmark)
                 .foregroundStyle(theme.colors.label)
@@ -182,7 +183,7 @@ public struct WelcomeView: View {
             let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
             let target = CGPoint(x: lockupMark.midX, y: lockupMark.midY)
             let glide = reduceMotion ? 1 : E.outQuint(E.seg(t, 0, 0.45))
-            let size = E.lerp(Self.launchMarkSize, Self.lockupMarkSize, glide)
+            let size = E.lerp(Self.launchMarkSize, lockupMark.width > 0 ? lockupMark.width : lockupMarkSize, glide)
             let colour = reduceMotion ? E.seg(t, 0, 0.35) : E.seg(t, 0.05, 0.4)
             ZStack {
                 if reduceMotion {
@@ -200,6 +201,24 @@ public struct WelcomeView: View {
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// Starts the intro clock once the lockup slot is measured and the scene
+    /// is active, at `-launchCrossfade`: on a cold launch iOS crossfades its
+    /// launch screen into the app's first frames (about 0.25 s, and it is
+    /// still running when the scene turns active, measured at 60 fps). While
+    /// the clock is below 0 the welcome draws exactly the launch screen (the
+    /// 72 pt mark alone), so that crossfade shows one chevron; the intro
+    /// proper then starts with the controls at 35%. The hold is part of the
+    /// intro's own frame clock (it advances with rendered frames), not a sleep.
+    private func startIntroIfReady() {
+        let clock = WelcomeIntroClock.shared
+        if clock.t == nil, clock.lockupMark.width > 0, scenePhase == .active {
+            clock.t = -(WelcomeIntroClock.launchCrossfade + WelcomeIntroClock.debugHold)
+            // When the launch mark starts moving (launch timing checks).
+            welcomeLog.info("intro started")
+        }
+        if !started, clock.t != nil { started = true }
     }
 
     /// Seconds into the idle event, or nil outside it.
@@ -281,7 +300,7 @@ public struct WelcomeView: View {
             if let error = auth.errorMessage {
                 Text(error)
                     .font(theme.type.meta)
-                    .foregroundStyle(theme.colors.danger)
+                    .foregroundStyle(theme.colors.dangerText)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity)
@@ -327,6 +346,9 @@ private final class WelcomeIntroClock {
     /// Seconds of intro shown; nil until it starts, `.infinity` when settled.
     var t: Double?
     var lockupMark: CGRect = .zero
+    /// How long the welcome holds the launch screen's frame before the intro
+    /// starts: iOS's launch-screen crossfade (about 0.25 s) plus a margin.
+    static let launchCrossfade: Double = 0.3
     /// The one idle event has played (it never repeats in this process).
     var idlePlayed = false
     private var lastFrame: Date?

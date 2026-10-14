@@ -46,6 +46,8 @@ enum IntroEase {
 struct WelcomeArt: View {
     var t: Double
     var idle: Double?
+    /// How the idle event plays (the welcome's, or Connect your Mac's wait).
+    var idleStyle: IdleStyle = .welcome
     /// Drawn width; the drawing scales to it (260 on the welcome).
     var width: CGFloat = Self.size.width
 
@@ -57,9 +59,24 @@ struct WelcomeArt: View {
     /// The intro time the thread starts growing: Connect your Mac rests here
     /// while it waits, and plays on from here when a Mac appears.
     static let rideStart: Double = 1.6
-    /// The idle event: the thread re-draws faintly, a dot travels it, the
-    /// chevron beats once, the thread fades.
-    static let idleDuration: Double = 2.1
+    /// The welcome's idle event length.
+    static var idleDuration: Double { IdleStyle.welcome.duration }
+
+    /// An idle event: the thread re-draws faintly, a dot travels it, the
+    /// chevron's glow beats (when there is one), the thread fades.
+    struct IdleStyle: Sendable {
+        var duration: Double
+        var draw: ClosedRange<Double>
+        var ride: ClosedRange<Double>
+        var beat: ClosedRange<Double>
+        var fade: ClosedRange<Double>
+        var dotOpacity: Double
+
+        /// The welcome's one idle event (2.1 s), the dot at full strength.
+        static let welcome = IdleStyle(duration: 2.1, draw: 0...0.5, ride: 0.5...1.5, beat: 1.4...1.8, fade: 1.8...2.1, dotOpacity: 1)
+        /// Connect your Mac's wait (1.5 s every 2.4 s), everything at 35%.
+        static let waiting = IdleStyle(duration: 1.5, draw: 0...0.5, ride: 0.5...1.3, beat: 1.2...1.5, fade: 1.2...1.5, dotOpacity: 0.35)
+    }
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -245,7 +262,7 @@ struct WelcomeArt: View {
             var scale = bloom
             var glow = E.seg(t, 3.25, 3.7)
             if let idle {
-                let beat = sin(.pi * E.seg(idle, 1.4, 1.8))
+                let beat = sin(.pi * E.seg(idle, idleStyle.beat.lowerBound, idleStyle.beat.upperBound))
                 scale *= 1 + 0.08 * beat
                 glow += 0.6 * beat
             }
@@ -276,22 +293,24 @@ struct WelcomeArt: View {
         }
     }
 
-    /// The idle event (2.1 s): the thread re-draws at 35% (0.5 s), a dot
-    /// travels it (1.0 s), the chevron's glow beats (in `draw`), and the
-    /// thread fades (0.3 s).
+    /// The idle event (`idleStyle`): the thread re-draws at 35%, a dot
+    /// travels it, the chevron's glow beats (in `draw`), the thread fades.
     private func drawIdle(in context: inout GraphicsContext, u: Double, stroke: StrokeStyle) {
         typealias E = IntroEase
-        let grow = E.inOut(E.seg(u, 0, 0.5))
-        let fade = 1 - E.seg(u, 1.8, 2.1)
+        let style = idleStyle
+        let grow = E.inOut(E.seg(u, style.draw.lowerBound, style.draw.upperBound))
+        let fade = 1 - E.seg(u, style.fade.lowerBound, style.fade.upperBound)
         if grow > 0, fade > 0 {
             context.drawLayer { layer in
                 layer.opacity = 0.35 * fade
                 layer.stroke(Self.thread.trimmedPath(from: 0, to: grow), with: Self.threadShading, style: stroke)
             }
         }
-        if u >= 0.5, u < 1.55 {
-            let ride = E.inOut(E.seg(u, 0.5, 1.5))
-            drawDot(in: &context, at: Self.threadPoint(ride), radius: 3.5 * (1 - E.seg(u, 1.45, 1.55)), opacity: E.seg(u, 0.5, 0.6))
+        let (start, end) = (style.ride.lowerBound, style.ride.upperBound)
+        if u >= start, u < end + 0.05 {
+            let ride = E.inOut(E.seg(u, start, end))
+            drawDot(in: &context, at: Self.threadPoint(ride), radius: 3.5 * (1 - E.seg(u, end - 0.05, end + 0.05)),
+                    opacity: style.dotOpacity * E.seg(u, start, start + 0.1))
         }
     }
 }
