@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "38c3691de84847e31422c527d81d3f9b70bc8aba270ad3753612403464cd33b6";
+inline constexpr std::string_view kProtocolIrSha256 = "3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -256,13 +256,22 @@ struct CloseTabGroupResult;
 struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
+struct CloudAttachmentLinkRequest;
+struct CloudAttachmentLinkResult;
+struct CloudAttachmentReadRequest;
+struct CloudAttachmentReadResult;
+struct CloudAttachmentUploadRequest;
+struct CloudAttachmentUploadResult;
 struct CloudConversationHistoryRequest;
 struct CloudConversationOpRequest;
+struct CloudConversationRunRequest;
+struct CloudConversationRunsRequest;
 struct CloudConversationSnapshotRequest;
 struct CloudConversationSubscribeRequest;
 struct CloudConversationThreadRequest;
 struct CloudConversationUnsubscribeRequest;
 struct CloudInboxListRequest;
+struct CloudInboxOpRequest;
 struct CloudInboxSubscribeRequest;
 struct CloudInboxUnsubscribeRequest;
 struct CloudMuxAckRequest;
@@ -273,6 +282,8 @@ struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
 struct ConversationAgentTokenRequest;
 struct ConversationAgentTokenResult;
+struct ConversationAttachmentLinkRequest;
+struct ConversationAttachmentLinkResult;
 struct ConversationAttachmentReadRequest;
 struct ConversationAttachmentReadResult;
 struct ConversationAttachmentUploadRequest;
@@ -287,12 +298,20 @@ struct ConversationHistoryRequest;
 struct ConversationHistoryResult;
 struct ConversationImportRequest;
 struct ConversationImportResult;
+struct ConversationInboxOpRequest;
+struct ConversationInboxOpResult;
 struct ConversationLinkResolveRequest;
 struct ConversationLinkResolveResult;
 struct ConversationListRequest;
 struct ConversationListResult;
 struct ConversationOpRequest;
 struct ConversationOpResult;
+struct ConversationRunRequest;
+struct ConversationRunResult;
+struct ConversationRunAppendRequest;
+struct ConversationRunAppendResult;
+struct ConversationRunsRequest;
+struct ConversationRunsResult;
 struct ConversationSearchRequest;
 struct ConversationSearchResult;
 struct ConversationSnapshotRequest;
@@ -523,6 +542,7 @@ struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
 struct CloudConversationChangedEvent;
 struct CloudConversationResyncedEvent;
+struct CloudConversationRunChangedEvent;
 struct CloudInboxChangedEvent;
 struct CloudInboxResetEvent;
 struct CloudMuxResyncedEvent;
@@ -533,6 +553,8 @@ struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
 struct ConversationChangedEvent;
 struct ConversationDraftEvent;
+struct ConversationInboxChangedEvent;
+struct ConversationRunChangedEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
@@ -609,6 +631,7 @@ enum class AttachSurfaceRequestMode;
 enum class BrowserKeyRequestKind;
 enum class BrowserMouseRequestKind;
 enum class BrowserMouseGuardedRequestKind;
+struct CloudAttachmentUploadResultStored;
 struct ConversationAttachmentUploadResultStored;
 enum class CopyRequestMode;
 enum class IdsRequestKind;
@@ -619,6 +642,8 @@ enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 enum class KeybindingsChangedEventOrigin;
 enum class SettingsChangedEventOrigin;
+struct CloudAttachmentUploadResultStoredPoster;
+struct CloudAttachmentUploadResultStoredPreview;
 struct ConversationAttachmentUploadResultStoredPoster;
 struct ConversationAttachmentUploadResultStoredPreview;
 
@@ -1457,6 +1482,89 @@ struct CloseWorkspaceRequest {
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
 };
 
+struct CloudAttachmentLinkRequest {
+    std::string conversation{};
+    std::string hash{};
+    Field<std::string> name{};
+    Field<std::string> variant{};
+    friend bool operator==(const CloudAttachmentLinkRequest&, const CloudAttachmentLinkRequest&) = default;
+};
+
+struct CloudAttachmentLinkResult {
+    std::uint64_t expires_in_ms{};
+    std::string path{};
+    friend bool operator==(const CloudAttachmentLinkResult&, const CloudAttachmentLinkResult&) = default;
+};
+
+struct CloudAttachmentReadRequest {
+    std::string conversation{};
+    std::string hash{};
+    Field<std::uint64_t> length{};
+    Field<std::uint64_t> offset{};
+    Field<std::string> variant{};
+    friend bool operator==(const CloudAttachmentReadRequest&, const CloudAttachmentReadRequest&) = default;
+};
+
+struct CloudAttachmentReadResult {
+    std::uint64_t byte_count{};
+    std::string data{};
+    bool eof{};
+    std::string hash{};
+    std::string mime_type{};
+    std::uint64_t offset{};
+    friend bool operator==(const CloudAttachmentReadResult&, const CloudAttachmentReadResult&) = default;
+};
+
+struct CloudAttachmentUploadRequest {
+    Field<std::uint64_t> byte_count{};
+    Field<std::string> conversation{};
+    Field<std::string> data{};
+    Field<std::uint64_t> duration_ms{};
+    Field<std::uint32_t> height{};
+    Field<std::string> mime_type{};
+    Field<std::string> name{};
+    Field<std::uint64_t> offset{};
+    std::string op{};
+    Field<std::string> piece{};
+    Field<JsonValue> poster{};
+    Field<JsonValue> preview{};
+    Field<std::string> sha256{};
+    Field<std::string> upload{};
+    Field<std::uint32_t> width{};
+    friend bool operator==(const CloudAttachmentUploadRequest&, const CloudAttachmentUploadRequest&) = default;
+};
+
+struct CloudAttachmentUploadResultStoredPoster {
+    std::uint64_t byte_count{};
+    std::string hash{};
+    std::string mime_type{};
+    friend bool operator==(const CloudAttachmentUploadResultStoredPoster&, const CloudAttachmentUploadResultStoredPoster&) = default;
+};
+
+struct CloudAttachmentUploadResultStoredPreview {
+    std::uint64_t byte_count{};
+    std::string hash{};
+    std::string mime_type{};
+    friend bool operator==(const CloudAttachmentUploadResultStoredPreview&, const CloudAttachmentUploadResultStoredPreview&) = default;
+};
+
+struct CloudAttachmentUploadResultStored {
+    std::uint64_t byte_count{};
+    std::string hash{};
+    std::string mime_type{};
+    Field<CloudAttachmentUploadResultStoredPoster> poster{};
+    Field<CloudAttachmentUploadResultStoredPreview> preview{};
+    friend bool operator==(const CloudAttachmentUploadResultStored&, const CloudAttachmentUploadResultStored&) = default;
+};
+
+struct CloudAttachmentUploadResult {
+    Field<std::vector<std::string>> needs{};
+    Field<std::uint64_t> received{};
+    Field<CloudAttachmentUploadResultStored> stored{};
+    Field<std::string> upload{};
+    friend bool operator==(const CloudAttachmentUploadResult&, const CloudAttachmentUploadResult&) = default;
+};
+
 struct CloudConversationChangedEvent {
     std::optional<std::string> account{};
     std::optional<JsonValue> change{};
@@ -1490,6 +1598,30 @@ struct CloudConversationResyncedEvent {
     std::uint64_t seq{};
     std::optional<JsonValue> summary{};
     friend bool operator==(const CloudConversationResyncedEvent&, const CloudConversationResyncedEvent&) = default;
+};
+
+struct CloudConversationRunChangedEvent {
+    std::optional<std::string> account{};
+    std::string conversation{};
+    std::optional<JsonValue> run{};
+    std::vector<JsonValue> steps{};
+    friend bool operator==(const CloudConversationRunChangedEvent&, const CloudConversationRunChangedEvent&) = default;
+};
+
+struct CloudConversationRunRequest {
+    Field<std::uint64_t> after_seq{};
+    std::string agent{};
+    std::string conversation{};
+    std::string run{};
+    friend bool operator==(const CloudConversationRunRequest&, const CloudConversationRunRequest&) = default;
+};
+
+struct CloudConversationRunsRequest {
+    std::string agent{};
+    Field<std::uint64_t> before_started_at{};
+    std::string conversation{};
+    Field<std::uint32_t> limit{};
+    friend bool operator==(const CloudConversationRunsRequest&, const CloudConversationRunsRequest&) = default;
 };
 
 struct CloudConversationSnapshotRequest {
@@ -1528,6 +1660,13 @@ struct CloudInboxListRequest {
     std::optional<bool> include_archived{};
     Field<std::uint32_t> limit{};
     friend bool operator==(const CloudInboxListRequest&, const CloudInboxListRequest&) = default;
+};
+
+struct CloudInboxOpRequest {
+    std::string conversation{};
+    std::string idempotency_key{};
+    std::optional<JsonValue> op{};
+    friend bool operator==(const CloudInboxOpRequest&, const CloudInboxOpRequest&) = default;
 };
 
 struct CloudInboxResetEvent {
@@ -1655,6 +1794,20 @@ struct ConversationAgentTokenResult {
     std::string participant{};
     std::string token{};
     friend bool operator==(const ConversationAgentTokenResult&, const ConversationAgentTokenResult&) = default;
+};
+
+struct ConversationAttachmentLinkRequest {
+    std::string conversation{};
+    std::string hash{};
+    Field<std::string> name{};
+    Field<std::string> variant{};
+    friend bool operator==(const ConversationAttachmentLinkRequest&, const ConversationAttachmentLinkRequest&) = default;
+};
+
+struct ConversationAttachmentLinkResult {
+    std::uint64_t expires_in_ms{};
+    std::string path{};
+    friend bool operator==(const ConversationAttachmentLinkResult&, const ConversationAttachmentLinkResult&) = default;
 };
 
 struct ConversationAttachmentReadRequest {
@@ -1825,8 +1978,11 @@ struct ConversationSummary {
     std::string id{};
     std::optional<ConversationMessage> last_message{};
     std::uint64_t last_seq{};
+    std::optional<bool> marked_unread{};
     std::string owner{};
     std::vector<ConversationParticipant> participants{};
+    std::optional<std::uint64_t> pin_position{};
+    std::optional<bool> pinned{};
     std::map<std::string, std::uint64_t, std::less<>> read_cursors{};
     std::uint64_t rev{};
     std::string title{};
@@ -1946,6 +2102,30 @@ struct ConversationImportResult {
     friend bool operator==(const ConversationImportResult&, const ConversationImportResult&) = default;
 };
 
+struct ConversationInboxChangedEvent {
+    std::string conversation{};
+    bool marked_unread{};
+    std::string participant{};
+    std::optional<std::uint64_t> pin_position{};
+    bool pinned{};
+    friend bool operator==(const ConversationInboxChangedEvent&, const ConversationInboxChangedEvent&) = default;
+};
+
+struct ConversationInboxOpRequest {
+    std::string conversation{};
+    std::optional<JsonValue> op{};
+    friend bool operator==(const ConversationInboxOpRequest&, const ConversationInboxOpRequest&) = default;
+};
+
+struct ConversationInboxOpResult {
+    std::string conversation{};
+    bool marked_unread{};
+    std::string participant{};
+    std::optional<std::uint64_t> pin_position{};
+    bool pinned{};
+    friend bool operator==(const ConversationInboxOpResult&, const ConversationInboxOpResult&) = default;
+};
+
 struct ConversationLinkResolveRequest {
     std::string url{};
     friend bool operator==(const ConversationLinkResolveRequest&, const ConversationLinkResolveRequest&) = default;
@@ -1986,6 +2166,55 @@ struct ConversationOpResult {
     std::optional<std::uint64_t> seq{};
     std::optional<std::string> transaction{};
     friend bool operator==(const ConversationOpResult&, const ConversationOpResult&) = default;
+};
+
+struct ConversationRunAppendRequest {
+    std::string conversation{};
+    std::optional<JsonValue> run{};
+    std::optional<std::vector<JsonValue>> steps{};
+    friend bool operator==(const ConversationRunAppendRequest&, const ConversationRunAppendRequest&) = default;
+};
+
+struct ConversationRunAppendResult {
+    std::optional<JsonValue> run{};
+    std::vector<JsonValue> steps{};
+    friend bool operator==(const ConversationRunAppendResult&, const ConversationRunAppendResult&) = default;
+};
+
+struct ConversationRunChangedEvent {
+    std::string conversation{};
+    std::optional<JsonValue> run{};
+    std::vector<JsonValue> steps{};
+    friend bool operator==(const ConversationRunChangedEvent&, const ConversationRunChangedEvent&) = default;
+};
+
+struct ConversationRunRequest {
+    std::optional<std::uint64_t> after_rev{};
+    std::string conversation{};
+    Field<std::uint32_t> limit{};
+    std::string run{};
+    friend bool operator==(const ConversationRunRequest&, const ConversationRunRequest&) = default;
+};
+
+struct ConversationRunResult {
+    bool has_more{};
+    std::optional<JsonValue> run{};
+    std::vector<JsonValue> steps{};
+    friend bool operator==(const ConversationRunResult&, const ConversationRunResult&) = default;
+};
+
+struct ConversationRunsRequest {
+    Field<std::uint64_t> before_started_at{};
+    std::string conversation{};
+    Field<std::uint32_t> limit{};
+    Field<std::vector<std::string>> turns{};
+    friend bool operator==(const ConversationRunsRequest&, const ConversationRunsRequest&) = default;
+};
+
+struct ConversationRunsResult {
+    bool has_more{};
+    std::vector<JsonValue> runs{};
+    friend bool operator==(const ConversationRunsResult&, const ConversationRunsResult&) = default;
 };
 
 struct ConversationSearchHit {
@@ -3596,6 +3825,7 @@ struct OverflowEvent {
 };
 
 struct PageCredentialRequest {
+    Field<std::string> page{};
     friend bool operator==(const PageCredentialRequest&, const PageCredentialRequest&) = default;
 };
 
@@ -6834,6 +7064,42 @@ struct Codec<CloseWorkspaceRequest> {
 };
 
 template <>
+struct Codec<CloudAttachmentLinkRequest> {
+    static Result<Json> encode(const CloudAttachmentLinkRequest& value);
+    static Result<CloudAttachmentLinkRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudAttachmentLinkResult> {
+    static Result<Json> encode(const CloudAttachmentLinkResult& value);
+    static Result<CloudAttachmentLinkResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudAttachmentReadRequest> {
+    static Result<Json> encode(const CloudAttachmentReadRequest& value);
+    static Result<CloudAttachmentReadRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudAttachmentReadResult> {
+    static Result<Json> encode(const CloudAttachmentReadResult& value);
+    static Result<CloudAttachmentReadResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudAttachmentUploadRequest> {
+    static Result<Json> encode(const CloudAttachmentUploadRequest& value);
+    static Result<CloudAttachmentUploadRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudAttachmentUploadResult> {
+    static Result<Json> encode(const CloudAttachmentUploadResult& value);
+    static Result<CloudAttachmentUploadResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudConversationHistoryRequest> {
     static Result<Json> encode(const CloudConversationHistoryRequest& value);
     static Result<CloudConversationHistoryRequest> decode(const Json& value);
@@ -6843,6 +7109,18 @@ template <>
 struct Codec<CloudConversationOpRequest> {
     static Result<Json> encode(const CloudConversationOpRequest& value);
     static Result<CloudConversationOpRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationRunRequest> {
+    static Result<Json> encode(const CloudConversationRunRequest& value);
+    static Result<CloudConversationRunRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationRunsRequest> {
+    static Result<Json> encode(const CloudConversationRunsRequest& value);
+    static Result<CloudConversationRunsRequest> decode(const Json& value);
 };
 
 template <>
@@ -6873,6 +7151,12 @@ template <>
 struct Codec<CloudInboxListRequest> {
     static Result<Json> encode(const CloudInboxListRequest& value);
     static Result<CloudInboxListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxOpRequest> {
+    static Result<Json> encode(const CloudInboxOpRequest& value);
+    static Result<CloudInboxOpRequest> decode(const Json& value);
 };
 
 template <>
@@ -6933,6 +7217,18 @@ template <>
 struct Codec<ConversationAgentTokenResult> {
     static Result<Json> encode(const ConversationAgentTokenResult& value);
     static Result<ConversationAgentTokenResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationAttachmentLinkRequest> {
+    static Result<Json> encode(const ConversationAttachmentLinkRequest& value);
+    static Result<ConversationAttachmentLinkRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationAttachmentLinkResult> {
+    static Result<Json> encode(const ConversationAttachmentLinkResult& value);
+    static Result<ConversationAttachmentLinkResult> decode(const Json& value);
 };
 
 template <>
@@ -7020,6 +7316,18 @@ struct Codec<ConversationImportResult> {
 };
 
 template <>
+struct Codec<ConversationInboxOpRequest> {
+    static Result<Json> encode(const ConversationInboxOpRequest& value);
+    static Result<ConversationInboxOpRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationInboxOpResult> {
+    static Result<Json> encode(const ConversationInboxOpResult& value);
+    static Result<ConversationInboxOpResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationLinkResolveRequest> {
     static Result<Json> encode(const ConversationLinkResolveRequest& value);
     static Result<ConversationLinkResolveRequest> decode(const Json& value);
@@ -7053,6 +7361,42 @@ template <>
 struct Codec<ConversationOpResult> {
     static Result<Json> encode(const ConversationOpResult& value);
     static Result<ConversationOpResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationRunRequest> {
+    static Result<Json> encode(const ConversationRunRequest& value);
+    static Result<ConversationRunRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationRunResult> {
+    static Result<Json> encode(const ConversationRunResult& value);
+    static Result<ConversationRunResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationRunAppendRequest> {
+    static Result<Json> encode(const ConversationRunAppendRequest& value);
+    static Result<ConversationRunAppendRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationRunAppendResult> {
+    static Result<Json> encode(const ConversationRunAppendResult& value);
+    static Result<ConversationRunAppendResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationRunsRequest> {
+    static Result<Json> encode(const ConversationRunsRequest& value);
+    static Result<ConversationRunsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationRunsResult> {
+    static Result<Json> encode(const ConversationRunsResult& value);
+    static Result<ConversationRunsResult> decode(const Json& value);
 };
 
 template <>
@@ -8436,6 +8780,12 @@ struct Codec<CloudConversationResyncedEvent> {
 };
 
 template <>
+struct Codec<CloudConversationRunChangedEvent> {
+    static Result<Json> encode(const CloudConversationRunChangedEvent& value);
+    static Result<CloudConversationRunChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudInboxChangedEvent> {
     static Result<Json> encode(const CloudInboxChangedEvent& value);
     static Result<CloudInboxChangedEvent> decode(const Json& value);
@@ -8493,6 +8843,18 @@ template <>
 struct Codec<ConversationDraftEvent> {
     static Result<Json> encode(const ConversationDraftEvent& value);
     static Result<ConversationDraftEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationInboxChangedEvent> {
+    static Result<Json> encode(const ConversationInboxChangedEvent& value);
+    static Result<ConversationInboxChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationRunChangedEvent> {
+    static Result<Json> encode(const ConversationRunChangedEvent& value);
+    static Result<ConversationRunChangedEvent> decode(const Json& value);
 };
 
 template <>
@@ -8952,6 +9314,12 @@ struct Codec<BrowserMouseGuardedRequestKind> {
 };
 
 template <>
+struct Codec<CloudAttachmentUploadResultStored> {
+    static Result<Json> encode(const CloudAttachmentUploadResultStored& value);
+    static Result<CloudAttachmentUploadResultStored> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationAttachmentUploadResultStored> {
     static Result<Json> encode(const ConversationAttachmentUploadResultStored& value);
     static Result<ConversationAttachmentUploadResultStored> decode(const Json& value);
@@ -9009,6 +9377,18 @@ template <>
 struct Codec<SettingsChangedEventOrigin> {
     static Result<Json> encode(const SettingsChangedEventOrigin& value);
     static Result<SettingsChangedEventOrigin> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudAttachmentUploadResultStoredPoster> {
+    static Result<Json> encode(const CloudAttachmentUploadResultStoredPoster& value);
+    static Result<CloudAttachmentUploadResultStoredPoster> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudAttachmentUploadResultStoredPreview> {
+    static Result<Json> encode(const CloudAttachmentUploadResultStoredPreview& value);
+    static Result<CloudAttachmentUploadResultStoredPreview> decode(const Json& value);
 };
 
 template <>

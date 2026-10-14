@@ -7,7 +7,7 @@ import os
 /// daemon without a Swift rebuild.
 ///
 /// It is read from this process's own environment, never from the `environment` a caller passes
-/// to ``AcpmuxEnvironment/resolve(tag:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``:
+/// to ``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``:
 /// the Chief tab and Chief stop resolve with only `ACPMUX_HOME`, and every caller (start, attach,
 /// quit, stop, and the server peer check, which compares against ``AcpmuxEnvironment/executable``)
 /// must name one binary.

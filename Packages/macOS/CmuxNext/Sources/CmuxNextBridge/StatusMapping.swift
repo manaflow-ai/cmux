@@ -151,9 +151,27 @@ public struct StatusMapping {
         tabs.contains { tab in reports(tab).contains { $0.state.isWorking } }
     }
 
-    /// A workspace's merged status over its tabs.
-    public func summary(tabs: [TabModel]) -> StatusSummary {
-        StatusStack.resolve(tabs.flatMap(reports), honoring: honored)
+    /// A workspace's merged status over its tabs and its `cmux status set` entries.
+    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil) -> StatusSummary {
+        StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
+    }
+
+    /// The reports of a workspace's status entries that carry a state (`cmux status set --state`,
+    /// `status run`; cx-lko8w): busy with its progress, waiting, error, success. `info` and plain
+    /// lines draw only their text. The daemon clears owned entries (TTL, owner exit).
+    public func reports(_ status: WorkspaceStatus?) -> [StatusReport] {
+        (status?.entries ?? []).compactMap { entry in
+            let state: StatusIndicatorState? = switch entry.state {
+            case "busy": .busy(progress: entry.progress.map { min(max($0, 0), 1) })
+            case "waiting": .waiting
+            case "error": .error
+            case "success": .success
+            default: nil
+            }
+            guard let state else { return nil }
+            return StatusReport(id: "status:\(entry.key)", source: .explicit, state: state, label: entry.text,
+                                style: entry.style.flatMap(StatusIndicatorStyle.init(rawValue:)))
+        }
     }
 
     /// Sources whose style hint wins (`appearance.statusIndicator.honorStatusStyle`).

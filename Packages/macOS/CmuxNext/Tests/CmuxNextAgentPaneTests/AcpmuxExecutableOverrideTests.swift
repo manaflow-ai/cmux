@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import CmuxNextCompat
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -71,7 +72,7 @@ struct AcpmuxExecutableOverrideTests {
         let bin = URL(fileURLWithPath: "/Applications/cmux DEV.app/Contents/Resources/bin", isDirectory: true)
         let override = URL(fileURLWithPath: "/Users/dev/cmux-tui/target/debug/acpmux")
         func resolve(_ executableOverride: URL?) throws -> AcpmuxEnvironment {
-            try #require(AcpmuxEnvironment.resolve(tag: "dev", bundledBinDirectory: bin, environment: ["PATH": "/usr/bin"],
+            try #require(AcpmuxEnvironment.resolve(build: BuildIdentity(bundleID: "com.cmuxterm.app.debug.dev", bundledTag: "dev"), bundledBinDirectory: bin, environment: ["PATH": "/usr/bin"],
                                                    userHome: URL(fileURLWithPath: "/Users/dev", isDirectory: true), uid: 501,
                                                    isExecutable: { $0 == bin.appendingPathComponent("acpmux").path },
                                                    executableOverride: executableOverride))

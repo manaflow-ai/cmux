@@ -157,7 +157,7 @@ extension TabStripView {
         let clear = NSColor.clear.cgColor
         let colors = [edges.leading ? clear : opaque, opaque, opaque, edges.trailing ? clear : opaque]
         if isFaded, tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
-        let animates = window != nil && (wasFaded || isFaded)
+        let animates = window != nil && (wasFaded || isFaded) && !Motion.isLiveResizing // in a live resize the edge follows at once
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread

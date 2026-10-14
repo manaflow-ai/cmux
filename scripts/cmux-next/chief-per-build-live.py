@@ -8,8 +8,9 @@ a temp Chief root (CMUX_NEXT_CHIEF_ROOT), never ~/.cmux/chief.
   1. A as NIGHTLY (CMUX_NEXT_CHIEF_BUILD_ID=com.cmuxterm.app.nightly, a DEBUG
      override) resolves ROOT/default: its brain holds that lock, the memory
      still holds M0 once and Home shows it.
-  2. B, a copy of the app with bundle id com.cmuxterm.app.debug.<tag>b (ad-hoc
-     signed, its own tag and sockets), runs as cmux NEXT's NIGHTLY identity
+  2. B, a copy of the app named "B.app" with bundle id com.cmuxterm.app.debug
+     and no LSEnvironment tag (the untagged DEV build, ad-hoc signed), runs as
+     cmux NEXT's NIGHTLY identity
      (CMUX_NEXT_CHIEF_BUILD_ID=com.cmuxterm.app.nightly.cmux-next) at the same
      time as A: two NIGHTLY identities never share one Chief, so its home is
      ROOT/com.cmuxterm.app.nightly.cmux-next, empty (no M0), with its own brain,
@@ -17,10 +18,29 @@ a temp Chief root (CMUX_NEXT_CHIEF_ROOT), never ~/.cmux/chief.
   3. B quits with quitEndSessions: A's brain is the same process, still alive,
      and A answers a new message.
 
+The app's own (pane) acpmux, per build (S2, cx-is1kf.3): ACPMUX_ROOT stands
+for ~/.acpmux (CMUX_NEXT_ACPMUX_ROOT, a DEBUG override). A as NIGHTLY keeps
+the shared root itself; B has ACPMUX_ROOT/builds/com.cmuxterm.app.nightly.cmux-next.
+Steps 1 to 3 also check: each app's daemon runs in its own home (pid, socket
+inode), B's daemon is another process, and B's quit leaves A's daemon (same
+pid, same socket inode) running.
+
+The app daemon and control socket, per build (S3, cx-is1kf.4): A (a reload.sh
+DEV build) keeps cmux-app-<tag> and /tmp/cmux-debug-<tag>.sock; B, the untagged
+DEV build, has names of its build key (cmux-app--650e93e3,
+/tmp/cmux-debug--650e93e3.sock, a link to ~/.local/state/cmux since hq#1870), never
+release's cmux-app or cmux-debug.sock.
+Each app's bundled `cmux` CLI, run outside any app terminal, reaches its own
+app's owner daemon (the bundle decides, as in the app). B's start and quit
+leave A's owner daemon (same pid) and control socket running. The daemon names
+follow the real bundle id, never the DEBUG CMUX_NEXT_CHIEF_BUILD_ID override,
+so A never touches the real /tmp/cmux-nightly.sock.
+
 Exit 0 when every step passed; the first failed step's number otherwise.
 Usage: chief-per-build-live.py --tag TAG --app APP [--reply-wait 240] [--out DIR]
 """
 import argparse, json, os, shutil, socket, sqlite3, subprocess, sys, tempfile, time
+import re
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--tag", required=True)
@@ -36,9 +56,17 @@ SCRATCH = tempfile.mkdtemp(prefix="cpb-", dir="/tmp")
 ROOT = os.path.join(SCRATCH, "chief")
 NIGHTLY_HOME = os.path.join(ROOT, "default")
 TAG_B = f"{TAG}b"
-BUNDLE_B = f"com.cmuxterm.app.debug.{TAG_B}"
+BUNDLE_B = "com.cmuxterm.app.debug"
+# fnv1a32 of B's build key (its bundle id): schemas/build-identity/vectors.json.
+B_KEY_HASH = "650e93e3"
+B_SOCKET = f"/tmp/cmux-debug--{B_KEY_HASH}.sock"
+B_SESSION = f"cmux-app--{B_KEY_HASH}"
+B_STATE = os.path.expanduser("~/Library/Application Support/cmux/builds/com.cmuxterm.app.debug")
 NEXT_NIGHTLY = "com.cmuxterm.app.nightly.cmux-next"
 B_HOME = os.path.join(ROOT, NEXT_NIGHTLY)
+ACPMUX_ROOT = os.path.join(SCRATCH, "acpmux")
+A_ACPMUX = ACPMUX_ROOT
+B_ACPMUX = os.path.join(ACPMUX_ROOT, "builds", NEXT_NIGHTLY)
 os.makedirs(opts.out, exist_ok=True)
 
 
@@ -54,6 +82,23 @@ class App:
         self.acpmux = os.path.join(app, "Contents/Resources/bin/acpmux")
         self.socket = f"/tmp/cmux-debug-{tag}.sock"
         self.proc = None
+
+    def answers(self):
+        """Whether this app's control socket answers."""
+        reply = self.rpc("debug.windows", timeout=10)
+        return isinstance(reply, dict) and "error" not in reply
+
+    def owner(self):
+        """(session, pid) of this app's owner daemon, as its bundled CLI finds it from
+        the bundle alone (no app terminal env), else None. Never starts one."""
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_", "XDG_RUNTIME"))}
+        try:
+            out = subprocess.run([self.cli, "--json", "server", "status"], env=env,
+                                 capture_output=True, text=True, timeout=30).stdout
+            status = json.loads(out)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return None
+        return (status.get("session"), status.get("pid")) if status.get("status") == "running" else None
 
     def rpc(self, method, params=None, timeout=30):
         try:
@@ -152,6 +197,39 @@ def memory_count(home, text):
     return sum(1 for kind, body in rows if kind == "user" and text in body)
 
 
+def acpmux_daemon(app, home):
+    """(pid, socket inode) of the acpmux daemon in `home`, else None. Never starts one."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
+    try:
+        out = subprocess.run([app.acpmux, "daemon", "status", "--json"], env={**env, "ACPMUX_HOME": home},
+                             capture_output=True, text=True, timeout=30).stdout
+        status = json.loads(out)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    pid, sock = status.get("pid"), status.get("socket")
+    if not pid or not sock or os.path.realpath(status.get("home") or "") != os.path.realpath(home):
+        return None
+    try:
+        return (pid, os.stat(sock).st_ino)
+    except OSError:
+        return None
+
+
+def pane_daemon(app, home):
+    """The app's own acpmux daemon in `home`: started at launch (the agent pane prewarm),
+    else by a new agent chat."""
+    found = wait(lambda: acpmux_daemon(app, home), 60)
+    if not found:
+        say(app.name, "new agent chat", json.dumps(app.rpc("action.run", {"action": "palette.newAgentChat", "focus": True}))[:200])
+        found = wait(lambda: acpmux_daemon(app, home), 90)
+    return found
+
+
+def acpmux_shutdown(app, home):
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
+    subprocess.run([app.acpmux, "daemon", "shutdown"], env={**env, "ACPMUX_HOME": home}, capture_output=True, timeout=30)
+
+
 def cleanup(app, home):
     """The Chief of `home`: its acpmux daemon and router, then brain and owner (documented stop)."""
     acpmux_home = os.path.join(home, "acpmux")
@@ -170,18 +248,34 @@ def cleanup(app, home):
 
 
 def copy_as_b(src):
-    """App B: the same build under another bundle id (another tag, sockets and Chief home)."""
+    """App B: the same build as the untagged DEV build: bundle id com.cmuxterm.app.debug,
+    no LSEnvironment tag and a name without one ("cmux DEV <tag>.app" would ship its
+    name's tag), so its sockets and session are of its build key."""
     dst = os.path.join(SCRATCH, "B.app")
     subprocess.run(["ditto", src, dst], check=True)
-    subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Set :CFBundleIdentifier {BUNDLE_B}",
-                    os.path.join(dst, "Contents/Info.plist")], check=True)
+    plist = os.path.join(dst, "Contents/Info.plist")
+    subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Set :CFBundleIdentifier {BUNDLE_B}", plist], check=True)
+    for key in ("CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_SOCKET_PATH"):
+        subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Delete :LSEnvironment:{key}", plist], capture_output=True)
     signed = subprocess.run(["codesign", "--force", "--deep", "--sign", "-", dst], capture_output=True, text=True)
     say("B signed:", signed.returncode, signed.stderr.strip()[-200:])
     return dst
 
 
+# This test never resolves a real build's names (hq-6d, 2026-10-14).
+REAL = ("cmux-app", "cmux-app-nightly", "cmux-app-cmux-next")
+STATE_SOCKETS = os.path.expanduser("~/.local/state/cmux")
+for name in (f"cmux-app-{TAG}", B_SESSION, f"/tmp/cmux-debug-{TAG}.sock", B_SOCKET,
+             os.path.join(STATE_SOCKETS, f"cmux-debug-{TAG}.sock"), os.path.join(STATE_SOCKETS, os.path.basename(B_SOCKET))):
+    file = os.path.basename(name)
+    in_socket_dir = name.startswith("/tmp/") or name.startswith(STATE_SOCKETS + "/")
+    if name in REAL or (in_socket_dir and (file.startswith("cmux-nightly")
+                                           or file in ("cmux-rc.sock", "cmux-staging.sock", "cmux-debug.sock", "cmux.sock"))):
+        sys.exit(f"refusing to run: {name} is a real build's name")
 a = App("A", opts.app, TAG)
 b = None
+b_owned = False
+b_state_new = False
 failed = 0
 m0 = f"per-build check {TAG}: M0 on the shared home, reply with only the word ok."
 m1 = f"per-build check {TAG}: M1 after B quit, reply with only the word ok."
@@ -194,40 +288,82 @@ for home in (NIGHTLY_HOME, B_HOME):
 open(os.path.join(NIGHTLY_HOME, "migration.json"), "w").write('{"status": "test home: nothing to import"}\n')
 try:
     # 0. the shared home of older builds
-    a.launch({"CMUX_NEXT_CHIEF_HOME": NIGHTLY_HOME})
+    a.launch({"CMUX_NEXT_CHIEF_HOME": NIGHTLY_HOME, "CMUX_NEXT_ACPMUX_ROOT": ACPMUX_ROOT})
     ok0 = wait(lambda: brain_pid(NIGHTLY_HOME), 180) and a.send(m0)
     say(f"step 0: shared home {NIGHTLY_HOME}: brain and reply {'ok' if ok0 else 'FAILED'}")
     a.quit(NIGHTLY_HOME)
+    acpmux_shutdown(a, os.path.join(ACPMUX_ROOT, "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip(".")))
     if not ok0:
         failed = failed or 10
         raise SystemExit
     # 1. A as NIGHTLY under the temp root keeps that home
-    a.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": "com.cmuxterm.app.nightly"})
+    a.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": "com.cmuxterm.app.nightly",
+              "CMUX_NEXT_ACPMUX_ROOT": ACPMUX_ROOT})
     a_brain = wait(lambda: brain_pid(NIGHTLY_HOME), 180)
+    a_acpmux = pane_daemon(a, A_ACPMUX)
+    say(f"step 1: NIGHTLY acpmux (pid, socket inode) {a_acpmux} in {A_ACPMUX}")
     shown_m0 = wait(lambda: any(t == m0 for _, t in a.shown()), 60)
     count = memory_count(NIGHTLY_HOME, m0)
     others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY))
+    a_owner = wait(a.owner, 60)
     say(f"step 1: NIGHTLY brain {a_brain} on default; Home shows M0: {bool(shown_m0)}; memory has M0 {count}x; other homes {others}")
-    if not (a_brain and shown_m0 and count == 1 and not others):
+    say(f"step 1: A owner daemon (session, pid) {a_owner}; control socket {a.socket}")
+    if not (a_brain and shown_m0 and count == 1 and not others and a_acpmux
+            and a_owner and a_owner[0] == f"cmux-app-{TAG}" and a_owner[1]):
         failed = failed or 1
+    probe = App("probe", opts.app, TAG_B)
+    probe.socket = B_SOCKET
+    if os.path.exists(B_SOCKET) and probe.answers():
+        say(f"step 2: another untagged DEV build already serves {B_SOCKET}; B cannot run here")
+        failed = failed or 2
+        raise SystemExit
     # 2. B at the same time: its own empty home and brain
     b = App("B", copy_as_b(opts.app), TAG_B)
-    b.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": NEXT_NIGHTLY})
+    b.socket = B_SOCKET
+    # B's key session must not exist yet: else B would adopt another untagged
+    # DEV build's daemon (and its terminals), and the cleanup would stop it.
+    if b.owner():
+        say(f"step 2: an owner daemon already serves {B_SESSION}; B cannot run here")
+        b_owned = False
+        failed = failed or 2
+        raise SystemExit
+    b_owned = True
+    b_state_new = not os.path.exists(B_STATE)
+    b.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": NEXT_NIGHTLY,
+              "CMUX_NEXT_ACPMUX_ROOT": ACPMUX_ROOT})
     b_brain = wait(lambda: brain_pid(B_HOME), 180)
+    b_acpmux = pane_daemon(b, B_ACPMUX)
+    a_acpmux_2 = acpmux_daemon(a, A_ACPMUX)
+    say(f"step 2: B acpmux {b_acpmux} in {B_ACPMUX}; A acpmux now {a_acpmux_2} (was {a_acpmux})")
     wait(lambda: b.chief_row(), 60)
     b_shown = b.shown()
     sockets = {h: os.path.exists(os.path.join(h, "optchat", "tools.sock")) for h in (NIGHTLY_HOME, B_HOME)}
     say(f"step 2: B brain {b_brain} on {B_HOME}; A brain {brain_pid(NIGHTLY_HOME)}; B shows {len(b_shown)} messages;"
         f" M0 in B: {any(t == m0 for _, t in b_shown)}; tools sockets {sockets}; memory M0 in B {memory_count(B_HOME, m0)}")
+    b_owner = wait(b.owner, 60)
+    a_owner_2 = a.owner()
+    b_state = os.path.join(B_STATE, "tui")
+    say(f"step 2: B owner {b_owner} (want session {B_SESSION}); B control socket {B_SOCKET} answers:"
+        f" {b.answers()}; B state dir {b_state} exists {os.path.isdir(b_state)};"
+        f" A owner now {a_owner_2} (was {a_owner})")
     if not (b_brain and b_brain != a_brain and not any(t == m0 for _, t in b_shown) and all(sockets.values())
-            and memory_count(B_HOME, m0) <= 0):
+            and memory_count(B_HOME, m0) <= 0
+            and b_acpmux and a_acpmux_2 == a_acpmux and b_acpmux[0] != (a_acpmux or (0,))[0]
+            and b_owner and b_owner[0] == B_SESSION and b_owner[1] and b_owner[1] != (a_owner or (0, 0))[1]
+            and a_owner_2 == a_owner and b.answers() and a.answers() and os.path.isdir(b_state)):
         failed = failed or 2
     # 3. B quits; A's brain is untouched and answers
     b.quit(B_HOME)
+    acpmux_shutdown(b, B_ACPMUX)
     after = brain_pid(NIGHTLY_HOME)
+    a_acpmux_3 = acpmux_daemon(a, A_ACPMUX)
     replied = a.send(m1)
-    say(f"step 3: after B quit, A brain {after} (was {a_brain}, alive {bool(a_brain) and alive(a_brain)}); A replied {replied}")
-    if not (after == a_brain and alive(a_brain) and replied):
+    a_owner_3 = a.owner()
+    say(f"step 3: after B quit, A brain {after} (was {a_brain}, alive {bool(a_brain) and alive(a_brain)}); A replied {replied};"
+        f" A acpmux {a_acpmux_3} (was {a_acpmux}); A owner {a_owner_3} (was {a_owner});"
+        f" A control socket answers {a.answers()}")
+    if not (after == a_brain and alive(a_brain) and replied and a_acpmux_3 == a_acpmux
+            and a_owner_3 == a_owner and a.answers()):
         failed = failed or 3
 except SystemExit:
     pass
@@ -236,6 +372,18 @@ finally:
         a.quit(NIGHTLY_HOME)
     if b and b.proc and b.proc.poll() is None:
         b.quit(B_HOME)
+    # The apps' own acpmux daemons (quitEndSessions ends them; this is the backstop).
+    acpmux_shutdown(a, A_ACPMUX)
+    if b:
+        acpmux_shutdown(b, B_ACPMUX)
+    if b and b_owned:
+        # B's own owner daemon (its per-key session, absent before B started), if
+        # quitEndSessions left it, and the state it wrote under its key.
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
+        subprocess.run([b.cli, "server", "stop", "--session", B_SESSION, "--end-terminals"], env=env,
+                       capture_output=True, timeout=60)
+        if b_state_new:
+            shutil.rmtree(B_STATE, ignore_errors=True)
     # Nothing of the run stays: the B copy and the temp homes with their memory.
     shutil.rmtree(SCRATCH, ignore_errors=True)
     say("result", "PASS" if failed == 0 else f"FAIL {failed}")

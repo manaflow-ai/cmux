@@ -41,7 +41,7 @@ struct AcpmuxBundleReplacedTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.copyItem(at: binary, to: bin.appendingPathComponent("acpmux"))
         func environment() throws -> AcpmuxEnvironment {
-            try #require(AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
+            try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin,
                                                    environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket],
                                                    executableOverride: nil))
         }
@@ -76,7 +76,7 @@ struct AcpmuxBundleReplacedTests {
         var pathLength: Int32 = 0
         if case .success(let (_, after?)) = pids { pathLength = proc_pidpath(after, &path, UInt32(path.count)) }
         // Whatever failed, every daemon this test started ends with it.
-        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, deadline: .seconds(10))
+        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, deadline: .seconds(10))
         guard case .success(let (before, after)) = pids, let pid = after else {
             Issue.record("\(step) failed: \(pids)\n--- daemon.log\n\(log)")
             return

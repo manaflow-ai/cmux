@@ -25,7 +25,7 @@ struct AcpmuxCrashRestartTests {
             try "#!/bin/sh\ntouch '\(root.path)/launched'\nexit 1\n".write(to: acpmux, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: acpmux.path)
             environment = try #require(AcpmuxEnvironment.resolve(
-                tag: nil, bundledBinDirectory: bin,
+                build: nil, bundledBinDirectory: bin,
                 environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": home.appendingPathComponent("s.sock").path],
                 executableOverride: nil
             ))

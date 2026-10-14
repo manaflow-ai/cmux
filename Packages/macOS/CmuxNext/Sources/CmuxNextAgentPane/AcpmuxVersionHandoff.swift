@@ -42,8 +42,8 @@ nonisolated enum AcpmuxVersionHandoff {
     /// in place after the daemon started (update-dev-daily.sh renames the old bundle aside and
     /// deletes it; a reinstall), so it is an earlier install of this app. The server peer check
     /// refuses it whatever its build, since its executable is not the bundled one, and every chat
-    /// would say acpmux did not start (cx-ame2k). Another install's daemon (NIGHTLY and Release
-    /// share `~/.acpmux`) runs a file that still exists.
+    /// would say acpmux did not start (cx-ame2k). Another install's daemon (another
+    /// copy of the same build, or an older build on `~/.acpmux`) runs a file that still exists.
     static func replaced(pid: Int32) -> Bool {
         guard kill(pid, 0) == 0 else { return false }
         guard let path = executablePath(pid: pid) else { return true }
@@ -110,7 +110,7 @@ nonisolated enum AcpmuxVersionHandoff {
         guard handedOff.withLock({ $0.insert(bundled ?? "pid \(pid)").inserted }) else { return false }
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         do {
-            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath)
+            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
             logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
             return false

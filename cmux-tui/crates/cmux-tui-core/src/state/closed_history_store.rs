@@ -196,31 +196,15 @@ pub(crate) fn queue_change(transaction: &Transaction<'_>, change: &Value) -> any
     Ok(())
 }
 
-/// Queue many changes as one row (a JSON array; [`drain_pending_changes`]
-/// flattens it), so a commit that restates every placement is not one
-/// insert per change. Only inside a commit that journals (drains) them in
-/// the same transaction: an older binary drains one change per row.
-pub(crate) fn queue_changes(
-    transaction: &Transaction<'_>,
-    changes: &[Value],
-) -> anyhow::Result<()> {
-    if changes.is_empty() {
-        return Ok(());
-    }
-    transaction.execute(
-        "INSERT INTO state_pending_changes(change_json) VALUES(?1)",
-        [serde_json::to_string(changes)?],
-    )?;
-    Ok(())
-}
-
 /// Move queued state changes into `changes` (a journal batch array).
+/// Returns the placement shift the queued markers name
+/// ([`super::placement_shift`]); markers are not changes.
 pub(crate) fn drain_pending_changes(
     transaction: &Transaction<'_>,
     changes: &mut Value,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<super::placement_shift::PlacementShift>> {
     if !super::store::state_tables_ready(transaction)? {
-        return Ok(());
+        return Ok(None);
     }
     let queued = {
         let mut statement = transaction
@@ -228,9 +212,10 @@ pub(crate) fn drain_pending_changes(
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     if queued.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     transaction.execute("DELETE FROM state_pending_changes", [])?;
+    let mut shift = None;
     if let Some(array) = changes.as_array_mut() {
         for change in queued {
             let queued: Value = serde_json::from_str(&change)?;
@@ -239,12 +224,16 @@ pub(crate) fn drain_pending_changes(
                 change => vec![change],
             };
             for mut change in batch {
+                if let Some(marker) = super::placement_shift::marker(&change) {
+                    super::placement_shift::merge(&mut shift, marker);
+                    continue;
+                }
                 change["sequence"] = json!(array.len());
                 array.push(change);
             }
         }
     }
-    Ok(())
+    Ok(shift)
 }
 
 pub(super) fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyhow::Result<bool> {
@@ -539,6 +528,53 @@ pub(crate) fn record_ungrouped_group(
     insert_record(transaction, new_closed_id(), Vec::new(), window, Some(extra))
 }
 
+/// Close of a whole tab group: `archive` (as [`record_ungrouped_group`]
+/// takes it, naming the closed tabs) rides on the group that recorded its
+/// tabs, so reopening them forms the group again. Nothing recorded them
+/// (an incognito workspace): nothing to attach.
+pub(crate) fn attach_closed_tab_group(
+    transaction: &Transaction<'_>,
+    archive: &Value,
+) -> anyhow::Result<()> {
+    let Some(first) = archive["tab_ids"].get(0).and_then(Value::as_str) else { return Ok(()) };
+    if !super::store::state_tables_ready(transaction)? {
+        return Ok(());
+    }
+    let found = transaction
+        .query_row(
+            "SELECT g.closed_id, g.record_json FROM closed_groups AS g
+             WHERE EXISTS (SELECT 1 FROM json_each(g.record_json, '$.members') AS m
+                           WHERE json_extract(m.value, '$.tab_id') = ?1)
+             ORDER BY g.seq DESC LIMIT 1",
+            [first],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    let Some((closed_id, record)) = found else { return Ok(()) };
+    let mut record: Value = serde_json::from_str(&record)?;
+    // Only the group this close recorded holds every one of its tabs.
+    let recorded = record["members"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|member| member["tab_id"].as_str())
+        .collect::<HashSet<_>>();
+    if !archive["tab_ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .all(|tab| tab.as_str().is_some_and(|tab| recorded.contains(tab)))
+    {
+        return Ok(());
+    }
+    record["tab_group"] = archive.clone();
+    transaction.execute(
+        "UPDATE closed_groups SET record_json = ?2 WHERE closed_id = ?1",
+        params![closed_id, serde_json::to_string(&record)?],
+    )?;
+    queue_change(transaction, &state_upsert("closed", &closed_id, public_item(&record)))
+}
+
 /// A new closed group id.
 pub(crate) fn new_closed_id() -> String {
     format!("closed_{}", new_uuid_v4().replace('-', ""))
@@ -775,6 +811,8 @@ fn tab_member(
     let Some(tab) = tab_record(transaction, tab_id)? else { return Ok(None) };
     Ok(Some(json!({
         "kind": "tab",
+        // The closed tab's id: a closed tab group names its tabs by it.
+        "tab_id": tab_id,
         "name": tab["name"],
         "workspace_id": workspace_id,
         "pane_id": pane_id,
