@@ -23,7 +23,7 @@ import Testing
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 
-    @Test func aNewWorkspacesLoneChatMountsWithoutItsStrip() throws {
+    @Test func aNewWorkspacesLoneChatMountsWithoutItsStrip() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -46,6 +46,13 @@ import Testing
 
         // What the first committed frame shows: no observation turn has run yet.
         let pane = try #require(content.paneController(key: workspace.screens[0].panes[0].id))
-        #expect(pane.view.hidesStrip, "the lone chat mounted with a tab strip that a later turn removes")
+        let first = pane.view.hidesStrip
+        let chrome = ChatDockChrome.hidesStrip(pane, tabCount: 1)
+        let screen = content.layoutModel.screen(containing: pane.layoutPaneID)
+        // The settled state, after the pane's own observation has run.
+        try await Task.sleep(for: .milliseconds(300))
+        let settled = pane.view.hidesStrip
+        #expect(settled, "the lone chat keeps its strip even once settled: chrome=\(chrome) kind=\(pane.tabBarKind) screen=\(String(describing: screen?.layout)) supports=\(services.daemon.supports(DaemonCapabilities.shared.dockColumnRole))")
+        #expect(first == settled, "the lone chat mounted with a tab strip that a later turn removes")
     }
 }
