@@ -24,8 +24,8 @@ import Testing
         let backdrop: WindowMaterialView
         var video: BackdropVideoView { backdrop.videoView }
 
+        /// Closes the window as the app does: the views stay in it.
         func close() {
-            backdrop.removeFromSuperview()
             window.close()
         }
     }
