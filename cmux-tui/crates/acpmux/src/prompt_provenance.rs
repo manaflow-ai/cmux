@@ -46,6 +46,15 @@ pub fn origin_refused() -> RpcError {
     )
 }
 
+/// The refusal for `_acpmux/prompt_withdraw` over any connection but the unix socket: only the
+/// socket that may say an agent sent a message may take one back (`hub/withdraw.rs`).
+pub fn withdraw_origin_refused() -> RpcError {
+    refusal(
+        "withdraw.origin_refused",
+        "withdrawing an agent message is accepted only over the local unix socket",
+    )
+}
+
 /// The provenance of a `session/prompt`'s `params`, with only the fields above: `None` when
 /// absent or null. `local`: the prompt came over the unix socket.
 pub fn of(params: &Value, local: bool) -> Result<Option<Value>, RpcError> {

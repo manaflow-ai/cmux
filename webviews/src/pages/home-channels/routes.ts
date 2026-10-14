@@ -15,7 +15,7 @@ export type HomeRoute =
   | { kind: "editChief"; chief: string }
   | { kind: "archiveChief"; chief: string };
 
-const ID = "[A-Za-z0-9_]+";
+const ID = "[A-Za-z0-9_-]+";
 const PATTERNS: readonly [RegExp, (match: RegExpExecArray) => HomeRoute][] = [
   [/^#\/new\/message\/?$/, () => ({ kind: "newMessage" })],
   [/^#\/new\/chief\/?$/, () => ({ kind: "newChief" })],

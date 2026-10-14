@@ -38,6 +38,13 @@ export type AutomationSettings = {
   readonly agent_run_default_seconds: number | null
 }
 
+/** A stored avatar: its SHA-256, its media type (from the bytes) and its size. */
+export type AvatarRef = {
+  readonly sha256: string
+  readonly media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+  readonly bytes: number
+}
+
 export type Body = {
   readonly type: "agent_prompt"
   readonly instructions: string
@@ -2587,6 +2594,36 @@ export interface CloudOps {
       }>
     }
   }
+  /** A participant's avatar with its bytes, or null. Any signed-in caller may read it (like a display name). */
+  readonly "participant.avatar.get": {
+    readonly params: {
+      readonly participant_id: ParticipantId
+    }
+    readonly result: {
+      readonly participant_id: ParticipantId
+      readonly avatar: {
+        readonly sha256: string
+        readonly media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+        readonly bytes: number
+        /** The image, base64. */
+        readonly data: string
+      } | null
+    }
+  }
+  /** Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's. */
+  readonly "participant.avatar.set": {
+    readonly params: {
+      readonly participant_id: ParticipantId
+      /** The image, base64; at most 1048576 decoded bytes; PNG, JPEG, GIF or WebP by its signature. */
+      readonly bytes?: string
+      /** true removes the picture (no bytes). */
+      readonly clear?: boolean
+    }
+    readonly result: {
+      readonly participant_id: ParticipantId
+      readonly avatar: AvatarRef | null
+    }
+  }
   /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "participants.add": {
     readonly params: {
@@ -3442,6 +3479,8 @@ export const cloudOpMeta = {
   "mux.ack": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
   "mux.configure": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
   "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "participant.avatar.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "participant.avatar.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "participants.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "participants.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
   "push.target.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },

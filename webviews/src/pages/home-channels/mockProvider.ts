@@ -703,6 +703,9 @@ export class MockHomeProvider implements PageClient {
         } as R;
       case "cmux.chief.profile.create": {
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        // The gallery reads what the sheet sent (which grant fields it named).
+        if (typeof document !== "undefined")
+          document.documentElement.dataset.mockChiefCreate = Object.keys(params).sort().join(",");
         const made = this.addChief(String(params.display_name), {
           role: String(params.role ?? ""),
           personality: String(params.personality ?? ""),

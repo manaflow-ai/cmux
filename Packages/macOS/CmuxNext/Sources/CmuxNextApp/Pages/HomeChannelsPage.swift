@@ -29,7 +29,7 @@ extension PageFactory {
         let routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief))]
         guard let page = PageWebView(descriptor: .homeChannels, routes: routes, surface: .home) else { return nil }
-        services.home.homeDidOpen()
+        services.home.homeDidOpen(asked: true)
         return page
     }
 }
