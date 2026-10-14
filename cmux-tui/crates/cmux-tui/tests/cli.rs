@@ -3686,6 +3686,9 @@ mod command_history;
 #[path = "cli/conversation_threads.rs"]
 mod conversation_threads;
 #[cfg(unix)]
+#[path = "cli/conversation_tree.rs"]
+mod conversation_tree;
+#[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
 #[cfg(unix)]
