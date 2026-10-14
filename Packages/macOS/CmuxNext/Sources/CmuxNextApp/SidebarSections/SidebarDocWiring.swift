@@ -17,11 +17,11 @@ enum SidebarDocWiring {
 
     static func start(_ services: AppServices, layout: SidebarLayoutService) {
         let local = services.machines.local, machines = services.machines
-        let serves = { local.supports(DaemonCapabilities.shared.sidebarDoc) }
+        let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.shared.sidebarDoc) }
         let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
         SidebarDocStore.current = store
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
-        store.onUndoable = { [weak services] title, undo in
+        store.onUndoable = { [weak services] (title: String, undo: @escaping @MainActor () -> Void) in
             guard let services else { return }
             PinCommands(context: AppActionContext(services: services)).registerUndo(title: title) { _ in undo() }
         }

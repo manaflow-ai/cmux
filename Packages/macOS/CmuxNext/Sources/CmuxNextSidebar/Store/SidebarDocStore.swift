@@ -26,10 +26,10 @@ public final class SidebarDocStore {
     @ObservationIgnored private let mirror: SidebarMirror?
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
     /// A refusal or failure to show (the refusal HUD).
-    @ObservationIgnored public var onRefused: (String) -> Void = { _ in }
+    @ObservationIgnored public var onRefused: @MainActor (String) -> Void = { _ in }
     /// A user's move that can be undone: the title and the undo. The App
     /// puts it on its undo surface (the toast and Cmd-Z).
-    @ObservationIgnored public var onUndoable: (String, @escaping @MainActor () -> Void) -> Void = { _, _ in }
+    @ObservationIgnored public var onUndoable: @MainActor (String, @escaping @MainActor () -> Void) -> Void = { _, _ in }
     @ObservationIgnored private var loading = false
     /// The last projection (`projection(live:)`), by version and live set.
     @ObservationIgnored var projectionCache: (version: UInt64, live: [SidebarDocWorkspaceRef], projection: SidebarDocProjection)?
