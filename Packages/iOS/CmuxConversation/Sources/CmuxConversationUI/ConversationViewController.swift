@@ -90,6 +90,8 @@ public final class ConversationViewController: UIViewController {
     /// pass over a long transcript is a sum instead of a walk over row models.
     private var rowMetrics: [RowMetrics] = []
     private var rowMetricsKey: (width: CGFloat, margin: CGFloat) = (0, 0)
+    /// When the layout pass in progress began (DEBUG probe; 0 when off).
+    private var layoutPrepareStart: CFTimeInterval = 0
     /// Rows whose insertion should use a specific appearance on the next update.
     var appearances: [String: ConversationTranscriptLayout.Appearance] = [:]
     /// Outgoing rows hidden while their send animation flies.
@@ -666,6 +668,9 @@ public final class ConversationViewController: UIViewController {
     // MARK: Rows
 
     private func storeDidChange(_ change: ConversationStoreChange) {
+        let probeStart = probeClock()
+        probeChange(change)
+        defer { probeSection(.storeDidChange, since: probeStart) }
         detailsController?.storeDidChange(change)
         switch change {
         case .connection:
@@ -744,6 +749,8 @@ public final class ConversationViewController: UIViewController {
     /// it was built (live changes held meanwhile are not in it).
     /// `fullBuild` skips the page splice (see `storeDidChange`).
     private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?, builtFrom: RowsBase?, fullBuild: Bool = false) {
+        let probeStart = probeClock()
+        defer { probeSection(.rebuild, since: probeStart) }
         rebuildSerial &+= 1
         if store.hasLoadedNewest, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
@@ -754,6 +761,7 @@ public final class ConversationViewController: UIViewController {
         var tail: ConversationTailRows?
         let builtFrom = builtFrom ?? RowsBase(revision: store.transcriptRevision, statusMessageID: ConversationRowBuilder.statusMessageID(store: store))
         let newRows: [ConversationRow]
+        let probeBuild = probeClock()
         if let measured {
             newRows = measured
         } else if isLiveOrTyping(change), hasPositionedInitially, let base = rowsBase, rowIDs.count == rows.count,
@@ -775,6 +783,7 @@ public final class ConversationViewController: UIViewController {
             newRows = ConversationRowBuilder.rows(store: store, memo: rowMemo)
             generation = rowMemo.generation
         }
+        if measured == nil { probeSection(.build, since: probeBuild) }
         if measured == nil, change == .prepended, measureAhead(newRows, splice: splice, generation: generation, builtFrom: builtFrom) { return }
         apply(newRows, change: change, splice: splice, tail: tail, generation: generation)
         rowsBase = builtFrom
@@ -803,6 +812,8 @@ public final class ConversationViewController: UIViewController {
         let width = collectionView.bounds.width
         let margin = layoutMargin
         guard hasPositionedInitially, width > 0 else { return false }
+        let probeStart = probeClock()
+        defer { probeSection(.measureAhead, since: probeStart) }
         var fresh: [MessageRowModel] = []
         // Rows taken unchanged from the transcript are not new.
         for row in newRows[..<(splice?.reused.lowerBound ?? newRows.count)] {
@@ -830,7 +841,9 @@ public final class ConversationViewController: UIViewController {
                 return MeasuredBatch(items: result)
             }.value
             guard let self else { return }
+            let probeStart = self.probeClock()
             self.layoutCache.adopt(measured.items, width: width, margin: margin)
+            self.probeSection(.measured, since: probeStart)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
             let held = self.liveGate.finishMeasuring()
@@ -912,10 +925,12 @@ public final class ConversationViewController: UIViewController {
     }
 
     private func restore(_ anchor: Anchor?) {
-        guard let anchor, let index = rowIndex[anchor.rowID], let bubbleTop = bubbleTop(at: index) else { return }
+        guard let anchor else { return probeRestore("miss") }
+        guard let index = rowIndex[anchor.rowID], let bubbleTop = bubbleTop(at: index) else { return probeRestore("lost") }
         var offset = collectionView.contentOffset
         offset.y = bubbleTop - anchor.offsetFromTop
         collectionView.contentOffset = offset
+        probeRestore(String(format: "y=%.1f", collectionView.contentOffset.y))
     }
 
     /// What an update changes, in old and new row positions.
@@ -1108,6 +1123,8 @@ public final class ConversationViewController: UIViewController {
     }
 
     private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange, splice: ConversationPrependRows? = nil, tail: ConversationTailRows? = nil, generation: Int? = nil) {
+        let probeStart = probeClock()
+        defer { probeSection(.apply, since: probeStart) }
         let oldIDs = rowIDs
         prefetchedRange = 0..<0
 
@@ -1136,9 +1153,11 @@ public final class ConversationViewController: UIViewController {
 
         // Rows a memo pass copied from the pass on screen need no comparison.
         let unchanged = generation == rowMemo.generation ? rowMemo.unchangedRowIDs : []
+        let probeDiff = probeClock()
         let diff = splice.flatMap { prependDiff(newRows, splice: $0) }
             ?? tail.flatMap { tailDiff(newRows, tail: $0) }
             ?? diff(newRows, unchanged: tail == nil ? unchanged : [])
+        probeSection(.diff, since: probeDiff)
         if let tail {
             // Rows rebuilt outside a memo pass replace what the memo holds
             // (the rows from the cut on came from a pass, which the memo
@@ -1254,6 +1273,7 @@ public final class ConversationViewController: UIViewController {
         // pinned scroll, an anchor restore) is not UIKit's motion; the
         // deceleration fill is told after (see `ConversationDecelerationFill`).
         let offsetBefore = collectionView.contentOffset.y
+        let probeBatch = probeClock()
         if animateLive, sentByMe, !wasAtBottom {
             // Far from the bottom, jump there first so the send never animates
             // through unloaded history (which would flash blank frames).
@@ -1305,6 +1325,7 @@ public final class ConversationViewController: UIViewController {
             }
             glideRegrouped(from: screenBefore)
         }
+        probeSection(.batch, since: probeBatch)
         decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore)
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
         popArrivals()
@@ -1586,6 +1607,13 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     public func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let probeStart = probeClock()
+        let cell = makeCell(collectionView, at: indexPath)
+        if probeStart > 0 { probeCell(rows[indexPath.item], since: probeStart) }
+        return cell
+    }
+
+    private func makeCell(_ collectionView: UICollectionView, at indexPath: IndexPath) -> UICollectionViewCell {
         switch rows[indexPath.item] {
         case let .message(model):
             let cellLayout = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin)
@@ -1766,6 +1794,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     func transcriptIndex(ofItemID id: String) -> Int? { rowIndex[id] }
 
     func transcriptWillPrepare(width: CGFloat) {
+        layoutPrepareStart = probeClock()
         let margin = layoutMargin
         if rowMetricsKey.width != width || rowMetricsKey.margin != margin {
             rowMetricsKey = (width, margin)
@@ -1773,6 +1802,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         } else if rowMetrics.count != rows.count {
             invalidateRowMetrics()
         }
+    }
+
+    func transcriptDidPrepare() {
+        if layoutPrepareStart > 0 { probeSection(.layoutPrepare, since: layoutPrepareStart) }
     }
 
     func transcriptHeight(at index: Int, width: CGFloat) -> CGFloat {
