@@ -11,11 +11,15 @@ Every drag goes through `debug.mouse` (lift, held moves, drop), never a
 command. Each step prints PASS/FAIL/SKIP with its evidence: the sidebar rows
 and band items (`debug.sidebar_rows`), the mirror's FFI call counts by entry
 (two per drag: `drag_begin` and the drop's `intent`) and the refusal HUD.
-Steps: a workspace into Pinned at index 1; a group into Pinned; a group into a
-custom section; a pinned tile back into the list at the drop index; a link
-item into the list; a cross-machine drop (refused; SKIP without a second
+Steps: a workspace into Pinned at index 1; a group into Pinned (it lists as
+its header and member rows under the tiles, and collapses and opens by a click
+on its header); a group into a custom section; a pinned tile back into the
+list at the drop index; a link item into the list (it lists as a row, and a
+click opens its page); a cross-machine drop (refused; SKIP without a second
 machine); Cmd-Z after each step (the undo toast's path); the order after a
-relaunch. Exit 1 when any step FAILs.
+relaunch. Each held drag also checks the drop look `debug.sidebar_rows`
+reports (`drop.indicator`: `line` over the band, `gap` or `into` in a list
+section): one indicator system for every section. Exit 1 when any step FAILs.
 """
 import argparse, json, os, socket, subprocess, sys, tempfile, time
 
@@ -122,12 +126,17 @@ def center(frame):
     return frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
 
 
-def drag(frm, to, label):
-    """One held drag through debug.mouse; returns the FFI calls it made."""
+def drag(frm, to, label, indicator=None):
+    """One held drag through debug.mouse; returns the FFI calls it made.
+    `indicator`: the drop look the held drag must report (`line`, `gap`, `into`)."""
     before = ffi()
     rpc("debug.mouse", {"x": frm[0], "y": frm[1], "action": "drag", "to_x": to[0], "to_y": to[1], "steps": 16, "release": False})
     time.sleep(0.4)  # test harness: hold so the drop indicator shows
     shot(label + "-held")
+    held = window().get("drop") or {}
+    if indicator:
+        record(f"{label}: drop indicator == {indicator}", held.get("indicator") == indicator,
+               f"drop={ {k: held.get(k) for k in ('indicator', 'row', 'target', 'refusal')} }")
     during = ffi()
     rpc("debug.mouse", {"x": to[0], "y": to[1], "action": "up"})
     time.sleep(1.2)  # test harness: let the move land
@@ -195,7 +204,7 @@ try:
     if alpha and len(pinned) >= 2:
         first = pinned[0]["window_frame"]
         to = (first["x"] + first["width"] * 0.8, first["y"] + first["height"] / 2)
-        drag(center(alpha["window_frame"]), to, "v2-1-workspace-into-pinned")
+        drag(center(alpha["window_frame"]), to, "v2-1-workspace-into-pinned", indicator="line")
         order = [i.get("ref") for i in section_items("sec_pinned")]
         tiles = [i.get("ref") for i in pinned]
         record("workspace into Pinned at index 1",
@@ -212,11 +221,40 @@ try:
     group = next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("group")), None)
     pinned = section_items("sec_pinned")
     if group and pinned:
+        group_id = group.get("group")
         last = pinned[-1]["window_frame"]
-        drag(center(group["window_frame"]), (last["x"] + last["width"] * 0.8, last["y"] + last["height"] / 2), "v2-2-group-into-pinned")
-        kinds = [i.get("ref_kind") for i in section_items("sec_pinned")]
-        record("group into Pinned", "group" in kinds, f"pinned kinds={kinds} list={list_titles()}")
-        undo("group into Pinned", lambda: "group" not in [i.get("ref_kind") for i in section_items("sec_pinned")])
+        drag(center(group["window_frame"]), (last["x"] + last["width"] * 0.8, last["y"] + last["height"] / 2), "v2-2-group-into-pinned",
+             indicator="line")
+
+        def pinned_group():
+            """The group as a list section under the band: its header and Delta, above every machine row."""
+            listed = window().get("rows", [])
+            header = next((r for r in listed if str(r.get("key", "")).startswith("group") and r.get("group") == group_id), None)
+            delta = by_title("Delta")
+            loose = [r for r in listed if r.get("title") and not r.get("group")]
+            if not header or not delta or not loose:
+                return None
+            top = min(r["window_frame"]["y"] for r in loose)
+            return header if header["window_frame"]["y"] < top and delta["window_frame"]["y"] < top and delta.get("group") == group_id else None
+
+        header = wait(pinned_group, 5)
+        record("group into Pinned lists header and members under the tiles", bool(header),
+               f"rows={[(r.get('key'), r.get('title'), r.get('group')) for r in window().get('rows', [])]}")
+        alpha = by_title("Alpha")
+        if header and alpha:
+            # Alpha is the selection, so the collapsed group keeps no member row (a collapsed group lists its active member).
+            rpc("debug.mouse", {"x": center(alpha["window_frame"])[0], "y": center(alpha["window_frame"])[1], "action": "click"})
+            time.sleep(0.5)  # test harness: let the selection land
+            rpc("debug.mouse", {"x": center(header["window_frame"])[0], "y": center(header["window_frame"])[1], "action": "click"})
+            collapsed = wait(lambda: by_title("Delta") is None, 5)
+            shot("v2-2-group-in-pinned-collapsed")
+            header = wait(pinned_group, 1) or next((r for r in window().get("rows", []) if r.get("group") == group_id), header)
+            rpc("debug.mouse", {"x": center(header["window_frame"])[0], "y": center(header["window_frame"])[1], "action": "click"})
+            opened = wait(lambda: by_title("Delta") is not None, 5)
+            record("group in Pinned collapses and opens", bool(collapsed) and bool(opened), f"collapsed={bool(collapsed)} opened={bool(opened)}")
+        else:
+            record("group in Pinned collapses and opens", False, f"header={bool(header)} alpha={bool(alpha)}")
+        undo("group into Pinned", lambda: not pinned_group())
     else:
         record("group into Pinned", False, f"no group row or no Pinned tile: group={group} pinned={pinned}")
 
@@ -230,9 +268,19 @@ try:
     group2 = next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("group") and r.get("title") == "Grp2"), None)
     target = (work or header or {}).get("window_frame")
     if group2 and target:
-        drag(center(group2["window_frame"]), center(target), "v2-3-group-into-custom")
-        record("group into a custom section", "Grp2" not in list_titles(), f"list={list_titles()} items={[(i.get('section'), i.get('ref')) for i in items()]}")
-        undo("group into a custom section", lambda: "Grp2" in list_titles())
+        group2_id = group2.get("group")
+
+        def in_custom():
+            """Grp2 lists under the band: its header above every machine row (a group of a custom section)."""
+            listed = window().get("rows", [])
+            header = next((r for r in listed if str(r.get("key", "")).startswith("group") and r.get("group") == group2_id), None)
+            loose = [r for r in listed if r.get("title") and not r.get("group")]
+            return bool(header and loose and header["window_frame"]["y"] < min(r["window_frame"]["y"] for r in loose))
+
+        drag(center(group2["window_frame"]), center(target), "v2-3-group-into-custom", indicator="line")
+        record("group into a custom section", bool(wait(in_custom, 5)),
+               f"rows={[(r.get('key'), r.get('title'), r.get('group')) for r in window().get('rows', [])]}")
+        undo("group into a custom section", lambda: not in_custom())
     else:
         record("group into a custom section", False, f"no Work section frame in debug.sidebar_rows or no Grp2 row: group2={group2}")
 
@@ -242,7 +290,7 @@ try:
     if pinned and echo and fox:
         tile = pinned[0]
         gap_y = (echo["window_frame"]["y"] + echo["window_frame"]["height"] + fox["window_frame"]["y"]) / 2
-        drag(center(tile["window_frame"]), (fox["window_frame"]["x"] + 40, gap_y), "v2-4-tile-into-list")
+        drag(center(tile["window_frame"]), (fox["window_frame"]["x"] + 40, gap_y), "v2-4-tile-into-list", indicator="gap")
         titles = list_titles()
         moved = "Beta"  # the first tile: pinned first, and steps 1-3 keep it first
         ok = moved in titles and titles.index(moved) == titles.index("Foxtrot") - 1 if moved in titles and "Foxtrot" in titles else False
@@ -257,9 +305,16 @@ try:
     link = next((i for i in items() if i.get("ref_kind") == "url"), None)
     alpha = by_title("Alpha")
     if link and alpha:
-        drag(center(link["window_frame"]), (alpha["window_frame"]["x"] + 40, alpha["window_frame"]["y"] + 2), "v2-5-link-into-list")
-        record("link item into the list", not any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")),
-               f"items={[(i.get('section'), i.get('ref_kind')) for i in items()]} list={list_titles()}")
+        drag(center(link["window_frame"]), (alpha["window_frame"]["x"] + 40, alpha["window_frame"]["y"] + 2), "v2-5-link-into-list",
+             indicator="gap")
+        row = wait(lambda: next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("item") and r.get("in_list")), None), 5)
+        record("link item into the list lists as a row", bool(row) and not any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")),
+               f"row={row and (row.get('key'), row.get('window_frame'))} items={[(i.get('section'), i.get('ref_kind')) for i in items()]}")
+        if row:
+            rpc("debug.mouse", {"x": center(row["window_frame"])[0], "y": center(row["window_frame"])[1], "action": "click"})
+            opened = wait(lambda: "example.com" in json.dumps(rpc("debug.surfaces") or {}), 15)
+            shot("v2-5-link-opened")
+            record("link row in the list opens its page", bool(opened), "debug.surfaces names example.com" if opened else "no example.com surface")
     else:
         record("link item into the list", False, f"no url item after sidebar.item.add (link={link})", skip=link is None)
 
@@ -275,7 +330,7 @@ try:
     time.sleep(0.8)  # test harness: let the filtered list lay out
     echo, fox = by_title("Echo"), by_title("Foxtrot")
     if echo and fox:
-        drag(center(fox["window_frame"]), (echo["window_frame"]["x"] + 40, echo["window_frame"]["y"] + 2), "v2-6-reorder-filtered")
+        drag(center(fox["window_frame"]), (echo["window_frame"]["x"] + 40, echo["window_frame"]["y"] + 2), "v2-6-reorder-filtered", indicator="gap")
         rpc("debug.sidebar_filter", {"text": ""})
         time.sleep(0.8)  # test harness: let the full list lay out
         titles = list_titles()
