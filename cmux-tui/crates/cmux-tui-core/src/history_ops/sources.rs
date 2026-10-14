@@ -7,20 +7,32 @@ use serde_json::Value;
 
 use super::trail::TrailEntry;
 
+/// The closed items worth reopening as entries, newest first, one per thing: an item closed
+/// again (the same page, folder or workspace) shows once, at its newest close (Leo
+/// 2026-10-14: Recently Closed is high signal).
+pub(super) fn closed_entries(items: &[Value]) -> Vec<HistoryEntry> {
+    let mut entries = items.iter().filter_map(closed_entry).collect::<Vec<_>>();
+    entries.sort_by(|a, b| b.at_ms.cmp(&a.at_ms));
+    let mut seen = std::collections::HashSet::new();
+    entries.retain(|entry| {
+        seen.insert((entry.closed_kind, entry.title.clone(), entry.url.clone(), entry.cwd.clone()))
+    });
+    entries
+}
+
 /// One closed-history item (`closed.list` shape) as an entry
 /// `closed:daemon:<closed id>`. An item that reopens as nothing (only tabs
 /// `closed.list` marks `empty`: untouched New Tab pages, blank browsers) is
-/// left out, and a row is named by its first other tab, never by the
-/// `about:blank` placeholder a chat or New Tab page is kept on (Leo
-/// 2026-10-11).
-pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
+/// left out, a tab group and a window too (Leo 2026-10-14: a window of New
+/// Tab pages listed as "workspace-35"), and a row is named by its first
+/// other tab, never by the `about:blank` placeholder a chat or New Tab page
+/// is kept on (Leo 2026-10-11).
+fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     let id = item.get("id")?.as_str()?;
     let at_ms = decimal(item.get("closed_at_ms")?)?;
     let tabs = closed_tabs(item);
     let empty = |tab: &&Value| tab.get("empty").and_then(Value::as_bool) == Some(true);
-    let kept = !item.get("group").is_none_or(Value::is_null)
-        || item.get("kind").and_then(Value::as_str) == Some("window");
-    if !kept && tabs.iter().all(empty) {
+    if tabs.iter().all(empty) {
         return None;
     }
     let tab = tabs.iter().find(|tab| !empty(tab)).or(tabs.first()).copied();
