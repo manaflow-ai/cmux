@@ -1,3 +1,4 @@
+import ObjectiveC
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
@@ -25,10 +26,43 @@ import Testing
     }
 
     static let npDiag: Void = {
+        func say(_ s: String) { FileHandle.standardError.write(Data(("NPDIAG " + s + "\n").utf8)) }
         atexit { FileHandle.standardError.write(Data(("NPDIAG atexit\n" + Thread.callStackSymbols.joined(separator: "\n") + "\n").utf8)) }
-        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
-            FileHandle.standardError.write(Data(("NPDIAG willTerminate\n" + Thread.callStackSymbols.joined(separator: "\n") + "\n").utf8))
+        for name in ["stop:", "terminate:", "stopModal", "abortModal", "stopModalWithCode:"] {
+            let sel = NSSelectorFromString(name)
+            guard let method = class_getInstanceMethod(NSApplication.self, sel) else { say("no \(name)"); continue }
+            let original = method_getImplementation(method)
+            if name.hasSuffix(":") {
+                typealias F = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
+                let call = unsafeBitCast(original, to: F.self)
+                let block: @convention(block) (AnyObject, AnyObject?) -> Void = { me, arg in
+                    say("NSApp \(name)\n" + Thread.callStackSymbols.joined(separator: "\n"))
+                    call(me, sel, arg)
+                }
+                method_setImplementation(method, imp_implementationWithBlock(block))
+            } else {
+                typealias F = @convention(c) (AnyObject, Selector) -> Void
+                let call = unsafeBitCast(original, to: F.self)
+                let block: @convention(block) (AnyObject) -> Void = { me in
+                    say("NSApp \(name)\n" + Thread.callStackSymbols.joined(separator: "\n"))
+                    call(me, sel)
+                }
+                method_setImplementation(method, imp_implementationWithBlock(block))
+            }
         }
+        var depth = 0
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.entry.rawValue | CFRunLoopActivity.exit.rawValue, true, -1_000_000) { _, activity in
+            if activity == .entry { depth += 1; return }
+            depth -= 1
+            if depth <= 0 {
+                let mode = CFRunLoopCopyCurrentMode(CFRunLoopGetMain()).map { String(describing: $0) } ?? "nil"
+                say("outer runloop exit depth \(depth) mode \(mode)\n" + Thread.callStackSymbols.joined(separator: "\n"))
+                say("runloop " + String(String(describing: CFCopyDescription(CFRunLoopGetMain())).prefix(20000)))
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .defaultMode)
+        say("installed")
     }()
     init() { _ = Self.npDiag }
 
