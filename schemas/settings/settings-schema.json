@@ -14143,7 +14143,6 @@
     {
       "accepts" : [
         "compact",
-        "comfortable",
         "expanded"
       ],
       "agent_refusal" : null,
@@ -14155,13 +14154,6 @@
             "text" : "Compact"
           },
           "value" : "compact"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.comfortable",
-            "text" : "Comfortable"
-          },
-          "value" : "comfortable"
         },
         {
           "title" : {
@@ -14182,7 +14174,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -14191,11 +14183,9 @@
         "density",
         "expanded",
         "compact",
-        "comfortable",
         "rows",
         "preview",
         "two lines",
-        "taller",
         "t3",
         "codex"
       ],
@@ -15377,7 +15367,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -23542,7 +23532,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "0f3bc5923acb710029e08ddc827413082d3cc5ff8da23dc8e4aec92a70856d2a",
+  "schema_hash" : "79e569d3cdd546084d1ee8033b78707b55524c03716992d0a53c7b6a4b473314",
   "sections" : [
     {
       "id" : "general",

@@ -838,6 +838,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
             model: Some("m2".into()),
             effort: None,
             policy: Some(PermissionPolicy::ApproveAll),
+            mode: None,
             prefer: vec!["fake-pool".into()],
             env: BTreeMap::new(),
         },

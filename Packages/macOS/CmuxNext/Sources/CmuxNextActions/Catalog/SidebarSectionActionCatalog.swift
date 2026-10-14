@@ -172,6 +172,20 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar remove-section",
                 destructive: true, surfacePlan: plan(menus: [p(.sidebarSection, .close, 100)])
             ),
+            // The open workspaces the section lists (Pinned too; the workspaces
+            // section: its window's list); the section and its items stay.
+            ActionDescriptor(
+                id: "sidebar.section.closeWorkspaces", title: t("action.sidebar.section.closeWorkspaces", "Close All Workspaces in Section"),
+                keywords: ["sidebar", "section", "pinned", "close", "workspaces", "all"], category: .sidebar, symbol: "xmark.square",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar close-section-workspaces",
+                destructive: true, surfacePlan: plan(menus: [p(.sidebarSection, .close, 110)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.section.newWorkspace", title: t("action.sidebar.section.newWorkspace", "New Workspace in Section"),
+                keywords: ["sidebar", "section", "pinned", "new", "workspace", "create"], category: .sidebar, symbol: "plus.square",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar new-section-workspace",
+                surfacePlan: plan(menus: [p(.sidebarSection, .create, 105)])
+            ),
             // Leo (2026-10-06): Projects and Chats hide from their headers'
             // menus and come back from the sidebar's menu or Settings
             // (`sidebar.showProjects`, `sidebar.showChats`; scripts set those).
