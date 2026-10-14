@@ -125,12 +125,16 @@ fn cmux_next_agent_runtimes_attribute_a_terminal_agent_and_not_an_outside_one() 
     }));
     assert!(created["surface"].is_u64(), "{created}");
     let mut outside = Command::new(&codex).arg("60").spawn().unwrap();
+    // macOS reports /tmp as /private/tmp, so match the unique directory.
+    let own = format!("{}/codex", daemon.dir.file_name().unwrap().to_string_lossy());
 
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     let (inventory, inside) = loop {
         let inventory = daemon.runtimes();
+        // The host may run real agents too; only this test's copy counts.
         let inside = inventory["runtimes"].as_array().into_iter().flatten().find(|runtime| {
-            runtime["vendor"] == "codex" && runtime["pid"] != u64::from(outside.id())
+            runtime["pid"] != u64::from(outside.id())
+                && runtime["executable_path"].as_str().is_some_and(|path| path.ends_with(&own))
         });
         if let Some(inside) = inside.cloned()
             && runtime_with_pid(&inventory, u64::from(outside.id())).is_some()
