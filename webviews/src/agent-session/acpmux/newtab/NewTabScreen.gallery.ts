@@ -112,12 +112,15 @@ const LABS_FIXTURE = {
 
 function labsVariants() {
   return Object.fromEntries(
-    [false, true].map((open) => [
-      open ? "labs-open" : "labs",
+    (["closed", "open", "menu"] as const).map((state) => [
+      state === "closed" ? "labs" : `labs-${state}`,
       {
-        note: open
-          ? "Labs, open: each flag's name, its one-line intent, a New or Expires soon hint and a toggle; All Labs… for Settings > Labs. Team builds only."
-          : "Labs, closed: one quiet line, Labs (2 on), under the create row. Team builds only; release builds show nothing.",
+        note:
+          state === "menu"
+            ? "Labs, open, with a row's right-click menu: Turn Off for a flag that is on, and All Labs…."
+            : state === "open"
+              ? "Labs, open: each flag's name, its one-line intent, a New or Expires soon hint and a toggle; All Labs… for Settings > Labs. Team builds only."
+              : "Labs, closed: one quiet line, Labs (2 on), under the create row. Team builds only; release builds show nothing.",
         ready: newTab(),
         snapshot: noChat(manySessions(4)),
         play: async (ctx: PlayContext) => {
@@ -126,11 +129,15 @@ function labsVariants() {
           html.setAttribute("data-labs", "composerLift previewFeatures");
           html.setAttribute("data-labs-team", "1");
           await ctx.waitFor(() => ctx.document.querySelector("[data-labs-open]") !== null);
-          if (open) {
+          if (state !== "closed") {
             await ctx.click({ selector: "[data-labs-open]" });
             await ctx.waitFor(() => ctx.document.querySelector("[data-lab] input[type=checkbox]") !== null);
             // The field's focus fill eases out after the click; the still waits for it.
             await new Promise((done) => setTimeout(done, 300));
+          }
+          if (state === "menu") {
+            await ctx.contextMenu({ selector: '[data-lab="previewFeatures"]' });
+            await ctx.waitFor(() => ctx.document.querySelector('[role="menuitem"]') !== null);
           }
         },
       },

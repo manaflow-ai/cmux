@@ -210,7 +210,8 @@
 .nt-lab{display:flex;align-items:center;gap:10px;height:28px;padding:0 10px;border-radius:8px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default}
 .nt-lab:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .nt-lab-name{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;color:var(--agent-text);font-weight:500}
-.nt-lab-intent{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* One line: the intent gives way first, with an ellipsis before the hint and the switch. */
+.nt-lab-intent{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nt-lab-hint{flex:none;padding:0 5px;border-radius:4px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-soft);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .nt-lab-hint[data-lab-hint=expiresSoon]{color:var(--agent-warning,var(--agent-soft))}
 /* The toggle: a small switch drawn on the native checkbox, so Space and the label still work. */

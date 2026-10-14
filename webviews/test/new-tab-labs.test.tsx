@@ -133,8 +133,7 @@ async function page(options: Options = {}) {
 const opener = () => host.querySelector<HTMLButtonElement>("[data-labs-open]")!;
 const rows = () => [...host.querySelectorAll<HTMLElement>("[data-lab]")];
 const order = () => rows().map((row) => row.dataset.lab);
-const toggle = (name: string) =>
-  host.querySelector<HTMLInputElement>(`[data-lab="${name}"] input[type=checkbox]`)!;
+const toggle = (name: string) => host.querySelector<HTMLInputElement>(`[data-lab="${name}"] input[type=checkbox]`)!;
 const open = () => act(async () => opener().click());
 
 test("outside a team build the page has no Labs section", async () => {
@@ -192,8 +191,7 @@ test("open, each flag is a row with its name, its intent and a toggle the app sa
 test("a flag made in the last three days says New, one ending within three days says Expires soon", async () => {
   await page({ team: true, flags: FLAGS });
   await open();
-  const hint = (name: string) =>
-    host.querySelector(`[data-lab="${name}"] [data-lab-hint]`)?.textContent ?? "";
+  const hint = (name: string) => host.querySelector(`[data-lab="${name}"] [data-lab-hint]`)?.textContent ?? "";
   expect(hint("fresh")).toBe("New");
   expect(hint("ending")).toBe("Expires soon");
   expect(hint("middle")).toBe("");
@@ -237,14 +235,10 @@ test("without readable storage the order is the newest first", async () => {
 
 const rightClick = (element: Element) =>
   act(async () =>
-    element.dispatchEvent(
-      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }),
-    ),
+    element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })),
   );
 const menuItem = (label: string) =>
-  [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-    (entry) => entry.textContent === label,
-  );
+  [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((entry) => entry.textContent === label);
 
 test("with no flag on, the line says plain Labs", async () => {
   localStorage.clear();
