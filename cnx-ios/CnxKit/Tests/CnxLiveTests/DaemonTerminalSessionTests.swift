@@ -75,6 +75,23 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(order.firstIndex(of: "attach-surface")! < order.firstIndex(of: "resize-surface")!)
     }
 
+    /// The screen shows "Connecting to <Mac>…" until the attach succeeds,
+    /// never made-up output.
+    @Test func reportsConnectingThenAttached() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.macName = "Studio"
+        #expect(session.connectionState == .connecting(mac: "Studio"))
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        #expect(events.first == .connection(.connecting(mac: "Studio")))
+        try await waitUntil { events.contains(.connection(.attached)) }
+        #expect(session.connectionState == .attached)
+    }
+
     @Test func resizedEventResetsTheMirror() async throws {
         let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
         var events: [TerminalSessionEvent] = []

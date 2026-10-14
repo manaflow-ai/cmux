@@ -20,6 +20,9 @@ public final class TerminalModel {
     /// The terminal surface is first responder: keys go to the PTY as typed.
     public internal(set) var directTyping = false
     public internal(set) var isScrolledUp = false
+    /// Whether the screen shows the Mac's terminal; anything else draws the
+    /// connecting placeholder over it.
+    public internal(set) var connectionState: TerminalConnectionState
     var sticky = TerminalStickyModifiers()
 
     // Composer
@@ -57,10 +60,13 @@ public final class TerminalModel {
         self.artifactSource = artifactSource
         self.title = title
         self.programName = session.programName
+        self.connectionState = session.connectionState
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
     }
 
     func ingest(_ event: TerminalSessionEvent) {
+        let connection = connectionState.applying(event)
+        if connection != connectionState { connectionState = connection }
         switch event {
         case .output(let data):
             let found = extractor.scan(data)
@@ -73,6 +79,8 @@ public final class TerminalModel {
             title = text
             programName = session.programName
         case .exited:
+            break
+        case .connection:
             break
         }
     }

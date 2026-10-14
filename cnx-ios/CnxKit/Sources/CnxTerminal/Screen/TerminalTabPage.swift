@@ -44,6 +44,16 @@ public struct TerminalTabPage: View {
         EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive)
             .ignoresSafeArea()
             .background(Color.black)
+            // Not attached yet: the honest placeholder over the empty surface.
+            .overlay {
+                if !model.connectionState.isAttached {
+                    TerminalConnectingView(state: model.connectionState, topInset: insets.top)
+                        .ignoresSafeArea()
+                        .padding(.bottom, insets.bottom)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: model.connectionState)
             // Presented by the controller (UIKit), not with `.sheet` here: a
             // SwiftUI sheet presented from inside the TabsKit page left the
             // controller's keyboard layout guide at 172 pt with no keyboard
@@ -69,7 +79,9 @@ public struct TerminalTabCard: View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 Color(uiColor: CnxGhosttyApp.background)
-                if let image = model.snapshot {
+                if !model.connectionState.isAttached {
+                    TerminalConnectingView(state: model.connectionState, topInset: insets.top)
+                } else if let image = model.snapshot {
                     Image(uiImage: image)
                         .resizable()
                         .interpolation(.medium)

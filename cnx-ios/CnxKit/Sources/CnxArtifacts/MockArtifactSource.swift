@@ -1,3 +1,5 @@
+// DEBUG and Demo builds only: mock content is never compiled into Production.
+#if DEBUG
 import Foundation
 #if os(iOS)
 import AVFoundation
@@ -365,3 +367,4 @@ public struct MockArtifactSource: ArtifactSource {
     }
     #endif
 }
+#endif
