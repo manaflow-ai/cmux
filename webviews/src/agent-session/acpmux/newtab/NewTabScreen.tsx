@@ -10,6 +10,8 @@ import { isAgentHome } from "../sessionList";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
+import { LabsList } from "./LabsList";
+import type { LabsFlagName } from "../../../experiments/labs";
 import { OpenTabsList } from "./OpenTabsList";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
@@ -59,6 +61,10 @@ export type NewTabScreenActions = {
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
+  /** A Labs toggle in the team builds' Labs section: the app saves `labs.<flag>`. */
+  onSetLab?(flag: LabsFlagName, on: boolean): void;
+  /** The Labs section's All Labs…: Settings > Labs. */
+  onShowLabs?(): void;
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
@@ -643,6 +649,7 @@ export function NewTabScreen(props: Props) {
       )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
+      <LabsList onSet={props.onSetLab} onShowAll={props.onShowLabs} now={at} />
       {sections.chats !== "none" && !allChats && (
         <ChatCards
           cards={cards}

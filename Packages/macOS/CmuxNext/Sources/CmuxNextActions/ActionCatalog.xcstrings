@@ -22015,127 +22015,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feature Flags"
+            "value": "Labs…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "機能フラグ"
+            "value": "Labs…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "علامات الميزات"
+            "value": "المختبرات…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eksperimentalne funkcije"
+            "value": "Labs…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Funktionsflag"
+            "value": "Labs…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feature-Flags"
+            "value": "Labs…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Flags de características"
+            "value": "Labs…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drapeaux de fonctionnalités"
+            "value": "Labs…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Flag funzionalità"
+            "value": "Labs…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទង់មុខងារ"
+            "value": "Labs…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기능 플래그"
+            "value": "Labs…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Funksjonsflagg"
+            "value": "Labs…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Flagi funkcji"
+            "value": "Labs…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Flags"
+            "value": "Labs…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Флаги функций"
+            "value": "Labs…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แฟล็กฟีเจอร์"
+            "value": "Labs…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Özellik Bayrakları"
+            "value": "Labs…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Прапорці функцій"
+            "value": "Labs…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cờ tính năng"
+            "value": "Labs…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "功能开关"
+            "value": "实验室…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "功能旗標"
+            "value": "實驗室…"
           }
         }
       }
