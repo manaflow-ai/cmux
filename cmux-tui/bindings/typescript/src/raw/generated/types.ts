@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409. */
+/* cmux-tui mux protocol 12, IR a7c2333b3e697db29aec05d498eaef13b9c41d138991ba08fef02691f77ad20c. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -129,11 +129,14 @@ export type BrowserHostProviderResult = {
 
 export type BrowserProviderAuthentication = "none" | "bearer";
 
+export type BrowserProviderHosting = "daemon" | "native";
+
 export type BrowserProviderSnapshot = {
   "authentication"?: BrowserProviderAuthentication;
   "available": boolean;
   "clients"?: bigint;
   "endpoint"?: string;
+  "hosting"?: BrowserProviderHosting;
   "provider_id"?: string;
   "revision": bigint;
   "targets": Array<BrowserProviderTarget>;
@@ -243,6 +246,7 @@ export type ConversationMessage = {
   "reply_to"?: ConversationPartRef;
   "retracted_at"?: string;
   "seq": bigint;
+  "thread"?: ConversationThreadState;
   "thread_root"?: string;
 };
 
@@ -336,12 +340,31 @@ export type ConversationTextRun = {
   "start": number;
 };
 
+export type ConversationThreadResolution = {
+  "at": string;
+  "by": string;
+  "seq": bigint;
+};
+
+export type ConversationThreadState = {
+  "owner"?: string;
+  "resolved"?: ConversationThreadResolution;
+  "title"?: string;
+};
+
+export type ConversationThreadStatus = "open" | "resolved";
+
 export type ConversationThreadSummary = {
   "authors": Array<string>;
   "last_reply_at": (string) | null;
   "last_reply_seq": (bigint) | null;
+  "owner"?: string;
   "reply_count": bigint;
+  "resolved_at"?: string;
+  "resolved_by"?: string;
   "root": string;
+  "status"?: ConversationThreadStatus;
+  "title"?: string;
 };
 
 export type CopyResult = {
