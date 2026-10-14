@@ -173,4 +173,41 @@ import Testing
         controller.escape()
         #expect(stops == 2)
     }
+
+    // MARK: Paste after a click on a bubble (a key equivalent, not a key down)
+
+    /// Runs `body` with `text` on the general pasteboard (NSTextView's Paste reads it), restored after.
+    static func withPasteboard(_ text: String, _ body: () throws -> Void) rethrows {
+        let pb = NSPasteboard.general
+        let saved = pb.string(forType: .string)
+        pb.clearContents(); pb.setString(text, forType: .string)
+        defer { pb.clearContents(); if let saved { pb.setString(saved, forType: .string) } }
+        try body()
+    }
+
+    /// Command-V through the window's key equivalent path (AppKit asks the window's views before the
+    /// main menu): the field takes the focus and the text.
+    @Test func commandVAfterABubbleClickPastesIntoTheField() throws {
+        let (controller, window, _) = try Self.focusedPane()
+        let marker = "PASTE-\(UUID().uuidString)"
+        try Self.withPasteboard(marker) {
+            let e = Self.key(window, "v", code: 9, mods: .command)
+            #expect(window.performKeyEquivalent(with: e))
+            let field = try #require(controller.demo?.compose.textView.view)
+            #expect(window.firstResponder === field)
+            #expect(field.string == marker)
+        }
+    }
+
+    /// The main menu's Paste (`paste:` to the first responder) with the transcript focused.
+    @Test func theMenusPasteAfterABubbleClickPastesIntoTheField() throws {
+        let (controller, window, doc) = try Self.focusedPane()
+        let marker = "PASTE-\(UUID().uuidString)"
+        try Self.withPasteboard(marker) {
+            #expect(doc.tryToPerform(#selector(TranscriptDocumentView.paste(_:)), with: nil))
+            let field = try #require(controller.demo?.compose.textView.view)
+            #expect(window.firstResponder === field)
+            #expect(field.string == marker)
+        }
+    }
 }
