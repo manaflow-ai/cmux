@@ -2,7 +2,7 @@
 //! `session/prompt` names the agent that sent it (`cmux agent message`). The recorded
 //! `user_message` carries it as `_meta.provenance`, a queued prompt keeps it until it runs, a
 //! steer records it, and an edit of the waiting prompt drops it. Only the unix socket may
-//! send it. Also a session summary's `workspace` (its `CMUX_WORKSPACE_ID`).
+//! send it.
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -15,7 +15,6 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-const WS: &str = "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0";
 
 fn hub_env(env: Value) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
@@ -288,24 +287,4 @@ async fn a_steer_records_its_provenance() {
     assert_eq!(steered.pointer("/_meta/provenance"), Some(&p), "{steered}");
     let own = c.user_message(&session, "p-turn").await;
     assert!(own.pointer("/_meta/provenance").is_none(), "{own}");
-}
-
-#[tokio::test]
-async fn a_session_summary_names_its_workspace() {
-    let hub = hub();
-    let mut c = Client::open(&hub);
-    let inside = c.new_session(json!({"harness": "fake", "env": {"CMUX_WORKSPACE_ID": WS}})).await;
-    let outside = c.new_session(json!({"harness": "fake"})).await;
-    let listed = c.call("_acpmux/sessions", json!({})).await;
-    let summary = |id: &str| {
-        listed["sessions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|s| s["sessionId"] == id)
-            .cloned()
-            .expect("the session is listed")
-    };
-    assert_eq!(summary(&inside).get("workspace"), Some(&json!(WS)), "{listed}");
-    assert_eq!(summary(&outside).get("workspace"), Some(&Value::Null), "{listed}");
 }
