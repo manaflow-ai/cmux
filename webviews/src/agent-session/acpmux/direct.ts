@@ -32,6 +32,7 @@ import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
+import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1047,6 +1048,16 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
+  /// The session's prompt bookmarks (`{bookmarks: [seq...]}`), kept in acpmux (threadMinimap/bookmarks.ts).
+  readBookmarks(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/bookmark_get", { sessionId });
+  }
+
+  /// Marks or unmarks the prompt logged at `seq`; acpmux answers with the session's marks.
+  setBookmark(sessionId: string, seq: number, bookmarked: boolean): Promise<unknown> {
+    return this.request("_acpmux/bookmark_set", { sessionId, seq, bookmarked });
+  }
+
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best
   /// first (fileSearchModel.ts). acpmux serves no file search: the native host runs it on the
   /// session host as `git.files.search`, and mock mode's in-page daemon answers it.
@@ -1184,7 +1195,7 @@ export class AcpmuxDirectClient {
     const attaching = this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, ...SECRET_KINDS],
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS],
       eventStream: true,
       visible,
     });
@@ -1440,7 +1451,10 @@ export class AcpmuxDirectClient {
       return;
     }
     if (event.dir === "mux") {
-      if (event.kind === "forked") {
+      if (event.kind === BOOKMARKS_KIND) {
+        // Another pane (or the TUI) marked a prompt: the minimap shows acpmux's marks.
+        bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
+      } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
       } else if (event.kind === "user_message") {
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
