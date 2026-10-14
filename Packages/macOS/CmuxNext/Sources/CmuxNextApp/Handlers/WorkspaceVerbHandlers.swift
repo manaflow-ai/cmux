@@ -82,7 +82,7 @@ enum WorkspaceVerbHandlers {
 
     /// New workspace in the target workspace's window (else the active
     /// one) at an anchor-free `slot`; `then` runs once it is listed.
-    private static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
+    static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
                                then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
         try spawn(context, anchor: try? context.workspace(invocation).model, cwd: nil, slot: slot, newTabPage: invocation.origin == .user,
                   then: then)
