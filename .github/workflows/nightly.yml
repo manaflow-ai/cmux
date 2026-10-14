@@ -799,13 +799,29 @@ jobs:
               const { data } = await github.rest.actions.listWorkflowRuns({
                 owner, repo, workflow_id: 'nightly.yml', branch: target, per_page: 20,
               });
-              // A failed or cancelled publication must not consume the floor:
-              // the next green feat-cmux-next tip retries it. Use the newest
-              // completed successful run as the last real publication marker.
-              const last = data.workflow_runs.find((run) =>
-                run.status === 'completed' && run.conclusion === 'success');
+              // Anchor the floor to the actual publication job. A failed,
+              // cancelled, paused, diagnostic, continuation, or no-op run must
+              // not suppress the next green feat-cmux-next tip. The publish
+              // job can succeed even if a later notes step makes the run red,
+              // so the run conclusion alone is not a publication receipt.
+              let last = null;
+              for (const run of data.workflow_runs) {
+                if (run.status !== 'completed') continue;
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                  owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+                });
+                const publication = jobs.find((job) =>
+                  job.name === 'publish-nightly' &&
+                  job.status === 'completed' &&
+                  job.conclusion === 'success');
+                if (publication) {
+                  last = { run, publication };
+                  break;
+                }
+              }
               if (last) {
-                const ageHours = (Date.now() - Date.parse(last.created_at)) / 3_600_000;
+                const publishedAt = last.publication.completed_at || last.run.updated_at || last.run.created_at;
+                const ageHours = (Date.now() - Date.parse(publishedAt)) / 3_600_000;
                 if (ageHours < minHours) {
                   core.notice(`Debounced: the last ${target} build started ${ageHours.toFixed(2)}h ago (minimum ${minHours}h).`);
                   return;

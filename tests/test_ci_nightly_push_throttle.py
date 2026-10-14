@@ -127,6 +127,18 @@ def decide_script() -> str:
     return "\n".join(body)
 
 
+def promote_script() -> str:
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = lines.index("      - name: Move nightly-next")
+    script_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "script: |")
+    body = []
+    for line in lines[script_at + 1 :]:
+        if line.strip() and not line.startswith(" " * 12):
+            break
+        body.append(line[12:])
+    return "\n".join(body)
+
+
 def env_value(name: str) -> str:
     text = WORKFLOW.read_text(encoding="utf-8")
     marker = f"          {name}: "
@@ -409,8 +421,48 @@ def test_failed_nightly_next_publication_does_not_consume_the_floor() -> None:
     end = text.index("\n  probe-nightly-tag-permission:\n", start)
     promote = text[start:end]
     assert "per_page: 20" in promote
-    assert "run.status === 'completed' && run.conclusion === 'success'" in promote
-    assert "const last = data.workflow_runs.find" in promote
+    assert "github.rest.actions.listJobsForWorkflowRun" in promote
+    assert "job.name === 'publish-nightly'" in promote
+    assert "job.conclusion === 'success'" in promote
+    assert "run.status !== 'completed'" in promote
+    assert "last.publication.completed_at" in promote
+
+
+def test_failed_nightly_next_publication_retries_on_the_next_tip() -> None:
+    """Exercise the promotion boundary: a recent red publish job still moves the ref."""
+    harness = r"""
+const script = process.env.PROMOTE_SCRIPT;
+const sha = 'a'.repeat(40);
+const old = 'b'.repeat(40);
+const calls = [];
+const core = { notice: () => {}, setFailed: (message) => { throw new Error(message); } };
+const context = { repo: { owner: 'manaflow-ai', repo: 'cmux' } };
+const github = { paginate: async (fn, args) => { const result = await fn(args); return result.data?.workflow_runs || result.data?.jobs || result; }, rest: {
+  actions: {
+    listWorkflowRuns: async (args) => ({ data: { workflow_runs: args.workflow_id === 'cmux-next.yml'
+      ? [{ id: 10, head_sha: sha, head_branch: 'feat-cmux-next', event: 'push' }]
+      : [{ id: 20, status: 'completed', created_at: new Date(Date.now() - 1800000).toISOString(), updated_at: new Date(Date.now() - 1700000).toISOString() }] } }),
+    listJobsForWorkflowRun: async (args) => args.run_id === 10
+      ? [{ name: 'cmux-next Release compile (Xcode 26)', status: 'completed', conclusion: 'success' }]
+      : [{ name: 'publish-nightly', status: 'completed', conclusion: 'failure', completed_at: new Date(Date.now() - 1800000).toISOString() }],
+  },
+  git: {
+    getRef: async ({ ref }) => ({ data: { object: { sha: ref === 'heads/feat-cmux-next' ? sha : old } } }),
+  },
+  repos: { compareCommitsWithBasehead: async () => ({ data: { status: 'ahead' } }) },
+} };
+global.getOctokit = () => ({ rest: { git: { updateRef: async (args) => calls.push(args) } } });
+process.env.REQUESTED_SHA = sha;
+process.env.DEBOUNCE = 'true';
+process.env.MIN_INTERVAL_HOURS = '2';
+process.env.APP_TOKEN = 'test';
+new Function('github', 'context', 'core', `return (async () => {\n${script}\n})();`)(github, context, core)
+  .then(() => { if (calls.length !== 1 || calls[0].sha !== sha) process.exit(1); })
+  .catch((error) => { console.error(error); process.exit(1); });
+"""
+    env = dict(__import__("os").environ)
+    env["PROMOTE_SCRIPT"] = promote_script()
+    subprocess.run([shutil.which("node") or "node", "-e", harness], env=env, check=True)
 
 
 def test_push_to_main_skips_while_published_commit_is_young() -> None:
