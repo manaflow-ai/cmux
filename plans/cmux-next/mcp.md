@@ -58,6 +58,15 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     `browser_host.unavailable`; the server does not start the host (the session daemon
     will supervise it, browser-host.md decision 1);
   - `window_list` (the app's windows, for `win_` targets);
+  - `agents_snapshot` (the composed app and daemon topology, paged) and one tool per
+    `cmux agents` action (`cli/agents.rs`): `agents_workspace_select`,
+    `agents_workspace_create`, `agents_tab_select`, `agents_terminal_focus`,
+    `agents_terminal_split`, `agents_palette_open`, `agents_dialog_list` and
+    `agents_dialog_answer`. A call builds the CLI's words and runs the CLI's own code
+    (`cli/mcp/agent_tools.rs`), so it answers the CLI's receipt `{action, result, state}`,
+    where `state` is a fresh `agents_snapshot`-shaped snapshot. Selects and focus show
+    the object in the app's window (their purpose is focus); create and split leave the
+    user's focus alone. All but the dialog tools take `idempotency_key`;
   - one tool per app action that `action.list` offers to the CLI and to MCP
     (`surfaces.cli` and `surfaces.mcp` are `offered`), named `app_` plus its
     CLI name (`app_new_window`, `app_workspace_move_to_window`), with the action's
