@@ -8,8 +8,8 @@
 //! the create path fails with the same `engine_unavailable` error that
 //! `tab.create_browser` returns. With a stand-in provider that publishes no
 //! target, a created tab stays `starting`: the first link creates it, and the
-//! second link reuses that tab (its `browser.navigate` answers that the
-//! browser is still starting) instead of a second tab.
+//! second link reuses that tab (its navigation waits for the browser to
+//! attach) instead of a second tab.
 #![cfg(unix)]
 
 use serde_json::{Value, json};
@@ -316,19 +316,17 @@ fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
     assert_eq!(value(&replayed)["tab_id"], first_open["tab_id"], "{replayed}");
     assert_eq!(tab_count(&screen(&server, &workspace)), tab_count(&after), "a replay made a tab");
 
-    // The next link reuses that browser tab: it navigates it (the stand-in
-    // provider never gives it a page, so the navigation answers that the
-    // browser is still starting) and makes no second tab.
+    // The next link reuses that browser tab: its navigation is queued (the
+    // stand-in provider never gives it a page, so the browser loads the link
+    // when it attaches) and no second tab is made.
     let again = v2(
         &server,
         "workspace.open_url",
         json!({"workspace": workspace, "url": "https://example.com/two"}),
         Some("open-url-dock-2"),
     );
-    let refusal = error(&again);
-    assert_eq!(refusal["code"], "operation.failed", "{again}");
-    assert_eq!(refusal["details"]["operation"], "browser.navigate", "{again}");
-    assert_eq!(refusal["details"]["extra"]["status"], "starting", "{again}");
+    assert_eq!(value(&again)["reused"], true, "{again}");
+    assert_eq!(value(&again)["tab_id"], first_open["tab_id"], "{again}");
     let last = screen(&server, &workspace);
     assert_eq!(tab_count(&last), tab_count(&after), "the second link made a tab: {last}");
     assert_eq!(last["active_pane"], dock["id"], "the keyboard focus left the chat: {last}");
