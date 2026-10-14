@@ -27,8 +27,9 @@ struct StashTests {
         }
     }
 
-    /// A group of the first and last page draws them together in the strip, [p0, p3, p1, p2],
-    /// while the daemon keeps [p0, p1, p2, p3]: right of p1 is p2 alone.
+    /// A group of the first and last page draws them together in the strip, [p0, p3, p1, p2]:
+    /// right of p1 is p2 alone. (Older daemons kept [p0, p1, p2, p3]; the daemon now gathers
+    /// group members itself, and the stash still reads the strip.)
     @Test func stashTabsToTheRightFollowsTheStripNotTheDaemonOrder() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let (ids, urls) = try await Self.openPages(4, services, connection)
@@ -40,7 +41,6 @@ struct StashTests {
             try await PinnedPageTests.until({
                 controller.orderedIDs.map(\.rawValue).filter(ids.contains) == [ids[0], ids[3], ids[1], ids[2]]
             }, report: { "strip: \(controller.orderedIDs)" })
-            #expect(pane.tabs.map(\.id).filter(ids.contains) == ids, "the daemon keeps its own order")
 
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: ids[1]), origin: .user)
             #expect(services.registry.perform("tab.stashToRight", invocation: invocation))
