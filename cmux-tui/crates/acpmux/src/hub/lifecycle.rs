@@ -249,7 +249,7 @@ impl Hub {
             }
             // The permission mode a new chat starts in (start_mode.rs): full
             // access unless the person picked or set otherwise. Soft.
-            let start_mode = if mode_eligible { self.start_mode(&session, defaults.mode.as_deref()).await } else { None };
+            let start_mode = if mode_eligible { self.start_mode(&session).await } else { None };
             if let Some(mode) = start_mode
                 && let Err(err) = self.set_mode(&session, &mode).await
             {
