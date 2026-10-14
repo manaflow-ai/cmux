@@ -72,8 +72,10 @@ const fn access(operation: Op) -> Access {
         | Op::BrowserInputKey
         | Op::BrowserInputMouse
         | Op::BrowserInputWheel
-        // A message becomes an agent's input at its next turn.
-        | Op::AgentMessageSend => Access::Denied(Denied::Input),
+        // A message becomes an agent's input at its next turn; a release
+        // lets a held one through.
+        | Op::AgentMessageSend
+        | Op::AgentMessageRelease => Access::Denied(Denied::Input),
         Op::TerminalScreenRead
         | Op::TerminalHistoryRead
         | Op::TerminalHistoryClear
