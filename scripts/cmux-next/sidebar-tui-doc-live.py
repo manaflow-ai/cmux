@@ -14,7 +14,13 @@ workspace rail, left columns); the daemon's document from `sidebar.get`.
    TUI order follows each one, Pinned in document order.
 5. Mouse drags in the TUI rail (SGR mouse input through tmux): a drop between
    two pinned rows pins the workspace there; a drop on the dragged row's own
-   slot changes nothing (it must not unpin).
+   slot changes nothing (it must not unpin); a drop on the lower half of the
+   last pinned row appends to Pinned; a drop on the first machine row's name
+   row stays in the machine list.
+6. Stream ends past the restart limit: the TUI attaches through a line proxy
+   that ends its `session.events` stream and every stream it opens again;
+   the TUI logs each end. A CLI sidebar.move after that still reaches the
+   drawn order (the idle-tick fallback read), with no tree change to carry it.
 
 Usage: sidebar-tui-doc-live.py --binary path/to/cmux-tui [--workdir DIR]
 Needs tmux. Prints one PASS/FAIL line per check; exits 1 on any FAIL.
@@ -29,6 +35,7 @@ import os
 import shutil
 import socket
 import subprocess
+import threading
 import sys
 import tempfile
 import time
@@ -36,7 +43,7 @@ from pathlib import Path
 
 PROTOCOL = "cmux.protocol/2"
 SESSION = "s6tui"
-NAMES = ["s6-alpha", "s6-bravo", "s6-charlie", "s6-delta"]
+NAMES = ["s6-alpha", "s6-bravo", "s6-charlie", "s6-delta", "s6-echo", "s6-foxtrot", "s6-golf"]
 PINNED = "sec_pinned"
 RAIL_COLUMNS = 26
 _ids = itertools.count(1)
@@ -55,7 +62,8 @@ class Daemon:
         self.state = root / "state"
         self.socket_path = root / "s.sock"
         self.log = root / "daemon.log"
-        self.env = dict(os.environ, HOME=str(root / "home"), XDG_CONFIG_HOME=str(root / "home/.config"))
+        self.env = dict(os.environ, HOME=str(root / "home"), XDG_CONFIG_HOME=str(root / "home/.config"),
+                        CMUX_TUI_LOG_FILE=str(root / "client.log"))
         self.process: subprocess.Popen[str] | None = None
 
     def start(self) -> None:
@@ -122,9 +130,97 @@ class Daemon:
         )
 
 
+class Proxy:
+    """A line proxy between the TUI and the daemon socket. `end_streams()`
+    ends the TUI's open `session.events` streams with a `stream_end` (gap)
+    and ends every stream it opens later right after the open's response;
+    the daemon's items of an ended stream are dropped."""
+
+    def __init__(self, upstream: Path, path: Path) -> None:
+        self.upstream, self.path = upstream, path
+        self.ending = False
+        self.injected = 0
+        self.lock = threading.Lock()
+        self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.listener.bind(str(path))
+        self.listener.listen(8)
+        self.clients: list[dict] = []
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def end_streams(self) -> None:
+        with self.lock:
+            self.ending = True
+            for client in self.clients:
+                for stream_id in list(client["open"]):
+                    self._end(client, stream_id)
+
+    def _end(self, client: dict, stream_id: str) -> None:
+        line = {"protocol": PROTOCOL, "type": "stream_end", "stream_id": stream_id, "reason": "gap"}
+        client["dead"].add(stream_id)
+        client["open"].discard(stream_id)
+        self.injected += 1
+        with client["write"]:
+            client["socket"].sendall(json.dumps(line).encode() + b"\n")
+
+    def _accept(self) -> None:
+        while True:
+            try:
+                downstream, _ = self.listener.accept()
+            except OSError:
+                return
+            upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            upstream.connect(str(self.upstream))
+            client = {"socket": downstream, "write": threading.Lock(), "opens": {}, "open": set(), "dead": set()}
+            with self.lock:
+                self.clients.append(client)
+            threading.Thread(target=self._up, args=(client, downstream, upstream), daemon=True).start()
+            threading.Thread(target=self._down, args=(client, upstream, downstream), daemon=True).start()
+
+    @staticmethod
+    def _lines(source: socket.socket):
+        buffer = b""
+        while True:
+            try:
+                chunk = source.recv(1 << 16)
+            except OSError:
+                return
+            if not chunk:
+                return
+            buffer += chunk
+            while b"\n" in buffer:
+                line, buffer = buffer.split(b"\n", 1)
+                yield line
+
+    def _up(self, client: dict, downstream: socket.socket, upstream: socket.socket) -> None:
+        for line in self._lines(downstream):
+            if b'"session.events"' in line:
+                request = json.loads(line)
+                with self.lock:
+                    client["opens"][request["id"]] = request["params"]["stream_id"]
+            upstream.sendall(line + b"\n")
+        upstream.close()
+
+    def _down(self, client: dict, upstream: socket.socket, downstream: socket.socket) -> None:
+        for line in self._lines(upstream):
+            # Daemon objects may serialize keys in any order.
+            message = json.loads(line) if b'"cmux.protocol/2"' in line else None
+            with self.lock:
+                if message and message.get("stream_id") in client["dead"]:
+                    continue
+                with client["write"]:
+                    downstream.sendall(line + b"\n")
+                stream_id = client["opens"].pop(message.get("id"), None) if message else None
+                if stream_id and message.get("type") == "response" and message.get("ok"):
+                    client["open"].add(stream_id)
+                    if self.ending:
+                        self._end(client, stream_id)
+        downstream.close()
+
+
 class Tui:
-    def __init__(self, daemon: Daemon, root: Path) -> None:
+    def __init__(self, daemon: Daemon, root: Path, socket_path: Path) -> None:
         self.daemon = daemon
+        self.socket_path = socket_path
         self.server = f"s6tui-{os.getpid()}"
         self.log = root / "tui.log"
 
@@ -135,9 +231,11 @@ class Tui:
     def start(self) -> None:
         env = " ".join(f"{key}={value}" for key, value in (
             ("HOME", self.daemon.env["HOME"]), ("XDG_CONFIG_HOME", self.daemon.env["XDG_CONFIG_HOME"]),
-            ("TERM", "xterm-256color"),
+            ("TERM", "xterm-256color"), ("CMUX_TUI_LOG_FILE", self.daemon.env["CMUX_TUI_LOG_FILE"]),
         ))
-        command = f"env {env} {self.daemon.binary} attach --socket {self.daemon.socket_path} 2>>{self.log}"
+        # The TUI's stderr goes to tui.log.
+        inner = f"env {env} {self.daemon.binary} attach --socket {self.socket_path} 2>>{self.log}; exit $?"
+        command = f"exec /bin/sh -c '{inner}'"
         self.tmux("-f", "/dev/null", "new-session", "-d", "-s", "tui", "-x", "180", "-y", "50", command)
 
     def stop(self) -> None:
@@ -237,7 +335,8 @@ def main() -> int:
     (root / "home/.config").mkdir(parents=True, exist_ok=True)
     daemon = Daemon(args.binary.resolve(), root)
     daemon.start()
-    tui = Tui(daemon, root)
+    proxy = Proxy(daemon.socket_path, root / "proxy.sock")
+    tui = Tui(daemon, root, proxy.path)
     try:
         caps = daemon.raw({"cmd": "identify"}).get("capabilities", [])
         check("daemon advertises sidebar-doc-v1", "sidebar-doc-v1" in caps, caps)
@@ -334,6 +433,56 @@ def main() -> int:
         check("TUI drop on the dragged row's own slot changes nothing",
               after["revision"] == before and ws_item(after, ids["s6-alpha"])["section"] == PINNED,
               {"revision": [before, after["revision"]], "alpha": ws_item(after, ids["s6-alpha"])})
+        # A drop on the lower half of the last pinned row pins (it appends to
+        # Pinned); a drop on the first machine row's name row stays in the
+        # machine list.
+        doc = daemon.ok("sidebar.get")
+        pinned_names = [n for n in doc_order(doc, names_by_id) if ws_item(doc, ids[n])["section"] == PINNED]
+        machine_names = [n for n in doc_order(doc, names_by_id) if ws_item(doc, ids[n])["section"] == machine]
+        last_pinned, mover = pinned_names[-1], machine_names[-1]
+        _, last_row = tui.row_of(last_pinned)
+        tui.drag(mover, last_row + 1)
+        appended = wait_for("gap under pinned", lambda: doc_order(daemon.ok("sidebar.get"), names_by_id)[:len(pinned_names) + 1]
+                            == pinned_names + [mover]
+                            and ws_item(daemon.ok("sidebar.get"), ids[mover])["section"] == PINNED)
+        check("TUI drop on the lower half of the last pinned row appends to Pinned", bool(appended),
+              {"mover": mover, "doc": doc_order(daemon.ok("sidebar.get"), names_by_id), "tui": tui.order()})
+        check("TUI order == sidebar.get order (after the Pinned-end drop)", bool(wait_for("after end drop", matches_doc)),
+              {"tui": tui.order(), "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
+        doc = daemon.ok("sidebar.get")
+        machine_names = [n for n in doc_order(doc, names_by_id) if ws_item(doc, ids[n])["section"] == machine]
+        if len(machine_names) >= 2:
+            first_machine, mover = machine_names[0], machine_names[-1]
+            _, first_row = tui.row_of(first_machine)
+            tui.drag(mover, first_row)
+            stayed = wait_for("machine border", timeout=30, probe=lambda: [n for n in doc_order(daemon.ok("sidebar.get"), names_by_id)
+                                                          if ws_item(daemon.ok("sidebar.get"), ids[n])["section"] == machine][:1] == [mover])
+            check("TUI drop on the first machine row's name row stays in the machine list, first", bool(stayed),
+                  {"mover": mover, "first": first_machine, "machine": machine_names, "row": first_row,
+                   "doc": doc_order(daemon.ok("sidebar.get"), names_by_id), "tui": tui.order(),
+                   "screen": tui.screen()[:30]})
+
+        # Stream ends past the restart limit: the proxy ends the TUI's event
+        # stream now and every stream it opens from here on.
+        log = Path(daemon.env["CMUX_TUI_LOG_FILE"])
+
+        def stream_ends() -> int:
+            return log.read_text(errors="replace").count("sidebar event stream ended") if log.exists() else 0
+
+        proxy.end_streams()
+        ended = wait_for("stream ends", lambda: stream_ends() > 3 and stream_ends(), timeout=20)
+        check("the TUI saw more stream ends than the restart limit (3)", bool(ended),
+              {"logged": stream_ends(), "injected": proxy.injected})
+        doc = daemon.ok("sidebar.get")
+        machine_items = [ws_item(doc, ids[n]) for n in doc_order(doc, names_by_id)
+                         if ws_item(doc, ids[n])["section"] == machine]
+        params = {"machine": "current", "session": "current", "items": [machine_items[-1]["id"]],
+                  "to": {"section": machine, "before": machine_items[0]["id"]}}
+        moved = daemon.cli("--json", "raw", "operation", "sidebar.move", "--params-json", json.dumps(params))
+        check("CLI sidebar.move after the stream ends exits 0", moved.returncode == 0, moved.stderr + moved.stdout)
+        check("TUI order == sidebar.get order (stream ends past the limit: idle-tick read)",
+              bool(wait_for("fallback", matches_doc, timeout=15)),
+              {"tui": tui.order(), "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
         print("final TUI order:", tui.order(), flush=True)
         print("final doc order:", doc_order(daemon.ok("sidebar.get"), names_by_id), flush=True)
     finally:

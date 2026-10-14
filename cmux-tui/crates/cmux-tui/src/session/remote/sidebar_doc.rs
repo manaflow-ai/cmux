@@ -25,11 +25,14 @@ use crate::session::tree::TreeView;
 
 /// The neighbors of a workspace's drop slot in the drawn order, by
 /// workspace public id. The daemon places the item right before `before`
-/// (else right after `after`).
+/// (else right after `after`). `prefer_after`: the pointer is under the row
+/// above the slot, so a slot on a section border belongs to `after`'s
+/// section, else to `before`'s.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct SidebarDropAnchors {
     pub before: Option<String>,
     pub after: Option<String>,
+    pub prefer_after: bool,
 }
 
 /// A `sidebar.move` target next to `anchor` (`side`: "before" or "after"),
@@ -45,6 +48,8 @@ fn drop_target(anchor: ItemRow, side: &str) -> Value {
 
 /// Stream ends in a row that open the stream again at once.
 const MAX_STREAM_RESTARTS: u64 = 3;
+/// Past the restart limit, the shortest time between two fallback reads.
+const FALLBACK_READ_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Default)]
 pub(crate) struct RemoteSidebarDoc {
@@ -63,6 +68,9 @@ pub(crate) struct RemoteSidebarDoc {
     /// limit the stream opens again only at the next tree refresh, so a
     /// stream the daemon keeps ending cannot loop.
     stream_restarts: AtomicU64,
+    /// When the last fallback `sidebar.get` started (stream ended past the
+    /// restart limit): the idle tick reads the document at most this often.
+    fallback_read_at: Mutex<Option<Instant>>,
     /// The daemon refused the document on this connection: keep the old
     /// path. A timeout or a closed transport does not set it.
     unavailable: AtomicBool,
@@ -202,6 +210,29 @@ impl RemoteSession {
         }
     }
 
+    /// The app's loop tick. When the stream ended more often than the
+    /// restart limit, the drawn order would stay old until the next tree
+    /// refresh: read the document instead (at most once per
+    /// `FALLBACK_READ_INTERVAL`), and open the stream again with it.
+    pub(crate) fn tick_sidebar_doc(self: &Arc<Self>) {
+        // The atomic first: this runs on every turn of the app's loop.
+        if self.sidebar_doc.stream_restarts.load(Ordering::Acquire) <= MAX_STREAM_RESTARTS
+            || !self.sidebar_doc_wanted()
+            || self.sidebar_doc.stream().is_some()
+        {
+            return;
+        }
+        let now = Instant::now();
+        {
+            let mut last = lock(&self.sidebar_doc.fallback_read_at);
+            if last.is_some_and(|last| now.duration_since(last) < FALLBACK_READ_INTERVAL) {
+                return;
+            }
+            *last = Some(now);
+        }
+        self.start_sidebar_doc_worker(true);
+    }
+
     fn load_sidebar_doc(&self) -> anyhow::Result<bool> {
         if self.sidebar_doc.stream().is_none() {
             let stream_id = StreamPublicId::random()
@@ -282,11 +313,11 @@ impl RemoteSession {
         self.protocol2_request(operation, fields, true).map(|_| ())
     }
 
-    /// `sidebar.move` the item of `workspace` next to an anchor. A slot
-    /// inside a section or a group lands there, as drawn. A slot on the
-    /// border of two (the end of Pinned and the start of the machine list,
-    /// the end of a group and the next loose row) keeps the workspace in the
-    /// one it is in; when it is in neither, it joins the one above.
+    /// `sidebar.move` the item of `workspace` next to an anchor: the drop
+    /// lands where it is dropped. A slot inside a section or a group lands
+    /// there. A slot on the border of two (the end of Pinned and the start
+    /// of the machine list, the end of a group and the next loose row)
+    /// belongs to the one the pointer is in (`prefer_after`).
     pub(crate) fn sidebar_move_workspace(
         &self,
         workspace: &str,
@@ -299,7 +330,6 @@ impl RemoteSession {
                 .workspace_item(workspace)
                 .map(|item| item.id.clone())
                 .ok_or_else(|| anyhow::anyhow!("the sidebar does not place this workspace yet"))?;
-            let dragged = model.workspace_item(workspace).cloned();
             let anchor = |workspace: &Option<String>| {
                 workspace
                     .as_deref()
@@ -308,18 +338,12 @@ impl RemoteSession {
                     .cloned()
             };
             let container = |row: &ItemRow| (row.section.clone(), row.parent.clone());
-            let own = dragged.as_ref().map(container);
             let to = match (anchor(&anchors.after), anchor(&anchors.before)) {
                 (Some(after), Some(before)) if container(&after) == container(&before) => {
                     drop_target(before, "before")
                 }
-                (Some(after), Some(before)) => {
-                    if own.as_ref() == Some(&container(&before)) {
-                        drop_target(before, "before")
-                    } else {
-                        drop_target(after, "after")
-                    }
-                }
+                (Some(after), Some(_)) if anchors.prefer_after => drop_target(after, "after"),
+                (Some(_), Some(before)) => drop_target(before, "before"),
                 (None, Some(before)) => drop_target(before, "before"),
                 (Some(after), None) => drop_target(after, "after"),
                 (None, None) => anyhow::bail!("the drop slot has no placed neighbor"),
@@ -445,11 +469,17 @@ impl RemoteSession {
                 }
                 if kind == "stream_end" {
                     // A gap or a closed stream: open it again and read the
-                    // document; the held one stays drawn meanwhile.
+                    // document; the held one stays drawn meanwhile. Past the
+                    // limit the idle tick reads it (`tick_sidebar_doc`).
                     *self.sidebar_doc.stream() = None;
-                    if self.sidebar_doc.stream_restarts.fetch_add(1, Ordering::AcqRel)
-                        < MAX_STREAM_RESTARTS
-                    {
+                    let ends = self.sidebar_doc.stream_restarts.fetch_add(1, Ordering::AcqRel) + 1;
+                    let reason = value.get("reason").and_then(Value::as_str).unwrap_or("unknown");
+                    crate::client_log::log(
+                        "INFO",
+                        "sidebar",
+                        &format!("sidebar event stream ended ({reason}), end {ends} in a row"),
+                    );
+                    if ends <= MAX_STREAM_RESTARTS {
                         self.start_sidebar_doc_worker(true);
                     }
                     return;

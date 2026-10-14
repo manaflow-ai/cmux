@@ -158,6 +158,10 @@ impl OrderedSession {
         self.inner.sidebar_workspace_pinned(workspace)
     }
 
+    pub(super) fn tick_sidebar_doc(&self) {
+        self.inner.tick_sidebar_doc();
+    }
+
     pub(super) fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
         self.inner.supports_clear_history_key_fallback(surface)
     }

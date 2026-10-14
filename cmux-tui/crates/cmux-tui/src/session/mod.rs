@@ -2189,6 +2189,13 @@ impl Session {
         }
     }
 
+    /// The app loop tick: the sidebar document's fallback read.
+    pub(crate) fn tick_sidebar_doc(&self) {
+        if let Session::Remote(remote) = self {
+            remote.tick_sidebar_doc();
+        }
+    }
+
     /// `sidebar.pin` / `sidebar.unpin` one workspace (by public id).
     pub(crate) fn set_sidebar_workspace_pinned(
         &self,

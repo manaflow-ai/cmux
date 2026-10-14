@@ -38,8 +38,15 @@ impl App {
         }
     }
 
-    /// Drop a dragged workspace at slot `insertion` of the drawn list.
-    pub(super) fn move_workspace_to_drop_slot(&mut self, workspace: WorkspaceId, insertion: usize) {
+    /// Drop a dragged workspace at slot `insertion` of the drawn list;
+    /// `below_row`: the pointer is under the row above the slot, so on a
+    /// section border the drop joins that row's section.
+    pub(super) fn move_workspace_to_drop_slot(
+        &mut self,
+        workspace: WorkspaceId,
+        insertion: usize,
+        below_row: bool,
+    ) {
         let workspaces = self.tree.workspaces();
         let insertion = insertion.min(workspaces.len());
         // A drop on the dragged row's own slot changes nothing.
@@ -59,6 +66,7 @@ impl App {
                 .rev()
                 .find(|index| workspaces[*index].id != workspace)
                 .and_then(public),
+            prefer_after: below_row,
         };
         let resource = self.workspace_public_id(workspace);
         self.session.move_workspace_to_slot(workspace, insertion, resource, anchors);

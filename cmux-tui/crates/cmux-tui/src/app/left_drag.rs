@@ -275,10 +275,10 @@ impl App {
         }
         if let Some(Drag::Workspace { workspace, .. }) = self.drag {
             self.drag = None;
-            if let Some(insertion) = self.workspace_drop_target_at(x, y)
+            if let Some((insertion, below_row)) = self.workspace_drop_slot_at(x, y)
                 && self.prepare_pty_input_before_mutation()
             {
-                self.move_workspace_to_drop_slot(workspace, insertion);
+                self.move_workspace_to_drop_slot(workspace, insertion, below_row);
             }
             return Ok(RenderAction::Draw);
         }
