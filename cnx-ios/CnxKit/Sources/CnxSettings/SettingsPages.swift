@@ -209,6 +209,8 @@ struct TeamPage: View {
                     }
                 }
             }
+            // The personal space is just you: nobody to invite.
+            if !team.isPersonalSpace {
             Section {
                 Button(action: invite) {
                     HStack(spacing: 14) {
@@ -218,6 +220,7 @@ struct TeamPage: View {
                         Text("Invite to team").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
                     }
                 }
+            }
             }
         }
         .settingsPage(LocalizedStringKey(team.name))

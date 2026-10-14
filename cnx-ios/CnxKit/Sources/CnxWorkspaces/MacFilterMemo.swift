@@ -22,6 +22,9 @@ public final class MacFilterMemo {
     /// Everything a Filter row's text depends on. `minute` makes offline
     /// Macs' "Last seen 4m ago" move on.
     public struct Input: Equatable {
+        /// The clock's time the rows are formatted against; the cache keys on
+        /// its minute (`minute`), not on this.
+        public var now: Date
         public var macs: [MacDevice]
         /// Every Mac on the account (all teams): the tags' scope.
         public var accountMacs: [MacDevice]
@@ -37,7 +40,13 @@ public final class MacFilterMemo {
             self.connection = connection
             self.linkStatus = linkStatus
             self.live = live
+            self.now = now
             minute = Int(now.timeIntervalSince1970 / 60)
+        }
+
+        public static func == (lhs: Input, rhs: Input) -> Bool {
+            lhs.macs == rhs.macs && lhs.accountMacs == rhs.accountMacs && lhs.connection == rhs.connection
+                && lhs.linkStatus == rhs.linkStatus && lhs.live == rhs.live && lhs.minute == rhs.minute
         }
     }
 
@@ -67,7 +76,7 @@ public final class MacFilterMemo {
     public func entries(_ input: Input) -> [Entry] {
         if entriesKey == input { return cachedEntries }
         let names = names(input.accountMacs)
-        let stamp = RelativeStamp(now: Date(timeIntervalSince1970: TimeInterval(input.minute) * 60))
+        let stamp = RelativeStamp(now: input.now)
         cachedEntries = MacScope.menuOrder(input.macs).map { mac in
             let presence = stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
             let status = MacStatusLine.make(mac: mac, connection: input.connection[mac.id], live: input.live, presence: presence).text

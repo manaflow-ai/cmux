@@ -92,7 +92,7 @@ public struct WorkspacesList: View {
 
     /// Every Mac on the account (all teams): the scope of the same-name tags,
     /// as in Settings → Devices.
-    private var accountMacs: [MacDevice] { store.teams.flatMap(\.macs) }
+    private var accountMacs: [MacDevice] { MacNameDisambiguation.scope(store.teams) }
 
     /// Tags for the account's Macs that share a name, so every place that
     /// names a Mac says which one ("Aziz's MacBook Pro 3F2A").
@@ -163,7 +163,7 @@ public struct WorkspacesList: View {
     /// refresh, "2 need you", or with several Macs how many are online.
     private var subtitle: String {
         if let mac = scopedMac {
-            return "\(displayName(mac)) · " + RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+            return "\(displayName(mac)) · " + RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
         }
         if showsUpdating && isRefreshing { return "Updating…" }
         let waiting = inbox.needsYouCount
@@ -181,7 +181,7 @@ public struct WorkspacesList: View {
     }
 
     private func unavailableMessage(_ ws: Workspace) -> String {
-        let seen = mac(ws.macID).map { RelativeStamp().presence(isOnline: false, lastSeenAt: $0.lastSeenAt) } ?? "Offline"
+        let seen = mac(ws.macID).map { RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: $0.lastSeenAt) } ?? "Offline"
         return "\(seen). \u{201C}\(ws.title)\u{201D} opens when the Mac is awake with cmux running."
     }
 
@@ -477,7 +477,7 @@ public struct WorkspacesList: View {
     private func foldLine(_ fold: WorkspaceInbox.Fold, proxy: ScrollViewProxy) -> some View {
         let isOpen = fold.isForcedOpen || unfolded.contains(fold.mac.id)
         let detail = switch fold.reason {
-        case .offline: RelativeStamp().presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
+        case .offline: RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
         case .notConnected: "Not connected"
         case .failed: "Can't connect"
         }
@@ -506,14 +506,26 @@ public struct WorkspacesList: View {
                     .accessibilityHidden(true)
                 // The name with its tag capsule, as Settings → Devices shows it;
                 // the plain text form when the capsule line doesn't fit.
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 6) {
-                        Text(fold.mac.name).lineLimit(1)
-                        if let tag = sameNames.tag(for: fold.mac.id) { MacNameTag(tag) }
-                        Text("· \(detail)").lineLimit(1)
+                // At accessibility sizes: name (never broken mid-word), the tag
+                // on its own line, then the presence, as Devices does.
+                Group {
+                    if typeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: 4) {
+                            UnbrokenText(fold.mac.name, style: .footnote, weight: .semibold)
+                            if let tag = sameNames.tag(for: fold.mac.id) { MacNameTag(tag) }
+                            UnbrokenText(detail, style: .footnote, weight: .semibold)
+                        }
+                    } else {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 6) {
+                                Text(fold.mac.name).lineLimit(1)
+                                if let tag = sameNames.tag(for: fold.mac.id) { MacNameTag(tag) }
+                                Text("· \(detail)").lineLimit(1)
+                            }
+                            Text("\(displayName(fold.mac)) · \(detail)")
+                                .lineLimit(3)
+                        }
                     }
-                    Text("\(displayName(fold.mac)) · \(detail)")
-                        .lineLimit(3)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("\(displayName(fold.mac)) · \(detail)"))
@@ -602,7 +614,7 @@ public struct WorkspacesList: View {
             EmptyState(
                 symbol: "moon.zzz",
                 title: "\(displayName(mac)) is offline",
-                message: "\(RelativeStamp().presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
+                message: "\(RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
             )
             .accessibilityIdentifier("workspaces.empty.offline")
         case .failed(let reason):
@@ -663,7 +675,8 @@ public struct WorkspacesList: View {
             }
             .accessibilityIdentifier("workspaces.filter.all")
             ForEach(macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
-                                                         linkStatus: store.macLinkStatus, live: store.tracksMacData))) { mac in
+                                                         linkStatus: store.macLinkStatus, live: store.tracksMacData,
+                                                         now: MinuteClock.shared.now))) { mac in
                 // A title and a subtitle Text directly in the label: a menu
                 // shows the second as the subtitle (not inside a Label).
                 Toggle(isOn: chosen(.mac(mac.id))) {
@@ -841,7 +854,7 @@ struct WorkspaceRow: View {
     /// seen since the phone connected.
     @ViewBuilder private var time: some View {
         if workspace.hasActivityTime {
-            Text(RelativeStamp().string(for: workspace.lastActivityAt))
+            Text(RelativeStamp(now: MinuteClock.shared.now).string(for: workspace.lastActivityAt))
                 .font(theme.type.meta)
                 .monospacedDigit()
                 .foregroundStyle(status == .needsYou ? theme.colors.label : theme.colors.label2)

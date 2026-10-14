@@ -36,9 +36,15 @@ public struct MacNameDisambiguation: Sendable, Equatable {
 
     /// The account's Macs: every team's, so a Mac carries the same tag on
     /// every surface (Workspaces, Settings → Devices), whichever team it is in.
-    /// `extra` adds Macs only the device service lists.
-    public init(account teams: [Team], extra: [(id: String, name: String)] = []) {
-        self.init(teams.flatMap(\.macs).map { (id: $0.id, name: $0.name) } + extra)
+    /// Both surfaces tag over exactly this set (`scope`); a Mac only the
+    /// device service lists does not change anyone's tag.
+    public init(account teams: [Team]) {
+        self.init(Self.scope(teams))
+    }
+
+    /// The Macs that decide which names need a tag: every team's Macs.
+    public static func scope(_ teams: [Team]) -> [MacDevice] {
+        teams.flatMap(\.macs)
     }
 
     /// "Aziz's MacBook Pro 3F2A" for a colliding name, else the name: the
