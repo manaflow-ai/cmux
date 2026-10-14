@@ -50,7 +50,14 @@ pub(super) fn handle_resource_line(
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
     match admitted {
         Ok(request) => handle_resource_connection_message(mux, client, request, writer),
-        Err(error) => send_resource_response(writer, id, operation, Err(error)),
+        Err(error) => {
+            if operation == ResourceOperation::HistoryTrailRecord {
+                // The trail's failure log (cx-hnmbt.14): an origin refusal
+                // never reaches the history module.
+                crate::history_ops::log_trail_refusal(mux, client, &error);
+            }
+            send_resource_response(writer, id, operation, Err(error))
+        }
     }
 }
 
