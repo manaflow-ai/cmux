@@ -170,6 +170,8 @@ struct BrowserScreen: View {
     /// A card to remove once the zoom back to the grid settles (an ended
     /// terminal's "Back to Terminals").
     @State private var pendingCardRemoval: String?
+    /// A card tapped while the zoom headed to the grid: opened once it settles.
+    @State private var queuedOpen: String?
     @Environment(\.cnLeadingBarItem) private var leadingItem
     @Environment(\.cnShellRoute) private var shellRoute
     @Environment(\.displayScale) private var displayScale
@@ -289,6 +291,7 @@ struct BrowserScreen: View {
                             placeholderTerminal: newTabIsTerminal,
                             slotTakeover: newTabSlot?.created(in: itemIds),
                             onCardMenu: cardMenu,
+                            onQueueSelect: { queuedOpen = $0 },
                             onMove: { key, index in tabs.move(key, to: index) },
                             onScrolling: { tabs.setGridScrolling($0) })
                     .opacity(overviewVisible ? 1 : 0)
@@ -495,6 +498,12 @@ struct BrowserScreen: View {
                 if phase == .page {
                     zoomTabId = nil
                     chrome.expand(tap: true)
+                }
+                if phase == .overview, let key = queuedOpen {
+                    queuedOpen = nil
+                    if tabs.items.contains(where: { $0.id == key }) { closeOverview(selecting: key) }
+                } else if phase == .page {
+                    queuedOpen = nil
                 }
                 if phase == .overview, newTabFailed {
                     // The refused (+) start page is back in its slot: the slot leaves.

@@ -206,6 +206,8 @@ struct TabOverview: View {
     var slotTakeover: String?
     /// A card's long-press menu item was chosen.
     var onCardMenu: (CardMenuAction, String) -> Void = { _, _ in }
+    /// A card tapped during the zoom to the grid (open it once settled).
+    var onQueueSelect: (String) -> Void = { _ in }
     /// Long press and drag: move the card to a grid index.
     var onMove: (String, Int) -> Void = { _, _ in }
     /// The grid started (true) or stopped (false) scrolling.
@@ -339,7 +341,9 @@ struct TabOverview: View {
                 onOpen: { onSelect(tab.id) },
                 onClose: { Task { _ = await onClose(tab.id) } })
             .contentShape(.rect)
-            .onTapGesture { if gridInteractive { onSelect(tab.id) } }
+            // During the zoom to the grid a tap is kept and opens the card
+            // once the grid has settled (Safari queues it).
+            .onTapGesture { if gridInteractive { onSelect(tab.id) } else if swipeInteractive { onQueueSelect(tab.id) } }
             // Long press: Safari's card menu; moving the finger then drags
             // the card to another slot.
             .gesture(CardLongPressGesture { phase in press(phase, tab: tab, rect: r) })
