@@ -788,6 +788,12 @@ pub enum ConversationEvent {
     /// only to a connection that echoed `conversation-runs-v1` in
     /// `set-client-info` (never the remote relay or `conversation.events`).
     Run { conversation: String, run: Value, steps: Vec<Value> },
+    /// A participant's avatar changed (`participant-avatars-v1`): the stored
+    /// reference, or none. Not conversation state (no conversation, no rev);
+    /// `subscribe` delivers it only to a connection that echoed the
+    /// capability in `set-client-info` (never the remote relay or
+    /// `conversation.events`).
+    Avatar { participant: String, avatar: Option<Value> },
 }
 
 impl ConversationEvent {
@@ -827,12 +833,22 @@ impl ConversationEvent {
                 "run": run,
                 "steps": steps,
             }),
+            Self::Avatar { participant, avatar } => json!({
+                "event": "participant-avatar-changed",
+                "participant": participant,
+                "avatar": avatar,
+            }),
         }
     }
 
     /// Run events go on `subscribe` only to a connection that asked for them.
     pub(crate) const fn is_run(&self) -> bool {
         matches!(self, Self::Run { .. })
+    }
+
+    /// Avatar changes go on `subscribe` only to a connection that asked.
+    pub(crate) const fn is_avatar(&self) -> bool {
+        matches!(self, Self::Avatar { .. })
     }
 
     /// Drafts travel on `conversation.events`, and on `subscribe` only to a

@@ -188,7 +188,7 @@ export default agentPaneEntry({
       play: check,
     },
     permission: {
-      note: "A chat allowed to act without asking: the lock chip sits in the composer bar beside the pickers.",
+      note: "A chat allowed to act without asking: the grant shows on the mode's lock; no other chip joins the bar.",
       snapshot: {
         ...withControls(chat(finished)),
         permissionGroups: {
@@ -203,7 +203,7 @@ export default agentPaneEntry({
       play: check,
     },
     "model-menu": {
-      note: "Play: open the model picker from the icon-only chip; it stays inside the pane, unclipped.",
+      note: "Play: open the model picker from its chip (icon-only below 330px); it stays inside the pane, unclipped.",
       checks: {
         popupLayer: { value: true, reason: "A chip's menu renders inside the chip row; a clipping row hides it." },
       },
@@ -215,7 +215,7 @@ export default agentPaneEntry({
       },
     },
     "access-menu": {
-      note: "Play: open the access menu from its icon-only chip.",
+      note: "Play: open the access menu from its chip, down to its lock in a short row.",
       checks: {
         popupLayer: { value: true, reason: "A chip's menu renders inside the chip row; a clipping row hides it." },
       },
@@ -239,7 +239,7 @@ export default agentPaneEntry({
       },
     },
     working: {
-      note: "A turn running: Stop beside the mic, with the context ring busy.",
+      note: "A turn running: Stop beside the mic.",
       snapshot: withControls(chat(working, { isWorking: true })),
       play: check,
     },

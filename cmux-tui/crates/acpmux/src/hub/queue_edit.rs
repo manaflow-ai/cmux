@@ -7,6 +7,10 @@ use super::queue::PromptRun;
 use super::*;
 use std::sync::atomic::Ordering;
 
+// `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
+#[path = "withdraw.rs"]
+mod withdraw;
+
 /// The stricter of two controls: an edit never runs a prompt under looser rules than either
 /// the prompt's sender's or the editor's.
 fn stricter(a: Control, b: Control) -> Control {

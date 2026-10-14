@@ -114,6 +114,17 @@ body,
 .hc-avatar.chief {
   box-shadow: inset 0 0 0 1.5px var(--hc-accent);
 }
+/* A picture fills the tile's shape (circle for people, rounded square for agents). */
+.hc-avatar.picture {
+  background: none;
+}
+.hc-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  display: block;
+}
 .hc-error {
   display: flex;
   gap: 10px;

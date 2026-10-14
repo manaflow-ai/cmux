@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { AttachmentContext } from "./AttachmentViews";
+import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
 import { ConversationList, useStamp } from "./ConversationList";
@@ -124,6 +125,7 @@ export function HomeChannelsPage({
     if (snap.me) map.set(snap.me.id, snap.me);
     return map;
   }, [conversations, snap.me]);
+  const runsWithPeople = useMemo<RunsContextValue>(() => ({ ...runs, people }), [runs, people]);
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
   const name = open ? conversationName(open, me) : "";
@@ -465,6 +467,7 @@ export function HomeChannelsPage({
   );
   return (
     <AttachmentContext.Provider value={store.attachments}>
+      <AvatarContext.Provider value={store.avatars}>
       <PicturesContext.Provider value={sheetState.pictures}>
         <div className="lg-shell" ref={shell}>
           <div className="lg-page" data-pane={pane}>
@@ -582,7 +585,7 @@ export function HomeChannelsPage({
                       </button>
                     </output>
                   )}
-                  <RunsContext.Provider value={runs}>
+                  <RunsContext.Provider value={runsWithPeople}>
                     <div className="lg-stage" ref={column} data-drop-zone>
                       <Timeline
                         conversation={snap.selected}
@@ -696,6 +699,7 @@ export function HomeChannelsPage({
           </div>
         </div>
       </PicturesContext.Provider>
+      </AvatarContext.Provider>
     </AttachmentContext.Provider>
   );
 }

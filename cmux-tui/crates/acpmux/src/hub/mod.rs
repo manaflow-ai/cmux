@@ -54,6 +54,7 @@ mod steer_end;
 mod stream;
 mod tags;
 mod tap;
+mod tools;
 pub use lifecycle::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
