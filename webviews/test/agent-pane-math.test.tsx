@@ -105,6 +105,7 @@ test("each delimiter typesets once math appears", async () => {
     ["$$E=mc^2$$", ["E=mc^2"], true],
     ["\\[\n\\int_0^1 x\\,dx\n\\]", ["\\int_0^1 x\\,dx"], true],
     ["Inline $$a^2+b^2$$ display.", ["a^2+b^2"], true],
+    ["The energy is $$ E = mc^2 $$ here.", ["E = mc^2"], true],
   ];
   for (const [source, tex, display] of cases) {
     await show(source);
@@ -116,6 +117,7 @@ test("each delimiter typesets once math appears", async () => {
   expect(katexLoaded()).toBe(true);
 });
 
+let copiedHtml: string | undefined;
 function copySelection(): string | undefined {
   const data = new Map<string, string>();
   const event = new window.Event("copy", { bubbles: true, cancelable: true });
@@ -123,6 +125,7 @@ function copySelection(): string | undefined {
     value: { setData: (type: string, value: string) => data.set(type, value) },
   });
   window.document.getSelection()!.anchorNode!.parentElement!.dispatchEvent(event);
+  copiedHtml = data.get("text/html");
   return event.defaultPrevented ? data.get("text/plain") : undefined;
 }
 
@@ -136,6 +139,10 @@ test("a selection copies its equations as their TeX", async () => {
   selection.removeAllRanges();
   selection.addRange(range);
   expect(copySelection()).toBe("Area is $\\pi r^2$ here.\n$$E=mc^2$$\nDone.");
+  // The HTML copy keeps the paragraphs, with each equation as its source.
+  expect(copiedHtml).toContain("<p");
+  expect(copiedHtml).toContain("$\\pi r^2$");
+  expect(copiedHtml).not.toContain("katex");
 
   // A selection that starts inside an equation takes the whole equation.
   const glyph = host.querySelector(".cv-math .katex-html")!;
