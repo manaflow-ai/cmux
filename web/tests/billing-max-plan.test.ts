@@ -123,6 +123,17 @@ describe("Max as a personal plan", () => {
     expect(status.hasManualVmPlanOverride).toBe(true);
   });
 
+  test("an operator go grant is Go, matching the Go machine limits", async () => {
+    const status = await resolveProPlanStatus(
+      { update: async () => undefined, id: "user-go-grant", isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "go" } },
+      { activePersonalPlan: async () => null, hasStripeCustomer: async () => false },
+    );
+    // The billing endpoint reports this as the exact plan; clients that offer
+    // the next tier must see Go and offer Pro, as the VM limits already do.
+    expect(status.planId).toBe("go");
+    expect(status.isPro).toBe(true);
+  });
+
   test("the legacy boolean seam still means pro", async () => {
     const status = await resolveProPlanStatus(
       { update: async () => undefined, id: "user-legacy", isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "pro" } },
