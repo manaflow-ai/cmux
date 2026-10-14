@@ -32,8 +32,9 @@ public struct RightSidebarWidthSettings: Sendable {
     /// still applies on top of it.
     public static let minimumWidthKey = "rightSidebarMinimumWidth"
 
-    /// The range a ``minimumWidthKey`` override is clamped to.
-    public static let minimumWidthRange: ClosedRange<Double> = 160...600
+    /// The range a ``minimumWidthKey`` override is clamped to. It can only
+    /// lower the floor, so it never takes room the terminal would otherwise keep.
+    public static let minimumWidthRange: ClosedRange<Double> = 160...minimumWidth
 
     /// Clamps a stored minimum width override to ``minimumWidthRange``.
     ///

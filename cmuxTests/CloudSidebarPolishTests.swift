@@ -62,10 +62,14 @@ struct CloudSidebarPolishTests {
         #expect(ContentView.clampedRightSidebarWidth(
             100, availableWidth: 1600, configuredMinimumWidth: 200, contentMinimumWidth: 240
         ) == 240)
-        // A configured minimum can also raise the floor.
+        // A configured minimum never raises the floor, so a narrow window
+        // keeps the same terminal room it has without the setting.
         #expect(ContentView.clampedRightSidebarWidth(
-            300, availableWidth: 1600, configuredMinimumWidth: 400
-        ) == 400)
+            100, availableWidth: 800, configuredMinimumWidth: 600
+        ) == ContentView.clampedRightSidebarWidth(100, availableWidth: 800))
+        #expect(ContentView.clampedRightSidebarWidth(
+            10_000, availableWidth: 800, configuredMinimumWidth: 600
+        ) == ContentView.clampedRightSidebarWidth(10_000, availableWidth: 800))
     }
 
     @Test("The right sidebar content minimum stays below its effective maximum")

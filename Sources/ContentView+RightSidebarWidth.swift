@@ -5,7 +5,7 @@ extension ContentView {
     ///
     /// The content minimum can exceed either cap in a narrow window, so it is
     /// bounded by the effective maximum before it becomes the lower bound.
-    /// `configuredMinimumWidth` replaces the built-in floor when set.
+    /// `configuredMinimumWidth` lowers the built-in floor when set; it never raises it.
     static func clampedRightSidebarWidth(
         _ candidate: CGFloat,
         availableWidth: CGFloat,
@@ -15,7 +15,7 @@ extension ContentView {
     ) -> CGFloat {
         let floorWidth: CGFloat
         if let configuredMinimumWidth, configuredMinimumWidth.isFinite, configuredMinimumWidth > 0 {
-            floorWidth = configuredMinimumWidth
+            floorWidth = min(configuredMinimumWidth, minimumRightSidebarWidth)
         } else {
             floorWidth = minimumRightSidebarWidth
         }
