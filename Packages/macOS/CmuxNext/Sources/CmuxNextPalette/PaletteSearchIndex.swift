@@ -30,6 +30,9 @@ nonisolated public struct PaletteSearchEntry: Sendable, Hashable {
     /// The row has a keyboard shortcut (`PaletteItem.keycaps`): a core command,
     /// ranked first among equal matches.
     public var hasShortcut = false
+    /// The keycaps of the row's live shortcut (`PaletteItem.keycaps`, user overrides included):
+    /// the ranker ranks the row first for a query that names it ("cmd shift p", "⇧⌘P").
+    public var keycaps: [String] = []
     /// `PaletteItem.suggestedRank`, and the Suggested section's index in the page's table.
     public var suggestedRank: Int?
     public var suggestedSectionIndex: Int?
@@ -90,6 +93,9 @@ extension PaletteSearchIndex {
 }
 
 extension PaletteSearchEntry {
+    /// The localized keycap of the space key (`Shortcut.keyGlyph`).
+    @MainActor private static let spaceKeycap = Shortcut(Shortcut.spaceKey, modifiers: []).keyGlyph
+
     @MainActor
     init(_ item: PaletteItem, visible: Bool, sectionIndex: Int) {
         self.init(
@@ -108,7 +114,9 @@ extension PaletteSearchEntry {
         entersScope = item.enters != nil
         actionID = item.actionID?.rawValue
         demoted = item.isDemoted
-        hasShortcut = !(item.keycaps ?? []).isEmpty
+        // The space key's keycap is localized ("Space"); the ranker reads a locale-free "␣".
+        keycaps = (item.keycaps ?? []).map { $0 == Self.spaceKeycap ? "␣" : $0 }
+        hasShortcut = !keycaps.isEmpty
         suggestedRank = item.suggestedRank
     }
 }
