@@ -101,6 +101,9 @@ fn cli(home: &Path) -> Command {
     command
 }
 
+/// A 2x2 PNG, the picture a tool call returns.
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP4z8AARAwQCgAf7gP9i18U1AAAAABJRU5ErkJggg==";
+
 fn working_turn() -> Script {
     Box::new(|_, _| {
         vec![
@@ -128,6 +131,18 @@ fn working_turn() -> Script {
                 json!({"toolCallId": "toolu_edit", "status": "completed",
                        "content": [{"type": "diff", "path": "/tmp/notes.md",
                                     "oldText": "one\ntwo\n", "newText": "one\nthree\nfour\n"}]}),
+            ),
+            update(
+                "tool_call",
+                json!({"toolCallId": "toolu_shot", "title": "Screenshot", "kind": "read",
+                       "rawInput": {"file_path": "/tmp/shot.png"},
+                       "_meta": {"claude": {"tool": "Read"}}}),
+            ),
+            update(
+                "tool_call_update",
+                json!({"toolCallId": "toolu_shot", "status": "completed",
+                       "content": [{"type": "content", "content": {"type": "image", "mimeType": "image/png",
+                                    "data": PNG}}]}),
             ),
             update(
                 "agent_message_chunk",
@@ -277,6 +292,12 @@ fn the_chief_writes_its_run_to_the_conversation_as_it_works() {
         .find(|s| s["kind"] == "talk")
         .unwrap_or_else(|| panic!("no talk step: {page}"));
     assert_eq!(talk["text"], "The last commit is 3158c157a2.", "{talk}");
+    // The picture a tool call returned is an attachment of the conversation its step names.
+    let shot = step("tool:toolu_shot");
+    let picture = &shot["attachments"][0];
+    assert_eq!(picture["mime_type"], "image/png", "{shot}");
+    assert_eq!(picture["width"], 2, "{shot}");
+    assert_eq!(picture["hash"].as_str().map(str::len), Some(64), "{shot}");
     // In the order the Chief did it.
     assert!(shell["seq"].as_u64() < edit["seq"].as_u64(), "{page}");
     assert!(edit["seq"].as_u64() < talk["seq"].as_u64(), "{page}");

@@ -429,6 +429,9 @@ pub struct Brain {
     draft_failed: bool,
     /// A run append failed once: later failures are not logged.
     run_failed: bool,
+    /// The attachments uploaded for the running turn's steps (turn key, step id):
+    /// every later append of the step names them again (a step is replaced whole).
+    run_attachments: HashMap<(String, String), Vec<serde_json::Value>>,
     /// The owner said once that it takes no typing indicator (cloud).
     typing_unsupported: bool,
     after_turn: Option<TurnHook>,
@@ -557,6 +560,7 @@ impl Brain {
             steer_seq: 0,
             draft_failed: false,
             run_failed: false,
+            run_attachments: HashMap::new(),
             typing_unsupported: false,
             marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),

@@ -428,6 +428,11 @@ impl TurnFold {
         self.run.take(now, all)
     }
 
+    /// The pictures the turn's tool calls returned since the last call.
+    pub fn take_run_images(&mut self) -> Vec<crate::run::RunImage> {
+        self.run.take_images()
+    }
+
     /// The reply segments finished since the last call, then the open one
     /// (its index and its text so far), for the drafts.
     pub fn take_segments(&mut self) -> (Vec<(u64, String)>, (u64, &str)) {

@@ -33,7 +33,22 @@ pub struct RunUpdate {
     pub turn: String,
     pub run: Map<String, Value>,
     pub steps: Vec<Value>,
+    /// Pictures the steps' tool calls returned: the brain uploads each as an
+    /// attachment of the conversation and names it in its step.
+    pub images: Vec<RunImage>,
 }
+
+/// One picture a tool call returned (an ACP `image` content block).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunImage {
+    pub step: String,
+    pub mime_type: String,
+    /// Base64, as the harness sent it.
+    pub data: String,
+}
+
+/// Most pictures one tool call shows.
+const MAX_STEP_IMAGES: usize = 4;
 
 #[derive(Debug, Default)]
 struct Step {
@@ -53,6 +68,9 @@ pub struct RunSteps {
     dirty: BTreeSet<String>,
     /// The thought being streamed (`thought:<n>`): a tool call or reply text ends it.
     thought: u64,
+    /// Pictures not yet taken, and how many each step returned (each once).
+    images: Vec<RunImage>,
+    image_counts: BTreeMap<String, usize>,
 }
 
 impl RunSteps {
@@ -175,6 +193,20 @@ impl RunSteps {
         }
         merge_locations(tool, update);
         merge_diffs(tool, update);
+        let step_id = step_id("tool", id);
+        for (mime_type, data) in images_of(update) {
+            let count = self.image_counts.entry(step_id.clone()).or_default();
+            if *count >= MAX_STEP_IMAGES {
+                break;
+            }
+            *count += 1;
+            self.images.push(RunImage { step: step_id.clone(), mime_type, data });
+        }
+    }
+
+    /// The pictures returned since the last call.
+    pub fn take_images(&mut self) -> Vec<RunImage> {
+        std::mem::take(&mut self.images)
     }
 
     /// The steps that changed since the last call. An open segment that was
@@ -276,6 +308,24 @@ fn exit_code(update: &Value) -> Option<i64> {
     raw.and_then(|r| r.get("exit_code").or_else(|| r.get("exitCode")).or_else(|| r.get("code")))
         .or_else(|| update.pointer("/_meta/claude/exitCode"))
         .and_then(Value::as_i64)
+}
+
+/// The `image` content blocks of a tool update (png, jpeg, gif, webp), in order.
+fn images_of(update: &Value) -> Vec<(String, String)> {
+    let Some(content) = update.get("content").and_then(Value::as_array) else { return Vec::new() };
+    content
+        .iter()
+        .filter_map(|item| {
+            let block = item.get("content").unwrap_or(item);
+            if block.get("type").and_then(Value::as_str) != Some("image") {
+                return None;
+            }
+            let mime = block.get("mimeType").and_then(Value::as_str)?;
+            let data = block.get("data").and_then(Value::as_str)?;
+            matches!(mime, "image/png" | "image/jpeg" | "image/gif" | "image/webp")
+                .then(|| (mime.to_owned(), data.to_owned()))
+        })
+        .collect()
 }
 
 /// ACP `locations`: files the call reads or writes, as paths with no text.

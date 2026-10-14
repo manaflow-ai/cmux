@@ -76,6 +76,21 @@ pub trait ConversationPort: Send {
     ) -> Result<(), OpError> {
         Err(OpError::Rejected("runs_unsupported".into()))
     }
+    /// Uploads a picture a run step shows as an attachment record of
+    /// `conversation` this connection's agent may name (one chunk, at most
+    /// 4 MiB; the same steps as a link preview's picture).
+    fn upload_run_image(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<DerivedImage, OpError> {
+        let _ = (conversation, bytes, mime_type, name, width, height);
+        Err(OpError::Rejected("attachments_unsupported".into()))
+    }
     /// One attachment variant (`original`, `preview`, `poster`) of `hash`,
     /// base64, in a single owner read of `bytes` (at most 4 MiB): an error
     /// when the owner has not sent all of it (`local-attachments-v1`).
@@ -517,6 +532,18 @@ impl ConversationPort for SdkConversations {
             config: self.config.clone(),
             client: None,
         }))
+    }
+
+    fn upload_run_image(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<DerivedImage, OpError> {
+        upload_with(&mut self.client, conversation, bytes, mime_type, name, width, height)
     }
 
     /// `conversation-run-append` (capability `conversation-runs-v1`): this

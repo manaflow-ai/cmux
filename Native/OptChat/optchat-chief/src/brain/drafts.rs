@@ -69,7 +69,31 @@ impl Brain {
         let Some(daemon) = self.daemon.as_mut() else {
             return;
         };
-        if let Err(e) = daemon.run_append(&conversation, serde_json::Value::Object(run), update.steps)
+        // Pictures first: each becomes an attachment its step names, now and in later appends.
+        let turn_key = update.turn.clone();
+        self.run_attachments.retain(|(turn, _), _| *turn == turn_key);
+        for image in &update.images {
+            match upload_image(daemon.as_mut(), &conversation, image) {
+                Ok(attachment) => self
+                    .run_attachments
+                    .entry((turn_key.clone(), image.step.clone()))
+                    .or_default()
+                    .push(attachment),
+                Err(e) if !self.run_failed => {
+                    self.run_failed = true;
+                    (self.log)(&format!("uploading a run picture failed: {e}; later failures are not logged"));
+                }
+                Err(_) => {}
+            }
+        }
+        let mut steps = update.steps;
+        for step in &mut steps {
+            let id = step.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
+            if let Some(attachments) = self.run_attachments.get(&(turn_key.clone(), id)) {
+                step["attachments"] = serde_json::json!(attachments);
+            }
+        }
+        if let Err(e) = daemon.run_append(&conversation, serde_json::Value::Object(run), steps)
             && !self.run_failed
         {
             self.run_failed = true;
@@ -78,4 +102,38 @@ impl Brain {
             ));
         }
     }
+}
+
+/// One run picture as an attachment of `conversation` (`{hash, name, mime_type, byte_count,
+/// width, height}`): decoded to read its size, at most 4 MiB.
+fn upload_image(
+    daemon: &mut dyn crate::daemon::ConversationPort,
+    conversation: &str,
+    image: &crate::run::RunImage,
+) -> Result<serde_json::Value, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(image.data.as_bytes())
+        .map_err(|e| format!("picture data: {e}"))?;
+    if bytes.is_empty() || bytes.len() > 4 * 1024 * 1024 {
+        return Err(format!("picture of {} bytes", bytes.len()));
+    }
+    let (width, height) = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?
+        .into_dimensions()
+        .map_err(|e| e.to_string())?;
+    let extension = image.mime_type.rsplit('/').next().unwrap_or("png");
+    let name = format!("{}.{extension}", image.step.replace(':', "-"));
+    let stored = daemon
+        .upload_run_image(conversation, &bytes, &image.mime_type, &name, width, height)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "hash": stored.hash,
+        "name": name,
+        "mime_type": stored.mime_type,
+        "byte_count": stored.byte_count,
+        "width": width,
+        "height": height,
+    }))
 }

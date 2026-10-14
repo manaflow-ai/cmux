@@ -319,12 +319,16 @@ pub fn run_with_drafts(
     ));
     // Steps in appends the owner takes, then the summary on its own: a refused step append
     // never loses the run's start or end.
-    let send_run = |summary: serde_json::Map<String, Value>, steps: Vec<Value>| {
+    let send_run = |summary: serde_json::Map<String, Value>,
+                    steps: Vec<Value>,
+                    images: Vec<crate::run::RunImage>| {
+        let mut images = Some(images);
         for chunk in crate::run::chunks(steps) {
             run(crate::run::RunUpdate {
                 turn: start.key.clone(),
                 run: serde_json::Map::new(),
                 steps: chunk,
+                images: images.take().unwrap_or_default(),
             });
         }
         if !summary.is_empty() {
@@ -332,6 +336,7 @@ pub fn run_with_drafts(
                 turn: start.key.clone(),
                 run: summary,
                 steps: Vec::new(),
+                images: Vec::new(),
             });
         }
     };
@@ -342,7 +347,8 @@ pub fn run_with_drafts(
         }
         let steps = fold.take_run_steps(Instant::now(), false);
         if !steps.is_empty() {
-            send_run(serde_json::Map::new(), steps);
+            let images = fold.take_run_images();
+            send_run(serde_json::Map::new(), steps, images);
         }
     };
     // The run is on the conversation before the harness acts.
@@ -353,6 +359,7 @@ pub fn run_with_drafts(
             spec.model.as_deref(),
             crate::run::epoch_ms(),
         ),
+        Vec::new(),
         Vec::new(),
     );
     // The session is on record before it can act: a host that stops from
@@ -622,6 +629,7 @@ pub fn run_with_drafts(
             requests.last().and_then(|r| r.model.as_deref()),
         ),
         fold.take_run_steps(Instant::now(), true),
+        fold.take_run_images(),
     );
     let refused = moved.is_some();
     let error = match (error, moved) {
