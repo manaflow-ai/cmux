@@ -16,7 +16,11 @@ interface OwnerStub {
   readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<{ ok: true; value: unknown } | { ok: false; code: string; message: string }>
 }
 
-/** The grant a chief acts with: what a placed chief token holds (read, mutate-own, mutate-shared). */
+/**
+ * The grant a chief acts with: what a placed chief token holds (read, mutate-own, mutate-shared;
+ * user-chief.ts chiefGrantClasses). This brain is the chief's placement in the cloud; the owner turned
+ * it on, and every turn and post first checks the chief record is live and not placed on a server.
+ */
 const CHIEF_GRANT = ["read", "mutate-own", "mutate-shared"]
 
 export const chiefPrincipal = (agent: string, owner: string): Principal => ({ identity: `agent:${agent}`, kind: "agent", agent, user: owner, grant_classes: CHIEF_GRANT })
@@ -96,4 +100,14 @@ export const chiefOwnedBy = async (env: Env, agent: string, principal: Principal
   if (!r.ok) return null
   const head = r.value as { agent: string | null; owner_user: string | null }
   return head.agent === agent && head.owner_user !== null && head.owner_user === principal.user && principal.agent === undefined ? { owner: head.owner_user } : null
+}
+
+/** The chief's record as its owner's UserDO holds it (chief.list, as the owner), or null for an unknown or archived chief. */
+export const chiefRecord = async (env: Env, owner: string, agent: string): Promise<{ display_name: string; brain_place: unknown } | null> => {
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as OwnerStub
+  const r = await stub.readOp(owner, { identity: `session:${owner}`, kind: "session", user: owner }, "chief.list", {})
+  if (!r.ok) return null
+  const chiefs = (r.value as { chiefs?: Array<{ id: string; display_name: string; archived_at: string | null; brain_place?: unknown }> }).chiefs ?? []
+  const c = chiefs.find((x) => x.id === agent && x.archived_at === null)
+  return c ? { display_name: c.display_name, brain_place: c.brain_place ?? null } : null
 }

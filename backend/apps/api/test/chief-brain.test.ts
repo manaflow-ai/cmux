@@ -44,14 +44,17 @@ const ownerWithChief = async (sub: string) => {
 /** Drives the conversation's outbox (wake to MuxDO, which forwards to the brain) until the chief has answered `n` times. */
 const chiefReplies = async (token: string, conversation: string, chief: string, n: number) => {
   const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(conversation))
+  // The chief's brain for this conversation (its own alarm runs post retries after the loop guard's 2 s gap).
+  const brains = (env as unknown as { CHIEF_BRAIN_DO: DurableObjectNamespace }).CHIEF_BRAIN_DO
+  const brain = brains.get(brains.idFromName(`${chief}/${conversation}`))
   for (let i = 0; i < 200; i++) {
     const mine = (await history(token, conversation)).filter((m) => m.author === chief)
     if (mine.length >= n) return mine
     await fireAlarm(conv)
+    if (i % 10 === 9) await fireAlarm(brain)
     await new Promise((r) => setTimeout(r, 50))
   }
-  const brain = (env as unknown as { CHIEF_BRAIN_DO: DurableObjectNamespace }).CHIEF_BRAIN_DO
-  const dump = await runInDurableObject(brain.get(brain.idFromName(chief)), async (_i, state) => ({
+  const dump = await runInDurableObject(brain, async (_i, state) => ({
     turns: state.storage.sql.exec("SELECT id, status, reason, post, post_tries, last_seq FROM cb_turn").toArray(),
     inbox: state.storage.sql.exec("SELECT n, seq, state, turn FROM cb_inbox").toArray(),
     cursor: state.storage.sql.exec("SELECT * FROM cb_cursor").toArray()
@@ -111,23 +114,23 @@ describe("Chief brain on Durable Objects", { timeout: 120_000 }, () => {
 
     // The run (trajectory wire): the reply's client_msg_id is the run's turn; members only, one answer for hidden and missing.
     const run = reply.parts[1].session as string
-    const read = await http("GET", `/v1/chiefs/${chief.id}/runs/${run}`, token)
+    const read = await http("GET", `/v1/chiefs/${chief.id}/runs/${run}?conversation=${chief.main_conversation}`, token)
     expect(read.status, JSON.stringify(read.json)).toBe(200)
     expect(read.json.value.run).toMatchObject({ id: run, author: chief.id, conversation: chief.main_conversation, status: "done", harness: "pi-durable", turn: reply.client_msg_id, reply: { state: "posted", message: reply.id } })
     expect(read.json.value.steps.map((s: { kind: string }) => s.kind)).toContain("talk")
     expect(read.json.value.steps[0]).toMatchObject({ id: expect.stringMatching(/^talk:/), seq: 1 })
     const list = await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)
     expect(list.json.value.runs.map((r: { id: string }) => r.id)).toEqual([run])
-    expect((await http("GET", `/v1/chiefs/${chief.id}/runs/${run}`, other)).status).toBe(404)
+    expect((await http("GET", `/v1/chiefs/${chief.id}/runs/${run}?conversation=${chief.main_conversation}`, other)).status).toBe(404)
     expect((await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, other)).status).toBe(404)
-    expect((await http("GET", `/v1/chiefs/${chief.id}/runs/run_999999`, token)).status).toBe(404)
+    expect((await http("GET", `/v1/chiefs/${chief.id}/runs/run_999999?conversation=${chief.main_conversation}`, token)).status).toBe(404)
 
     // A second message is a new turn with its own run; the memory holds the first exchange.
     expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "dm-2", parts: [{ type: "text", text: "and the notes?" }] }, "dm-2")).ok).toBe(true)
     const replies = await chiefReplies(token, chief.main_conversation, chief.id, 2)
     expect(replies[1].parts[1].session).not.toBe(run)
     const status = await http("GET", `/v1/chiefs/${chief.id}/brain`, token)
-    expect(status.json.value.messages).toBeGreaterThanOrEqual(4)
+    expect(status.json.value.turns_today).toBe(2)
   })
 
   it("replies in the thread of a channel message, and stays quiet until its owner turns it on", async () => {

@@ -182,6 +182,8 @@ export interface Env {
   readonly CHIEF_BRAIN_MODEL?: string
   /** The brain's default compactor model (default: CHIEF_BRAIN_MODEL). */
   readonly CHIEF_BRAIN_COMPACTOR_MODEL?: string
+  /** Turns one chief's brains may start per UTC day (default 300): a spend bound for Workers AI. */
+  readonly CHIEF_BRAIN_DAILY_TURNS?: string
   /** Test only: the OptChat view budget in bytes (0 = the spec's 128,000). */
   readonly CHIEF_BRAIN_VIEW_BUDGET?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */

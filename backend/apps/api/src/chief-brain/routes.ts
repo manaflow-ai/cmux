@@ -1,7 +1,7 @@
 import type { Env } from "../env.ts"
 import { callerOf, type Fail } from "../home-attachments.ts"
 import { chiefOwnedBy } from "./brain-io.ts"
-import type { ConfigPatch } from "./brain-do.ts"
+import { brainName, type ConfigPatch } from "./brain-do.ts"
 
 /**
  * HTTP routes of the Chief brain (outside the op catalog, like the keyed acpmux start):
@@ -9,7 +9,7 @@ import type { ConfigPatch } from "./brain-do.ts"
  *   GET  /v1/chiefs/<agent>/brain           the owner: settings and state
  *   PUT  /v1/chiefs/<agent>/brain           the owner: {enabled?, model?, compactor_model?, role?, personality?, instructions?}
  *   GET  /v1/chiefs/<agent>/runs?conversation=<id>&before=<ms>&limit=<n>   a member: the chief's runs there, newest first
- *   GET  /v1/chiefs/<agent>/runs/<run>?after_seq=<n>   a current member of the run's conversation: {run, steps, has_more}
+ *   GET  /v1/chiefs/<agent>/runs/<run>?conversation=<id>&after_seq=<n>   a member: {run, steps, has_more}
  *
  * Run and Step are the trajectory wire's JSON (brain-runs.ts); members also get each change live as
  * a `conversation-run-changed` frame on the conversation socket.
@@ -41,7 +41,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
       return fail({ status: 400, code: "validation.invalid", message: `body is an object of ${[...PATCH_KEYS].join(", ")}` })
     }
     const r = await brain.configure(agent, owned.owner, body as ConfigPatch)
-    return r.ok ? ok(r.config) : fail({ status: r.code === "auth.forbidden" ? 403 : 400, code: r.code, message: r.message })
+    return r.ok ? ok(r.config) : fail({ status: r.code === "auth.forbidden" ? 403 : r.code.startsWith("chief_") ? 409 : 400, code: r.code, message: r.message })
   }
   if (request.method !== "GET") return fail({ status: 405, code: "method_not_allowed", message: "GET" })
   const caller = await callerOf(request, env, "read")
@@ -57,14 +57,13 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
     const conv = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean }> }
     return (await conv.readOp(conversation, caller.principal, "conversation.history", { limit: 1 })).ok
   }
-  if (!run) {
-    const conversation = url.searchParams.get("conversation") ?? ""
-    if (!/^conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26}$/.test(conversation)) return fail({ status: 400, code: "validation.invalid", message: "conversation is required" })
-    if (!(await member(conversation))) return fail(hidden)
-    const limit = Math.min(Math.max(Math.floor(num("limit") ?? 20), 1), 100)
-    return ok(await brain.runs(conversation, num("before"), limit))
-  }
+  const conversation = url.searchParams.get("conversation") ?? ""
+  if (!/^conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26}$/.test(conversation)) return fail({ status: 400, code: "validation.invalid", message: "conversation is required" })
+  // Membership first: a non-member never reaches (or creates) a brain object.
+  if (!(await member(conversation))) return fail(hidden)
+  const convBrain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation)))
+  if (!run) return ok(await convBrain.runs(conversation, num("before"), Math.min(Math.max(Math.floor(num("limit") ?? 20), 1), 100)))
   // Step tool inputs are JSON values (unknown), which the RPC stub type cannot express: read the shape here.
-  const found = (await (brain.run(run, Math.max(0, Math.floor(num("after_seq") ?? 0)), 500) as unknown as Promise<{ run: { conversation: string } } | null>))
-  return found && (await member(found.run.conversation)) ? ok(found) : fail(hidden)
+  const found = (await (convBrain.run(run, Math.max(0, Math.floor(num("after_seq") ?? 0)), 500) as unknown as Promise<{ run: { conversation: string } } | null>))
+  return found && found.run.conversation === conversation ? ok(found) : fail(hidden)
 }

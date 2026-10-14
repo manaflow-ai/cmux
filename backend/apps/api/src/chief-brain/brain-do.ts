@@ -5,7 +5,7 @@ import { createRegistry, GenerationTask, Harness, hook, section, ToolTask, type 
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
 import type { Env } from "../env.ts"
-import { ackWake, chiefPrincipal, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
+import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
 import { clip, clipInput, lastTalk, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
 import { type BrainConfig, PROFILE_LIMITS, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
@@ -20,14 +20,19 @@ import { AGENT, DATE_DESCRIPTION, NO_REPLY, systemPrompt, ZOOM_DESCRIPTION } fro
  * memory (optchat-wasm over this object's SQLite) as its whole context. Ported from optchat-lab
  * impl/pi-durable (ChatDO): same memory, compactor and one-fresh-pi-session-per-turn loop.
  *
- * Input: MuxDO forwards each committed `mux.wake` (a DM, a mention, a reply, or every person's
- * message in a channel with wake_policy "all"). The brain pulls the new messages of that
- * conversation as the chief, queues them, and runs one turn per conversation batch.
+ * Two roles of one class: the chief's settings object (name `<agent>`, the owner's settings and the
+ * daily turn count) and one brain per conversation (name `<agent>/<conversation>`, memory, inbox and
+ * runs), so a reply in one conversation never draws on another conversation's messages.
+ *
+ * Input: MuxDO forwards each committed `mux.wake` of a cloud-brain chief (a DM, a mention, a reply,
+ * or every person's message in a channel with wake_policy "all") to the conversation's brain, which
+ * pulls the new messages as the chief and runs one turn per batch, answering the newest woken one.
  * Output: one `message.send` per turn as the chief (thread reply in a channel), carrying a `work`
  * part that names the run; the run's steps (talk, tool, echo) are read with `run()`. Typing frames
  * show while a turn runs. `NO_REPLY` posts nothing. Then `mux.ack` moves the wake cursor.
- * Off unless the owner enabled it (`configure`), and the Worker forwards wakes only where
- * CHIEF_BRAIN_ENABLED is "1".
+ * Off unless the owner enabled it (`configure`); every turn and post asks the settings object
+ * (enabled, the chief record live and not placed on a server, under the daily turn limit). The
+ * Worker forwards wakes only where CHIEF_BRAIN_ENABLED is "1".
  */
 const ZoomArgs = Type.Object({
   id: Type.Integer({ description: "First message id of the line (the number before +)." }),
@@ -38,6 +43,25 @@ const DateArgs = Type.Object({ id: Type.Integer({ description: "A message id." }
 const POST_RETRY_MS = 2_500
 const MAX_POST_TRIES = 6
 const HOST = "cloud-chief"
+/** A turn waits at most this long for the compactor to settle the view, then runs on the view as it is. */
+const SETTLE_MS = 60_000
+/** A turn that runs longer is stopped and recorded failed. */
+const TURN_MS = 10 * 60_000
+const DEFAULT_DAILY_TURNS = 300
+/** Reply text stays under message.send's text limit (64 KiB). */
+const REPLY_BYTES = 60 * 1024
+
+export const brainName = (agent: string, conversation: string) => `${agent}/${conversation}`
+export type Admission = { readonly ok: true; readonly config: BrainConfig } | { readonly ok: false; readonly reason: string }
+
+const isNoReply = (text: string) => text.replace(/[^A-Za-z_]/g, "").toUpperCase() === NO_REPLY
+const clipReply = (text: string) => {
+  const enc = new TextEncoder()
+  if (enc.encode(text).length <= REPLY_BYTES) return text
+  let out = [...text]
+  while (enc.encode(out.join("")).length > REPLY_BYTES - 16) out = out.slice(0, Math.floor(out.length * 0.9))
+  return `${out.join("")}\n[... cut]`
+}
 
 export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "compactor_model" | "role" | "personality" | "instructions">>
 
@@ -50,6 +74,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   private turnId: string | undefined
   private turnConversation: string | undefined
   private draining: Promise<void> | undefined
+  private readonly posting = new Set<string>()
 
   readonly harness = new PiHarness({
     harness: ({ storage, context }) => {
@@ -74,7 +99,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
         hooks: [
           hook(GenerationTask, {
             beforeRequest: async ({ messages }) => {
-              if (this.turnConversation && this.cfgAgent()) void typing(this.env, this.turnConversation, this.cfgAgent()!, true)
+              const agent = this.config().agent
+              if (this.turnConversation && agent) void typing(this.env, this.turnConversation, agent, true)
               return systemFirst(messages)
             },
             afterResponse: (message, api) => this.onResponse(message, String(api.taskId))
@@ -125,11 +151,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   async onStart(): Promise<void> {
     this.compactor.pump()
     this.kick()
-    for (const r of this.sql.exec<{ id: string }>(`SELECT id FROM cb_turn WHERE post = 'pending'`).toArray()) void this.post(r.id)
+    for (const r of this.sql.exec<{ id: string }>(`SELECT id FROM cb_turn WHERE post = 'pending'`).toArray()) void this.postAndSchedule(r.id)
     if (!this.memory.settled()) await this.schedule("compact", "compact", Date.now() + RETRY_MS)
   }
 
-  // ------------------------------------------------------------------ config and reads
+  // ------------------------------------------------------------------ settings object (name = agent)
 
   private defaults() {
     return { model: this.env.CHIEF_BRAIN_MODEL || FAKE, compactor_model: this.env.CHIEF_BRAIN_COMPACTOR_MODEL || this.env.CHIEF_BRAIN_MODEL || FAKE }
@@ -137,9 +163,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
   config(): BrainConfig {
     return readConfig(this.sql, this.defaults())
   }
-  private cfgAgent = () => this.config().agent
 
-  /** The owner's settings (the Worker checked the caller owns `agent`). Binds the object to its chief on first use. */
+  /** The owner's settings (the Worker checked the caller owns `agent`). Turning it on needs a live chief that no server runs. */
   async configure(agent: string, owner: string, patch: ConfigPatch): Promise<{ ok: true; config: BrainConfig } | { ok: false; code: string; message: string }> {
     await this.lifecycle.start()
     const cur = this.config()
@@ -150,6 +175,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     for (const k of ["role", "personality", "instructions"] as const) {
       const v = patch[k]
       if (v !== undefined && (typeof v !== "string" || [...v].length > PROFILE_LIMITS[k] || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(v))) return bad(`${k} must be text of at most ${PROFILE_LIMITS[k]} characters`)
+    }
+    if (patch.enabled === true) {
+      const record = await chiefRecord(this.env, owner, agent)
+      if (!record) return { ok: false, code: "chief_archived", message: "the chief is archived or unknown" }
+      if (record.brain_place) return { ok: false, code: "chief_placed", message: "a paired server runs this chief; remove its brain place first" }
     }
     writeConfig(this.sql, {
       agent,
@@ -164,13 +194,49 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return { ok: true, config: this.config() }
   }
 
-  async status(): Promise<{ config: BrainConfig; messages: number; settled: boolean; queued: number; busy: boolean }> {
+  async status(): Promise<{ config: BrainConfig; turns_today: number }> {
     await this.lifecycle.start()
-    const queued = Number(this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM cb_inbox WHERE state = 'queued'`).one().n)
-    return { config: this.config(), messages: this.memory.len(), settled: this.memory.settled(), queued, busy: this.turnId !== undefined }
+    const day = new Date().toISOString().slice(0, 10)
+    return { config: this.config(), turns_today: Number(this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `turns:${day}`).toArray()[0]?.value ?? 0) }
   }
 
-  /** A run (turn) with its steps after `afterSeq`, or null. The Worker checks the caller is a member of `run.conversation`. */
+  /** A brain asks before a turn (`turn: true` counts it) or a post: enabled, the chief live and not placed, under the daily limit. */
+  async admit(agent: string, owner: string, turn: boolean): Promise<Admission> {
+    await this.lifecycle.start()
+    const cfg = this.config()
+    if (!cfg.enabled) return { ok: false, reason: "disabled" }
+    if (cfg.agent !== agent || cfg.owner !== owner) return { ok: false, reason: "other_chief" }
+    const record = await chiefRecord(this.env, owner, agent).catch(() => undefined)
+    if (record === undefined) return { ok: false, reason: "owner.unreachable" }
+    if (!record) return { ok: false, reason: "chief_archived" }
+    if (record.brain_place) return { ok: false, reason: "chief_placed" }
+    if (record.display_name !== cfg.display_name) writeConfig(this.sql, { display_name: record.display_name })
+    if (turn) {
+      const key = `turns:${new Date().toISOString().slice(0, 10)}`
+      const used = Number(this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, key).toArray()[0]?.value ?? 0)
+      if (used >= (Number(this.env.CHIEF_BRAIN_DAILY_TURNS) || DEFAULT_DAILY_TURNS)) return { ok: false, reason: "daily_turn_limit" }
+      writeConfig(this.sql, { [key]: String(used + 1) })
+    }
+    return { ok: true, config: this.config() }
+  }
+
+  // ------------------------------------------------------------------ conversation brain (name = agent/conversation)
+
+  private settingsOf(agent: string) {
+    return this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(agent))
+  }
+
+  /** Asks the settings object and keeps its answer as this brain's config copy. */
+  private async admitted(agent: string, owner: string, turn: boolean): Promise<Admission> {
+    const a = (await this.settingsOf(agent).admit(agent, owner, turn)) as Admission
+    if (a.ok) {
+      const { agent: ag, owner: ow, enabled, ...rest } = a.config
+      writeConfig(this.sql, { agent: ag ?? undefined, owner: ow ?? undefined, enabled: enabled ? "1" : "0", ...rest })
+    }
+    return a
+  }
+
+  /** A run with its steps after `afterSeq`, or null. The Worker checked the caller is a member of this brain's conversation first. */
   async run(id: string, afterSeq = 0, limit = 500): Promise<{ run: Run; steps: Array<Step>; has_more: boolean } | null> {
     await this.lifecycle.start()
     const agent = this.config().agent
@@ -180,26 +246,21 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return { run, steps: steps.slice(0, limit), has_more: steps.length > limit }
   }
 
-  /** This chief's runs in one conversation, newest first (the Worker checked membership first). */
+  /** This brain's runs, newest first (the Worker checked membership first). */
   async runs(conversation: string, before: number | undefined, limit: number): Promise<{ runs: Array<Run>; has_more: boolean }> {
     await this.lifecycle.start()
     const agent = this.config().agent
     return agent ? readRuns(this.sql, agent, conversation, before, limit) : { runs: [], has_more: false }
   }
 
-  // ------------------------------------------------------------------ wakes
-
-  /** MuxDO forwards a committed wake. Pulls the conversation's new messages as the chief and starts a turn. */
+  /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
   async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string }): Promise<{ queued: number } | { skipped: string }> {
     await this.lifecycle.start()
-    const cfg = this.config()
-    if (!cfg.enabled) return { skipped: "disabled" }
-    if (cfg.agent !== w.agent || cfg.owner !== w.owner) return { skipped: "other_chief" }
+    const a = await this.admitted(w.agent, w.owner, false)
+    if (!a.ok) return { skipped: a.reason }
     const view = await readConversation(this.env, w.conversation, chiefPrincipal(w.agent, w.owner))
     if ("refused" in view) return { skipped: view.refused }
-    const me = view.head.participants.find((p) => p.id === w.agent)
-    if (me?.display_name && me.display_name !== cfg.display_name) writeConfig(this.sql, { display_name: me.display_name })
-    // A conversation the brain never read starts at the wake: older history is not answered.
+    // A conversation this brain never read starts at the wake: older history is not answered.
     const cursor = this.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? w.seq - 1
     let queued = 0
     let top = cursor
@@ -214,6 +275,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
         .toArray()
       queued += fresh.length
     }
+    // The woken message (it may have come in as context with an earlier wake).
+    this.sql.exec(`UPDATE cb_inbox SET woke = 1 WHERE conversation = ? AND seq = ? AND state = 'queued'`, w.conversation, w.seq)
     this.sql.exec(`INSERT INTO cb_cursor (conversation, seq) VALUES (?, ?) ON CONFLICT (conversation) DO UPDATE SET seq = MAX(seq, excluded.seq)`, w.conversation, top)
     if (queued === 0 && top > cursor) await ackWake(this.env, w.agent, chiefPrincipal(w.agent, w.owner), w.conversation, top).catch(() => undefined)
     this.kick()
@@ -262,7 +325,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (this.draining) return
     this.draining = this.drain()
       .catch((e: unknown) => console.error(JSON.stringify({ msg: "chief_brain.drain_failed", error: String(e).slice(0, 300) })))
-      .finally(() => (this.draining = undefined))
+      .finally(() => {
+        this.draining = undefined
+        // A wake that queued rows while the drain was ending saw it still running: look again.
+        if (this.sql.exec(`SELECT 1 FROM cb_inbox WHERE state = 'queued' AND woke = 1 LIMIT 1`).toArray().length > 0) this.kick()
+      })
     this.ctx.waitUntil(this.draining)
   }
 
@@ -273,22 +340,32 @@ export class ChiefBrainDO extends DurableObject<Env> {
         await this.runTurn(running.turn)
         continue
       }
-      const first = this.sql.exec<{ conversation: string }>(`SELECT conversation FROM cb_inbox WHERE state = 'queued' ORDER BY n LIMIT 1`).toArray()[0]
-      if (!first) return
-      await this.compactor.settle()
+      // Only a woken message starts a turn; the messages before it ride along as context.
+      const woken = this.sql.exec<{ conversation: string }>(`SELECT conversation FROM cb_inbox WHERE state = 'queued' AND woke = 1 ORDER BY n LIMIT 1`).toArray()[0]
+      if (!woken) return
+      const cfg = this.config()
+      const a = cfg.agent && cfg.owner ? await this.admitted(cfg.agent, cfg.owner, true).catch((): Admission => ({ ok: false, reason: "owner.unreachable" })) : ({ ok: false, reason: "unbound" } as Admission)
       const rows = this.sql
-        .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string }>(`SELECT n, message, seq, kind, thread_root, text FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, first.conversation)
+        .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>(`SELECT n, message, seq, kind, thread_root, text, woke FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
         .toArray()
-      if (rows.length > 0) this.openTurn(first.conversation, rows)
+      if (!a.ok) {
+        // Not answered (off, archived, placed, over the limit): the wakes are acked so the queue stays bounded.
+        this.sql.exec(`UPDATE cb_inbox SET state = 'skipped' WHERE state = 'queued' AND conversation = ?`, woken.conversation)
+        console.warn(JSON.stringify({ msg: "chief_brain.turn_refused", reason: a.reason }))
+        if (cfg.agent && cfg.owner && rows.length > 0) await ackWake(this.env, cfg.agent, chiefPrincipal(cfg.agent, cfg.owner), woken.conversation, Math.max(...rows.map((r) => r.seq))).catch(() => undefined)
+        continue
+      }
+      await this.compactor.settle(AbortSignal.timeout(SETTLE_MS))
+      if (rows.length > 0) this.openTurn(woken.conversation, rows)
     }
   }
 
   /** Renders the view BEFORE logging the new messages, then logs them with the turn row in one transaction (a restart resubmits the same bytes). */
-  private openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string }>): void {
+  private openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>): void {
     const id = `run_${rows[0]!.n}`
     const view = this.memory.render()
     const input = JSON.stringify([...cutAtMarks(view.text, view.marks), rows.map((r) => r.text).join("\n\n")])
-    const last = rows[rows.length - 1]!
+    const trigger = [...rows].reverse().find((r) => r.woke === 1) ?? rows[rows.length - 1]!
     this.ctx.storage.transactionSync(() => {
       for (const r of rows) {
         this.sql.exec(`INSERT INTO oc_logged (key) VALUES (?) ON CONFLICT DO NOTHING`, `user:${r.message}`)
@@ -297,7 +374,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       }
       this.sql.exec(
         `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
-        id, conversation, last.message, last.kind, last.thread_root, Math.max(...rows.map((r) => r.seq)), this.config().model, Date.now(), input
+        id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), this.config().model, Date.now(), input
       )
     })
     this.compactor.pump()
@@ -313,6 +390,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (agent) void typing(this.env, row.conversation, agent, true)
     let ok = false
     let reason: string | null = null
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
       if (!row.submitted) {
         const blocks = JSON.parse(row.input ?? "[]") as Array<string>
@@ -324,48 +402,72 @@ export class ChiefBrainDO extends DurableObject<Env> {
         this.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
         await this.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
       }
-      const result = await this.harness.wait(id)
-      ok = result.status === "done"
-      reason = ok ? null : (result.reason ?? "unknown")
+      const limit = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), TURN_MS)))
+      const result = await Promise.race([this.harness.wait(id), limit])
+      if (result === "timeout") {
+        void this.harness.abort({ operationId: id }).catch(() => undefined)
+        reason = "timeout"
+      } else {
+        ok = result.status === "done"
+        reason = ok ? null : (result.reason ?? "unknown")
+      }
     } catch (e) {
       reason = e instanceof Error ? e.message : String(e)
     } finally {
+      clearTimeout(timer)
       this.turnId = undefined
       this.turnConversation = undefined
     }
     const reply = ok ? lastTalk(this.sql, id) : ""
-    const post = !ok ? "none" : reply === "" || reply === NO_REPLY ? "no_reply" : "pending"
-    this.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? reply : null, post, id)
+    const post = !ok ? "none" : reply === "" || isNoReply(reply) ? "no_reply" : "pending"
+    this.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? clipReply(reply) : null, post, id)
     this.sql.exec(`UPDATE cb_inbox SET state = ? WHERE turn = ?`, ok ? "done" : "failed", id)
     if (!ok) console.warn(JSON.stringify({ msg: "chief_brain.turn_failed", run: id, reason: String(reason).slice(0, 300) }))
     this.announce(id, [])
-    if (post === "pending") await this.post(id)
+    if (post === "pending") await this.postAndSchedule(id)
     else await this.finish(id)
     if (!this.memory.settled()) await this.schedule("compact", "compact", Date.now() + RETRY_MS)
   }
 
-  /** Posts the run's reply as the chief; retries the loop guard's agent_rate later; then acks the wakes. */
-  private async post(id: string): Promise<void> {
-    const t = this.sql.exec<{ conversation: string; trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; reply: string | null; post: string; post_tries: number; post_key: number }>(`SELECT conversation, trigger_message, trigger_kind, trigger_thread_root, reply, post, post_tries, post_key FROM cb_turn WHERE id = ?`, id).toArray()[0]
-    const cfg = this.config()
-    if (!t || t.post !== "pending" || !t.reply || !cfg.agent || !cfg.owner) return
-    const steps = Number(this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM cb_step WHERE turn = ?`, id).one().n)
-    const target = replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root)
-    // The ledger replays a refusal under the same key, so a refused try's retry needs a new key (the
-    // key is also the client message id); an unknown outcome (no answer) retries under the same key.
-    const key = `chief-reply:${cfg.agent}:${id}:${t.post_key}`
-    const res = await postReply(this.env, chiefPrincipal(cfg.agent, cfg.owner), { conversation: t.conversation, text: t.reply, run: { id, host: `${HOST}:${cfg.agent}`, steps }, ...target, key }).catch(
-      (e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) })
-    )
-    const retry = (res.ok === false && (res.code === "agent_rate" || res.code === "owner.unreachable")) && t.post_tries + 1 < MAX_POST_TRIES
-    if (res.ok) this.sql.exec(`UPDATE cb_turn SET post = 'posted', posted_message = ?, turn_key = ? WHERE id = ?`, res.message, key, id)
-    else if (retry) {
-      this.sql.exec(`UPDATE cb_turn SET post_tries = post_tries + 1, post_key = post_key + ? WHERE id = ?`, res.code === "agent_rate" ? 1 : 0, id)
-      await this.schedule(`post:${id}`, "post", Date.now() + POST_RETRY_MS)
-      return
-    } else this.sql.exec(`UPDATE cb_turn SET post = 'refused', reason = ? WHERE id = ?`, res.code, id)
-    this.announce(id, [])
-    await this.finish(id)
+  private async postAndSchedule(id: string): Promise<void> {
+    const next = await this.post(id)
+    if (next !== null) await this.schedule(`post:${id}`, "post", next)
+  }
+
+  /**
+   * Posts the run's reply as the chief. Returns when to try again (the loop guard's agent_rate, or no
+   * answer), or null when done; done acks the wakes.
+   */
+  private async post(id: string): Promise<number | null> {
+    if (this.posting.has(id)) return null
+    this.posting.add(id)
+    try {
+      const t = this.sql.exec<{ conversation: string; trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; reply: string | null; post: string; post_tries: number; post_key: number }>(`SELECT conversation, trigger_message, trigger_kind, trigger_thread_root, reply, post, post_tries, post_key FROM cb_turn WHERE id = ?`, id).toArray()[0]
+      const cfg = this.config()
+      if (!t || t.post !== "pending" || !t.reply || !cfg.agent || !cfg.owner) return null
+      // The chief may have been archived or placed on a server since the turn began.
+      const a = await this.admitted(cfg.agent, cfg.owner, false).catch((): Admission => ({ ok: false, reason: "owner.unreachable" }))
+      const steps = Number(this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM cb_step WHERE turn = ?`, id).one().n)
+      // The ledger replays a refusal under the same key, so a refused try's retry needs a new key (the
+      // key is also the client message id); an unknown outcome (no answer) retries under the same key.
+      const key = `chief-reply:${cfg.agent}:${id}:${t.post_key}`
+      const res = !a.ok
+        ? { ok: false as const, code: a.reason, message: a.reason }
+        : await postReply(this.env, chiefPrincipal(cfg.agent, cfg.owner), { conversation: t.conversation, text: t.reply, run: { id, host: `${HOST}:${cfg.agent}`, steps }, ...replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root), key }).catch(
+            (e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) })
+          )
+      if (!res.ok && (res.code === "agent_rate" || res.code === "owner.unreachable") && t.post_tries + 1 < MAX_POST_TRIES) {
+        this.sql.exec(`UPDATE cb_turn SET post_tries = post_tries + 1, post_key = post_key + ? WHERE id = ?`, res.code === "agent_rate" ? 1 : 0, id)
+        return Date.now() + POST_RETRY_MS
+      }
+      if (res.ok) this.sql.exec(`UPDATE cb_turn SET post = 'posted', posted_message = ?, turn_key = ? WHERE id = ?`, res.message, key, id)
+      else this.sql.exec(`UPDATE cb_turn SET post = 'refused', reason = ? WHERE id = ?`, res.code, id)
+      this.announce(id, [])
+      await this.finish(id)
+      return null
+    } finally {
+      this.posting.delete(id)
+    }
   }
 
   /** Typing off and the wake cursor moved past the run's messages. */
@@ -383,9 +485,12 @@ export class ChiefBrainDO extends DurableObject<Env> {
     await this.lifecycle.jobs.push({ id, fn, time, singleflight: true, hungTimeoutSeconds: 600 })
   }
 
-  /** Lifecycle wakes the object for due jobs, also after an eviction. */
+  /** Lifecycle wakes the object for due jobs, also after an eviction. A post retry reschedules itself through the outcome. */
   async onJob({ job }: LifecycleJobContext): Promise<LifecycleJobOutcome | void> {
-    if (job.fn === "post") return void (await this.post(String(job.id).slice("post:".length)))
+    if (job.fn === "post") {
+      const next = await this.post(String(job.id).slice("post:".length))
+      return next === null ? undefined : { rescheduleAt: next }
+    }
     if (job.fn !== "compact") return
     this.compactor.pump()
     if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + RETRY_MS }
