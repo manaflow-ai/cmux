@@ -342,10 +342,10 @@ final class AppControl {
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),
-            // Instant new tab: spares, opening times, the field (new-tab.md 2.3).
+            // Instant new tab: spares, opening times, the field (new-tab.md 2.3); new terminal stages (cx-6so.58).
             .async("debug.new_tab") { [weak services] call in
                 await DebugNewTab.handle(call.params, services)
-            }.withDeadline(.fixed(.seconds(15))),
+            }.withDeadline(.fixed(.seconds(15))), DebugNewTerminalTrace.method(services),
             // R131: hover card retarget timing across the focused strip's tabs.
             .async("debug.hover_sweep") { [weak services] call in
                 guard let services else { return .null }

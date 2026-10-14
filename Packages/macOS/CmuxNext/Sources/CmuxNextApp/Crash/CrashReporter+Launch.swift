@@ -53,10 +53,9 @@ struct AppCrashReporting: Sendable {
             bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
         forwarder.start()
         self.forwarder = forwarder
-        let tag = environment.daemonTag
         let ownerPanics = OwnerPanicForwarder(
-            log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(tag: tag),
-                                         session: (try? DaemonLauncher.sessionName(tag: tag)) ?? "cmux-app"),
+            log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory),
+                                         session: environment.daemonSession),
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
                 .appending(path: "owner-panic-forwarder.json"),
             sends: sends)
@@ -82,9 +81,9 @@ struct AppCrashReporting: Sendable {
     }
 
     /// The owner's state root: the parent of its sessions directory, which
-    /// is the daemon tag's `CMUX_TUI_STATE_DIR` (DaemonLauncher) or cmux-tui's default.
-    static func ownerStateRoot(tag: String?) -> URL {
-        let sessions = tag.map(DaemonLauncher.tagStateDirectory(tag:))
+    /// is the build's `CMUX_TUI_STATE_DIR` (DaemonLauncher.appNames) or cmux-tui's default.
+    static func ownerStateRoot(stateDirectory: URL?) -> URL {
+        let sessions = stateDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appending(path: "Library/Application Support/cmux-tui/sessions", directoryHint: .isDirectory)
         return sessions.deletingLastPathComponent()

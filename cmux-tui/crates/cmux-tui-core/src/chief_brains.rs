@@ -71,7 +71,8 @@ pub struct AppValues {
     pub bin_dir: Option<PathBuf>,
     /// The person's name (`MUX_USER_NAME`).
     pub user_name: Option<String>,
-    /// The localized Chief title (`MUX_CHIEF_TITLE`).
+    /// The localized Chief title (`MUX_CHIEF_TITLE` when the record has no
+    /// display_name; a Chief's own name comes first, `brain_environment`).
     pub chief_title: Option<String>,
     pub mcp_command: Option<String>,
     pub bundled_cli: Option<PathBuf>,
@@ -126,10 +127,10 @@ pub fn brain_home(home: &Path, chief: &str) -> PathBuf {
     home.join("c").join(tail.to_ascii_lowercase())
 }
 
-/// The longest socket path under a brain directory
-/// (`optchat/tools.sock`; acpmux's `a/router/router.sock` is one byte
-/// shorter): a home whose sockets do not fit starts no brain.
-const LONGEST_SOCKET: &str = "optchat/tools.sock";
+/// The longest socket path under a brain directory: acpmux's router socket
+/// (`a/router/router.sock`, no short alias; `optchat/tools.sock` is 2 bytes
+/// shorter). A home whose sockets do not fit starts no brain.
+const LONGEST_SOCKET: &str = "a/router/router.sock";
 /// The longest Unix socket path, in bytes (macOS sun_path less the NUL).
 const MAX_SOCKET_PATH: usize = 103;
 
@@ -140,9 +141,14 @@ fn sockets_fit(mux_home: &Path) -> bool {
 /// The brain's whole environment (the brain starts from an empty one): the
 /// one list of what a Chief brain needs, from the Chief home, the brain's
 /// own directory, the app's values and a few user variables of the daemon.
+/// `title` is the Chief's own name (its record's display_name): the brain's
+/// `MUX_CHIEF_TITLE`, which titles its conversation, so each Chief's DM
+/// shows its name, not the app's "Chief" (hq-6d 2026-10-14); `None` or
+/// empty keeps the app's title.
 pub fn brain_environment(
     config: &BrainsConfig,
     chief: &str,
+    title: Option<&str>,
     inherited: &dyn Fn(&str) -> Option<String>,
 ) -> BTreeMap<String, String> {
     let mux_home = brain_home(&config.home, chief);
@@ -180,7 +186,13 @@ pub fn brain_environment(
     put("OPTCHAT_GROUP_WAKE", "every".into());
     let optional = [
         ("MUX_USER_NAME", app.user_name.clone()),
-        ("MUX_CHIEF_TITLE", app.chief_title.clone()),
+        (
+            "MUX_CHIEF_TITLE",
+            title
+                .filter(|t| !t.trim().is_empty())
+                .map(str::to_owned)
+                .or_else(|| app.chief_title.clone()),
+        ),
         ("CMUX_MCP_COMMAND", app.mcp_command.clone()),
         ("CMUX_BUNDLED_CLI_PATH", app.bundled_cli.as_ref().map(|p| p.display().to_string())),
         ("ACPMUX_BIN", app.acpmux_bin.as_ref().map(|p| p.display().to_string())),
@@ -380,6 +392,8 @@ struct Brain {
     pending_wake: bool,
     /// The held-lock note was logged.
     lock_noted: bool,
+    /// The Chief was deleted: when the process ends, its acpmux ends too.
+    deleted: bool,
     typing: BTreeSet<String>,
 }
 
@@ -397,6 +411,7 @@ impl Brain {
             restart: false,
             pending_wake: false,
             lock_noted: false,
+            deleted: false,
             typing: BTreeSet::new(),
         }
     }
@@ -508,12 +523,16 @@ impl Supervisor {
                     brain.restart = false;
                     brain.pending_wake = false;
                     brain.retry_at = None;
+                    brain.deleted = true;
                     brain.terminate();
                     if brain.process.is_some() {
                         return;
                     }
                 }
-                stop_lock_holder(&brain_home(&self.config.home, &chief).join("state/host.lock"));
+                let mux_home = brain_home(&self.config.home, &chief);
+                stop_lock_holder(&mux_home.join("state/host.lock"));
+                self.end_acpmux(&mux_home);
+                self.brains.remove(&chief);
             }
             Signal::Exited { chief, pid, success } => self.exited(&chief, pid, success),
             Signal::Shutdown(_) => {}
@@ -566,6 +585,11 @@ impl Supervisor {
         }
         brain.process = None;
         brain.typing.clear();
+        if brain.deleted {
+            self.brains.remove(chief);
+            self.end_acpmux(&brain_home(&self.config.home, chief));
+            return;
+        }
         let expected = std::mem::take(&mut brain.stopping);
         let woken = std::mem::take(&mut brain.pending_wake);
         if std::mem::take(&mut brain.restart) || (woken && (expected || success)) {
@@ -628,6 +652,19 @@ impl Supervisor {
             }
             return;
         }
+        // Two ids with the same tail would share a directory: the first keeps it.
+        let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+        if !owner.trim().is_empty() && owner.trim() != chief {
+            let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
+            if !std::mem::replace(&mut brain.lock_noted, true) {
+                eprintln!(
+                    "cmux-tui: Chief brain {chief} cannot start: {} is Chief {}'s",
+                    mux_home.display(),
+                    owner.trim()
+                );
+            }
+            return;
+        }
         // A brain this daemon did not start (one an earlier owner left)
         // holds the lock: keep it; a new token would only end its binding.
         if lock_held(&brain_home(&self.config.home, chief).join("state/host.lock")) {
@@ -665,6 +702,7 @@ impl Supervisor {
 
         let mux_home = brain_home(&self.config.home, &record.id);
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&mux_home)?;
+        std::fs::write(mux_home.join("chief-id"), &record.id)?;
         let token = mux.with_conversations(|store| store.mint_agent_token(&record.id))?;
         let token_file = mux_home.join("agent-token");
         let _ = std::fs::remove_file(&token_file);
@@ -689,7 +727,12 @@ impl Supervisor {
             .arg("--mux-home")
             .arg(&mux_home)
             .env_clear()
-            .envs(brain_environment(&self.config, &record.id, &inherited))
+            .envs(brain_environment(
+                &self.config,
+                &record.id,
+                Some(&record.display_name),
+                &inherited,
+            ))
             .current_dir(&mux_home)
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
@@ -700,13 +743,14 @@ impl Supervisor {
         let reaped = Arc::new(Mutex::new(false));
         let (sender, chief, flag) = (self.sender.clone(), record.id.clone(), reaped.clone());
         std::thread::Builder::new().name("chief-brain-wait".into()).spawn(move || {
-            wait_exited(pid);
+            let zombie = wait_exited(pid);
             {
                 // The leader is a zombie now (its id is still taken): end what
-                // is left of its group (a crashed host's acpmux), then mark it
-                // reaped before the reap frees the id.
+                // is left of its own group (a crashed host's turn processes;
+                // its acpmux has a group of its own), then mark it reaped
+                // before the reap frees the id.
                 let mut reaped = flag.lock().unwrap_or_else(PoisonError::into_inner);
-                if let Ok(group) = i32::try_from(pid) {
+                if zombie && let Ok(group) = i32::try_from(pid) {
                     // SAFETY: as Process::signal; the leader is not reaped yet.
                     unsafe { libc::kill(-group, libc::SIGTERM) };
                 }
@@ -716,6 +760,38 @@ impl Supervisor {
             let _ = sender.send(Signal::Exited { chief, pid, success });
         })?;
         Ok(Process { pid, reaped })
+    }
+
+    /// `acpmux daemon shutdown` for the brain directory `mux_home`: the brain
+    /// started its acpmux in a process group of its own, so it outlives the
+    /// brain. Reaped on its own thread.
+    fn end_acpmux(&self, mux_home: &Path) {
+        let acpmux = self.config.app.acpmux_bin.clone().unwrap_or_else(|| "acpmux".into());
+        let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
+        let env = brain_environment(&self.config, "", None, &inherited);
+        let spawned = std::process::Command::new(acpmux)
+            .args(["daemon", "shutdown"])
+            .env_clear()
+            .envs(
+                env.iter()
+                    .filter(|(k, _)| matches!(k.as_str(), "PATH" | "HOME" | "USER" | "TMPDIR")),
+            )
+            .env("ACPMUX_HOME", mux_home.join("a"))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        if let Err(error) = &spawned {
+            eprintln!(
+                "cmux-tui: acpmux shutdown for {} did not start: {error}",
+                mux_home.display()
+            );
+        }
+        if let Ok(mut child) = spawned {
+            let _ = std::thread::Builder::new().name("chief-acpmux-end".into()).spawn(move || {
+                let _ = child.wait();
+            });
+        }
     }
 
     /// SIGTERM every brain, wait (bounded) for their exits, then SIGKILL
@@ -749,9 +825,10 @@ impl Supervisor {
     }
 }
 
-/// Blocks until child `pid` has exited, without reaping it (`WNOWAIT`).
+/// Blocks until child `pid` has exited, without reaping it (`WNOWAIT`);
+/// whether it waits as a zombie now.
 #[cfg(unix)]
-fn wait_exited(pid: u32) {
+fn wait_exited(pid: u32) -> bool {
     let id = libc::id_t::from(pid);
     loop {
         // SAFETY: a zeroed siginfo_t is a valid out buffer for waitid.
@@ -760,8 +837,11 @@ fn wait_exited(pid: u32) {
         // waitable for Child::wait.
         let done =
             unsafe { libc::waitid(libc::P_PID, id, &mut info, libc::WEXITED | libc::WNOWAIT) };
-        if done == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-            return;
+        if done == 0 {
+            return true;
+        }
+        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            return false;
         }
     }
 }
@@ -794,9 +874,12 @@ fn stop_lock_holder(lock: &Path) {
             .and_then(|text| text.split_whitespace().next()?.parse::<i32>().ok())
             .filter(|pid| *pid > 1)
     {
-        // SAFETY: kill has no memory preconditions; the lock is held, so its
-        // recorded holder is alive.
-        unsafe { libc::kill(pid, libc::SIGTERM) };
+        // SAFETY: kill and getpgid have no memory preconditions; the lock
+        // is held, so its recorded holder is alive. A group leader (as this
+        // supervisor starts brains) gets the signal for its whole group.
+        let target = if unsafe { libc::getpgid(pid) } == pid { -pid } else { pid };
+        // SAFETY: as above.
+        unsafe { libc::kill(target, libc::SIGTERM) };
     }
     #[cfg(not(unix))]
     let _ = lock;
