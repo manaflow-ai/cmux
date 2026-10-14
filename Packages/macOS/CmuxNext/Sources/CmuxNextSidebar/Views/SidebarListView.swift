@@ -21,7 +21,10 @@ final class SidebarListView: NSView {
     var groups: [GroupID: SidebarGroup] = [:]
     var sections: [SectionID: SidebarSection] = [:]
     /// The sections the list draws in their own arrangement (tiles, a grid, a line, item rows) on the sidebar document.
-    var blocks: SidebarListBlocks?
+    var blocks: SidebarListBlocks? {
+        // A held drag hit-tests a geometry built at its begin: new blocks rebuild it at the next move.
+        didSet { if blocks != oldValue { drag?.docGeometry = nil } }
+    }
     /// A dropped drag whose move is on the way: the list keeps showing its drop (the rows or tile at the
     /// slot, the source closed) until the model or the blocks change, so the drop settles with no fly-back
     /// and no pop when the move lands; a refusal lets it go and the rows spring back.
@@ -190,6 +193,8 @@ final class SidebarListView: NSView {
         }
         for workspace in workspaces.values { for tab in workspace.tabs { tabs[tab.id] = tab } }
         if let drag, !drag.isValid(in: model) { cancelDrag() }
+        // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
+        if let drag, drag.geometryRevision != model.sectionsRevision { drag.docGeometry = nil }
         settleDrop()
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.

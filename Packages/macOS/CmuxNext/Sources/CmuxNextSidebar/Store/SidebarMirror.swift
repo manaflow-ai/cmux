@@ -139,7 +139,8 @@ public final class SidebarMirror {
             ok = object["ok"] as? Bool == true && object["refetch"] as? Bool != true
             stale = object["stale"] as? Bool == true
             refusal = object["refusal"] as? String ?? (object["error"] != nil ? "error" : nil)
-            revision = (object["revision"] as? String).flatMap { UInt64($0, radix: 10) }
+            // A decimal string (the contract), or a number from an older FFI.
+            revision = (object["revision"] as? String).flatMap { UInt64($0, radix: 10) } ?? (object["revision"] as? NSNumber)?.uint64Value
         }
     }
 

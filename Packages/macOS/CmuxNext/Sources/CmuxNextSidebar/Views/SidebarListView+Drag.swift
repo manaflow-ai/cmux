@@ -54,6 +54,10 @@ extension SidebarListView {
         drag.grabOffsetX = press.point.x - rowFrame.minX
         drag.lastY = press.point.y
         drag.restFrame = rowFrame
+        if rows.first?.group != nil { // the gutter comes back only for a drop into a group (morphLift)
+            drag.restFrame.origin.x -= SidebarStyle.groupGutter
+            drag.restFrame.size.width += SidebarStyle.groupGutter
+        }
         drag.morphs = rows.count == 1
         self.drag = drag
         // The document's acceptance table: the drag's one reducer call before its drop.
@@ -136,17 +140,21 @@ extension SidebarListView {
     private func updateDocDrag(_ drag: Drag, point: NSPoint) {
         guard let doc = model.docDrag else { return }
         if drag.docGeometry == nil {
+            drag.geometryRevision = model.sectionsRevision
             drag.blockBases = blockBases()
             let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
             drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance, blocks: drag.blockBases)
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
-        let displayY = drag.probeCard.midY
+        // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
+        let displayY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
+            + drag.restFrame.height / 2 : drag.probeCard.midY
         let y = drag.blockTarget != nil ? baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases)
             : SidebarDragGeometry.baseY(displayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
         guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else {
             // Nowhere to drop: no gap shows.
             drag.docTarget = nil
+            drag.lift.setRefused(true)
             if drag.target != nil || drag.blockTarget != nil {
                 (drag.target, drag.blockTarget) = (nil, nil)
                 reload(animated: true)
@@ -216,7 +224,8 @@ extension SidebarListView {
     /// Flies the lifted view to its row's current frame (or `slot`, the
     /// band slot of a pin drop), then swaps it out and runs `then`.
     func land(_ drag: Drag, at slot: NSRect? = nil, then: (@MainActor () -> Void)? = nil) {
-        let destination = slot
+        let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0) } }
+        let destination = slot ?? tile
             ?? SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
             defer { then?() }

@@ -46,6 +46,8 @@ public final class SidebarDocStore {
     @ObservationIgnored private var loading = false
     /// A refetch asked for while one was in flight runs after it.
     @ObservationIgnored private var refetchAgain = false
+    /// Batches that arrived while the first load was in flight; applied after it (the mirror drops the stale ones).
+    @ObservationIgnored private var earlyBatches: [Data] = []
     /// The last projection (`projection(live:)`), by version and live set.
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
@@ -90,13 +92,19 @@ public final class SidebarDocStore {
             self.records = records
             self.isActive = true
             self.bump()
+            let early = self.earlyBatches
+            self.earlyBatches = []
+            for batch in early { self.receive(batch: batch) }
         }
     }
 
     /// One `session.events` batch of document changes (JSON, with its
     /// revision and idempotency key).
     public func receive(batch data: Data) {
-        guard isActive, let mirror else { return }
+        guard isActive, let mirror else {
+            if loading, mirror != nil, earlyBatches.count < 512 { earlyBatches.append(data) }
+            return
+        }
         // The reducer judges the revision chain: a skipped one refetches.
         switch mirror.apply(batch: data) {
         case .stale: return

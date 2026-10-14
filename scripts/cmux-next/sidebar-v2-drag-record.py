@@ -68,7 +68,10 @@ def rpc(method, params=None, timeout=30):
 
 def cli(*args):
     env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "CMUX_QUIET": "1"}
-    out = subprocess.run([CLI, "--app-socket", SOCKET, *args], capture_output=True, text=True, timeout=60, env=env)
+    try:
+        out = subprocess.run([CLI, "--app-socket", SOCKET, *args], capture_output=True, text=True, timeout=60, env=env)
+    except subprocess.TimeoutExpired:
+        return "timeout"
     return (out.stdout + out.stderr).strip()
 
 
@@ -138,7 +141,7 @@ def gesture(path, hold=0.35, seconds=1.2):
         if delay > 0:
             time.sleep(delay)  # test harness pacing: a person's 120 Hz pointer
     deadline = time.monotonic() + hold
-    while time.monotonic() < deadline:  # a held pointer still sends moves (autoscroll keeps going without them)
+    while time.monotonic() < deadline:  # a still pointer sends no moves; the display-link autoscroll keeps going
         time.sleep(period)
     x, y = points[-1]
     mouse("up", x, y)
@@ -178,7 +181,10 @@ def check(name, frames, dragged, dropped_key=None):
             settle = {"card_meets_item_pt": round(meet, 1), "item_max_step_after_pt": round(drift, 1), "ok": meet <= 2 and drift <= JUMP_PT}
     result = {"frames": len(frames), "max_step_pt": round(worst, 1), "max_step_at": worst_at, "jumps": jumps[:20], "jump_count": len(jumps),
               "drag_work_p95_ms": round(p95, 2), "frame_gaps_over_1_5x": long_frames, "settle": settle}
-    ok = not jumps and p95 < 4 and (settle is None or settle["ok"])
+    # Nothing recorded, no lifted card or no dropped item to follow is a failed proof, not a pass.
+    recorded = len(frames) >= 10 and bool(lifted)
+    result["recorded"] = recorded
+    ok = recorded and not jumps and p95 < 4 and settle is not None and settle["ok"]
     result["ok"] = ok
     CHECKS[name] = result
     print(f"{'PASS' if ok else 'FAIL'} {name}: {json.dumps(result)}", flush=True)

@@ -48,6 +48,8 @@ final class SidebarListDrag {
     var docItems: [String]?
     var docAcceptance: [String: SidebarDocAcceptance] = [:]
     var docGeometry: (SidebarDragGeometry, [String: SidebarRow])?
+    /// The list structure (`SidebarModel.sectionsRevision`) `docGeometry` was built for.
+    var geometryRevision: UInt64 = 0
     var docTarget: SidebarDocTarget?
     /// A drag of an item a list block draws (a Pinned or custom tile or row): its section and item.
     var tileSource: (section: String, item: LayoutItemID)?
