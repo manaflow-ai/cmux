@@ -69,10 +69,10 @@ export const STATUS_GLYPHS = {
   },
   dot: {
     set: "codex",
-    for: "done, unread (Codex-like): a blue dot",
+    for: "done, unread (Codex-like): a blue dot, 6 pt (Leo 2026-10-14: 4 pt was too tiny)",
     tint: `var(--cmux-status-unread, ${STATUS_UNREAD})`,
-    master: "M6 10A4 4 0 1 0 14 10A4 4 0 1 0 6 10Z",
-    x1: "M4 3h2v1h-2ZM3 4h4v2h-4ZM4 6h2v1h-2Z",
+    master: "M4 10A6 6 0 1 0 16 10A6 6 0 1 0 4 10Z",
+    x1: "M3 2h4v1h-4ZM2 3h6v4h-6ZM3 7h4v1h-4Z",
   },
 } as const satisfies Record<string, StatusGlyphArt>;
 

@@ -360,10 +360,10 @@ final class WorkspaceRowView: SidebarRowView {
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {
-            agentMark.frame = statusGlyphFrame(trailing: trailing, titleTop: top)
+            agentMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
             trailing = agentMark.frame.minX - Metrics.space2
         } else if activity.showsGlyph {
-            activity.frame = statusGlyphFrame(trailing: trailing, titleTop: top)
+            activity.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
             trailing = activity.frame.minX - Metrics.space2
         }
         if !mutedMark.isHidden {

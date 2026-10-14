@@ -23,7 +23,7 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
     case shieldLine
     /// Failed (Codex-like): an i in a ring.
     case info
-    /// Done, unread (Codex-like): a blue dot.
+    /// Done, unread (Codex-like): a blue dot, 6 pt (Leo 2026-10-14: 4 pt was too tiny).
     case dot
 
     /// The theme role the glyph is tinted with.
@@ -247,11 +247,11 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
             path.addRect(CGRect(x: 7, y: 8, width: 2, height: 1))
             path.addRect(CGRect(x: 3, y: 9, width: 4, height: 1))
         case (.dot, false):
-            path.addEllipse(in: CGRect(x: 6, y: 6, width: 8, height: 8))
+            path.addEllipse(in: CGRect(x: 4, y: 4, width: 12, height: 12))
         case (.dot, true):
-            path.addRect(CGRect(x: 4, y: 3, width: 2, height: 1))
-            path.addRect(CGRect(x: 3, y: 4, width: 4, height: 2))
-            path.addRect(CGRect(x: 4, y: 6, width: 2, height: 1))
+            path.addRect(CGRect(x: 3, y: 2, width: 4, height: 1))
+            path.addRect(CGRect(x: 2, y: 3, width: 6, height: 4))
+            path.addRect(CGRect(x: 3, y: 7, width: 4, height: 1))
         }
         // The grid runs y-down from the top-left corner.
         var place = CGAffineTransform(a: rect.width / grid, b: 0, c: 0, d: -rect.height / grid, tx: rect.minX, ty: rect.maxY)
