@@ -407,6 +407,8 @@ export class DaemonHomeClient implements PageClient {
   private readonly listState = new Map<string, Json>();
   /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
   private readonly cloudListeners = new Set<(conversation: HomeConversation) => void>();
+  /** Cloud participants a head named for the first time: their pictures are asked again. */
+  private readonly peopleListeners = new Set<(participants: string[]) => void>();
 
   /** Starts each connection's daemon stream once (a page resubscribe adds a listener only). */
   private startStream(): Promise<void> {
@@ -438,9 +440,16 @@ export class DaemonHomeClient implements PageClient {
   ) {
     this.local = local ?? daemon;
     this.sockets = this.local === daemon ? [daemon] : [daemon, this.local];
-    this.cloud = new CloudHome(daemon, conversation, (summary) => {
-      for (const listener of this.cloudListeners) listener(summary);
-    });
+    this.cloud = new CloudHome(
+      daemon,
+      conversation,
+      (summary) => {
+        for (const listener of this.cloudListeners) listener(summary);
+      },
+      (participants) => {
+        for (const listener of this.peopleListeners) listener(participants);
+      },
+    );
     this.people = new DaemonPeople(
       this.local,
       () => this.me,
@@ -977,8 +986,13 @@ export class DaemonHomeClient implements PageClient {
     };
     const offCloud = (() => {
       const listener = (summary: HomeConversation) => deliver((batch) => (batch.conversations ??= []).push(summary));
+      const people = (participants: string[]) => deliver((batch) => (batch.avatars ??= []).push(...participants));
       this.cloudListeners.add(listener);
-      return () => this.cloudListeners.delete(listener);
+      this.peopleListeners.add(people);
+      return () => {
+        this.cloudListeners.delete(listener);
+        this.peopleListeners.delete(people);
+      };
     })();
     // Cloud events come from the build daemon, local conversation events from the local owner
     // (the same socket unless the Chief home's owner serves the local conversations).

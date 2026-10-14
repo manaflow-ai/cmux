@@ -32167,6 +32167,53 @@ Result<BrowserStateEvent> Codec<BrowserStateEvent>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<ChiefChangedEvent>::encode(const ChiefChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("chief-changed")));
+    auto encoded_change = encode_value(value.change);
+    if (!encoded_change) return std::move(encoded_change).error();
+    object.emplace("change", std::move(encoded_change).value());
+    auto encoded_chief = encode_value(value.chief);
+    if (!encoded_chief) return std::move(encoded_chief).error();
+    object.emplace("chief", std::move(encoded_chief).value());
+    return Json(std::move(object));
+}
+
+Result<ChiefChangedEvent> Codec<ChiefChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ChiefChangedEvent result{};
+    const Json* field_change = value.find("change");
+    if (!field_change) {
+        return make_error(ErrorCode::decode, "missing required field 'change'");
+    }
+    if (field_change) {
+        auto decoded = decode_value<ChiefChangedEventChange>(*field_change);
+        if (!decoded) return std::move(decoded).error();
+        result.change = std::move(decoded).value();
+    }
+    const Json* field_chief = value.find("chief");
+    if (!field_chief) {
+        return make_error(ErrorCode::decode, "missing required field 'chief'");
+    }
+    if (field_chief) {
+        auto decoded = decode_value<std::string>(*field_chief);
+        if (!decoded) return std::move(decoded).error();
+        result.chief = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("chief-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<ClientAttachedEvent>::encode(const ClientAttachedEvent& value) {
     (void)value;
     Json::Object object;
@@ -38742,6 +38789,22 @@ Result<BrowserStateEventStatus> Codec<BrowserStateEventStatus>::decode(const Jso
     return make_error(ErrorCode::decode, "unknown BrowserStateEventStatus value");
 }
 
+Result<Json> Codec<ChiefChangedEventChange>::encode(const ChiefChangedEventChange& value) {
+    switch (value) {
+        case ChiefChangedEventChange::created: return Json(std::string("created"));
+        case ChiefChangedEventChange::updated: return Json(std::string("updated"));
+        case ChiefChangedEventChange::deleted: return Json(std::string("deleted"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<ChiefChangedEventChange> Codec<ChiefChangedEventChange>::decode(const Json& value) {
+    if (value == Json(std::string("created"))) return ChiefChangedEventChange::created;
+    if (value == Json(std::string("updated"))) return ChiefChangedEventChange::updated;
+    if (value == Json(std::string("deleted"))) return ChiefChangedEventChange::deleted;
+    return make_error(ErrorCode::decode, "unknown ChiefChangedEventChange value");
+}
+
 Result<Json> Codec<ClientAttachedEventTransport>::encode(const ClientAttachedEventTransport& value) {
     switch (value) {
         case ClientAttachedEventTransport::unix_: return Json(std::string("unix"));
@@ -39069,6 +39132,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
     }
     if (name.value() == "browser-state") {
         auto decoded = decode_value<BrowserStateEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "chief-changed") {
+        auto decoded = decode_value<ChiefChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
@@ -39925,13 +39993,14 @@ constexpr std::array<CommandMetadata, 269> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 80> kEvents{{
+constexpr std::array<EventMetadata, 81> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"bookmarks-changed", 12U, "bookmarks-v1", "subscribe", "emitted"},
     {"browser-state", 6U, "", "attach-browser", "emitted"},
+    {"chief-changed", 12U, "chief-events-v1", "subscribe", "emitted"},
     {"client-attached", 6U, "", "subscribe", "emitted"},
     {"client-changed", 6U, "", "subscribe", "emitted"},
     {"client-detached", 6U, "", "subscribe", "emitted"},

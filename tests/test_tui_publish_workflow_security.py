@@ -2345,7 +2345,14 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
     assert fork_gate in build_route
     side_attempt_one = "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER"
     assert side_attempt_one in build_route
-    every_attempt = build_route.replace(side_attempt_one, "vars.CI_SIDE_LANE_RUNNER", 1)
+    # cx-urd.50: through the bot's attempt 3; its attempt 4 is the rescue's
+    # last resort and goes to Blacksmith macOS 15, never the nightly label.
+    every_attempt = build_route.replace(
+        side_attempt_one,
+        "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && "
+        "vars.CI_SIDE_LANE_RUNNER",
+        1,
+    )
     assert daemon == every_attempt.replace(fork_gate, fork_gate + promote, 1), daemon
     assert "MACOS_RUNNER_PR" not in daemon
     assert retry_route.split("|| ", 1)[1] in daemon  # owned pools off: Blacksmith macOS 15

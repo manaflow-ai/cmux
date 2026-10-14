@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "066fd8f7413c0c8b865ee180f9650aa462899f735097f08c51cea6ffb011da2c";
+inline constexpr std::string_view kProtocolIrSha256 = "6a4ba878d29c643390f0367714f8f8ba922296f984a8e3a5e763773a3aa7ef0c";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -538,6 +538,7 @@ struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
+struct ChiefChangedEvent;
 struct ClientAttachedEvent;
 struct ClientChangedEvent;
 struct ClientDetachedEvent;
@@ -641,6 +642,7 @@ enum class IdsRequestKind;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
+enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 enum class KeybindingsChangedEventOrigin;
@@ -1142,6 +1144,18 @@ struct CellPixelSurface {
     Id surface{};
     std::uint16_t width_px{};
     friend bool operator==(const CellPixelSurface&, const CellPixelSurface&) = default;
+};
+
+enum class ChiefChangedEventChange {
+    created,
+    updated,
+    deleted,
+};
+
+struct ChiefChangedEvent {
+    ChiefChangedEventChange change{};
+    std::string chief{};
+    friend bool operator==(const ChiefChangedEvent&, const ChiefChangedEvent&) = default;
 };
 
 struct ChiefInspectRequest {
@@ -8781,6 +8795,12 @@ struct Codec<BrowserStateEvent> {
 };
 
 template <>
+struct Codec<ChiefChangedEvent> {
+    static Result<Json> encode(const ChiefChangedEvent& value);
+    static Result<ChiefChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<ClientAttachedEvent> {
     static Result<Json> encode(const ClientAttachedEvent& value);
     static Result<ClientAttachedEvent> decode(const Json& value);
@@ -9396,6 +9416,12 @@ template <>
 struct Codec<BrowserStateEventStatus> {
     static Result<Json> encode(const BrowserStateEventStatus& value);
     static Result<BrowserStateEventStatus> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefChangedEventChange> {
+    static Result<Json> encode(const ChiefChangedEventChange& value);
+    static Result<ChiefChangedEventChange> decode(const Json& value);
 };
 
 template <>

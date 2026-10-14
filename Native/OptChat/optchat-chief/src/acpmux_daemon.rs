@@ -123,6 +123,33 @@ pub fn mode() -> Mode {
     }
 }
 
+/// `OPTCHAT_ACPMUX_SHARED=1`: this host's acpmux is its Chief home's, which
+/// every Chief of that home uses (hq-6d 2026-10-14; the daemon's Chief brain
+/// supervisor, cmux-tui-core chief_brains.rs, sets it). Such a host starts
+/// the daemon like a local host when none answers, with the Chief home
+/// (`CMUX_CHIEF_HOME`) as the daemon's `ACPMUX_CHIEF_MUX_HOME`, but never
+/// shuts it down: when it stops it ends only its own sessions
+/// (`agents::end_own_sessions`). Without it (the app's default Chief, a
+/// host with its own `ACPMUX_HOME`) nothing changes.
+pub const SHARED_ENV: &str = "OPTCHAT_ACPMUX_SHARED";
+
+/// The Chief-specific variables a shared host keeps out of the daemon it
+/// starts.
+const CHIEF_IDENTITY_ENV: [&str; 7] = [
+    "MUX_HOME",
+    "MUX_AGENT_TOKEN_FILE",
+    "MUX_HOST_LOG",
+    "MUX_CHIEF_TITLE",
+    "OPTCHAT_CHIEF_PARTICIPANT",
+    "OPTCHAT_GROUP_WAKE",
+    SHARED_ENV,
+];
+
+/// Whether this host's acpmux is shared ([`SHARED_ENV`]).
+pub fn shared() -> bool {
+    env(SHARED_ENV).as_deref() == Some("1")
+}
+
 /// The rule: `reachable` is the socket now, `seen_up` whether this host ever reached a daemon.
 pub fn decide(mode: Mode, reachable: bool, seen_up: bool) -> Action {
     match (reachable, mode, seen_up) {
@@ -410,6 +437,19 @@ fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, St
         .map_err(|e| format!("opening the daemon log: {e}"))?;
     let err = out.try_clone().map_err(|e| e.to_string())?;
     let mut command = Command::new(bin);
+    if shared() {
+        // The Chief home's daemon serves every Chief and the person's tabs:
+        // none of this Chief's identity reaches it (its sessions would act
+        // as this Chief), and its MUX_HOME is the Chief home, as when the
+        // default Chief's host starts it. Each Chief's own sessions get
+        // their MUX_HOME from their preset (acpmux chief_builtins).
+        for key in CHIEF_IDENTITY_ENV {
+            command.env_remove(key);
+        }
+        if let Some(home) = env("CMUX_CHIEF_HOME") {
+            command.env("MUX_HOME", home);
+        }
+    }
     if let Some(extra) = CHILD_ENV.get() {
         command.envs(extra);
     }
