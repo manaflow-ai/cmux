@@ -150,7 +150,18 @@ const memberInput = teamInput.extend({ userId: z.uuid() });
 const changeRole = teamUser
   .input(memberInput.extend(memberRoleBody.shape).strict())
   .use(teamAccess({ admin: true }), (input) => input)
-  .output(z.object({ member: z.object({ userId: z.string(), role: teamRoleSchema }) }))
+  .output(
+    z.object({
+      member: z.object({
+        userId: z.string(),
+        displayName: z.string().nullable(),
+        email: z.string().nullable(),
+        profileImageUrl: z.string().nullable(),
+        role: teamRoleSchema,
+        isViewer: z.boolean(),
+      }),
+    }),
+  )
   .handler(async ({ context, input }) => ({ member: await changeMemberRole(context.team, input.userId, input.role) }));
 
 /** Remove a member (admin), or leave the team (self). */
