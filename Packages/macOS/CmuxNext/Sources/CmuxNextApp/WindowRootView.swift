@@ -246,12 +246,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         let bandWidth = (TitlebarToolbarBand.width * presence * 2).rounded() / 2
         let presenceChanged = toolbarBand.presence != presence
         toolbarBand.presence = presence
-        toolbarBand.frame = CGRect(x: lightsMaxX + TitlebarToolbarBand.groupGap * presence, y: (midY - bandHeight / 2).rounded(),
+        toolbarBand.frame = CGRect(x: lightsMaxX + Metrics.space3 * presence, y: (midY - bandHeight / 2).rounded(),
                                    width: bandWidth, height: bandHeight)
         // A right sidebar's header is clear of the traffic lights and the band.
         // The reserve is the full band, so the header does not reflow while
         // the sidebar slides out.
-        let fullBandMaxX = lightsMaxX + TitlebarToolbarBand.groupGap + TitlebarToolbarBand.width
+        let fullBandMaxX = lightsMaxX + Metrics.space3 + TitlebarToolbarBand.width
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }

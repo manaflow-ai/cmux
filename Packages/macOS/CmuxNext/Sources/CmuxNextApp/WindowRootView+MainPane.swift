@@ -49,64 +49,6 @@ final class MainPaneCardView: NSView {
     }
 }
 
-/// The shade over the chrome around the curved main pane: the window minus
-/// the pane's rounded rect, filled with black at a low alpha. It sits on
-/// the window's one backdrop, under the sidebar and the titlebar (both
-/// clear), so they and the gutter read as chrome and the pane as a card,
-/// over an opaque or a translucent window alike. Takes no clicks.
-final class MainPaneChromeShadeView: NSView {
-    private let shade = CAShapeLayer()
-    private var card: CGRect = .zero
-    private var radius: CGFloat = 0
-    private var alpha: CGFloat = 0
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        shade.fillRule = .evenOdd
-        layer?.addSublayer(shade)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    /// The window resized (its autoresizing frame may land after the card's
-    /// in the same pass): the path follows these bounds.
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        rebuild()
-    }
-
-    /// Shades everything but `card` (this view's coordinates); no shade when
-    /// `alpha` is 0.
-    func update(card: CGRect, radius: CGFloat, alpha: CGFloat) {
-        guard card != self.card || radius != self.radius || alpha != self.alpha || shade.frame != bounds else { return }
-        self.card = card
-        self.radius = radius
-        self.alpha = alpha
-        rebuild()
-    }
-
-    private func rebuild() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-        shade.frame = bounds
-        guard alpha > 0, !card.isEmpty else {
-            shade.path = nil
-            return
-        }
-        let path = CGMutablePath()
-        path.addRect(bounds)
-        let corner = min(radius, card.width / 2, card.height / 2)
-        path.addRoundedRect(in: card, cornerWidth: corner, cornerHeight: corner)
-        shade.path = path
-        shade.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor
-    }
-}
-
 extension WindowRootView {
     /// Follows the main pane tunables and the UI scale (the first emission
     /// applies the current values).
@@ -132,8 +74,7 @@ extension WindowRootView {
                 continue
             }
             switch constraint.firstAttribute {
-            case .top: constraint.constant = mainPaneTopInset()
-            case .leading: constraint.constant = gutter
+            case .leading, .top: constraint.constant = gutter
             case .trailing, .bottom: constraint.constant = -gutter
             default: break
             }
@@ -148,23 +89,10 @@ extension WindowRootView {
         Metrics.mainPaneCornerRadius(windowCornerRadius: window?.frameCornerRadius ?? 0)
     }
 
-    /// The card's top inset: the gutter, except under a minimal titlebar,
-    /// where the top row's tab pills center on the traffic lights' line
-    /// (never more than the gutter; `PaneChromeMetrics.cardTop`).
-    func mainPaneTopInset() -> CGFloat {
-        let gutter = Metrics.mainPaneGutter
-        guard titlebarStyle == .minimal, let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return gutter }
-        let centerFromTop = bounds.maxY - convert(lights, from: nil).midY
-        return min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor))
-    }
-
-    /// Re-applies the card's top inset when the traffic lights' line moved
-    /// (window attach, fullscreen, titlebar style); no-op otherwise.
+    /// Under a minimal titlebar the top row's pills sit on the traffic lights' line (`WindowTitlebar.cardTopInset`).
     func updateMainPaneTopInset() {
-        let top = mainPaneTopInset()
-        for constraint in mainPaneEdges where constraint.firstItem === contentHost && constraint.firstAttribute == .top && constraint.constant != top {
-            constraint.constant = top
-        }
+        let top = WindowTitlebar.cardTopInset(of: self, minimal: titlebarStyle == .minimal, gutter: Metrics.mainPaneGutter)
+        for edge in mainPaneEdges where edge.firstItem === contentHost && edge.firstAttribute == .top && edge.constant != top { edge.constant = top }
     }
 
     /// The content host's edge constraints: top and bottom, and the
