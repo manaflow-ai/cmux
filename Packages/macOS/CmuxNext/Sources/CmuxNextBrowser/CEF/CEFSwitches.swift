@@ -27,6 +27,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // separate macOS notification authorization. DesktopNotifier owns the
         // one app-level authorization request when cmux posts a banner.
         result.append("disable-notifications")
+        result.append(contentsOf: Self.chromePromptOffSwitches)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -42,6 +43,47 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         result.append(contentsOf: extraSwitches)
         return result
     }
+
+    /// Chrome's own promotions, tips and first-run prompts are for Google
+    /// Chrome, not for a browser pane in cmux ("Split view makes it easier to
+    /// multitask", "Make Chrome your default browser", "What's new"). These
+    /// switches turn every such surface off (cx-lqitn; Chromium 154 sources
+    /// named below):
+    /// - `no-first-run`: no first-run experience, no What's New page
+    ///   (whats_new_util.cc), no default-browser, session-restore or
+    ///   pin-to-taskbar startup infobars (startup/infobar_utils.cc), and
+    ///   UserEducationService gets allows_promos=false
+    ///   (UserEducationServiceFactory::ProfileAllowsUserEducation): no
+    ///   in-product help bubbles, tutorials, "New" badges or New Tab Page
+    ///   promos. This is the state Chrome's own automation runs in.
+    /// - `no-default-browser-check`: the default-browser prompt, and the
+    ///   macOS updater promotion infobar (keystone_infobar_delegate.cc), also
+    ///   without the first-run switch.
+    /// - `disable-search-engine-choice-screen`: the search engine choice
+    ///   dialog (search_engine_choice_service.cc).
+    /// - `enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy`: the
+    ///   feature-engagement tracker runs in demo mode with only IPH_Dummy
+    ///   valid (Tracker::Create, CreateDemoModeTracker), and nothing triggers
+    ///   IPH_Dummy. Code that asks the tracker directly, not through
+    ///   UserEducationService, then gets "no" too: the bookmark-bubble
+    ///   sign-in promo, "Get Chrome on your phone" promos, price tracking,
+    ///   the performance intervention dialog and the downloads page promo.
+    ///   The demo tracker keeps its events in memory, so it writes no
+    ///   feature-engagement database to the profile. Chromium uses the first
+    ///   override of a feature, so an IPH_DemoMode entry in the extra
+    ///   switches cannot replace this one.
+    /// Not switched here because the build already turns them off: surveys
+    /// (HaTS needs metrics consent), sign-in and sync promos (no Google OAuth
+    /// client in this build, so DICE is off), the outdated-build bubble
+    /// (Google Chrome builds only) and the Privacy Sandbox notice (its
+    /// parameters come from the server field trial config, which this build
+    /// does not fetch).
+    static let chromePromptOffSwitches = [
+        "no-first-run",
+        "no-default-browser-check",
+        "disable-search-engine-choice-screen",
+        "enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy",
+    ]
 
     /// Switches for this process. `CMUX_NEXT_CEF_LOAD_EXTENSIONS` is a
     /// colon-separated list of unpacked extension directories.
