@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 51c00043a9a8aed2eca070157fec1e513d5244b984cf2b1dd25a31637989b9d6. */
+/* cmux-tui mux protocol 12, IR b18c74d45c19743aac182ef9d622608ac8b17ac47c2bc5e18a08fd000fa6b90f. */
 
 
 import type * as T from "./types.js";
@@ -197,6 +197,15 @@ export type ConversationDraftEvent = { event: "conversation-draft" } & {
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationInboxChangedEvent = { event: "conversation-inbox-changed" } & {
+  "conversation": string;
+  "marked_unread": boolean;
+  "participant": string;
+  "pin_position"?: bigint;
+  "pinned": boolean;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationRunChangedEvent = { event: "conversation-run-changed" } & {
   "conversation": string;
   "run": (T.JsonValue) | null;
@@ -335,6 +344,12 @@ export type PaneClosedEvent = { event: "pane-closed" } & {
   "pane": T.Id;
   "screen": T.Id;
   "workspace": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ParticipantAvatarChangedEvent = { event: "participant-avatar-changed" } & {
+  "avatar": (T.JsonValue) | null;
+  "participant": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -670,6 +685,7 @@ export type KnownCmuxEvent =
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
   | ConversationDraftEvent
+  | ConversationInboxChangedEvent
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
@@ -689,6 +705,7 @@ export type KnownCmuxEvent =
   | PairingResolvedEvent
   | PaneAddedEvent
   | PaneClosedEvent
+  | ParticipantAvatarChangedEvent
   | PersonalChangedEvent
   | ProgramStatusChangedEvent
   | RenderDeltaEvent
@@ -751,6 +768,7 @@ export type KnownSubscribeEvent =
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
   | ConversationDraftEvent
+  | ConversationInboxChangedEvent
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | EmptyEvent
@@ -766,6 +784,7 @@ export type KnownSubscribeEvent =
   | PairingResolvedEvent
   | PaneAddedEvent
   | PaneClosedEvent
+  | ParticipantAvatarChangedEvent
   | PersonalChangedEvent
   | ProgramStatusChangedEvent
   | ScreenAddedEvent

@@ -12,8 +12,8 @@ broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 85 | Reads state and forbids an idempotency key |
-| `mutation` | 185 | Requires an idempotency key and returns a mutation result |
+| `read` | 86 | Reads state and forbids an idempotency key |
+| `mutation` | 189 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -28,7 +28,7 @@ correlation, and idempotency metadata.
 
 | Target | Count | Operations |
 | --- | ---: | --- |
-| `agent` | 5 | `agent.list`, `agent.message.list`, `agent.message.mark`, `agent.message.send`, `agent.report` |
+| `agent` | 6 | `agent.list`, `agent.message.list`, `agent.message.mark`, `agent.message.release`, `agent.message.send`, `agent.report` |
 | `browser` | 15 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
 | `browser_device` | 3 | `browser.devices.add_custom`, `browser.devices.list`, `browser.devices.remove_custom` |
 | `chief` | 10 | `chief.engine.get`, `chief.engine.set`, `chief.profile.avatar.get`, `chief.profile.avatar.set`, `chief.profile.create`, `chief.profile.delete`, `chief.profile.get`, `chief.profile.list`, `chief.profile.update`, `chief.stop` |
@@ -44,13 +44,14 @@ correlation, and idempotency metadata.
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |
 | `palette_usage` | 5 | `palette_usage.forget`, `palette_usage.get`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record` |
 | `pane` | 14 | `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.get`, `pane.list`, `pane.neighbor.get`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom` |
+| `participant` | 2 | `participant.avatar.get`, `participant.avatar.set` |
 | `request` | 1 | `request.cancel` |
 | `room` | 8 | `room.create`, `room.delete`, `room.follow`, `room.list`, `room.move`, `room.pin`, `room.unpin`, `room.update` |
 | `saved_tab_group` | 4 | `saved_tab_group.delete`, `saved_tab_group.list`, `saved_tab_group.reopen`, `saved_tab_group.save` |
 | `screen` | 11 | `column.update`, `screen.close`, `screen.create`, `screen.focus`, `screen.get`, `screen.layout.export`, `screen.layout.undo`, `screen.list`, `screen.move`, `screen.rename`, `screen.update` |
 | `screen_group` | 7 | `screen_group.add_screens`, `screen_group.create`, `screen_group.get`, `screen_group.list`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update` |
 | `session` | 25 | `layout.bulk`, `session.creation.resolve`, `session.events`, `session.get`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.hook.put`, `session.journal.producer.list`, `session.journal.producer.put`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.journal.segment.seal`, `session.journal.subscribe`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `workspace_status.list` |
-| `sidebar_layout` | 18 | `sidebar.adopt`, `sidebar.apply`, `sidebar.get`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.get`, `sidebar_layout.update` |
+| `sidebar_layout` | 20 | `sidebar.adopt`, `sidebar.apply`, `sidebar.get`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.remove_ref`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.reset`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.get`, `sidebar_layout.update` |
 | `project` | 6 | `project.add`, `project.list`, `project.observe`, `project.remove`, `project.sync`, `project.update` |
 | `setting` | 7 | `settings.get`, `settings.list`, `settings.reset`, `settings.reset_all`, `settings.schema`, `settings.set`, `settings.snapshot` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |

@@ -72,6 +72,9 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     public var muxHome: URL { root }
     /// `CMUX_TUI_STATE_DIR` of the Chief's conversation owner.
     public var daemonStateDirectory: URL { root.appendingPathComponent("tui", isDirectory: true) }
+    /// Written by `cmux chief shutdown` (cmux-tui `cli/chief/shutdown.rs`):
+    /// while it is there the app starts no brain on its own, only when asked.
+    var shutdownMarker: URL { root.appendingPathComponent("state/shutdown") }
     /// While a turn waits for the compactor: how far it is (optchat-chief settle_status.rs).
     var settleStatusFile: URL { root.appendingPathComponent("state/settle.json") }
     /// `ACPMUX_HOME` of the Chief's turn, compactor and subagent sessions.
