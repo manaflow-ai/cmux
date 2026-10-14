@@ -423,6 +423,8 @@ fn connection(conn: UnixStream, served: &Served) {
                                 effort: field("effort"),
                                 speed: field("speed"),
                                 compactor_speed: field("compactor_speed"),
+                                compactor_harness: field("compactor_harness"),
+                                compactor_model: field("compactor_model"),
                             }))
                         }
                         _ => None,

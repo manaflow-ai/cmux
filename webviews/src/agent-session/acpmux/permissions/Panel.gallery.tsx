@@ -86,7 +86,8 @@ const uncertainState: PermissionClientState = {
 function GalleryPermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh }: Props) {
   const [action, setAction] = useState<string>();
   return (
-    <div data-permission-gallery>
+    // Inside the shell, as in the pane: the shell defines the card's edge color (styles.css).
+    <div className="acpmux-shell" data-permission-gallery>
       <PermissionPanel
         state={state}
         working={working}
@@ -160,10 +161,15 @@ export default componentEntry<Props>({
   pane: true,
   covers: ["agent-session/acpmux/permissions/Panel.tsx#PermissionPanel"],
   load: async () => GalleryPermissionPanel,
-  styles: async () => {
-    await import("../styles.css");
-    await import("../conversation/conversation.css");
-  },
+  // The app loads these together (dev.tsx); the card's edge and fill live in composerLocation.css, the
+  // ask row in conversation.css.
+  styles: () =>
+    Promise.all([
+      import("../styles.css"),
+      import("../composerStates.css"),
+      import("../composerLocation.css"),
+      import("../conversation/conversation.css"),
+    ]),
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 420,
   checks: {

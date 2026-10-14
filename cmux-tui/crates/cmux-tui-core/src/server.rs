@@ -125,7 +125,8 @@ mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_TRUST_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -265,6 +266,7 @@ mod browser_input;
 mod chief_control;
 mod chief_inspect;
 mod chief_registry_resource;
+mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
@@ -1681,6 +1683,7 @@ enum Command {
     CloudConversationThread(cloud_conversations::ThreadParams),
     CloudConversationRuns(cloud_conversations::RunsParams),
     CloudConversationRun(cloud_conversations::RunParams),
+    CloudParticipantAvatarGet(cloud_conversations::AvatarParams),
     CloudConversationOp(cloud_conversations::OpParams),
     CloudInboxOp(cloud_conversations::InboxOpParams),
     CloudInboxSubscribe,
@@ -3568,6 +3571,9 @@ fn handle_command_with_cancellation(
         }
         Command::CloudConversationRuns(params) => cloud_conversations::runs(mux, client, params),
         Command::CloudConversationRun(params) => cloud_conversations::run(mux, client, params),
+        Command::CloudParticipantAvatarGet(params) => {
+            cloud_conversations::participant_avatar(mux, client, params)
+        }
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
         Command::CloudInboxOp(params) => cloud_conversations::inbox_op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),

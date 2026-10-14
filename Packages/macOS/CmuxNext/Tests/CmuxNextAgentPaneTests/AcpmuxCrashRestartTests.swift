@@ -26,7 +26,8 @@ struct AcpmuxCrashRestartTests {
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: acpmux.path)
             environment = try #require(AcpmuxEnvironment.resolve(
                 build: nil, bundledBinDirectory: bin,
-                environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": home.appendingPathComponent("s.sock").path]
+                environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": home.appendingPathComponent("s.sock").path],
+                executableOverride: nil
             ))
         }
 

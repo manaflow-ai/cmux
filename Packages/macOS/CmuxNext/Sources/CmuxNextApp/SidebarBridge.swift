@@ -44,7 +44,11 @@ final class SidebarBridge {
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
     /// Each listed row's content, observed per row: a status change patches one row, not the sidebar (rows lane).
-    let rowFeed = SidebarRowFeed()
+    /// Its flushes run on the display frame, so a frame's row patches and its scroll update commit together.
+    let rowFeed: SidebarRowFeed = {
+        let frames = FrameBatcher(owner: "SidebarRows")
+        return SidebarRowFeed(schedule: { work in frames.scheduleFrame(work) })
+    }()
 
     init(services: AppServices, state: WindowState) {
         self.services = services
@@ -175,7 +179,8 @@ final class SidebarBridge {
             for await selected in ObservationStream({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
                                                                                 creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
                                                                                 layout: layout.document, room: state.profileID.rawValue,
-                                                                                refs: WorkspaceLayoutRefs(machines: machines)) }) {
+                                                                                refs: WorkspaceLayoutRefs(machines: machines),
+                                                                                home: services.home.dockedHomeID) }) {
                 self?.selectionHold.offer(selected) // a new workspace's waits for its row (cx-8g3sn)
             }
         }
