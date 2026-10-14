@@ -444,6 +444,9 @@ pub const SESSION_IDENTITY_CAPABILITY: &str = "session-identity-v1";
 /// the session registry, personal groups and order, `list-personal`, and the
 /// `personal-changed` event (plans/cmux-next/data-model.md section 3).
 pub const PROFILES_CAPABILITY: &str = "profiles-v1";
+/// `placement-shift-v1`: an echoing connection gets no `workspace_placement`
+/// restatement on `session.events` (state/placement_shift.rs).
+pub use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
 /// Per-terminal themes in the home session's personal state:
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
@@ -1668,7 +1671,7 @@ enum Command {
     CloudSessionClear,
     CloudSessionStatus,
     /// `page-credential` (`page-credential-v1`, server/page_credential.rs).
-    PageCredential,
+    PageCredential(page_credential::PageCredentialParams),
     /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the
     /// owner's loopback page listener on request.
     WsListen(page_listener::WsListenParams),
@@ -3548,7 +3551,7 @@ fn handle_command_with_cancellation(
         Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),
         Command::CloudSessionClear => cloud_conversations::session_clear(mux, client),
         Command::CloudSessionStatus => cloud_conversations::session_status(mux, client),
-        Command::PageCredential => page_credential::page_credential(mux, client),
+        Command::PageCredential(params) => page_credential::page_credential(mux, client, params),
         Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
         Command::CloudConversationSnapshot(params) => {

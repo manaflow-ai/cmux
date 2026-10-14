@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "cb3b7f47ebf655c6935fd696672bea9a5dbe3a9234f372f85573dd87058588f5";
+inline constexpr std::string_view kProtocolIrSha256 = "302d51a4d2d282b70f41cd68d02758ff82046e30519acc670db98d208a0996ad";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3740,6 +3740,7 @@ struct OverflowEvent {
 };
 
 struct PageCredentialRequest {
+    Field<std::string> page{};
     friend bool operator==(const PageCredentialRequest&, const PageCredentialRequest&) = default;
 };
 

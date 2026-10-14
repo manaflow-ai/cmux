@@ -12,7 +12,7 @@ declare namespace Cmux {
   type Automation = { id: Cmux.AutomationId; owner: Cmux.TeamId; name: string; description: string; enabled: boolean; version: number; triggers: Array<Cmux.Trigger>; body: Cmux.Body; target: Cmux.TargetPolicy; concurrency: Cmux.Concurrency; budget: Cmux.Budget; created_by: Cmux.UserId; created_at: number; updated_at: number; next_run_at: number | null }
   type AutomationId = string
   type AutomationSettings = { agent_run_default_seconds: number | null }
-  type AvatarRef = { sha256: string; media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; bytes: number }
+  type AvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
   type Body = unknown
   type BrowserAttachFrame = { kind: "frame"; mime_type: "image/png" | "image/jpeg"; data_base64: string; width_px: number; height_px: number; pointer_frame_seq: string | null }
   type BrowserAttachItem = unknown
@@ -266,6 +266,9 @@ declare namespace Cmux {
   type PaletteUsageSnapshot = { revision: string; half_life_ms: string; pick_half_life_ms: string; entries: Array<Cmux.PaletteUsageRow>; picks: Array<Cmux.PaletteUsagePick>; imported: Array<string>; hidden: Array<string> }
   type PaneNeighborResult = { pane?: Cmux.PaneSnapshot | null }
   type PaneSnapshot = { id: string /* pane_… */; screen_id: string /* screen_… */; name: string | null; focused: boolean; zoomed: boolean; extra?: Record<string, Cmux.JsonValue> }
+  type ParticipantAvatarImage = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number; data: string }
+  type ParticipantAvatarPage = { participant_id: string; avatar: Cmux.ParticipantAvatarImage | null }
+  type ParticipantAvatarResult = { participant_id: string; avatar: Cmux.AvatarRef | null }
   type ParticipantId = string
   type PingResult = { alive: boolean; cursor: Cmux.Cursor }
   type PixelSize = { width_px: number; height_px: number }
@@ -1095,10 +1098,10 @@ interface CmuxGlobal {
   }
   participant: {
     avatar: {
-      /** `participant.avatar.get` (read, scope `participant:read`): A participant's avatar with its bytes, or null. Any signed-in caller may read it (like a display name). */
-      get: CmuxOp<{ participant_id: Cmux.ParticipantId }, { participant_id: Cmux.ParticipantId; avatar: { sha256: string; media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; bytes: number; data: string } | null }>
-      /** `participant.avatar.set` (mutation, scope `participant:write`): Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's. */
-      set: CmuxOp<{ participant_id: Cmux.ParticipantId; bytes?: string; clear?: boolean; expected_revision?: string }, Cmux.MutationResult<{ participant_id: Cmux.ParticipantId; avatar: Cmux.AvatarRef | null }>>
+      /** `participant.avatar.get` (read, scope `participant:read`) */
+      get: CmuxOp<{ machine?: string; session?: string; participant_id: string }, Cmux.ParticipantAvatarPage>
+      /** `participant.avatar.set` (mutation, scope `participant:write`) */
+      set: CmuxOp<{ machine?: string; session?: string; participant_id: string; bytes?: string; clear?: boolean }, Cmux.MutationResult<Cmux.ParticipantAvatarResult>>
     }
   }
   participants: {

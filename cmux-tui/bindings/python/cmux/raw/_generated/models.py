@@ -3702,7 +3702,7 @@ class NotifyRequest:
 @dataclass(frozen=True)
 class PageCredentialRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/page-credential/request'
-    pass
+    page: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

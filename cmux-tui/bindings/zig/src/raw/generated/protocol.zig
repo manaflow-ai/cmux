@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cb3b7f47ebf655c6935fd696672bea9a5dbe3a9234f372f85573dd87058588f5";
+pub const ir_sha256 = "302d51a4d2d282b70f41cd68d02758ff82046e30519acc670db98d208a0996ad";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6917,7 +6917,9 @@ pub fn notify(client: anytype, request: NotifyRequest) !wire.Decoded(NotifyResul
     );
 }
 
-pub const PageCredentialRequest = struct {};
+pub const PageCredentialRequest = struct {
+    page: wire.Field([]const u8) = .absent,
+};
 
 pub const PageCredentialResult = JsonValue;
 

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb3b7f47ebf655c6935fd696672bea9a5dbe3a9234f372f85573dd87058588f5. */
+/* cmux-tui mux protocol 12, IR 302d51a4d2d282b70f41cd68d02758ff82046e30519acc670db98d208a0996ad. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "cb3b7f47ebf655c6935fd696672bea9a5dbe3a9234f372f85573dd87058588f5" as const;
+export const SDK_IR_SHA256 = "302d51a4d2d282b70f41cd68d02758ff82046e30519acc670db98d208a0996ad" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2014,7 +2014,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "The verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. See spec/commands.md."
+      "Without page: the verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. With page: trusted local connections; the credential is bound to that page. See spec/commands.md."
     ]
   },
   "pairing-response": {
@@ -20953,7 +20953,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "page-credential": {
     "request": {
       "additional_properties": false,
-      "fields": {},
+      "fields": {
+        "page": {
+          "constraints": [
+            "A page id of the page-router table (capability page-credential-scoped-v1): any trusted local connection gets a single-use credential that admits only a WebSocket handshake whose Origin names that page and never carries the Cloud lease."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
       "kind": "object"
     },
     "result": {

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'cb3b7f47ebf655c6935fd696672bea9a5dbe3a9234f372f85573dd87058588f5'
+IR_SHA256 = '302d51a4d2d282b70f41cd68d02758ff82046e30519acc670db98d208a0996ad'
 
 
 @dataclass(frozen=True)
@@ -2231,6 +2231,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'page': CommandFieldMetadata(None, None),
         },
     ),
     'pairing-response': CommandMetadata(
