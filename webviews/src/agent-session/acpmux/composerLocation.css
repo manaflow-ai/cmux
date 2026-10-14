@@ -359,37 +359,42 @@
 /* The composer is one material surface; the location strip on its top edge shares its fill and
    edge (.acpmux-composer-strip), so it cannot read as a second box over wallpaper. Its only edge is
    the --acpmux-composer-edge hairline (styles.css), one device pixel (--cmux-hairline, #20481) and
-   clear under appearance.borders = none: no drop shadow (hq#1957 border hunt). */
+   clear under appearance.borders = none. Its shadow is the composer's (composerStates.css):
+   --elevation-1 in a light theme, none in a dark one. */
 .acpmux-composer-box {
   background: var(--acpmux-composer-surface);
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+}
+.acpmux-composer-box:focus-within {
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
   background: var(--agent-accent, var(--agent-text));
   color: var(--agent-on-accent, var(--acpmux-base));
 }
-/* Stop is Send's circle at rest (styles.css: the accent at 34% over the base), never a disc of its
+/* Stop is Send's circle at rest (styles.css: the faint disc of an empty draft), never a disc of its
    own, with a small square in the text color so it reads in light and dark themes; hover and
    press step the circle as the bar's other controls do. Send and Stop are the bar's 28 px. */
 .acpmux-composer-bar .acpmux-send { width: 28px; height: 28px; }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 34%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
   color: var(--agent-text);
 }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 42%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
 }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 50%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--agent-text) 17%, transparent);
 }
 
 /* Permission cards use the same quiet material language as the composer: the composer's hairline,
-   clear under appearance.borders = none, and no shadow. The icon and title form
+   clear under appearance.borders = none, and the floating step of the elevation scale. The icon and title form
    one readable header, while coverage and request count stay secondary metadata. */
 .acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface {
   border: var(--cmux-hairline, .5px) solid var(--acpmux-composer-edge);
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-surface-elevated));
-  box-shadow: none;
+  box-shadow: var(--elevation-2);
 }
 .acpmux-permission-card-heading { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
 .acpmux-permission-card-heading strong { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-title); }
@@ -405,7 +410,7 @@
    surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it. */
 .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
 .nt-composer:has(.acpmux-composer-strip) .nt-box {
-  box-shadow: none;
+  box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
 .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
