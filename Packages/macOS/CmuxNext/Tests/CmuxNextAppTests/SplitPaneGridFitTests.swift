@@ -6,11 +6,11 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// A fresh split layout's terminals render the grid their views fit (cx-yt7rt). The restore
-/// journey's rj-split seeded four terminals in nested splits and a second tab in the first pane;
-/// before the first quit the first pane drew a 664 pt view with 48 rows (46 fit) and the lower
-/// panes 33 rows where 32 fit, so the shell had rows below the bottom edge until a relaunch.
-/// The same layout here, made the way a script makes it, on the real daemon.
+/// Split terminals that were hidden while their window got shorter and their pane got a second
+/// tab claim the grid their views fit once shown again (cx-yt7rt). The restore journey's rj-split
+/// read 55x48 in a 664 pt view: the window lost about 25 pt while rj-split was hidden, and the
+/// journey read the grids in the frame the workspace came back, about 50 ms before the claim's
+/// echo. The product boundary here: the real daemon, a script's splits and tab, and the window.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(6)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct SplitPaneGridFitTests {
     @Test func splitPanesShownAgainRenderTheGridTheirViewsFit() async throws {

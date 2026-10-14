@@ -1167,11 +1167,26 @@ def snapshot(label):
         if not pane_ids.get(name):
             continue
         with visiting(name):
+            # A workspace shown again claims the grids its views fit a few frames later (the resize
+            # settle, then the daemon's echo): a window that got shorter while it was hidden leaves
+            # the old grids for about 50 ms. Read once every terminal renders what its view fits
+            # (`fit_grid`; a build without it: the same grids on two reads in a row).
+            last = {}
+
             def drawn():
                 _, now = view_panes()
                 shown = [now.get(pid_) for _, pid_ in pane_ids[name]]
                 ok = all(v and v.get("presence") == "visible" and v.get("attach") == "live" and v.get("surface", {}).get("grid") for v in shown)
-                return now if ok else None
+                if not ok:
+                    return None
+                surfaces = [v["surface"] for v in shown]
+                grids = [s["grid"] for s in surfaces]
+                if all("fit_grid" in s for s in surfaces):
+                    settled = all(s["fit_grid"] in (None, s["grid"]) for s in surfaces)
+                else:
+                    settled = last.get("grids") == grids
+                last["grids"] = grids
+                return now if settled else None
             now = wait(drawn, 20, 0.5) or view_panes()[1]
             for pp, pid_ in pane_ids[name]:
                 v = now.get(pid_) or {}
