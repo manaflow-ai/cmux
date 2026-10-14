@@ -8257,16 +8257,130 @@
     "cloud.link.helperNotRunning": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساعد اتصال Cloud لا يعمل على هذا الـ Mac. انقر على «اتصال» لتشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomoćnik za Cloud vezu nije pokrenut na ovom Macu. Kliknite Poveži da ga pokrenete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjælperen til Cloud-forbindelsen kører ikke på denne Mac. Klik på Forbind for at starte den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Cloud-Verbindungshelfer läuft auf diesem Mac nicht. Klicke auf „Verbinden“, um ihn zu starten."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The Cloud connection helper is not running on this Mac. Click Connect to start it."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El asistente de conexión de Cloud no se está ejecutando en este Mac. Haz clic en Conectar para iniciarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’assistant de connexion Cloud n’est pas en cours d’exécution sur ce Mac. Cliquez sur Connecter pour le démarrer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’helper di connessione Cloud non è in esecuzione su questo Mac. Fai clic su Connetti per avviarlo."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "この Mac で Cloud 接続ヘルパーが動作していません。［接続］をクリックすると起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីជំនួយការតភ្ជាប់ Cloud មិនកំពុងដំណើរការលើ Mac នេះទេ។ ចុច ភ្ជាប់ ដើម្បីចាប់ផ្ដើមវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac에서 Cloud 연결 도우미가 실행되고 있지 않습니다. 연결을 클릭하여 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjelperen for Cloud-tilkoblingen kjører ikke på denne Macen. Klikk på Koble til for å starte den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomocnik połączenia Cloud nie działa na tym Macu. Kliknij Połącz, aby go uruchomić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O auxiliar de conexão do Cloud não está em execução neste Mac. Clique em Conectar para iniciá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помощник подключения Cloud не запущен на этом Mac. Нажмите «Подключить», чтобы запустить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวช่วยการเชื่อมต่อ Cloud ไม่ได้ทำงานอยู่บน Mac เครื่องนี้ คลิก เชื่อมต่อ เพื่อเริ่มการทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud bağlantı yardımcısı bu Mac'te çalışmıyor. Başlatmak için Bağlan'a tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помічник підключення Cloud не запущено на цьому Mac. Натисніть «Під’єднати», щоб запустити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình trợ giúp kết nối Cloud không chạy trên máy Mac này. Bấm Kết nối để khởi động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 上未运行 Cloud 连接助手。点按“连接”以启动它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 上未執行 Cloud 連線輔助程式。按一下「連線」以啟動它。"
           }
         }
       }
