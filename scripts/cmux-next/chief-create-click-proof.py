@@ -194,11 +194,16 @@ def post_click(x, y):
     cg.CGEventCreateMouseEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint32, P, ctypes.c_uint32]
     cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
     cg.CFRelease.argtypes = [ctypes.c_void_p]
-    for kind in (5, 1, 2):  # mouseMoved, leftMouseDown, leftMouseUp
+    # The app runs with CMUX_NEXT_NO_ACTIVATE, so every click lands on an inactive app: mouse-down activates it,
+    # and NoActivateKeyboardGuard keeps that activation only when it sees a mouse button still pressed
+    # (NSEvent.pressedMouseButtons) at didBecomeActive. With an 80 ms press the button was often up by then: the
+    # guard gave the activation back ("keyboard given back: app_activated, no_user_input"), WebKit got no click,
+    # and the hovered primary button (grey hover background) looked disabled. A human press is longer; hold it.
+    for kind, hold in ((5, 0.08), (1, 0.4), (2, 0.08)):  # mouseMoved, leftMouseDown (held), leftMouseUp
         e = cg.CGEventCreateMouseEvent(None, kind, P(x, y), 0)
         cg.CGEventPost(0, e)
         cg.CFRelease(e)
-        time.sleep(0.08)  # human-like press interval for the window server, not app synchronization
+        time.sleep(hold)  # human-like press interval for the window server, not app synchronization
 
 
 def post_key(code):
