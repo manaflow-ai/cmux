@@ -30,3 +30,22 @@ export const teamPrefs = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.teamId] })]
 )
+
+/**
+ * The APNs token of a phone (PROTOCOL.md `PUT /v1/devices/:deviceId/push`). One per phone; deleted with the
+ * device. `owner_user_id` is the device's owner key, so a notify reads the owner's targets in one query.
+ */
+export const pushTokens = pgTable(
+  "push_tokens",
+  {
+    deviceId: uuid("device_id").primaryKey(),
+    ownerUserId: text("owner_user_id").notNull(),
+    token: text("token").notNull(),
+    environment: text("environment", { enum: ["sandbox", "production"] }).notNull(),
+    topic: text("topic").notNull(),
+    /** Comma-separated event kinds this phone wants (question, permission, completed, failed, chief). */
+    kinds: text("kinds").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("push_tokens_owner_idx").on(t.ownerUserId)]
+)

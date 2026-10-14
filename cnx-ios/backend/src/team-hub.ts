@@ -119,6 +119,29 @@ export class TeamHub extends DurableObject<Env> {
     }
   }
 
+  /**
+   * A device was deleted (PROTOCOL.md `DELETE /v1/devices/:deviceId`): drop a Mac from presence with a last
+   * `removed` frame, close the device's socket with 4002 `removed`, and end its relay sessions.
+   */
+  async forgetDevice(deviceId: string): Promise<void> {
+    const mac = this.macRow(deviceId)
+    if (mac) {
+      this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, deviceId)
+      const lastSeenAt = mac.last_seen_at ? new Date(mac.last_seen_at).toISOString() : null
+      this.broadcast(JSON.stringify({ type: "presence", mac: { deviceId, name: mac.name, online: false, lastSeenAt, removed: true } }))
+    }
+    for (const ws of this.ctx.getWebSockets(deviceId)) {
+      this.setAttach(ws, { ...this.attach(ws), replaced: true })
+      try {
+        ws.close(4002, "removed")
+      } catch {}
+    }
+    this.live.delete(deviceId)
+    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId).toArray())
+      this.sessions.delete(r.session_id)
+    this.sql.exec(`DELETE FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId)
+  }
+
   /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
   async placement(): Promise<{ colo: string | null }> {
     if (this.env.ENVIRONMENT === "test") return { colo: null }
