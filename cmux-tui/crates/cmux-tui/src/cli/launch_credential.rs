@@ -20,16 +20,19 @@ pub(super) fn attach(
     socket: &Path,
     request: &mut Value,
 ) -> bool {
-    let own_socket = std::env::var_os("CMUX_TUI_SOCKET").map(PathBuf::from);
-    let Some(credential) = for_socket(crate::startup_env::launch_credential(), own_socket, socket)
-    else {
-        return false;
-    };
-    if !advertises(reader, LAUNCH_CREDENTIAL_CAPABILITY) {
-        return false;
-    }
+    let Some(credential) = for_connection(reader, socket) else { return false };
     request["credential"] = Value::String(credential);
     true
+}
+
+/// The credential this connection's requests may carry, by the rules above.
+pub(super) fn for_connection(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    socket: &Path,
+) -> Option<String> {
+    let own_socket = std::env::var_os("CMUX_TUI_SOCKET").map(PathBuf::from);
+    let credential = for_socket(crate::startup_env::launch_credential(), own_socket, socket)?;
+    advertises(reader, LAUNCH_CREDENTIAL_CAPABILITY).then_some(credential)
 }
 
 fn for_socket(credential: Option<String>, own: Option<PathBuf>, socket: &Path) -> Option<String> {

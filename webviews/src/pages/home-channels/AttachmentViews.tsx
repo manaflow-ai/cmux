@@ -5,6 +5,7 @@
 // with its progress where the work is (board principle 6) and a remove button on hover or focus.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "../../ui/Dialog";
+import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { AttachmentService, attachmentClass, formatBytes, type UploadProgress } from "./attachmentService";
 import { HomeIcon } from "./icons";
@@ -179,6 +180,7 @@ function VideoPlayer({
   };
   return (
     <figure className="hc-att-video" style={{ width: size.width }}>
+      {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- a user's attached file; it has no caption track. */}
       <video
         src={src}
         poster={posterSrc}
@@ -298,50 +300,50 @@ function Lightbox({
       className="hc-lightbox"
       backdropClassName="hc-lightbox-backdrop"
       initialFocus={closeButton}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowRight" && images.length > 1) {
-          event.preventDefault();
-          step(1);
-        } else if (event.key === "ArrowLeft" && images.length > 1) {
-          event.preventDefault();
-          step(-1);
-        }
-      }}
     >
-      <header className="hc-lightbox-bar">
-        <span className="hc-att-name">{part.name}</span>
-        <span className="hc-att-meta">
-          {images.length > 1 ? `${index + 1} / ${images.length} · ` : ""}
-          {formatBytes(part.byteCount)}
-        </span>
-        <span className="lg-spacer" />
-        <button ref={closeButton} type="button" className="hc-text-button" onClick={onClose}>
-          {strings.t("lightbox.close")}
-        </button>
-      </header>
-      <div className="hc-lightbox-stage">
-        {images.length > 1 && (
-          <button
-            type="button"
-            className="hc-lightbox-step prev"
-            aria-label={strings.t("lightbox.previous")}
-            onClick={() => step(-1)}
-          >
-            <HomeIcon name="chevronLeft" />
+      <KeyboardScope
+        className="hc-lightbox-body"
+        handleKeyDown={(event) => {
+          if (images.length < 2 || (event.key !== "ArrowRight" && event.key !== "ArrowLeft")) return;
+          event.preventDefault();
+          step(event.key === "ArrowRight" ? 1 : -1);
+        }}
+      >
+        <header className="hc-lightbox-bar">
+          <span className="hc-att-name">{part.name}</span>
+          <span className="hc-att-meta">
+            {images.length > 1 ? `${index + 1} / ${images.length} · ` : ""}
+            {formatBytes(part.byteCount)}
+          </span>
+          <span className="lg-spacer" />
+          <button ref={closeButton} type="button" className="hc-text-button" onClick={onClose}>
+            {strings.t("lightbox.close")}
           </button>
-        )}
-        {(src ?? preview) && <img src={src ?? preview} alt={part.name} />}
-        {images.length > 1 && (
-          <button
-            type="button"
-            className="hc-lightbox-step next"
-            aria-label={strings.t("lightbox.next")}
-            onClick={() => step(1)}
-          >
-            <HomeIcon name="chevronRight" />
-          </button>
-        )}
-      </div>
+        </header>
+        <div className="hc-lightbox-stage">
+          {images.length > 1 && (
+            <button
+              type="button"
+              className="hc-lightbox-step prev"
+              aria-label={strings.t("lightbox.previous")}
+              onClick={() => step(-1)}
+            >
+              <HomeIcon name="chevronLeft" />
+            </button>
+          )}
+          {(src ?? preview) && <img src={src ?? preview} alt={part.name} />}
+          {images.length > 1 && (
+            <button
+              type="button"
+              className="hc-lightbox-step next"
+              aria-label={strings.t("lightbox.next")}
+              onClick={() => step(1)}
+            >
+              <HomeIcon name="chevronRight" />
+            </button>
+          )}
+        </div>
+      </KeyboardScope>
     </Dialog>
   );
 }
@@ -403,6 +405,7 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
       {state === "uploading" && (
         <span
           className="hc-tray-bar"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}

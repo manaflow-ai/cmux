@@ -214,6 +214,12 @@ impl ConversationStore {
                agent_text_streak INTEGER NOT NULL CHECK(agent_text_streak >= 0),
                last_agent_text_at TEXT
              ) WITHOUT ROWID;
+             CREATE TABLE IF NOT EXISTS agent_thread_guard (
+               conversation TEXT NOT NULL,
+               thread_root TEXT NOT NULL,
+               agent_text_streak INTEGER NOT NULL CHECK(agent_text_streak > 0),
+               PRIMARY KEY(conversation, thread_root)
+             ) WITHOUT ROWID;
              CREATE TABLE IF NOT EXISTS agent_token (
                participant TEXT PRIMARY KEY NOT NULL,
                token_hash TEXT NOT NULL
@@ -491,7 +497,10 @@ fn apply_op_in(
     if let Op::MessageSend { parts, .. } = op {
         // After every reducer rule (the conformance corpus order), over the
         // head's loop-guard counters (no row window to fill with work cards).
-        cmux_conversation::check_agent_streak(&head, actor, parts, now_ms).map_err(rejected)?;
+        // In the thread the new message joins (the reducer resolved it).
+        let thread_root = commit.message.as_ref().and_then(|m| m.thread_root.as_deref());
+        cmux_conversation::check_agent_streak(&head, actor, parts, now_ms, thread_root)
+            .map_err(rejected)?;
     }
     let origin = stamp_origin(&mut commit, actor, op);
     write_head(transaction, &commit.head)?;
@@ -609,6 +618,17 @@ fn load_head(connection: &Connection, id: &str) -> anyhow::Result<Option<Convers
         )
         .optional()?
         .unwrap_or((0, None));
+    // The loop guard per thread (budget.rs): only threads above 0 have a row.
+    let mut statement = connection.prepare(
+        "SELECT thread_root, agent_text_streak FROM agent_thread_guard WHERE conversation = ?1",
+    )?;
+    let thread_agent_streaks = statement
+        .query_map(params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+        .map(|row| {
+            let (root, streak) = row?;
+            Ok((root, u32::try_from(streak).context("thread agent streak is out of range")?))
+        })
+        .collect::<anyhow::Result<_>>()?;
     Ok(Some(ConversationHead {
         id: id.to_string(),
         title,
@@ -621,6 +641,7 @@ fn load_head(connection: &Connection, id: &str) -> anyhow::Result<Option<Convers
         read_cursors,
         agent_text_streak: u32::try_from(guard.0).context("agent_text_streak is out of range")?,
         last_agent_text_at: guard.1,
+        thread_agent_streaks,
     }))
 }
 
@@ -653,6 +674,15 @@ fn write_head(transaction: &Transaction<'_>, head: &ConversationHead) -> anyhow:
            last_agent_text_at = excluded.last_agent_text_at",
         params![head.id, i64::from(head.agent_text_streak), head.last_agent_text_at],
     )?;
+    transaction
+        .execute("DELETE FROM agent_thread_guard WHERE conversation = ?1", params![head.id])?;
+    for (root, streak) in &head.thread_agent_streaks {
+        transaction.execute(
+            "INSERT INTO agent_thread_guard(conversation, thread_root, agent_text_streak)
+             VALUES(?1, ?2, ?3)",
+            params![head.id, root, i64::from(*streak)],
+        )?;
+    }
     for (participant, seq) in &head.read_cursors {
         transaction.execute(
             "INSERT INTO read_cursor(conversation, participant, seq) VALUES(?1, ?2, ?3)
@@ -758,6 +788,12 @@ pub enum ConversationEvent {
     /// only to a connection that echoed `conversation-runs-v1` in
     /// `set-client-info` (never the remote relay or `conversation.events`).
     Run { conversation: String, run: Value, steps: Vec<Value> },
+    /// A participant's avatar changed (`participant-avatars-v1`): the stored
+    /// reference, or none. Not conversation state (no conversation, no rev);
+    /// `subscribe` delivers it only to a connection that echoed the
+    /// capability in `set-client-info` (never the remote relay or
+    /// `conversation.events`).
+    Avatar { participant: String, avatar: Option<Value> },
 }
 
 impl ConversationEvent {
@@ -797,12 +833,22 @@ impl ConversationEvent {
                 "run": run,
                 "steps": steps,
             }),
+            Self::Avatar { participant, avatar } => json!({
+                "event": "participant-avatar-changed",
+                "participant": participant,
+                "avatar": avatar,
+            }),
         }
     }
 
     /// Run events go on `subscribe` only to a connection that asked for them.
     pub(crate) const fn is_run(&self) -> bool {
         matches!(self, Self::Run { .. })
+    }
+
+    /// Avatar changes go on `subscribe` only to a connection that asked.
+    pub(crate) const fn is_avatar(&self) -> bool {
+        matches!(self, Self::Avatar { .. })
     }
 
     /// Drafts travel on `conversation.events`, and on `subscribe` only to a

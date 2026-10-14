@@ -24,6 +24,16 @@ pub struct HttpReply {
     pub body: Value,
 }
 
+/// One ranged read of a signed attachment URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RangeReply {
+    pub status: u16,
+    pub content_type: Option<String>,
+    /// The whole object's size (from `Content-Range`, else `Content-Length` of a 200).
+    pub total: Option<u64>,
+    pub body: Vec<u8>,
+}
+
 /// A transport failure before a reply arrived.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransportError(pub String);
@@ -78,6 +88,23 @@ pub trait CloudBackend: Send + Sync {
     ) -> Result<HttpReply, TransportError> {
         let _ = (url, bearer, client_version);
         Err(TransportError("this cloud backend sends no GET requests".into()))
+    }
+    /// `PUT url` with `headers` and the raw `body`, no bearer: an attachment
+    /// upload slot or a presigned object URL is its own credential.
+    fn put(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: Vec<u8>,
+    ) -> Result<HttpReply, TransportError> {
+        let _ = (url, headers, body);
+        Err(TransportError("this cloud backend sends no PUT requests".into()))
+    }
+    /// `GET url` for bytes `offset..offset+length` (one `Range`), no bearer:
+    /// a signed attachment URL is its own credential.
+    fn get_range(&self, url: &str, offset: u64, length: u64) -> Result<RangeReply, TransportError> {
+        let _ = (url, offset, length);
+        Err(TransportError("this cloud backend reads no byte ranges".into()))
     }
     /// Opens `url` with subprotocol `cmux.wire.v1` and the bearer in the
     /// `authorization` header (cx-dgsp; legacy subprotocol only for an old Worker).
@@ -446,6 +473,39 @@ impl CloudConversations {
         Ok(value)
     }
 
+    /// `cloud-participant-avatar-get`: a Cloud participant's picture (the
+    /// owner's `participant.avatar.get`: `{participant_id, avatar}`, the
+    /// avatar with its base64 `data`, or null).
+    pub fn participant_avatar(
+        &self,
+        participant: &str,
+        conversation: Option<&str>,
+    ) -> Result<Value, CloudError> {
+        let valid = ["user_", "agent_"].iter().any(|prefix| {
+            participant.strip_prefix(prefix).is_some_and(|rest| {
+                (1..=64).contains(&rest.len())
+                    && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+            })
+        });
+        if !valid {
+            return Err(CloudError::BadRequest(format!(
+                "participant {participant:?} is not a person or Chief id"
+            )));
+        }
+        let mut params = json!({"participant_id": participant});
+        if let Some(conversation) = conversation {
+            if !contract::valid_conversation_id(conversation) {
+                return Err(CloudError::BadRequest(format!(
+                    "conversation {conversation:?} is not a conversation id"
+                )));
+            }
+            params["conversation"] = json!(conversation);
+        }
+        let body = read_body("participant.avatar.get", params);
+        let (value, _) = read_value(self.post("/v1/read", &body)?)?;
+        Ok(value)
+    }
+
     /// The account (JWT `sub`) and Stack project (JWT `aud`) of the current
     /// person's lease, when its token carries both and is no chief token:
     /// the inputs of the person's Worker user id. Never the token.
@@ -586,7 +646,16 @@ impl CloudConversations {
         Ok(reply)
     }
 
-    fn post(&self, path: &str, body: &Value) -> Result<HttpReply, CloudError> {
+    /// The lease's API origin (`https://host[:port]`), for checking URLs the owner returns.
+    pub(crate) fn api_origin(&self) -> Result<String, CloudError> {
+        Ok(self.inner.usable_session()?.http_url(""))
+    }
+
+    pub(crate) fn backend(&self) -> &Arc<dyn CloudBackend> {
+        &self.inner.backend
+    }
+
+    pub(crate) fn post(&self, path: &str, body: &Value) -> Result<HttpReply, CloudError> {
         let session = self.inner.usable_session()?;
         let reply = self
             .inner

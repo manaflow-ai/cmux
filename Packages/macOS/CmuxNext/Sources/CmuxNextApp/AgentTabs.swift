@@ -310,10 +310,7 @@ final class AgentTabStore {
         // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
         if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
            seed?.holdsOnlyFolder ?? true, let spare = takeSpare?() {
-            standaloneViews.remove(spare)
-            wire(spare.model, key: key)
-            views[key] = spare
-            spare.adoptNewTab(newTab.page)
+            adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
             return spare
         }

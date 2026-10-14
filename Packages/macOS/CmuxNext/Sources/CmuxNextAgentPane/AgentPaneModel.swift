@@ -99,8 +99,8 @@ public final class AgentPaneModel {
     /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
     @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
 
-    /// Whether this host supports converting a fresh chat without a chooser page.
-    @ObservationIgnored private let allowsTabConversion: Bool
+    /// Whether this pane's tab may turn into a terminal or browser tab (`tab.open`, `tab.typeAhead`): a local tab's, also one that adopted the spare (cx-ckt2z).
+    @ObservationIgnored public package(set) var allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
     @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
@@ -234,14 +234,8 @@ public final class AgentPaneModel {
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
             markPainted()
             return AgentPaneReply.success()
-        case .openTab(let request):
-            guard newTab != nil || allowsTabConversion, let onOpenTab else { return Self.unsupported("tab.open") }
-            onOpenTab(request)
-            return AgentPaneReply.success()
-        case .typeAhead(let text):
-            guard newTab != nil || allowsTabConversion, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
-            onTypeAhead(text)
-            return AgentPaneReply.success()
+        case .openTab(let request): return request.open(in: self)
+        case .typeAhead(let text): return AgentPaneOpenTab.typeAhead(text, in: self)
         case .touched: return AgentPaneReply.success()
         // The shell box runs on this Mac: never for a chat on another machine (cx-k21v).
         case .shellRun, .shellRead, .shellStop:

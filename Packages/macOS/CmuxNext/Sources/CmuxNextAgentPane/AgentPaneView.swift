@@ -338,6 +338,12 @@ public final class AgentPaneView: NSView {
         popupHostStorage?.dismiss()
     }
 
+    /// Shown again in its pane (parked there while another tab showed): a theme change meanwhile.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        applyTheme()
+    }
+
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
