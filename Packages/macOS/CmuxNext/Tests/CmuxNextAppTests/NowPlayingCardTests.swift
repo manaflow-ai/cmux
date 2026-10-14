@@ -111,6 +111,7 @@ import Testing
         // sendAction, not performClick: performClick leaves AppKit work queued that can outlive the
         // closed window on a display host and take the test process down in a later test.
         for button in [h.card.playPauseButton, h.card.nextButton, h.card.previousButton] {
+            #expect(button.isEnabled, "\(button.accessibilityLabel() ?? "a control") is disabled while a track plays")
             _ = button.sendAction(button.action, to: button.target)
         }
         // A click a quarter of the way along the scrubber seeks to a quarter of the track.
