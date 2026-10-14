@@ -311,16 +311,26 @@ workspace (`selector.not_found`, scope `workspace`, without one). On the
 workspace's focused screen, the right side is every pane outside a docked
 column whose dock has role `agent_chat` or edge `left`. The selected browser tab
 of the focused right-side pane, else of the right-side pane focused most
-recently, else any browser tab there, navigates to `url` (as `browser.navigate`)
-and becomes its pane's selected tab; the keyboard focus does not move, so the
-person keeps typing in the chat. Else a new browser tab (as `tab.create_browser`)
+recently, else any browser tab there, navigates to `url` and becomes its
+pane's selected tab; the keyboard focus does not move, so the person keeps
+typing in the chat. A daemon-rendered tab's navigation is queued (raw
+`browser-navigate` semantics), not confirmed: the reply means the navigation
+is queued, not that the page loaded. A browser still starting loads it when
+it attaches. A navigation that fails after the reply shows as the browser's
+status, not as an error of this request, and a newer `workspace.open_url` or
+navigation of the same browser supersedes one still pending. A frontend tab
+navigates through its record (the app loads the new URL). Else a new browser tab (as `tab.create_browser`)
 opens in the first of those panes, or in the screen `tab.create_browser` makes
 for a workspace with none; with only the dock, it opens in a new viewport
 column right of the dock, and the focus goes back to the pane that had it. The result is `{kind: "browser", workspace_id,
-screen_id, pane_id, tab_id, browser_id, reused}`. Errors of the navigation or
-the creation are returned as they are (with no browser provider:
-`operation.failed`, `extra.code` `engine_unavailable`). Each step runs under a
-key derived from the request's key, so a retry replays it.
+screen_id, pane_id, tab_id, browser_id, reused}`. Errors of the creation,
+and a navigation the browser refuses before it is queued (a browser that
+failed for good), are returned as they are (with no browser provider:
+`operation.failed`, `extra.code` `engine_unavailable`). The request's key
+records the result, so a retry answers it. Each creation, split, focus and
+tab selection step runs under a key derived from the request's key, so a
+retry replays it; the navigation has no step key, so a retry after a queued
+navigation that the result missed queues the same URL again.
 `closed.reopen` and `saved_tab_group.reopen` compose several creations; the request's key records the whole result, so a retry replays it.
 
 A window record holds one app window's state (shown workspace, listed
@@ -1149,7 +1159,10 @@ daemon forwards one line to the brain host's tools socket
 brain's JSON: the engine report (passed through unchanged) or `{stopped,
 subagents?, note?}`. `chief.engine.set` also takes `speed` and
 `compactor_speed` (`default` or `fast`, the codex priority tier; a Claude
-harness refuses `fast` with `invalid_speed`); `chief.stop` takes an optional
+harness refuses `fast` with `invalid_speed`), and `compactor_harness` and
+`compactor_model` (by default the compactor runs Claude Haiku on the turns'
+engine harness when it is a Claude one); the compactor fields apply at the
+next brain start. `chief.stop` takes an optional
 subagent `name` and then stops only that subagent.
 Only the owner's trusted connection may call them: a registered Unix client
 with no link peer record whose principal is `user_local`, which is a local
@@ -1177,8 +1190,24 @@ Chief is `agent_mux` and exists from the first read; a new Chief is `agent_`
 and 26 Crockford base32 characters. A deleted id is never reused.
 
 The callers are the owner (the rule of Chief control above) and the Chiefs: a
-Unix connection bound with `conversation-bind` to a live record's id. Every
-other connection is refused with `origin.forbidden`. A Chief reads every
+Unix connection bound with `conversation-bind` to a live record's id. With
+`chief-profile-ws-v1` the person's page is a caller too: an authenticated
+WebSocket acting as `user_local` that is no remote client and no bound agent,
+and is either page `home-channels` admitted with a credential bound to that
+page (`page-credential {page}`: the app's Channels page on its Chief owner) or
+a connection with no page Origin that presented the daemon's own credential.
+A pairing-store credential (an approved pairing, and the app's person page
+credential, which shares the store) is refused with or without a page Origin:
+a native client can send any Origin. Without a host gesture the page can change only display_name, role and the
+avatar. Create, and edits of instructions or personality, need the gesture,
+like delete and the grant fields (tools, harnesses, engine/harness/model/effort,
+self_edit): `origin.forbidden` reason `gesture_required` on the WebSocket,
+which never carries a confirmation; the host's page relay of page
+`home-channels` brings it (page-router.md). Only the host's confirmation on its page relay carries the
+gesture; no request field or claim the page makes up stands in for it. The
+operation ledger records a page's write as `user_local via page:<page>` (`user_local
+via websocket` with no page id), so a page write is told apart from a terminal's.
+Every other connection is refused with `origin.forbidden`. A Chief reads every
 record and changes only its own fields that its `self_edit` lists; tools,
 harnesses, engine and `self_edit` are the owner's only, as are create and
 delete. Any other Chief request is `operation.failed` reason

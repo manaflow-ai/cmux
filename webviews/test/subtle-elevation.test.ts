@@ -202,11 +202,13 @@ describe("one subtle elevation scale", () => {
   const surfaces: [file: string, selector: string, token: (typeof ELEVATIONS)[number]][] = [
     ["ui/ui.css", ".ui-popup", "--elevation-2"],
     ["ui/ui.css", ".ui-sheet", "--elevation-2"],
-    ["pages/shared/desktop.css", ".ui-title-tooltip", "--elevation-2"],
+    // A tooltip is small and close to its control: elevation 1 (--tooltip-shadow, TooltipSurface.shadow).
+    ["pages/shared/desktop.css", ".ui-title-tooltip", "--elevation-1"],
     ["pages/shared/pageBase.css", ".page-menu", "--elevation-2"],
     ["pages/markdown/styles.css", ".md-link-popover", "--elevation-2"],
     ["pages/cloud/styles.css", ".cloud-create-sheet", "--elevation-2"],
     ["pages/home-channels/ledger.css", ".lg-palette", "--elevation-2"],
+    ["pages/home-channels/ledger.css", ".lg-form", "--elevation-2"],
     ["pages/home-channels/ledger.css", ".lg-sheet", "--elevation-2"],
     ["pages/home-channels/styles.css", ".hc-msg-toolbar", "--elevation-2"],
     ["icon-picker/styles.css", ".icon-bar-pill", "--elevation-2"],
@@ -217,7 +219,6 @@ describe("one subtle elevation scale", () => {
     ["styles.css", ".comment-card", "--elevation-1"],
     // The composer: --elevation-1 in a light theme, none in a dark one (newtab-quiet-focus.test.ts).
     ["agent-session/acpmux/composerLocation.css", ".acpmux-composer-box", "--elevation-1"],
-    ["agent-session/acpmux/composerLocation.css", ".acpmux-composer-box:focus-within", "--elevation-1"],
     [
       "agent-session/acpmux/composerLocation.css",
       ".acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface",

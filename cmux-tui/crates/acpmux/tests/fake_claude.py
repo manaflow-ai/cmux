@@ -21,6 +21,11 @@ environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
 ~/.claude) and replies with what it found as JSON, or fails the turn with
 Claude Code's own "Not logged in · Please run /login".
+FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
+FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
+`skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
+control request is appended to that file, one per line. Any plain prompt
+replies with the process's argv (spawn flags such as `--disallowedTools`).
 """
 import json
 import os
@@ -58,6 +63,27 @@ if STORE:
 
 SESSION_RULES = []
 DESTINATIONS = []
+
+# FAKE_CLAUDE_SKILLS=1: Claude Code with one skill installed, as Claude Code
+# 2.1.299 reports it: the initialize answer lists every slash command (a
+# skill's description ends "(user)"), and system/init, sent at the start of
+# every turn, names the skills (`skills`, names without "/").
+SKILLS = os.environ.get("FAKE_CLAUDE_SKILLS") == "1"
+COMMANDS = [
+    {"name": "demo-skill", "description": "A demo skill (user)", "argumentHint": ""},
+    {"name": "compact", "description": "Clear conversation history but keep a summary in context",
+     "argumentHint": "<optional custom summarization instructions>"},
+]
+
+
+def init():
+    line = {"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
+            "permissionMode": MODE, "tools": [], "mcp_servers": []}
+    if SKILLS:
+        line["slash_commands"] = [c["name"] for c in COMMANDS]
+        line["skills"] = ["demo-skill"]
+    line.update(json.loads(os.environ.get("FAKE_CLAUDE_INIT") or "{}"))
+    return line
 
 
 def ask(rid, tool):
@@ -109,10 +135,15 @@ for line in sys.stdin:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}})
             continue
-        send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
+        if os.environ.get("FAKE_CLAUDE_CONTROL_LOG"):
+            with open(os.environ["FAKE_CLAUDE_CONTROL_LOG"], "a") as f:
+                f.write(str(request.get("subtype")) + "\n")
+        answer = {}
+        if request.get("subtype") == "initialize" and SKILLS:
+            answer = {"commands": COMMANDS}
+        send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
         if request.get("subtype") == "initialize":
-            send({"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
-                  "permissionMode": MODE, "tools": [], "mcp_servers": []})
+            send(init())
     elif kind == "user" and os.environ.get("FAKE_CLAUDE_AUTH") == "1":
         import subprocess
         home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
@@ -166,6 +197,8 @@ for line in sys.stdin:
             sys.stderr.write("No conversation found with session ID: %s\n" % RESUME)
             sys.stderr.flush()
             sys.exit(1)
+        if SKILLS:
+            send(init())
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
         if STORE and LAYOUT:
@@ -306,6 +339,30 @@ for line in sys.stdin:
                   "input": {"command": "rm -rf build", "run_in_background": True}}]}})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_err",
                   "is_error": True, "content": "Permission denied"}]}})
+        # "bg-running": a dev server starts in the background and is still running when the turn ends.
+        if said.strip() == "bg-running":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_run", "name": "Bash",
+                  "input": {"command": "npm run dev", "run_in_background": True}}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": "r1", "tool_use_id": "toolu_run",
+                  "description": "npm run dev", "task_type": "local_bash"})
+        # "agent-bg-running": a background subagent starts a dev server in the background, which
+        # is still running when the turn ends.
+        if said.strip() == "agent-bg-running":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_agbg", "name": "Agent",
+                  "input": {"description": "Serve", "prompt": "Start the dev server", "run_in_background": True}}]}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_agbg",
+                  "content": "Async agent launched"}]}})
+            send({"type": "assistant", "parent_tool_use_id": "toolu_agbg", "message": {"content": [
+                  {"type": "tool_use", "id": "toolu_agrun", "name": "Bash",
+                   "input": {"command": "npm run dev", "run_in_background": True}}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": "r2", "tool_use_id": "toolu_agrun",
+                  "description": "npm run dev", "task_type": "local_bash"})
+        # "limits-probe": the turn says the limit knobs this Claude Code started with.
+        if said.strip() == "limits-probe":
+            text = json.dumps({k: os.environ.get(k) for k in (
+                "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION",
+                "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY",
+                "BASH_MAX_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS")}, sort_keys=True)
         # "bg-moved": a foreground shell moved to the background while it ran (a task_updated
         # patch), then ended; its notification names only the task.
         if said.strip() == "bg-moved":

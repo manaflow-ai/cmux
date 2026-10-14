@@ -117,6 +117,8 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/build_names.py
+      - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/gen-protected-folders.py
@@ -254,6 +256,8 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/build_names.py
+      - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/gen-protected-folders.py
@@ -1036,6 +1040,7 @@ jobs:
           bash scripts/cmux-next/tests/cargo-test-selected.test.sh
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
           bash scripts/cmux-next/tests/app-capability-references.test.sh
+          bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
@@ -1068,6 +1073,8 @@ jobs:
           # The herdr-derived agent plugin's vendored manifests match their pin.
           python3 -I scripts/cmux-next/herdr-sync.py check
           python3 -I scripts/cmux-next/tests/test_herdr_sync.py
+          # The restore journey names a DEV build's socket and acpmux home by the app's rule.
+          python3 -I scripts/cmux-next/tests/test_build_names.py
           bash scripts/cef/tests/test-embedder-step.test.sh
 
       # The app's Ghostty shell integration comes from ghostty-next (the

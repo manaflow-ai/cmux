@@ -18,6 +18,9 @@ export type ModelPickerProps = {
   switching?: { harness: string; name: string; mark?: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
   detail?: string;
+  /// How much of the context window the chat has used ("42% of context used"), shown in the
+  /// chip's tooltip: the controls row draws no context ring (hq#1957 item 15 compact row).
+  usage?: string;
   /// The name of the model the agent's default resolves to, when known: the "Default" row draws
   /// as that model with a "Default" hint.
   resolvedDefault?: string;
@@ -49,7 +52,7 @@ export type ModelPickerProps = {
   /// Enables the chat folder's profile `id` from `folder` (a "needs Enable" row's pick). Called
   /// from the click or key handler itself: the host's confirmation needs the gesture.
   onHarnessEnable?(folder: string, id: string): void;
-  /// The rail's + (Add agent…): the pane's Harnesses page, in place (cx-uj5g8).
+  /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
