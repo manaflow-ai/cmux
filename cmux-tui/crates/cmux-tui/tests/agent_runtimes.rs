@@ -151,7 +151,7 @@ fn cmux_next_agent_runtimes_attribute_a_terminal_agent_and_not_an_outside_one() 
     assert_eq!(inside["attribution"]["status"], "verified", "{inside}");
     assert_eq!(inside["attribution"]["source"], "terminal_process_tree", "{inside}");
     let terminal = inside["attribution"]["terminal_id"].as_str().unwrap_or_default();
-    assert!(terminal.starts_with("terminal_"), "{inside}");
+    assert!(terminal.starts_with("term_"), "{inside}");
     assert_eq!(inside["args"], json!(["codex", "<redacted>"]), "{inside}");
     assert_eq!(inside["can_stop_safely"], false);
     assert!(
