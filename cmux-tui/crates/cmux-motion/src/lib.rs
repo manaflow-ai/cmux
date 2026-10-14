@@ -28,7 +28,7 @@
 //! Structural springs (`MotionSpring::is_structural`) follow
 //! `ui.animations.bounce`; `ui.paneAnimations`, `ui.animations.newTab` and
 //! `ui.animations.newWorkspace` turn one kind on (`MotionPolicy::animates`;
-//! all off by default). The host passes these settings
+//! newTab on by default, the others off). The host passes these settings
 //! in (`set_animation_switches` or `MotionPolicy::with_animations`).
 
 mod clock;

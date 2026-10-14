@@ -48,6 +48,24 @@ impl SpringParameters {
         2. * self.damping_fraction * self.omega()
     }
 
+    /// This tuning with a non-finite or non-positive response, or a
+    /// non-finite damping fraction, replaced by `fallback`'s. A NaN damping
+    /// would otherwise become 0 (an undamped spring that never settles, so
+    /// the clock never idles).
+    pub fn finite_or(self, fallback: SpringParameters) -> Self {
+        let response = if self.response.is_finite() && self.response > 0. {
+            self.response
+        } else {
+            fallback.response
+        };
+        let damping_fraction = if self.damping_fraction.is_finite() {
+            self.damping_fraction
+        } else {
+            fallback.damping_fraction
+        };
+        Self::new(response, damping_fraction)
+    }
+
     /// The same spring with every time constant multiplied by `scale`.
     pub fn scaled(&self, scale: f64) -> Self {
         Self::new(self.response * scale, self.damping_fraction)
@@ -185,7 +203,8 @@ impl SpringValue {
     /// do. `dt` is capped at 0.1 s so a stalled frame never teleports.
     pub fn step(&mut self, dt: f64, p: SpringParameters) {
         let t = dt.clamp(0., MAX_FRAME);
-        if t <= 0. {
+        // A NaN dt stays NaN through clamp: refuse it too.
+        if t.is_nan() || t <= 0. {
             return;
         }
         let target = f64::from(self.target);
@@ -199,6 +218,7 @@ impl SpringValue {
     /// The one spring solution every port uses (macOS calls it through
     /// cmux-app-ffi).
     pub fn solve(x0: f64, v0: f64, time: f64, p: SpringParameters) -> (f64, f64) {
+        let p = p.finite_or(MotionSpring::Move.base());
         let w0 = p.omega();
         let zeta = p.damping_fraction.max(0.);
         let t = time;

@@ -107,7 +107,15 @@ public nonisolated struct SpringValue: Hashable, Sendable {
     /// Displacement from the target and velocity `time` seconds after a
     /// state, for `parameters` (mass 1).
     public static func solve(displacement x0: Double, velocity v0: Double, time t: Double,
-                             parameters: SpringParameters) -> (displacement: Double, velocity: Double) {
+                             parameters given: SpringParameters) -> (displacement: Double, velocity: Double) {
+        // A non-finite tuning takes `move`'s (cmux-motion `finite_or`): NaN damping would never settle.
+        var parameters = given
+        if !(given.response.isFinite && given.response > 0 && given.dampingFraction.isFinite) {
+            let fallback = MotionSpring.move.base
+            parameters = SpringParameters(
+                response: given.response.isFinite && given.response > 0 ? given.response : fallback.response,
+                dampingFraction: given.dampingFraction.isFinite ? given.dampingFraction : fallback.dampingFraction)
+        }
         let w0 = parameters.omega
         let zeta = max(parameters.dampingFraction, 0)
         if abs(zeta - 1) < 1e-4 {

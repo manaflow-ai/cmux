@@ -53,7 +53,8 @@ extension TabStripView {
         let structureAnimates = !(adding || removing) || Motion.animates(.newTab)
         let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
         let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
-        let cellsAnimate = animated && structureAnimates
+        // Added/closed cells move only outside a gesture; a sync that adds no tab never re-tokens the strip.
+        let cellsAnimate = animated && structureAnimates && !inGesture
         if MotionTrace.isEnabled {
             MotionTrace.note("tabs.sync fromModel=\(fromModel) animating=\(animating) animated=\(animated)"
                 + " added=\(ordered.filter { cells[$0.id] == nil }.map(\.id.rawValue)) removed=\(cells.keys.filter { !ids.contains($0) }.map(\.rawValue))")
@@ -104,7 +105,7 @@ extension TabStripView {
             needsLayout = true
         }
 
-        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate)
+        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding)
 
         let selected = model.selectedID
         if let selected, selected != lastSelectedID || added.contains(selected) {

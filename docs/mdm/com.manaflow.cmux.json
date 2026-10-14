@@ -2085,9 +2085,10 @@
     },
     "sidebar.density" : {
       "default" : "compact",
-      "description" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+      "description" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
       "enum" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "title" : "Sidebar Density",
@@ -2852,7 +2853,7 @@
       "type" : "string"
     },
     "ui.animations.newTab" : {
-      "default" : false,
+      "default" : true,
       "description" : "A new tab grows into its place in the tab bar. Off shows it there at once.",
       "title" : "Animate New Tabs",
       "type" : "boolean"

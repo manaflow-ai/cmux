@@ -278,8 +278,8 @@ impl MotionBounce {
 /// The structural changes a user turns animation on for one by one, under
 /// `ui.animationSpeed`, one per cmux.json key (`MotionKind::config_path`):
 /// `ui.paneAnimations`, `ui.animations.newTab`, `ui.animations.newWorkspace`.
-/// All off by default (design-tokens.json `motion.kinds`): the change
-/// applies in one frame.
+/// newTab on by default, the others off (design-tokens.json `motion.kinds`);
+/// an off kind applies the change in one frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum MotionKind {

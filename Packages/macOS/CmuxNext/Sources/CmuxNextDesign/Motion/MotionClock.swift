@@ -32,6 +32,10 @@ public final class MotionClock {
     }
     /// The window whose scheduler the clock ticks on (nil: the app clock).
     private weak var window: NSWindow?
+    /// The animator whose `motionStep` runs now, and whether it called `run` on itself
+    /// meanwhile (new targets): it stays on the clock even when that step reports rest.
+    private var steppingID: ObjectIdentifier?
+    private var steppingRearmed = false
     /// Frames delivered while something moved (debug).
     public private(set) var frames: UInt64 = 0
 
@@ -64,7 +68,10 @@ public final class MotionClock {
             entries.removeAll()
             order.removeAll()
         }
-        guard entries[id] == nil else { return }
+        guard entries[id] == nil else {
+            if id == steppingID { steppingRearmed = true }
+            return
+        }
         entries[id] = Entry(animator: animator, trace: trace)
         if !order.contains(id) { order.append(id) }
         MotionTrace.begin(trace, id: id)
@@ -99,7 +106,11 @@ public final class MotionClock {
         // Animators started during this frame step from the next one.
         for id in order {
             guard let entry = entries[id] else { continue }
-            guard let animator = entry.animator, MotionTrace.measure(entry.trace, { animator.motionStep(dt) }) else {
+            (steppingID, steppingRearmed) = (id, false)
+            let moving = entry.animator.map { animator in MotionTrace.measure(entry.trace) { animator.motionStep(dt) } }
+            steppingID = nil
+            // Rest, unless the step re-armed itself (`run` during its own step): its new targets move next frame.
+            guard moving == true || (moving != nil && steppingRearmed) else {
                 entries[id] = nil
                 MotionTrace.end(entry.trace, id: id)
                 continue

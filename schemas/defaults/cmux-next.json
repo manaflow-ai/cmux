@@ -535,7 +535,7 @@
     "setting.terminal.fontSize": null,
     "setting.ui.animationSpeed": "fast",
     "setting.ui.animations.bounce": "none",
-    "setting.ui.animations.newTab": false,
+    "setting.ui.animations.newTab": true,
     "setting.ui.animations.newWorkspace": false,
     "setting.ui.paneAnimations": false,
     "setting.updates.checkAutomatically": true,
