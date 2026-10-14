@@ -38,6 +38,13 @@ pub fn enabled() -> bool {
 pub enum Inbound {
     Token { token: String },
     Acpmux { url: String, token: Option<String> },
+    /// The browser host the app started for `need_browser` `request`: its
+    /// loopback rd stream carrier address and per-launch secret.
+    Browser { request: u64, addr: String, secret: String },
+    /// The app could not start a browser host for `request`.
+    BrowserFailed { request: u64, reason: String },
+    /// The browser host of `tab` exited.
+    BrowserGone { tab: String },
 }
 
 impl Inbound {
@@ -67,6 +74,11 @@ pub enum Event {
     PhonePath { session_id: String, path: String },
     /// A phone's link ended.
     PhoneDown { session_id: String, reason: String },
+    /// A phone opened browser tab `tab`: start the app's browser host on
+    /// `url` and answer with `browser` (or `browser_failed`) for `request`.
+    NeedBrowser { request: u64, tab: String, url: String },
+    /// hostd no longer needs the browser host of `tab`: stop it.
+    BrowserStop { tab: String },
 }
 
 /// Writes `event` as one stdout line when supervised; otherwise nothing.
@@ -85,12 +97,16 @@ pub fn emit(event: &Event) {
 pub struct Supplied {
     pub token: watch::Receiver<Option<String>>,
     pub acpmux: watch::Receiver<AcpmuxEndpoint>,
+    /// Browser hosts the app starts for the `browser` service.
+    pub browser: std::sync::Arc<crate::browser::BrowserBroker>,
 }
 
 /// Reads stdin until it ends, then exits the process (the app is gone).
 pub fn spawn_stdin_reader() -> Supplied {
     let (token_tx, token) = watch::channel(None);
     let (acpmux_tx, acpmux) = watch::channel(None);
+    let browser = std::sync::Arc::new(crate::browser::BrowserBroker::new(std::sync::Arc::new(emit)));
+    let broker = std::sync::Arc::clone(&browser);
     tokio::spawn(async move {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -101,13 +117,16 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::Acpmux { url, token }) => {
                     acpmux_tx.send_replace(Some((url, token)));
                 }
+                Some(Inbound::Browser { request, addr, secret }) => broker.answer(request, Ok((addr, secret))),
+                Some(Inbound::BrowserFailed { request, reason }) => broker.answer(request, Err(reason)),
+                Some(Inbound::BrowserGone { tab }) => broker.gone(&tab),
                 None => tracing::warn!("ignoring an unknown control line"),
             }
         }
         tracing::info!("control input ended; exiting");
         std::process::exit(0);
     });
-    Supplied { token, acpmux }
+    Supplied { token, acpmux, browser }
 }
 
 /// The wire name of a transport.
@@ -141,6 +160,14 @@ mod tests {
             Inbound::parse(r#"{"type":"acpmux","url":"ws://127.0.0.1:1/","token":"t"}"#),
             Some(Inbound::Acpmux { url: "ws://127.0.0.1:1/".into(), token: Some("t".into()) })
         );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"browser","request":3,"addr":"127.0.0.1:5","secret":"s"}"#),
+            Some(Inbound::Browser { request: 3, addr: "127.0.0.1:5".into(), secret: "s".into() })
+        );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"browser_gone","tab":"s4"}"#),
+            Some(Inbound::BrowserGone { tab: "s4".into() })
+        );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
     }
@@ -159,6 +186,11 @@ mod tests {
             r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"relay"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
+        assert_eq!(
+            serde_json::to_string(&Event::NeedBrowser { request: 1, tab: "s4".into(), url: "about:blank".into() })
+                .unwrap(),
+            r#"{"type":"need_browser","request":1,"tab":"s4","url":"about:blank"}"#
+        );
         assert_eq!(
             serde_json::to_string(&Event::Waiting { reason: "x".into(), retry_in_seconds: 2 }).unwrap(),
             r#"{"type":"waiting","reason":"x","retry_in_seconds":2}"#

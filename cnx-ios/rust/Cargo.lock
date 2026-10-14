@@ -470,6 +470,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
+name = "cmux-rd-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-proto",
+]
+
+[[package]]
+name = "cmux-rd-engine"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+]
+
+[[package]]
+name = "cmux-rd-proto"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-transport"
 version = "0.1.0"
 
@@ -510,6 +533,9 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bytes",
+ "cmux-rd-core",
+ "cmux-rd-engine",
+ "cmux-rd-proto",
  "cnx-link",
  "futures-util",
  "libc",
