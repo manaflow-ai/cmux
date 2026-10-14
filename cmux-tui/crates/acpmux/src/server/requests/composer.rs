@@ -1,7 +1,20 @@
 //! The composer's requests: a chat's unsent draft (`_acpmux/draft_get`, `_acpmux/draft_set`) and
-//! a side question about it (`_acpmux/ask`, `hub/aside.rs`).
+//! a side question about it (`_acpmux/ask`, `hub/aside.rs`), and its prompt bookmarks
+//! (`_acpmux/bookmark_get`, `_acpmux/bookmark_set`, `hub/bookmarks.rs`).
 
 use super::*;
+
+/// Whether `m` is one of the composer's requests.
+pub(super) fn handles(m: &str) -> bool {
+    matches!(
+        m,
+        method::MUX_DRAFT_GET
+            | method::MUX_DRAFT_SET
+            | method::MUX_BOOKMARK_GET
+            | method::MUX_BOOKMARK_SET
+            | method::MUX_ASK
+    )
+}
 
 pub(super) async fn handle(
     hub: &Arc<Hub>,
@@ -9,6 +22,9 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    if m == method::MUX_BOOKMARK_GET || m == method::MUX_BOOKMARK_SET {
+        return bookmarks(hub, m, params).await;
+    }
     let s = hub.resolve(session_key(params)?)?;
     if m == method::MUX_DRAFT_GET {
         return Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}));
@@ -26,4 +42,24 @@ pub(super) async fn handle(
         ..Default::default()
     };
     hub.ask_aside(&s, text, &conn.label(), opts).await
+}
+
+/// `_acpmux/bookmark_get` and `_acpmux/bookmark_set`: the chat's prompt bookmarks
+/// (`hub/bookmarks.rs`). A peer's chat never gets here: `peer_forward.rs` sends it to its owner.
+async fn bookmarks(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(session_key(params)?)?;
+    if m == method::MUX_BOOKMARK_GET {
+        let marks: Vec<u64> = s.meta().bookmarks.iter().copied().collect();
+        return Ok(json!({"sessionId": s.id, "bookmarks": marks}));
+    }
+    let seq = params
+        .get("seq")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("seq is required"))?;
+    let bookmarked = params
+        .get("bookmarked")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| RpcError::invalid_params("bookmarked is required"))?;
+    let marks = hub.set_bookmark(&s, seq, bookmarked).await?;
+    Ok(json!({"sessionId": s.id, "bookmarks": marks}))
 }
