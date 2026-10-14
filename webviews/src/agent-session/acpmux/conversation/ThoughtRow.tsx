@@ -35,7 +35,10 @@ export function ThoughtRow({ item, until, live }: { item: AcpmuxActivity; until?
         aria-controls={open ? textId : undefined}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="cv-thought__label">{label}</span>
+        {/* Find counts the thought's text, not this line's words. */}
+        <span className="cv-thought__label" data-find-skip>
+          {label}
+        </span>
         <ChevronRight
           size={14}
           strokeWidth={1.2}

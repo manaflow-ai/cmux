@@ -58,7 +58,7 @@ export function mcpLabel(tool: Tool): string | undefined {
 
 /// A call's id standing in for its title.
 export function isCallId(value: string, tool: Tool): boolean {
-  return value === tool.id || /^(toolu_|call_)[A-Za-z0-9]+$/.test(value);
+  return value === tool.id || /^(?:toolu_[A-Za-z0-9]{12,}|call_[A-Za-z0-9]{16,})$/.test(value);
 }
 
 function input(tool: Tool): Record<string, unknown> | undefined {

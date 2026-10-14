@@ -103,7 +103,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       <span className="cv-tool__icon" data-kind={glyph}>
         {toolIcon(glyph)}
       </span>
-      <span className="cv-tool__text" data-find-skip={(open && shell) || undefined}>
+      {/* A shell row's words are its summary; Find counts its command, painted in the opened Shell block. */}
+      <span className="cv-tool__text" data-find-skip={shell || undefined}>
         {label}
         {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
       </span>

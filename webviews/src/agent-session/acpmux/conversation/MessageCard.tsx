@@ -86,7 +86,7 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
           <ChevronDown size={12} className={`cv-rotor${open ? " is-flipped" : ""}`} />
         </button>
       )}
-      <div className="cv-message__receipt" role="status">
+      <div className="cv-message__receipt">
         {delivery === "sending" ? (
           <Spinner size={12} />
         ) : delivery === "delivered" ? (
@@ -96,8 +96,8 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
         ) : null}
         <span className="cv-message__status">{status}</span>
       </div>
-      {/* Anything else the send printed (why it failed, a tool's own reply), once opened. */}
-      {open && output && !receipt && <pre className="cv-tool-output">{output}</pre>}
+      {/* What else the send printed (a tool's own reply), and all of it when the send failed. */}
+      {open && output && (!receipt || failed) && <pre className="cv-tool-output">{output}</pre>}
     </div>
   );
 }
