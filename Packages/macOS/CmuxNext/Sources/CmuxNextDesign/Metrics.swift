@@ -152,10 +152,13 @@ public struct Metrics {
     public static var paneSeparation: PaneSeparation {
         PaneSeparation.resolve(DesignSettings.shared.paneChrome, unset: defaultPaneSeparation)
     }
-    /// The separation when cmux.json sets none: inside the curved main pane,
-    /// whose gutter is the window's one inset, panes are flush and divided by
-    /// one line (no padded, outlined box per pane); without it, borders.
-    public static var defaultPaneSeparation: PaneSeparation { mainPaneCurved ? .dividers : .borders }
+    /// The separation when cmux.json sets none: the `appearance.chromeStyle`
+    /// one, else inside the curved main pane, whose gutter is the window's
+    /// one inset, panes are flush and divided by one line (no padded,
+    /// outlined box per pane); without it, borders.
+    public static var defaultPaneSeparation: PaneSeparation {
+        DesignSettings.shared.chromeStyle.paneSeparation ?? (mainPaneCurved ? .dividers : .borders)
+    }
     /// Pane border: subtle only for the `borders` separation, and none
     /// under `appearance.borders` none. The line is one device pixel wide.
     public static var paneBorder: PaneBorderStyle {
@@ -206,21 +209,33 @@ public struct Typography {
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
         (compact ? compactSize : comfortableSize) * scale
     }
+    private enum Family { case system, monospaced }
+    /// A checked font: AppKit's constructors can return nil despite their
+    /// non-optional import, and a nil font in string attributes aborts
+    /// (`CheckedFont`).
+    private static func font(_ family: Family, _ size: CGFloat, _ weight: NSFont.Weight) -> NSFont {
+        CheckedFont.resolve(size: size) {
+            switch family {
+            case .system: .systemFont(ofSize: size, weight: weight)
+            case .monospaced: .monospacedSystemFont(ofSize: size, weight: weight)
+            }
+        }
+    }
 
     /// Tab titles, sidebar rows, palette results.
-    public static var body: NSFont { .systemFont(ofSize: size(12, 13), weight: .regular) }
+    public static var body: NSFont { font(.system, size(12, 13), .regular) }
     /// Selected or emphasized row titles.
-    public static var bodyEmphasized: NSFont { .systemFont(ofSize: size(12, 13), weight: .medium) }
+    public static var bodyEmphasized: NSFont { font(.system, size(12, 13), .medium) }
     /// Subtitles, shortcut hints, counts.
-    public static var caption: NSFont { .systemFont(ofSize: size(10.5, 11), weight: .regular) }
+    public static var caption: NSFont { font(.system, size(10.5, 11), .regular) }
     /// Section headers (uppercase is not used; weight and color carry hierarchy).
-    public static var header: NSFont { .systemFont(ofSize: size(11, 12), weight: .semibold) }
+    public static var header: NSFont { font(.system, size(11, 12), .semibold) }
     /// Palette search field.
-    public static var search: NSFont { .systemFont(ofSize: size(16, 18), weight: .regular) }
+    public static var search: NSFont { font(.system, size(16, 18), .regular) }
     /// Shortcut glyphs.
-    public static var shortcut: NSFont { .monospacedSystemFont(ofSize: size(10.5, 11), weight: .medium) }
+    public static var shortcut: NSFont { font(.monospaced, size(10.5, 11), .medium) }
     /// Page titles in windows that introduce something (onboarding).
-    public static var title: NSFont { .systemFont(ofSize: size(20, 22), weight: .semibold) }
+    public static var title: NSFont { font(.system, size(20, 22), .semibold) }
     /// The line under a page title.
-    public static var subtitle: NSFont { .systemFont(ofSize: size(13, 14), weight: .regular) }
+    public static var subtitle: NSFont { font(.system, size(13, 14), .regular) }
 }
