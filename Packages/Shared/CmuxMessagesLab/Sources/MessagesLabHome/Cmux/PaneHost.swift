@@ -423,6 +423,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.compose.onFieldJump = { [weak self] in
             guard let self, let demo = self.demo else { return }
             self.host.fieldChrome.setFrameNow(demo.compose.fieldRect)
+            // The attachment hover area covers the grown field (Host.swift onFieldJump).
+            self.host.updateTrackingAreas()
         }
         let tv = demo.compose.textView
         tv.view.delegate = self
