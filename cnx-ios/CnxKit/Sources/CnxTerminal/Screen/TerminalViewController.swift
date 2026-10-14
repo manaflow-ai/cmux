@@ -71,8 +71,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var cell = CGSize.zero
     /// Ghostty's scrollbar: total rows, viewport top row, visible rows.
     private var scrollbar = (total: 0, offset: 0, visible: 0)
-    /// Rows of the session's document (scrollback + active rows up to the cursor).
-    private var documentRows = 0
+    /// The session's document: absolute rows from the first row with text
+    /// (never the blank rows above the Mac's screen) to the cursor's row.
+    private var document: TerminalDocumentLayout?
+    private var documentRows: Int { document?.rowCount ?? 0 }
+    /// First absolute row of the document (content y 0).
+    private var originRow: Int { document?.originRow ?? 0 }
     private var viewportTop = -1
     /// The viewport top row of the frame on screen.
     private var presentedTop = 0
@@ -275,8 +279,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiClip.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tuiClip.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tuiHost.bottomAnchor.constraint(equalTo: tuiClip.bottomAnchor),
-            tuiHost.leadingAnchor.constraint(equalTo: tuiClip.leadingAnchor),
-            tuiHost.trailingAnchor.constraint(equalTo: tuiClip.trailingAnchor),
+            tuiHost.leadingAnchor.constraint(equalTo: tuiClip.leadingAnchor, constant: Self.sidePadding),
+            tuiHost.trailingAnchor.constraint(equalTo: tuiClip.trailingAnchor, constant: -Self.sidePadding),
             tuiHeight,
 
             scrollToBottomButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
@@ -432,7 +436,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// DEBUG diagnostics for the demo timeline.
     var debugState: String {
         let grid = surface.grid
-        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(view.keyboardLayoutGuide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom))"
+        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(view.keyboardLayoutGuide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom))"
     }
     #endif
 
@@ -598,7 +602,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             surfaceRows = rows
             viewportTop = -1
         }
-        let surfaceSize = CGSize(width: bounds.width, height: CGFloat(rows) * cellHeight)
+        let surfaceSize = CGSize(width: bounds.width - 2 * Self.sidePadding, height: CGFloat(rows) * cellHeight)
         if surface.bounds.size != surfaceSize {
             UIView.performWithoutAnimation {
                 surface.frame.size = surfaceSize
@@ -611,7 +615,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let keyboardDownComposerTop = restingComposerBottom - composerHeight
         let available = keyboardDownComposerTop - chromeTop
         let newTUIRows = max(1, Int(floor(available / cellHeight)))
-        let columns = cell.width > 0 ? max(1, Int(floor(bounds.width / cell.width))) : 0
+        let columns = cell.width > 0 ? max(1, Int(floor((bounds.width - 2 * Self.sidePadding) / cell.width))) : 0
         if newTUIRows != tuiRows || columns != gridColumns {
             tuiRows = newTUIRows
             gridColumns = columns
@@ -621,7 +625,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
         // Insets: content starts under the toolbar and ends above the composer.
         let top = chromeTop
-        let bottom = max(0, bounds.height - bottomStack.frame.minY) + 4
+        // The last row rests 8 pt above the composer card (SPEC M3).
+        let bottom = max(0, bounds.height - bottomStack.frame.minY) + Self.composerGap
         let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if scrollView.contentInset != insets {
             let previousOffset = scrollView.contentOffset.y
@@ -642,7 +647,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private var maxOffsetY: CGFloat {
-        max(-scrollView.contentInset.top, scrollView.contentSize.height + scrollView.contentInset.bottom - scrollView.bounds.height)
+        TerminalDocumentLayout.bottomOffset(contentHeight: scrollView.contentSize.height, viewportHeight: scrollView.bounds.height,
+                                            topInset: scrollView.contentInset.top, bottomInset: scrollView.contentInset.bottom)
     }
 
     /// Recomputes the document height from Ghostty's scrollbar and the cursor.
@@ -651,20 +657,37 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The document only grows with output (the total changes); probing the
         // cursor moves Ghostty's viewport for a moment, so it is not repeated
         // for reports that only moved the viewport (scrolling).
-        guard scrollbar.total != documentTotal || documentRows == 0 || outputSinceProbe else { return }
+        guard scrollbar.total != documentTotal || document == nil || outputSinceProbe else { return }
         // The scrollback shrank (`clear`, ESC [3J): the rows the user was
         // reading are gone. Follow the prompt again, like Terminal.
         follow.scrollbackChanged(from: documentTotal, to: scrollbar.total, screenRows: surface.grid.rows)
+        let previousTotal = documentTotal
         documentTotal = scrollbar.total
         outputSinceProbe = false
-        var rows = scrollbar.total
-        if let cursor = surface.cursorAbsoluteRow(totalRows: scrollbar.total) {
-            rows = min(scrollbar.total, cursor + 1)
+        let cursor = surface.cursorAbsoluteRow(totalRows: scrollbar.total)
+        var blank: Int? = document?.originRow
+        if model.session.remoteRows == nil {
+            // A local session writes from row 0: no mirror rows above it.
+            blank = 0
+        } else if TerminalDocumentLayout.needsOriginScan(previous: document, previousTotal: previousTotal,
+                                                         totalRows: scrollbar.total, screenRows: surface.grid.rows) {
+            let last = min(scrollbar.total - 1, cursor ?? (scrollbar.total - 1))
+            blank = surface.leadingBlankRows(through: max(0, last)) ?? blank
         }
-        guard rows != documentRows else { return }
-        documentRows = rows
-        let height = CGFloat(rows) * cell.height
-        scrollView.contentSize = CGSize(width: view.bounds.width, height: height)
+        let next = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank)
+        guard next != document else { return }
+        let shift = CGFloat(next.originRow - originRow) * cell.height
+        let hadDocument = document != nil
+        document = next
+        scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
+        if hadDocument, shift != 0 {
+            // The top moved (cleared, or found): keep the same rows on
+            // screen and the frame on screen where its rows belong.
+            place(atRow: presentedTop)
+            if !following {
+                scrollView.contentOffset.y = min(max(-scrollView.contentInset.top, scrollView.contentOffset.y - shift), maxOffsetY)
+            }
+        }
         // Pinned while following; a document that ends above the place on
         // screen (nothing left there but blank rows) follows again.
         if let target = follow.documentResized(offsetY: scrollView.contentOffset.y, maxOffsetY: maxOffsetY,
@@ -691,6 +714,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// cover the screen for several of them.
     static let marginRows = 48
 
+    /// Leading and trailing padding of the grid inside the page (SPEC M5):
+    /// the first and last columns clear the display's corner radius. The
+    /// background still fills the page edge to edge.
+    static let sidePadding: CGFloat = 6
+    /// Space between the document's last row and the composer card.
+    static let composerGap: CGFloat = 8
+
     /// Asks Ghostty for a viewport that covers the visible rows with margin on
     /// both sides, once the visible rows come within half a margin of the
     /// requested viewport's edges. The surface itself moves only when a frame
@@ -698,8 +728,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func updateViewport(visibleMinY: CGFloat) {
         guard !model.isTUI, cell.height > 0, surfaceRows > 0 else { return }
         let maxTop = max(0, scrollbar.total - surfaceRows)
-        let visibleTop = Int(floor(max(0, visibleMinY) / cell.height))
-        let visibleBottom = Int(ceil((max(0, visibleMinY) + view.bounds.height) / cell.height))
+        let visibleTop = originRow + Int(floor(max(0, visibleMinY) / cell.height))
+        let visibleBottom = originRow + Int(ceil((max(0, visibleMinY) + view.bounds.height) / cell.height))
         let margin = (surfaceRows - Int(ceil(view.bounds.height / cell.height))) / 2
         // Ghostty's viewport as last reported; it may follow the output on its
         // own (a request inside the active area keeps it at the bottom).
@@ -782,7 +812,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     private func place(atRow top: Int) {
         presentedTop = top
-        let origin = CGPoint(x: 0, y: CGFloat(presentedTop) * cell.height)
+        let origin = CGPoint(x: Self.sidePadding, y: CGFloat(presentedTop - originRow) * cell.height)
         if surface.frame.origin != origin {
             UIView.performWithoutAnimation { surface.frame.origin = origin }
         }
@@ -824,7 +854,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             statusScrim.isHidden = true
             tuiClip.isHidden = false
             tuiHost.addSubview(surface)
-            surface.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: CGFloat(surfaceRows) * cell.height)
+            surface.frame = CGRect(x: 0, y: 0, width: view.bounds.width - 2 * Self.sidePadding, height: CGFloat(surfaceRows) * cell.height)
             surface.scroll(toRow: 0)
             scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)
@@ -840,7 +870,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             refreshAfterTUI = true
             // Direct typing outlives the TUI only while the terminal keeps focus.
             if !hadFocus { model.directTyping = false }
-            documentRows = 0
+            document = nil
             updateDocument()
             scrollView.contentOffset.y = maxOffsetY
             updateViewport(visibleMinY: scrollView.contentOffset.y)
