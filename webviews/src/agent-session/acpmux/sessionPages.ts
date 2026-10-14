@@ -23,27 +23,47 @@ function pageOf<S extends Summary>(reply: any): SessionPage<S> {
 
 /**
  * Reads the session list a page at a time. Starting a list again (a reconnect, a lagged watch)
- * or `stop` ends the pages of the one before. Sessions purged while pages load are remembered,
- * so a later page cannot bring one back; a session the pane already holds came from a newer
- * `session_changed` or an earlier page, so its copy stays.
+ * or `stop` ends the pages of the one before. Every `session_changed` since the list started is
+ * remembered: a page read before it carries the older state, so `settle` lays the changes over
+ * the pages, and `rest` never adds a session the pane already holds or one purged meanwhile.
  */
 export class SessionPager<S extends Summary> {
   private run = 0;
   private purged = new Set<string>();
+  private changed = new Map<string, S>();
 
   constructor(private readonly request: Request) {}
 
-  /** Turns the watch on and answers its first page. */
-  async first(): Promise<SessionPage<S>> {
+  /** Turns the watch on and answers its first page, or undefined when a newer list started meanwhile. */
+  async first(): Promise<SessionPage<S> | undefined> {
     const run = ++this.run;
     this.purged.clear();
+    this.changed.clear();
     const page = pageOf<S>(await this.request("_acpmux/watch", { enabled: true, limit: SESSION_PAGE }));
-    return run === this.run ? page : { sessions: page.sessions };
+    return run === this.run ? page : undefined;
   }
 
-  /** A `session_changed` purge seen while pages load. */
+  /** The whole list in one reply, for a decision that cannot wait for the pages. */
+  async whole(): Promise<S[]> {
+    return pageOf<S>(await this.request("_acpmux/sessions", {})).sessions;
+  }
+
+  /** A `session_changed` seen while the list loads. */
+  changedSession(session: S): void {
+    this.purged.delete(session.sessionId);
+    this.changed.set(session.sessionId, session);
+  }
+
+  /** A `session_changed` purge seen while the list loads. */
   purgedSession(sessionId: string): void {
+    this.changed.delete(sessionId);
     this.purged.add(sessionId);
+  }
+
+  /** `list` with every change since the list started laid over it. */
+  settle(list: S[]): S[] {
+    const kept = list.filter((session) => !this.purged.has(session.sessionId) && !this.changed.has(session.sessionId));
+    return [...kept, ...this.changed.values()];
   }
 
   /**
@@ -59,8 +79,7 @@ export class SessionPager<S extends Summary> {
         page = pageOf<S>(await this.request("_acpmux/sessions", { limit: SESSION_PAGE, cursor: next }));
       } catch {
         if (run !== this.run) return false;
-        page = pageOf<S>(await this.request("_acpmux/sessions", {}));
-        page = { sessions: page.sessions };
+        page = { sessions: await this.whole() };
       }
       if (run !== this.run) return false;
       const known = new Set(held().map((session) => session.sessionId));

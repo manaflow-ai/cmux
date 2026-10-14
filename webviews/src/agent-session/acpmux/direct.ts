@@ -809,11 +809,17 @@ export class AcpmuxDirectClient {
             .filter((peer: string | undefined): peer is string => Boolean(peer))
         : [];
       const first = await this.sessionPages.first();
-      this.sessions = first.sessions;
-      let laterPages = first.next;
-      if (laterPages && this.selectedSessionId && !this.holdsSession(this.selectedSessionId)) {
-        // A linked chat older than the first page: read on before calling it missing.
-        await this.sessionPages.rest(laterPages, () => this.sessions, this.addSessions);
+      let laterPages = first?.next;
+      const linkedLater =
+        first !== undefined &&
+        laterPages !== undefined &&
+        this.selectedSessionId !== undefined &&
+        !first.sessions.some((session) => session.sessionId === this.selectedSessionId);
+      if (first && !linkedLater) this.sessions = first.sessions;
+      else {
+        // A linked chat older than the first page, or a lagged watch restarted the list: read the
+        // whole list before calling the chat missing.
+        this.sessions = this.sessionPages.settle(await this.sessionPages.whole());
         laterPages = undefined;
       }
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
@@ -1019,12 +1025,15 @@ export class AcpmuxDirectClient {
   private async refreshSessions(): Promise<void> {
     const generation = this.selectionGeneration;
     const first = await this.sessionPages.first();
+    // A newer reread started meanwhile; it sets the list.
+    if (!first) return;
     let list = first.sessions;
     const add = (more: Session[]) => {
       list = [...list, ...more];
     };
     if (first.next && !(await this.sessionPages.rest(first.next, () => list, add))) return;
-    this.sessions = list;
+    // Changes that came while the pages did are newer than the pages.
+    this.sessions = this.sessionPages.settle(list);
     const missing =
       this.selectedSessionId !== undefined &&
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
@@ -1052,12 +1061,8 @@ export class AcpmuxDirectClient {
 
   private addSessions = (more: Session[]): void => {
     this.sessions = [...this.sessions, ...more];
-    if (this.hasConnected) this.emit("session changed");
+    if (!this.opening) this.emit("session changed");
   };
-
-  private holdsSession(sessionId: string): boolean {
-    return this.sessions.some((session) => session.sessionId === sessionId);
-  }
 
   /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
@@ -1343,6 +1348,7 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!session?.sessionId) return;
+    this.sessionPages.changedSession(session);
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
