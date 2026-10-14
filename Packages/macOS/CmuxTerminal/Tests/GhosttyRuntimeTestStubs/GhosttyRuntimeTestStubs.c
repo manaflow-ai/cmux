@@ -53,6 +53,8 @@ typedef struct {
     uint32_t count;
 } GhosttyRuntimeTestTerminationCount;
 static pthread_mutex_t cmux_test_surface_request_process_termination_mutex = PTHREAD_MUTEX_INITIALIZER;
+// Swift Testing can run serialized suites concurrently, so these counts are
+// reset per surface instead of through the global runtime-stub reset.
 static GhosttyRuntimeTestTerminationCount cmux_test_surface_request_process_termination_counts[32];
 static pthread_mutex_t cmux_test_process_output_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cmux_test_process_output_condition = PTHREAD_COND_INITIALIZER;
@@ -180,10 +182,6 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_surface_key_mods_value = 0;
     cmux_test_surface_key_unshifted_codepoint_value = 0;
     cmux_test_surface_key_text_value[0] = '\0';
-    pthread_mutex_lock(&cmux_test_surface_request_process_termination_mutex);
-    memset(cmux_test_surface_request_process_termination_counts, 0,
-           sizeof(cmux_test_surface_request_process_termination_counts));
-    pthread_mutex_unlock(&cmux_test_surface_request_process_termination_mutex);
 }
 
 void cmux_test_ghostty_surface_key_reset(void) {
