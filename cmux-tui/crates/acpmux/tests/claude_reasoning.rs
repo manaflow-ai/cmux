@@ -4,7 +4,50 @@
 //! a Claude Code setting (workflow orchestration at Extra High), not a level,
 //! so it is its own On/Off switch. No choice rewrites the person's prompt.
 
-use super::*;
+#![cfg(unix)]
+
+use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
+use acpmux::hub::Hub;
+use acpmux::rpc::{Message, method};
+use acpmux::server::{Origin, serve_connection_with};
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
+
+/// One local client of the hub (the app pane's connection).
+struct TestClient {
+    tx: mpsc::Sender<String>,
+    rx: mpsc::Receiver<String>,
+    next: i64,
+}
+
+impl TestClient {
+    async fn request(&mut self, m: &str, params: Value) -> Result<Value, String> {
+        self.next += 1;
+        let id = self.next;
+        self.tx.send(Message::request(id, m, params).to_line()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(20), self.rx.recv())
+                .await
+                .expect("timeout waiting for response")
+                .expect("connection closed");
+            if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap()
+                && rid == id
+            {
+                return match error {
+                    Some(e) => Err(e.message),
+                    None => Ok(result.unwrap_or(Value::Null)),
+                };
+            }
+        }
+    }
+}
+
+fn cwd() -> String {
+    std::env::temp_dir().to_string_lossy().into_owned()
+}
 
 /// A hub whose only harness runs `fake_claude.py` as Claude Code.
 async fn claude_setup() -> (Arc<Hub>, TestClient) {
@@ -34,7 +77,13 @@ async fn claude_setup() -> (Arc<Hub>, TestClient) {
     cfg.permission_policy = PermissionPolicy::ApproveAll;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    let c = connect(&hub).await;
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
+        .await
+        .unwrap();
     (hub, c)
 }
 

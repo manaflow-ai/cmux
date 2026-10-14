@@ -1481,9 +1481,6 @@ mod adopt;
 #[path = "hub_integration/preset_args.rs"]
 #[cfg(unix)]
 mod preset_args;
-#[cfg(unix)]
-#[path = "hub_integration/claude_reasoning.rs"]
-mod claude_reasoning;
 
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
