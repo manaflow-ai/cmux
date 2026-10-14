@@ -214,6 +214,23 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "set_model", "model": val}}),
                         ])
                     }
+                    method::MUX_SET_TOOLS => {
+                        // One MCP server on or off for the rest of this process (`hub/tools.rs`).
+                        let Some(server) = p.get("serverName").and_then(Value::as_str) else {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("serverName is required"),
+                            ));
+                        };
+                        let enabled = p.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+                        self.pending.lock().await.insert(
+                            id.to_string(),
+                            Pending::Control(Setting::McpServer, server.to_owned()),
+                        );
+                        Outbound::Lines(vec![
+                            json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "mcp_toggle", "serverName": server, "enabled": enabled}}),
+                        ])
+                    }
                     method::SESSION_FORK => {
                         // Forking needs a new process (--fork-session); the hub does that.
                         Outbound::Reply(Message::err(

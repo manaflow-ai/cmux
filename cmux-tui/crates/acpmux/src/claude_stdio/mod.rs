@@ -342,6 +342,8 @@ enum Setting {
     Model,
     Effort,
     Fast,
+    /// An MCP server turned on or off (`mcp_toggle`), by name.
+    McpServer,
 }
 
 impl Translator {

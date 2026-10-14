@@ -144,6 +144,7 @@ impl Hub {
             adopted_cwd: None,
             harness_roots: vec![],
             composer_draft: None,
+            tools: Default::default(),
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {
