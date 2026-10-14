@@ -175,9 +175,20 @@ class Driver:
 
     def transcript(self) -> None:
         opened = self.call("action.run", {"action": "palette.newAgentChat"})
-        time.sleep(4)
-        result = self.call("debug.agent_pane", {"action": "stream", "rows": 2000, "seconds": 3, "trace": 1}, timeout=90)
+        # The chat opens hidden, then moves into a dock column: wait up to 10 s for a pane to show
+        # it and stream from that pane. If none does, the stream's error names the panes.
+        ready: dict = {}
+        for _ in range(20):
+            ready = rpc(self.path, "debug.agent_pane", {"action": "readiness"}, 30)
+            if "error" not in ready:
+                break
+            time.sleep(0.5)
+        time.sleep(2)
+        target = {"pane": ready["pane"]} if "error" not in ready and ready.get("pane") else {}
+        result = self.call("debug.agent_pane", {"action": "stream", "rows": 2000, "seconds": 3, "trace": 1, **target},
+                           timeout=90)
         result["opened"] = opened
+        result["ready"] = ready
         self.save("transcript_follow", result)
 
     def capture(self) -> None:
