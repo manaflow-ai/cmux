@@ -33,6 +33,7 @@ struct Args {
     bytes: usize,
     daemon: bool,
     pings: usize,
+    stock_ice_waits: bool,
 }
 
 fn parse() -> Result<Args> {
@@ -40,6 +41,7 @@ fn parse() -> Result<Args> {
     let (mut base_url, mut token_file, mut team, mut mac) = (None, None, None, None);
     let mut transports = Vec::new();
     let (mut relay_only, mut exclude_cgnat, mut daemon, mut no_turn) = (false, false, false, false);
+    let mut stock_ice_waits = false;
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
@@ -59,6 +61,7 @@ fn parse() -> Result<Args> {
             "--exclude-cgnat" => exclude_cgnat = true,
             "--no-turn" => no_turn = true,
             "--daemon" => daemon = true,
+            "--stock-ice-waits" => stock_ice_waits = true,
             other => bail!("unknown argument {other}"),
         }
     }
@@ -79,6 +82,7 @@ fn parse() -> Result<Args> {
         bytes,
         daemon,
         pings,
+        stock_ice_waits,
     })
 }
 
@@ -88,7 +92,9 @@ fn millis(duration: Duration) -> f64 {
 
 async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let api = ApiClient::new(&args.base_url, &args.token);
+    let ice_started = Instant::now();
     let mut ice_servers = api.ice().await.map(|c| c.ice_servers).unwrap_or_default();
+    let ice_fetch = ice_started.elapsed();
     if args.no_turn {
         for server in &mut ice_servers {
             server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
@@ -108,18 +114,37 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     .await
     .context("POST /v1/devices")?;
     let started = Instant::now();
+    let timeline = cnx_link::Timeline::starting_at(started);
     let signaling = SignalingClient::connect(&args.base_url, &args.token, &args.team, &device).await?;
     let signaled = started.elapsed();
+    timeline.mark("signaling_open");
     let options = DialOptions {
         ice_servers,
         exclude_cgnat: args.exclude_cgnat,
         relay_only: args.relay_only,
+        timeline: timeline.clone(),
+        stock_ice_waits: args.stock_ice_waits,
         ..DialOptions::default()
     };
     let connected =
         cnx_link::dial::connect(&signaling, &args.mac, kind, &options, LinkConfig::default()).await?;
     let connect = started.elapsed();
     let link = &connected.link;
+    // The app's first request: a `daemon` channel and its first answer.
+    let first_daemon = if args.daemon {
+        let mut channel = link.open("daemon", json!({})).await?;
+        timeline.mark("daemon_channel_open");
+        channel.send(Bytes::from_static(b"{\"id\":1,\"cmd\":\"identify\"}\n")).await?;
+        let _ = tokio::time::timeout(Duration::from_secs(10), channel.recv()).await?;
+        timeline.mark("first_daemon_response");
+        channel.close("done", "").await;
+        Some(())
+    } else {
+        None
+    };
+    let _ = first_daemon;
+    let marks: serde_json::Map<String, serde_json::Value> =
+        timeline.marks().into_iter().map(|(name, at)| (name, json!(millis(at)))).collect();
 
     let mut rtts = Vec::new();
     for _ in 0..args.pings {
@@ -186,8 +211,10 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         "relay_only": args.relay_only,
         "no_turn": args.no_turn,
         "path": path,
+        "ice_fetch_ms": millis(ice_fetch),
         "signaling_ms": millis(signaled),
         "connect_ms": millis(connect),
+        "timings": marks,
         "ice_turn_urls": turn_urls,
         "pings": rtts.len(),
         "rtt_ms": {"min": millis(rtts[0]), "median": millis(median), "p95": millis(p95), "max": millis(*rtts.last().unwrap())},

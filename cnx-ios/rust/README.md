@@ -82,6 +82,8 @@ func connectWithOptions(baseUrl: String, token: String, teamId: String, deviceId
              macDeviceId: String, transport: Transport, options: ConnectOptions,
              observer: LinkObserver?) async throws -> LinkHandle
 func cnxVersion() -> String
+func prewarm(baseUrl: String, token: String, teamId: String, deviceId: String) async -> [TimingMark]
+func resetWarmState() async      // sign-out: close warm sockets, forget cached ICE servers
 
 struct ConnectOptions { var relayOnly: Bool = false }   // ConnectOptions() is a plain dial
 
@@ -102,7 +104,8 @@ class LinkHandle {
     func transport() -> Transport
     func path() -> LinkPath
     func isClosed() -> Bool
-    func close()
+    func close()                                 // the signaling socket stays warm
+    func timings() -> [TimingMark]               // dial steps, ms since connect
 }
 class ChannelHandle {
     func id() -> UInt32
@@ -117,6 +120,9 @@ enum CnxError: Error {   // uniffi keeps the Rust variant case for errors
 }
 ```
 
+`connect` reuses the warm signaling socket of `prewarm` or an earlier dial
+(same service, team and device), fetches `/v1/ice` in parallel and caches
+it for half its TTL (PROTOCOL.md "Connection setup").
 `deviceId` is the phone's Keychain UUID; `macDeviceId` comes from
 `GET /v1/teams/:teamId/macs`. `connect` fetches `GET /v1/ice` (8 s budget; on
 failure it dials with host candidates only), opens the signaling socket and

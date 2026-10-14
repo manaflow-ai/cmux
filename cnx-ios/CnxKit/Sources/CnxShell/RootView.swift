@@ -200,7 +200,10 @@ public struct RootView: View {
         live = nil
         setupPlan = nil
         store.resetForSignOut()
-        if !auth.isMock { DeviceIdentity.reset() }
+        if !auth.isMock {
+            DeviceIdentity.reset()
+            LiveCoordinator.forgetSnapshots()
+        }
         setupComplete = false
         handoffDone = false
         log.info("signed out: account state reset")

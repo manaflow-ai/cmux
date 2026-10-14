@@ -135,6 +135,11 @@ public final class FeedStore {
     /// Called after every change (live mode saves the Feed with `FeedArchive`).
     @ObservationIgnored public var onItemsChange: (@MainActor ([FeedItem]) -> Void)?
     public var filter: FeedFilter = .all
+    /// Whether the Mac's events have been read on the current link. Until
+    /// then an empty Feed is unknown, not empty (live mode starts at
+    /// `.connecting`; mock mode is always `.live`).
+    public var syncState: SyncState = .live
+    public enum SyncState: Hashable, Sendable { case connecting, live }
     public var mutedWorkspaces: Set<String> = []
     /// Events that arrived while the person was scrolled away from the top.
     public private(set) var unseenNewIDs: [String] = []

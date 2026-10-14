@@ -91,6 +91,38 @@ public struct LiveAPI: Sendable {
         _ = try await call("POST", "v1/devices", body: body)
     }
 
+    /// `POST /v1/me/bootstrap`: the launch in one round trip. Registers `devices` in `teamID`
+    /// and returns that team's Macs and the account's Macs everywhere. Nil when the service
+    /// predates it (404), so the caller takes the separate calls.
+    public func bootstrap(teamID: String, devices: [(id: String, kind: String, name: String)]) async throws -> (macs: [Mac], myMacs: [Mac]?)? {
+        struct Part<T: Decodable>: Decodable {
+            var macs: T?
+            var error: Envelope.Body?
+        }
+        struct Envelope: Decodable { struct Body: Decodable { var code: String; var message: String } }
+        struct Registered: Decodable { var device: Device?; var error: Envelope.Body? }
+        struct Reply: Decodable {
+            var devices: [Registered]
+            var macs: Part<[Mac]>
+            var myMacs: Part<[Mac]>
+        }
+        let body: [String: Any] = ["teamId": teamID, "devices": devices.map { ["deviceId": $0.id, "kind": $0.kind, "name": $0.name] }]
+        let data: Data
+        do {
+            data = try await call("POST", "v1/me/bootstrap", body: body)
+        } catch let failure as Failure where failure.status == 404 {
+            return nil
+        }
+        let reply = try JSONDecoder().decode(Reply.self, from: data)
+        for registered in reply.devices {
+            if let error = registered.error { throw Failure(status: 0, code: error.code, message: error.message) }
+        }
+        guard let macs = reply.macs.macs else {
+            throw Failure(status: 0, code: reply.macs.error?.code ?? "bad_reply", message: reply.macs.error?.message ?? "no Macs in the reply")
+        }
+        return (macs, reply.myMacs.macs)
+    }
+
     /// `GET /v1/teams/:id/macs`.
     public func macs(teamID: String) async throws -> [Mac] {
         struct Reply: Decodable { var macs: [Mac] }

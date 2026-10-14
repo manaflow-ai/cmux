@@ -61,7 +61,7 @@ struct WorkspacesScreen: View {
             WorkspacesList(
                 store: shell.store, creator: shell.creator, accountEmail: shell.auth.user?.email,
                 reconnect: shell.live.map { live in
-                    { macID in live.link.target?.macID == macID ? live.foreground() : live.select(macID: macID) }
+                    { macID in live.retry(macID: macID) }
                 },
                 refresh: shell.live.map { live in { await live.workspaces.refresh() } },
                 switchTeam: { shell.switchTeam(to: $0) },

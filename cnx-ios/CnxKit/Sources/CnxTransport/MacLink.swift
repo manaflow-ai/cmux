@@ -78,4 +78,20 @@ public struct LinkEndpoint: Sendable, Hashable {
 /// Dials a link with a fresh access token for the chosen transport.
 public protocol MacLinkDialer: Sendable {
     func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink
+    /// Warms what the next dial in this team needs (signaling socket, ICE
+    /// servers) before any Mac is asked for. Returns the steps as
+    /// `name=ms` pairs for the timing log.
+    func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)]
+    /// Forgets warm sockets and cached servers (sign-out).
+    func resetWarmState() async
+}
+
+extension MacLinkDialer {
+    public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] { [] }
+    public func resetWarmState() async {}
+}
+
+/// A dialed link that can say how its dial went (`name`, ms since the dial began).
+public protocol TimedMacLink: MacLink {
+    var timings: [(String, Double)] { get }
 }

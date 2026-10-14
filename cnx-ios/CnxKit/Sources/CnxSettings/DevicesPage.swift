@@ -141,7 +141,7 @@ struct PairedMacsPage: View {
     @ViewBuilder private func row(_ device: SettingsDevice) -> some View {
         HStack(spacing: 14) {
             if device.kind == .mac {
-                StatusDot(device.online == true ? .online : .offline)
+                StatusDot(Self.dot(status(device)?.dot ?? (device.online == true ? .connected : .offline)))
                     .frame(width: theme.metrics.settingsIconFrame)
             } else {
                 Image(systemName: "iphone").font(.system(size: 17)).frame(width: theme.metrics.settingsIconFrame)
@@ -149,6 +149,10 @@ struct PairedMacsPage: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(device.name).font(theme.type.rowTitle)
                 Text(subtitle(device)).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                if device.kind == .mac, device.online == true,
+                   let link = device.ids.lazy.compactMap({ store.macLinkStatus[$0] }).first {
+                    Text(link).font(theme.type.meta).foregroundStyle(theme.colors.label2).lineLimit(2)
+                }
             }
         }
         .accessibilityElement(children: .combine)
@@ -160,9 +164,27 @@ struct PairedMacsPage: View {
             let notifications = device.receivesNotifications ? "Notifications on" : "Notifications off"
             return device.isThisDevice ? "This iPhone · \(notifications)" : notifications
         }
-        if device.online == true { return "Online" }
+        if device.online == true { return status(device)?.text ?? "Online" }
         guard let seen = device.lastSeenAt else { return "Offline" }
         return "Last seen \(seen.formatted(.relative(presentation: .named)))"
+    }
+
+    /// Presence plus this phone's own connection, for a Mac this phone knows:
+    /// green "Online" only while connected.
+    private func status(_ device: SettingsDevice) -> MacStatusLine? {
+        guard device.kind == .mac, device.online == true else { return nil }
+        let mac = MacDevice(id: device.ids.first(where: { store.macConnection[$0] != nil }) ?? device.ids.first ?? "",
+                            name: device.name, isOnline: true, lastSeenAt: device.lastSeenAt)
+        return store.macStatusLine(mac, presence: "Online")
+    }
+
+    static func dot(_ dot: MacStatusLine.Dot) -> StatusDot.State {
+        switch dot {
+        case .connected: .online
+        case .connecting: .busy
+        case .failed: .error
+        case .offline: .offline
+        }
     }
 
     private func load() async {
