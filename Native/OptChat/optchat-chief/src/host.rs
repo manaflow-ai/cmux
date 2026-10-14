@@ -233,9 +233,18 @@ pub fn turn_preset(
 }
 
 /// The built-in tools a turn is offered (an allowlist: a built-in a later
-/// Claude Code adds is not offered); the Chief's MCP tools come on top,
-/// loaded with the turn (no ToolSearch, `session_dir::TURN_SETTINGS_ENV`).
-pub const TURN_TOOLS: [&str; 6] = ["Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch"];
+/// Claude Code adds is not offered). On top, the Chief's own MCP tools load
+/// with the turn and the cmux MCP tools wait behind ToolSearch
+/// (`session_dir::TURN_SETTINGS_ENV`).
+pub const TURN_TOOLS: [&str; 7] = [
+    "Bash",
+    "Read",
+    "Edit",
+    "Write",
+    "WebFetch",
+    "WebSearch",
+    "ToolSearch",
+];
 
 /// The Claude Code args of an isolated turn: no user or local setting
 /// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
