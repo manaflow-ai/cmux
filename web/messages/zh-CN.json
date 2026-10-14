@@ -45,6 +45,16 @@
       "message": "云服务提供商未能及时响应。",
       "action": "请稍后重试。"
     },
+    "providerCapacity": {
+      "title": "Cloud 当前没有可用容量",
+      "message": "Cloud 服务目前没有空间运行这台机器。没有做任何更改。",
+      "action": "请一分钟后重试。"
+    },
+    "stateConflict": {
+      "title": "机器正忙",
+      "message": "这台机器正在启动、暂停或未运行，因此现在无法执行此操作。",
+      "action": "请稍候再试。用 cmux vm ls 查看机器状态；如果已暂停，请先继续运行它。"
+    },
     "networkRuleCapacity": {
       "title": "网络规则已达上限",
       "message": "网络策略已保存，但未应用：cmux Cloud 的网络规则已达上限。",

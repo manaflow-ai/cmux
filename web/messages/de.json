@@ -45,6 +45,16 @@
       "message": "Der Cloud-Anbieter hat nicht rechtzeitig geantwortet.",
       "action": "Versuche es gleich noch einmal."
     },
+    "providerCapacity": {
+      "title": "Gerade keine Cloud-Kapazität",
+      "message": "Der Cloud-Dienst hat im Moment keinen Platz für diese Maschine. Es wurde nichts geändert.",
+      "action": "Versuche es in einer Minute erneut."
+    },
+    "stateConflict": {
+      "title": "Maschine ist beschäftigt",
+      "message": "Diese Maschine startet, pausiert oder läuft nicht und kann das gerade nicht ausführen.",
+      "action": "Warte kurz und versuche es erneut. Prüfe den Status der Maschine mit cmux vm ls und setze sie zuerst fort, falls sie pausiert ist."
+    },
     "networkRuleCapacity": {
       "title": "Netzwerkregeln ausgeschöpft",
       "message": "Ihre Netzwerkrichtlinie wurde gespeichert, aber nicht angewendet: cmux Cloud hat seine Kapazität für Netzwerkregeln erreicht.",

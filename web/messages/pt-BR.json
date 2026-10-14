@@ -45,6 +45,16 @@
       "message": "O provedor de nuvem não respondeu a tempo.",
       "action": "Tente novamente em instantes."
     },
+    "providerCapacity": {
+      "title": "Sem capacidade de Cloud no momento",
+      "message": "O serviço de Cloud não tem espaço para esta máquina agora. Nada foi alterado.",
+      "action": "Tente novamente em um minuto."
+    },
+    "stateConflict": {
+      "title": "A máquina está ocupada",
+      "message": "Esta máquina está iniciando, pausando ou não está em execução, então não pode fazer isso agora.",
+      "action": "Aguarde um momento e tente novamente. Verifique o status da máquina com cmux vm ls e retome-a primeiro se estiver pausada."
+    },
     "networkRuleCapacity": {
       "title": "Regras de rede no limite",
       "message": "Sua política de rede foi salva, mas não foi aplicada: o cmux Cloud atingiu a capacidade de regras de rede.",

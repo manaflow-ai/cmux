@@ -45,6 +45,16 @@
       "message": "Bulut sağlayıcısı zamanında yanıt vermedi.",
       "action": "Biraz sonra tekrar deneyin."
     },
+    "providerCapacity": {
+      "title": "Şu anda Cloud kapasitesi yok",
+      "message": "Cloud hizmetinde şu anda bu makine için yer yok. Hiçbir şey değiştirilmedi.",
+      "action": "Bir dakika sonra tekrar deneyin."
+    },
+    "stateConflict": {
+      "title": "Makine meşgul",
+      "message": "Bu makine başlatılıyor, duraklatılıyor veya çalışmıyor; bu yüzden şu anda bunu yapamıyor.",
+      "action": "Biraz bekleyip tekrar deneyin. Makinenin durumunu cmux vm ls ile kontrol edin ve duraklatılmışsa önce sürdürün."
+    },
     "networkRuleCapacity": {
       "title": "Ağ kuralları kapasitede",
       "message": "Ağ politikanız kaydedildi ancak uygulanmadı: cmux Cloud ağ kuralı kapasitesine ulaştı.",

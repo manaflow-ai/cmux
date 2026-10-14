@@ -45,6 +45,16 @@
       "message": "雲端服務供應商未能及時回應。",
       "action": "請稍後重試。"
     },
+    "providerCapacity": {
+      "title": "Cloud 目前沒有可用容量",
+      "message": "Cloud 服務目前沒有空間執行這台機器。沒有進行任何變更。",
+      "action": "請一分鐘後再試一次。"
+    },
+    "stateConflict": {
+      "title": "機器忙碌中",
+      "message": "這台機器正在啟動、暫停或未執行，因此現在無法執行此操作。",
+      "action": "請稍候再試。用 cmux vm ls 查看機器狀態；如果已暫停，請先繼續執行它。"
+    },
     "networkRuleCapacity": {
       "title": "網路規則已達上限",
       "message": "網路政策已儲存，但未套用：cmux Cloud 的網路規則已達上限。",

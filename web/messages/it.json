@@ -45,6 +45,16 @@
       "message": "Il provider cloud non ha risposto in tempo.",
       "action": "Riprova tra un momento."
     },
+    "providerCapacity": {
+      "title": "Nessuna capacità Cloud al momento",
+      "message": "Il servizio Cloud non ha spazio per questa macchina in questo momento. Non è stato modificato nulla.",
+      "action": "Riprova tra un minuto."
+    },
+    "stateConflict": {
+      "title": "La macchina è occupata",
+      "message": "Questa macchina si sta avviando, mettendo in pausa o non è in esecuzione, quindi ora non può farlo.",
+      "action": "Attendi un momento e riprova. Controlla lo stato della macchina con cmux vm ls e riprendila prima se è in pausa."
+    },
     "networkRuleCapacity": {
       "title": "Regole di rete al limite",
       "message": "La tua policy di rete è stata salvata ma non applicata: cmux Cloud ha raggiunto la capacità massima di regole di rete.",
