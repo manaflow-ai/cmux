@@ -104,6 +104,19 @@ final class SurfaceRenamedEventTests: XCTestCase {
         XCTAssertEqual(body["title_source"] as? String, "auto")
     }
 
+    func testCreationTimeNamesOptOut() throws {
+        // Session restore and layout creation name a tab as part of creating
+        // it; that is not a rename.
+        let workspace = Workspace()
+        defer { for panel in workspace.panels.values { panel.close() } }
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        XCTAssertTrue(workspace.setPanelCustomTitle(panelId: panelId, title: "Restored name", publishesRenameEvent: false))
+        XCTAssertEqual(workspace.panelCustomTitles[panelId], "Restored name")
+
+        XCTAssertNil(nextEvent(timeout: 0.3))
+    }
+
     func testRejectedRenamePublishesNothing() throws {
         let workspace = Workspace()
         defer { for panel in workspace.panels.values { panel.close() } }

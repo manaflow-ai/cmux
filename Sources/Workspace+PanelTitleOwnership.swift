@@ -13,7 +13,8 @@ extension Workspace {
         title: String?,
         source: CustomTitleSource = .user,
         propagateToRemoteTmux: Bool = true,
-        propagateToCloud: Bool = true
+        propagateToCloud: Bool = true,
+        publishesRenameEvent: Bool = true
     ) -> Bool {
         guard panels[panelId] != nil else { return false }
         if propagateToCloud, source != .remote,
@@ -53,7 +54,9 @@ extension Workspace {
         }
 
         applyFocusedPanelTitle(panelId: panelId)
-        publishPanelCustomTitleChange(panelId: panelId, previous: previous, source: source)
+        if publishesRenameEvent {
+            publishPanelCustomTitleChange(panelId: panelId, previous: previous, source: source)
+        }
 
         // A repeated remote or automatic observation only changes provenance.
         // A repeated USER edit remains an idempotent intent and must still reach
