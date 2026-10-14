@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+use crate::chief_policy::ChiefPolicy;
 use crate::config::{AcpmuxTarget, ServiceConfig};
 use crate::control;
 use crate::policy::{DaemonPolicy, MAXIMUM_LINE_BYTES, Verdict};
@@ -35,6 +36,7 @@ pub async fn serve(config: Arc<ServiceConfig>, peer: Peer, incoming: IncomingCha
     let result = match service.as_str() {
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
+        "chief" => chief(&config, &sender, receiver).await,
         "acpmux" => acpmux(&config, &sender, receiver).await,
         "file" => file(&config, &args, &sender).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
@@ -83,34 +85,117 @@ fn valid_session_name(name: &str) -> bool {
         && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 }
 
+/// The filter a spliced daemon line passes through.
+#[derive(Clone)]
+enum LinePolicy {
+    Daemon(DaemonPolicy),
+    Chief(ChiefPolicy),
+}
+
+impl LinePolicy {
+    /// The verdict, and for `Forward` the exact bytes to send: the daemon
+    /// lane sends the line as it came; the Chief lane sends the object it
+    /// checked, serialized again, so a duplicate key cannot mean one thing to
+    /// the filter and another to the owner.
+    fn evaluate(&self, line: &[u8]) -> (Verdict, Option<Vec<u8>>) {
+        match self {
+            Self::Daemon(policy) => (policy.evaluate(line), None),
+            Self::Chief(policy) => {
+                let verdict = policy.evaluate(line);
+                let canonical = matches!(verdict, Verdict::Forward)
+                    .then(|| {
+                        serde_json::from_slice::<Value>(line).ok().and_then(|v| serde_json::to_vec(&v).ok())
+                    })
+                    .flatten();
+                (verdict, canonical)
+            }
+        }
+    }
+
+    /// The daemon line the phone gets (`line` ends with its newline), or
+    /// nothing. The daemon lane forwards every line as it came.
+    fn reply(&self, line: Vec<u8>) -> Option<Vec<u8>> {
+        match self {
+            Self::Daemon(_) => Some(line),
+            Self::Chief(policy) => {
+                let body = line.strip_suffix(b"\n").unwrap_or(&line);
+                let mut out = policy.filter_reply(body)?;
+                out.push(b'\n');
+                Some(out)
+            }
+        }
+    }
+}
+
 /// `daemon`: splice to the cmux-tui session socket, filtering every phone
-/// request line through [`DaemonPolicy`]. Responses and refusals reach the
-/// phone as whole lines, never interleaved.
+/// request line through [`DaemonPolicy`]. The Chief's conversation owner
+/// (`cmux-chief-*`) is never reachable this way: only through `chief`.
 async fn daemon(
     config: &ServiceConfig,
     peer: &Peer,
     args: &Value,
     sender: &ChannelSender,
-    mut receiver: ChannelReceiver,
+    receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
     let named = args.get("session").and_then(Value::as_str);
     let session = named.unwrap_or(&config.default_session);
-    if !valid_session_name(session) {
+    // The Chief owner is reachable only through `chief` (the default macOS
+    // volume is case-insensitive, hence the lowercase test and the path check).
+    if !valid_session_name(session) || session.to_ascii_lowercase().starts_with("cmux-chief-") {
         return Err(Refusal::new("bad_request", "invalid session name"));
     }
     let path = match (named, &config.default_socket) {
         (None, Some(socket)) => socket.clone(),
         _ => config.tui_socket_dir.join(format!("{session}.sock")),
     };
-    let socket = UnixStream::connect(&path)
+    if let Some(chief) = &config.chief_socket
+        && path.to_string_lossy().eq_ignore_ascii_case(&chief.to_string_lossy())
+    {
+        return Err(Refusal::new("bad_request", "invalid session name"));
+    }
+    splice(
+        &path,
+        session,
+        LinePolicy::Daemon(
+            DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone()),
+        ),
+        sender,
+        receiver,
+    )
+    .await
+}
+
+/// `chief`: splice to the Chief's conversation owner (the cmux-tui session
+/// of the Mac's Chief home), every line both ways through [`ChiefPolicy`].
+async fn chief(
+    config: &ServiceConfig,
+    sender: &ChannelSender,
+    receiver: ChannelReceiver,
+) -> Result<(), Refusal> {
+    let Some(path) = config.chief_socket.clone() else {
+        return Err(Refusal::new("unavailable", "Chief is not set up on this Mac"));
+    };
+    splice(&path, "chief", LinePolicy::Chief(ChiefPolicy::new()), sender, receiver).await
+}
+
+/// Splices one phone channel to a daemon socket. Responses and refusals
+/// reach the phone as whole lines, never interleaved.
+async fn splice(
+    path: &Path,
+    label: &str,
+    policy: LinePolicy,
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+) -> Result<(), Refusal> {
+    let socket = UnixStream::connect(path)
         .await
-        .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {session}: {e}")))?;
+        .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {label}: {e}")))?;
     let (daemon_read, mut daemon_write) = socket.into_split();
-    let policy = DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone());
     let (lines_tx, mut lines_rx) = mpsc::channel::<Vec<u8>>(256);
 
     // Daemon → phone, whole lines.
     let daemon_lines = lines_tx.clone();
+    let reply_policy = policy.clone();
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
         loop {
@@ -118,6 +203,7 @@ async fn daemon(
             match reader.read_until(b'\n', &mut line).await {
                 Ok(0) | Err(_) => return,
                 Ok(_) => {
+                    let Some(line) = reply_policy.reply(line) else { continue };
                     if daemon_lines.send(line).await.is_err() {
                         return;
                     }
@@ -141,7 +227,11 @@ async fn daemon(
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
-                match policy.evaluate(&line) {
+                let (verdict, canonical) = policy.evaluate(&line);
+                if let Some(canonical) = canonical {
+                    line = canonical;
+                }
+                match verdict {
                     Verdict::Forward => {
                         line.push(b'\n');
                         if daemon_write.write_all(&line).await.is_err() {

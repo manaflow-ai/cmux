@@ -42,7 +42,8 @@ extension ConversationPresentationOptions {
             placeholder: String(localized: "Message Chief"),
             serviceTitle: "Chief",
             serviceSubtitle: String(localized: "Runs your agents on your Macs"),
-            trailingSymbol: "clock.arrow.circlepath"
+            // The header's trailing button opens Chief's settings (model, alerts).
+            trailingSymbol: "slider.horizontal.3"
         )
     }
 }
@@ -54,7 +55,7 @@ struct ChiefConversationController: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
         let conversation = ConversationViewController(store: session.store, options: .chief)
-        let container = ChiefConversationContainer(conversation: conversation)
+        let container = ChiefConversationContainer(conversation: conversation, session: session)
         configure(conversation)
         #if DEBUG
         ChiefDemoHook.shared.controller = conversation
@@ -83,12 +84,14 @@ struct ChiefConversationController: UIViewControllerRepresentable {
 /// instead of replying to the bubble under it or opening the send times.
 public final class ChiefConversationContainer: UIViewController, UIGestureRecognizerDelegate {
     let conversation: ConversationViewController
+    let session: ChiefSession
     private var popRecognizers: [UIGestureRecognizer] = []
     private var previousPopDelegates: [ObjectIdentifier: WeakDelegate] = [:]
     private struct WeakDelegate { weak var value: (any UIGestureRecognizerDelegate)? }
 
-    init(conversation: ConversationViewController) {
+    init(conversation: ConversationViewController, session: ChiefSession) {
         self.conversation = conversation
+        self.session = session
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -102,6 +105,106 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(conversation.view)
         conversation.didMove(toParent: self)
+        takeOverHeader()
+    }
+
+    // MARK: Chief settings in place of contact details
+
+    /// The header's avatar and name open Messages' contact details in the
+    /// package (Call, FaceTime and Mail; Hide Alerts and Send Read Receipts
+    /// on a table that reloads under the switch). CmuxConversation has no
+    /// hook to replace or trim them (verify/imsg-upstream-requests.md), so
+    /// Chief retargets those two controls, and the trailing button, to
+    /// ``ChiefSettingsView``: the Mac Chief's settings with this phone's
+    /// alert and receipt switches. Found by the package's own accessibility
+    /// markers; a later package that renames them shows its details again.
+    private(set) var headerTakenOver = false
+    private var trailingWasAction = false
+
+    private func takeOverHeader() {
+        // The header: the view that holds the name button, up to the
+        // package's header class. Only its controls are touched.
+        guard let name = conversation.view.subviewsOfType(UIButton.self).first(where: { $0.accessibilityIdentifier == "conversation.header.name" }) else {
+            return
+        }
+        var header: UIView = name
+        while let parent = header.superview, parent !== conversation.view,
+              !String(describing: type(of: header)).contains("HeaderView") {
+            header = parent
+        }
+        for button in header.subviewsOfType(UIButton.self) {
+            switch button.accessibilityIdentifier {
+            case "conversation.header.name":
+                retarget(button)
+            case "conversation.header.trailing":
+                // The package's own action (leaving reply, edit or select
+                // mode, which show an xmark) runs first; settings open only
+                // from the plain state.
+                button.addAction(UIAction { [weak self, weak button] _ in
+                    self?.trailingWasAction = !(button?.currentImage.map(Self.isXmark) ?? true)
+                }, for: .touchDown)
+                button.addAction(UIAction { [weak self] _ in
+                    guard let self, self.trailingWasAction else { return }
+                    self.presentSettings()
+                }, for: .touchUpInside)
+                trailingButton = button
+            default:
+                // The avatar's tap target: the one header button with a hint.
+                if button.accessibilityHint != nil, button.buttonType == .custom {
+                    retarget(button)
+                    button.accessibilityLabel = String(localized: "Chief")
+                    button.accessibilityHint = String(localized: "Opens Chief's settings")
+                }
+            }
+        }
+        headerTakenOver = true
+    }
+
+    private weak var trailingButton: UIButton?
+
+    private func retarget(_ button: UIButton) {
+        var actions: [UIAction] = []
+        button.enumerateEventHandlers { action, _, event, _ in
+            if event == .touchUpInside, let action { actions.append(action) }
+        }
+        for action in actions { button.removeAction(action, for: .touchUpInside) }
+        button.addAction(UIAction { [weak self] _ in self?.presentSettings() }, for: .touchUpInside)
+    }
+
+    static func isXmark(_ image: UIImage) -> Bool {
+        String(describing: image).contains("xmark")
+    }
+
+    /// The trailing glyph speaks as "Call" in the package; here it is settings.
+    private func labelTrailing() {
+        guard let trailingButton, let image = trailingButton.currentImage, !Self.isXmark(image) else { return }
+        trailingButton.accessibilityLabel = String(localized: "Chief Settings")
+    }
+
+    /// Messages written before Chief connected are not in the transcript
+    /// yet; say so, with why, instead of showing nothing.
+    private func showOutboxIfWaiting() {
+        guard !session.outbox.isEmpty, !session.isConnected, presentedViewController == nil else { return }
+        let count = session.outbox.count
+        let reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
+        let alert = UIAlertController(
+            title: count == 1 ? String(localized: "Message Not Sent Yet") : String(localized: "\(count) Messages Not Sent Yet"),
+            message: String(localized: "\(reason) It will send when Chief connects."),
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: String(localized: "Keep"), style: .cancel))
+        alert.addAction(UIAlertAction(title: String(localized: "Delete"), style: .destructive) { [weak self] _ in
+            self?.session.discardOutbox()
+        })
+        present(alert, animated: true)
+    }
+
+    public func presentSettings() {
+        guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
+        view.endEditing(true)
+        let host = UIHostingController(rootView: ChiefSettingsView(session: session))
+        host.modalPresentationStyle = .pageSheet
+        host.sheetPresentationController?.prefersGrabberVisible = true
+        present(host, animated: true)
     }
 
     /// The back button's count of other unread conversations, the way the
@@ -118,17 +221,13 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.setBackUnreadCount(backUnreadCount)
     }
 
-    public override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        enableEdgePop()
-    }
-
     /// SwiftUI turns the edge pop off again whenever it updates the hidden
     /// bar (appear and layout), as the workspace screen found
     /// (verify/navigation.md), so it is re-enabled on every layout.
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if view.window != nil { enableEdgePop() }
+        labelTrailing()
     }
 
     /// The back swipe from the left edge, as in Messages. On iOS 26 and later
@@ -164,6 +263,22 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// How far the finger has moved when the content pop asks to begin.
     static let contentPopSlop: CGFloat = 30
 
+    public override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        enableEdgePop()
+        ChiefAlerts.shared.conversationVisible = true
+        showOutboxIfWaiting()
+        #if DEBUG
+        ChiefDemoHook.shared.container = self
+        #endif
+    }
+
+    public override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // A sheet over Chief keeps it on screen.
+        if presentedViewController == nil { ChiefAlerts.shared.conversationVisible = false }
+    }
+
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         // Hand the recognizers back to their own delegates for the next screen.
@@ -194,6 +309,13 @@ private extension UIView {
     func allGestureRecognizersInSubtree() -> [UIGestureRecognizer] {
         (gestureRecognizers ?? []) + subviews.flatMap { $0.allGestureRecognizersInSubtree() }
     }
+
+    func subviewsOfType<T: UIView>(_ type: T.Type) -> [T] {
+        subviews.flatMap { view -> [T] in
+            if let match = view as? T { return [match] }
+            return view.subviewsOfType(type)
+        }
+    }
 }
 
 #if DEBUG
@@ -204,6 +326,7 @@ private extension UIView {
 public final class ChiefDemoHook {
     public static let shared = ChiefDemoHook()
     weak var controller: ConversationViewController?
+    weak var container: ChiefConversationContainer?
     /// The open New Message sheet, if any.
     weak var compose: ConversationComposeViewController?
 
@@ -229,6 +352,14 @@ public final class ChiefDemoHook {
         guard let controller, let data = image.jpegData(compressionQuality: 0.85) else { return }
         controller.store.send(text: "", images: [(data: data, width: Int(image.size.width * image.scale), height: Int(image.size.height * image.scale), mimeType: "image/jpeg")])
     }
+
+    /// Opens Chief's settings, as the header's avatar does.
+    public func openSettings() {
+        container?.presentSettings()
+    }
+
+    /// The header controls Chief took over (avatar, name, trailing).
+    public var headerTakenOver: Bool { container?.headerTakenOver ?? false }
 
     /// Tapbacks the newest incoming message, as picking one in the bar does.
     public func react(_ name: String) {

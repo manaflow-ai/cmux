@@ -53,6 +53,46 @@ fn fake_daemon(dir: &std::path::Path) {
     });
 }
 
+/// A stand-in Chief owner: lists the Chief, an owner-and-agents chat and a
+/// chat with a paired install; `subscribe` replies, then sends an event for
+/// each and a terminal event.
+fn fake_chief(dir: &std::path::Path) {
+    let listener = tokio::net::UnixListener::bind(dir.join("chief.sock")).unwrap();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = BufReader::new(read).lines();
+                let human = serde_json::json!({"id": "user_local", "kind": "human", "display_name": "A"});
+                let chief = serde_json::json!({"id": "agent_mux", "kind": "agent", "display_name": "Chief"});
+                let remote = serde_json::json!({"id": "remote_ab", "kind": "human", "display_name": "P"});
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    let mut out = Vec::new();
+                    match request["cmd"].as_str() {
+                        Some("conversation-list") => out.push(serde_json::json!({"id": request["id"], "ok": true, "data": {"conversations": [
+                            {"id": "conv_CHIEF", "participants": [human, chief]},
+                            {"id": "conv_REMOTE", "participants": [human, remote]},
+                        ]}})),
+                        Some("subscribe") => {
+                            out.push(serde_json::json!({"id": request["id"], "ok": true, "data": {}}));
+                            for conversation in ["conv_REMOTE", "conv_CHIEF"] {
+                                out.push(serde_json::json!({"event": "conversation-typing", "conversation": conversation,
+                                    "participant": "agent_mux", "on": true}));
+                            }
+                            out.push(serde_json::json!({"event": "terminal-registry-changed"}));
+                        }
+                        _ => out.push(serde_json::json!({"id": request["id"], "ok": true, "data": {"cmd": request["cmd"]}})),
+                    }
+                    for answer in out {
+                        write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                    }
+                }
+            });
+        }
+    });
+}
+
 /// A stand-in acpmux listener: requires the bearer token, echoes text.
 async fn fake_acpmux() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -92,8 +132,10 @@ async fn fixture(fake: FakeOptions) -> Fixture {
     std::fs::write(root.path().join("notes.md"), "# hello\n").unwrap();
     std::fs::write(outside.path().join("secret"), "nope").unwrap();
     fake_daemon(sockets.path());
+    fake_chief(sockets.path());
     let browser_launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let services = ServiceConfig {
+        chief_socket: Some(sockets.path().join("chief.sock")),
         tui_socket_dir: sockets.path().to_path_buf(),
         default_session: "main".into(),
         default_socket: None,
@@ -232,6 +274,46 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     assert_eq!(answers[3]["data"]["cmd"], "list-workspaces");
     let mut bad_session = link.open("daemon", serde_json::json!({"session": "../etc"})).await.unwrap();
     assert_eq!(drain(&mut bad_session).await.1, "bad_request");
+
+    // daemon never reaches the Chief owner's session.
+    for session in ["cmux-chief-c39c6f72", "CMUX-CHIEF-c39c6f72", "chief"] {
+        let mut owner = link.open("daemon", serde_json::json!({"session": session})).await.unwrap();
+        assert_eq!(drain(&mut owner).await.1, "bad_request", "{session}");
+    }
+
+    // chief: scoped to the owner's agent conversations, both ways.
+    let mut chief = link.open("chief", serde_json::json!({})).await.unwrap();
+    chief
+        .send(Bytes::from_static(
+            b"{\"id\":\"c1\",\"cmd\":\"conversation-list\"}\n{\"id\":\"c2\",\"cmd\":\"conversation-snapshot\",\"conversation\":\"conv_REMOTE\",\"tail\":1}\n",
+        ))
+        .await
+        .unwrap();
+    let mut chief_buffer = Vec::new();
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+        seen.push(next_line(&mut chief, &mut chief_buffer).await);
+    }
+    let list = seen.iter().find(|v| v["id"] == "c1").expect("list reply");
+    assert_eq!(list["data"]["conversations"].as_array().unwrap().len(), 1);
+    assert_eq!(list["data"]["conversations"][0]["id"], "conv_CHIEF");
+    let refused = seen.iter().find(|v| v["id"] == "c2").expect("refusal");
+    assert_eq!(refused["error_code"], "forbidden");
+    chief
+        .send(Bytes::from_static(
+            b"{\"id\":\"c3\",\"cmd\":\"conversation-snapshot\",\"conversation\":\"conv_CHIEF\",\"tail\":1}\n{\"id\":\"c4\",\"cmd\":\"subscribe\"}\n{\"id\":\"c5\",\"cmd\":\"conversation-agent-token\",\"participant\":\"agent_mux\"}\n",
+        ))
+        .await
+        .unwrap();
+    let mut rest = Vec::new();
+    for _ in 0..4 {
+        rest.push(next_line(&mut chief, &mut chief_buffer).await);
+    }
+    assert_eq!(rest.iter().find(|v| v["id"] == "c3").unwrap()["data"]["cmd"], "conversation-snapshot");
+    assert_eq!(rest.iter().find(|v| v["id"] == "c5").unwrap()["error_code"], "forbidden");
+    let events: Vec<_> = rest.iter().filter(|v| v.get("event").is_some()).collect();
+    assert_eq!(events.len(), 1, "{rest:?}");
+    assert_eq!(events[0]["conversation"], "conv_CHIEF");
 
     // file
     let mut file = link

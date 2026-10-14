@@ -64,6 +64,10 @@ import Testing
         var withHost = launch
         withHost.agentTabHost = "install:mac-1"
         #expect(withHost.environment(inherited: [:])["CNX_AGENT_TAB_HOST"] == "install:mac-1")
+        #expect(environment["CNX_CHIEF_SESSION"] == nil)
+        var chief = launch
+        chief.chiefSession = "cmux-chief-c39c6f72"
+        #expect(chief.environment(inherited: [:])["CNX_CHIEF_SESSION"] == "cmux-chief-c39c6f72")
     }
 
     @Test func controlLinesAreSingleJSONLines() throws {

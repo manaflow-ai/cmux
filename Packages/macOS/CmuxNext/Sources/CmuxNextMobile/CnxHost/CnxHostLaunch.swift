@@ -28,6 +28,12 @@ public struct CnxHostLaunch: Sendable, Equatable {
     /// hostd sets it on an agent tab a phone creates, so the chat runs on this Mac's
     /// acpmux and shows here as this Mac's own. Nil: phones cannot create agent tabs.
     public var agentTabHost: String?
+    /// The Chief's conversation owner session (`ChiefHome.session`), served
+    /// to phones by hostd's scoped `chief` service; nil lets hostd derive it
+    /// from `~/.cmux/chief/default`, the home of every build that is not an
+    /// isolated launch. The app's wiring sets it with
+    /// `ChiefHome.resolve(tag:).session` (cnx-ios/verify/relay-security.md).
+    public var chiefSession: String?
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
@@ -77,6 +83,7 @@ public struct CnxHostLaunch: Sendable, Equatable {
             "NO_COLOR": "1",
         ]) { $1 }
         if let agentTabHost, !agentTabHost.isEmpty { environment["CNX_AGENT_TAB_HOST"] = agentTabHost }
+        if let chiefSession { environment["CNX_CHIEF_SESSION"] = chiefSession }
         return environment
     }
 

@@ -42,12 +42,39 @@ pub struct ServiceConfig {
     pub uploads_dir: PathBuf,
     /// `CNX_UPLOAD_MAX_BYTES`: the largest file one `upload` accepts.
     pub upload_max_bytes: u64,
+    /// The Chief's conversation owner socket (the `chief` service):
+    /// `CNX_CHIEF_SOCKET`, else `<tui_socket_dir>/<CNX_CHIEF_SESSION>.sock`,
+    /// else the session of `~/.cmux/chief/<CMUX_NEXT_CHIEF_ACCOUNT or default>`
+    /// (`ChiefHome` in the Mac app). None turns the service off.
+    pub chief_socket: Option<PathBuf>,
     /// The `browser` service: who starts browser hosts, and the running ones.
     pub browser: crate::browser::BrowserConfig,
 }
 
 /// The default `upload` size cap: 100 MiB.
 pub const DEFAULT_UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024;
+/// `ChiefHome.sessionName`: `cmux-chief-` and the FNV-1a 32 hash of the
+/// home's path, so hostd finds the owner every Mac build shares.
+pub fn chief_session_name(root: &Path) -> String {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in root.to_string_lossy().as_bytes() {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    format!("cmux-chief-{hash:08x}")
+}
+
+/// The Chief owner socket from the environment (see [`ServiceConfig::chief_socket`]).
+pub fn chief_socket(tui_socket_dir: &Path) -> PathBuf {
+    if let Some(socket) = env("CNX_CHIEF_SOCKET") {
+        return PathBuf::from(socket);
+    }
+    let session = env("CNX_CHIEF_SESSION").unwrap_or_else(|| {
+        let account = env("CMUX_NEXT_CHIEF_ACCOUNT").unwrap_or_else(|| "default".into());
+        chief_session_name(&home().join(".cmux/chief").join(account))
+    });
+    tui_socket_dir.join(format!("{session}.sock"))
+}
 
 #[derive(Debug, Clone)]
 pub struct HostConfig {
@@ -178,6 +205,9 @@ impl HostConfig {
             include_loopback: env("CNX_INCLUDE_LOOPBACK").is_some_and(|v| v == "1"),
             exclude_cgnat: env("CNX_EXCLUDE_CGNAT").is_some_and(|v| v == "1"),
             services: ServiceConfig {
+                chief_socket: Some(chief_socket(
+                    &env("CNX_TUI_SOCKET_DIR").map(PathBuf::from).unwrap_or_else(default_tui_socket_dir),
+                )),
                 tui_socket_dir: env("CNX_TUI_SOCKET_DIR")
                     .map(PathBuf::from)
                     .unwrap_or_else(default_tui_socket_dir),
@@ -195,5 +225,16 @@ impl HostConfig {
                 browser,
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Mac app's `ChiefHome.sessionName` for the same home.
+    #[test]
+    fn chief_session_matches_the_mac_app() {
+        assert_eq!(chief_session_name(Path::new("/Users/me/.cmux/chief/default")), "cmux-chief-2fcbc999");
     }
 }
