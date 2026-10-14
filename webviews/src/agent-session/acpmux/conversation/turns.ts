@@ -58,9 +58,8 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
   return row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time });
 }
 
-const isEdit = (row: AcpmuxRow) =>
-  row.kind === "activity" &&
-  (row.items ?? []).some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
+const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
+const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
 
 /// The rows to draw. `expanded` holds the ids of open disclosures; `working` says the last
 /// turn is still running (the snapshot's `isWorking`); `now` dates the turns (timestamps.ts);
@@ -240,6 +239,24 @@ function shapedTurn(
 }
 
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";
+
+/// A tool call after a turn's last text: the turn ended on work, so that text was interim.
+/// Edits join the turn's card and render calls draw as their own cards, so neither counts; a
+/// step that edited and then ran something does.
+const isWork = (row: AcpmuxRow) =>
+  row.kind === "activity" &&
+  (row.items ?? []).some((item) => item.tool && !isEditTool(item.tool) && !renderCall(item.tool));
+
+/// Where a finished turn's answer is in `rows`: the last text, unless the turn went on to work
+/// after it (-1: no answer, so all of it folds, as the Codex and Claude desktop apps fold it).
+function answerAt(rows: readonly AcpmuxRow[]): number {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (isAnswer(row)) return at;
+    if (isWork(row)) return -1;
+  }
+  return -1;
+}
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
 function shapeTurn(
@@ -260,12 +277,7 @@ function shapeTurn(
     return live ? liveTurn(user, turn, clockOffset) : last ? turn : settledWithoutSummary(user, turn, expanded);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
-  let final = -1;
-  for (let at = body.length - 1; at >= 0; at -= 1)
-    if (body[at]!.kind === "assistant") {
-      final = at;
-      break;
-    }
+  const final = answerAt(body);
   const answer = final >= 0 ? body[final] : undefined;
   // Work before the answer folds away (all of it, when the turn ended without one); edits
   // also close the turn as their card. Subagent groups and the todo list stay out, under the
@@ -371,12 +383,7 @@ const staysOut = (row: AcpmuxRow) =>
 /// reloaded turn without timing, and its answer and edits draw after it.
 function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
   const rows = turn.filter((row) => row.kind !== "typing");
-  let final = -1;
-  for (let at = rows.length - 1; at >= 0; at -= 1)
-    if (rows[at]!.kind === "assistant") {
-      final = at;
-      break;
-    }
+  const final = answerAt(rows);
   const before = final >= 0 ? rows.slice(0, final) : rows;
   const work = before.filter((row) => !staysOut(row));
   if (work.length === 0) return rows;
