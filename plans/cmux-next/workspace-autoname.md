@@ -44,21 +44,49 @@ Tabs already have `NameSource { User, Auto }` and `name_revision`
   names stay pinned.
 - `rename-workspace` / `workspace.rename` accept `source: "auto"` with
   `expected_generation` and `expected_name_revision`. The daemon refuses an
-  auto rename when the current name is user-owned, or when the name revision
-  moved since the app read it. A stale callback loses; a person's rename always
-  wins.
+  auto rename when the current name is user-owned (`operation.failed`,
+  `reason_code: name_pinned`; an empty auto name is `name_empty`), or when the
+  name revision moved since the app read it (`revision.conflict`). The commit
+  repeats both checks against the stored row inside its transaction, so a
+  rename stored by another writer also wins. A stale callback loses; a
+  person's rename always wins.
+- `source: "auto"` with `release: true` hands a pinned name back to auto: the
+  text stays, the source becomes auto, `name_revision` advances, and no
+  expected revision is needed. v1 still requires `name` (it must equal the
+  current name); v2 may omit it.
 - Workspace projections expose `name_source` and `name_revision`, so every
   client (app, CLI, TUI, MCP) sees whether a name is pinned.
 - `isUserNamed` (the #20397 `workspace-N` guess) is removed once this lands.
+
+Compatibility the app must respect:
+
+- Gate auto renames on the capability `workspace-name-source-v1`, or send them
+  only over v2 `workspace.rename` (whose catalog rejects unknown fields). An
+  older daemon ignores the unknown v1 `source` field and applies
+  `rename-workspace` with `source: "auto"` as a plain user rename, which would
+  pin the generated name.
+- Workspaces that existed before the migration read as `user` at revision 0,
+  so they are pinned and never auto-name until someone releases them (the
+  palette or context-menu action below). New workspaces with a daemon-chosen
+  default name start as `auto`; a workspace created with a requested name
+  starts as `user`.
 
 Tab groups are client view state in the app today; their auto name follows the
 same rule locally (an `isAutoNamed` flag cleared by `update-tab-group` with a name).
 
 ## Surfaces
 
-`cmux rename-workspace --auto` (agents), the MCP tool's `source` param, a
-palette "Let cmux name this workspace" action that returns a pinned name to auto,
-and the same item in the sidebar row's context menu.
+The CLI shape built in step 1 (hq#1957):
+
+- `cmux workspace [<selector>] rename <name> --source auto --expected-generation <g>
+  --expected-name-revision <n>` for an automatic name (agents, the app's namer).
+  `--source user` is the default.
+- `cmux workspace [<selector>] rename --release-to-auto` returns a pinned name to
+  auto (no name, no expected revision).
+
+Still to build: the MCP tool's `source` param, a palette "Let cmux name this
+workspace" action that sends the release, and the same item in the sidebar
+row's context menu.
 
 ## Order
 
