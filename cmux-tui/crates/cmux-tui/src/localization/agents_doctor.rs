@@ -40,12 +40,13 @@ pub(crate) struct AgentsDoctorMessages {
     pub fix_config: &'static str,
     pub granted: &'static str,
     pub not_granted: &'static str,
-    /// `{url}`: the System Settings pane.
+    /// `{url}`: the System Settings pane, opened by an exact `open` command.
     pub open_settings: &'static str,
     pub app_not_running: &'static str,
     pub open_cmux: &'static str,
     pub app_no_report: &'static str,
-    /// One exact command that opens Computer Use Setup in the running app.
+    /// Computer Use Setup is GUI-only (the CLI refuses its action), so the
+    /// one exact command is rerunning the doctor after it.
     pub setup_command: &'static str,
     pub app_unresponsive: &'static str,
     pub computer_use_off: &'static str,
@@ -90,11 +91,11 @@ pub(super) const ENGLISH: AgentsDoctorMessages = AgentsDoctorMessages {
     fix_config: "fix the syntax of {location}",
     granted: "granted to cmux Computer Use",
     not_granted: "not granted to cmux Computer Use",
-    open_settings: "open {url} and turn on cmux Computer Use",
+    open_settings: "run `open '{url}'` and turn on cmux Computer Use",
     app_not_running: "unknown (app not running)",
     open_cmux: "open cmux, then run `cmux agents doctor` again",
     app_no_report: "this cmux app does not report Computer Use grants",
-    setup_command: "run `cmux action run palette.computerUse.setup` to see the grants in cmux",
+    setup_command: "run Computer Use Setup from the cmux command palette, then run `cmux agents doctor` again",
     app_unresponsive: "the cmux app did not answer",
     computer_use_off: "Computer Use is off, so its grants are unknown",
     disabled_by_policy: "Computer Use is turned off by policy",
@@ -138,11 +139,11 @@ pub(super) const JAPANESE: AgentsDoctorMessages = AgentsDoctorMessages {
     fix_config: "{location} の構文を修正してください",
     granted: "cmux Computer Use に許可済み",
     not_granted: "cmux Computer Use に許可されていません",
-    open_settings: "{url} を開き、cmux Computer Use をオンにしてください",
+    open_settings: "`open '{url}'` を実行し、cmux Computer Use をオンにしてください",
     app_not_running: "不明 (アプリが起動していません)",
     open_cmux: "cmux を開いてから、もう一度 `cmux agents doctor` を実行してください",
     app_no_report: "この cmux アプリは Computer Use の許可状態を報告しません",
-    setup_command: "`cmux action run palette.computerUse.setup` を実行して、cmux で許可状態を確認してください",
+    setup_command: "cmux のコマンドパレットから Computer Use Setup を実行してから、もう一度 `cmux agents doctor` を実行してください",
     app_unresponsive: "cmux アプリが応答しませんでした",
     computer_use_off: "Computer Use がオフのため、許可状態は不明です",
     disabled_by_policy: "Computer Use はポリシーでオフになっています",
