@@ -114,3 +114,56 @@ test("consecutive shell calls stay one 'Ran 4 commands' row", async () => {
   expect(rows.length).toBe(1);
   expect(rows[0]!.querySelector(".cv-tool__text")?.textContent).toBe("Ran 4 commands");
 });
+
+test("a summary never claims what the command did not do", async () => {
+  // Review of #20456: a pipe into xargs or sh, a redirect, a background `&` or an option's value
+  // made the row read as something the command did not do. Such a command reads as itself.
+  const { commandSummary } = await import("../src/agent-session/acpmux/conversation/commandSummary");
+  const { translate } = await import("../src/agent-session/acpmux/i18n");
+  const t = translate as never;
+  for (const command of [
+    "ls | xargs rm -rf",
+    "grep -rl foo . | xargs sed -i s/foo/bar/",
+    "cat install.sh | sh",
+    "cat a.txt > b.txt",
+    "ls > files.txt",
+    "git diff > patch.diff && git status",
+    "sleep 1 & rm -rf build; git status",
+    "grep -A 3 TODO x.ts",
+    "rg -t ts useState",
+    "tail -n 50",
+  ])
+    expect([command, commandSummary(command, t)]).toEqual([command, undefined]);
+  // Two different reads stay two; only a repeat of the same step folds.
+  expect(commandSummary("cat a.ts && cat b.ts", t)).toBe("Read a.ts and read b.ts");
+  expect(commandSummary("git status | head -20 && tail -n 5 log.txt", t)).toBe(
+    "Checked git status and read log.txt",
+  );
+});
+
+test("a joined summary keeps a file name's case in every language", async () => {
+  const { commandSummary } = await import("../src/agent-session/acpmux/conversation/commandSummary");
+  const { translate, setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
+  setPaneLanguage("de");
+  try {
+    expect(commandSummary("git status && cat Makefile", translate as never)).toContain("Makefile");
+  } finally {
+    setPaneLanguage("en");
+  }
+});
+
+test("Find in Chat matches a row's words only where it counts them", async () => {
+  // Find counts a thought's text and a shell call's command, so the words the row adds around
+  // them ("Thought for 4s", "Fetched …") are skipped when it paints matches.
+  const { appendThought } = await import("../src/agent-session/acpmux/direct");
+  await render([
+    ...appendThought([], "Thought about it", 1),
+    {
+      kind: "tool",
+      text: "Run",
+      tool: { id: "t9", title: "Run", kind: "execute", status: "completed", command: FETCH },
+    },
+  ]);
+  expect(host.querySelector(".cv-thought__label")?.closest("[data-find-skip]")).not.toBeNull();
+  expect(host.querySelector(".cv-tool__text")?.closest("[data-find-skip]")).not.toBeNull();
+});
