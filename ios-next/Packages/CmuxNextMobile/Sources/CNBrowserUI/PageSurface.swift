@@ -51,6 +51,10 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
         addSubview(strip)
         proxy.frame = CGRect(x: -10, y: -10, width: 1, height: 1)
         proxy.alpha = 0.01
+        // Keyboard plumbing only: the page's own accessibility comes from the
+        // stream; an unlabeled 1 pt field must not show up as an element.
+        proxy.isAccessibilityElement = false
+        proxy.accessibilityElementsHidden = true
         addSubview(proxy)
         proxy.onText = { [weak self] in self?.onText?($0) }
         proxy.onKey = { [weak self] in self?.onKey?($0) }

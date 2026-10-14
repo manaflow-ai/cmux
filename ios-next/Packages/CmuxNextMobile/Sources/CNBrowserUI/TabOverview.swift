@@ -69,11 +69,11 @@ struct TabCard: View {
         // One element per card, framed to the card and its title row: the
         // scaled page inside reported an unlabeled image framed at the full
         // page size.
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(startPage ? "Start Page" : item.title), tab")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: "Open") { onOpen() }
-        .accessibilityAction(named: "Close") { onClose() }
+        .accessibilityRepresentation {
+            Button("\(startPage ? "Start Page" : item.title), tab", action: onOpen)
+                .accessibilityAction(named: "Open", onOpen)
+                .accessibilityAction(named: "Close", onClose)
+        }
     }
 }
 

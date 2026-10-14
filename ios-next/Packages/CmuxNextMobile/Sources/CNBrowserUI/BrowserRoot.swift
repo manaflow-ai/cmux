@@ -312,6 +312,9 @@ struct BrowserScreen: View {
                 .opacity(1 - overviewShown)
             }
 
+            // Out of the hierarchy on the settled grid (it is invisible there,
+            // and accessibility tools list hidden views too).
+            if zoomState.phase != .overview {
             BrowserToolbar(chrome: chrome, tab: model.activeTab, local: activeLocalTitle,
                            showsStartPage: showsStartPage, size: size, safeBottom: pageBottom,
                            pillBottom: hostedInTabBar ? pageBottom : nil,
@@ -328,6 +331,7 @@ struct BrowserScreen: View {
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
                 .allowsHitTesting(!chrome.menuOpen && (zoomState.pageInteractive || (zoomState.phase == .animating && !zoomState.headingToOverview)))
+            }
 
             // Kept mounted (transparent) so the droplet starts growing on
             // the first frame after the tap instead of after its first layout.
