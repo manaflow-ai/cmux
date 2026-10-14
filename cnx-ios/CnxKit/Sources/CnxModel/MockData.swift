@@ -60,6 +60,28 @@ extension AppStore {
                 tabs: [WorkspaceTab(id: "t-notes", kind: .terminal, title: "nvim", subtitle: "~/notes")],
                 lastActivityAt: now.addingTimeInterval(-26 * 3600)
             ),
+            // Older workspaces, for the list's recency sections.
+            Workspace(
+                id: "ws-design", macID: "mac-studio", title: "design system", directory: "~/Development/design", branch: "tokens-v2",
+                tabs: [WorkspaceTab(id: "t-design", kind: .terminal, title: "zsh", subtitle: "~/Development/design")],
+                lastActivityAt: now.addingTimeInterval(-3 * 86_400)
+            ),
+            Workspace(
+                id: "ws-release", macID: "mac-mini-2", title: "release 0.64", directory: "~/Development/cmux", branch: "release/0.64",
+                tabs: [WorkspaceTab(id: "t-release", kind: .terminal, title: "zsh", subtitle: "~/Development/cmux")],
+                lastActivityAt: now.addingTimeInterval(-12 * 86_400)
+            ),
+            Workspace(
+                id: "ws-dotfiles", macID: "mbp", title: "dotfiles", directory: "~/dotfiles", branch: "main",
+                tabs: [WorkspaceTab(id: "t-dotfiles", kind: .terminal, title: "nvim", subtitle: "~/dotfiles")],
+                lastActivityAt: now.addingTimeInterval(-45 * 86_400)
+            ),
+            Workspace(
+                id: "ws-blog", macID: "mac-studio", title: "blog", directory: "~/Development/blog", branch: "main",
+                tabs: [WorkspaceTab(id: "t-blog", kind: .browser, title: "Preview", subtitle: "localhost:4321",
+                                         url: URL(string: "http://localhost:4321"))],
+                lastActivityAt: now.addingTimeInterval(-80 * 86_400)
+            ),
         ]
         let feed = [
             FeedEvent(

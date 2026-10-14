@@ -23,7 +23,7 @@ struct ChiefRecipient: Sendable, Hashable {
 /// the active workspaces, as Messages lists contacts. Typed text that names
 /// no recipient is not a valid address (red token), as in Messages.
 final class ChiefDirectory: ConversationDirectory, @unchecked Sendable {
-    static let chiefContactID = "agent_chief"
+    static let chiefContactID = ChiefIdentity.standard.chiefID
     let recipients: [ChiefRecipient]
 
     init(recipients: [ChiefRecipient]) {
@@ -166,7 +166,7 @@ public final class ChiefComposer {
             routed.text = "To \(others.map(\.name).joined(separator: ", ")): \(message.text)"
         }
         open(.chief)
-        session.store.sendWhenConnected(routed)
+        session.send(routed)
     }
 
     /// The controller to present the sheet from: the frontmost one.

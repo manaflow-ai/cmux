@@ -24,6 +24,12 @@ public struct CnxHostLaunch: Sendable, Equatable {
     public var fileRoots: [String]
     /// Stack project and publishable key, for hostd's own token checks.
     public var stackProjectID: String
+    /// The Chief's conversation owner session (`ChiefHome.session`), served
+    /// to phones by hostd's scoped `chief` service; nil lets hostd derive it
+    /// from `~/.cmux/chief/default`, the home of every build that is not an
+    /// isolated launch. The app's wiring sets it with
+    /// `ChiefHome.resolve(tag:).session` (cnx-ios/verify/relay-security.md).
+    public var chiefSession: String?
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String) {
@@ -70,6 +76,7 @@ public struct CnxHostLaunch: Sendable, Equatable {
             "CNX_EXCLUDE_CGNAT": "1",
             "NO_COLOR": "1",
         ]) { $1 }
+        if let chiefSession { environment["CNX_CHIEF_SESSION"] = chiefSession }
         return environment
     }
 
@@ -81,6 +88,28 @@ public struct CnxHostLaunch: Sendable, Equatable {
     /// The control line that tells hostd where the app's acpmux listens.
     public static func acpmuxLine(url: URL, token: String) -> Data {
         line(["type": "acpmux", "url": url.absoluteString, "token": token])
+    }
+
+    /// The answer to `need_browser` `request`: the browser host listens on
+    /// `127.0.0.1:port` and admits the hello that carries `secret` (never logged).
+    public static func browserLine(request: UInt64, port: UInt16, secret: String) -> Data {
+        anyLine(["type": "browser", "request": request, "addr": "127.0.0.1:\(port)", "secret": secret])
+    }
+
+    /// No browser host for `request`.
+    public static func browserFailedLine(request: UInt64, reason: String) -> Data {
+        anyLine(["type": "browser_failed", "request": request, "reason": reason])
+    }
+
+    /// The browser host of `tab` exited.
+    public static func browserGoneLine(tab: String) -> Data {
+        line(["type": "browser_gone", "tab": tab])
+    }
+
+    static func anyLine(_ object: [String: Any]) -> Data {
+        var data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        data.append(0x0A)
+        return data
     }
 
     static func line(_ object: [String: String]) -> Data {

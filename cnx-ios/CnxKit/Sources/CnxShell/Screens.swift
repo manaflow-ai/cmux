@@ -76,7 +76,7 @@ struct WorkspacesScreen: View {
                     WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs)
                 }
                 .toolbar {
-                    // The title is WorkspacesList's Mac filter (a title menu).
+                    // WorkspacesList owns the title and the Mac chip row.
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
                 .cnxBanner(shell.banner)

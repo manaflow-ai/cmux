@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxTabsKit
 import CnxAgentChat
+import CnxBrowserStream
 import CnxDesign
 import CnxModel
 import Observation
@@ -33,6 +34,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Created with their tabs (never during a view update); each model is
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
+    /// Streamed browser tabs while linked to a Mac.
+    @ObservationIgnored private let streamed = StreamedBrowserDirectory.shared
     /// The chrome insets the pages were last laid out with, for cards.
     @ObservationIgnored private var lastInsets = EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)
     @ObservationIgnored var pageHeight: CGFloat = 874
@@ -52,8 +55,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
             store.noteOpened(tabID: tab.id, in: workspaceID)
         }
         focusOnOpen = store.takeFocusOnOpen(workspaceID)
-        for tab in store.workspace(id: workspaceID)?.tabs ?? [] where tab.kind == .browser {
-            browsers[tab.id] = BrowserTabModel(url: tab.url)
+        // Linked to a Mac, browser tabs stream from it; otherwise each has a web view.
+        if !streamed.isLive {
+            for tab in store.workspace(id: workspaceID)?.tabs ?? [] where tab.kind == .browser {
+                browsers[tab.id] = BrowserTabModel(url: tab.url)
+            }
         }
     }
 
@@ -104,7 +110,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 statusBarStyle: .lightContent
             )
         case .browser:
-            let model = browsers[tab.id]
+            let model: (any BrowserTabState)? = streamed.model(tab: tab.id, url: tab.url) ?? browsers[tab.id]
             let url = model?.url ?? tab.url
             let host = model?.host ?? url?.host() ?? tab.subtitle ?? ""
             return TabsKitTab(
@@ -130,13 +136,22 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let next = store.removeTab(id, from: workspaceID)
         surfaces[id] = nil
         browsers[id] = nil
+        streamed.drop(tab: id)
         if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
     }
 
+    /// Shown by TabsKit as a glass toast (a tab that could not be created).
+    public private(set) var notice: String?
+    public func clearNotice() { notice = nil }
+
     public func createTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
+        guard workspace != nil else {
+            notice = "This workspace is no longer on the Mac."
+            return nil
+        }
         let id = "t-\(UUID().uuidString.prefix(8).lowercased())"
         let tab: WorkspaceTab
         switch option.id {
@@ -145,7 +160,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         case "browser": tab = WorkspaceTab(id: id, kind: .browser, title: "New Tab")
         default: tab = WorkspaceTab(id: id, kind: .terminal, title: "zsh", subtitle: workspace?.directory)
         }
-        if tab.kind == .browser { browsers[id] = BrowserTabModel(url: nil) }
+        if tab.kind == .browser, !streamed.isLive { browsers[id] = BrowserTabModel(url: nil) }
         // A new chat opens ready to type (SPEC 6.2; ChatGPT, Claude and Grok
         // open a new chat with the keyboard up).
         if tab.kind == .agent { surface(id).composerFocused = true }
@@ -183,7 +198,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         sessions.store(workspace: workspace, tab: tab, macName: macName)
     }
 
-    func browser(_ tab: WorkspaceTab) -> BrowserTabModel {
+    /// The tab's page: streamed from the Mac while linked, else a local web view.
+    func browser(_ tab: WorkspaceTab) -> any BrowserTabState {
+        if let model = streamed.model(tab: tab.id, url: tab.url) { return model }
+        return localBrowser(tab)
+    }
+
+    func localBrowser(_ tab: WorkspaceTab) -> BrowserTabModel {
         if let model = browsers[tab.id] { return model }
         let model = BrowserTabModel(url: tab.url)
         browsers[tab.id] = model
@@ -211,22 +232,27 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func overviewWillAppear() {
         guard let id = activeTabID else { return }
-        browsers[id]?.takeSnapshot()
+        if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
 
     // MARK: Toolbar actions
 
     public func goBack(_ id: TabsKitTab.ID) {
-        if let model = browsers[id], model.canGoBack {
-            model.goBack()
+        if let tab = workspaceTab(id), tab.kind == .browser, browser(tab).canGoBack {
+            browser(tab).goBack()
         } else {
             exit()
         }
     }
 
-    public func goForward(_ id: TabsKitTab.ID) { browsers[id]?.goForward() }
-    public func reloadOrStop(_ id: TabsKitTab.ID) { browsers[id]?.reloadOrStop() }
+    public func goForward(_ id: TabsKitTab.ID) {
+        if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).goForward() }
+    }
+
+    public func reloadOrStop(_ id: TabsKitTab.ID) {
+        if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).reloadOrStop() }
+    }
 
     public func navigate(_ id: TabsKitTab.ID, to text: String) {
         guard let tab = workspaceTab(id), tab.kind == .browser else { return }
@@ -317,8 +343,12 @@ struct WorkspaceTabPage: View {
         case .terminal:
             source.terminal.page(for: tab, in: workspace, context: terminalContext)
         case .browser:
-            BrowserPage(model: source.browser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
-                        reportScroll: { context.reportScroll(fingerDelta: $0) })
+            if let model = source.browser(tab) as? StreamedBrowserModel {
+                StreamedBrowserPage(model: model, insets: insets, reportScroll: { context.reportScroll(fingerDelta: $0) })
+            } else {
+                BrowserPage(model: source.localBrowser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
+                            reportScroll: { context.reportScroll(fingerDelta: $0) })
+            }
         }
     }
 
@@ -344,6 +374,10 @@ struct WorkspaceTabAccessory: View {
     let context: TabsKitContentContext
 
     var body: some View {
+        row.modifier(AccessoryFloor(context: context))
+    }
+
+    @ViewBuilder private var row: some View {
         if let workspace = source.workspace, let tab = workspace.tabs.first(where: { $0.id == tabID }) {
             switch tab.kind {
             case .agent:
@@ -357,6 +391,30 @@ struct WorkspaceTabAccessory: View {
                 EmptyView()
             }
         }
+    }
+}
+
+/// Keeps the accessory row from going below its resting place above the
+/// expanded toolbar. TabsKit places the row at the keyboard's height while
+/// the keyboard is up; an interactive dismissal drags the keyboard under the
+/// toolbar before it reports 0, so the row followed it down, then jumped
+/// back up. This lifts the row by however far it would sink, as a render
+/// effect (no layout feedback). A collapsed toolbar rests lower, so the
+/// floor applies only with the toolbar expanded.
+struct AccessoryFloor: ViewModifier {
+    let context: TabsKitContentContext
+
+    func body(content: Content) -> some View {
+        let floor = context.pageSize.height - context.safeAreaInsets.bottom
+        let applies = !context.isToolbarCollapsed && floor > 0
+        content.visualEffect { effect, proxy in
+            effect.offset(y: applies ? -Self.overshoot(maxY: proxy.frame(in: .global).maxY, floor: floor) : 0)
+        }
+    }
+
+    /// Points the row's bottom sits below the floor (0 when above it).
+    nonisolated static func overshoot(maxY: CGFloat, floor: CGFloat) -> CGFloat {
+        max(0, maxY - floor)
     }
 }
 
@@ -376,7 +434,11 @@ struct WorkspaceTabCard: View {
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
             case .browser:
-                BrowserCard(model: source.browser(tab), insets: insets)
+                if let model = source.browser(tab) as? StreamedBrowserModel {
+                    StreamedBrowserCard(model: model)
+                } else {
+                    BrowserCard(model: source.localBrowser(tab), insets: insets)
+                }
             }
         } else {
             Color.cnxBackground

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CnxAgentChat
 import CnxAuth
+import CnxBrowserStream
 import CnxDesign
 import CnxLive
 import CnxModel
@@ -50,6 +51,8 @@ final class ShellModel {
     var editingTeam: Team?
     /// Live data (signed in for real with a `cnx-ios-api` base URL); nil in mock mode.
     var live: LiveCoordinator?
+    /// Settings → Connection's device list and account deletion (live mode).
+    private(set) var deviceDirectory: LiveDeviceDirectory?
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
     var isFetchingInvite = false
@@ -85,6 +88,11 @@ final class ShellModel {
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }
+        creator.onManageFailure = { [weak self] _, what, message in
+            self?.toast = CnxToast(symbol: "exclamationmark.circle", text: what)
+            theme.haptics.error()
+            shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
+        }
     }
 
     /// Points terminal tabs and new workspaces at `live`, or back at the
@@ -94,15 +102,44 @@ final class ShellModel {
     func attach(live: LiveCoordinator?) {
         if self.live !== live, self.live != nil { terminalTabs.reset() }
         self.live = live
+        deviceDirectory = live.map(LiveDeviceDirectory.init(live:))
         if let live {
             terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
             terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
             creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link)
+            StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
         } else {
+            StreamedBrowserDirectory.shared.opener = nil
             terminalTabs.sessionProvider = nil
             terminalTabs.artifactSourceProvider = nil
             creator.backend = offlineCreation
         }
+    }
+
+    /// Opens a tapped notification: Chief's reply on Home, an agent's event in
+    /// its chat. Returns false while the tab is not known yet (the Mac's tree
+    /// has not arrived), so the shell tries again when it does.
+    @discardableResult
+    func open(_ route: NotificationRoute) -> Bool {
+        if route.kind == "chief" {
+            tab = .home
+            return true
+        }
+        guard let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else {
+            // The Feed lists the event meanwhile.
+            tab = .feed
+            return false
+        }
+        tab = .feed
+        feedPath = [destination]
+        return true
+    }
+
+    /// Whether the route's chat is on screen now (its notification shows no banner).
+    func isShowing(_ route: NotificationRoute) -> Bool {
+        guard UIApplication.shared.applicationState == .active, tab == .feed, let shown = feedPath.last,
+              let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else { return false }
+        return destination == shown
     }
 
     /// The Mac refused a new workspace: its row is already gone; leave its

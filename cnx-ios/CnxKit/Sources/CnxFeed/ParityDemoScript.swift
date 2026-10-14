@@ -49,13 +49,13 @@ public struct ParityDemoScript {
         await post(.feedScroll(toEvent: "f-pricing"), then: 1.6)
         await post(.feedSwipe(event: "f-pricing", edge: "trailing"), then: 1.6)
         await post(.feedSwipeAction(event: "f-pricing", action: "done"), then: 2.4)
-        await post(.feedSwipe(event: "f-permission", edge: "leading"), then: 1.6)
+        await post(.feedSwipe(event: "f-permission", edge: "trailing"), then: 1.6)
         await post(.feedSwipeAction(event: "f-permission", action: "allow"), then: 2.0)
         await post(.feedScrollTop, then: 1.4)
-        await post(.feedSwipe(event: "f-question", edge: "leading"), then: 1.6)
+        await post(.feedSwipe(event: "f-question", edge: "trailing"), then: 1.6)
         await post(.feedSwipeClose, then: 1.0)
         await post(.feedScroll(toEvent: "f-math"), then: 1.4)
-        await post(.feedSwipe(event: "f-math", edge: "leading"), then: 1.4)
+        await post(.feedSwipe(event: "f-math", edge: "trailing"), then: 1.4)
         await post(.feedSwipeAction(event: "f-math", action: "read"), then: 1.4)
     }
 

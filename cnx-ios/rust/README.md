@@ -169,6 +169,7 @@ target/release/cnx-hostd
 | `CNX_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset denies every read. |
 | `ACPMUX_HOME` | acpmux state dir (default `~/.acpmux`); hostd reads `websocket.listen` and `websocket.token` from its `config.json` at every `acpmux` open. `CNX_ACPMUX_URL` / `CNX_ACPMUX_TOKEN` override. |
 | `CNX_INCLUDE_LOOPBACK=1` | Offer loopback candidates (same-host testing). |
+| `CNX_PUSH=0` | Do not report agent events for push notifications. By default hostd watches acpmux (`_acpmux/watch`) and reports each new question, permission request and finished turn to `POST /v1/devices/:deviceId/notify` with labels only (kind, agent name, folder name, ids; never prompts, output, tool arguments or paths). See `src/notify.rs`. |
 | `CNX_LOG` | tracing filter, default `info`. |
 
 Logs go to stderr.

@@ -22,14 +22,17 @@ public struct LiveAPI: Sendable {
         public var ownerUserId: String?
         /// The Mac's team (or personal space); only `GET /v1/me/macs` sends it.
         public var teamId: String?
+        /// A `presence` frame for a Mac its owner deleted (0.7.0): drop it.
+        public var removed: Bool?
 
-        public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil) {
+        public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil, removed: Bool? = nil) {
             self.deviceId = deviceId
             self.name = name
             self.online = online
             self.lastSeenAt = lastSeenAt
             self.ownerUserId = ownerUserId
             self.teamId = teamId
+            self.removed = removed
         }
 
         public var lastSeenDate: Date? { lastSeenAt.flatMap(LiveAPI.parseDate) }
@@ -43,6 +46,36 @@ public struct LiveAPI: Sendable {
             self.color = color
             self.emoji = emoji
         }
+    }
+
+    /// One of the caller's devices as `GET /v1/me/devices` reports it (0.7.0).
+    public struct Device: Codable, Hashable, Sendable {
+        public var deviceId: String
+        public var kind: String
+        public var name: String
+        public var teamId: String
+        public var lastSeenAt: String?
+        /// Live presence for a Mac; nil for a phone.
+        public var online: Bool?
+        /// Whether a phone has an APNs token registered.
+        public var push: Bool?
+
+        public init(deviceId: String, kind: String, name: String, teamId: String, lastSeenAt: String? = nil, online: Bool? = nil, push: Bool? = nil) {
+            self.deviceId = deviceId
+            self.kind = kind
+            self.name = name
+            self.teamId = teamId
+            self.lastSeenAt = lastSeenAt
+            self.online = online
+            self.push = push
+        }
+
+        public var lastSeenDate: Date? { lastSeenAt.flatMap(LiveAPI.parseDate) }
+    }
+
+    /// `GET /v1/ice`, for diagnostics: whether a TURN relay was included.
+    public struct Ice: Decodable, Sendable {
+        public var turn: Bool?
     }
 
     /// `{"error":{"code","message"}}` or a transport failure.
@@ -68,6 +101,38 @@ public struct LiveAPI: Sendable {
     public func myMacs() async throws -> [Mac] {
         struct Reply: Decodable { var macs: [Mac] }
         return try JSONDecoder().decode(Reply.self, from: try await call("GET", "v1/me/macs")).macs
+    }
+
+    /// `GET /v1/me/devices`: every Mac and phone this account registered.
+    public func myDevices() async throws -> [Device] {
+        struct Reply: Decodable { var devices: [Device] }
+        return try JSONDecoder().decode(Reply.self, from: try await call("GET", "v1/me/devices")).devices
+    }
+
+    /// `DELETE /v1/devices/:id` (owner only).
+    public func deleteDevice(id: String) async throws {
+        _ = try await call("DELETE", "v1/devices/\(id)")
+    }
+
+    /// `PUT /v1/devices/:id/push`: this phone's APNs token and the events it wants.
+    public func putPush(deviceID: String, token: String, environment: String, topic: String, kinds: [String]) async throws {
+        let body: [String: Any] = ["token": token, "environment": environment, "topic": topic, "kinds": kinds]
+        _ = try await call("PUT", "v1/devices/\(deviceID)/push", body: body)
+    }
+
+    /// `DELETE /v1/devices/:id/push`: stop pushing to this phone.
+    public func deletePush(deviceID: String) async throws {
+        _ = try await call("DELETE", "v1/devices/\(deviceID)/push")
+    }
+
+    /// `DELETE /v1/me`: purges everything the service stores for this account.
+    public func deleteMe() async throws {
+        _ = try await call("DELETE", "v1/me")
+    }
+
+    /// `GET /v1/ice`.
+    public func ice() async throws -> Ice {
+        try JSONDecoder().decode(Ice.self, from: try await call("GET", "v1/ice"))
     }
 
     /// `GET /v1/teams/:id/prefs`.

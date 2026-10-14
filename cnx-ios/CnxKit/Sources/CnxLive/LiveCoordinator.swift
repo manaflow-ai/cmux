@@ -1,6 +1,7 @@
 #if os(iOS)
 import CnxAgentChat
 import CnxArtifacts
+import CnxBrowserStream
 import CnxChief
 import CnxDesign
 import CnxFeed
@@ -45,6 +46,12 @@ public final class LiveCoordinator {
     public let link: LinkController
     public let workspaces: WorkspaceSync
     public let acpmux = AcpmuxHub()
+    /// This phone's APNs registration (the token goes on the link device id).
+    public let push = PushRegistration.shared
+    /// Whether the service could include a TURN relay in `GET /v1/ice` (nil
+    /// before the first look). Without one, WebRTC outside the Mac's network
+    /// may fail, and the app says so.
+    public private(set) var relayAvailable: Bool?
     @ObservationIgnored public let feed: LiveFeed
 
     @ObservationIgnored let store: AppStore
@@ -173,6 +180,8 @@ public final class LiveCoordinator {
             try await api.registerDevice(id: identity.presence, kind: "phone", name: "\(deviceName) (presence)", teamID: teamID)
             guard !Task.isCancelled, store.activeTeamID == teamID else { return }
             registeredTeamID = teamID
+            push.attach(api: api, deviceID: identity.link)
+            checkRelay()
             let macs = try await api.macs(teamID: teamID)
             guard !Task.isCancelled, store.activeTeamID == teamID else { return }
             applyMacs(macs, teamID: teamID)
@@ -207,6 +216,8 @@ public final class LiveCoordinator {
             presenceConnected = connected
         case .snapshot(let macs):
             applyMacs(macs, teamID: teamID)
+        case .mac(let mac) where mac.removed == true:
+            forgetMac(mac.deviceId)
         case .mac(let mac):
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
             let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate)
@@ -214,6 +225,15 @@ public final class LiveCoordinator {
             store.setMacs(current, teamID: teamID)
             retarget()
         }
+    }
+
+    /// A Mac its owner deleted (here or on another device): gone from every team.
+    func forgetMac(_ id: String) {
+        for team in store.teams where team.macs.contains(where: { $0.id == id }) {
+            store.setMacs(team.macs.filter { $0.id != id }, teamID: team.id)
+        }
+        if let count = store.accountMacCount, count > 0 { store.accountMacCount = count - 1 }
+        retarget()
     }
 
     private func applyMacs(_ macs: [LiveAPI.Mac], teamID: String) {
@@ -282,6 +302,46 @@ public final class LiveCoordinator {
         onFollow?(team.id)
     }
 
+    /// Looks once per team start whether the service has a TURN relay.
+    private func checkRelay() {
+        Task { [weak self] in
+            guard let self else { return }
+            if let ice = try? await self.api.ice() { self.relayAvailable = ice.turn ?? true }
+        }
+    }
+
+    // MARK: Devices (Settings → Connection) and account
+
+    /// Every Mac and phone of this account.
+    public func myDevices() async throws -> [LiveAPI.Device] {
+        try await api.myDevices()
+    }
+
+    /// This phone's own device ids (link and presence).
+    public var ownDeviceIDs: Set<String> { [identity.link, identity.presence] }
+
+    /// Deletes a device of this account; a Mac leaves every list at once.
+    public func removeDevice(id: String) async throws {
+        try await api.deleteDevice(id: id)
+        forgetMac(id)
+    }
+
+    /// Account deletion, first step: the service forgets the account's
+    /// devices, push tokens and preferences.
+    public func deleteAccountData() async throws {
+        try await api.deleteMe()
+    }
+
+    /// Where a notification's session lives: the agent tab bound to it, or
+    /// the tab the Mac named.
+    public func destination(sessionID: String?, workspaceID: String?, tabID: String?) -> AgentChatDestination? {
+        if let sessionID, let place = place(sessionID: sessionID) {
+            return AgentChatDestination(workspaceID: place.workspaceID, tabID: place.tabID)
+        }
+        guard let workspaceID, let tabID, store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == tabID }) == true else { return nil }
+        return AgentChatDestination(workspaceID: workspaceID, tabID: tabID)
+    }
+
     /// Sign-out: stops discovery, presence and the link.
     public func stop() {
         discoveryTask?.cancel()
@@ -345,6 +405,7 @@ public final class LiveCoordinator {
             if chiefLive {
                 // Live mode never falls back to the mock Chief.
                 ChiefSession.shared.use(ChiefOfflineBackend())
+                ChiefSession.shared.status = nil
                 chiefLive = false
             }
             return
@@ -369,6 +430,13 @@ public final class LiveCoordinator {
         // own `daemon` channel of this link; open ones reattach now.
         terminals.removeAll { $0.session == nil }
         for terminal in terminals { terminal.session?.reconnect() }
+        // Streamed browser tabs that dropped open again on this link.
+        StreamedBrowserDirectory.shared.linkChanged()
+    }
+
+    /// The current link, for streamed browser tabs (`browser` service).
+    public func browserLink() async -> (any BrowserStreamOpening)? {
+        currentLink as? any BrowserStreamOpening
     }
 
     /// A live session for a terminal tab of the Mac (`s<surface>`), or nil
@@ -404,23 +472,59 @@ public final class LiveCoordinator {
         }
     }
 
-    /// Chief over the daemon's local conversations, when the Mac's link allows them.
+    /// Chief on the Mac: its Chief owner over the link's scoped `chief`
+    /// channel (cnx-hostd). Every failure leaves Chief offline with the
+    /// reason; there is no stand-in Chief.
     private func startChief(_ link: any MacLink) async {
+        let session = ChiefSession.shared
+        session.macName = self.link.target?.name
+        // A newer link (or none) took over while this one was opening: leave it be.
+        func current() -> Bool { (currentLink as AnyObject?) === (link as AnyObject) }
+        func offline(_ reason: String) {
+            guard current() else { return }
+            chiefStatus = reason
+            session.status = reason
+            if chiefLive || !(session.backend is ChiefOfflineBackend) {
+                session.use(ChiefOfflineBackend(reason: reason))
+            }
+            chiefLive = false
+            log.info("chief unavailable: \(reason, privacy: .public)")
+        }
         do {
-            let channel = try await link.openChannel(service: "daemon", args: [:])
+            let channel = try await link.openChannel(service: ChiefDaemonBackend.service, args: [:])
             let client = DaemonClient(channel: channel)
             let probe = try await client.request("conversation-list", params: [:])
-            if let object = try? JSONSerialization.jsonObject(with: probe) as? [String: Any], object["ok"] as? Bool == false {
-                chiefStatus = "Chief on this Mac: \(object["error"] as? String ?? "unavailable")"
+            let object = try? JSONSerialization.jsonObject(with: probe) as? [String: Any]
+            if object?["ok"] as? Bool == false {
                 await channel.close(code: "eof", reason: "chief unavailable")
-                log.info("chief unavailable: \(self.chiefStatus ?? "", privacy: .public)")
+                offline(String(localized: "Chief on this Mac: \(object?["error"] as? String ?? "unavailable")"))
                 return
             }
-            ChiefSession.shared.use(ChiefDaemonBackend(client: client))
+            let conversations = (object?["data"] as? [String: Any])?["conversations"] as? [[String: Any]] ?? []
+            let identity = ChiefIdentity.standard
+            let hasChief = conversations.contains { summary in
+                let ids = (summary["participants"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+                return ids.contains(identity.chiefID) && ids.contains(identity.meID)
+            }
+            guard hasChief else {
+                await channel.close(code: "eof", reason: "chief not started")
+                offline(ChiefDaemonBackend.notStarted)
+                return
+            }
+            guard current() else {
+                await channel.close(code: "eof", reason: "link replaced")
+                return
+            }
+            session.status = nil
+            session.use(ChiefDaemonBackend(client: client))
             chiefLive = true
             chiefStatus = nil
         } catch {
-            chiefStatus = "Chief on this Mac: \(LinkController.reason(error))"
+            // An older hostd without the `chief` service closes it as unknown.
+            let reason = LinkController.reason(error)
+            offline(reason.contains("unknown_service") || reason.contains("no service chief")
+                ? String(localized: "This Mac's cmux is too old for Chief on iPhone. Update cmux on the Mac.")
+                : String(localized: "Chief on this Mac: \(reason)"))
         }
     }
 
@@ -511,7 +615,9 @@ public final class LiveCoordinator {
                 }
             }
         case .waiting(let transport, _, _, _):
-            banner = .failed("Can't reach \(name) over \(transport.displayName)")
+            // Without TURN, WebRTC from another network cannot get through: say so.
+            let relay = relayAvailable == false && transport == .webRTC ? ". Relay (TURN) unavailable" : ""
+            banner = .failed("Can't reach \(name) over \(transport.displayName)\(relay)")
         }
     }
 }
