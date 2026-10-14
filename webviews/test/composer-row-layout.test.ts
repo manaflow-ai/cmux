@@ -244,7 +244,8 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         const sizes = gaps.map(({ gap }) => gap);
         if (sizes.length > 1 && Math.max(...sizes) - Math.min(...sizes) > 1)
           problems.push(`uneven gaps ${gaps.map(({ between, gap }) => `${between} ${gap.toFixed(1)}`).join(", ")}`);
-        if (measured.spinners.length > 0) problems.push(`a ring or spinner in the row: ${measured.spinners.join(", ")}`);
+        if (measured.spinners.length > 0)
+          problems.push(`a ring or spinner in the row: ${measured.spinners.join(", ")}`);
         if (measured.locks > 1) problems.push(`${measured.locks} locks in the row`);
         if (measured.status) problems.push("the granted-permission status chip is in the row");
         if (measured.stopGlyph) {
@@ -262,7 +263,9 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       const send = idle.send!;
       const stop = running.stop!;
       expect(stop).toBeDefined();
-      const off = (["left", "right", "top", "bottom"] as const).filter((side) => Math.abs(send[side] - stop[side]) > 0.5);
+      const off = (["left", "right", "top", "bottom"] as const).filter(
+        (side) => Math.abs(send[side] - stop[side]) > 0.5,
+      );
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
       // The same circle as Send (its resting fill), not a disc of its own.
       expect(running.fill).toBe(idle.fill);

@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample chats and model names), not shipped UI.
 // The composer's controls row and its footer (Composer.tsx, ComposerPickers.tsx, composerLocation.css)
-// at the widths a chat pane takes (hq#1957 item 15): a left cluster (+, model, context ring, effort,
-// the permission mode) and a right cluster (mic, Send or Stop), with the row's free space only
+// at the widths a chat pane takes (hq#1957 item 15): a left cluster (+, model, effort, the
+// permission mode, 8 px apart) and a right cluster (mic, Send or Stop), with the row's free space only
 // between the two; chips keep their full labels while the row has room, and a narrow pane drops
 // the permission label first, then shortens effort, and the model last. The folder and computer
 // footer stays whole inside the card at every width. test/composer-row-layout.test.ts measures it.
@@ -38,7 +38,7 @@ const modes = {
   ],
 };
 
-// The chat in Leo's report: Claude Opus 5.5, the context ring, Medium, Auto.
+// The chat in Leo's report: Claude Opus 5.5, Medium, Auto (no context ring: the model's tooltip says the usage).
 function row(fields: Parameters<typeof chat>[1] = {}, extra: Partial<NonNullable<AcpmuxSnapshot["summary"]>> = {}) {
   const snapshot = chat(finished, { title: "Composer row", ...fields });
   return {
@@ -71,14 +71,10 @@ export default agentPaneEntry({
   height: 300,
   widths: { narrow: 420, normal: 720, wide: 1100 },
   anchors: [{ selector: ".acpmux-composer-bar" }, { selector: ".acpmux-composer-context" }],
-  covers: [
-    "agent-session/acpmux/Composer.tsx#Composer",
-    "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
-    "agent-session/acpmux/PermissionStatus.tsx#PermissionStatus",
-  ],
+  covers: ["agent-session/acpmux/Composer.tsx#Composer", "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers"],
   variants: {
     "claude-auto": {
-      note: "Claude Opus 5.5, the ring, Medium and Auto in one left cluster; mic and Send on the right; the footer whole.",
+      note: "Claude Opus 5.5, Medium and Auto in one evenly spaced left cluster; mic and Send on the right; the footer whole.",
       snapshot: row(),
     },
     "long-model": {
@@ -86,7 +82,7 @@ export default agentPaneEntry({
       snapshot: { ...row({ model: LONG_MODEL }), catalog: longCatalog },
     },
     granted: {
-      note: "The chat-wide allowance chip joins the left cluster after the permission mode.",
+      note: "A chat-wide allowance: the row still shows one lock, the mode's; the granted status gets no slot in it.",
       snapshot: {
         ...row(),
         permissionGroups: {
@@ -100,7 +96,7 @@ export default agentPaneEntry({
       },
     },
     queued: {
-      note: "A running turn with prompts queued above the field: Stop replaces Send, the row keeps its clusters.",
+      note: "A running turn with prompts queued above the field: Stop takes Send's circle, the row keeps its clusters.",
       snapshot: {
         ...row({ isWorking: true }),
         queue: [

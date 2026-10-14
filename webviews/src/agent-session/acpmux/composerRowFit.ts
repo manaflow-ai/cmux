@@ -1,8 +1,8 @@
 import { type RefObject, useLayoutEffect } from "react";
 
 // The composer's controls row gives its labels up in a fixed order when it runs out of room
-// (hq#1957 item 15): first the permission labels (the mode and the granted status show their
-// lock alone), then effort shortens, the model last. The last two are CSS (composerLocation.css:
+// (hq#1957 item 15): first the permission mode's label (its lock alone), then effort shortens,
+// the model last. The last two are CSS (composerLocation.css:
 // flex-shrink weights far enough apart that each control reaches its min width before the next
 // one gives a pixel). The first is a step, not a squeeze: a lock alone in a chip still as wide as
 // its label would be the empty gap this fixes, so the row is measured here and marked
@@ -13,7 +13,7 @@ import { type RefObject, useLayoutEffect } from "react";
 // when the row is resized and when a control in it changes, never on a keystroke in the prompt.
 
 /** Labels that give way to their icon first. */
-const ICON_LABELS = ".acpmux-mode-text, .acpmux-permission-status-label";
+const ICON_LABELS = ".acpmux-mode-text";
 /** Labels that shorten with an ellipsis (effort, the model); their overflow is width they want. */
 const SHORTENING = ".acpmux-picker-button > span";
 
@@ -90,8 +90,7 @@ export function useRowFit(bar: RefObject<HTMLElement | null>): void {
     const resize = new ResizeObserver(fit);
     resize.observe(element);
     const watchChips = () => {
-      for (const chip of element.querySelectorAll(".acpmux-chips, .acpmux-permission-status, .acpmux-composer-actions"))
-        resize.observe(chip);
+      for (const chip of element.querySelectorAll(".acpmux-chips, .acpmux-composer-actions")) resize.observe(chip);
     };
     watchChips();
     const mutation = new MutationObserver(() => {

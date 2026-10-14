@@ -201,8 +201,6 @@
 }
 .acpmux-permission-status-undo:hover { color: var(--agent-text); background: var(--acpmux-menu-hover); }
 .acpmux-permission-status-undo:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
-.acpmux-send { width: 32px; height: 32px; }
-.acpmux-context-ring { width: 32px; height: 32px; }
 
 /* The card over a backdrop (a background image or a clear window): the card mixes its tint into the
    opaque base at 72% instead of into the clear page, so the prompt, the chips and the footer stay
@@ -288,9 +286,11 @@
 }
 
 /* The top row is a compact control rail. Keep the selected value visible so the
-   model, effort, and access choices can be scanned without opening a menu. */
+   model, effort, and access choices can be scanned without opening a menu. Every control is the
+   bar's regular 28 px and 8 px from the next, the bar's own gap, so + · model · effort · access
+   read as one evenly spaced group (hq#1957 item 15 compact row). */
 .acpmux-composer-bar .acpmux-chips {
-  gap: 2px;
+  gap: 8px;
 }
 .acpmux-composer-bar .acpmux-mode-text {
   display: inline;
@@ -302,15 +302,35 @@
 .acpmux-composer-bar .acpmux-access-trigger {
   position: relative;
   width: auto;
-  gap: 5px;
-  padding-inline: 8px;
+  gap: 4px;
 }
 .acpmux-composer-bar .acpmux-model .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button {
-  height: 30px;
-  border-radius: 8px;
+  height: 28px;
+  padding-inline: 6px 4px;
+  border-radius: 7px;
   color: var(--agent-muted);
+}
+/* Hover is the shared quiet wash (ui/ui.css --ui-hover, which the agent pane does not load): the
+   control's own ink at 6% over the card, tight to the control, a step further on press; no
+   opaque block. */
+.acpmux-composer-bar {
+  --acpmux-row-hover: var(--ui-hover, color-mix(in srgb, currentcolor 6%, transparent));
+  --acpmux-row-press: color-mix(in srgb, currentcolor 12%, transparent);
+}
+.acpmux-composer-bar .acpmux-picker-button:hover,
+.acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"],
+.acpmux-composer-bar .acpmux-plan:hover,
+.acpmux-composer-bar .acpmux-steer:hover,
+.acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):hover {
+  background: var(--acpmux-row-hover);
+}
+.acpmux-composer-bar .acpmux-picker-button:active,
+.acpmux-composer-bar .acpmux-plan:active,
+.acpmux-composer-bar .acpmux-steer:active,
+.acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):active {
+  background: var(--acpmux-row-press);
 }
 .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button {
   color: var(--acpmux-warning);
@@ -335,13 +355,15 @@
   display: inline-flex;
   align-items: center;
 }
-/* The row's two clusters (hq#1957 item 15): + and the chips (model, ring, effort, permission
-   mode, Plan) and the granted status on the left, hugging their controls; the mic and Send (or
-   Stop) on the right (.acpmux-composer-actions, margin-left: auto). The row's free space sits only
-   between the two, so no chip is cut while there is room. A short row gives up the permission
-   labels first (composerRowFit.ts marks it data-fit="icons": the lock alone), then effort
-   shortens, the model last: their flex-shrink weights are far enough apart that each reaches its
-   min width before the next gives up a pixel. Neither the bar nor the footer ever shrinks. */
+/* The row's two clusters (hq#1957 item 15): + and the chips (model, effort, permission mode,
+   Plan) on the left, hugging their controls; the mic and Send (or Stop) on the right
+   (.acpmux-composer-actions, margin-left: auto). The row's free space sits only between the two,
+   so no chip is cut while there is room. No context ring and no granted-permission status sit in
+   it: one lock, the mode's, and a running turn shows on Stop alone. A short row gives up the
+   permission label first (composerRowFit.ts marks it data-fit="icons": the lock alone), then
+   effort shortens, the model last: their flex-shrink weights are far enough apart that each
+   reaches its min width before the next gives up a pixel. Neither the bar nor the footer ever
+   shrinks. */
 .acpmux-composer-bar { flex: none; }
 .acpmux-composer-bar .acpmux-chips { flex: 0 1 auto; min-width: 0; }
 .acpmux-composer-bar > :not(.acpmux-chips),
@@ -351,10 +373,8 @@
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
 .acpmux-composer-bar .acpmux-picker-button > :not(span) { flex: none; }
-.acpmux-composer-bar .acpmux-permission-status-trigger { position: relative; }
-/* Out of the row but still laid out, so composerRowFit.ts knows the width they would take back. */
-.acpmux-composer-bar[data-fit="icons"] .acpmux-mode-text,
-.acpmux-composer-bar[data-fit="icons"] .acpmux-permission-status-label {
+/* Out of the row but still laid out, so composerRowFit.ts knows the width it would take back. */
+.acpmux-composer-bar[data-fit="icons"] .acpmux-mode-text {
   position: absolute;
   top: 0;
   left: 0;
@@ -413,6 +433,20 @@
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
   background: var(--agent-accent, var(--agent-text));
   color: var(--agent-on-accent, var(--acpmux-base));
+}
+/* Stop is Send's circle at rest (styles.css: the accent at 34% over the base), never a disc of its
+   own, with a small square in the text color so it reads in light and dark themes; hover and
+   press step the circle as the bar's other controls do. Send and Stop are the bar's 28 px. */
+.acpmux-composer-bar .acpmux-send { width: 28px; height: 28px; }
+.acpmux-composer-bar .acpmux-send.acpmux-cancel {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 34%, var(--acpmux-base));
+  color: var(--agent-text);
+}
+.acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 42%, var(--acpmux-base));
+}
+.acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 50%, var(--acpmux-base));
 }
 
 /* Permission cards use the same quiet material language as the composer. The icon and title form
