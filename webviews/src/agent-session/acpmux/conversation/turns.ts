@@ -58,9 +58,8 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
   return row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time });
 }
 
-const isEdit = (row: AcpmuxRow) =>
-  row.kind === "activity" &&
-  (row.items ?? []).some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
+const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
+const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
 
 /// The rows to draw. `expanded` holds the ids of open disclosures; `working` says the last
 /// turn is still running (the snapshot's `isWorking`); `now` dates the turns (timestamps.ts);
@@ -242,9 +241,11 @@ function shapedTurn(
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";
 
 /// A tool call after a turn's last text: the turn ended on work, so that text was interim.
-/// Edits join the turn's card and render calls draw as their own cards, so neither counts.
+/// Edits join the turn's card and render calls draw as their own cards, so neither counts; a
+/// step that edited and then ran something does.
 const isWork = (row: AcpmuxRow) =>
-  row.kind === "activity" && !isEdit(row) && (row.items ?? []).some((item) => item.tool && !renderCall(item.tool));
+  row.kind === "activity" &&
+  (row.items ?? []).some((item) => item.tool && !isEditTool(item.tool) && !renderCall(item.tool));
 
 /// Where a finished turn's answer is in `rows`: the last text, unless the turn went on to work
 /// after it (-1: no answer, so all of it folds, as the Codex and Claude desktop apps fold it).
