@@ -71,6 +71,19 @@ pub const SETTLE_LIMIT: Duration = crate::brain::SETTLE_BOUND;
 /// other prompt in its session is the user's (typed into its chat).
 pub const PROMPT_PREFIX: &str = "optchat-";
 
+/// acpmux errors of a session whose agent host failed to come up, which a
+/// second `session/new` usually gets past (acpmux agent_host/link.rs).
+const TRANSIENT_START_FAILURES: [&str; 3] = [
+    "agent host did not answer hello",
+    "agent host closed the connection during hello",
+    "agent host exited before it was ready",
+];
+
+/// Whether `error` (a failed `session/new`) is worth one more try.
+pub fn is_transient_start_failure(error: &str) -> bool {
+    TRANSIENT_START_FAILURES.iter().any(|t| error.contains(t))
+}
+
 /// What one spawn was given: its id and its subagents' ids.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpawnPlan {
@@ -363,7 +376,19 @@ impl Spawner {
                 s.cwd.display()
             ));
         }
-        let session = self.agents.new_session(&spec)?;
+        let session = match self.agents.new_session(&spec) {
+            // acpmux's agent host can miss its 5 s startup handshake while
+            // the machine is busy (a10, 2026-10-13: "agent host did not
+            // answer hello within 5s"; the same spawn started at once
+            // after). acpmux now replaces such a host once itself
+            // (cx-7gs9r), but not for a remote-origin chain or a host it
+            // could not end. One more try before the subagent counts as failed.
+            Err(e) if is_transient_start_failure(&e) => {
+                (self.log)(&format!("subagent {id}: {e}; starting it once more"));
+                self.agents.new_session(&spec)?
+            }
+            other => other?,
+        };
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
             .map_err(|reason| {
                 let _ = self.agents.end_session(&session);
