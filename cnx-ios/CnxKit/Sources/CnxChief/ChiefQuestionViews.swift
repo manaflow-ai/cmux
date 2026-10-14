@@ -18,9 +18,9 @@ struct ChiefQuestionBar: View {
     /// host fades its backing band with it (R3-2).
     var fading: (_ out: Bool, _ duration: Double) -> Void = { _, _ in }
 
-    /// The question on the bar. It outlives `openQuestion` by the fade, so
+    /// What the bar shows. It outlives `session.barItem` by the fade, so
     /// the bar leaves before the conversation moves up into its room (R3-2).
-    @State private var shown: AgentQuestion?
+    @State private var shown: ChiefBarItem?
     @State private var visible = false
 
     static let fadeDuration = 0.2
@@ -28,14 +28,14 @@ struct ChiefQuestionBar: View {
     var body: some View {
         VStack(spacing: 0) { content }
             .onAppear {
-                shown = session.openQuestion
+                shown = session.barItem
                 visible = shown != nil
                 if visible { fading(false, 0) }
             }
-            .onChange(of: session.openQuestion) { _, question in
-                if let question {
+            .onChange(of: session.barItem) { _, item in
+                if let item {
                     let appearing = shown == nil
-                    shown = question
+                    shown = item
                     guard appearing else { return }
                     // Room first, then the bar fades in.
                     resized()
@@ -57,12 +57,17 @@ struct ChiefQuestionBar: View {
 
     /// What changes the bar's height: the question, and its status line.
     private var layoutKey: String {
-        guard let question = shown else { return "" }
-        return question.id + (session.answers[question.id]?.statusText ?? "")
+        switch shown {
+        case .question(let question)?: question.id + (session.answers[question.id]?.statusText ?? "")
+        case .failure(let id, _)?: id
+        case nil: ""
+        }
     }
 
     @ViewBuilder private var content: some View {
-        if let question = shown {
+        if case .failure(_, let failure)? = shown {
+            failureBar(failure)
+        } else if case .question(let question)? = shown {
             let flow = session.answers[question.id] ?? ChiefAnswerFlow()
             Button { open(question) } label: {
                 label(question, flow: flow)
@@ -87,6 +92,35 @@ struct ChiefQuestionBar: View {
     }
 
     @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// Chief's newest turn failed: the reason in plain words and Try Again,
+    /// which sends the message it was answering again.
+    private func failureBar(_ failure: ChiefTurnFailure) -> some View {
+        Button { session.retryFailedTurn() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.bubble.fill").font(.body).foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(failure.barTitle).font(.footnote.weight(.semibold))
+                    Text("Send your last message again.").font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer(minLength: 4)
+                Text("Try Again").font(.footnote.weight(.semibold))
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+            .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
+        }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .accessibilityIdentifier("chief.failure.bar")
+        .accessibilityHint("Sends your last message to Chief again")
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+    }
 
     @ViewBuilder private func label(_ question: AgentQuestion, flow: ChiefAnswerFlow) -> some View {
         let icon = Group {

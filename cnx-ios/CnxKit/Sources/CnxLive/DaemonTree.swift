@@ -22,6 +22,14 @@ public struct DaemonTree: Sendable {
     /// active pane, else its first pane.
     public var panes: [String: Int] = [:]
     public var revision: Int?
+    /// Each tab's retained notification marker (`Tab.notification`), by daemon surface.
+    public var notificationMarkers: [Int: NotificationMarker] = [:]
+
+    /// A tab's newest retained notification and whether the Mac still shows it unread.
+    public struct NotificationMarker: Hashable, Sendable {
+        public var notification: Int
+        public var unread: Bool
+    }
 
     /// The app tab id for a daemon surface.
     public static func tabID(surface: Int) -> String { "s\(surface)" }
@@ -46,6 +54,7 @@ public struct DaemonTree: Sendable {
         var surfaces: [String: Int] = [:]
         var directories: [String: String] = [:]
         var panes: [String: Int] = [:]
+        var markers: [Int: NotificationMarker] = [:]
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
         for case let ws as [String: Any] in data["workspaces"] as? [Any] ?? [] {
@@ -70,6 +79,9 @@ public struct DaemonTree: Sendable {
                         }
                         let id = Self.tabID(surface: surface)
                         surfaces[id] = surface
+                        if let marker = tab["notification"] as? [String: Any], let notification = marker["notification"] as? Int {
+                            markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true)
+                        }
                         if let cwd = tab["cwd"] as? String, cwd.hasPrefix("/") { directories[id] = cwd }
                         let state = agents[surface]
                         if state?.state == "working" { working = true }
@@ -116,6 +128,7 @@ public struct DaemonTree: Sendable {
         self.surfaces = surfaces
         self.directories = directories
         self.panes = panes
+        notificationMarkers = markers
     }
 
     /// One daemon tab as an app tab, or nil for tabs the phone does not show (pages, conversations).
@@ -237,6 +250,9 @@ public enum DaemonEvent: Equatable, Sendable {
     case resubscribe
     case agentChanged(surface: Int, state: String, agent: String?, updatedAt: Date? = nil)
     case titleChanged(surface: Int, title: String)
+    /// A notification was posted (`notification`): the tree's markers and the
+    /// notification ledger changed.
+    case notification
     case other
 
     public static func parse(_ line: Data) -> DaemonEvent {
@@ -252,7 +268,9 @@ public enum DaemonEvent: Equatable, Sendable {
         case "title-changed":
             guard let surface = object["surface"] as? Int else { return .other }
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")
-        case "tree-changed", "layout-changed", "surface-exited", "notification":
+        case "notification":
+            return .notification
+        case "tree-changed", "layout-changed", "surface-exited":
             return .treeChanged
         default:
             let prefixes = ["workspace-", "screen-", "pane-", "tab-"]

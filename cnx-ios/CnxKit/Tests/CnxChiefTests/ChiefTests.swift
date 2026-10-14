@@ -121,6 +121,18 @@ final class FakeDaemon: @unchecked Sendable {
         lock.withLock { queued.append(line(event)) }
     }
 
+    /// Chief posts `text` on its own (a turn's end), delivered as a
+    /// `conversation-changed` event after the next reply.
+    func queueChiefMessage(_ text: String) {
+        lock.withLock {
+            let posted = message(author: "agent_mux", text: text, client: "chief-\(messages.count + 1)")
+            messages.append(posted)
+            rev += 1
+            queued.append(line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev,
+                                "transaction": NSNull(), "change": ["kind": "message", "message": posted]]))
+        }
+    }
+
     /// Chief asks to allow a command (part 1 of its message).
     func seedChiefQuestion() -> String {
         lock.withLock {

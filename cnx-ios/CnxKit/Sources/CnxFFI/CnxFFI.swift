@@ -1288,6 +1288,16 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func close() 
     
     /**
+     * Debug: measure a network change. Pings back to back for 1 s, then
+     * takes this device's network away (every WireGuard session's socket
+     * and TURN allocation go dead) and, when `roam`, roams at once; keeps
+     * pinging for `window_ms`. Returns JSON: `stall_ms` (the longest wait
+     * for a pong from the change on), `pongs`, `path` at the end, and the
+     * roam marks.
+     */
+    func debugNetworkChangeProbe(roam: Bool, windowMs: UInt32) async  -> String
+    
+    /**
      * Whether the link has its own input-lane stream now.
      */
     func hasInputLane()  -> Bool
@@ -1321,6 +1331,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * Round-trip one ping; milliseconds.
      */
     func ping() async throws  -> UInt32
+    
+    /**
+     * The latest WireGuard roam of this link (`network_changed`,
+     * `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
+     * ...), in milliseconds since the network changed; empty before any.
+     */
+    func roamTimings()  -> [TimingMark]
     
     /**
      * The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
@@ -1397,6 +1414,32 @@ open func close()  {try! rustCall() {
             self.uniffiCloneHandle(),$0
     )
 }
+}
+    
+    /**
+     * Debug: measure a network change. Pings back to back for 1 s, then
+     * takes this device's network away (every WireGuard session's socket
+     * and TURN allocation go dead) and, when `roam`, roams at once; keeps
+     * pinging for `window_ms`. Returns JSON: `stall_ms` (the longest wait
+     * for a pong from the change on), `pongs`, `path` at the end, and the
+     * roam marks.
+     */
+open func debugNetworkChangeProbe(roam: Bool, windowMs: UInt32)async  -> String  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_method_linkhandle_debug_network_change_probe(
+                    self.uniffiCloneHandle(),
+                    FfiConverterBool.lower(roam),FfiConverterUInt32.lower(windowMs)
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cnx_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: nil
+            
+        )
 }
     
     /**
@@ -1510,6 +1553,19 @@ open func ping()async throws  -> UInt32  {
             liftFunc: FfiConverterUInt32.lift,
             errorHandler: FfiConverterTypeCnxError_lift
         )
+}
+    
+    /**
+     * The latest WireGuard roam of this link (`network_changed`,
+     * `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
+     * ...), in milliseconds since the network changed; empty before any.
+     */
+open func roamTimings() -> [TimingMark]  {
+    return try!  FfiConverterSequenceTypeTimingMark.lift(try! rustCall() {
+    uniffi_cnx_ffi_fn_method_linkhandle_roam_timings(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
     /**
@@ -2741,6 +2797,28 @@ public func connectWithOptions(baseUrl: String, token: String, teamId: String, d
         )
 }
 /**
+ * The device's network changed or came back (iOS `NWPathMonitor`): every
+ * WireGuard link moves onto the new network at once without a redial, and
+ * the signaling socket is checked (and replaced when dead) so relay frames
+ * flow again. Returns the steps: the first link's roam marks, then the
+ * signaling ones prefixed `signaling:`.
+ */
+public func networkChanged(baseUrl: String, token: String, teamId: String, deviceId: String)async  -> [TimingMark]  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_func_network_changed(FfiConverterString.lower(baseUrl),FfiConverterString.lower(token),FfiConverterString.lower(teamId),FfiConverterString.lower(deviceId)
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cnx_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeTimingMark.lift,
+            errorHandler: nil
+            
+        )
+}
+/**
  * Warm what the next `connect` to this service, team and device needs:
  * fetch the ICE servers (unless cached) and open the signaling socket
  * (or, when one is open, check that it still answers). Call at launch,
@@ -2805,6 +2883,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_func_connect_with_options() != 14347) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_func_network_changed() != 34403) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cnx_ffi_checksum_func_prewarm() != 62590) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2826,6 +2907,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_method_linkhandle_close() != 65297) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_debug_network_change_probe() != 11320) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_has_input_lane() != 24284) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2845,6 +2929,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_ping() != 28685) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_roam_timings() != 62822) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_timings() != 18369) {

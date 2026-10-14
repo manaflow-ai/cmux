@@ -1497,6 +1497,86 @@ w("\r\x1b[2KSTREAMDONE\n")
         texts = [str(e.label) for e in self.sim.tree() if e.label and 0 <= e.frame[0] < 402 and 100 < e.frame[1] < 780][:6]
         raise Blocked(f"Feed events come from agent asks; no credit-free harness (see agent_chat). Feed opened: {texts[:4]}")
 
+    def codex_ready(self, term, timeout=60):
+        """Waits for Codex's prompt in `term`, accepting the folder trust question."""
+        deadline = time.time() + timeout
+        text = ""
+        while time.time() < deadline:
+            text = self.mac_screen(term).get("text", "")
+            if "trust" in text.lower() and "1." in text:
+                self.mac_write(term, "\r"); time.sleep(2); continue
+            if "›" in text and "trust" not in text.lower():
+                return text
+            time.sleep(1)
+        raise Fail(f"Codex never showed its prompt; screen tail: {text[-300:]!r}")
+
+    def codex_prompt(self, term, text):
+        # The text, then Return on its own: a Return inside Codex's paste burst is a newline.
+        self.mac_write(term, text); time.sleep(1.5)
+        self.mac_write(term, "\r")
+
+    def s_feed_terminal(self):
+        """Terminal agents in the Feed with the real Codex CLI (model calls: only with
+        CNX_E2E_REAL_CODEX=1). Codex runs in a Mac terminal tab, as the person runs it,
+        and reports through its hooks to the daemon's notification ledger. A finished
+        turn and an approval it waits on reach the phone's Feed live; the approval is a
+        "Needs input" item, and Answer in Terminal opens that terminal tab."""
+        if os.environ.get("CNX_E2E_REAL_CODEX") != "1":
+            raise Blocked("needs CNX_E2E_REAL_CODEX=1 (the real Codex CLI makes model calls)")
+        term = self.seed["term2"]
+        proj = os.path.expanduser("~/cnx-ios-e2e/feedterm-proj")
+        os.makedirs(proj, exist_ok=True)
+        probe = os.path.join(proj, "feedterm-probe.txt")
+        if os.path.exists(probe):
+            os.remove(probe)
+        self.back_to_list()
+        self.tab("Feed")
+        video = os.path.join(self.out, f"feed-terminal-{self.run_id}.mp4")
+        self.sim.record_start(video)
+        notes = []
+        try:
+            # A read-only sandbox with on-request approvals: writing a file needs the
+            # person's approval in the TUI, as a person's cautious setup does.
+            # --no-daemon: Codex 0.162's shared app-server daemon runs hooks outside
+            # the terminal (no CMUX_TUI_HOOK/SOCKET), so its events never reach the
+            # daemon; in-process hooks do (verify notes, feat-cnx-ios-feedterm).
+            self.mac_write(term, f"clear; cd {proj} && codex --no-daemon --sandbox read-only --ask-for-approval on-request\n")
+            self.codex_ready(term)
+            t = time.time()
+            self.codex_prompt(term, "Reply with exactly one word: ready")
+            done = self.sim.wait(label="Codex", timeout=150)
+            if not done:
+                ledger = self.mac.cmux("notification", "list", check=False, timeout=20)
+                screen = self.mac_screen(term).get("text", "")
+                raise Fail(f"no Codex item in the Feed 150 s after Codex's turn; Mac ledger: "
+                           f"{(ledger.stdout or ledger.stderr)[-400:]!r}; screen tail: {screen[-300:]!r}")
+            notes.append(f"finished turn in the Feed after {time.time()-t:.1f} s")
+            self.sim.shot(f"feed-terminal-finished-{self.run_id}")
+            t = time.time()
+            self.codex_prompt(term, "Create the file feedterm-probe.txt in this folder by running: touch feedterm-probe.txt (ask me for approval if the sandbox blocks it)")
+            ask = self.sim.wait(label="Needs input", timeout=150)
+            screen = self.mac_screen(term).get("text", "")
+            check(ask, f"no Needs input item 150 s after asking Codex to run a command; Mac screen tail: {screen[-300:]!r}")
+            notes.append(f"approval as Needs input after {time.time()-t:.1f} s")
+            self.sim.shot(f"feed-terminal-needs-input-{self.run_id}")
+            time.sleep(2)
+            opened = None
+            for _ in range(3):  # a tap while the list still settles can be dropped
+                self.sim.tap_q(ident="feed.terminal.open")
+                opened = self.sim.wait(ident="terminal.composer.field", timeout=8)
+                if opened:
+                    break
+            check(opened, "Answer in Terminal did not open the terminal tab")
+            time.sleep(3)
+            self.sim.shot(f"feed-terminal-opened-{self.run_id}")
+            notes.append("Answer in Terminal opened the terminal tab")
+        finally:
+            self.sim.record_stop()
+            # Decline the approval and leave Codex.
+            self.mac_write(term, "\x1b"); time.sleep(1)
+            self.mac_write(term, "\x03"); time.sleep(0.5); self.mac_write(term, "\x03")
+        return {"notes": "; ".join(notes) + f"; video {os.path.relpath(video, self.out)}"}
+
     def s_chief(self):
         self.back_to_list()
         self.tab("Home")
@@ -1636,6 +1716,93 @@ w("\r\x1b[2KSTREAMDONE\n")
         self.s_choose_space()
         self.s_mac_discovered()
         return "signed out to Welcome, signed back in and relinked the rig Mac"
+
+    # ---- persistence (verify/persistence.md) -------------------------------
+    def paired_phones(self):
+        """The rig Mac's approved phones ({id, identityKey, approvalKey, pairedAt}) from its
+        per-user paired-devices.json (written by the app, read-only here)."""
+        path = os.path.join(self.mac.hostd_state, "paired-devices.json")
+        try:
+            return json.load(open(path)).get("devices", [])
+        except (OSError, ValueError):
+            return []
+
+    def sign_out(self):
+        self.back_to_list()
+        self.tab("Settings")
+        for _ in range(6):
+            if self.sim.find(ident="settings.logout"):
+                break
+            self.sim.drag(201, 650, 201, 250, duration=0.4, hold=0.2)
+        lo = self.settings_find(ident="settings.logout")
+        check(lo, "no Log out row in Settings")
+        self.sim.tap_el(lo)
+        time.sleep(1.2)
+        conf = [e for e in self.sim.find(label="Log out", kind="Button") if e.ident != "settings.logout"]
+        check(conf, "no Log out confirmation")
+        self.sim.press(*conf[-1].center, hold=0.1)
+        check(self.sim.wait(label="Continue with email", kind="Button", timeout=20), "sign-out did not return to Welcome")
+
+    def s_persist_approval(self):
+        """Sign out and back in: the same phone (device id, keys) reconnects with no new
+        Mac approval. Then Settings > Devices > Remove This iPhone from My Macs: the Mac
+        forgets it, and the next connection asks the Mac again (the rig's DEBUG seed
+        answers that ask, so a new approval shows as a new paired-devices entry)."""
+        video = os.path.join(self.out, "persist-approval.mp4")
+        self.sim.record_start(video)
+        try:
+            result = self._persist_approval()
+        finally:
+            self.sim.record_stop()
+        result["video"] = video
+        return result
+
+    def _persist_approval(self):
+        before = self.paired_phones()
+        check(before, "the rig Mac lists no approved phone before sign-out (pairing never ran?)")
+        self.sim.shot("persist-1-paired")
+        self.sign_out()
+        self.sim.shot("persist-2-signed-out")
+        self.s_sign_in()
+        landed = "setup" if self.sim.find(ident="setup.teams.choose") or self.sim.find(ident="setup.teams.create") \
+            or self.sim.find(contains="Connect your Mac") else "Workspaces"
+        self.s_choose_space()
+        self.s_mac_discovered()
+        self.sim.shot("persist-3-reconnected")
+        after = self.paired_phones()
+        check(after == before, f"the Mac's approved phones changed across sign-out/sign-in: {before} -> {after}")
+        # The explicit removal.
+        self.back_to_list()
+        self.tab("Settings")
+        dev = self.settings_find(ident="settings.devices")
+        check(dev, "no Devices row in Settings")
+        self.sim.tap_el(dev); time.sleep(2.5)
+        rm = self.settings_find(ident="settings.removeThisPhone")
+        check(rm, "no 'Remove This iPhone from My Macs' on the Devices page")
+        self.sim.shot("persist-4-devices")
+        self.sim.tap_el(rm); time.sleep(1.2)
+        conf = self.sim.find(label="Remove", kind="Button")
+        check(conf, "no Remove confirmation")
+        self.sim.shot("persist-5-confirm")
+        self.sim.press(*conf[-1].center, hold=0.1)
+        t, replaced = time.time(), None
+        old = {(d["id"], d["identityKey"]) for d in before}
+        while time.time() - t < 90:
+            now = self.paired_phones()
+            ids = {d["id"] for d in before}
+            fresh = [d for d in now if d["id"] in ids and (d["id"], d["identityKey"]) not in old]
+            if fresh:
+                replaced = (time.time() - t, fresh[0])
+                break
+            time.sleep(1)
+        check(replaced, f"no new approval within 90 s of the removal: {self.paired_phones()}")
+        self.back_to_list()
+        dt = self.wait_connected(60)
+        self.sim.shot("persist-6-reapproved")
+        check(dt is not None, f"after the new approval the link never reached Connected ({self.link_status()!r})")
+        return {"notes": f"sign-out/in kept {len(before)} approval(s) unchanged (same device id, keys, pairedAt); "
+                         f"sign-in landed on {landed}; removal: the Mac asked again and approved new keys for "
+                         f"{replaced[1]['id'][:8]} in {replaced[0]:.1f} s; link Connected again"}
 
     def link_status(self):
         """The rig Mac's link line. Old list: the status row. Redesigned list: the
@@ -1796,10 +1963,12 @@ w("\r\x1b[2KSTREAMDONE\n")
             ("image_upload", "Terminal: image upload", "termlive", self.s_image_upload),
             ("agent_chat", "Agent chat (stream, tools, approvals, question, attachments, diff, artifacts)", "approvals", self.s_agent_chat),
             ("feed", "Feed events and inline answer", "approvals", self.s_feed),
+            ("feed_terminal", "Feed: a terminal agent's events (real Codex), Needs input opens the tab", "feedterm", self.s_feed_terminal),
             ("chief", "Chief: real Mac conversation, send/receive, model", "chieflive", self.s_chief),
             ("transport", "Transport WebRTC <-> WireGuard", "fastconn", self.s_transport),
             ("relay_only", "Relay only", "fastconn", self.s_relay_only),
             ("sign_out_in", "Sign out and back in", "prodinfra", self.s_sign_out_in),
+            ("persist_approval", "Sign-out keeps the Mac approval; Remove This iPhone asks again", "persist", self.s_persist_approval),
             ("background", "Background 45 s / foreground reconnect", "fastconn", self.s_background),
             ("mac_restart", "Mac app quit / relaunch, reconnect", "machost", self.s_mac_restart),
             ("device_removal", "Device removal", "machost", self.s_device_removal),
