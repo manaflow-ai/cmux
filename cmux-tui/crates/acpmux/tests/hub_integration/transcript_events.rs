@@ -434,8 +434,16 @@ async fn tail_pages_read_only_the_newest_segments() {
 /// 3000 turns of about 60 records each in the default 8 MiB segments; prints milliseconds.
 /// `scripts/ci/cargo-test-selected.sh -p acpmux --test hub_integration history_page_cost -- --ignored --nocapture`
 #[tokio::test]
-#[ignore]
 async fn history_page_cost() {
+    let report = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build/history_page_cost.txt");
+    std::fs::create_dir_all(report.parent().unwrap()).unwrap();
+    let report = std::sync::Mutex::new(std::fs::File::create(report).unwrap());
+    macro_rules! eprintln {
+        ($($t:tt)*) => {{
+            use std::io::Write;
+            writeln!(report.lock().unwrap(), $($t)*).unwrap();
+        }};
+    }
     use acpmux::store::EventRecord;
     use std::time::Instant;
     let (hub, mut c, dir) = setup_segmented(8 * 1024 * 1024).await;
