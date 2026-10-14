@@ -494,7 +494,7 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-question-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px}
 .acpmux-question-skip{padding:5px 10px;border:0;border-radius:8px;background:transparent;color:var(--agent-muted);font:inherit;font-size:12px;cursor:default}
 .acpmux-question-skip:hover:not(:disabled){background:var(--acpmux-question-hover);color:var(--agent-text)}
-.acpmux-question-submit{display:inline-flex;align-items:center;gap:6px;padding:5px 8px 5px 12px;border:0;border-radius:7px;background:var(--agent-accent,var(--agent-text));color:var(--agent-on-accent,var(--agent-accent-text,#fff));font:inherit;font-size:12px;font-weight:600;cursor:default}
+.acpmux-question-submit{display:inline-flex;align-items:center;gap:6px;padding:5px 8px 5px 12px;border:0;border-radius:7px;background:var(--agent-accent,var(--agent-text));color:var(--agent-accent-text,#fff);font:inherit;font-size:12px;font-weight:600;cursor:default}
 .acpmux-question-submit .acpmux-keycap{margin:0;min-width:14px;padding:0 3px}
 .acpmux-question-submit:disabled{opacity:.35}
 .acpmux-question-actions button:disabled{cursor:default}
