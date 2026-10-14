@@ -71,6 +71,20 @@ struct PendingPairing {
 struct Credential {
     value: String,
     expires_at: Instant,
+    /// A page credential bound to one page (`issue_for_page`): it admits only
+    /// a handshake whose Origin names that page, and never as the person.
+    page: Option<String>,
+}
+
+/// What a presented credential is (`authenticate_for`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialMatch {
+    /// No credential of this store.
+    None,
+    /// An approved pairing, or the verified app's own page credential: the person.
+    Person,
+    /// A page credential bound to the handshake's page: that page only, not the person.
+    Page,
 }
 
 #[derive(Default)]
@@ -185,7 +199,7 @@ impl PairingBroker {
         let decision = if let Some(value) = credential {
             state
                 .credentials
-                .push_back(Credential { value: value.clone(), expires_at: now + CREDENTIAL_TTL });
+                .push_back(Credential { value: value.clone(), expires_at: now + CREDENTIAL_TTL, page: None });
             while state.credentials.len() > MAX_CREDENTIALS {
                 state.credentials.pop_front();
             }
@@ -205,13 +219,24 @@ impl PairingBroker {
     /// single use, for the WebSocket handshake that follows at once (2 min),
     /// in its own bounded store so it never evicts an approved pairing.
     pub fn issue(&self) -> Result<(String, u64), PairingError> {
+        self.issue_page_credential(None)
+    }
+
+    /// A page credential bound to `page` (`page-credential {page}`): single
+    /// use and 2 min like `issue`, in the same bounded store, but it admits
+    /// only a handshake whose Origin names `page` and never as the person.
+    pub fn issue_for_page(&self, page: &str) -> Result<(String, u64), PairingError> {
+        self.issue_page_credential(Some(page.to_owned()))
+    }
+
+    fn issue_page_credential(&self, page: Option<String>) -> Result<(String, u64), PairingError> {
         let now = Instant::now();
         let value = random_credential()?;
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         Self::prune(&mut state, now);
         state
             .page_credentials
-            .push_back(Credential { value: value.clone(), expires_at: now + PAGE_CREDENTIAL_TTL });
+            .push_back(Credential { value: value.clone(), expires_at: now + PAGE_CREDENTIAL_TTL, page });
         while state.page_credentials.len() > MAX_PAGE_CREDENTIALS {
             state.page_credentials.pop_front();
         }
@@ -223,6 +248,13 @@ impl PairingBroker {
     }
 
     pub fn authenticate(&self, provided: &str) -> bool {
+        self.authenticate_for(provided, None) == CredentialMatch::Person
+    }
+
+    /// Checks `provided` for a handshake whose Origin names `handshake_page`
+    /// (none: no page Origin). A page credential is used up by any match,
+    /// even one this handshake may not use.
+    pub fn authenticate_for(&self, provided: &str, handshake_page: Option<&str>) -> CredentialMatch {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
@@ -231,13 +263,19 @@ impl PairingBroker {
             .iter()
             .any(|credential| constant_time_eq(provided.as_bytes(), credential.value.as_bytes()))
         {
-            return true;
+            return CredentialMatch::Person;
         }
         // A page credential authenticates one handshake, then it is gone.
-        let page = state.page_credentials.iter().position(|credential| {
+        let Some(index) = state.page_credentials.iter().position(|credential| {
             constant_time_eq(provided.as_bytes(), credential.value.as_bytes())
-        });
-        page.map(|index| state.page_credentials.remove(index)).is_some()
+        }) else {
+            return CredentialMatch::None;
+        };
+        match state.page_credentials.remove(index).and_then(|credential| credential.page) {
+            None => CredentialMatch::Person,
+            Some(page) if handshake_page == Some(page.as_str()) => CredentialMatch::Page,
+            Some(_) => CredentialMatch::None,
+        }
     }
 
     pub fn pending(&self) -> Vec<PairingChallenge> {

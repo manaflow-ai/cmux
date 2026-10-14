@@ -4,7 +4,10 @@
 // applies (CmuxHomeCore `ConversationSummary.kind` and `unreadCount`, HomeCoreMapping): no Swift in
 // the data path, so the page runs the same in a plain browser, the app's web view, Chromium and
 // GPUI. Cloud conversations come through the same daemon (cloudHome.ts, ws-cloud-conversations-v1)
-// and merge into the one inbox. Slice 3 moves this projection into the daemon as `home.*` operations.
+// and merge into the one inbox. In the app the local conversations may live on another daemon, this
+// build's Chief home's conversation owner (`owner` in `cmux.host.credential.load`): then the local
+// `conversation-*` commands and events go to that socket and the Cloud stays on the build daemon.
+// Slice 3 moves this projection into the daemon as `home.*` operations.
 import { pageError, type PageClient, type PageCallOptions, type PageHandler } from "../shared/pageClient";
 import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
@@ -203,49 +206,71 @@ function str(params: Json, field: string, max = 256): string {
 export class DaemonHomeClient implements PageClient {
   private me = LOCAL_USER;
   private nextKey = 1;
-  /** The one daemon `subscribe` stream of this connection; page subscriptions share it. */
-  private streamStarted: Promise<void> | null = null;
+  /** The one daemon `subscribe` stream of each connection; page subscriptions share it. */
+  private readonly streamStarted = new Map<DaemonSocket, Promise<void>>();
   /** Conversations whose page the page read (refetched after a lost event). */
   private readonly opened = new Set<string>();
   /** The cloud owners through this daemon (when `identify` names the capability). */
   private readonly cloud: CloudHome;
-  /** The daemon's `identify` capabilities, read once. */
-  private capabilities: Promise<string[]> | null = null;
+  /** Each socket's `identify` capabilities, read once. */
+  private readonly capabilities = new Map<DaemonSocket, Promise<string[]>>();
+  /** The local conversation owner: the build daemon itself, or the Chief home's owner. */
+  private readonly local: DaemonSocket;
+  /** The connections this client streams from (one, or the build daemon and the local owner). */
+  private readonly sockets: DaemonSocket[];
   /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
   private readonly cloudListeners = new Set<(conversation: HomeConversation) => void>();
 
-  /** Starts the daemon stream once per connection (a page resubscribe adds a listener only). */
+  /** Starts each connection's daemon stream once (a page resubscribe adds a listener only). */
   private startStream(): Promise<void> {
-    this.streamStarted ??= (async () => {
-      await this.daemon.request("set-client-info", {
-        name: "cmux page: home-channels",
-        capabilities: ["conversation-draft-events-v1"],
-      });
-      await this.daemon.request("subscribe");
-    })().catch((error) => {
-      this.streamStarted = null;
-      throw error;
-    });
-    return this.streamStarted;
+    return Promise.all(this.sockets.map((socket) => this.startSocketStream(socket))).then(() => undefined);
   }
 
-  constructor(private readonly daemon: DaemonSocket) {
+  private startSocketStream(socket: DaemonSocket): Promise<void> {
+    let started = this.streamStarted.get(socket);
+    if (!started) {
+      started = (async () => {
+        await socket.request("set-client-info", {
+          name: "cmux page: home-channels",
+          capabilities: ["conversation-draft-events-v1"],
+        });
+        await socket.request("subscribe");
+      })().catch((error) => {
+        this.streamStarted.delete(socket);
+        throw error;
+      });
+      this.streamStarted.set(socket, started);
+    }
+    return started;
+  }
+
+  /** `daemon`: the build daemon (Cloud, and local conversations unless `local` is given). */
+  constructor(
+    private readonly daemon: DaemonSocket,
+    local?: DaemonSocket,
+  ) {
+    this.local = local ?? daemon;
+    this.sockets = this.local === daemon ? [daemon] : [daemon, this.local];
     this.cloud = new CloudHome(daemon, conversation, (summary) => {
       for (const listener of this.cloudListeners) listener(summary);
     });
   }
 
-  private capable(capability: string): Promise<boolean> {
-    this.capabilities ??= this.daemon
-      .request<{ capabilities?: string[] }>("identify")
-      .then((identity) => identity.capabilities ?? [])
-      .catch(() => []);
-    return this.capabilities.then((list) => list.includes(capability));
+  private capable(capability: string, socket: DaemonSocket = this.local): Promise<boolean> {
+    let list = this.capabilities.get(socket);
+    if (!list) {
+      list = socket
+        .request<{ capabilities?: string[] }>("identify")
+        .then((identity) => identity.capabilities ?? [])
+        .catch(() => []);
+      this.capabilities.set(socket, list);
+    }
+    return list.then((names) => names.includes(capability));
   }
 
   /** Whether this daemon serves the cloud owners to a page (an older one does not: local only). */
   private cloudReady(): Promise<boolean> {
-    return this.capable(WS_CLOUD_CAPABILITY);
+    return this.capable(WS_CLOUD_CAPABILITY, this.daemon);
   }
 
   async call<R>(op: string, rawParams: unknown, options?: PageCallOptions): Promise<R> {
@@ -275,7 +300,7 @@ export class DaemonHomeClient implements PageClient {
       const sent = await this.cloud.op(conversationId, key, op);
       return { rev: num(sent.rev), replayed: sent.replayed === true, conversation: conversationId };
     }
-    const result = await this.daemon.request("conversation-op", {
+    const result = await this.local.request("conversation-op", {
       conversation: conversationId,
       idempotency_key: key,
       op,
@@ -286,13 +311,13 @@ export class DaemonHomeClient implements PageClient {
   /** A read of the conversation's owner: the local one, or a cloud owner through the daemon. */
   private read(cmd: string, id: string, params: Json): Promise<Json> {
     if (this.cloud.owns(id)) return this.cloud.read(`cloud-${cmd}`, params);
-    return this.daemon.request(cmd, params);
+    return this.local.request(cmd, params);
   }
 
   private async dispatch(op: string, params: Json, options?: PageCallOptions): Promise<unknown> {
     switch (op) {
       case HomeOps.inbox: {
-        const list = await this.daemon.request<{ conversations: Json[] }>("conversation-list");
+        const list = await this.local.request<{ conversations: Json[] }>("conversation-list");
         const summaries = list.conversations ?? [];
         const mine = summaries
           .flatMap((entry) => (entry.participants as Json[]) ?? [])
@@ -344,7 +369,7 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.resolveLink: {
         // Local conversations only; a Cloud conversation link is a later read (DESIGN.md G4).
-        const resolved = await this.daemon.request<Json>("conversation-link-resolve", {
+        const resolved = await this.local.request<Json>("conversation-link-resolve", {
           url: str(params, "url", 512),
         });
         const result: HomeResolvedLink = {
@@ -356,7 +381,7 @@ export class DaemonHomeClient implements PageClient {
         return result;
       }
       case HomeOps.search: {
-        const found = await this.daemon.request<{ hits: Json[] }>("conversation-search", {
+        const found = await this.local.request<{ hits: Json[] }>("conversation-search", {
           query: str(params, "query", 200),
           limit: Math.min(bounded(params.limit, 20), 50),
         });
@@ -425,7 +450,8 @@ export class DaemonHomeClient implements PageClient {
         if (typeof params.owner === "string") update.owner = params.owner;
         if (Object.keys(update).length === 2) throw pageError("cmux.page.invalid_params", "thread");
         // An older daemon has no thread objects: say so instead of a malformed-op error.
-        if (!(await this.capable(THREAD_OBJECTS_CAPABILITY)))
+        const owner = this.cloud.owns(str(params, "conversation")) ? this.daemon : this.local;
+        if (!(await this.capable(THREAD_OBJECTS_CAPABILITY, owner)))
           throw pageError("cmux.page.unavailable", "this cmux instance has no thread objects");
         return this.submit(str(params, "conversation"), this.key(params, options), update);
       }
@@ -442,7 +468,7 @@ export class DaemonHomeClient implements PageClient {
     const title = str(params, "title", 80).trim();
     if (!title) throw pageError("cmux.page.invalid_params", "title");
     const ids = ((params.participants as unknown[]) ?? []).filter((id): id is string => typeof id === "string" && !!id);
-    const list = await this.daemon.request<{ conversations: Json[] }>("conversation-list");
+    const list = await this.local.request<{ conversations: Json[] }>("conversation-list");
     const known = new Map<string, Json>([[CHIEF.id, CHIEF]]);
     for (const summary of list.conversations ?? [])
       for (const entry of (summary.participants as Json[]) ?? [])
@@ -454,7 +480,7 @@ export class DaemonHomeClient implements PageClient {
       if (!entry) throw pageError("cmux.page.invalid_params", "unknown_participant");
       members.push(entry);
     }
-    const created = await this.daemon.request("conversation-create", {
+    const created = await this.local.request("conversation-create", {
       idempotency_key: this.key(params, options),
       title,
       participants: members,
@@ -464,9 +490,10 @@ export class DaemonHomeClient implements PageClient {
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
     if (stream === PAGE_CONNECTION) {
-      // The page's own link to its owner: this daemon connection.
+      // The page's own link to its owners: these daemon connections (either one lost is offline).
       queueMicrotask(() => onEvent({ connected: true } as E, 1));
-      return this.daemon.onClose(() => onEvent({ connected: false } as E, 2));
+      const offs = this.sockets.map((socket) => socket.onClose(() => onEvent({ connected: false } as E, 2)));
+      return () => offs.forEach((off) => off());
     }
     if (stream !== HomeOps.events) throw pageError("cmux.protocol.unknown_op", stream);
     let seq = 0;
@@ -488,9 +515,13 @@ export class DaemonHomeClient implements PageClient {
       this.cloudListeners.add(listener);
       return () => this.cloudListeners.delete(listener);
     })();
-    const offEvent = this.daemon.onEvent((event) => {
+    // Cloud events come from the build daemon, local conversation events from the local owner
+    // (the same socket unless the Chief home's owner serves the local conversations).
+    const onSocketEvent = (socket: DaemonSocket) => (event: Json) => {
+      const fromCloud = socket === this.daemon;
+      const fromLocal = socket === this.local;
       const cloud =
-        typeof event.event === "string" && event.event.startsWith("cloud-") ? this.cloud.event(event) : null;
+        fromCloud && typeof event.event === "string" && event.event.startsWith("cloud-") ? this.cloud.event(event) : null;
       if (cloud) {
         deliver((batch) => {
           if (cloud.message) (batch.messages ??= []).push(message(cloud.message));
@@ -500,6 +531,8 @@ export class DaemonHomeClient implements PageClient {
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
         });
+      } else if (!fromLocal && event.event !== "overflow") {
+        // The build daemon's own local conversations are not shown while another owner serves them.
       } else if (event.event === "conversation-changed") {
         const change = (event.change ?? {}) as Json;
         if ((change.kind === "message" || change.kind === "message-updated") && change.message) {
@@ -539,17 +572,22 @@ export class DaemonHomeClient implements PageClient {
       } else if (event.event === "overflow") {
         // The daemon ended the stream ("resubscribe to continue"): start it again, and refetch
         // what the lost events changed (the inbox and every open window).
-        this.streamStarted = null;
+        this.streamStarted.delete(socket);
         // Lost cloud events too: the cloud inbox is listed again with the inbox.
-        this.cloud.reset();
-        void this.startStream().catch(() => deliver((batch) => (batch.connection = "offline")));
+        if (fromCloud) this.cloud.reset();
+        void this.startSocketStream(socket).catch(() => deliver((batch) => (batch.connection = "offline")));
         deliver((batch) => {
           batch.inboxStale = true;
           batch.stale = [...this.opened];
         });
       }
-    });
-    const offClose = this.daemon.onClose(() => deliver((batch) => (batch.connection = "offline")));
+    };
+    const offEvents = this.sockets.map((socket) => socket.onEvent(onSocketEvent(socket)));
+    const offEvent = () => offEvents.forEach((off) => off());
+    const offCloses = this.sockets.map((socket) =>
+      socket.onClose(() => deliver((batch) => (batch.connection = "offline"))),
+    );
+    const offClose = () => offCloses.forEach((off) => off());
     try {
       await this.startStream();
     } catch (error) {

@@ -778,8 +778,8 @@ public abstract class GeneratedCmuxClient {
         return NotifyResult.fromWire(result);
     }
 
-    public final Object pageCredential() throws CmuxException {
-        Object result = execute(Commands.PAGE_CREDENTIAL, Map.of());
+    public final Object pageCredential(PageCredentialRequest request) throws CmuxException {
+        Object result = execute(Commands.PAGE_CREDENTIAL, request.toWire());
         return Wire.immutableJson(result);
     }
 

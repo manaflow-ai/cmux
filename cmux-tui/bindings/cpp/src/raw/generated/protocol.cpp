@@ -23896,6 +23896,11 @@ Result<NotifyRequest> Codec<NotifyRequest>::decode(const Json& value) {
 Result<Json> Codec<PageCredentialRequest>::encode(const PageCredentialRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.page.is_absent()) {
+        auto encoded = encode_value(value.page);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("page", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -23903,6 +23908,16 @@ Result<PageCredentialRequest> Codec<PageCredentialRequest>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     PageCredentialRequest result{};
+    const Json* field_page = value.find("page");
+    if (field_page) {
+        if (field_page->is_null()) {
+            result.page = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_page);
+            if (!decoded) return std::move(decoded).error();
+            result.page = Field<std::string>(std::move(decoded).value());
+        }
+    }
     return result;
 }
 

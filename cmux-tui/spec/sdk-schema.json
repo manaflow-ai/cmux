@@ -21668,7 +21668,20 @@
    "capability": "page-credential-v1",
    "request": {
     "kind": "object",
-    "fields": {},
+    "fields": {
+     "page": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "A page id of the page-router table (capability page-credential-scoped-v1): any trusted local connection gets a single-use credential that admits only a WebSocket handshake whose Origin names that page and never carries the Cloud lease."
+      ]
+     }
+    },
     "additional_properties": false
    },
    "result": {
@@ -21677,7 +21690,7 @@
    },
    "stream": null,
    "constraints": [
-    "The verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. See spec/commands.md."
+    "Without page: the verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. With page: trusted local connections; the credential is bound to that page. See spec/commands.md."
    ]
   },
   "cloud-session-status": {

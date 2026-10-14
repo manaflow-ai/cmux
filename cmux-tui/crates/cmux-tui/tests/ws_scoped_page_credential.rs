@@ -155,10 +155,12 @@ impl Page {
     }
 
     fn try_rpc(&mut self, request: Value) -> Option<Value> {
-        let id = self.next;
         self.next += 1;
         let mut body = request.as_object().cloned().unwrap();
-        body.insert("id".into(), json!(id));
+        // A `cmux.protocol/2` request carries a string id; a raw command a number.
+        let id =
+            if body.contains_key("protocol") { json!(format!("v2-{}", self.next)) } else { json!(self.next) };
+        body.insert("id".into(), id.clone());
         self.socket.send(Message::Text(Value::Object(body).to_string().into())).ok()?;
         loop {
             match self.socket.read() {
@@ -183,8 +185,7 @@ fn v2(operation: &str, params: Value) -> Value {
     let mut params = params;
     params["machine"] = json!("current");
     params["session"] = json!("current");
-    json!({"protocol": "cmux.protocol/2", "type": "request", "id": "v2-1",
-           "operation": operation, "params": params})
+    json!({"protocol": "cmux.protocol/2", "type": "request", "operation": operation, "params": params})
 }
 
 #[test]
