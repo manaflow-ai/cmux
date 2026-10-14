@@ -157,6 +157,35 @@ class Debounce(unittest.TestCase):
         self.assertEqual(nb.first_trigger_since_dispatch(runs, NOW), NOW - dt.timedelta(minutes=6))
         self.assertEqual(nb.first_trigger_since_dispatch([], NOW), NOW)
 
+    def debounce(self, runs: list[dict], run_id: int) -> mock.MagicMock:
+        """cmd_debounce as run `run_id`, with GitHub faked; returns the fake."""
+        gh = mock.MagicMock()
+        gh.runs.return_value = runs
+        with mock.patch.object(nb, "GitHub", return_value=gh), mock.patch.object(nb, "now", return_value=NOW), \
+                mock.patch.object(nb.time, "sleep"), mock.patch.dict(os.environ, {"GITHUB_RUN_ID": str(run_id)}):
+            self.assertEqual(nb.cmd_debounce(Namespace(repo="o/r", reason="r")), 0)
+        return gh
+
+    def test_a_superseded_wait_ends_green_without_dispatching(self):
+        """A newer event's run takes over the wait: the older one exits 0, never CANCELLED,
+        so the debounce check on a pull request does not read red."""
+        def run(run_id: int, event: str, minutes: int) -> dict:
+            return {"id": run_id, "event": event, "display_title": "debounce 1",
+                    "created_at": (NOW - dt.timedelta(minutes=minutes)).isoformat()}
+        runs = [run(12, "pull_request", 0), run(11, "push", 1), run(10, "workflow_dispatch", 2)]
+        self.assertTrue(nb.superseded(runs, 11))
+        self.assertFalse(nb.superseded(runs, 12))
+        self.assertFalse(nb.superseded(runs, 99))  # not listed yet: wait, then look again
+        self.debounce(runs, 11).dispatch.assert_not_called()
+        self.debounce(runs, 12).dispatch.assert_called_once()
+        # a newer event that arrives during the wait also supersedes it
+        gh = mock.MagicMock()
+        gh.runs.side_effect = [runs[1:], runs]
+        with mock.patch.object(nb, "GitHub", return_value=gh), mock.patch.object(nb, "now", return_value=NOW), \
+                mock.patch.object(nb.time, "sleep"), mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "11"}):
+            self.assertEqual(nb.cmd_debounce(Namespace(repo="o/r", reason="r")), 0)
+        gh.dispatch.assert_not_called()
+
 
 class ServeDebounce(unittest.TestCase):
     """The big-red serve loop: quiet after the eligible set changes, capped."""
@@ -809,11 +838,16 @@ class WorkflowShape(unittest.TestCase):
         self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.jobs = self.workflow["jobs"]
 
-    def test_debounce_cancels_but_a_running_batch_is_never_cancelled(self):
-        self.assertEqual(self.jobs["debounce"]["concurrency"],
-                         {"group": "cmux-next-batch-debounce", "cancel-in-progress": True})
+    def test_nothing_on_a_pull_request_is_cancelled(self):
+        """A cancelled debounce read red on every feat-cmux-next PR: a newer run supersedes an
+        older wait inside the script instead, and a running batch is never cancelled."""
+        self.assertNotIn("concurrency", self.jobs["debounce"])
+        self.assertNotIn("concurrency", self.workflow)
         self.assertEqual(self.jobs["batch"]["concurrency"],
                          {"group": "cmux-next-batch", "cancel-in-progress": False})
+
+    def test_debounce_is_skipped_while_the_queue_is_off(self):
+        self.assertIn("vars.CMUX_NEXT_BATCH_ENABLED == '1'", self.jobs["debounce"]["if"])
 
     def test_debounce_runs_the_trusted_controller(self):
         checkout = self.jobs["debounce"]["steps"][0]
