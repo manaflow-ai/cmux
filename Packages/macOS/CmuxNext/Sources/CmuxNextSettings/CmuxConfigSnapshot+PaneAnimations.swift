@@ -4,15 +4,15 @@
 /// panes"): a split, close, move, swap, zoom, column reveal or screen switch
 /// applies in one frame. On restores the springs. `ui.animationSpeed` "off"
 /// and Reduce Motion still snap them.
-public nonisolated enum PaneAnimationsSetting {
-    public static let configPath = ["ui", "paneAnimations"]
-    public static let fallback = false
+nonisolated extension CmuxConfigSnapshot {
+    public static let paneAnimationsPath = ["ui", "paneAnimations"]
+    public static let paneAnimationsFallback = false
 
     /// Absent is off; a value that is not a bool is off plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
+    static func parsePaneAnimations(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
+        guard let value = root.value(at: paneAnimationsPath) else { return (paneAnimationsFallback, nil) }
         guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "ui.paneAnimations", message: "expected true or false"))
+            return (paneAnimationsFallback, SettingsDiagnostic(kind: .invalidValue, path: "ui.paneAnimations", message: "expected true or false"))
         }
         return (enabled, nil)
     }
