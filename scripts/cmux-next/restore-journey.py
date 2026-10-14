@@ -979,6 +979,20 @@ class visiting:
             wait(lambda: ((topology() or {}).get("focus") or {}).get("workspace") == self.back, 10, 0.3)
 
 
+def grid_fits_view(label, pp, view):
+    """A row: the terminal renders the grid its view fits (`fit_grid`), so the shell has no rows
+    past the pane's edge. Read after the settle wait, so a grid that never follows its view fails
+    here even when it is equally wrong before and after the relaunch (cx-yt7rt)."""
+    surface = view.get("surface") or {}
+    grid, fit = surface.get("grid"), surface.get("fit_grid")
+    row = f"{label}: {pp}.view.grid_fits_view"
+    if not grid:
+        return (row, False, "no terminal grid drawn", "layout")
+    if "fit_grid" not in surface:
+        return (row, True, f"grid {grid}; this build reports no fit_grid", "layout")
+    return (row, fit is not None and fit == grid, f"grid {grid}, view fits {fit}", "layout")
+
+
 def snapshot(label):
     """Raw dumps plus the canonical items: {item: value}."""
     say(f"snapshot {label}")
@@ -1192,6 +1206,7 @@ def snapshot(label):
                 v = now.get(pid_) or {}
                 items[f"{pp}.view.size"] = v.get("content_size")
                 items[f"{pp}.view.grid"] = (v.get("surface") or {}).get("grid")
+                RESULTS.append(grid_fits_view(label, pp, v))
     if "cloud" not in SKIP:
         items.update(cloud_items())
     dump(f"{label}-raw.json", raw)
