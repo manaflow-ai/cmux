@@ -65,16 +65,42 @@ export function planBudgetsEnforced(env: Record<string, string | undefined> = pr
   return env.CMUX_VM_PLAN_BUDGETS?.trim().toLowerCase() === "on";
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** A billed period up to this long is one allowance window (a monthly plan). */
+const SINGLE_WINDOW_MAX_MS = 35 * DAY_MS;
+/** A final window shorter than this joins the window before it. */
+const MIN_FINAL_WINDOW_MS = 7 * DAY_MS;
+
+/** `start` plus whole calendar months, with the day clamped to the month's last day. */
+function addUtcMonths(start: Date, months: number): Date {
+  const year = start.getUTCFullYear();
+  const month = start.getUTCMonth() + months;
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const result = new Date(start);
+  result.setUTCDate(1);
+  result.setUTCFullYear(year, month, Math.min(start.getUTCDate(), lastDay));
+  return result;
+}
+
 /**
- * The monthly window of a billing period that contains `now`: a yearly
- * subscription resets its allowance every month from its start date.
+ * The allowance window that contains `now`. A billed period up to 35 days
+ * (monthly) is one window; a longer one (yearly) resets every calendar month
+ * from its start, and a final remainder under 7 days joins the window before
+ * it. The window that reaches `billedEnd` extends to `accessEnd`, so a grace
+ * period counts against the last billed window instead of opening a new one.
  */
-export function monthlyAllowanceWindow(start: Date, end: Date, now: Date): { start: Date; end: Date } {
+export function monthlyAllowanceWindow(
+  start: Date,
+  billedEnd: Date,
+  accessEnd: Date,
+  now: Date,
+): { start: Date; end: Date } {
+  const lastEnd = accessEnd > billedEnd ? accessEnd : billedEnd;
+  if (billedEnd.getTime() - start.getTime() <= SINGLE_WINDOW_MAX_MS) return { start, end: lastEnd };
   let windowStart = start;
   for (let month = 1; ; month += 1) {
-    const next = new Date(start);
-    next.setUTCMonth(start.getUTCMonth() + month);
-    if (next >= end) return { start: windowStart, end };
+    const next = addUtcMonths(start, month);
+    if (billedEnd.getTime() - next.getTime() < MIN_FINAL_WINDOW_MS) return { start: windowStart, end: lastEnd };
     if (next > now) return { start: windowStart, end: next };
     windowStart = next;
   }
@@ -88,11 +114,18 @@ export type PersonalBillingPeriod = {
   readonly planId: PersonalPlanId;
   readonly source: "stripe" | "apple";
   /** Null when the source has no usable current period (a reconcile is pending). */
-  readonly period: { readonly start: Date; readonly end: Date } | null;
+  readonly period: {
+    readonly start: Date;
+    /** Access ends here (an App Store grace period extends past the billed end). */
+    readonly end: Date;
+    /** The paid period ends here. */
+    readonly billedEnd: Date;
+  } | null;
 };
 
-function usablePeriod(start: Date | null, end: Date | null, now: Date): PersonalBillingPeriod["period"] {
-  return start && end && start < end && now < end ? { start, end } : null;
+function usablePeriod(start: Date | null, end: Date | null, now: Date, billedEnd: Date | null = end): PersonalBillingPeriod["period"] {
+  if (!start || !end || start >= end || now >= end) return null;
+  return { start, end, billedEnd: billedEnd && billedEnd > start ? billedEnd : end };
 }
 
 /** Stripe's period start: the plan item's, else the subscription's (seconds since epoch). */
@@ -151,7 +184,7 @@ async function applePersonalPeriod(userId: string, now: Date): Promise<PersonalB
     ? row.gracePeriodExpiresAt
     : expires ?? row.gracePeriodExpiresAt;
   const start = row.purchaseDate ?? (expires ? new Date(expires.getTime() - APPLE_PERIOD_FALLBACK_MS) : null);
-  return { planId: row.planId as PersonalPlanId, source: "apple", period: usablePeriod(start, end, now) };
+  return { planId: row.planId as PersonalPlanId, source: "apple", period: usablePeriod(start, end, now, expires) };
 }
 
 /**
@@ -243,7 +276,7 @@ export async function getPlanBudgetUsage(userId: string, now = new Date()): Prom
     console.warn("[VM] plan allowance skipped: billing period unavailable", { userId, source: billing.source });
     return null;
   }
-  const { start: periodStart, end: periodEnd } = monthlyAllowanceWindow(billing.period.start, billing.period.end, now);
+  const { start: periodStart, end: periodEnd } = monthlyAllowanceWindow(billing.period.start, billing.period.billedEnd, billing.period.end, now);
   const db = cloudDb();
   const [intervals, retained] = await Promise.all([
     db.select({

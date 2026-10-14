@@ -690,5 +690,10 @@ describe("Apple revenue estimates", () => {
       planId: "max", currency: "EUR", priceMilliunits: 299990, purchaseDate: NOW, originalPurchaseDate: new Date(NOW.getTime() - 400 * DAY),
     });
     expect(euro).toMatchObject({ price: 299.99, priceUsd: 299.99, netUsd: 254.99, commission: 0.15 });
+    const yearly = appleRevenueEstimate({
+      planId: "max", productId: `${BUNDLE}.max.yearly`, bundleId: BUNDLE, currency: "EUR", priceMilliunits: 2_500_000,
+      purchaseDate: NOW, originalPurchaseDate: NOW,
+    });
+    expect(yearly).toMatchObject({ priceUsd: 2879.9, commission: 0.3 });
   });
 });

@@ -163,6 +163,7 @@ describe("Pro and Max allowances", () => {
     // A yearly App Store subscription resets the allowance every month.
     const yearly = newUser("apple-pro-yearly");
     const bought = new Date(now.getTime() - 40 * DAY);
+    bought.setUTCDate(Math.min(bought.getUTCDate(), 28));
     await appleSubscription(yearly, "pro", bought, new Date(bought.getTime() + 365 * DAY), "yearly");
     const window = await getPlanBudgetUsage(yearly, now);
     const oneMonth = new Date(bought); oneMonth.setUTCMonth(bought.getUTCMonth() + 1);
