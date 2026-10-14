@@ -21,7 +21,22 @@ const MAX_REPLIED = 20_000;
 export const STALE_RUN_MS = 30 * 60_000;
 
 export const isStale = (run: HomeRun, now: number): boolean =>
-  run.status === "running" && now - run.updatedAt > STALE_RUN_MS;
+  run.status === "running" && run.updatedAt > 0 && now - run.updatedAt > STALE_RUN_MS;
+
+/** Whether `next` is at least as new as `held`. Owners with revisions say so exactly; a Cloud
+ * brain's run has none (rev 0): then an ended run never goes back to running, and a longer run
+ * (more steps) wins. */
+function newerRun(next: HomeRun, held: HomeRun): boolean {
+  if (next.rev || held.rev) return next.rev >= held.rev;
+  if (held.status !== "running" && next.status === "running") return false;
+  return next.stepCount >= held.stepCount;
+}
+
+/** The same for one step: without revisions an ended step never goes back to running. */
+function newerStep(next: HomeRunStep, held: HomeRunStep): boolean {
+  if (next.rev || held.rev) return next.rev >= held.rev;
+  return !(held.status !== "running" && held.status !== undefined && next.status === "running");
+}
 
 const turnKey = (run: HomeRun) => (run.turn ? `${run.conversation}\0${run.turn}\0${run.author}` : undefined);
 
@@ -43,12 +58,13 @@ export class RunBook {
 
   getVersion = (): number => this.version;
 
-  private key(conversation: string, id: string): string {
-    return `${conversation}\0${id}`;
+  /** A run's key: its id is unique per author only (a Cloud brain counts `run_<n>` per Chief). */
+  private key(conversation: string, author: string, id: string): string {
+    return `${conversation}\0${author}\0${id}`;
   }
 
-  get(conversation: string, id: string): RunEntry | undefined {
-    return this.runs.get(this.key(conversation, id));
+  get(conversation: string, author: string, id: string): RunEntry | undefined {
+    return this.runs.get(this.key(conversation, author, id));
   }
 
   /** The run that ends with this reply (an agent's message whose key is the run's turn). */
@@ -126,14 +142,14 @@ export class RunBook {
   }
 
   private put(run: HomeRun, steps: readonly HomeRunStep[], complete: boolean): boolean {
-    const key = this.key(run.conversation, run.id);
+    const key = this.key(run.conversation, run.author, run.id);
     const current = this.runs.get(key);
-    const newer = !current || run.rev >= current.run.rev;
+    const newer = !current || newerRun(run, current.run);
     if (!newer && steps.length === 0 && !(complete && current && !current.complete)) return false;
     const merged = new Map((current?.steps ?? []).map((step) => [step.id, step]));
     for (const step of steps) {
       const held = merged.get(step.id);
-      if (!held || step.rev >= held.rev) merged.set(step.id, step);
+      if (!held || newerStep(step, held)) merged.set(step.id, step);
     }
     const entry: RunEntry = {
       run: newer ? run : current!.run,

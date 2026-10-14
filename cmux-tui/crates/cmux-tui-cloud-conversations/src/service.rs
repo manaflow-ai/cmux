@@ -541,8 +541,10 @@ impl CloudConversations {
     ) -> Result<Value, CloudError> {
         require_conversation(conversation)?;
         require_agent(agent)?;
-        let valid_run = (1..=128).contains(&run.len())
-            && run.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'));
+        // The brain's run ids (`run_<n>`, CHIEF_BRAIN_PATH): never a dot segment in the path.
+        let valid_run = run
+            .strip_prefix("run_")
+            .is_some_and(|n| (1..=15).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit()));
         if !valid_run {
             return Err(CloudError::BadRequest("run must be a run id".into()));
         }

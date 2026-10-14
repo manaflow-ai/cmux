@@ -204,7 +204,7 @@ export function MessageRuns({ message }: { message: HomeMessage }) {
   if (!context || (!reply && live.length === 0)) return null;
   const card = (entry: RunEntry) => (
     <RunCard
-      key={entry.run.id}
+      key={`${entry.run.author}:${entry.run.id}`}
       entry={entry}
       strings={context.strings}
       onOpen={context.onOpen}

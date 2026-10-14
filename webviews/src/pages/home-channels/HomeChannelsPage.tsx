@@ -46,18 +46,18 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const [focused, setFocused] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
   /** The run the run sheet shows (an agent turn's whole trajectory). */
-  const [openRun, setOpenRun] = useState<{ conversation: string; id: string } | undefined>();
+  const [openRun, setOpenRun] = useState<{ conversation: string; author: string; id: string } | undefined>();
   const runs = useMemo<RunsContextValue>(
     () => ({
       book: store.runs,
       strings,
-      onOpen: (run: HomeRun) => setOpenRun({ conversation: run.conversation, id: run.id }),
+      onOpen: (run: HomeRun) => setOpenRun({ conversation: run.conversation, author: run.author, id: run.id }),
       onLoad: (run: HomeRun) => void store.loadRunSteps(run),
     }),
     [store, strings],
   );
   const runSheet = useRunEntry(store.runs, (book) =>
-    openRun ? book.get(openRun.conversation, openRun.id) : undefined,
+    openRun ? book.get(openRun.conversation, openRun.author, openRun.id) : undefined,
   );
   const noticeTimer = useRef<number | undefined>(undefined);
   /** The status each root was last asked to take, until the owner's event shows it (two quick
@@ -493,7 +493,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                 )}
                 {runSheet && runSheet.run.conversation === snap.selected && (
                   <RunSheet
-                    key={runSheet.run.id}
+                    key={`${runSheet.run.author}:${runSheet.run.id}`}
                     entry={runSheet}
                     people={people}
                     strings={strings}

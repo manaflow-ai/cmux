@@ -718,27 +718,29 @@ export class HomeChannelsStore {
 
   /** Reads every step of a run from its owner (pages of steps by revision). */
   loadRunSteps = async (run: HomeRun): Promise<void> => {
-    const key = `${run.conversation}\0${run.id}`;
+    const key = `${run.conversation}\0${run.author}\0${run.id}`;
     if (!this.client || this.loadingRuns.has(key)) return;
     const failed = this.failedRuns.get(key);
     if (failed !== undefined && failed >= run.rev) return;
     this.loadingRuns.add(key);
     try {
+      // The local owner pages by revision; a Cloud brain (keyed by its Chief) by seq.
       let afterRev = 0;
+      let afterSeq = 0;
       const steps: HomeRunStep[] = [];
       let latest = run;
       for (let page = 0; page < 10; page += 1) {
         const read = await this.client.call<HomeRunPage>(HomeOps.run, {
           conversation: run.conversation,
           run: run.id,
-          // A Cloud owner keys the read by the Chief and pages by seq; the local one by revision.
           agent: run.author,
           afterRev,
-          afterSeq: afterRev,
+          afterSeq,
         });
         latest = read.run;
         steps.push(...read.steps);
-        afterRev = Math.max(afterRev, ...read.steps.map((step) => step.rev || step.seq));
+        afterRev = Math.max(afterRev, ...read.steps.map((step) => step.rev));
+        afterSeq = Math.max(afterSeq, ...read.steps.map((step) => step.seq));
         if (!read.hasMore || read.steps.length === 0) break;
       }
       this.runs.setSteps(latest, steps, true);

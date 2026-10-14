@@ -6676,8 +6676,8 @@ and lease as `cloud-conversation-snapshot`. `cloud-conversation-runs
 `{runs, has_more}` of Chief `agent` in the conversation, newest first
 (`limit` 1-100). `cloud-conversation-run {conversation, agent, run,
 after_seq?}` answers the owner's `{run, steps, has_more}` (steps after
-`after_seq`). `agent` is `agent_` and 1-64 letters or digits, `run` 1-128 of
-`[A-Za-z0-9_.-]`. A run the caller may not see answers like a missing one
+`after_seq`). `agent` is `agent_` and 1-64 letters or digits, `run` is `run_` and 1-15
+digits. A run the caller may not see answers like a missing one
 (`not_found`). A subscribed conversation's run changes arrive as
 `{event:"cloud-conversation-run-changed", conversation, run, steps}` (the
 steps that changed) on `subscribe`, only to connections that echoed

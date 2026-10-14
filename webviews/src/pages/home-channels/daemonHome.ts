@@ -150,6 +150,7 @@ export function run(raw: Json): HomeRun {
     author: String(raw.author),
     status: status as HomeRun["status"],
     startedAt: num(raw.started_at),
+    // 0 when the owner does not say (a Cloud brain's runs): never read as stalled.
     updatedAt: num(raw.updated_at),
     rev: num(raw.rev),
     stepCount: num(raw.step_count),
@@ -580,7 +581,8 @@ export class DaemonHomeClient implements PageClient {
   /** A Cloud conversation's runs: each Chief of it keeps its own (the Cloud brain's reads, by
    * agent), merged newest first. A daemon without the proxy answers nothing. */
   private async cloudRuns(id: string, params: Json): Promise<{ runs: HomeRun[]; hasMore: boolean }> {
-    if (!(await this.capable(CLOUD_RUNS_CAPABILITY))) return { runs: [], hasMore: false };
+    // The brain lists newest first only: a read by reply keys has nothing more to find.
+    if (!(await this.capable(CLOUD_RUNS_CAPABILITY)) || Array.isArray(params.turns)) return { runs: [], hasMore: false };
     const agents = (this.cloud.summary(id)?.participants ?? [])
       .filter((participant) => participant.kind === "agent")
       .map((participant) => participant.id)
@@ -661,11 +663,12 @@ export class DaemonHomeClient implements PageClient {
           if (cloud.removed?.length) (batch.removed ??= []).push(...cloud.removed);
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
-          if (cloud.run)
-            (batch.runs ??= []).push({
-              run: run(cloud.run.run),
-              steps: cloud.run.steps.map(runStep),
-            });
+          if (cloud.run) {
+            const changed = run(cloud.run.run);
+            // A Cloud brain's run carries no update time: this event is its newest change.
+            if (!changed.updatedAt) changed.updatedAt = Date.now();
+            (batch.runs ??= []).push({ run: changed, steps: cloud.run.steps.map(runStep) });
+          }
         });
       } else if (event.event === "conversation-changed") {
         const change = (event.change ?? {}) as Json;
