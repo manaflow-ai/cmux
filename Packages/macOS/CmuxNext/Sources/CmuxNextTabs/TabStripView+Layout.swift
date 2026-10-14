@@ -19,7 +19,6 @@ extension TabStripView {
             tabs.insert(contentsOf: members, at: min(max(groupDrag.currentTabIndex, 0), tabs.count))
         }
         var items = TabGroupOrdering.layoutItems(tabs, groups: groups.byID, selectedID: model.selectedID, chipWidths: groups.chipWidths())
-        TabTitleWidths.apply(to: &items, tabs: tabs, style: model.style, metrics: metrics)
         if let index = dropPlaceholderIndex {
             let pinnedCount = tabs.count(where: \.isPinned)
             let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: dropPlaceholderGroup, fixedWidth: groups.phantomWidth)
