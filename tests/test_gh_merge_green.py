@@ -314,8 +314,15 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, full=True, rollup=(), rollup_head=HEAD):
+        """full=True keeps a feat-cmux-next merge on the full gate (--full) these
+        tests were written for; full=False runs the default fast gate, whose
+        `gh pr view --json statusCheckRollup` read returns rollup."""
         gh = Path(directory) / "gh"
+        if full:
+            extra_args = ("--full", *extra_args)
+        rollup_payload = shlex.quote(json.dumps({"headRefOid": rollup_head, "files": [{"path": f} for f in changed_files], "statusCheckRollup": [
+            {"__typename": "CheckRun", "name": name, "status": status.upper(), "conclusion": conclusion.upper()} for name, status, conclusion in rollup]}))
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
             {"id": index + 2, "name": name, "status": status, "conclusion": conclusion}
@@ -333,6 +340,8 @@ class InstalledHelperRegression(unittest.TestCase):
         )
         gh.write_text(
             "#!/bin/sh\n"
+            "if [ \"$1 $2\" = 'pr view' ] && printf '%s' \"$*\" | grep -q statusCheckRollup; then "
+            "printf '%s\\n' " + rollup_payload + "; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
             "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"" + MERGED_SHA + "\"},\"labels\":[]}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
@@ -502,6 +511,83 @@ class InstalledHelperRegression(unittest.TestCase):
             result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "success", 1)])
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
+
+    FAST_GREEN = (
+        ("cmux-next path routing", "completed", "success"),
+        ("cmux-next fast tier", "completed", "success"),
+        ("cmux-next Swift canary", "completed", "success"),
+        ("cmux-next swift test", "in_progress", ""),
+        ("cmux-next daemon tests", "queued", ""),
+    )
+    SWIFT = ("Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift",)
+
+    def test_feat_next_merges_on_the_fast_gate_without_waiting_for_the_full_suites(self):
+        """Lawrence 2026-10-14: waiting for every check slowed iteration. A feat-cmux-next
+        merge needs only the fast tier and the touched compiles on the exact head; the
+        swift test, daemon tests and the rest of the cmux-next run land after it."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     cmux_next_runs=[("in_progress", None, 1)],
+                                     extra_checks=[("cmux-next swift test", "in_progress", "")])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("fast gate", summary[0])
+            self.assertIn("cmux-next fast tier", summary[0])
+            self.assertIn("waited", summary[0])
+
+    def test_the_fast_gate_refuses_a_red_fast_lane_or_a_red_gating_check(self):
+        for red in (("cmux-next fast tier", "completed", "failure"),
+                    ("cmux-next Swift canary", "completed", "failure"),
+                    ("web / react-apps-check", "completed", "failure"),
+                    ("app-size", "completed", "failure")):
+            rollup = [c for c in self.FAST_GREEN if c[0] != red[0]] + [red]
+            with self.subTest(red=red[0]), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertIn(red[0], result.stderr)
+
+    def test_the_fast_gate_waits_for_a_fast_lane_and_gives_up_at_its_timeout(self):
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "in_progress", "")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     extra_args=("--wait", "0"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("still waiting on cmux-next fast tier", result.stderr)
+
+    def test_the_fast_gate_waits_for_routing_before_the_run_exists(self):
+        """Right after a push nothing has reported; a covered change waits for routing."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=(),
+                                     cmux_next_runs=[], extra_args=("--wait", "0"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("cmux-next path routing", result.stderr)
+
+    def test_full_keeps_the_wait_for_every_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=True, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     cmux_next_runs=[("in_progress", None, 1)])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("cmux-next run", result.stderr)
+
+    def test_the_full_gate_also_prints_one_summary_line(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("full gate", summary[0])
 
     def test_ci_status_is_required_on_the_exact_head(self):
         with tempfile.TemporaryDirectory() as directory:
