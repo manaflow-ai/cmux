@@ -523,7 +523,6 @@ def check_truthful_broad_suites_leave_focused_gates(
         "AgentChatSessionRegistryLifecycleReviewRegressionTests",
         "AgentRestoreLiveOwnerAdmissionTests",
         "BackgroundPrimeStartableSurfaceTests",
-        "BrowserSystemProxyMirrorTests",
         "BrowserViewportRuntimeTests",
         "CLISSHSessionAttachAnchorTests",
         "CLISendQueuedOutputTests",

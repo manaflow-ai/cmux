@@ -52,25 +52,25 @@ extension TerminalController: ControlBrowserPanelContext {
 
     func controlBrowserPanelNavigate(panelID: UUID, urlString: String) -> Bool {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return false }
-        panel.navigateSmart(urlString)
+        panel.navigateSmart(urlString, dialogOwner: .automation)
         return true
     }
 
     func controlBrowserPanelGoBack(panelID: UUID) -> Bool {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return false }
-        panel.goBack()
+        panel.goBack(dialogOwner: .automation)
         return true
     }
 
     func controlBrowserPanelGoForward(panelID: UUID) -> Bool {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return false }
-        panel.goForward()
+        panel.goForward(dialogOwner: .automation)
         return true
     }
 
     func controlBrowserPanelReload(panelID: UUID) -> Bool {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return false }
-        panel.reload()
+        panel.reload(dialogOwner: .automation)
         return true
     }
 
@@ -101,8 +101,11 @@ extension TerminalController: ControlBrowserPanelContext {
         }
         // Some focus churn paths (workspace handoff / omnibar blur) can race this call.
         // Reassert on the next runloop if another responder steals focus immediately.
-        DispatchQueue.main.async { [weak window, weak webView] in
-            guard let window, let webView else { return }
+        let windowIdentifier = ObjectIdentifier(window)
+        DispatchQueue.main.async { [weak webView] in
+            guard let webView,
+                  let window = webView.window,
+                  ObjectIdentifier(window) == windowIdentifier else { return }
             guard webView.window === window else { return }
             if !Self.responderChainContains(window.firstResponder, target: webView) {
                 window.makeFirstResponder(webView)

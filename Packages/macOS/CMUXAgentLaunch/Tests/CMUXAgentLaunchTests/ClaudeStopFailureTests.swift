@@ -126,4 +126,15 @@ struct ClaudeStopFailureTests {
         ])
         #expect(details?.message == "500 Internal Server Error")
     }
+
+    @Test("The journal detail names the failure class for auto-resume")
+    func journalDetail() {
+        #expect(ClaudeStopFailure(reason: .overloaded).journalDetail == "overloaded")
+        #expect(
+            ClaudeStopFailure(reason: .connectionDropped, message: "Connection reset").journalDetail
+                == "connection_dropped: Connection reset"
+        )
+        #expect(ClaudeStopFailure(reason: .usageLimit, message: "Weekly limit").journalDetail == "usage_limit: Weekly limit")
+        #expect(ClaudeStopFailure(reason: .authentication).journalDetail == "authentication_failed")
+    }
 }

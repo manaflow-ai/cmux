@@ -132,7 +132,7 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
     /// Opens Settings and navigates to the TextBox section.
     private func openTextBoxSettings(_ app: XCUIApplication) -> XCUIElement {
         let window = openSettings(app)
-        navigate(window, to: "TextBox (Beta)")
+        navigate(window, to: "TextBox")
         return window
     }
 

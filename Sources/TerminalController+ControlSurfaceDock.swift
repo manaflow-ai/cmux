@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxControlSocket
 import Foundation
 
@@ -350,7 +351,8 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        tabManager: TabManager
+        tabManager: TabManager,
+        force: Bool
     ) -> ControlSurfaceCloseResolution? {
         guard let windowDock = windowDockForRouting(routing, tabManager: tabManager) else { return nil }
         let resolved = resolvedWindowDockSurfaceId(
@@ -368,7 +370,12 @@ extension TerminalController {
         guard windowDock.containsPanel(surfaceId) else {
             return .closeFailed(surfaceId)
         }
-        guard windowDock.closePanel(surfaceId, force: true) else {
+        if !force,
+           let panel = windowDock.panel(for: TabID(uuid: surfaceId)),
+           windowDock.dockPanelNeedsConfirmClose(panel) {
+            return .confirmationRequired(surfaceId)
+        }
+        guard windowDock.closePanel(surfaceId, force: force) else {
             return .closeFailed(surfaceId)
         }
         AppDelegate.shared?.notificationStore?.clearNotifications(

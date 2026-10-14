@@ -16,13 +16,16 @@ public enum CloudTerminalPaneClosure {
     ///   - liveTerminalKeys: terminal keys in the freshly published graph.
     ///   - freshness: whether that graph is current. A stale graph means the
     ///     machine is unreachable, not that a terminal ended, so nothing closes.
+    ///   - graphComplete: whether the graph contains catalog rows for every
+    ///     recognized tab. An incomplete inventory cannot prove a terminal ended.
     /// - Returns: panel ids in a stable order.
     public static func panelsToClose(
         boundTerminals: [UUID: String],
         liveTerminalKeys: Set<String>,
-        freshness: CloudVMStateFreshness
+        freshness: CloudVMStateFreshness,
+        graphComplete: Bool = true
     ) -> [UUID] {
-        guard freshness == .current else { return [] }
+        guard freshness == .current, graphComplete else { return [] }
         return boundTerminals
             .filter { !liveTerminalKeys.contains($0.value) }
             .keys

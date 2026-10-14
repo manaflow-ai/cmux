@@ -5,6 +5,7 @@ import CmuxSimulator
 @MainActor
 final class SimulatorProcessSession {
     private(set) var isRunning = false
+    private(set) var outputFailure: SimulatorProcessOutputFailure?
     private var process: SimulatorProcessGroupProcess?
     private let outputPipe = Pipe()
     private let sleeper: any SimulatorProcessSleeper
@@ -40,6 +41,7 @@ final class SimulatorProcessSession {
         onTermination: @escaping @MainActor @Sendable () -> Void
     ) throws {
         guard !isRunning else { return }
+        outputFailure = nil
         if capturesOutput {
             let handle = outputPipe.fileHandleForReading
             let reader = SimulatorProcessOutputReader(fileDescriptor: handle.fileDescriptor)
@@ -80,6 +82,7 @@ final class SimulatorProcessSession {
                         if let outputTask = self.outputTask {
                             await outputTask.value
                         }
+                        self.outputFailure = self.outputReader?.failure
                         self.outputTask = nil
                         self.outputReader = nil
                         self.finishTermination()
@@ -119,6 +122,7 @@ final class SimulatorProcessSession {
             outputReader?.cancel()
             outputTask?.cancel()
             process = nil
+            outputFailure = outputReader?.failure
             outputTask = nil
             outputReader = nil
             finishTermination()

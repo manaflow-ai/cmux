@@ -3,6 +3,7 @@ import { auditedDocsMetadata } from "../../audited-docs-metadata";
 import { DocsSchema } from "../../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -12,6 +13,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     path: "/docs/cloud/workspaces",
   });
 }
+
+const linkClass =
+  "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
 export default async function CloudWorkspacesPage({
   params,
@@ -88,6 +92,7 @@ cmux vm layout apply brave-otter layout.json --open`}</CodeBlock>
       <CodeBlock lang="bash">{`cmux ai-accounts list
 cmux ai-accounts upload claude
 cmux coderouter status`}</CodeBlock>
+      <p><Link href="/docs/coderouter" className={linkClass}>{t("coderouterLink")}</Link></p>
 
       <DocsHeading level={2} id="guest-cli">{t("guestTitle")}</DocsHeading>
       <p>{t("guestDesc")}</p>

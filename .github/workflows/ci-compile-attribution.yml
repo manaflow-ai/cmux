@@ -1,0 +1,350 @@
+name: CI compile attribution
+
+# When main stops compiling, name the merge behind it within minutes, tell its
+# author and merger with the exact compiler errors, and fix forward (or open a
+# revert). Nothing here gates or slows a merge: it all happens after one.
+#
+# The compile itself is seed-derived-data.yml, which already builds every
+# push's app-host test product (the app and cmuxTests, build-for-testing) on
+# the trusted warm minis and Blacksmith. Its first seed job whose Build fails
+# dispatches this workflow at once; its completion, and each
+# main-compile-probe.yml completion, runs it again. Every run re-derives the
+# state from main's head, so a missed or duplicate trigger is harmless.
+#
+#   analyze   read-only: the newest known compile, and where each of its
+#             errors first appeared (scripts/ci/main_compile_attribution.py)
+#   report    comments on each culprit with the errors (@merger, @author) and
+#             dispatches probes for skipped commits in an ambiguous range. Its
+#             job name is the headline ci-dash reads from the webhook feed.
+#   fix       when main's head is still red, a culprit is named and no open
+#             pull request already fixes it: a Claude run that may only read
+#             and edit files makes a mechanical fix-forward, opened with
+#             auto-merge (its own CI is the check); when it declines, a revert
+#             of a confirmed culprit, labeled compile-revert, for a person.
+on:
+  workflow_run:
+    workflows: ["Seed DerivedData", "Main compile probe"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      head:
+        description: Main commit to analyze from (default main's head). A demo against an old red commit.
+        required: false
+        type: string
+      dry_run:
+        description: Print the comments, probes and pull requests instead of writing them.
+        required: false
+        default: false
+        type: boolean
+
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/seed-derived-data.yml .github/workflows/main-compile-probe.yml
+
+permissions: {}
+
+concurrency:
+  # One analysis at a time; GitHub keeps one pending run and a newer trigger
+  # replaces it, which loses nothing because each run reads main afresh.
+  group: ci-compile-attribution
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    name: Analyze
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["push","workflow_dispatch"]'), github.event.workflow_run.event) && contains(fromJSON('[".github/workflows/seed-derived-data.yml",".github/workflows/main-compile-probe.yml"]'), github.event.workflow_run.path)) }}
+    # Analysis only reads trusted main history and the Actions/PR APIs. It
+    # needs no secret or write token, so use the shared Linux runner pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      headline: ${{ steps.analyze.outputs.headline }}
+      state: ${{ steps.analyze.outputs.state }}
+      probes: ${{ steps.analyze.outputs.probes }}
+      fix: ${{ steps.analyze.outputs.fix }}
+    steps:
+      - name: Checkout main with history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 60
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Analyze
+        id: analyze
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_INPUT: ${{ inputs.head }}
+        run: |
+          set -euo pipefail
+          args=(analyze --out "$RUNNER_TEMP/compile-report.json" --summary-out "$RUNNER_TEMP/summary.md")
+          if [ -n "${HEAD_INPUT:-}" ]; then
+            git fetch --no-tags --filter=blob:none --depth=60 origin "$HEAD_INPUT"
+            args+=(--head "$HEAD_INPUT")
+          fi
+          python3 scripts/ci/main_compile_attribution.py "${args[@]}"
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: compile-report
+          path: ${{ runner.temp }}/compile-report.json
+          retention-days: 14
+
+  report:
+    # The headline is the job name, so the webhook feed carries the culprit.
+    name: ${{ needs.analyze.outputs.headline || 'report' }}
+    needs: analyze
+    if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: attribution must follow a failed compile within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 10
+    permissions:
+      actions: write # dispatches main-compile-probe.yml
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Download the report
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: compile-report
+          path: ${{ runner.temp }}/compile-report
+
+      - name: Comment on the culprits
+        if: ${{ needs.analyze.outputs.state == 'red' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # A demo against an old commit (inputs.head) never pings anyone.
+          DRY_RUN: ${{ (inputs.dry_run || inputs.head) && '--dry-run' || '' }}
+        run: python3 scripts/ci/main_compile_attribution.py report --report "$RUNNER_TEMP/compile-report/compile-report.json" $DRY_RUN
+
+      # Owned warm minis first. A probe still queued after three minutes is
+      # cancelled and sent to Blacksmith (CI routing is minis first; Blacksmith
+      # only takes overflow).
+      - name: Probe the commits the seeds skipped
+        if: ${{ needs.analyze.outputs.probes != '' && !inputs.dry_run && !inputs.head }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBES: ${{ needs.analyze.outputs.probes }}
+          # The PR pool's root label (compile admission's), then the Blacksmith
+          # pool whose seeds match its width.
+          OWNED: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_COMPILE_PROBE_POOL || 'glaeda-root-std-xcode-26.6' }}
+          OVERFLOW: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+        run: |
+          set -euo pipefail
+          since="$(date -u -d '-30 seconds' +%Y-%m-%dT%H:%M:%SZ)"
+          for sha in $PROBES; do
+            gh workflow run main-compile-probe.yml --repo "$GITHUB_REPOSITORY" --ref main -f sha="$sha" -f runner="$OWNED"
+            echo "Probe of $sha dispatched on $OWNED" >> "$GITHUB_STEP_SUMMARY"
+          done
+          sleep 180
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/main-compile-probe.yml/runs?branch=main&status=queued&created=%3E%3D$since&per_page=20" \
+            --jq '.workflow_runs[] | "\(.id) \(.display_title)"' | while read -r id title; do
+            sha="${title##* }"
+            gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || continue
+            gh workflow run main-compile-probe.yml --repo "$GITHUB_REPOSITORY" --ref main -f sha="$sha" -f runner="$OVERFLOW"
+            echo "Probe of $sha still queued on $OWNED after 3 minutes; moved to $OVERFLOW" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  fix:
+    name: Fix forward or revert
+    needs: [analyze, report]
+    if: ${{ needs.analyze.outputs.state == 'red' && needs.analyze.outputs.fix == 'true' && !inputs.dry_run && !inputs.head }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token and the fix PR App key; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 30
+    concurrency:
+      group: ci-compile-attribution-fix
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout main's head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 60
+          persist-credentials: false
+
+      - name: Download the report
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: compile-report
+          path: ${{ runner.temp }}/compile-report
+
+      # Another analysis of the same break may have queued this job behind
+      # the one that opened the pull request.
+      - name: Check that main's head is the analyzed commit and nothing is open for it
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ runner.temp }}/compile-report/compile-report.json
+        run: |
+          set -euo pipefail
+          analyzed="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["head"])' "$REPORT")"
+          culprit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["fix"]["culprit"]["pr"])' "$REPORT")"
+          # Any state: a person who closed one said no.
+          open_for="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=all&per_page=100" \
+            --jq "[.[] | select(.head.ref | test(\"^compile-(fix/[0-9a-f]+-|revert/)$culprit\$\"))] | length")"
+          if [ "$(git rev-parse HEAD)" != "$analyzed" ]; then
+            echo "main moved past $analyzed; the next analysis decides." >> "$GITHUB_STEP_SUMMARY"
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          elif [ "$open_for" != 0 ]; then
+            echo "A compile fix or revert for #$culprit already exists (open or closed)." >> "$GITHUB_STEP_SUMMARY"
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Read and Edit only: no shell, no network, no GitHub token. Its diff is
+      # checked below and becomes a pull request whose own CI compiles it.
+      - name: Ask the fixer for a mechanical fix
+        id: fixer
+        if: ${{ steps.head.outputs.current == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          REPORT: ${{ runner.temp }}/compile-report/compile-report.json
+        run: |
+          set -euo pipefail
+          npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+          python3 scripts/ci/main_compile_attribution.py prompt --report "$REPORT" --out "$RUNNER_TEMP/prompt.txt"
+          schema='{"type":"object","properties":{"mechanical":{"type":"boolean"},"summary":{"type":"string"}},"required":["mechanical","summary"]}'
+          claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
+            --allowedTools "Read,Edit,Glob,Grep" --disallowedTools "Bash,WebFetch,WebSearch" \
+            --max-turns 40 --output-format json --json-schema "$schema" > "$RUNNER_TEMP/fixer.json"
+          python3 - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          out = data.get("structured_output") or {}
+          if not out:
+              try:
+                  out = json.loads(data.get("result") or "{}")
+              except ValueError:
+                  out = {}
+          # No structured answer is no decision: neither a fix nor a revert.
+          print(f"decided={'true' if isinstance(out.get('mechanical'), bool) else 'false'}")
+          print(f"mechanical={'true' if out.get('mechanical') else 'false'}")
+          print("summary=" + " ".join(str(out.get("summary") or "").split())[:400])
+          PY
+
+      # A fixer that did not finish (no token, an outage) decides nothing:
+      # no fix and no revert, and the culprit comment still stands.
+      - name: Keep only a small mechanical diff
+        id: diff
+        if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' && steps.fixer.outputs.decided == 'true' }}
+        env:
+          MECHANICAL: ${{ steps.fixer.outputs.mechanical }}
+        run: |
+          set -euo pipefail
+          changed="$(git diff --numstat | awk '{s += $1 + $2} END {print s + 0}')"
+          files="$(git diff --name-only | wc -l | tr -d ' ')"
+          echo "The fixer changed $changed lines in $files files (mechanical: ${MECHANICAL:-unknown})." >> "$GITHUB_STEP_SUMMARY"
+          if [ "${MECHANICAL:-}" = true ] && [ "$changed" -gt 0 ] && [ "$changed" -le 80 ] && [ "$files" -le 8 ] \
+             && ! git diff --name-only | grep -qvE '^(Sources|cmuxTests|cmuxUITests|CLI|Packages)/'; then
+            echo "kind=fix" >> "$GITHUB_OUTPUT"
+          else
+            git checkout -- .
+            echo "kind=revert" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mint the fix PR token
+        id: app-token
+        if: ${{ steps.diff.outputs.kind != '' && vars.GLAEDA_ROUTE_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+
+      # Pushed and opened by the org's App so the pull request's CI runs. A
+      # fix-forward merges itself when its checks pass; a revert only of a
+      # confirmed culprit, and never by itself.
+      - name: Open the pull request
+        id: pr
+        if: ${{ steps.app-token.outputs.token != '' }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          KIND: ${{ steps.diff.outputs.kind }}
+          SUMMARY: ${{ steps.fixer.outputs.summary }}
+          REPORT: ${{ runner.temp }}/compile-report/compile-report.json
+          # The label main_compile_attribution.py names (REVERT_LABEL).
+          REVERT_LABEL: compile-revert
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/main_compile_attribution.py pr-text --report "$REPORT" --kind "$KIND" \
+            --summary "${SUMMARY:-}" --out "$RUNNER_TEMP/pr.json"
+          field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RUNNER_TEMP/pr.json" "$1"; }
+          branch="$(field branch)"
+          git config user.name "cmux compile attribution"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$KIND" = revert ]; then
+            if [ "$(field confirmed)" != True ]; then
+              echo "The culprit is only suspected; no revert." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sha="$(field merge_sha)"
+            mainline=()
+            if [ "$(git rev-list --parents -n1 "$sha" | wc -w)" -gt 2 ]; then
+              mainline=(-m 1)  # a merge commit: undo what it brought onto main
+            fi
+            if ! git revert --no-edit ${mainline[@]+"${mainline[@]}"} "$sha"; then
+              git revert --abort || true
+              echo "The revert does not apply cleanly to main's head; left to a person." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          else
+            git commit -qam "$(field title)"
+          fi
+          auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push --force --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$branch"
+          export GH_TOKEN="$APP_TOKEN"
+          url="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq '.[0].html_url // empty')"
+          if [ -z "$url" ]; then
+            url="$(gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" -f head="$branch" -f base=main \
+              -f title="$(field title)" -f body="$(field body)" --jq .html_url)"
+          fi
+          if [ "$KIND" = fix ]; then
+            gh pr merge "$url" --auto --squash || echo "::warning::could not enable auto-merge on $url"
+            echo "fix=$url" >> "$GITHUB_OUTPUT"
+          else
+            gh label create "$REVERT_LABEL" --repo "$GITHUB_REPOSITORY" --color B60205 \
+              --description "Reverts a merge that broke main's compile (ci-compile-attribution.yml)" 2>/dev/null || true
+            gh pr edit "$url" --add-label "$REVERT_LABEL" || true
+            echo "revert=$url" >> "$GITHUB_OUTPUT"
+          fi
+          echo "$KIND pull request: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Link the pull request from the culprit comment
+        if: ${{ steps.pr.outputs.fix != '' || steps.pr.outputs.revert != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIX_PR: ${{ steps.pr.outputs.fix }}
+          REVERT_PR: ${{ steps.pr.outputs.revert }}
+        run: |
+          python3 scripts/ci/main_compile_attribution.py report \
+            --report "$RUNNER_TEMP/compile-report/compile-report.json" --fix-pr "$FIX_PR" --revert-pr "$REVERT_PR"

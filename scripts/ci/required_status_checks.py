@@ -61,9 +61,7 @@ BRANCH = "main"
 REQUIRED_CHECKS = (
     "CLA Assistant",
     "CLA policy guard",
-    "Web complexity",
-    "ci-status",
-    "web-validation",
+    "backend migrations applied",
 )
 
 # How many recently merged pull request heads to ask about production. Each

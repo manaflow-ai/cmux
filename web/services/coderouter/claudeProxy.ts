@@ -1,4 +1,5 @@
 import { accountAccessForIdentity } from "./accountAccess";
+import { noAccountConfiguredMessage } from "./noAccountMessage";
 // The Claude leg of coderouter: serves the Anthropic Messages API to a guest
 // (Claude Code inside a Cloud VM, or any Anthropic SDK client holding a
 // route token) and forwards to one of the team's Claude upstream accounts.
@@ -48,6 +49,14 @@ import {
   withCoderouterOperationDeadline,
 } from "./upstreamFetch";
 import { isStreamingResponse } from "./responseUsage";
+import {
+  CapacityHold,
+  capacityHoldBudgetMs,
+  capacityHoldTelemetry,
+  type CapacityHoldStats,
+  defaultCapacityHoldRuntime,
+  type CapacityHoldRuntime,
+} from "./capacityHold";
 import { signAwsRequest } from "./awsSigV4";
 import {
   anthropicErrorFromBedrock,
@@ -105,8 +114,10 @@ const MODELS_TIMEOUT_MS = 10_000;
 const SHORT_ROUTE_UPSTREAM_FAILOVER_BUDGET_MS = 45_000;
 
 /**
- * Failover budget per request. Each attempt is one account; the loop stops
- * early when the team runs out of healthy accounts.
+ * Accounts tried per routing round. Each attempt is one account; a round ends
+ * early when the team runs out of healthy accounts. After a round of
+ * transient failures the request holds (see `capacityHold.ts`) and starts a
+ * new round instead of failing.
  */
 export const MAX_UPSTREAM_ATTEMPTS = 4;
 /** 429 without a usable reset header. */
@@ -135,12 +146,15 @@ export type ClaudeProxyRuntimeOverrides = {
   readonly now?: () => number;
   readonly upstreamHeadersBudgetMs?: number;
   readonly upstreamHeadersTimeoutMs?: number;
+  readonly capacityHoldBudgetMs?: number;
+  readonly sleep?: CapacityHoldRuntime["sleep"];
+  readonly random?: () => number;
 };
 
-type ClaudeProxyRuntime = {
-  readonly now: () => number;
+type ClaudeProxyRuntime = CapacityHoldRuntime & {
   readonly upstreamHeadersBudgetMs: number;
   readonly upstreamHeadersTimeoutMs: number;
+  readonly capacityHoldBudgetMs: number;
 };
 
 const defaultDependencies: ClaudeProxyDependencies = {
@@ -164,6 +178,9 @@ function resolveClaudeRuntime(
         ? CODEROUTER_UPSTREAM_FAILOVER_BUDGET_MS
         : SHORT_ROUTE_UPSTREAM_FAILOVER_BUDGET_MS),
     upstreamHeadersTimeoutMs: overrides.upstreamHeadersTimeoutMs ?? upstreamHeadersTimeoutMs(),
+    capacityHoldBudgetMs: overrides.capacityHoldBudgetMs ?? capacityHoldBudgetMs(),
+    sleep: overrides.sleep ?? defaultCapacityHoldRuntime.sleep,
+    random: overrides.random ?? defaultCapacityHoldRuntime.random,
   };
 }
 
@@ -196,6 +213,7 @@ type Routed =
     /** True when the response is an upstream failure we could not move past. */
     readonly failed: boolean;
     readonly failureStage: RouteFailureStage;
+    readonly hold?: CapacityHoldStats;
   }
   | {
     readonly kind: "exhausted";
@@ -203,7 +221,9 @@ type Routed =
     readonly attempts: number;
     readonly outcome: RouteOutcome;
     readonly failureStage: RouteFailureStage;
+    readonly hold?: CapacityHoldStats;
   };
+
 
 export function createClaudeMessagesProxy(
   dependencies: ClaudeProxyDependencies = defaultDependencies,
@@ -232,6 +252,7 @@ export function createClaudeMessagesProxy(
         failureStage: routed.failureStage,
         responseStreamed: false,
         attemptCount: routed.attempts,
+        hold: routed.hold,
       });
       return routed.response;
     }
@@ -246,6 +267,7 @@ export function createClaudeMessagesProxy(
       failureStage: routed.failed ? routed.failureStage : "none",
       responseStreamed: streamed,
       attemptCount: routed.attempts,
+      hold: routed.hold,
       upstream,
     });
     const agent = agentFromUserAgent(request.headers.get("user-agent"));
@@ -373,11 +395,12 @@ function stickyKey(identity: RouteTokenIdentity): string {
 /**
  * Runs `send` against healthy accounts until one answers with something other
  * than a rate limit, a rejected credential, or an unavailable upstream. Each
- * such failure cools the account down and excludes it for the rest of this
- * request. A response the proxy cannot move past (last account, or attempt
- * budget spent) is returned as-is so the client sees the real upstream error.
+ * such failure cools the account down and excludes it for the rest of the
+ * round. When a round ends on a transient failure, the request holds for
+ * capacity and starts a new round with the same body and model. A response
+ * the proxy cannot move past (no account will recover within the hold budget)
+ * is returned as-is so the client sees the real upstream error.
  */
-// oxlint-disable-next-line complexity -- Account routing keeps provider failover, stream probing, cooldown, and deadline transitions atomic.
 async function routeWithFailover(
   dependencies: ClaudeProxyDependencies,
   identity: RouteTokenIdentity,
@@ -387,11 +410,46 @@ async function routeWithFailover(
   runtime: ClaudeProxyRuntime,
   send: (upstream: ClaudeUpstream, headersTimeoutMs: number) => Promise<Response>,
 ): Promise<Routed> {
+  const hold = new CapacityHold(runtime, runtime.now(), runtime.capacityHoldBudgetMs, upstreamHeaderDeadlineAt);
+  const routed = await routeRounds(dependencies, identity, request, surface, upstreamHeaderDeadlineAt, runtime, hold, send);
+  if (hold.holdCount === 0) return routed;
+  return { ...routed, hold: { heldMs: hold.heldMs, holdCount: hold.holdCount } };
+}
+
+// oxlint-disable-next-line complexity -- Account routing keeps provider failover, stream probing, cooldown, capacity hold, and deadline transitions atomic.
+async function routeRounds(
+  dependencies: ClaudeProxyDependencies,
+  identity: RouteTokenIdentity,
+  request: Request,
+  surface: ClaudeSurface,
+  upstreamHeaderDeadlineAt: number,
+  runtime: ClaudeProxyRuntime,
+  hold: CapacityHold,
+  send: (upstream: ClaudeUpstream, headersTimeoutMs: number) => Promise<Response>,
+): Promise<Routed> {
   const excluded: string[] = [];
   let lastFailure: { response: Response; upstream: ClaudeUpstream; stage: RouteFailureStage } | null = null;
+  /** False when the round's last failure needs a human (revoked credential). */
+  let lastFailureTransient = true;
   let attempts = 0;
-  while (attempts < MAX_UPSTREAM_ATTEMPTS) {
+  let roundAttempts = 0;
+  const holdForNextRound = async (retryAfterMs: number | null | undefined): Promise<boolean> => {
+    if (!(await hold.wait(retryAfterMs, request.signal))) return false;
+    addCoderouterBreadcrumb("routing", "Holding Claude request for capacity", {
+      surface,
+      hold_count: hold.holdCount,
+      held_ms: hold.heldMs,
+    }, "warning");
+    excluded.length = 0;
+    roundAttempts = 0;
+    return true;
+  };
+  for (;;) {
     throwIfRequestAborted(request);
+    if (roundAttempts >= MAX_UPSTREAM_ATTEMPTS) {
+      if (await holdForNextRound(lastFailureTransient ? undefined : null)) continue;
+      return deadlineResult(attempts, lastFailure);
+    }
     if (remainingUpstreamHeadersTimeoutMs(
       upstreamHeaderDeadlineAt,
       runtime.now(),
@@ -461,15 +519,25 @@ async function routeWithFailover(
         attempts,
         outcome: "no_usable_account",
         failureStage: "provider_config",
+        // Not retryable until the team adds an account. Claude Code retries
+        // 408/409/429/5xx, so a 403 permission_error surfaces once instead
+        // of a retry loop.
         response: anthropicError(
-          503,
-          "api_error",
-          "No Claude upstream account is configured for this team. Add one with `cmux coderouter claude add` or at coderouter.dev.",
-          { "retry-after": "30" },
+          403,
+          "permission_error",
+          noAccountConfiguredMessage("claude", identity),
         ),
       };
     }
     if (selection.kind === "exhausted") {
+      // Every account was tried this round: back off, then let the next
+      // selection report when the cooling accounts recover. Otherwise every
+      // account is cooling from other requests; wait for the soonest one that
+      // is cooling for a transient reason.
+      const retryAfterMs = excluded.length > 0
+        ? (lastFailureTransient ? undefined : null)
+        : selection.capacityRetryAfterSeconds === null ? null : selection.capacityRetryAfterSeconds * 1_000;
+      if (await holdForNextRound(retryAfterMs)) continue;
       // Prefer the last real upstream answer over a synthetic one: the client
       // learns why (rate limit, revoked key) and how long to wait.
       if (lastFailure) {
@@ -494,6 +562,7 @@ async function routeWithFailover(
     }
     const upstream = selection.upstream;
     attempts += 1;
+    roundAttempts += 1;
     addCoderouterBreadcrumb("routing", "Selected Claude upstream account", {
       provider: "claude",
       upstream_kind: upstream.kind,
@@ -531,6 +600,7 @@ async function routeWithFailover(
       cooldown_ms: verdict.cooldownMs,
       status: attempt.kind === "response" ? attempt.response.status : 0,
     }, "warning");
+    lastFailureTransient = verdict.failureCode !== "invalid_credential";
     lastFailure = {
       upstream,
       stage: verdict.stage,
@@ -554,7 +624,6 @@ async function routeWithFailover(
     }
     excluded.push(upstream.accountId);
   }
-  return deadlineResult(attempts, lastFailure);
 }
 
 async function sendClaudeAttempt(
@@ -660,7 +729,7 @@ async function probeClaudeStreamFailure(response: Response, signal: AbortSignal)
     await reader.cancel().catch(() => undefined);
     throw error;
   }
-  let buffered = chunks.slice();
+  const buffered = chunks.slice();
   let upstreamDone = false;
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -796,7 +865,7 @@ function classifyAttempt(attempt: Attempt): Verdict {
       stage: "upstream_response",
     };
   }
-  if (status === 500 || status === 502 || status === 503 || status === 529) {
+  if (status === 408 || status === 409 || status === 500 || status === 502 || status === 503 || status === 529) {
     return {
       kind: "failover",
       cooldownMs: UPSTREAM_UNAVAILABLE_COOLDOWN_MS,
@@ -1188,10 +1257,12 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
   readonly failureStage: RouteFailureStage;
   readonly responseStreamed: boolean;
   readonly attemptCount: number;
+  readonly hold?: CapacityHoldStats;
   readonly upstream?: ClaudeUpstream;
 }): void {
   const durationMs = Math.round(performance.now() - input.startedAt);
   const agent = agentFromUserAgent(input.request.headers.get("user-agent"));
+  const hold = capacityHoldTelemetry(input.hold);
   addCoderouterBreadcrumb(
     "request",
     "Model request completed",
@@ -1201,6 +1272,8 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
       outcome: input.outcome,
       duration_ms: durationMs,
       attempt_count: input.attemptCount,
+      held_ms: hold.heldMs,
+      hold_count: hold.holdCount,
     },
     input.status >= 500 ? "error" : input.status >= 400 ? "warning" : "info",
   );
@@ -1212,6 +1285,8 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
     agent,
     attempts: input.attemptCount,
     refreshRetries: 0,
+    heldMs: hold.heldMs,
+    holdCount: hold.holdCount,
     responseStreamed: input.responseStreamed,
     upstreamKind: input.upstream?.kind,
     upstreamAccountId: input.upstream?.accountId,
@@ -1230,6 +1305,8 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
     attemptCount: input.attemptCount,
     refreshRetryCount: 0,
     durationMs,
+    heldMs: hold.heldMs,
+    holdCount: hold.holdCount,
     responseStreamed: input.responseStreamed,
     upstreamAccountId: input.upstream?.accountId,
   });

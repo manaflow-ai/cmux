@@ -67,6 +67,8 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
+    /// Called when the shared-sizing chip on the terminal is tapped.
+    var onSharedSizingChipTapped: @MainActor () -> Void = {}
 
     /// Who answers terminal queries: the Mac (mirror), the server's
     /// cmux-tui emulator (input only), or this phone (plain/tmux SSH).
@@ -194,6 +196,22 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             && !store.surfaceIsLocallyEmulated(surfaceID)
             ? .verifiedRenderGrid
             : .legacyMirror
+        // Shared sizing: the owner-color bounds follow the published size
+        // state (read here so Observation re-runs this on every change), and
+        // a reattach or owner change re-reports the viewport so the surface
+        // learns its new grid through the normal acknowledgement path.
+        let sizing = store.terminalSizing(for: surfaceID)
+        let sizingPresentation = sizing?.attachment.allowsTerminalTraffic == false
+            ? nil
+            : store.terminalSizingPresentation(for: surfaceID)
+        surfaceView.sharedSizingDecoration = sizingPresentation?.boundsDecoration
+        surfaceView.sharedSizingChip = sizingPresentation?.chipContent
+        surfaceView.onSharedSizingChipTap = onSharedSizingChipTapped
+        if let reassert = sizing?.viewportReassertGeneration,
+           reassert != context.coordinator.appliedViewportReassertGeneration {
+            context.coordinator.appliedViewportReassertGeneration = reassert
+            surfaceView.reassertViewportCapacityReport()
+        }
         surfaceView.localEmulation = Self.localEmulation(store: store, surfaceID: surfaceID)
         if artifactCountModeChanged {
             surfaceView.resetVisibleArtifactCountTracking()
@@ -227,6 +245,8 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         var releaseGateUIProbe: MobileReleaseGateUIProbe?
         var releaseGateSawNonblankFrame = false
         #endif
+        /// The last shared-sizing viewport reassert this surface honored.
+        var appliedViewportReassertGeneration: UInt64 = 0
         let workspaceID: String
         let surfaceID: String
         weak var store: CMUXMobileShellStore?

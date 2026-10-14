@@ -121,6 +121,35 @@ final class PlainPastePTYFixture {
         try #require(surface.readText(region: .screen)?.contains("PASTE_READY") == true)
     }
 
+    /// Proves the prewarmed plain-text reader started at init, before any
+    /// paste asked for it, and has served one read, so it is at its request
+    /// wait. The pool reads a reader's readiness byte only with its first
+    /// request, and a wrapper launch can take over a second on a loaded runner
+    /// (see ``warmWorkerLaunchPath()``).
+    func waitUntilStandbyReaderServes() async throws {
+        let deadline = ContinuousClock.now + .seconds(15)
+        while launchLabels() != ["text"], ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(launchLabels() == ["text"], "The plain-text reader was not prewarmed at init")
+        NSPasteboard.general.clearContents()
+        try #require(NSPasteboard.general.setString("cmux-paste-pty-standby", forType: .string))
+        let result = try await workerClient.prepare(TerminalPastePreparationRequest(
+            pasteboard: TerminalPasteboardReadRequest(pasteboard: NSPasteboard.general),
+            mode: .paste,
+            destination: .terminal
+        ))
+        guard case .terminal(.insertText("cmux-paste-pty-standby")) = result else {
+            Issue.record("Standby reader did not serve the readiness read: \(result)")
+            return
+        }
+        try #require(launchLabels() == ["text"], "The readiness read must reuse the prewarmed reader")
+    }
+
+    private func launchLabels() -> [String] {
+        ((try? String(contentsOf: launches, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+    }
+
     /// Warms this fixture's worker launch path before the timed trials.
     ///
     /// The launch-counting wrapper is a fresh shell script per fixture, and

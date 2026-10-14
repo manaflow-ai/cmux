@@ -149,11 +149,10 @@ enum OpenCodeDatabaseSnapshot {
         }
     }
 
-    private static let sourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
-
     static func make(prefix: String) throws -> Snapshot? {
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourcePath) else { return nil }
+        let sourceURL = OpenCodePaths(environment: ProcessInfo.processInfo.environment).databaseURL
+        guard fileManager.fileExists(atPath: sourceURL.path) else { return nil }
 
         let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
             "\(prefix)-\(UUID().uuidString)",
@@ -163,7 +162,7 @@ enum OpenCodeDatabaseSnapshot {
 
         let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
         do {
-            try fileManager.copyItem(atPath: sourcePath, toPath: snapshotDB.path)
+            try fileManager.copyItem(at: sourceURL, to: snapshotDB)
         } catch {
             try? fileManager.removeItem(at: snapshotDir)
             throw error
@@ -171,7 +170,7 @@ enum OpenCodeDatabaseSnapshot {
 
         do {
             for sidecar in ["-wal", "-shm"] {
-                let source = sourcePath + sidecar
+                let source = sourceURL.path + sidecar
                 let destination = snapshotDB.path + sidecar
                 if fileManager.fileExists(atPath: source) {
                     try fileManager.copyItem(atPath: source, toPath: destination)

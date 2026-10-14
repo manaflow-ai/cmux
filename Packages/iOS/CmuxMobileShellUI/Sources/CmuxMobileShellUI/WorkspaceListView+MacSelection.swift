@@ -25,17 +25,10 @@ extension WorkspaceListView {
             displayPairedMacs: displayPairedMacsForPicker,
             foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
             foregroundInstanceTag: store?.connectedMacInstanceTag,
-            locallyServedMachineIDs: sshComputerMachineIDs,
             aliasesFor: {
                 store?.pairedMacAliasIDs(for: $0, instanceTag: $1) ?? []
             }
         )
-    }
-
-    /// SSH computers' ids, so they are selectable before listing a workspace.
-    var sshComputerMachineIDs: Set<String> {
-        guard let store else { return [] }
-        return Set(store.sshComputers.hosts.map { store.sshComputerDeviceID(hostID: $0.id) })
     }
 
     var activeFilter: MobileWorkspaceListFilter {
@@ -89,17 +82,11 @@ extension WorkspaceListView {
             names[mac.macDeviceID] = mac.resolvedName
             names[mac.id] = mac.resolvedName
         }
-        if let buildScope = MobileIOSBuildScope.current() {
-            names = names.mapValues(buildScope.computerDisplayName)
-        }
-        // After the build-scope mapping: the dev tag suffix identifies which
-        // cmux Mac build a row belongs to, and an SSH host is not a cmux build.
-        if let store {
-            for host in store.sshComputers.hosts {
-                names[store.sshComputerDeviceID(hostID: host.id)] = host.name
-            }
-        }
-        return names
+        guard let buildScope = MobileIOSBuildScope.current() else { return names }
+        return buildScope.computerDisplayNames(
+            names,
+            isExternalHost: { store?.externalHostOwnsHost($0) == true }
+        )
     }
 
     func macBuildLabelsByID() -> [String: String] {
@@ -142,8 +129,42 @@ extension WorkspaceListView {
         }
     }
 
+    /// The Cloud machine the computers picker is scoped to, when it is one.
+    var scopedExternalHostID: String? {
+        guard case .machine(let id) = macSelectionScope.visibleSelection,
+              store?.externalHostOwnsHost(id) == true else { return nil }
+        return id
+    }
+
+    /// Whether the list's plus control renders at all: it creates on the
+    /// scoped computer when that is allowed, and otherwise still opens the
+    /// menu of Cloud machines. Hiding it entirely on a phone with no Mac
+    /// connected would leave a Cloud-only account no way to create from the
+    /// list.
+    var showsNewWorkspaceControl: Bool {
+        if canCreateWorkspaceForMacSelection || !newWorkspaceComputerTargets.isEmpty {
+            return true
+        }
+        guard createWorkspaceOnCloudMachine != nil else { return false }
+        if store?.externalHostSummaries.contains(where: { !$0.isHidden }) == true {
+            return true
+        }
+        // Keep the entrypoint alive while the host summary catches up with a
+        // catalog that is already rendering Cloud rows.
+        return workspaces.contains { workspace in
+            guard let hostID = workspace.macDeviceID,
+                  store?.externalHostOwnsHost(hostID) == true else { return false }
+            return store?.externalHostIsHidden(hostID) != true
+        }
+    }
+
     var canCreateWorkspaceForMacSelection: Bool {
-        macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
+        // A Cloud machine is not the foreground Mac pairing, so the Mac rule
+        // below would always deny it; its own liveness is the gate.
+        if let scopedExternalHostID {
+            return store?.externalHostIsConnected(scopedExternalHostID) == true
+        }
+        return macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
     }
 
     #if os(iOS)
@@ -372,6 +393,14 @@ private struct WorkspaceMacTitlePickerLabel: View {
             minHeight: usesCompactLabelTreatment ? nil : WorkspaceRootToolbarSizing.controlHeight,
             alignment: .center
         )
+        // The toolbar can animate its principal item's content when the
+        // connection status line appears or disappears. That transiently
+        // interpolates the two different intrinsic heights and clips the
+        // caption at the edge of the navigation bar. Keep this state change
+        // discrete so the existing one-line and two-line layouts are rendered
+        // at their final sizes without changing either resting appearance.
+        .contentTransition(.identity)
+        .animation(.none, value: statusLine)
         .clipped()
         .contentShape(Rectangle())
     }

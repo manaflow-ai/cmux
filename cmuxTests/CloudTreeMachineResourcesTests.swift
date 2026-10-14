@@ -58,6 +58,20 @@ struct CloudTreeMachineResourcesTests {
         #expect(asleep[0].detail == "4 vCPU · Asleep")
     }
 
+    // The row renders its name with SwiftUI `Text`, which AppKit does not back
+    // with an NSTextField, so the truncation mode is asserted on the value the
+    // view applies rather than by searching the hosted view tree.
+    @Test("A narrow machine row keeps the generated name's ending")
+    @MainActor func machineNameTruncatesInTheMiddle() {
+        #expect(CloudTreeMachineRowContent.nameTruncationMode == .middle)
+        let snapshot = MachineSnapshot(
+            id: "machine-id", provider: "freestyle", image: "base", isDesktop: false,
+            activity: .ready, label: "whimsical-cobalt-butte"
+        )
+        let row = CloudTreeMachineRowContent(machine: snapshot, style: .compact)
+        #expect(row.accessibilityLabel.hasPrefix("whimsical-cobalt-butte,"))
+    }
+
     @Test("Resource readings cannot be selected and keyboard navigation skips them")
     @MainActor func resourceReadingsAreDisplayOnly() throws {
         let fixture = CloudSidebarOrderingFixture()
@@ -372,7 +386,7 @@ struct CloudTreeMachineResourcesTests {
         let snapshot = SurfaceCatalogSnapshot(machines: [info, emptyInfo], resources: [], projections: [])
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [first, second], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
-        )
+        ).withoutCoderouterSection
         #expect(nodes.count == 2)
         for node in nodes {
             let children = node.children

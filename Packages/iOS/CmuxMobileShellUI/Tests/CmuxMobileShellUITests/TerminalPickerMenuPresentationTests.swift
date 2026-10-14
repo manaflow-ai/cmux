@@ -82,6 +82,37 @@ import UIKit
         #expect(selected == ["first:terminal-1", "second:terminal-1"])
     }
 
+    @Test func reconnectingMacDoesNotShowUnsupportedBrowserHint() {
+        let reconnecting = TerminalPickerMenuValue(
+            liveTerminals: [],
+            selectedID: nil,
+            canCreateWorkspace: true,
+            hasActiveBrowser: false,
+            supportsBrowserStream: false,
+            browserStreamSupportKnown: false
+        )
+        let unsupported = TerminalPickerMenuValue(
+            liveTerminals: [],
+            selectedID: nil,
+            canCreateWorkspace: true,
+            hasActiveBrowser: false,
+            supportsBrowserStream: false,
+            browserStreamSupportKnown: true
+        )
+
+        let reconnectingActions = menuActions(in: TerminalPickerMenuContent(
+            value: reconnecting,
+            actions: actions()
+        ).makeElements())
+        let unsupportedActions = menuActions(in: TerminalPickerMenuContent(
+            value: unsupported,
+            actions: actions()
+        ).makeElements())
+
+        #expect(!reconnectingActions.contains { $0.identifier.rawValue == "BrowserStreamMacUpdateHint" })
+        #expect(unsupportedActions.contains { $0.identifier.rawValue == "BrowserStreamMacUpdateHint" })
+    }
+
     private func menuValue(generation: Int, grouped: Bool = false) -> TerminalPickerMenuValue {
         var terminals = [MobileTerminalPreview(id: "terminal-1", name: "Terminal \(generation)")]
         if generation > 0 { terminals.append(MobileTerminalPreview(id: "terminal-2", name: "Added terminal")) }

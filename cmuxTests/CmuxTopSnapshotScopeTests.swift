@@ -271,14 +271,18 @@ struct CmuxTopSnapshotScopeTests {
 
     @Test func testSummaryPayloadIncludesPhysicalFootprintMemoryBytes() async throws {
         let pid = Int(Darwin.getpid())
-        let expectedFootprintBytes = try #require(physicalFootprintBytes(for: pid), "proc_pid_rusage did not return physical footprint for current process")
-
+        // The capture samples this process between these two reads, while the app host keeps allocating.
+        let footprintBeforeCapture = try #require(physicalFootprintBytes(for: pid), "proc_pid_rusage did not return physical footprint for current process")
         let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let footprintAfterCapture = try #require(physicalFootprintBytes(for: pid), "proc_pid_rusage did not return physical footprint for current process")
         let payload = snapshot.summaryPayload(for: [pid])
         let memoryBytes = int64(payload["memory_bytes"])
+        let (lowest, highest) = (min(footprintBeforeCapture, footprintAfterCapture), max(footprintBeforeCapture, footprintAfterCapture))
 
         #expect((memoryBytes) > (0))
-        #expect((abs(memoryBytes - expectedFootprintBytes)) <= (max(16 * 1024 * 1024, expectedFootprintBytes / 5)))
+        #expect(intArray(payload["memory_source_fallback_pids"]).isEmpty)
+        #expect((memoryBytes) >= (lowest - max(16 * 1024 * 1024, lowest / 5)))
+        #expect((memoryBytes) <= (highest + max(16 * 1024 * 1024, highest / 5)))
     }
 
     @Test func testSamplePayloadDescribesPhysicalFootprintFallbackSource() async {
@@ -887,11 +891,7 @@ while allocations:
             // proc_pid_rusage imports as rusage_info_t *; callers pass the concrete
             // rusage struct address cast to that opaque buffer type.
             let buffer = baseAddress.assumingMemoryBound(to: rusage_info_t?.self)
-            return proc_pid_rusage(
-                pid_t(pid),
-                RUSAGE_INFO_V2,
-                buffer
-            )
+            return proc_pid_rusage(pid_t(pid), RUSAGE_INFO_V2, buffer)
         }
         guard result == 0 else { return nil }
         return int64Clamped(info.ri_phys_footprint)

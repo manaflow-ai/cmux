@@ -257,6 +257,25 @@ extension CMUXCLI {
             ],
             feedHookEvents: ["PreToolUse", "PostToolUse"]
         ),
+        AgentHookDef(
+            name: "muse", displayName: "Muse Code", statusKey: "muse",
+            configDir: ".config/muse", configFile: "settings.json",
+            configDirEnvOverride: "XDG_CONFIG_HOME", configDirEnvOverrideSubpath: "muse",
+            createConfigDirIfMissing: true,
+            sessionStoreSuffix: "muse", disableEnvVar: "CMUX_MUSE_HOOKS_DISABLED",
+            hookMarker: "cmux hooks muse", format: .nested(timeoutMs: 10_000),
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "StopFailure", cmuxSubcommand: "notification"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
+                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+            ],
+            // Muse runs hooks with a cleared environment, so hooks reach cmux
+            // through the installing CLI and socket.
+            dispatch: .pinned(marker: "cmux-muse-hook-v1")
+        ),
     ]
 
     static func agentDef(named name: String) -> AgentHookDef? {

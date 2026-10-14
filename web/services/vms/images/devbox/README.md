@@ -47,6 +47,20 @@ tags and packages the image does not bake; the chatmux devbox template
 (`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand in its own
 repo to keep the parity the header describes.
 
+A machine can instead keep its agents current: with `agentUpdates: "latest"`
+(New Machine's "Keep coding agents up to date", checked by default in the
+sheet, `cmux vm agent-updates <vm> latest`, or `PUT /api/vm/{id}/agent-updates`),
+create and each attach start a detached updater
+(`web/services/vms/guestAgentUpdates.ts`). It never uses npm: for every agent
+it reads the tool's GitHub releases (`web/services/vms/images/agents.ts`) and
+installs the newest x.y.z release that has been public for 3 days and is not
+above the latest release, after checking the download's sha256, at most once a
+day and never as a downgrade. On a machine baked with the npm pins above, the
+first update moves each agent to its standalone release and removes the npm
+copy once no process uses it. Outcome in `/etc/cmux/agent-updates.state`, log
+in `/var/log/cmux-agent-updates.log`. Moving the image recipe itself off npm
+needs a rebake and lands separately.
+
 Two invariants keep the checked-in manifest describing the machine users get
 (`devboxSourceDriftProblems` in `devbox-image-common.ts`, run by
 `devbox:manifest:check`, `vm-image-manifest.test.ts` and `promote` before it
@@ -184,6 +198,28 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   `DISABLE_AUTOUPDATER=1` so the pinned Claude Code does not reinstall itself
   on first launch;
   `managed-settings.json` sets `skipDangerousModePermissionPrompt`.
+- Claude Code, Codex and OpenCode each sign in one of two ways per machine
+  (per HOME): the team's CodeRouter accounts, or the user's own sign-in
+  (`/login`, `codex login`, `opencode auth login`). `/usr/local/bin/<agent>`
+  (and nvm's entry, which login PATHs reach first) is the launcher
+  `/etc/cmux/<agent>` (`cmux-claude`, `cmux-codex`, `cmux-opencode`), which
+  execs `/usr/local/libexec/cmux-<agent>-real`; `agent-config.sh` defines
+  shell functions that route through it too. `agent-auth.sh` resolves the
+  mode per launch: `CMUX_<AGENT>_AUTH`, else the `cr use own|team` choice in
+  `~/.config/cmux/agent-auth/<agent>`, else own when the agent has its own
+  sign-in, else team when the team has an account for it
+  (`GET /api/coderouter/agent-access`, cached 60 s), else own. Team mode:
+  Claude Code gets the model-plane pair (kept out of every shell as
+  `CMUX_CLAUDE_TEAM_*`, because Claude Code ranks `ANTHROPIC_API_KEY` above
+  its own login), Codex keeps the generated `cmux` provider, and OpenCode gets
+  the CodeRouter providers through `OPENCODE_CONFIG`
+  (`~/.config/cmux/opencode-team.json`, fetched on first team launch). Own
+  mode: Codex starts with `-c model_provider="openai"` (only over the
+  generated config), and every agent's launch drops the model-plane endpoints
+  and placeholder, so an own credential is never sent to CodeRouter (OpenCode
+  sends `opencode auth login` keys to whatever `OPENAI_BASE_URL` and
+  `ANTHROPIC_BASE_URL` name). Image-only: older machines keep the old
+  behavior until they are recreated.
 - Ghostty comes from a pinned community `.deb` for Ubuntu 24.04
   (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL` in the Dockerfile, verified against
   `ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256` before dpkg runs); the apt list is
@@ -304,6 +340,23 @@ supervisor and waits for a driver install.
 
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
+
+The bake also fully allocates a 1 GiB ext4 image at
+`/var/lib/cmux/cmux-tui-state.ext4` and mounts it at the daemon's
+`~/.local/state/cmux-tui` directory before the daemon starts. This gives the
+SQLite registry and journal a reserved filesystem even when general-purpose
+files fill the root filesystem. When the state filesystem falls below its
+headroom threshold, the helper doubles the image online up to 8 GiB, provided
+the root filesystem keeps its safety reserve; a failed or unsafe growth leaves
+the daemon deferred rather than starting against a full database filesystem.
+The image consumes space from the existing root disk; it does not change the
+Freestyle VM size or the image ladder. The bake writes a reservation marker
+only after the image is fully created and seeded. The boot supervisor reads
+that marker and requires the marker, helper, image, and mount after a snapshot
+resume before starting cmux-tui. If any of those checks fail, startup is
+deferred instead of falling back to the root filesystem. Older images without
+the marker continue using their existing state layout until they are replaced
+or upgraded with `bun scripts/upgrade-fleet-cmux-tui.ts`.
 
 ## Sizes: one bake, one snapshot per size
 
@@ -542,3 +595,12 @@ HTTP(S) MIME handlers also use `cmux-open-url`, covering absolute and CLI-bundle
 `xdg-open` and GIO. File associations and direct Chrome launchers are unchanged.
 HTTP(S) の MIME ハンドラーも cmux を使用します。ファイルの関連付けと
 Chrome の直接起動は変更しません。
+
+## Terminal clipboard writes
+
+The Cloud guest integration installs `xclip`, `xsel`, and `wl-copy` write shims
+through the same create/attach-heal transaction as `cmux-open-url`. They accept
+stdin and emit a bounded OSC 52 write into the terminal stream. Read and paste
+modes fail, and no `wl-paste` helper is installed. Cloud terminal projections
+admit these writes into the Mac clipboard while cmux continues to deny terminal
+clipboard reads.

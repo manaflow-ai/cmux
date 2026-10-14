@@ -6,6 +6,7 @@ import {
   isVmFreeProvisioningAllowed,
   isVmProGateBlocked,
   isVmProGateEnforced,
+  maxActiveVmsForPlan,
   resolveVmEntitlements,
 } from "../services/vms/entitlements";
 import { PRO_PLAN_ID } from "../services/billing/pro";
@@ -70,6 +71,21 @@ describe("Cloud VM Pro gate", () => {
       CMUX_VM_ALLOW_FREE_PROVISIONING: "0",
       CMUX_VM_REQUIRE_PRO: "0",
     })).toBe(false);
+  });
+
+  test("production never provisions free machines, whatever the env says", () => {
+    for (const env of [
+      { CMUX_VM_ALLOW_FREE_PROVISIONING: "1" },
+      { CMUX_VM_REQUIRE_PRO: "0" },
+      { CMUX_VM_ALLOW_FREE_PROVISIONING: "1", CMUX_VM_FREE_MAX_ACTIVE_VMS: "3", CMUX_VM_DEFAULT_PLAN: "pro" },
+    ]) {
+      const production = { ...env, VERCEL_ENV: "production" };
+      expect(isVmFreeProvisioningAllowed(production)).toBe(false);
+      expect(isVmProGateBlocked(ent("free"), production)).toBe(true);
+      expect(maxActiveVmsForPlan("free", production)).toBe(0);
+      // The same env still opens a preview or dev-backend stack.
+      expect(isVmFreeProvisioningAllowed({ ...env, VERCEL_ENV: "preview" })).toBe(true);
+    }
   });
 
   test("the explicit free-provisioning switch never blocks any plan", () => {

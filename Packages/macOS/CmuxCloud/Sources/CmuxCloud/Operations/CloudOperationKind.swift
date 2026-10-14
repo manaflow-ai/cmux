@@ -4,7 +4,8 @@ public enum CloudOperationKind: String, Codable, Sendable {
     case create, open, list, status, stats, rename, delete, pause, resume
     case snapshot, fork, restore, resize, exec, port, publication, domain
     case base, session, workspace, terminal, file, environment, tunnel
-    case connect, refresh, notification, agent, unknown
+    case connect, refresh, notification, agent, network, unknown
+    case agentUpdates
 
     public var label: String {
         switch self {
@@ -30,12 +31,16 @@ public enum CloudOperationKind: String, Codable, Sendable {
         case .tunnel, .connect: return String(localized: "cloud.operation.kind.connect", defaultValue: "Connect to machine")
         case .notification: return String(localized: "cloud.operation.kind.notification", defaultValue: "Update notifications")
         case .agent: return String(localized: "cloud.operation.kind.agent", defaultValue: "Start agent")
+        case .network: return String(localized: "cloud.operation.kind.network", defaultValue: "Update network access")
+        case .agentUpdates: return String(localized: "cloud.operation.kind.agentUpdates", defaultValue: "Change agent updates")
         case .unknown: return String(localized: "cloud.operation.kind.unknown", defaultValue: "Cloud operation")
         }
     }
 
     public static func resolve(_ value: String) -> Self {
         let words = value.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+        // `agent-updates` splits into two words, and `agent` alone means "Start agent".
+        if let index = words.lastIndex(of: "updates"), index > 0, words[index - 1] == "agent" { return .agentUpdates }
         // Prefer the final structured operation token. This keeps `create snapshot`
         // as `.snapshot` and prevents an earlier verb from hiding the resource kind.
         for word in words.reversed() {

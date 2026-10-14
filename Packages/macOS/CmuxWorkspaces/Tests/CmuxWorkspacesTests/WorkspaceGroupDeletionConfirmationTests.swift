@@ -22,7 +22,9 @@ struct WorkspaceGroupDeletionConfirmationTests {
         let first = CoordinatorStubTab()
         let second = CoordinatorStubTab()
         model.tabs = [first, second]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [first.id, second.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: first.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: second.id, groupId: groupId)
         let group = try #require(model.workspaceGroups.first { $0.id == groupId })
         let anchorId = group.anchorWorkspaceId
         let staleMemberCount = model.tabs.filter { $0.groupId == groupId }.count
@@ -55,7 +57,9 @@ struct WorkspaceGroupDeletionConfirmationTests {
         let first = CoordinatorStubTab()
         let second = CoordinatorStubTab()
         model.tabs = [first, second]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [first.id, second.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: first.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: second.id, groupId: groupId)
         #expect(groups.deletionConfirmation(groupId: groupId)?.memberCount ?? 0 > 1)
 
         groups.ungroupWorkspaceGroup(groupId: groupId)
@@ -65,29 +69,24 @@ struct WorkspaceGroupDeletionConfirmationTests {
     }
 
     @Test
-    func deleteAfterRemovingAllChildrenSeesEmptyGroupAndClosesHeaderOnly() throws {
+    func removingAllChildrenRemovesUntouchedGeneratedHeader() throws {
         let (model, host, groups) = makeWorld()
         let first = CoordinatorStubTab()
         let second = CoordinatorStubTab()
         model.tabs = [first, second]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [first.id, second.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: first.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: second.id, groupId: groupId)
         let group = try #require(model.workspaceGroups.first { $0.id == groupId })
         let anchorId = group.anchorWorkspaceId
 
         groups.removeWorkspaceFromGroup(workspaceId: first.id)
         groups.removeWorkspaceFromGroup(workspaceId: second.id)
 
-        let confirmation = try #require(groups.deletionConfirmation(groupId: groupId))
-        #expect(confirmation.memberWorkspaceIds == [anchorId])
-        #expect(confirmation.containedWorkspaceCount == 0)
-
-        let closed = groups.deleteWorkspaceGroup(confirmed: confirmation)
-
-        #expect(closed == 1)
+        #expect(!model.workspaceGroups.contains { $0.id == groupId })
         #expect(host.closedWorkspaceIds == [anchorId])
         #expect(model.tabs.contains { $0.id == first.id && $0.groupId == nil })
         #expect(model.tabs.contains { $0.id == second.id && $0.groupId == nil })
-        #expect(!model.workspaceGroups.contains { $0.id == groupId })
     }
 
     @Test
@@ -139,6 +138,48 @@ struct WorkspaceGroupDeletionConfirmationTests {
         #expect(model.tabs.map(\.id) == [other.id])
     }
 
+    @Test(arguments: [false, true])
+    func confirmedDeletePreservesUnconfirmedGeneratedAnchors(memberMovesDuringDelete: Bool) throws {
+        let (model, host, groups) = makeWorld()
+        let first = CoordinatorStubTab()
+        let trigger = CoordinatorStubTab()
+        let member = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [first, trigger, member, outside]
+        let sourceGroupId = try #require(groups.createWorkspaceGroup(
+            name: "Source",
+            childWorkspaceIds: [first.id, trigger.id, member.id]
+        ))
+        let confirmation = try #require(groups.deletionConfirmation(groupId: sourceGroupId))
+        let targetGroupId = try #require(groups.createWorkspaceGroup(name: "Target"))
+        let targetAnchorId = try #require(model.workspaceGroups.first {
+            $0.id == targetGroupId
+        }?.liveAnchorWorkspaceId)
+
+        if !memberMovesDuringDelete {
+            groups.addWorkspaceToGroup(workspaceId: member.id, groupId: targetGroupId)
+        }
+        host.onWorkspaceClosed = { tab in
+            if memberMovesDuringDelete && tab.id == trigger.id {
+                groups.addWorkspaceToGroup(workspaceId: member.id, groupId: targetGroupId)
+            }
+            if let closedGroupId = tab.groupId {
+                _ = groups.removeGeneratedAnchorIfOrphaned(groupId: closedGroupId)
+            }
+        }
+
+        let closed = groups.deleteWorkspaceGroup(confirmed: confirmation)
+
+        #expect(closed == confirmation.memberCount)
+        #expect(Set(host.closedWorkspaceIds) == Set(confirmation.memberWorkspaceIds))
+        #expect(model.tabs.contains { $0.id == targetAnchorId })
+        #expect(model.workspaceGroups.contains { $0.id == targetGroupId })
+        #expect(!model.workspaceGroups.contains { $0.id == sourceGroupId })
+        #expect(groups.removeGeneratedAnchorIfOrphaned(groupId: targetGroupId))
+        #expect(!model.tabs.contains { $0.id == targetAnchorId })
+        #expect(!model.workspaceGroups.contains { $0.id == targetGroupId })
+    }
+
     @Test
     func confirmedDeleteClosesOnlyConfirmedMembershipWhenGroupChangesDuringPrompt() throws {
         let (model, host, groups) = makeWorld()
@@ -146,7 +187,9 @@ struct WorkspaceGroupDeletionConfirmationTests {
         let second = CoordinatorStubTab()
         let lateJoiner = CoordinatorStubTab()
         model.tabs = [first, second, lateJoiner]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [first.id, second.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: first.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: second.id, groupId: groupId)
         let confirmation = try #require(groups.deletionConfirmation(groupId: groupId))
         #expect(confirmation.containedWorkspaceCount == 2)
 

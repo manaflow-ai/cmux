@@ -235,6 +235,51 @@ public struct TerminalLetterboxGeometry {
         )
     }
 
+    /// Where a render of `renderSize` sits in the viewport.
+    ///
+    /// A grid at least one row shorter than the viewport (a shared grid
+    /// pinned below this phone's capacity) is top-pinned, so it starts under
+    /// the navigation bar and its slack shows below it. The natural grid,
+    /// whose remainder is under one row, stays bottom-pinned so its last row
+    /// rides the dock and the remainder hides under the top scroll-edge band.
+    ///
+    /// - Parameters:
+    ///   - renderSize: The render's size in points.
+    ///   - viewport: The keyboard-independent terminal viewport.
+    ///   - cellHeight: One row in points (0 when unmeasured: bottom-pinned).
+    /// - Returns: The render rect, left-aligned.
+    public static func renderRect(renderSize: CGSize, in viewport: CGRect, cellHeight: CGFloat) -> CGRect {
+        let slack = viewport.height - renderSize.height
+        let topPinned = cellHeight > 0 && slack >= cellHeight - 0.5
+        return CGRect(
+            x: viewport.minX,
+            y: topPinned ? viewport.minY : viewport.maxY - renderSize.height,
+            width: renderSize.width,
+            height: renderSize.height
+        )
+    }
+
+    /// Points between the content bottom and the viewport bottom: the blank
+    /// rows under the content inside the grid plus any letterbox slack below
+    /// a top-pinned grid. The keyboard covers this band before the render
+    /// moves (``keyboardAbsorptionSlack(blankBelowContent:intrusion:)``).
+    ///
+    /// - Parameters:
+    ///   - renderRect: Where the grid displays, in view coordinates.
+    ///   - viewportRect: The keyboard-independent viewport.
+    ///   - contentBottom: The lower of the last content row's and the
+    ///     cursor's bottom edge, in unscaled render points.
+    ///   - displayScale: The grid's display scale (1 unless scaled to fit).
+    /// - Returns: The blank band in points, never negative.
+    public static func blankBelowContent(
+        renderRect: CGRect,
+        viewportRect: CGRect,
+        contentBottom: CGFloat,
+        displayScale: CGFloat
+    ) -> CGFloat {
+        max(0, viewportRect.maxY - (renderRect.minY + contentBottom * displayScale))
+    }
+
     /// How much of the keyboard intrusion the BLANK space below the terminal
     /// content absorbs before the render slides at all.
     ///

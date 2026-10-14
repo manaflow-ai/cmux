@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Merge the newest main commit with green guards into this branch, resolve
-# generated-file conflicts like PR catch-up. With --guards it also runs the
+# generated-file conflicts. With --guards it also runs the
 # local guards and labels each failure inherited from main or introduced by
 # this branch; by default it does not, since pushing runs them in CI.
 # Use this instead of `git merge origin/main`. Details: scripts/ci/merge_main.py.

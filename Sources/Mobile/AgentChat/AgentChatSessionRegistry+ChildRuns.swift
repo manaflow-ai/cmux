@@ -4,20 +4,20 @@ import Foundation
 
 /// Child-run (subagent) bookkeeping from the parent session's hook events.
 ///
-/// Two shapes exist on the wire. Claude spawns children through the `Task`
-/// tool, so a child's life is bracketed by that tool's
-/// `PreToolUse`/`PostToolUse` pair (the payload carries `description` and
-/// `subagent_type`). Codex emits dedicated `SubagentStart`/`SubagentStop`
-/// events. Neither child ever runs hooks of its own, so this bookkeeping is
-/// the ONLY view cmux has of nested agents; the state machine in
-/// `nextState(previous:event:)` deliberately keeps ignoring these events (a
-/// child's lifecycle says nothing about whether the PARENT is working).
+/// Claude opens children through its spawn tool's `PreToolUse`, named `Task`
+/// before 2.x and `Agent` after (both are still on the wire; see
+/// `isTaskSpawn`), and closes them on `SubagentStop`. Its spawn tool's
+/// `PostToolUse` is ignored for Claude because a background spawn returns at
+/// detach while the child keeps running. Codex, pi and OMP use their
+/// dedicated `SubagentStart`/`SubagentStop` pair, with the FIFO fallback when
+/// a request id is absent. Neither child ever runs hooks of its own, so this
+/// bookkeeping is the ONLY view cmux has of nested agents; the state machine
+/// in `nextState(previous:event:)` deliberately keeps ignoring these events
+/// (a child's lifecycle says nothing about whether the PARENT is working).
 ///
-/// Honest limits: a background Task returns from `PostToolUse` immediately
-/// while the child keeps running, so background children read as settled the
-/// moment they detach; without per-child ids from the CLI, a `stop`/`Stop`
-/// closes every open child (a stopped parent has no running foreground
-/// children).
+/// Honest limits: without per-child ids from the CLI, a dedicated stop event
+/// can close the oldest open child, while a parent `stop`/`Stop` closes every
+/// open child (a stopped parent has no running foreground children).
 extension AgentChatSessionRegistry {
     nonisolated static func applyChildRunEvent(
         _ record: inout AgentChatSessionRecord,
@@ -31,7 +31,9 @@ extension AgentChatSessionRegistry {
                 label: taskLabel(from: event.toolInputJSON),
                 at: event.receivedAt
             )
-        case .postToolUse where isTaskSpawn(event):
+        // Claude's PostToolUse arrives when a background spawn detaches. The
+        // child remains running until Claude emits SubagentStop.
+        case .postToolUse where isTaskSpawn(event) && event.source != "claude":
             closeChild(&record, id: event.requestId, at: event.receivedAt)
         case .subagentStart:
             openChild(
@@ -81,8 +83,8 @@ extension AgentChatSessionRegistry {
             record.children[index].endedAt = date
             return
         }
-        // No correlation id on the wire: close the OLDEST open child (FIFO -
-        // parallel Task fan-outs finish roughly in start order more often
+        // No correlation id on the wire: close the OLDEST open child (FIFO:
+        // parallel spawn fan-outs finish roughly in start order more often
         // than not, and a mismatch only swaps two elapsed labels).
         if let index = record.children.firstIndex(where: { $0.endedAt == nil }) {
             record.children[index].endedAt = date
@@ -105,8 +107,8 @@ extension AgentChatSessionRegistry {
         }
     }
 
-    /// The Task payload's human-readable label: `description`, falling back
-    /// to `subagent_type`.
+    /// The spawn payload's human-readable label: `description`, falling
+    /// back to `subagent_type`.
     private nonisolated static func taskLabel(from toolInputJSON: String?) -> String? {
         guard let toolInputJSON,
               let data = toolInputJSON.data(using: .utf8),

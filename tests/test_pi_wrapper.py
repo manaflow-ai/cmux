@@ -21,11 +21,13 @@ def executable(path: Path, text: str) -> None:
 def run_case(
     root: Path,
     *,
+    args: tuple[str, ...] = ("--print", "hello"),
+    bin_name: str = "bin",
     disabled: bool = False,
     managed_global: bool = False,
     stale_cached_extension: bool = False,
 ) -> dict[str, object]:
-    bin_dir = root / "bin"
+    bin_dir = root / bin_name
     bin_dir.mkdir(exist_ok=True)
     log = root / "pi-argv.json"
     fake_pi = bin_dir / "pi"
@@ -65,7 +67,7 @@ def run_case(
     }
     if disabled:
         environment["CMUX_PI_HOOKS_DISABLED"] = "1"
-    subprocess.run([str(WRAPPER), "--print", "hello"], env=environment, check=True)
+    subprocess.run([str(WRAPPER), *args], env=environment, check=True)
     return {
         "args": log.read_text(encoding="utf-8").splitlines(),
         "extension_exists": (root / "tmp/cmux-pi-extensions/surface-test/cmux-session.ts").exists(),
@@ -74,6 +76,47 @@ def run_case(
 
 
 def main() -> int:
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-glob-") as directory:
+        root = Path(directory)
+        (root / "bin1").mkdir()
+        literal_path = run_case(root, bin_name="bin[1]")
+        if "-e" not in literal_path["args"]:
+            raise AssertionError(f"Pi in a literal PATH entry was not launched: {literal_path}")
+
+    passthrough_args = (
+        ("install", "npm:@termdraw/pi", "--local"),
+        ("remove", "npm:@termdraw/pi", "--local"),
+        ("uninstall", "npm:@termdraw/pi", "--local"),
+        ("update", "--extensions"),
+        ("list", "--help"),
+        ("config", "--local"),
+        ("auth", "check", "--help"),
+        ("mcp", "list", "--help"),
+        ("--help",),
+        ("-h",),
+        ("--version",),
+        ("-v",),
+    )
+    for args in passthrough_args:
+        with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-command-") as directory:
+            result = run_case(Path(directory), args=args)
+            if result["args"] != list(args) or result["extension_exists"]:
+                raise AssertionError(f"Pi subcommand was changed by extension injection: {result}")
+
+    interactive_args = (
+        (),
+        ("hello",),
+        ("--print", "update"),
+        ("--model", "provider/model", "hello"),
+    )
+    for args in interactive_args:
+        with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-prompt-") as directory:
+            root = Path(directory)
+            prompted = run_case(root, args=args)
+            expected = ["-e", str(root / "tmp/cmux-pi-extensions/surface-test/cmux-session.ts"), *args]
+            if prompted["args"] != expected or not prompted["extension_exists"]:
+                raise AssertionError(f"Pi interactive invocation lost extension injection: {prompted}")
+
     with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-") as directory:
         root = Path(directory)
         injected = run_case(root)

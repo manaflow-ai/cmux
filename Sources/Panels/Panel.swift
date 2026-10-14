@@ -16,6 +16,7 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case project
     case extensionBrowser
     case workspaceTodo
+    case coderouterGuide
     case notifications
     case cloudVMLoading
     case mobilePairing
@@ -47,6 +48,10 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
         }
         if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
             self = .workspaceTodo
+            return
+        }
+        if rawValue.lowercased() == Self.coderouterGuide.rawValue.lowercased() {
+            self = .coderouterGuide
             return
         }
         if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {
@@ -252,15 +257,37 @@ struct FocusFlashSegment: Equatable {
     let curve: FocusFlashCurve
 }
 
-enum FocusFlashPattern {
-    static let values: [Double] = [0, 1, 0, 1, 0]
-    static let keyTimes: [Double] = [0, 0.25, 0.5, 0.75, 1]
-    static let duration: TimeInterval = 0.9
-    static let curves: [FocusFlashCurve] = [.easeOut, .easeIn, .easeOut, .easeIn]
+/// The attention flash shape. One short pulse by default: enough to say where
+/// focus or attention landed without replaying a blink on every move between
+/// panes. `notifications.paneFlashDoubleBlink` restores the older double blink.
+struct FocusFlashPattern: Equatable {
+    let values: [Double]
+    let keyTimes: [Double]
+    let duration: TimeInterval
+    let curves: [FocusFlashCurve]
+
+    static let pulse = FocusFlashPattern(
+        values: [0, 1, 0],
+        keyTimes: [0, 0.3, 1],
+        duration: 0.6,
+        curves: [.easeOut, .easeIn]
+    )
+    static let doubleBlink = FocusFlashPattern(
+        values: [0, 1, 0, 1, 0],
+        keyTimes: [0, 0.25, 0.5, 0.75, 1],
+        duration: 0.9,
+        curves: [.easeOut, .easeIn, .easeOut, .easeIn]
+    )
+
+    /// The shape the user has chosen, read when a flash starts.
+    static var current: FocusFlashPattern {
+        NotificationPaneFlashSettings.usesDoubleBlink() ? doubleBlink : pulse
+    }
+
     static let ringInset: Double = Double(PanelOverlayRingMetrics.inset)
     static let ringCornerRadius: Double = Double(PanelOverlayRingMetrics.cornerRadius)
 
-    static var segments: [FocusFlashSegment] {
+    var segments: [FocusFlashSegment] {
         let stepCount = min(curves.count, values.count - 1, keyTimes.count - 1)
         return (0..<stepCount).map { index in
             let startTime = keyTimes[index]
@@ -274,10 +301,10 @@ enum FocusFlashPattern {
         }
     }
 
-    static func opacity(at elapsed: TimeInterval) -> Double {
+    func opacity(at elapsed: TimeInterval) -> Double {
         guard elapsed >= 0, elapsed <= duration else { return 0 }
 
-        for index in 0..<segments.count {
+        for index in 0..<min(curves.count, values.count - 1, keyTimes.count - 1) {
             let startTime = keyTimes[index] * duration
             let endTime = keyTimes[index + 1] * duration
             if elapsed > endTime {
@@ -286,7 +313,7 @@ enum FocusFlashPattern {
 
             let segmentDuration = max(endTime - startTime, 0.0001)
             let rawProgress = max(0, min(1, (elapsed - startTime) / segmentDuration))
-            let curvedProgress = interpolatedProgress(rawProgress, curve: curves[index])
+            let curvedProgress = Self.interpolatedProgress(rawProgress, curve: curves[index])
             let startOpacity = values[index]
             let endOpacity = values[index + 1]
             return startOpacity + ((endOpacity - startOpacity) * curvedProgress)

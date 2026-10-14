@@ -148,6 +148,55 @@ cmux vm layout apply reviewer review-layout.json --name review     # a workspace
 A machine holds no control-plane credential and reaches peers through its owner's
 private routes. The earlier Mac enrollment broker is no longer implemented.
 
+### Queue a message into a Codex session
+
+`codex queue` talks to the Codex app-server session store. Run it as the same
+user on the target machine that owns the session, with that user's original
+`CODEX_HOME`; do not run it from a copied home directory. The queue is local to
+that app-server instance, so a successful enqueue in another home does not
+reach the visible session.
+
+Use the session's exact UUID (or an exact session name) and quote the message:
+
+```bash
+cmux vm exec <id> -- codex queue \
+  --thread <codex-thread-uuid> \
+  --message 'Please re-check the failing test and report the result.'
+```
+
+For a session on the current machine, the equivalent is:
+
+```bash
+codex queue --thread <codex-thread-uuid> --message 'Continue with the next step.'
+```
+
+`Queued` only means the app-server accepted an item into its queue database; it
+does not mean that the agent has read, started, or completed the message. Verify
+delivery by inspecting the target session's next turn and visible terminal
+state, then read its output through `cmux vm terminal read`/`output` or the
+session's normal UI. If the target is currently busy, the message waits for the
+session's queue semantics rather than interrupting an in-flight turn.
+If the target thread is not loaded, the message remains queued until you open or
+resume that thread.
+
+Do not copy `CODEX_HOME`, manually edit `queue_*.sqlite`, or treat a copied
+database's `Queued` response as delivery evidence. Those operations enqueue for
+the copy only and can race the app-server's writer. If the local control socket
+is inaccessible (for example, a cloud container may report `Operation not
+permitted` for `/home/<user>/.codex/app-server-control/app-server-control.sock`),
+use cmux's terminal path instead:
+
+```bash
+cmux vm terminal send <id> <term> 'Continue with the next step.' --keys enter
+cmux vm terminal read <id> <term>
+```
+
+When a remote app-server endpoint is intentionally exposed, use the installed
+CLI's `--remote <wss://…>` together with
+`--remote-auth-token-env <ENV_VAR>` and the endpoint's authenticated token. Do
+not put an app-server token in a terminal command, prompt, or repository file.
+Use `ws://` only for loopback endpoints.
+
 ## 3. Repo with history (private repos, no credentials on the machine)
 
 ```bash

@@ -55,6 +55,7 @@ final class CloudNotificationDismissParityHarness {
         let originalStore = appDelegate.notificationStore
         let originalFocus = AppFocusState.overrideIsFocused
         let originalObserver = store.readTargetObserver
+        let originalReadNotificationObserver = store.readNotificationObserver
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
@@ -68,6 +69,7 @@ final class CloudNotificationDismissParityHarness {
             store.resetNotificationDeliveryHandlerForTesting()
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
             store.readTargetObserver = originalObserver
+            store.readNotificationObserver = originalReadNotificationObserver
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalStore
             AppDelegate.shared = originalAppDelegate

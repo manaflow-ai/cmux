@@ -3,6 +3,7 @@ import type { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 
 import { makeMobileNetworkOutcomeHandler } from "../app/api/observability/mobile-network/route";
 import type { MobileObservabilityEvent } from "../services/observability/mobileNetworkOutcome";
+import { feedPerformanceWindow } from "./fixtures/mobile-feed-performance";
 
 const originalVercel = process.env.VERCEL;
 const originalRuleId = process.env.CMUX_MOBILE_OBSERVABILITY_RATE_LIMIT_ID;
@@ -54,6 +55,15 @@ afterAll(() => {
 });
 
 describe("iOS mobile network observability route", () => {
+  test("accepts a Feed window in the existing authenticated, rate-limited batch", async () => {
+    const response = await POST(outcomeRequest([feedPerformanceWindow()]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, accepted: 1 });
+    expect(emitted[0]?.userId).toBe("user-7");
+    expect(emitted[0]?.batch[0]).toMatchObject({ feedEvent: true, event: "ios_feed_performance_window" });
+    expect(flushTimeouts).toEqual([1_000]);
+  });
+
   test("attributes an accepted failure batch to the authenticated user", async () => {
     const response = await POST(outcomeRequest([
       outcome({
@@ -152,6 +162,59 @@ describe("iOS mobile network observability route", () => {
     }]));
     expect(response.status).toBe(200);
     expect(emitted[0]?.batch[0]).toMatchObject({ operation: "snapshot", path: "relay" });
+  });
+
+  test("accepts native Iroh path inventory counts without addresses", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_inventory",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "inventory",
+        transport: "iroh",
+        relay_path_count: 1,
+        non_relay_path_count: 2,
+        path_count: 3,
+        event_code: "transportPathInventory",
+        event_code_raw: 83,
+        event_surface: 8,
+        event_a: 1,
+        event_b: 2,
+        event_c: 23,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      operation: "inventory",
+      transport: "iroh",
+      relayPathCount: 1,
+      nonRelayPathCount: 2,
+      pathCount: 3,
+      eventCode: "transportPathInventory",
+      eventCodeRaw: 83,
+      eventC: 23,
+    });
+  });
+
+  test("rejects an Iroh path inventory whose aggregate exceeds the bound", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_inventory",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "inventory",
+        transport: "iroh",
+        relay_path_count: 64,
+        non_relay_path_count: 64,
+        path_count: 128,
+        event_code: "transportPathInventory",
+        event_code_raw: 83,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(400);
+    expect(emitted).toEqual([]);
   });
 
   test.each([

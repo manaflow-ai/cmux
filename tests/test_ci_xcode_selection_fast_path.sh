@@ -20,6 +20,9 @@ cat > "$bin_dir/xcrun" <<'EOF'
 set -euo pipefail
 case "$*" in
   "--sdk macosx --show-sdk-version")
+    if [[ -n "${CMUX_TEST_XCRUN_FAIL:-}" && "$DEVELOPER_DIR" == "$CMUX_TEST_XCRUN_FAIL" ]]; then
+      exit 1
+    fi
     cat "$DEVELOPER_DIR/sdk-version"
     ;;
   "--sdk macosx --show-sdk-path")
@@ -112,6 +115,12 @@ expect_one_error() {
   grep -Fq "$text" "$log" || fail "missing error text: $text" "$log"
 }
 
+pin_meets_floor() {
+  local version="$1" floor="$2" pin_major
+  pin_major="${version%%.*}"
+  [[ "$pin_major" =~ ^[0-9]+$ && "$floor" =~ ^[0-9]+$ && "$pin_major" -ge "$floor" ]]
+}
+
 # 1. An explicit developer dir wins, skips the scan, and points xcode-select at it.
 log="$tmp_dir/pinned.log"
 run_select "$log" CMUX_CI_DEVELOPER_DIR="$current_developer" CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 \
@@ -160,7 +169,24 @@ log="$tmp_dir/missing-pin.log"
 if run_select "$log" CMUX_CI_DEVELOPER_DIR="$tmp_dir/missing/Contents/Developer"; then
   fail "a missing pinned developer dir should fail" "$log"
 fi
-grep -Fq "Pinned Xcode developer dir does not exist" "$log" || fail "missing pin not explained" "$log"
+expect_one_error "$log" "Pinned Xcode developer dir does not exist: $tmp_dir/missing/Contents/Developer on runner "
+# The marker makes CI failure attribution call this a machine failure, and the
+# installed list tells the fleet operator what the Mac has instead.
+grep -Fq "[cmux-ci machine: xcode-pin-missing]" "$log" || fail "missing pin lacks the machine marker" "$log"
+grep -Fq "Xcode_26.2.app=26.2" "$log" || fail "missing pin should list the installed Xcodes" "$log"
+log="$tmp_dir/missing-pin-runner.log"
+run_select "$log" RUNNER_NAME=cmux99-glaeda-1 CMUX_CI_XCODE_APP="$apps_dir/Xcode_26.3.app" && fail "a missing app pin should fail" "$log"
+expect_one_error "$log" "Pinned Xcode developer dir does not exist: $apps_dir/Xcode_26.3.app/Contents/Developer on runner cmux99-glaeda-1."
+
+# 6a. A pinned Xcode with no usable SDK remains a machine failure and reports
+#     the installed inventory for fleet diagnosis.
+log="$tmp_dir/sdkless-pin.log"
+if run_select "$log" CMUX_TEST_XCRUN_FAIL="$current_developer" CMUX_CI_DEVELOPER_DIR="$current_developer"; then
+  fail "a pinned Xcode without a usable SDK should fail" "$log"
+fi
+expect_one_error "$log" "Pinned Xcode developer dir has no usable macOS SDK: $current_developer on runner "
+grep -Fq "[cmux-ci machine: xcode-pin-missing]" "$log" || fail "SDK-less pin lacks the machine marker" "$log"
+grep -Fq "Xcode_26.2.app=26.2" "$log" || fail "SDK-less pin should list the installed Xcodes" "$log"
 
 # 7. An explicit pin must still respect the SDK ceiling.
 log="$tmp_dir/pin-over-ceiling.log"
@@ -210,7 +236,19 @@ if run_select "$log"; then
 fi
 expect_one_error "$log" "This macOS 26 runner has no Xcode 26.2, the version scripts/ci/xcode-pins.txt pins for its pool. Installed:"
 grep -Fq "Xcode_16.4.app=16.4" "$log" || fail "the error should list the installed Xcodes" "$log"
+grep -Fq "[cmux-ci machine: xcode-pin-missing]" "$log" || fail "a missing pool pin lacks the machine marker" "$log"
 [[ ! -s "$env_file" ]] || fail "a failed pool selection must not export an Xcode" "$env_file"
+
+# 13b. A pool Xcode with no usable SDK reports the same machine evidence.
+mv "$tmp_dir/hidden-26.2.app" "$apps_dir/Xcode_26.2.app"
+log="$tmp_dir/pool-sdkless.log"
+if run_select "$log" CMUX_TEST_XCRUN_FAIL="$apps_dir/Xcode_26.2.app/Contents/Developer"; then
+  fail "a pool Xcode without a usable SDK should fail" "$log"
+fi
+expect_one_error "$log" "Pool Xcode developer dir has no usable macOS SDK: $apps_dir/Xcode_26.2.app/Contents/Developer on runner "
+grep -Fq "[cmux-ci machine: xcode-pin-missing]" "$log" || fail "SDK-less pool pin lacks the machine marker" "$log"
+grep -Fq "Xcode_26.2.app=26.2" "$log" || fail "SDK-less pool pin should list the installed Xcodes" "$log"
+mv "$apps_dir/Xcode_26.2.app" "$tmp_dir/hidden-26.2.app"
 
 # 13a. A fork's own CI on a hosted image without the pool's Xcode keeps working
 #      on the newest stable Xcode, with a warning instead of an error. The floor
@@ -269,10 +307,12 @@ expect_env "$current_developer" "$log"
 # 18. The repository's own pins satisfy the repository's own floor.
 floor="$(tr -d '[:space:]' < "$ROOT_DIR/.xcode-version")"
 floor="${floor%%.*}"
+pin_meets_floor 27.0 "$floor" \
+  || fail "a newer-major Xcode 27.0 pin must satisfy the .xcode-version floor $floor"
 while read -r macos version _; do
   case "$macos" in ''|'#'*) continue ;; esac
-  [[ "${version%%.*}" == "$floor" ]] \
-    || fail "scripts/ci/xcode-pins.txt pins Xcode $version for macOS $macos, outside the .xcode-version major $floor"
+  pin_meets_floor "$version" "$floor" \
+    || fail "scripts/ci/xcode-pins.txt pins Xcode $version for macOS $macos, below the .xcode-version floor $floor"
 done < "$ROOT_DIR/scripts/ci/xcode-pins.txt"
 
 echo "PASS: CI Xcode selection, pool pins, and the .xcode-version floor"

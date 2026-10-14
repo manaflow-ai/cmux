@@ -2,6 +2,7 @@ import CmuxCloudTui
 import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCore
+import Darwin
 
 /// One headless cmux-tui carrier for a remote machine, over SSH or the Cloud network.
 /// Native panes and control requests share its daemon-owned session and local socket.
@@ -79,8 +80,10 @@ public actor CloudMachineLink {
     public enum LinkError: Error, LocalizedError {
         case clientMissing
         case spawnFailed(String)
+        case failureMessage(String)
         case exited(status: Int32, output: String)
         case timedOut
+        case requestTimedOut
         case inputTooLarge
 
         public var errorDescription: String? {
@@ -91,11 +94,15 @@ public actor CloudMachineLink {
                 return "No cmux-tui client is bundled with this build (Contents/Resources/bin/cmux-tui) and CMUX_TUI_CLIENT is unset."
             case .spawnFailed(let detail):
                 return "cmux-tui could not be started: \(detail)"
+            case .failureMessage(let detail):
+                return detail
             case .exited(let status, let output):
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
                 return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
             case .timedOut:
                 return "cmux-tui link did not report a socket within the connect timeout."
+            case .requestTimedOut:
+                return String(localized: "cloud.link.requestTimedOut", defaultValue: "The Cloud machine did not answer the request before its deadline. The connection will be checked before retrying.")
             }
         }
     }
@@ -103,6 +110,7 @@ public actor CloudMachineLink {
     public nonisolated let machineID: String
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
+    private let deadlineClock: any Clock<Duration>
 
     public private(set) var state: SurfaceLinkState = .connecting
     public private(set) var lastError: String?
@@ -144,6 +152,10 @@ public actor CloudMachineLink {
     private var eventsStabilityTask: Task<Void, Never>?
     private var eventsRecoveryPhase: EventsRecoveryPhase = .healthy
     private var stderrTail: [String] = []
+    /// Stderr belongs to one spawned client. A late line from an exited client
+    /// must never contaminate a retry's diagnostics.
+    private var stderrDrainTask: Task<Void, Never>?
+    private var stderrGeneration: UUID?
     /// Releases this link's claim on the app's WireGuard hub; runs once when the link ends.
     private var releaseHubLease: (@Sendable () async -> Void)?
 
@@ -156,12 +168,14 @@ public actor CloudMachineLink {
         machineID: String,
         clientURL: URL,
         paths: CloudTuiClientPaths,
+        deadlineClock: any Clock<Duration> = ContinuousClock(),
         eventsRecoveryClock: any Clock<Duration> = ContinuousClock(),
         eventsRecoveryPolicy: CloudMachineLinkEventsRecoveryPolicy = .standard
     ) {
         self.machineID = machineID
         self.clientURL = clientURL
         self.paths = paths
+        self.deadlineClock = deadlineClock
         self.eventsRecoveryClock = eventsRecoveryClock
         self.eventsRecoveryPolicy = eventsRecoveryPolicy
         (changes, changesContinuation) = AsyncStream<Change>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -184,12 +198,18 @@ public actor CloudMachineLink {
         sshArguments: [String] = [],
         wireguardHubSocket: String? = nil,
         ssh: SSHTuiConnection? = nil,
+        sshUpgrade: Bool = false,
         releaseHubLease: (@Sendable () async -> Void)? = nil
     ) async throws -> Connected {
         if let connected, state == .connected {
             await releaseHubLease?()
             return connected
         }
+        stderrDrainTask?.cancel()
+        stderrDrainTask = nil
+        let stderrGeneration = UUID()
+        self.stderrGeneration = stderrGeneration
+        stderrTail.removeAll(keepingCapacity: true)
         self.releaseHubLease = releaseHubLease
         eventsCursor = nil
         resetEventsRecovery()
@@ -198,7 +218,8 @@ public actor CloudMachineLink {
         process.executableURL = clientURL
         process.arguments = ssh?.arguments(
             stateDirectory: paths.stateDir.path,
-            deviceName: CloudTuiClientPaths.deviceName()
+            deviceName: CloudTuiClientPaths.deviceName(),
+            upgrade: sshUpgrade
         ) ?? CloudTuiCommandLine.linkArguments(
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),
@@ -208,9 +229,9 @@ public actor CloudMachineLink {
             session: route.hasPrefix("ssh://") ? session : nil,
             sshArguments: sshArguments
         )
-        var environment = ProcessInfo.processInfo.environment
+        var environment = ssh?.sshProcessEnvironment
+            ?? ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
-        if let ssh { environment = environment.merging((ssh.configuration.sshProcessEnvironment ?? [:])) { _, new in new } }
         process.environment = environment
         let stdout = Pipe()
         let stderr = Pipe()
@@ -235,7 +256,8 @@ public actor CloudMachineLink {
         }
         self.process = process
         self.processExit = processExit
-        drainStderr(stderr.fileHandleForReading)
+        let stderrDrain = drainStderr(stderr.fileHandleForReading, generation: stderrGeneration)
+        stderrDrainTask = stderrDrain
 
         // The first connection-snapshot line names the socket; later lines only update
         // transport topology and are ignored — but stdout keeps draining for the
@@ -270,22 +292,21 @@ public actor CloudMachineLink {
                     // stdout closed before a socket line: the client exited (an older
                     // client rejecting a flag, a refused dial). Report that exit and its
                     // stderr, not the deadline it never reached.
-                    await Self.terminateAndWait(process, exit: processExit)
-                    throw LinkError.exited(
-                        status: process.terminationStatus,
-                        output: stderrTail.joined(separator: "\n")
-                    )
+                    await Self.terminateAndWait(process, exit: processExit, clock: deadlineClock)
+                    await Self.awaitStderrDrain(stderrDrain)
+                    throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
                 case .timedOut?, nil:
                     throw LinkError.timedOut
                 }
             }
             guard process.isRunning else {
+                await Self.awaitStderrDrain(stderrDrain)
                 throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
             }
         } catch {
             state = .error
             lastError = Self.errorText(error)
-            await Self.terminateAndWait(process, exit: processExit)
+            await Self.terminateAndWait(process, exit: processExit, clock: deadlineClock)
             if self.process === process {
                 self.process = nil
                 self.processExit = nil
@@ -296,7 +317,7 @@ public actor CloudMachineLink {
         }
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
-        self.resourceConnection = CloudTuiPersistentResourceConnection(socketPath: socketPath)
+        self.resourceConnection = CloudTuiPersistentResourceConnection(socketPath: socketPath, clock: deadlineClock)
         state = .connected
         await startEventsSubscription(socketPath: socketPath, cursor: nil)
         changesContinuation.yield(.connected)
@@ -304,6 +325,16 @@ public actor CloudMachineLink {
     }
 
     public func disconnect() async {
+        let oldResource = resourceConnection
+        let oldProcess = process
+        let oldProcessExit = processExit
+        let oldEventStreamID = eventStreamID
+        let oldReleaseHubLease = releaseHubLease
+        resourceConnection = nil
+        process = nil
+        processExit = nil
+        eventStreamID = nil
+        releaseHubLease = nil
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -313,18 +344,17 @@ public actor CloudMachineLink {
         eventsRecoveryPhase = .healthy
         state = .unavailable
         connected = nil
+        stderrDrainTask?.cancel()
+        stderrDrainTask = nil
+        stderrGeneration = nil
+        stderrTail.removeAll(keepingCapacity: true)
         changesContinuation.finish()
-        await cancelEventsStream()
-        if let process, let processExit {
-            await Self.terminateAndWait(process, exit: processExit)
-            if self.process === process {
-                self.process = nil
-                self.processExit = nil
-            }
+        if let oldEventStreamID { await oldResource?.cancelStream(oldEventStreamID) }
+        if let oldProcess, let oldProcessExit {
+            await Self.terminateAndWait(oldProcess, exit: oldProcessExit, clock: deadlineClock)
         }
-        await resourceConnection?.close()
-        resourceConnection = nil
-        await releaseHubLeaseOnce()
+        await oldResource?.close()
+        await oldReleaseHubLease?()
     }
 
     /// Records a cursor only after the owner has accepted the corresponding
@@ -419,9 +449,39 @@ public actor CloudMachineLink {
     /// Commands are immutable protocol messages on one machine-owned socket.
     /// No child process, CLI parsing, automatic mutation replay or re-authentication.
     public func run(arguments: CloudTuiRequest, timeout: Duration = .seconds(30)) async throws -> Data {
+        let channel = try await controlConnection()
+        do {
+            return try await CloudOperationContext.phase(.process) {
+                return try await channel.request(arguments, timeout: timeout)
+            }
+        } catch LinkError.requestTimedOut {
+            // A caller's deadline is not proof that the shared link is wedged.
+            // Probe the same channel before retiring it; terminal.wait and
+            // wait_exit are expected to outlive short request budgets.
+            guard timeout > .zero, resourceConnection === channel else {
+                throw LinkError.requestTimedOut
+            }
+            do {
+                _ = try await channel.request(CloudTuiRequest("session.ping"), timeout: .seconds(2))
+            } catch {
+                // Never replay the original request: its remote outcome is
+                // ambiguous. Retire only this link so a manager can establish
+                // a replacement while durable workspace/terminal state stays
+                // on the machine.
+                guard resourceConnection === channel else { throw LinkError.requestTimedOut }
+                await disconnect()
+            }
+            throw LinkError.requestTimedOut
+        }
+    }
+
+    /// Sends a request on the authenticated persistent channel without waiting
+    /// for its response. This is used for PTY input whose ordering and echo are
+    /// owned by the remote terminal itself.
+    public func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws {
         try await CloudOperationContext.phase(.process) {
             let channel = try await self.controlConnection()
-            return try await channel.request(arguments, timeout: timeout)
+            try await channel.sendUntracked(arguments)
         }
     }
 
@@ -430,7 +490,7 @@ public actor CloudMachineLink {
             throw LinkError.exited(status: 3, output: "transport closed: machine link is unavailable")
         }
         if let resourceConnection, !(await resourceConnection.isClosed) { return resourceConnection }
-        let channel = CloudTuiPersistentResourceConnection(socketPath: connected.socketPath)
+        let channel = CloudTuiPersistentResourceConnection(socketPath: connected.socketPath, clock: deadlineClock)
         resourceConnection = channel
         return channel
     }
@@ -625,16 +685,17 @@ public actor CloudMachineLink {
         eventsRecoveryPhase = .healthy
     }
 
-    private func drainStderr(_ handle: FileHandle) {
+    private func drainStderr(_ handle: FileHandle, generation: UUID) -> Task<Void, Never> {
         let lines = CloudLinkPipe.lines(from: handle)
-        Task.detached { [weak self] in
+        return Task.detached { [weak self] in
             for await line in lines {
-                await self?.recordStderr(line)
+                await self?.recordStderr(line, generation: generation)
             }
         }
     }
 
-    private func recordStderr(_ line: String) {
+    private func recordStderr(_ line: String, generation: UUID) {
+        guard stderrGeneration == generation else { return }
         stderrTail.append(line)
         if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
     }
@@ -652,9 +713,25 @@ public actor CloudMachineLink {
         process = nil
         processExit = nil
         connected = nil
+        let stderrGeneration = self.stderrGeneration
+        let stderrDrain = self.stderrDrainTask
         if state != .unavailable {
             state = status == 0 ? .unavailable : .error
-            lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+            if status == 0 {
+                lastError = nil
+            } else {
+                lastError = LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+                if let stderrGeneration, let stderrDrain {
+                    // Publish streamEnded and release the lease immediately;
+                    // refine only the diagnostic after the pipe has had a bounded
+                    // chance to deliver its final lines.
+                    Task { [weak self] in
+                        await Self.awaitStderrDrain(stderrDrain)
+                        guard !Task.isCancelled else { return }
+                        await self?.refineExitError(generation: stderrGeneration, status: status)
+                    }
+                }
+            }
         }
         await resourceConnection?.close()
         resourceConnection = nil
@@ -663,15 +740,39 @@ public actor CloudMachineLink {
         await releaseHubLeaseOnce()
     }
 
+    private func refineExitError(generation: UUID, status: Int32) {
+        guard stderrGeneration == generation, state == .error else { return }
+        lastError = LinkError.exited(
+            status: status,
+            output: stderrTail.joined(separator: "\n")
+        ).errorDescription
+    }
+
     /// Foundation aborts if a running `Process` is released. Keep a detached exit
     /// waiter alive because the caller can already be cancelled when cleanup starts.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private nonisolated static func terminateAndWait(
         _ process: Process,
-        exit: CloudLinkFirstValue<Int32>
+        exit: CloudLinkFirstValue<Int32>,
+        clock: any Clock<Duration>
     ) async {
-        let exitTask = Task.detached { await exit.result }
-        if process.isRunning { process.terminate() }
-        _ = await exitTask.value
+        // Cleanup outlives caller cancellation and retains Process until its exit signal.
+        let cleanup = Task.detached {
+            if process.isRunning { process.terminate() }
+            // A genuine escalation deadline; process exit owns and cancels this timer.
+            let escalation = Task {
+                do { try await clock.sleep(for: .seconds(5)) } catch { return }
+                if process.isRunning { _ = Darwin.kill(process.processIdentifier, SIGKILL) }
+            }
+            _ = await exit.result
+            escalation.cancel()
+            await escalation.value
+        }
+        await cleanup.value
     }
 
     private func releaseHubLeaseOnce() async {

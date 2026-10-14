@@ -14,11 +14,20 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     let body: String
     let createdAt: Date
     var isRead: Bool
+    /// Whether an agent hook produced this notification. The notification
+    /// history retains this provenance for the Notifications tab; the agent
+    /// Feed is sourced from workstream events only.
+    var isAgentEvent: Bool = false
     var paneFlash: Bool = true
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
     var replyShape: TerminalNotificationReplyShape = .none
     var soundContext: NotificationSoundOverrideContext?
+    /// Agent identity used to retire an answered prompt when its hook does not
+    /// carry the original notification correlation key.
+    var agentKind: String?
+    var agentCategory: String?
+    var agentSessionId: String?
     /// Who emitted the text. Remote origins are clamped to display-only side effects by
     /// the store and surface to hooks as `CMUX_NOTIFICATION_ORIGIN`.
     var origin: TerminalNotificationOrigin = .local
@@ -35,11 +44,15 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         body: String,
         createdAt: Date,
         isRead: Bool,
+        isAgentEvent: Bool = false,
         paneFlash: Bool = true,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil,
         replyShape: TerminalNotificationReplyShape = .none,
         soundContext: NotificationSoundOverrideContext? = nil,
+        agentKind: String? = nil,
+        agentCategory: String? = nil,
+        agentSessionId: String? = nil,
         origin: TerminalNotificationOrigin = .local
     ) {
         self.id = id
@@ -53,11 +66,15 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.body = body
         self.createdAt = createdAt
         self.isRead = isRead
+        self.isAgentEvent = isAgentEvent
         self.paneFlash = paneFlash
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
         self.replyShape = replyShape
         self.soundContext = soundContext
+        self.agentKind = agentKind
+        self.agentCategory = agentCategory
+        self.agentSessionId = agentSessionId
         self.origin = origin
     }
 

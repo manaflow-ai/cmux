@@ -173,6 +173,35 @@ final class FeedWaiterRegistry: Sendable {
         }
     }
 
+    /// Retires every undecided request the agent provably moved past: one from
+    /// the same agent context (source, session, and subagent) whose hook was
+    /// sent before `event`. Requests or events without a send stamp never match.
+    func supersede(by event: WorkstreamEvent) -> [(Reply, UUID?)] {
+        guard let observedAtMs = event.feedHookSentAtMs else { return [] }
+        let session = FeedWorkstreamIdentifier.canonicalizedRawValue(agentID: event.source, rawValue: event.sessionId)
+        let agentID = event.feedAgentID
+        return groups.withLock { groups in
+            var superseded: [(Reply, UUID?)] = []
+            for (requestID, var group) in groups {
+                guard group.decision == nil, group.terminalResult == nil, !group.cleanupClaimed,
+                      group.event.source == event.source,
+                      FeedWorkstreamIdentifier.canonicalizedRawValue(
+                          agentID: group.event.source, rawValue: group.event.sessionId) == session,
+                      group.event.feedAgentID == agentID,
+                      let requestedAtMs = group.event.feedHookSentAtMs,
+                      requestedAtMs < observedAtMs else { continue }
+                superseded.append((Reply(requestID: requestID, groupID: group.id, event: group.event,
+                    target: group.target), group.itemID))
+                group.target = nil
+                group.cleanupClaimed = true
+                group.terminalResult = .unavailable
+                groups[requestID] = group
+                for semaphore in group.subscribers.values { semaphore.signal() }
+            }
+            return superseded
+        }
+    }
+
     func isAwaiting(_ requestID: String) -> Bool {
         groups.withLock { groups in
             guard let group = groups[requestID] else { return false }

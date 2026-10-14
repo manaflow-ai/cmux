@@ -230,6 +230,21 @@ public struct WindowAppearanceSnapshot {
         sidebarColorScheme
     }
 
+    /// The opaque color the left sidebar's content is drawn over when it
+    /// shares the terminal backdrop, or `nil` when the sidebar draws its own
+    /// material (whose colors AppKit already keeps readable).
+    ///
+    /// Secondary text uses this to hold a contrast floor on saturated
+    /// terminal themes; see ``WindowChromeColorResolver/contrastFloored(_:over:minimumContrast:)``.
+    public var sidebarReadabilityBackdrop: NSColor? {
+        guard unifySurfaceBackdrops else { return nil }
+        return Self.compositedTerminalColor(
+            backgroundColor: terminalBackgroundColor,
+            opacity: Double(terminalBackgroundOpacity),
+            over: Self.resolvedColor(.windowBackgroundColor, for: sidebarColorScheme)
+        )
+    }
+
     /// Returns the backdrop policy for one chrome role.
     public func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
         switch role {
@@ -326,6 +341,23 @@ public struct WindowAppearanceSnapshot {
         }
 
         return opaqueWindowFillPlan(rootPolicy: rootPolicy)
+    }
+
+    /// Whether content laid over the window root, such as canvas mode's
+    /// scroll view, document and panes, should stay clear so the window
+    /// backdrop shows through, as it does behind split mode's panes.
+    ///
+    /// This reads the same ``backdropPlan(glassEffectAvailable:windowBackgroundPolicy:)``
+    /// the window applies, so Reduce Transparency and window glass give
+    /// every layout mode the same answer.
+    public func showsWindowBackdrop(
+        glassEffectAvailable: Bool,
+        windowBackgroundPolicy: WindowBackgroundPolicy
+    ) -> Bool {
+        backdropPlan(
+            glassEffectAvailable: glassEffectAvailable,
+            windowBackgroundPolicy: windowBackgroundPolicy
+        ).hostingPhase != .opaqueWindowFill
     }
 
     private func opaqueWindowFillPlan(rootPolicy: WindowBackdropPolicy) -> WindowBackdropPlan {

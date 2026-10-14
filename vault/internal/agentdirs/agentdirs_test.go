@@ -17,10 +17,10 @@ func TestClaudeDiscover(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "claude-config")
 	secretPath := filepath.Join(t.TempDir(), "secret.jsonl")
 	writeFile(t, secretPath, `{"cwd":"/secret"}`+"\n")
-	sessionPath := filepath.Join(root, "projects", "-Users-lawrence-work-cmux", uuidA+".jsonl")
-	writeFile(t, sessionPath, `{"type":"message","cwd":"/Users/lawrence/work/cmux"}`+"\n")
-	writeFile(t, filepath.Join(root, "projects", "-Users-lawrence-work-cmux", "not-a-session.jsonl"), "{}\n")
-	writeFile(t, filepath.Join(root, "projects", "-Users-lawrence-work-cmux", uuidB+".txt"), "{}\n")
+	sessionPath := filepath.Join(root, "projects", "-Users-dev-work-cmux", uuidA+".jsonl")
+	writeFile(t, sessionPath, `{"type":"message","cwd":"/Users/dev/work/cmux"}`+"\n")
+	writeFile(t, filepath.Join(root, "projects", "-Users-dev-work-cmux", "not-a-session.jsonl"), "{}\n")
+	writeFile(t, filepath.Join(root, "projects", "-Users-dev-work-cmux", uuidB+".txt"), "{}\n")
 	writeFile(t, filepath.Join(root, "projects", "nested", uuidB+".jsonl"), `{"cwd":"/nested"}`+"\n")
 	if err := os.Symlink(filepath.Join(root, "missing-target.jsonl"), filepath.Join(root, "projects", "nested", uuidC+".jsonl")); err != nil {
 		t.Fatal(err)
@@ -52,10 +52,10 @@ func TestClaudeDiscover(t *testing.T) {
 		t.Fatalf("expected 2 sessions, got %d: %#v", len(got), got)
 	}
 	first := findSession(t, got, uuidA)
-	if first.CWD != "/Users/lawrence/work/cmux" {
+	if first.CWD != "/Users/dev/work/cmux" {
 		t.Fatalf("cwd = %q", first.CWD)
 	}
-	if first.RelPath != "projects/-Users-lawrence-work-cmux/"+uuidA+".jsonl" {
+	if first.RelPath != "projects/-Users-dev-work-cmux/"+uuidA+".jsonl" {
 		t.Fatalf("relPath = %q", first.RelPath)
 	}
 	if len(warnings) == 0 {
@@ -83,6 +83,44 @@ func TestCodexDiscoverSkipsSymlinkedSessionFiles(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("expected symlinked session to be skipped, got %#v", got)
+	}
+}
+
+func TestOpenRegularFileNoSymlinkRejectsHardLinks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	link := filepath.Join(t.TempDir(), "linked.jsonl")
+	writeFile(t, path, `{"cwd":"/private"}`+"\n")
+	if err := os.Link(path, link); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	if file, _, err := OpenRegularFileNoSymlink(path); err == nil {
+		_ = file.Close()
+		t.Fatal("expected hard-linked file to be rejected")
+	}
+}
+
+func TestOpenDiscoveredSessionRejectsSwappedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	writeFile(t, path, `{"cwd":"/a"}`+"\n")
+	session, err := statSession("claude", dir, path, "id", "/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := OpenDiscoveredSession(session)
+	if err != nil {
+		t.Fatalf("expected discovered file to open: %v", err)
+	}
+	_ = file.Close()
+
+	other := filepath.Join(dir, "other.jsonl")
+	writeFile(t, other, `{"cwd":"/private"}`+"\n")
+	if err := os.Rename(other, path); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := OpenDiscoveredSession(session); err == nil {
+		_ = file.Close()
+		t.Fatal("expected swapped file to be rejected")
 	}
 }
 
@@ -186,9 +224,9 @@ func TestCodexDiscoverSessionsAndArchived(t *testing.T) {
 
 func TestPiDiscover(t *testing.T) {
 	home := t.TempDir()
-	sessionPath := filepath.Join(home, ".pi", "agent", "sessions", "-Users-lawrence-work-cmux", "2026-07-04T00-00-00_"+uuidD+".jsonl")
-	writeFile(t, sessionPath, `{"cwd":"/Users/lawrence/work/cmux"}`+"\n")
-	writeFile(t, filepath.Join(home, ".pi", "agent", "sessions", "-Users-lawrence-work-cmux", "junk.jsonl"), "{}\n")
+	sessionPath := filepath.Join(home, ".pi", "agent", "sessions", "-Users-dev-work-cmux", "2026-07-04T00-00-00_"+uuidD+".jsonl")
+	writeFile(t, sessionPath, `{"cwd":"/Users/dev/work/cmux"}`+"\n")
+	writeFile(t, filepath.Join(home, ".pi", "agent", "sessions", "-Users-dev-work-cmux", "junk.jsonl"), "{}\n")
 
 	got, err := (Pi{}).Discover(Environ{HomeDir: home, Vars: map[string]string{}})
 	if err != nil {
@@ -200,7 +238,7 @@ func TestPiDiscover(t *testing.T) {
 	if got[0].AgentSessionID != uuidD {
 		t.Fatalf("id = %q", got[0].AgentSessionID)
 	}
-	if got[0].CWD != "/Users/lawrence/work/cmux" {
+	if got[0].CWD != "/Users/dev/work/cmux" {
 		t.Fatalf("cwd = %q", got[0].CWD)
 	}
 }

@@ -35,12 +35,113 @@ extension CmuxCodexConfigEditor {
         return escaped
     }
 
+    private static let tomlMultilineContentPrefix = "\u{001F}"
+
+    /// Splits TOML into editable lines while masking multiline string bodies.
     func tomlLines(from content: String) -> [String] {
-        CmuxConfigLines().split(content)
+        var delimiter: String?
+        return CmuxConfigLines().split(content).map { line in
+            let result = delimiter.map { _ in Self.tomlMultilineContentPrefix + line } ?? line
+            delimiter = tomlMultilineStringDelimiter(after: line, startingIn: delimiter)
+            return result
+        }
     }
 
+    /// Reconstructs TOML lines and removes the internal multiline mask.
     func tomlContent(from lines: [String], lineEnding: CmuxConfigLines.LineEnding) -> String {
-        CmuxConfigLines().joined(lines, lineEnding: lineEnding)
+        let unmaskedLines = lines.map { line in
+            line.hasPrefix(Self.tomlMultilineContentPrefix)
+                ? String(line.dropFirst(Self.tomlMultilineContentPrefix.count))
+                : line
+        }
+        return CmuxConfigLines().joined(unmaskedLines, lineEnding: lineEnding)
+    }
+
+    /// Tracks multiline basic and literal string delimiters across lines.
+    private func tomlMultilineStringDelimiter(after line: String, startingIn delimiter: String?) -> String? {
+        var index = line.startIndex
+        var activeDelimiter = delimiter
+        let contentEnd = tomlCommentStart(in: line) ?? line.endIndex
+
+        while index < contentEnd {
+            if let currentDelimiter = activeDelimiter {
+                guard let end = line.range(of: currentDelimiter, range: index..<contentEnd) else {
+                    return currentDelimiter
+                }
+                if currentDelimiter == "\"\"\"" && isEscaped(in: line, at: end.lowerBound) {
+                    index = end.upperBound
+                    continue
+                }
+                activeDelimiter = nil
+                index = end.upperBound
+                continue
+            }
+
+            let basic = line.range(of: "\"\"\"", range: index..<contentEnd)
+            let literal = line.range(of: "'''", range: index..<contentEnd)
+            let next: (String, Range<String.Index>)?
+            switch (basic, literal) {
+            case let (basic?, literal?):
+                next = basic.lowerBound < literal.lowerBound ? ("\"\"\"", basic) : ("'''", literal)
+            case let (basic?, nil):
+                next = ("\"\"\"", basic)
+            case let (nil, literal?):
+                next = ("'''", literal)
+            case (nil, nil):
+                return nil
+            }
+
+            guard let next else { return nil }
+            if next.0 == "\"\"\"" && isEscaped(in: line, at: next.1.lowerBound) {
+                index = next.1.upperBound
+            } else {
+                activeDelimiter = next.0
+                index = next.1.upperBound
+            }
+        }
+
+        return activeDelimiter
+    }
+
+    /// Finds a TOML comment outside a quoted string.
+    private func tomlCommentStart(in line: String) -> String.Index? {
+        var quote: Character?
+        var escaped = false
+        var index = line.startIndex
+        while index < line.endIndex {
+            let character = line[index]
+            if let currentQuote = quote {
+                if currentQuote == "\"" {
+                    if escaped {
+                        escaped = false
+                    } else if character == "\\" {
+                        escaped = true
+                    } else if character == currentQuote {
+                        quote = nil
+                    }
+                } else if character == currentQuote {
+                    quote = nil
+                }
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character == "#" {
+                return index
+            }
+            index = line.index(after: index)
+        }
+        return nil
+    }
+
+    /// Reports whether a quote is preceded by an odd run of backslashes.
+    private func isEscaped(in line: String, at index: String.Index) -> Bool {
+        var backslashes = 0
+        var cursor = index
+        while cursor > line.startIndex {
+            cursor = line.index(before: cursor)
+            guard line[cursor] == "\\" else { break }
+            backslashes += 1
+        }
+        return backslashes % 2 == 1
     }
 
     func tomlLineDefinesKey(_ key: String, line: String) -> Bool {

@@ -36,10 +36,19 @@ public struct PredictionOverlayLayout: Sendable, Equatable {
             return column >= 0 && column < columns
         }
         guard let first = onRow.map(\.offset).min(),
-              let last = onRow.map(\.offset).max(),
-              let lastTyped = glyphs.map(\.offset).max() else { return nil }
+              let last = onRow.map(\.offset).max() else { return nil }
 
-        let caret = lastTyped + 1
+        // Typing continues after the last live glyph, or, when every drawn
+        // cell is a deleted one, at the first of those.
+        let live = glyphs.filter { $0.standing != .erased }
+        let caret: Int
+        if let lastTyped = live.map(\.offset).max() {
+            caret = lastTyped + 1
+        } else if let firstErased = glyphs.map(\.offset).min() {
+            caret = firstErased
+        } else {
+            return nil
+        }
         // Left of the cursor with nothing speculative, the caret would mark
         // where typing resumes once a pending erase lands, beside the live
         // cursor ghostty already draws. Only a drawn prediction justifies a

@@ -354,6 +354,10 @@ pub struct AttachStream {
     pub kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
     pub kitty_state: KittyReplayState,
     pub colors: TerminalColors,
+    /// The incomplete sequence the parser is inside. `replay` ends at a
+    /// parser boundary; write this after it and after the colors, right
+    /// before the live stream that completes it.
+    pub pending_sequence: Arc<[u8]>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
@@ -367,12 +371,14 @@ pub enum AttachFrame {
         output: Vec<u8>,
         colors: Box<TerminalColors>,
     },
+    /// `pending_sequence` has the meaning documented on [`AttachStream`].
     Resized {
         cols: u16,
         rows: u16,
         replay: Arc<[u8]>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
         kitty_state: KittyReplayState,
+        pending_sequence: Arc<[u8]>,
     },
     /// One parser transition: `replay` is theme-portable, so `colors` is part
     /// of the same replacement snapshot rather than a subsequent callback.
@@ -383,6 +389,7 @@ pub enum AttachFrame {
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
         kitty_state: KittyReplayState,
         colors: Box<TerminalColors>,
+        pending_sequence: Arc<[u8]>,
     },
     ColorsChanged(Arc<TerminalColors>),
 }
@@ -649,6 +656,47 @@ impl AttachFrameReceiver {
         }
     }
 
+    /// Wakes a blocked `recv_interruptible` when `interrupt` fires.
+    pub(crate) fn wake_on(&self, interrupt: &crate::stream_interrupt::StreamInterrupt) {
+        let state = Arc::downgrade(&self.state);
+        interrupt.on_fire(move || {
+            if let Some(state) = state.upgrade() {
+                let _queue = state.queue.lock().unwrap_or_else(|error| error.into_inner());
+                state.ready.notify_all();
+            }
+        });
+    }
+
+    /// Blocks for a frame until `deadline` (if any). Returns `Timeout` when
+    /// the deadline passes or `interrupt` has fired with nothing queued.
+    pub(crate) fn recv_interruptible(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+        deadline: Option<Instant>,
+    ) -> Result<AttachFrame, RecvTimeoutError> {
+        let mut queue = self.state.queue.lock().unwrap();
+        loop {
+            if let Some(frame) = Self::pop(&mut queue) {
+                return Ok(frame);
+            }
+            if !queue.sender_alive {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            if interrupt.is_fired() {
+                return Err(RecvTimeoutError::Timeout);
+            }
+            queue = match deadline {
+                None => self.state.ready.wait(queue).unwrap(),
+                Some(deadline) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return Err(RecvTimeoutError::Timeout);
+                    };
+                    self.state.ready.wait_timeout(queue, remaining).unwrap().0
+                }
+            };
+        }
+    }
+
     pub fn try_recv(&self) -> Result<AttachFrame, TryRecvError> {
         let mut queue = self.state.queue.lock().unwrap();
         if let Some(frame) = Self::pop(&mut queue) {
@@ -742,16 +790,50 @@ pub(crate) struct AttachLifecycle {
     state: Arc<AttachLifecycleState>,
 }
 
-#[derive(Default)]
 struct AttachLifecycleState {
     canceled: AtomicBool,
     overflowed: AtomicBool,
     overflow_reported: AtomicBool,
+    /// Fired by `cancel`, so attach loops block instead of polling it.
+    canceled_interrupts: crate::stream_interrupt::InterruptSet,
+    /// Whether this viewer writes a replay's pending sequence after its own
+    /// sequences (`terminal-pending-sequence-v1`). A viewer that does not
+    /// would write color sequences into it, so it reconnects instead.
+    resumes_pending_sequence: AtomicBool,
+}
+
+impl Default for AttachLifecycleState {
+    fn default() -> Self {
+        Self {
+            canceled: AtomicBool::new(false),
+            overflowed: AtomicBool::new(false),
+            overflow_reported: AtomicBool::new(false),
+            canceled_interrupts: crate::stream_interrupt::InterruptSet::default(),
+            resumes_pending_sequence: AtomicBool::new(true),
+        }
+    }
 }
 
 impl AttachLifecycle {
+    pub(crate) fn set_resumes_pending_sequence(&self, resumes: bool) {
+        self.state.resumes_pending_sequence.store(resumes, Ordering::Release);
+    }
+
+    fn resumes_pending_sequence(&self) -> bool {
+        self.state.resumes_pending_sequence.load(Ordering::Acquire)
+    }
+
     pub(crate) fn cancel(&self) {
         self.state.canceled.store(true, Ordering::Release);
+        self.state.canceled_interrupts.fire();
+    }
+
+    /// Fires `interrupt` when this attachment is canceled.
+    pub(crate) fn register_interrupt(
+        &self,
+        interrupt: &Arc<crate::stream_interrupt::StreamInterrupt>,
+    ) {
+        self.state.canceled_interrupts.register(interrupt);
     }
 
     pub(crate) fn mark_overflow(&self) {
@@ -825,6 +907,8 @@ impl AttachTap {
         }
         let mut queue = self.state.queue.lock().unwrap();
         if !queue.receiver_alive {
+            // `cancel` fires interrupts whose wakers lock this queue.
+            drop(queue);
             self.lifecycle.cancel();
             return false;
         }
@@ -1088,6 +1172,38 @@ impl RenderAttachFrameReceiver {
         }
     }
 
+    /// Wakes a blocked `recv_until_interrupted` when `interrupt` fires.
+    pub(crate) fn wake_on(&self, interrupt: &crate::stream_interrupt::StreamInterrupt) {
+        let state = Arc::downgrade(&self.state);
+        interrupt.on_fire(move || {
+            if let Some(state) = state.upgrade() {
+                let _queue = state.queue.lock().unwrap_or_else(|error| error.into_inner());
+                state.ready.notify_all();
+            }
+        });
+    }
+
+    /// Blocks for an event. Returns `Timeout` once `interrupt` has fired
+    /// and nothing is queued.
+    pub(crate) fn recv_until_interrupted(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> Result<RenderAttachFrame, RecvTimeoutError> {
+        let mut queue = self.state.queue.lock().unwrap();
+        loop {
+            if let Some(event) = queue.pop() {
+                return Ok(event);
+            }
+            if !queue.sender_alive {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            if interrupt.is_fired() {
+                return Err(RecvTimeoutError::Timeout);
+            }
+            queue = self.state.ready.wait(queue).unwrap();
+        }
+    }
+
     pub fn try_recv(&self) -> Result<RenderAttachFrame, TryRecvError> {
         let mut queue = self.state.queue.lock().unwrap();
         if let Some(event) = queue.pop() {
@@ -1207,6 +1323,10 @@ impl TerminalHostConnectionState {
 const TERMINAL_HOST_RECONNECT_MAX_FAILURES: u8 = 16;
 #[cfg(unix)]
 const TERMINAL_HOST_RECONNECT_MAX_DELAY: Duration = Duration::from_secs(1);
+/// A host connection that lasted this long was healthy: the next loss starts
+/// its reconnect spacing from zero again.
+#[cfg(unix)]
+const TERMINAL_HOST_HEALTHY_CONNECTION: Duration = Duration::from_secs(10);
 
 #[cfg(unix)]
 #[derive(Default)]
@@ -1523,6 +1643,7 @@ pub struct PtyTerminalRuntime {
     journal_capture_gate: Mutex<()>,
     journal_capture_idle: Condvar,
     journal_capture_open: AtomicBool,
+    journal_capture_disabled: AtomicBool,
     journal_capture_reserved: AtomicBool,
     journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
@@ -2365,11 +2486,16 @@ impl Surface {
         };
         let pty = cmux_pty::open(initial_geometry.pty_size()?)?;
 
-        let argv = opts
-            .command
-            .clone()
-            .filter(|argv| !argv.is_empty())
-            .unwrap_or_else(|| vec![platform::default_shell()]);
+        let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
+            Some(argv) => {
+                crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
+            }
+            None => crate::shell_integration::integrate_default_shell(
+                vec![platform::default_shell()],
+                opts.extra_env.clone(),
+            ),
+        };
+        let argv = launch.command;
         let mut cmd = PtyCommand::new(&argv[0]);
         cmd.args(argv[1..].iter().cloned());
         cmd.env("TERM", &opts.term);
@@ -2379,7 +2505,7 @@ impl Surface {
         // (launchd, ssh, cron strip COLORTERM). Set before extra_env so a
         // caller can still override it.
         cmd.env("COLORTERM", "truecolor");
-        for (k, v) in &opts.extra_env {
+        for (k, v) in &launch.env {
             cmd.env(k, v);
         }
         let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
@@ -2458,6 +2584,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -2545,6 +2672,13 @@ impl Surface {
                             .clone(),
                     );
                     let mut buf = [0u8; 64 * 1024];
+                    // The PTY master is blocking, so WouldBlock should not
+                    // happen; if it does, retries are spaced instead of the
+                    // old fixed 1 ms (1 kHz) poll.
+                    let mut would_block = crate::backoff::Backoff::new(
+                        Duration::from_millis(1),
+                        Duration::from_millis(50),
+                    );
                     loop {
                         let pty = surface.as_pty().expect("surface reader got non-pty surface");
                         let journal_target = pty.journal_target();
@@ -2559,15 +2693,15 @@ impl Surface {
                         }
                         let n = match reader.read(&mut buf) {
                             Ok(0) => break,
-                            Ok(n) => n,
-                            Err(error)
-                                if matches!(
-                                    error.kind(),
-                                    std::io::ErrorKind::Interrupted
-                                        | std::io::ErrorKind::WouldBlock
-                                ) =>
-                            {
-                                std::thread::sleep(Duration::from_millis(1));
+                            Ok(n) => {
+                                would_block.reset();
+                                n
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                                continue;
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                would_block.sleep();
                                 continue;
                             }
                             Err(_) => break,
@@ -2971,6 +3105,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -3063,6 +3198,15 @@ impl Surface {
                 let mut smart_renderer = smart_renderer;
                 let mut applied_color_revision = initial_color_revision;
                 let mut applied_cursor_activity = initial_cursor_activity;
+                // One backoff across consecutive losses: a host that accepts
+                // and then drops at once (or keeps asking for a resync) used
+                // to be reconnected with no delay and no limit, because each
+                // loss started a fresh backoff. It resets only after a
+                // connection stayed up for TERMINAL_HOST_HEALTHY_CONNECTION.
+                let mut flap_backoff = TerminalHostReconnectBackoff::default();
+                // `None` until the first reconnect: the first loss of a
+                // connection keeps its immediate reconnect.
+                let mut connected_at: Option<Instant> = None;
                 'connection: loop {
                     let pty = surface.as_pty().expect("host reader owns a PTY surface");
                     let mut stager = HostedFrameStager::new_for_version(
@@ -3377,6 +3521,9 @@ impl Surface {
                                         colors: Box::new(
                                             pty.terminal_colors_locked(term, defaults),
                                         ),
+                                        // Terminal hosts replay only at a
+                                        // parser boundary.
+                                        pending_sequence: Arc::from([]),
                                     });
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                                 });
@@ -3448,6 +3595,19 @@ impl Surface {
                         return;
                     }
 
+                    if connected_at
+                        .is_none_or(|at| at.elapsed() >= TERMINAL_HOST_HEALTHY_CONNECTION)
+                    {
+                        flap_backoff = TerminalHostReconnectBackoff::default();
+                    } else if resync_requested {
+                        // A live host's resync never fails the terminal, but
+                        // back-to-back resyncs are spaced.
+                        std::thread::sleep(
+                            flap_backoff.next_delay().unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY),
+                        );
+                    } else if !flap_backoff.wait_or_fail(pty) {
+                        return;
+                    }
                     let mut retry = TerminalHostReconnectBackoff::default();
                     loop {
                         if pty.owner_detaching.load(Ordering::Acquire) {
@@ -3680,6 +3840,7 @@ impl Surface {
                                 kitty_image_aliases: replacement_snapshot.kitty_image_aliases,
                                 kitty_state: replacement_snapshot.kitty_state,
                                 colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
+                                pending_sequence: Arc::from([]),
                             });
                             pty.stream_progress.notify_reconnect();
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
@@ -3773,6 +3934,7 @@ impl Surface {
                         smart_renderer = replacement_smart_renderer;
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
+                        connected_at = Some(Instant::now());
                         continue 'connection;
                     }
                 }
@@ -4032,6 +4194,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4264,6 +4427,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4515,11 +4679,11 @@ impl Surface {
                 drop(runtime);
                 receipt.wait().map_err(ConfirmedInputFailure::Indeterminate)
             }
+            // Same keep-on-exit contract as `write_bytes`: the child is gone,
+            // so there is no reader to deliver to and nothing to retry.
+            // Input to the final screen is a successful no-op.
             #[cfg(unix)]
-            PtyRuntime::ExitedHosted => Err(ConfirmedInputFailure::Known(std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "terminal has no live PTY owner for receipted input",
-            ))),
+            PtyRuntime::ExitedHosted => Ok(()),
         }
     }
 
@@ -4776,6 +4940,18 @@ impl Surface {
         Some(())
     }
 
+    /// Apply PTY bytes the way the local reader does: parse them under the
+    /// terminal lock and publish the normalized bytes to byte attachments.
+    #[cfg(test)]
+    pub(crate) fn apply_local_pty_output_for_test(&self, bytes: &[u8]) -> Option<()> {
+        let pty = self.as_pty()?;
+        let mut term = pty.term.lock().unwrap();
+        let normalized = term.vt_write_with_normalized(bytes).into_owned();
+        pty.broadcast_attach_output(&normalized);
+        pty.stream_progress.notify();
+        Some(())
+    }
+
     #[cfg(test)]
     pub(crate) fn terminal_stream_waiter_count_for_test(&self) -> Option<usize> {
         Some(self.as_pty()?.stream_progress.waiter_count())
@@ -4972,6 +5148,45 @@ impl Surface {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         Ok(f(&mut pty.term.lock().unwrap()))
+    }
+
+    /// Abort an unreplayable parser sequence and run a capture while the
+    /// terminal/output fence is held. The synthetic CAN bytes are published to
+    /// byte attachments before the fence is released, so their parsers stay
+    /// synchronized with the authoritative terminal.
+    pub(crate) fn discard_unreplayable_replay_with<R>(
+        &self,
+        f: impl FnOnce(&mut Terminal) -> R,
+    ) -> anyhow::Result<Option<R>> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        // A connected terminal host owns the authoritative parser. The daemon
+        // terminal is only a mirror, so injecting CAN here would leave the two
+        // parsers at different sequence boundaries when the next host output
+        // frame arrives. Source-side recovery needs a host protocol command;
+        // refuse this local-only mutation until one exists.
+        #[cfg(unix)]
+        if matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Hosted(_)) {
+            anyhow::bail!("cannot discard unreplayable replay on a hosted terminal");
+        }
+        let mut terminal = pty.term.lock().unwrap();
+        // The reader releases this lock before journaling its parsed frame.
+        // Do not let synthetic CAN overtake that frame in journal ingress.
+        anyhow::ensure!(
+            pty.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0,
+            "terminal journal ingress is unsettled during replay capture"
+        );
+        let Some(output) = terminal.discard_unreplayable_replay() else {
+            return Ok(None);
+        };
+        pty.observe_terminal_output(&output);
+        pty.broadcast_attach_output(&output);
+        if let Some(journal_target) = pty.journal_target() {
+            pty.journal_output_if_open(journal_target, output);
+        }
+        pty.stream_progress.notify();
+        Ok(Some(f(&mut terminal)))
     }
 
     pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
@@ -5828,6 +6043,7 @@ impl Surface {
             kitty_image_aliases: replay.kitty_image_aliases,
             kitty_state: replay.kitty_state,
             colors,
+            pending_sequence: replay.pending_sequence.into(),
             stream,
             lifecycle,
         })
@@ -6543,36 +6759,63 @@ impl PtySurface {
         for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
             let mut pending = chunk.to_vec();
             loop {
-                let space_epoch = {
+                let retry = {
                     let _gate = self.journal_capture_gate.lock().unwrap();
-                    if !self.journal_capture_open.load(Ordering::Acquire) {
+                    if !self.journal_capture_open.load(Ordering::Acquire)
+                        || self.journal_capture_disabled.load(Ordering::Acquire)
+                    {
                         return;
                     }
-                    let retry = match mux.try_journal_terminal_output(
+                    mux.try_journal_terminal_output(
                         terminal_id.clone(),
                         self.journal_generation.clone(),
                         occurred_at_ms,
                         pending,
-                    ) {
-                        Ok(retry) => retry,
-                        Err(error) => {
-                            self.journal_capture_open.store(false, Ordering::Release);
-                            mux.request_daemon_shutdown();
-                            eprintln!(
-                                "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
-                            );
-                            return;
-                        }
-                    };
-                    let Some((retry, space_epoch)) = retry else { break };
-                    pending = retry;
-                    space_epoch
+                    )
                 };
-                if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
-                    self.journal_capture_open.store(false, Ordering::Release);
-                    mux.request_daemon_shutdown();
+                let retry = match retry {
+                    Ok(retry) => retry,
+                    Err(error) => {
+                        self.journal_capture_disabled.store(true, Ordering::Release);
+                        if mux
+                            .try_journal_terminal_output_gap(
+                                terminal_id,
+                                self.journal_generation.clone(),
+                                "journal_output_write_failed",
+                            )
+                            .is_err()
+                        {
+                            eprintln!(
+                                "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
+                            );
+                        }
+                        eprintln!(
+                            "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
+                        );
+                        return;
+                    }
+                };
+                let Some((retry, space_epoch)) = retry else { break };
+                pending = retry;
+                let deadline = mux.terminal_journal_durable_deadline();
+                if let Err(error) = mux.wait_for_terminal_journal_space_until(space_epoch, deadline)
+                {
+                    self.journal_capture_disabled.store(true, Ordering::Release);
+                    if mux
+                        .try_journal_terminal_output_gap_until(
+                            terminal_id,
+                            self.journal_generation.clone(),
+                            "journal_output_deadline_expired",
+                            deadline,
+                        )
+                        .is_err()
+                    {
+                        eprintln!(
+                            "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
+                        );
+                    }
                     eprintln!(
-                        "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
+                        "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
                     );
                     return;
                 }
@@ -6671,6 +6914,18 @@ impl PtySurface {
         !taps.is_empty()
     }
 
+    /// Viewers without pending-sequence support reconnect from a fresh
+    /// snapshot rather than receive a replay that ends inside a sequence.
+    fn cancel_taps_without_pending_support(&self) {
+        self.taps.lock().unwrap().retain(|tap| {
+            let keep = tap.lifecycle.resumes_pending_sequence();
+            if !keep {
+                tap.lifecycle.cancel();
+            }
+            keep
+        });
+    }
+
     fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
     }
@@ -6703,6 +6958,9 @@ impl PtySurface {
         self.attach_colors_force_pending.store(false, Ordering::Release);
         *self.last_attach_colors.lock().unwrap() =
             Some(Box::new(TerminalColors::from_pty_output(term, defaults)));
+        if !replay.pending_sequence.is_empty() {
+            self.cancel_taps_without_pending_support();
+        }
         self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
             cols: term.cols(),
             rows: term.rows(),
@@ -6710,6 +6968,7 @@ impl PtySurface {
             kitty_image_aliases: replay.kitty_image_aliases,
             kitty_state: replay.kitty_state,
             colors,
+            pending_sequence: replay.pending_sequence.into(),
         });
     }
 
@@ -6991,11 +7250,12 @@ impl PtySurface {
             taps.retain(|tap| !tap.lifecycle.is_canceled());
             !taps.is_empty()
         };
-        // A replacement replay cannot represent a parser that is between
-        // UTF-8 bytes or escape-sequence states. Smart mirrors resize in
-        // place, while compatibility mirrors reconnect from a fresh safe
-        // snapshot instead of consuming a corrupt replay.
-        if has_attach_taps && !term.vt_stream_is_ground() {
+        // A replacement replay ends inside the same incomplete sequence as
+        // this parser, so byte mirrors follow a resize at any byte. Only a
+        // control string larger than the replay's pending-sequence budget
+        // cannot be carried; those mirrors reconnect from a fresh snapshot
+        // instead of consuming a corrupt replay.
+        if has_attach_taps && !term.vt_replay_resumes_stream() {
             let mut taps = self.taps.lock().unwrap();
             for tap in taps.drain(..) {
                 tap.lifecycle.cancel();
@@ -7094,6 +7354,9 @@ impl PtySurface {
                 self.attach_colors_force_pending.store(false, Ordering::Release);
                 *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
             }
+            if !replay.pending_sequence.is_empty() {
+                self.cancel_taps_without_pending_support();
+            }
             self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
                 cols: next.cols,
                 rows: next.rows,
@@ -7101,6 +7364,7 @@ impl PtySurface {
                 kitty_image_aliases: replay.kitty_image_aliases,
                 kitty_state: replay.kitty_state,
                 colors,
+                pending_sequence: replay.pending_sequence.into(),
             });
         }
         // Geometry changes are terminal-stream transitions too. Publish the
@@ -7368,6 +7632,64 @@ mod tests {
         assert!(pty.reaper_thread.lock().unwrap().is_none());
     }
 
+    #[test]
+    fn checkpoint_recovery_resets_terminal_metadata_parser() {
+        let mux = Mux::new_for_test("checkpoint-metadata-recovery", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let mut oversized = b"\x1b]9;4;1;".to_vec();
+        oversized.resize(1_048_577, b'x');
+        surface.apply_stream_output_for_test(&oversized).unwrap();
+
+        let recovered = surface
+            .discard_unreplayable_replay_with(|terminal| {
+                terminal.vt_replay_bounded(VT_REPLAY_MAX_BYTES)
+            })
+            .unwrap();
+        assert!(matches!(recovered, Some(Ok(_))));
+
+        let mut attach_output = Vec::new();
+        while let Ok(frame) = attach.stream.try_recv() {
+            if let AttachFrame::Output(bytes) = frame {
+                attach_output.extend_from_slice(&bytes);
+            }
+        }
+        assert!(
+            attach_output.contains(&0x18),
+            "recovery must publish CAN to attached byte parsers"
+        );
+
+        surface.apply_stream_output_for_test(b"\x1b]9;4;2;\x07").unwrap();
+        assert_eq!(surface.terminal_screen_snapshot().unwrap().osc_progress, "4;2;");
+    }
+
+    #[test]
+    fn checkpoint_recovery_waits_for_pending_journal_output() {
+        let mux = Mux::new_for_test("checkpoint-ingress-recovery", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        surface
+            .try_with_terminal(|terminal| terminal.set_kitty_inflight_storage_limit(64))
+            .unwrap();
+        let mut pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
+        assert!(pending_output.activate());
+        let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+        upload.resize(1024, b'A');
+        surface.apply_local_pty_output_for_test(&upload).unwrap();
+
+        // The local reader has parsed the frame but has not enqueued it yet.
+        let error = surface.discard_unreplayable_replay_with(|_| ()).unwrap_err();
+        assert!(error.to_string().contains("terminal journal ingress is unsettled"));
+        assert_eq!(attach.stream.try_recv().unwrap(), AttachFrame::Output(upload));
+        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
+
+        drop(pending_output);
+        assert!(surface.discard_unreplayable_replay_with(|_| ()).unwrap().is_some());
+        assert_eq!(attach.stream.try_recv().unwrap(), AttachFrame::Output(vec![0x18]));
+    }
+
     #[cfg(unix)]
     #[test]
     fn local_surface_reaper_timeout_retains_production_handle() {
@@ -7499,6 +7821,66 @@ mod tests {
         assert_eq!(&*writer.0.lock().unwrap(), b"firstsecond");
     }
 
+    #[test]
+    fn terminal_journal_write_failure_disables_capture_without_stopping_daemon() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-capture-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-capture-failure",
+            SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let injector = rusqlite::Connection::open(database_path).unwrap();
+        injector
+            .execute_batch(
+                "CREATE TRIGGER reject_capture_failure_test_terminal_output
+                 BEFORE INSERT ON session_journal
+                 WHEN NEW.kind = 'terminal.output'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'database or disk is full');
+                 END;",
+            )
+            .unwrap();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let terminal_id = Arc::new(surface.terminal_public_id().unwrap().clone());
+        let pty = surface.as_pty().unwrap();
+
+        pty.journal_output_if_open(
+            (mux.clone(), terminal_id.clone()),
+            b"the first write enters the failing journal".to_vec(),
+        );
+        assert!(mux.flush_terminal_journal().is_err());
+        pty.journal_output_if_open(
+            (mux.clone(), terminal_id),
+            b"the next write reports the permanent failure".to_vec(),
+        );
+
+        assert!(pty.journal_capture_open.load(Ordering::Acquire));
+        assert!(pty.journal_capture_disabled.load(Ordering::Acquire));
+        let reader_gate = pty.begin_terminal_journal_update();
+        assert!(reader_gate.is_some(), "journal failure must not close the terminal reader gate");
+        drop(reader_gate);
+        assert!(
+            !mux.daemon_shutdown_requested(),
+            "journal storage failure must leave live terminal hosts available"
+        );
+        drop(surface);
+        drop(injector);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     fn append_disabled_kitty_replay_state(payload: &mut Vec<u8>) {
         for _ in 0..4 {
             payload.extend_from_slice(&0u64.to_le_bytes());
@@ -7615,7 +7997,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn receipted_input_rejects_an_exited_host_before_effect() {
+    fn receipted_input_to_an_exited_host_is_a_no_op() {
         let mux = Mux::new_for_test("receipted-input-exited-host", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
@@ -7625,12 +8007,10 @@ mod tests {
             *runtime = PtyRuntime::ExitedHosted;
         }
 
-        let error = surface.write_bytes_confirmed(b"must-not-drop").unwrap_err();
-        let ConfirmedInputFailure::Known(error) = error else {
-            panic!("exited-host rejection became indeterminate");
-        };
-        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
-        assert!(error.to_string().contains("no live PTY owner"));
+        // A keep-on-exit terminal keeps its final screen after the child
+        // exits; typing there succeeds without an effect, as `write_bytes`
+        // does.
+        surface.write_bytes_confirmed(b"ignored").unwrap();
     }
 
     #[test]
@@ -8107,6 +8487,141 @@ mod tests {
         }
     }
 
+    /// A shell program on PATH that shell integration supports, if any.
+    #[cfg(unix)]
+    fn find_integrated_shell(name: &str) -> Option<String> {
+        let path = std::env::var_os("PATH")?;
+        std::env::split_paths(&path)
+            .map(|dir| dir.join(name))
+            .filter(|candidate| {
+                // Apple's /bin/bash 3.2 cannot run the bash injection.
+                !(cfg!(target_os = "macos") && candidate == std::path::Path::new("/bin/bash"))
+            })
+            .find(|candidate| candidate.is_file())
+            .map(|candidate| candidate.to_string_lossy().into_owned())
+    }
+
+    #[cfg(unix)]
+    fn wait_for_viewport(
+        surface: &Surface,
+        what: &str,
+        mut ready: impl FnMut(&str, bool) -> bool,
+    ) -> String {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let (text, at_prompt) = surface
+                .try_with_terminal(|terminal| {
+                    let text = terminal.viewport_text();
+                    (text, terminal.cursor_is_at_prompt())
+                })
+                .unwrap();
+            let text = text.unwrap();
+            if ready(&text, at_prompt) {
+                return text;
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for {what}: {text:?}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// The default shell runs with Ghostty's shell integration, so its prompt
+    /// carries OSC 133 marks. Without them, a partial output line before the
+    /// prompt (zsh PROMPT_SP, or any output without a trailing newline) is
+    /// reflowed together with the prompt on every resize, and each SIGWINCH
+    /// redraw leaves fragments of the previous prompt behind. This is the
+    /// resize artifact seen in Cloud terminals.
+    #[cfg(unix)]
+    #[test]
+    fn default_shell_prompt_survives_rapid_resizes_after_a_partial_line() {
+        let mut ran = 0;
+        for (index, shell) in ["zsh", "bash"].into_iter().enumerate() {
+            let Some(program) = find_integrated_shell(shell) else { continue };
+            let home = std::env::temp_dir().join(format!(
+                "cmux-tui-prompt-resize-{}-{shell}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&home).unwrap();
+            std::fs::write(home.join(".zshenv"), "setopt NO_GLOBAL_RCS\n").unwrap();
+            std::fs::write(home.join(".zshrc"), "PS1='prompt> '\nsetopt PROMPT_CR PROMPT_SP\n")
+                .unwrap();
+            std::fs::write(home.join(".bashrc"), "PS1='prompt> '\n").unwrap();
+            let launch = crate::shell_integration::integrate_default_shell(
+                vec![program],
+                vec![
+                    ("HOME".into(), home.to_string_lossy().into_owned()),
+                    ("ZDOTDIR".into(), home.to_string_lossy().into_owned()),
+                    ("HISTFILE".into(), home.join("history").to_string_lossy().into_owned()),
+                ],
+            );
+            let mux = Mux::new_for_test("prompt-resize", SurfaceOptions::default());
+            let surface = Surface::spawn(
+                160 + index as SurfaceId,
+                SurfaceOptions {
+                    command: Some(launch.command),
+                    extra_env: launch.env,
+                    cols: 60,
+                    rows: 20,
+                    ..SurfaceOptions::default()
+                },
+                Arc::downgrade(&mux),
+            )
+            .unwrap();
+            wait_for_viewport(&surface, "the first prompt", |text, _| text.contains("prompt>"));
+            // Output without a trailing newline, then unsubmitted input.
+            surface.write_bytes(b"printf ghtly\r").unwrap();
+            wait_for_viewport(&surface, "the prompt after the partial line", |text, _| {
+                text.matches("prompt>").count() >= 2
+            });
+            surface.write_bytes(b"nightly").unwrap();
+            wait_for_viewport(&surface, "typed input", |text, _| text.contains("prompt> nightly"));
+            for step in 0..40u16 {
+                let cols = if step % 2 == 0 { 60 - step } else { 30 + step };
+                surface.resize(cols, 20).unwrap();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            surface.resize(60, 20).unwrap();
+            // Wait for the shell's post-resize redraws to settle: the prompt
+            // text already matched before the resizes started.
+            let mut previous = String::new();
+            let mut stable_reads = 0;
+            let text = wait_for_viewport(&surface, "the settled prompt", |text, _| {
+                if text == previous {
+                    stable_reads += 1;
+                } else {
+                    previous = text.to_string();
+                    stable_reads = 0;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+                stable_reads >= 5 && text.contains("prompt> nightly")
+            });
+            let at_prompt =
+                surface.try_with_terminal(|terminal| terminal.cursor_is_at_prompt()).unwrap();
+            assert_eq!(
+                text.matches("nightly").count(),
+                1,
+                "{shell}: resizing left prompt fragments behind: {text:?}"
+            );
+            assert_eq!(
+                text.matches("prompt>").count(),
+                2,
+                "{shell}: resizing duplicated the prompt: {text:?}"
+            );
+            assert!(
+                text.lines().any(|line| line.starts_with("ghtly")),
+                "{shell}: resizing erased the partial output line: {text:?}"
+            );
+            assert!(at_prompt, "{shell}: the terminal never saw an OSC 133 prompt mark: {text:?}");
+            drop(surface);
+            let _ = std::fs::remove_dir_all(&home);
+            ran += 1;
+        }
+        assert!(ran > 0, "neither zsh nor bash is installed");
+    }
+
     /// The embedded ghostty-vt terminal always parses 24-bit SGR and the
     /// frontends forward RGB cells losslessly, so children must be able to
     /// rely on truecolor even when the session server itself was started from
@@ -8343,6 +8858,202 @@ mod tests {
         assert_eq!(received, expected);
     }
 
+    /// Streaming output that crosses every kind of parser state a byte mirror
+    /// can join in the middle of: CSI, OSC (BEL and ST), OSC 8, DCS, APC, and
+    /// multi-byte UTF-8.
+    const MIRROR_TRANSCRIPT: &[u8] = concat!(
+        "before λ 🙂 ",
+        "\u{1b}[1;31mstyled 赤\u{1b}[0m ",
+        "\u{1b}]0;title λ\u{1b}\\",
+        "\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7} ",
+        "\u{1b}P$qm\u{1b}\\",
+        "\u{1b}_ignored\u{1b}\\",
+        "\u{1b}[3;7H\u{1b}[38;2;10;20;30mrgb\u{1b}[m",
+        "\r\n\u{1b}[Kafter"
+    )
+    .as_bytes();
+
+    /// Models the native Cloud pane with its grid pinned to the daemon: a byte
+    /// mirror that rebuilds from every replay at the advertised grid, writes
+    /// its color sidecar after the replay the way the pane does, and then
+    /// follows the live byte stream.
+    struct PinnedByteMirror {
+        term: Terminal,
+        attach: AttachStream,
+        replay_ended_mid_sequence: bool,
+    }
+
+    impl PinnedByteMirror {
+        fn attach(surface: &Surface) -> Self {
+            let attach = surface.attach_stream().unwrap();
+            let mut replay_ended_mid_sequence = false;
+            let term = Self::from_replay(
+                attach.cols,
+                attach.rows,
+                &attach.replay,
+                &attach.pending_sequence,
+                &mut replay_ended_mid_sequence,
+            );
+            Self { term, attach, replay_ended_mid_sequence }
+        }
+
+        fn from_replay(
+            cols: u16,
+            rows: u16,
+            replay: &[u8],
+            pending_sequence: &[u8],
+            replay_ended_mid_sequence: &mut bool,
+        ) -> Terminal {
+            let mut term = Terminal::new(cols, rows, 1000, Callbacks::default()).unwrap();
+            term.vt_write(replay);
+            // The pane appends color sequences here, which is only safe at a
+            // parser boundary.
+            *replay_ended_mid_sequence |= !term.vt_stream_is_ground();
+            term.vt_write(pending_sequence);
+            term
+        }
+
+        fn drain(&mut self) {
+            while let Ok(frame) = self.attach.stream.try_recv() {
+                match frame {
+                    AttachFrame::Output(bytes) => self.term.vt_write(&bytes),
+                    AttachFrame::OutputWithColors { output, .. } => self.term.vt_write(&output),
+                    AttachFrame::Resized { cols, rows, replay, pending_sequence, .. }
+                    | AttachFrame::ResizedWithColors {
+                        cols, rows, replay, pending_sequence, ..
+                    } => {
+                        self.term = Self::from_replay(
+                            cols,
+                            rows,
+                            &replay,
+                            &pending_sequence,
+                            &mut self.replay_ended_mid_sequence,
+                        );
+                    }
+                    AttachFrame::ColorsChanged(_) => {}
+                }
+            }
+        }
+
+        /// Returns a description of every way this mirror differs from the
+        /// authoritative terminal.
+        fn divergence(&mut self, surface: &Surface) -> Option<String> {
+            let disconnected = self.attach.lifecycle.is_canceled();
+            self.drain();
+            let pty = surface.as_pty().unwrap();
+            let mut source = pty.term.lock().unwrap();
+            let grid = (source.cols(), source.rows());
+            let mirror_grid = (self.term.cols(), self.term.rows());
+            let text = source.viewport_text().unwrap();
+            let mirror_text = self.term.viewport_text().unwrap();
+            let cursor = source.cursor_position();
+            let mirror_cursor = self.term.cursor_position();
+            let mid_sequence = self.replay_ended_mid_sequence;
+            (disconnected
+                || mid_sequence
+                || grid != mirror_grid
+                || text != mirror_text
+                || cursor != mirror_cursor)
+                .then(|| {
+                    format!(
+                        "disconnected={disconnected} replay_ended_mid_sequence={mid_sequence} \
+                         grid={grid:?}/{mirror_grid:?} cursor={cursor:?}/{mirror_cursor:?} \
+                         text={text:?} mirror={mirror_text:?}"
+                    )
+                })
+        }
+    }
+
+    fn mirror_test_surface(mux: &Arc<Mux>) -> Arc<Surface> {
+        let options = SurfaceOptions { cols: 80, rows: 10, ..SurfaceOptions::default() };
+        Surface::spawn_for_test(1, options, Arc::downgrade(mux)).unwrap()
+    }
+
+    #[test]
+    fn byte_mirror_attached_inside_any_sequence_matches_the_terminal() {
+        let mux = Mux::new_for_test("mirror-attach-mid-sequence", SurfaceOptions::default());
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[..split]).unwrap();
+            let mut mirror = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[split..]).unwrap();
+            if let Some(divergence) = mirror.divergence(&surface) {
+                failures.push(format!("attach at byte {split}: {divergence}"));
+            }
+        }
+        assert!(failures.is_empty(), "byte mirror diverged:\n{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn byte_mirror_survives_owner_resize_inside_any_sequence() {
+        let mux = Mux::new_for_test("mirror-resize-mid-sequence", SurfaceOptions::default());
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            let mut mirror = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[..split]).unwrap();
+            surface.resize(100, 30).unwrap();
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[split..]).unwrap();
+            if let Some(divergence) = mirror.divergence(&surface) {
+                failures.push(format!("resize at byte {split}: {divergence}"));
+            }
+        }
+        assert!(failures.is_empty(), "byte mirror diverged:\n{}", failures.join("\n"));
+    }
+
+    /// A released client writes its color sequences right after a resize
+    /// replay, so a replay ending inside a sequence would put them inside it.
+    /// Those viewers keep the old behavior: they reconnect from a fresh
+    /// snapshot. Viewers that advertised pending-sequence support stay.
+    #[test]
+    fn resize_inside_a_sequence_disconnects_only_viewers_without_pending_support() {
+        let mux = Mux::new_for_test("mirror-resize-legacy-viewer", SurfaceOptions::default());
+        let surface = mirror_test_surface(&mux);
+        let mut capable = PinnedByteMirror::attach(&surface);
+        let legacy_lifecycle = AttachLifecycle::default();
+        legacy_lifecycle.set_resumes_pending_sequence(false);
+        let _legacy = surface.attach_stream_with_lifecycle(legacy_lifecycle.clone()).unwrap();
+
+        surface.apply_local_pty_output_for_test(b"\x1b[1;3").unwrap();
+        surface.resize(100, 30).unwrap();
+        assert!(legacy_lifecycle.is_canceled(), "a legacy viewer kept a mid-sequence replay");
+        surface.apply_local_pty_output_for_test(b"1mred").unwrap();
+        assert_eq!(capable.divergence(&surface), None);
+    }
+
+    /// Several people view one terminal at different sizes. Viewers join at
+    /// arbitrary stream positions while geometry ownership moves between them,
+    /// and every viewer must still show exactly the authoritative screen.
+    #[test]
+    fn byte_mirrors_joining_during_owner_churn_converge_on_the_terminal() {
+        let mux = Mux::new_for_test("mirror-owner-churn", SurfaceOptions::default());
+        let transcript = [MIRROR_TRANSCRIPT, MIRROR_TRANSCRIPT].concat();
+        let owner_grids = [(45, 20), (132, 40), (80, 24)];
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            let mut first = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&transcript[..split]).unwrap();
+            let mut second = PinnedByteMirror::attach(&surface);
+            surface.resize(owner_grids[0].0, owner_grids[0].1).unwrap();
+            let middle = split + MIRROR_TRANSCRIPT.len() / 2;
+            surface.apply_local_pty_output_for_test(&transcript[split..middle]).unwrap();
+            let mut third = PinnedByteMirror::attach(&surface);
+            surface.resize(owner_grids[1].0, owner_grids[1].1).unwrap();
+            surface.resize(owner_grids[2].0, owner_grids[2].1).unwrap();
+            surface.apply_local_pty_output_for_test(&transcript[middle..]).unwrap();
+            for (name, mirror) in
+                [("first", &mut first), ("second", &mut second), ("third", &mut third)]
+            {
+                if let Some(divergence) = mirror.divergence(&surface) {
+                    failures.push(format!("{name} viewer, split {split}: {divergence}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "byte mirrors diverged:\n{}", failures.join("\n"));
+    }
+
     fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
         haystack.windows(needle.len()).any(|window| window == needle)
     }
@@ -8415,6 +9126,7 @@ mod tests {
             kitty_image_aliases: Vec::new(),
             kitty_state: KittyReplayState::disabled(),
             colors: Box::new(TerminalColors::default()),
+            pending_sequence: Arc::from([]),
         });
 
         let first_replay = match first.stream.recv_timeout(Duration::from_secs(1)).unwrap() {
@@ -8433,14 +9145,17 @@ mod tests {
     }
 
     #[test]
-    fn unsafe_legacy_resize_disconnects_the_byte_attachment() {
+    fn unresumable_legacy_resize_disconnects_the_byte_attachment() {
         let mux = Mux::new("legacy-resize-disconnect", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(73, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let attachment = surface.attach_stream().unwrap();
         let pty = surface.as_pty().unwrap();
-        pty.term.lock().unwrap().vt_write(b"partial \xce");
-        assert!(!pty.term.lock().unwrap().vt_stream_is_ground());
+        // Only a control string past the replay's pending-sequence budget
+        // cannot be carried into a replacement replay.
+        pty.term.lock().unwrap().vt_write(b"\x1b]52;c;");
+        pty.term.lock().unwrap().vt_write(&vec![b'A'; 2 * 1024 * 1024]);
+        assert!(!pty.term.lock().unwrap().vt_replay_resumes_stream());
 
         assert!(surface.resize(100, 30).unwrap());
         assert!(matches!(

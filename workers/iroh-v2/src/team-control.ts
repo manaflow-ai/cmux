@@ -2,17 +2,18 @@ import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
 import { TeamBroker, type BrokerResult, type BrokerSession } from "./broker";
 import { encodeResponse, errorResponse, httpFailure, inputOperation, inputRequestId, parseControlRequest, parseJSON } from "./boundary";
-import { IdentitySchema, endpointID, identifier, revision, timestamp } from "./contracts/common";
+import { IdentitySchema, endpointID, identifier, revision, timestamp, type Identity } from "./contracts/common";
+import type { AccountMacRecord } from "./account-broker";
 import type { ControlResponse } from "./contracts/responses";
 import { identityKey, issueTicket } from "./crypto";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import { environmentScope, runtime, type Environment } from "./environment";
 import { failureDiagnostics, OperationError, publicError, unwrap } from "./errors";
-import { AuthoritySchema, objectName, readInternalRequest } from "./routing";
+import { AuthoritySchema, accountObjectName, objectName, readInternalRequest } from "./routing";
 import { applyStorageMigrations } from "./storage/migrations";
 import { TeamStore } from "./storage/team-store";
 import type { UsageOperation } from "./storage/user-usage";
-import { observe } from "./observability";
+import { observe, sessionObservability } from "./observability";
 import { DashboardControl } from "./dashboard-control";
 
 const SessionSchema = z.strictObject({
@@ -61,6 +62,7 @@ export class TeamControl extends DurableObject<Environment> {
     const pathname = new URL(request.url).pathname;
     const route = ["/request", "/session", "/socket"].includes(pathname) ? pathname.slice(1) : "unknown";
     let stage = "parse";
+    let device: Record<string, string> = {};
     try {
       const incoming = await readInternalRequest(request);
       requestId = incoming.setup.requestId;
@@ -68,9 +70,10 @@ export class TeamControl extends DurableObject<Environment> {
       const broker = this.broker(incoming.authority.teamId);
       if (incoming.path === "/request") {
         const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt, incoming.issueTicket);
+        device = sessionObservability(session);
         const result = await broker.execute(session, incoming.input);
         this.scheduleChanges(result, session.identity.teamId);
-        observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
+        observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200, ...device });
         return this.json(result.response);
       }
       // A socket that cannot be accepted must be refused before broker.open runs.
@@ -88,8 +91,9 @@ export class TeamControl extends DurableObject<Environment> {
       }
       const result = await broker.open(incoming.setup, incoming.authority, incoming.expiresAt, incoming.issueTicket);
       if (!result.session) throw new OperationError("internal_error", 500);
+      device = sessionObservability(result.session);
       this.scheduleChanges(result, incoming.authority.teamId);
-      observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
+      observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200, ...device });
       if (incoming.path === "/session") return this.json(result.response);
       stage = "accept";
       const session = result.session;
@@ -112,7 +116,7 @@ export class TeamControl extends DurableObject<Environment> {
     } catch (error) {
       const failure = publicError(error);
       observe(this.ctx, this.env, { event: "iroh.team.failure", environment: this.env.ENVIRONMENT, requestId, code: failure.code, status: failure.status, retryable: failure.retryable,
-        route, stage, ...failureDiagnostics(error) });
+        route, stage, ...device, ...failureDiagnostics(error) });
       return httpFailure(error, requestId);
     }
   }
@@ -163,7 +167,7 @@ export class TeamControl extends DurableObject<Environment> {
           try { await this.send(ws, failure.body); } catch { this.close(ws, "slow_consumer"); }
           if (["device_revoked", "team_access_revoked", "identity_mismatch", "key_replacement_required"].includes(code)) this.close(ws, code);
         } finally {
-          observe(this.ctx, this.env, { event: "iroh.socket.operation", environment: this.env.ENVIRONMENT, operation: inputOperation(input), status, code, durationMs: Date.now() - started, ...(cause ? { cause } : {}) });
+          observe(this.ctx, this.env, { event: "iroh.socket.operation", environment: this.env.ENVIRONMENT, operation: inputOperation(input), status, code, durationMs: Date.now() - started, ...sessionObservability(attachment.session), ...(cause ? { cause } : {}) });
         }
       });
     } catch { this.close(ws, size > 16 * 1024 ? "payload_too_large" : "input_capacity"); }
@@ -194,6 +198,21 @@ export class TeamControl extends DurableObject<Environment> {
       if (ws.readyState !== WebSocket.CLOSED && candidates.has(attachment.session.sessionId)) live.add(attachment.session.sessionId);
     }
     return [...live];
+  }
+
+  /**
+   * Read-only RPC for AccountControl: each identity's stored record in this
+   * team and the user's authority lease, or null. It writes no team storage,
+   * moves no revision and sends nothing to a team or dashboard socket.
+   */
+  accountMacRecords(teamId: string, identities: Identity[]): (AccountMacRecord | null)[] {
+    const store = this.broker(teamId).dependencies.store;
+    if (!Array.isArray(identities) || identities.length > 17) throw new OperationError("invalid_request", 400);
+    return identities.map(value => {
+      const identity = IdentitySchema.parse(value);
+      if (identity.teamId !== teamId) throw new OperationError("identity_mismatch", 403);
+      return store.accountMacRecord(identity);
+    });
   }
 
   private broker(teamId: string): TeamBroker {
@@ -328,6 +347,41 @@ export class TeamControl extends DurableObject<Environment> {
     ]).catch(() => {
       observe(this.ctx, this.env, { event: "iroh.directory.delivery_failed", environment: this.env.ENVIRONMENT });
     }));
+    this.notifyAccount(teamId, result.changed);
+  }
+
+  /**
+   * Best effort, after the team work above is already scheduled: tell the
+   * owner's AccountControl that one of their Mac records changed here. Only
+   * Mac rows qualify; iOS rows never leave this object. It sends no team frame,
+   * writes no team storage and cannot fail or delay the team response.
+   */
+  private notifyAccount(teamId: string, changed: BrokerResult["changed"]) {
+    try {
+      const deviceRecordId = changed?.revokedDeviceRecordId ?? changed?.deviceRecordId;
+      if (!deviceRecordId) return;
+      const record = this.broker(teamId).dependencies.store.getDeviceByRecordId(deviceRecordId);
+      if (!record || record.descriptor.metadata.platform !== "mac") return;
+      const userId = record.descriptor.identity.userId;
+      const scope = environmentScope(this.env);
+      const identity = record.descriptor.identity;
+      const name = accountObjectName(scope.environment, scope.projectId, userId);
+      // A few immediate attempts ride out a transient object reset. A notice
+      // that still fails is bounded by the account directory itself: every
+      // read re-checks the team, and inbound grants last at most
+      // ACCOUNT_INBOUND_GRANT_SECONDS.
+      const deliver = async () => {
+        let failure: unknown;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try { await this.env.ACCOUNT_CONTROL.getByName(name).teamChanged(userId, teamId, deviceRecordId, identity); return; }
+          catch (error) { failure = error; }
+        }
+        observe(this.ctx, this.env, { event: "iroh.account.notify_failed", environment: this.env.ENVIRONMENT, ...failureDiagnostics(failure) });
+      };
+      this.ctx.waitUntil(deliver());
+    } catch (error) {
+      observe(this.ctx, this.env, { event: "iroh.account.notify_failed", environment: this.env.ENVIRONMENT, ...failureDiagnostics(error) });
+    }
   }
 
   private async broadcast(teamId: string, change: NonNullable<BrokerResult["changed"]>) {
@@ -380,7 +434,13 @@ export class TeamControl extends DurableObject<Environment> {
   private close(ws: WebSocket, reason: string) {
     try {
       const attachment = this.load(ws);
-      if (!attachment.closed) this.save(ws, { ...attachment, closed: true });
+      if (!attachment.closed) {
+        this.save(ws, { ...attachment, closed: true });
+        // One row per server-initiated close, attributed, so "this device's
+        // socket kept being closed for <reason>" is a direct sink query.
+        observe(this.ctx, this.env, { event: "iroh.socket.closed", environment: this.env.ENVIRONMENT, reason,
+          ...sessionObservability(attachment.session) });
+      }
       const code = reason === "payload_too_large" ? 1009
         : ["input_capacity", "slow_consumer"].includes(reason) ? 1013
         : ["device_revoked", "team_access_revoked", "identity_mismatch", "key_replacement_required"].includes(reason) ? 1008

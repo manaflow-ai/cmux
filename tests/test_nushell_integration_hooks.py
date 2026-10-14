@@ -38,6 +38,7 @@ CI can never silently skip.
 from __future__ import annotations
 
 import os
+import signal
 import shutil
 import socket
 import subprocess
@@ -90,7 +91,7 @@ class _SocketCollector:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.lines: List[str] = []
-        self._lock = threading.Lock()
+        self._condition = threading.Condition()
         self._server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._server.bind(str(path))
         self._server.listen(16)
@@ -119,16 +120,25 @@ class _SocketCollector:
                 except socket.timeout:
                     pass
             text = b"".join(chunks).decode("utf-8", errors="replace")
-            with self._lock:
+            with self._condition:
                 for line in text.splitlines():
                     if line.strip():
                         self.lines.append(line.strip())
+                self._condition.notify_all()
+
+    def wait_for(self, expected_lines: List[str], timeout: float) -> bool:
+        """Wait until every expected payload arrives or the deadline expires."""
+        with self._condition:
+            return self._condition.wait_for(
+                lambda: all(line in self.lines for line in expected_lines),
+                timeout=timeout,
+            )
 
     def stop(self) -> List[str]:
         self._stop.set()
         self._thread.join(timeout=5)
         self._server.close()
-        with self._lock:
+        with self._condition:
             return list(self.lines)
 
 
@@ -287,33 +297,63 @@ def test_nushell_integration_background_sends_deliver() -> None:
                 "CMUX_PANEL_ID": PANEL_ID,
                 "CMUX_SURFACE_ID": "surface-nu-bg",
                 "_CMUX_TTY_NAME": TTY_NAME,
-                # No CMUX_TEST_SYNC_SEND: exercise the job spawn path. The
-                # trailing sleep keeps the shell alive long enough for the
-                # background job to flush (nushell kills jobs at exit; real
-                # prompts outlive them).
+                # No CMUX_TEST_SYNC_SEND: exercise the job spawn path.
             }
         )
+        suffix = f"--tab={TAB_ID} --panel={PANEL_ID}"
+        expected_lines = [
+            f"report_shell_state running {suffix}",
+            f"report_tty {TTY_NAME} {suffix}",
+        ]
         script = "; ".join(
             [
                 f'source "{INTEGRATION}"',
                 "_cmux_pre_execution",
-                "sleep 800ms",
+                # Hold the shell open until the socket listener observes both
+                # spawned sends. Nushell terminates jobs at shell exit.
+                "^/bin/cat | ignore",
             ]
         )
-        proc = subprocess.run(
+        process = subprocess.Popen(
             [nu, "-n", "-c", script],
             env=env,
             cwd=str(home),
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=30,
-            check=False,
+            start_new_session=True,
+        )
+        delivered = collector.wait_for(expected_lines, timeout=5.0)
+        try:
+            stdout, stderr = process.communicate(input="\n", timeout=30)
+        except subprocess.TimeoutExpired:
+            # Nushell can leave spawned jobs holding the pipes open. Kill the
+            # whole process group so a timed-out test cannot leak shell work.
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                stdout, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                stdout, stderr = process.communicate(timeout=5)
+            raise
+        proc = subprocess.CompletedProcess(
+            args=process.args,
+            returncode=process.returncode,
+            stdout=stdout,
+            stderr=stderr,
         )
         lines = collector.stop()
         debug = _debug(proc, lines)
 
+        assert delivered, "background sends did not arrive before the completion deadline" + debug
         assert proc.returncode == 0, "integration errored on background sends" + debug
-        suffix = f"--tab={TAB_ID} --panel={PANEL_ID}"
         assert f"report_shell_state running {suffix}" in lines, (
             "background (job spawn) send did not deliver report_shell_state"
             + debug

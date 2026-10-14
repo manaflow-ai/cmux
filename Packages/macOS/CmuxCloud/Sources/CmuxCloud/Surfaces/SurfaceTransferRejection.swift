@@ -9,7 +9,7 @@ public enum SurfaceTransferRejection: Error, LocalizedError, Equatable, Sendable
     public var message: String {
         String(
             localized: "surfaceDrop.cloudMachineMismatch",
-            defaultValue: "Cloud workspaces can only hold terminals, browsers, and displays from their own Cloud machine. Open a local workspace and move the splits there."
+            defaultValue: "Cloud workspaces can only hold terminals and displays from their own Cloud machine. Browser tabs can move freely. Open a local workspace to move other splits there."
         )
     }
 }

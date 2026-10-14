@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { GUEST_BROWSER_FILES, guestBrowserInstallCommand } from "../guestBrowser";
+import { GUEST_CLIPBOARD_FILES } from "../guestClipboard";
 import {
   defaultGuestCliDistribution,
   guestCliDistributionCommand,
@@ -19,6 +20,7 @@ function distributionPaths(manifest: GuestCliDistribution = defaultGuestCliDistr
 const installPaths = [
   GUEST_CMUX_SHIM_PATH,
   ...GUEST_BROWSER_FILES.map(({ path }) => path),
+  ...GUEST_CLIPBOARD_FILES.map(({ path }) => path),
   "/etc/cmux/browser-opener-version",
   "/etc/cmux/prompt.bash",
   "/etc/cmux/bashrc",

@@ -273,48 +273,42 @@ private struct FeedListView: View {
         actions: FeedRowActions,
         showsLoadMore: Bool
     ) -> some View {
-        List {
-            ForEach(Array(groups.stable.enumerated()), id: \.element.id) { idx, snapshot in
-                rowSurface(
-                    snapshot: snapshot,
-                    actions: actions,
-                    showsDivider: idx < groups.stable.count - 1
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+        // List creates an AppKit-backed row host for every activity update. The
+        // activity feed can receive several updates per second while an agent is
+        // running, which makes List repeatedly rebuild attributed-string and
+        // selection overlays even though most rows are off-screen. Keep the
+        // same lazy behavior as the actionable feed and use the shared scroll
+        // surface so only visible rows are materialized.
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(groups.stable.enumerated()), id: \.element.id) { idx, snapshot in
+                    rowSurface(
+                        snapshot: snapshot,
+                        actions: actions,
+                        showsDivider: idx < groups.stable.count - 1
+                    )
+                }
+                if !groups.stable.isEmpty && (!groups.history.isEmpty || showsLoadMore) {
+                    rowSeparator
+                        .id("feed.activity.separator")
+                }
+                ForEach(Array(groups.history.enumerated()), id: \.element.id) { idx, snapshot in
+                    rowSurface(
+                        snapshot: snapshot,
+                        actions: actions,
+                        showsDivider: idx < groups.history.count - 1
+                    )
+                }
+                if showsLoadMore {
+                    FeedHistoryLoadMoreRow(
+                        isLoading: isLoadingOlderItems,
+                        action: onLoadOlderItems
+                    )
+                }
             }
-            if !groups.stable.isEmpty && (!groups.history.isEmpty || showsLoadMore) {
-                rowSeparator
-                    .id("feed.activity.separator")
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            }
-            ForEach(Array(groups.history.enumerated()), id: \.element.id) { idx, snapshot in
-                rowSurface(
-                    snapshot: snapshot,
-                    actions: actions,
-                    showsDivider: idx < groups.history.count - 1
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
-            if showsLoadMore {
-                FeedHistoryLoadMoreRow(
-                    isLoading: isLoadingOlderItems,
-                    action: onLoadOlderItems
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
         .feedZeroScrollContentMargins()
-        .environment(\.defaultMinListRowHeight, 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

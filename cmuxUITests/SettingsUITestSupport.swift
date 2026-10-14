@@ -31,7 +31,7 @@ class SettingsUITestCase: XCTestCase {
     /// Sidebar section titles in top-to-bottom order. Must match
     /// `SettingsSectionID.title` default values.
     static let sectionTitles = [
-        "Account", "App", "Terminal", "TextBox (Beta)", "Sidebar", "Beta Features", "Automation",
+        "Account", "App", "Themes", "Terminal", "TextBox", "Sidebar", "Beta Features", "Automation",
         "Browser", "Global Hotkey", "Keyboard Shortcuts", "Workspace Colors",
         "cmux.json", "Reset",
     ]

@@ -32,6 +32,25 @@ struct WorkspaceColorMenuTests {
         #expect(menu.items.allSatisfy { $0.image != nil })
     }
 
+    #if compiler(>=6.4)
+    /// macOS 27 hides menu item images by default, which dropped the swatches.
+    @Test
+    func paletteSwatchesOptIntoVisibleImages() {
+        guard #available(macOS 27.0, *) else { return }
+        let menu = NSMenu()
+        SidebarWorkspaceRowColorMenu(
+            currentColorHex: nil,
+            colorScheme: .light
+        ).addPaletteItems(
+            to: menu,
+            palette: [WorkspaceTabColorEntry(name: "Teal", hex: "#006B6B")],
+            apply: { _ in }
+        )
+
+        #expect(menu.items.map(\.preferredImageVisibility) == [.visible])
+    }
+    #endif
+
     @Test
     func unmatchedCustomColorLeavesNamedPaletteItemsUnmarked() {
         let menu = NSMenu()

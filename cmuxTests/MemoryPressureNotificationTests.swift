@@ -1,6 +1,7 @@
 import CmuxSettings
 import Foundation
 import Testing
+import CmuxMemoryPressure
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -17,6 +18,7 @@ extension AgentNotificationRegressionTests {
         let monitor = MemoryPressureMonitor.shared
         let originalResponders = monitor.registry.respondersByID
         let originalAggregatePressureCleared = monitor.onAggregatePressureCleared
+        let originalSampleApplied = monitor.onSampleApplied
         let controller = AgentHibernationController.shared
         let originalEvaluation = controller.memoryPressureEvaluation
         let originalConfirmations = controller.confirmations
@@ -33,6 +35,7 @@ extension AgentNotificationRegressionTests {
             monitor.stop()
             monitor.registry.respondersByID = originalResponders
             monitor.onAggregatePressureCleared = originalAggregatePressureCleared
+            monitor.onSampleApplied = originalSampleApplied
             controller.memoryPressureEvaluation?.task.cancel()
             controller.memoryPressureEvaluation = originalEvaluation
             controller.confirmations = originalConfirmations

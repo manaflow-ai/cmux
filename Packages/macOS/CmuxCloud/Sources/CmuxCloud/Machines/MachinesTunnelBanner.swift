@@ -45,8 +45,8 @@ public struct MachinesTunnelBanner: View {
             CloudBannerDismissButton(action: onDismiss)
         }
         .foregroundColor(tint)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.horizontal, CloudSidebarChromeMetrics.sidebar.barHorizontalPadding)
+        .padding(.vertical, CloudSidebarChromeMetrics.sidebar.barVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: backgroundColor))
         .help(helpText)

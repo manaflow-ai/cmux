@@ -76,8 +76,12 @@ enum SidebarWorkspaceListMetrics {
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
     static let rowContentHorizontalPadding: CGFloat = 10
-    static let topScrimHeight: CGFloat = firstRowTopOffset + 20
-    static let bottomScrimHeight: CGFloat = topScrimHeight
+    /// The top fade ends where the first row rests, so rows fade only while
+    /// scrolled under the titlebar. It used to reach 20 pt into the list,
+    /// which left the first row partly transparent at rest; over a light
+    /// terminal-matched backdrop that washed out the selected row's top.
+    static let topScrimHeight: CGFloat = firstRowTopOffset
+    static let bottomScrimHeight: CGFloat = firstRowTopOffset + 20
 
     static var trailingAccessoryRightEdgeOffset: CGFloat {
         rowOuterHorizontalPadding + rowContentHorizontalPadding

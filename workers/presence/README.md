@@ -16,9 +16,9 @@ solo-account user id).
 | Route | Method | Purpose |
 | --- | --- | --- |
 | `/healthz` | GET | liveness (no auth) |
-| `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, stopping?}`; `stopping: true` is a clean-shutdown goodbye |
+| `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, stopping?}`; `stopping: true` is a clean-shutdown goodbye. Also mirrored into the caller's own device room (best-effort) |
 | `/v1/presence/snapshot` | GET | one-shot presence map |
-| `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events |
+| `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events. Team-scoped by default; `?scope=account` streams only the verified user's own devices, whatever team each selected (macOS My Devices) |
 | `/v1/connectivity/subscribe` | GET | quiet WebSocket isolated by the verified Stack user; carries only route-revision invalidations |
 | `/v1/connectivity/invalidate` | POST | backend-only publication of `{revision}` to every connected Mac and iPhone for the verified Stack user |
 | `/v1/sync/vms` | POST | backend-only Cloud machine list publication `{teamId, ops}`; no user bearer, authenticated by `X-Cmux-Vms-Publisher-Secret` only; the team DO applies the ops and broadcasts `vms` sync deltas |

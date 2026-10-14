@@ -123,9 +123,14 @@ mkdir -p "node_modules/$package"
                 print(f"FAIL: {written.name} did not keep the file reference unescaped: {raw!r}")
                 return 1
 
-        plugins = shadow_config.get("plugin")
+        # OpenCode V2 reads the plural `plugins` key. The migration accepts
+        # the legacy singular key above, then writes one canonical V2 list.
+        if "plugin" in shadow_config:
+            print(f"FAIL: shadow config retained legacy plugin key: {shadow_config!r}")
+            return 1
+        plugins = shadow_config.get("plugins")
         if not isinstance(plugins, list):
-            print(f"FAIL: expected shadow plugin list, got {plugins!r}")
+            print(f"FAIL: expected shadow plugins list, got {plugins!r}")
             return 1
 
         package_names = [plugin_package_name(entry) for entry in plugins]

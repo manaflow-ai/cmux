@@ -191,7 +191,8 @@ struct RemoteTmuxMirrorLifecycleTests {
                 surfaceID: nil,
                 paneID: nil
             ),
-            workspaceID: mirrorWorkspace.id
+            workspaceID: mirrorWorkspace.id,
+            force: false
         )
 
         #expect(resolution == .resolved(windowID: windowId))
@@ -248,6 +249,33 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(mirrorPanel != nil)
         #expect(workspace.bonsplitController.focusedPaneId == pane)
         #expect(workspace.bonsplitController.selectedTab(inPane: pane)?.id == selectedBefore)
+    }
+
+    @Test func detachingMirrorReplacesRetiredContainerWithUsableTerminal() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        workspace.isRemoteTmuxMirror = true
+        let initialPanelID = try #require(workspace.focusedPanelId)
+        let retiredContainer = try #require(workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 1,
+            title: "remote",
+            focus: false,
+            onInput: ignoreInput
+        ))
+        // Window mirrors retire the outer container after their real pane surface
+        // is mounted. If the mirror is then detached while this workspace is kept
+        // open, that closed container must not become the user's next local tab.
+        retiredContainer.close()
+        #expect(workspace.closePanel(initialPanelID, force: true))
+
+        #expect(workspace.detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded())
+        #expect(!workspace.isRemoteTmuxMirror)
+        #expect(!workspace.panels.keys.contains(retiredContainer.id))
+        #expect(workspace.panels.values.allSatisfy { panel in
+            guard let terminal = panel as? TerminalPanel else { return false }
+            return terminal.surface.runtimeUnavailableReason != .closing
+        })
     }
 
     @Test func hiddenMirrorWindowStaysHiddenAndNonKeyAcrossBackgroundClose() async throws {
@@ -347,6 +375,26 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(target.tabs.contains { $0.isRemoteTmuxMirror })
         let entry = try #require(controller.sessionMirrors.values.first)
         #expect(entry.mirroredWorkspaceId == workspaceIds.first)
+    }
+
+    @Test func hostDestinationGenerationChangesWhenMirrorsChange() throws {
+        let controller = RemoteTmuxController()
+        let manager = TabManager()
+        let host = RemoteTmuxHost(destination: "user@host")
+        let beforeAttach = controller.hostDestinationsGeneration
+        _ = try mirror(
+            controller: controller,
+            manager: manager,
+            host: host,
+            sessionName: "dev"
+        )
+        let afterAttach = controller.hostDestinationsGeneration
+        #expect(afterAttach != beforeAttach)
+
+        for key in Array(controller.sessionMirrors.keys) {
+            _ = controller.removeSessionMirror(forKey: key)
+        }
+        #expect(controller.hostDestinationsGeneration != afterAttach)
     }
 
     @Test func failedMirrorAttachKeepsTransportSharedWithLiveMirror() throws {

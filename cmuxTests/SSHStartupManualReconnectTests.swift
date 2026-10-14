@@ -124,6 +124,7 @@ struct SSHStartupManualReconnectTests {
         let startupURL = root.appendingPathComponent("startup-with-fake-ssh.sh")
         try generatedStartupScript.write(to: startupURL, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: startupURL.path)
+        try Self.primeFirstExec(startupURL)
         try fileManager.removeItem(at: generatedStartupURL)
 
         var environment = ProcessInfo.processInfo.environment
@@ -276,8 +277,8 @@ struct SSHStartupManualReconnectTests {
         ])
         try Self.writeShellFile(at: fakeSleep, lines: [
             "#!/bin/sh",
-            "printf '%s\\n' ready > \"${CMUX_TEST_BACKOFF_READY:?}\"",
             "printf '%s\\n' \"$$\" > \"${CMUX_TEST_BACKOFF_PID:?}\"",
+            "printf '%s\\n' ready > \"${CMUX_TEST_BACKOFF_READY:?}\"", // after the PID: the test reads it on `ready`
             "exec /bin/sleep \"$1\"",
         ])
         for executable in [fakeCLI, fakeSSH, fakeSleep] {
@@ -718,12 +719,6 @@ struct SSHStartupManualReconnectTests {
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(status: process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: timedOut)
-    }
-
-    static func writeShellFile(at url: URL, lines: [String]) throws {
-        try lines.joined(separator: "\n")
-            .appending("\n")
-            .write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// The persistent PTY launcher now delegates attach requests through the

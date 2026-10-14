@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxCloud
 import AppKit
 import CmuxBrowser
@@ -105,6 +106,7 @@ extension BrowserPanel {
         to targetURL: URL,
         recordTypedNavigation: Bool
     ) -> BrowserAutomationNavigationTicket {
+        takeBrowserDialogOwnership(.automation)
         let ticket = automationNavigationCoordinator.begin(
             instanceID: webViewInstanceID,
             targetURL: targetURL,
@@ -141,7 +143,7 @@ extension BrowserPanel {
         }
 
         if !retryFailedNavigationForReload(mode: .soft, onNavigationStarted: navigationStarted) {
-            if let navigation = reload() {
+            if let navigation = reload(dialogOwner: .automation) {
                 navigationStarted(navigation)
             } else {
                 automationNavigationCoordinator.didReturnNoNavigation(
@@ -192,7 +194,7 @@ extension BrowserPanel {
             if let endpoint = cloudAccess.model?.browserProxy,
                let address = cloudAccess.model?.target.host {
                 websiteDataStore.proxyConfigurations = [
-                    CloudBrowserRouting.configuration(endpoint: endpoint, address: address)
+                    CloudBrowserRouting.configuration(endpoint: endpoint, address: address, remoteNetwork: cloudAccess.model?.usesRemoteNetwork == true)
                 ]
                 replacementStore = websiteDataStore
             } else {
@@ -210,13 +212,16 @@ extension BrowserPanel {
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
         }
-        if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.remoteURL?.host {
+        if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.model?.target.host {
             replacement.configuration.userContentController.addUserScript(WKUserScript(
-                source: RemoteLoopbackRuntimeBridge.scriptSource(aliasHost: host, preservesSubdomains: false),
+                source: RemoteLoopbackRuntimeBridge.scriptSource(
+                    aliasHost: cloudAccess.model?.usesRemoteNetwork == true ? RemoteLoopbackProxyAlias.aliasHost : host,
+                    preservesSubdomains: false, allOrigins: cloudAccess.model?.usesRemoteNetwork == true
+                ),
                 injectionTime: .atDocumentStart, forMainFrameOnly: false
             ))
             if let endpoint = cloudAccess.model?.browserProxy {
-                CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: host, on: replacement)
+                CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: host, on: replacement, remoteNetwork: cloudAccess.model?.usesRemoteNetwork == true)
             }
         }
         return replacement
@@ -225,7 +230,23 @@ extension BrowserPanel {
     var canRecoverFromAutomationTimeout: Bool {
         !isClosingWebViewLifecycle &&
             activeInteractiveBrowserPromptIDs.isEmpty &&
+            mobileBrowserDialogBroker.pendingDialogs.isEmpty &&
             activeVisualAutomationCaptureCount == 0
+    }
+
+    /// The web view a browser automation command should drive. A pane whose WebContent process
+    /// died while hidden becomes a discarded pane first, as showing it would, so the command
+    /// captures the web view its document-readiness wait restores rather than a dead one only a
+    /// reveal could replace. The command also counts as use of the pane, so hidden-pane discards
+    /// do not unload a page an agent is driving.
+    func webViewForAutomationCommand(now: Date = Date()) -> WKWebView {
+        takeBrowserDialogOwnership(.automation)
+        webViewLastAutomationCommandAt = now
+        discardWebViewTerminatedWhileHidden(now: now)
+        if !isWebViewVisibleInUI {
+            reevaluateHiddenWebViewDiscardScheduling(reason: "automation_command")
+        }
+        return webView
     }
 
     func waitForAutomationDocumentCommit(

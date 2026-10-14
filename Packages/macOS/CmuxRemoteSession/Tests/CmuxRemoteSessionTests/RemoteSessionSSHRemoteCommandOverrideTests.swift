@@ -245,8 +245,11 @@ final class RecordingProcessRunner: RemoteSessionProcessRunning, @unchecked Send
     private let response: Response
 
     init(
-        response: @escaping Response = { _ in
-            RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        response: @escaping Response = { request in
+            let stdout = request.arguments.contains {
+                $0.contains("__CMUX_REMOTE_PASTE_HOME__")
+            } ? "__CMUX_REMOTE_PASTE_HOME__/home/test user\n" : ""
+            return RemoteCommandResult(status: 0, stdout: stdout, stderr: "")
         }
     ) {
         self.response = response

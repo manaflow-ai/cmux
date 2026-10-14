@@ -153,7 +153,16 @@ runs:
       if: ${{ inputs.record-video == 'true' }}
       shell: bash
       run: |
-        brew install --quiet ffmpeg
+        # The helper comes from this workflow's revision (checked out into
+        # .e2e-workflow beside this action) when it is there, since the tested
+        # revision may predate it.
+        helper="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/brew-ensure.sh"
+        [ -f "$helper" ] || helper=scripts/ci/brew-ensure.sh
+        if [ -f "$helper" ]; then
+          bash "$helper" ffmpeg
+        else
+          brew install --quiet ffmpeg
+        fi
         FFMPEG_PATH=$(which ffmpeg)
         echo "ffmpeg: $FFMPEG_PATH"
         ffmpeg -version | head -1
@@ -196,10 +205,23 @@ runs:
     # The display-churn regression establishes its own display later.
     # Keep its existing recorder startup check at that point.
 
+    # A runner that cannot capture its display runs the tests without video
+    # instead of failing them: on 2026-09-25/26, 8 of 45 sampled Blacksmith
+    # 12vcpu and 2 of 15 6vcpu jobs stopped here with "could not create image
+    # from display", per machine rather than per pool, and the rescue's
+    # Blacksmith re-runs land on those pools.
     - name: Verify screen capture before dependency setup
+      id: capture
       if: ${{ inputs.record-video == 'true' && inputs.filter != 'DisplayResolutionRegressionUITests' }}
       shell: bash
-      run: python3 scripts/ci/preflight-e2e-screen-capture.py
+      run: |
+        if python3 scripts/ci/preflight-e2e-screen-capture.py; then
+          echo "available=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::Screen capture is unavailable on $RUNNER_NAME; the tests run without video."
+          echo "**Recording:** skipped, screen capture is unavailable on runner \`$RUNNER_NAME\`; the tests ran without video." >> "$GITHUB_STEP_SUMMARY"
+        fi
 
     # A console session that cannot activate apps fails every UI test after
     # a one-minute wait each, as "Failed to activate application". Probe it
@@ -222,7 +244,11 @@ runs:
     - name: Install tmux
       shell: bash
       run: |
-        if ! command -v tmux >/dev/null 2>&1; then
+        helper="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/brew-ensure.sh"
+        [ -f "$helper" ] || helper=scripts/ci/brew-ensure.sh
+        if [ -f "$helper" ]; then
+          bash "$helper" tmux
+        elif ! command -v tmux >/dev/null 2>&1; then
           brew install --quiet tmux
         fi
         tmux -V
@@ -411,7 +437,7 @@ runs:
         TEST_SELECTOR_COUNT: ${{ inputs.count }}
         NORMALIZED_FILTER: ${{ inputs.filter }}
         TEST_TIMEOUT: ${{ inputs.test-timeout }}
-        RECORD_VIDEO: ${{ inputs.record-video }}
+        RECORD_VIDEO: ${{ inputs.record-video == 'true' && steps.capture.outputs.available != 'false' && 'true' || 'false' }}
         DOGFOOD_SCENARIO_B64: ${{ inputs.dogfood-scenario }}
         # App-host crash recovery must not stall on interactive backtraces
         # (mirrors ci.yml's tests job hardening).
@@ -553,7 +579,13 @@ runs:
           XCTESTRUN_PATH="$CMUX_UI_XCTESTRUN"
           mkdir -p "$RUNNER_TEMP/cmux-app-host-xcresults"
           XCODEBUILD_CMD=(
-            xcodebuild
+            # UI dispatches used to invoke xcodebuild directly, bypassing the
+            # per-machine app-host lock and bounded retries already used by
+            # cmuxTests. Keep UI's existing non-isolated host environment,
+            # while applying the same runner-communication recovery. The
+            # wrapper removes a caller-owned result bundle before each retry.
+            env CMUX_CI_APP_HOST_ISOLATION_REQUIRED=0
+            scripts/ci/run-app-host-xcodebuild.sh
             -xctestrun "$XCTESTRUN_PATH"
             -resultBundlePath "$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
             -destination "platform=macOS"
@@ -794,7 +826,7 @@ runs:
 
     - name: Upload recording artifact
       id: recording
-      if: ${{ always() && inputs.record-video == 'true' }}
+      if: ${{ always() && inputs.record-video == 'true' && steps.capture.outputs.available != 'false' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: test-recording
@@ -848,7 +880,7 @@ runs:
         COMMIT_SHA: ${{ inputs.source-revision }}
         REF_DISPLAY: ${{ inputs.ref-display }}
         RUN_ID: ${{ github.run_id }}
-        RECORD_VIDEO: ${{ inputs.record-video }}
+        RECORD_VIDEO: ${{ inputs.record-video == 'true' && steps.capture.outputs.available != 'false' && 'true' || 'false' }}
         RECORDING_URL: ${{ steps.recording.outputs.artifact-url }}
       shell: bash
       run: |

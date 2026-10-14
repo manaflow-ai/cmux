@@ -18,7 +18,7 @@ private let remoteShellPromptFishExecutablePath = [
 struct RemoteShellPromptRelayTests {
     @Test("remote session resource loader owns a dedicated source file")
     func remoteSessionResourceLoaderOwnsDedicatedSourceFile() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
+        let repositoryRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let loaderSource = try String(

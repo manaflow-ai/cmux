@@ -3,7 +3,7 @@ import Foundation
 /// Why ``CloudActivationPolicy`` refuses to start the app-managed tunnel.
 /// Raw values are stable tokens for `vm.tunnel_*` payloads and `cmux vpn`.
 public enum CloudTunnelStartRefusal: String, Sendable, Equatable {
-    /// `Settings › Beta Features › Cloud Machines` is off, or a managed
+    /// Cloud activation is off, or a managed
     /// profile disables Cloud.
     case cloudMachinesOff = "cloud-machines-off"
     /// The account has no Cloud machine yet, so there is nothing to reach.

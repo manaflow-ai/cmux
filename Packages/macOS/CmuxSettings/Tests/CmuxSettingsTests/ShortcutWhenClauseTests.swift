@@ -319,4 +319,56 @@ struct ShortcutWhenClauseTests {
         let markdown = try #require(ShortcutWhenClause.parse("markdownFocus && commandPaletteVisible"))
         #expect(!ShortcutWhenClause.canCoexist(browser, markdown))
     }
+
+    // MARK: - Key references (lazy context values)
+
+    @Test func referencesFindsKeyAnywhereInTheTree() throws {
+        let key = ShortcutContextKnownKey.terminalAlternateScreen.rawValue
+        let referencing = [
+            "terminalAlternateScreen",
+            "!terminalAlternateScreen",
+            "terminalFocus && !terminalAlternateScreen",
+            "browserFocus || (paneCount > 1 && terminalAlternateScreen)",
+            "terminalAlternateScreen == false",
+        ]
+        for raw in referencing {
+            let clause = try #require(ShortcutWhenClause.parse(raw), "\(raw)")
+            #expect(clause.references(key: key), "\(raw)")
+        }
+        let notReferencing = [
+            "",
+            "terminalFocus",
+            "!sidebarFocus && paneCount > 1",
+            "terminalFindVisible || sidebarMode == 'find'",
+        ]
+        for raw in notReferencing {
+            let clause = try #require(ShortcutWhenClause.parse(raw), "\(raw)")
+            #expect(!clause.references(key: key), "\(raw)")
+        }
+    }
+
+    @Test func referencesMatchesFocusAtomsByName() throws {
+        let clause = try #require(ShortcutWhenClause.parse("!sidebarFocus"))
+        #expect(clause.references(key: "sidebarFocus"))
+        #expect(!clause.references(key: "terminalFocus"))
+    }
+
+    /// The Ctrl+W close-at-the-prompt recipe: fires at the shell, passes through
+    /// to a full-screen app, and an absent value (no terminal focused) fires.
+    @Test func terminalAlternateScreenGatesABindingToTheShellPrompt() throws {
+        let key = ShortcutContextKnownKey.terminalAlternateScreen.rawValue
+        #expect(ShortcutContextKnownKey.terminalAlternateScreen.valueType == .bool)
+        let clause = try #require(ShortcutWhenClause.parse("!terminalAlternateScreen"))
+        #expect(clause == .not(.key(key)))
+
+        var shell = ShortcutContext()
+        shell.setBool(key, false)
+        #expect(clause.evaluate(shell))
+
+        var fullScreenApp = ShortcutContext()
+        fullScreenApp.setBool(key, true)
+        #expect(!clause.evaluate(fullScreenApp))
+
+        #expect(clause.evaluate(ShortcutContext()))
+    }
 }

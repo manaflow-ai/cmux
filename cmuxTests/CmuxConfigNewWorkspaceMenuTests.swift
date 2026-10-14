@@ -342,10 +342,13 @@ struct CmuxConfigNewWorkspaceMenuTests {
 
         try withNewWorkspaceContextMenu(store: store) { menu in
             let nonSeparators = menu.items.filter { !$0.isSeparatorItem }
-            let save = try #require(nonSeparators.dropLast().last)
-            let manage = try #require(nonSeparators.last)
+            let save = try #require(nonSeparators.dropLast(2).last)
+            let manage = try #require(nonSeparators.dropLast().last)
+            let actions = try #require(nonSeparators.last)
             #expect(save.title == String(localized: "menu.newWorkspace.saveWorkspaceAsLayout", defaultValue: "Save Workspace as Layout…"))
             #expect(manage.title == String(localized: "menu.newWorkspace.manageLayouts", defaultValue: "Manage Layouts"))
+            #expect(actions.title == AppDelegate.actionsAndLaunchersMenuTitle)
+            #expect(actions.action == Selector(("presentActionsAndLaunchersMenuItem:")))
             let submenu = try #require(manage.submenu)
             #expect(submenu.items.contains { $0.title == String(localized: "menu.newWorkspace.defaultLayoutSubmenu", defaultValue: "Default for New Workspace") })
             let none = try #require(submenu.items.first {

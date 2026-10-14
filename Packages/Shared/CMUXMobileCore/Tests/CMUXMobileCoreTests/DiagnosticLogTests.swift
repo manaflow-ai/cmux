@@ -412,6 +412,7 @@ import os
         #expect(DiagnosticEventCode.transportDialSessionLinked.rawValue == 77)
         #expect(DiagnosticEventCode.transportDialCancelled.rawValue == 78)
         #expect(DiagnosticEventCode.transportCloseReason.rawValue == 79)
+        #expect(DiagnosticEventCode.transportPathInventory.rawValue == 83)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
     }
 

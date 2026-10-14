@@ -2,6 +2,7 @@ import CmuxCloud
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSurfaceCatalogModel
+import AppKit
 import Foundation
 
 /// The executable's construction boundary for device preferences, discovery, and Settings actions.
@@ -14,7 +15,24 @@ struct MacDevicesComposition {
 
     init(defaults: UserDefaults, catalog: SettingCatalog) {
         let store = UserDefaultsSettingsStore(defaults: defaults, migrating: catalog.all)
-        let preferences = DevicesPreferencesModel(store: store)
+        let keys = catalog.devices
+        let policy = ManagedDevicePolicy(defaults: defaults)
+        let access = DevicesAccessCoordinator(
+            read: { preference in
+                store.initialValue(for: preference == .discovery ? keys.discoveryEnabled : keys.incomingAccessEnabled)
+            },
+            write: { preference, enabled in
+                await store.set(enabled, for: preference == .discovery ? keys.discoveryEnabled : keys.incomingAccessEnabled)
+            },
+            canChange: { preference in
+                DevicesFeature.isAvailable(defaults: defaults, policy: policy)
+                    && !(preference == .discovery ? policy.isDeviceDiscoveryDisabled : policy.isIncomingDeviceAccessDisabled)
+            },
+            confirmIncomingAccess: {
+                await DeviceDiscoverabilityConfirmation().confirm(in: NSApp.keyWindow ?? NSApp.mainWindow)
+            }
+        )
+        let preferences = DevicesPreferencesModel(store: store, access: access)
         preferences.start()
         let registry = DeviceSurfaceProviderRegistry(
             preferences: preferences,

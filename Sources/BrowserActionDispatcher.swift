@@ -57,6 +57,9 @@ struct BrowserActionDispatcher {
                 _ = await panel?.toggleDesignMode(reason: reason)
             }
             return true
+        case .toggleKeepPageActive:
+            panel.keepsPageActiveWhileHidden.toggle()
+            return true
         case .zoomIn:
             return panel.zoomIn()
         case .zoomOut:

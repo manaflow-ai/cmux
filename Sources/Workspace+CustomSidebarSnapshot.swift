@@ -46,7 +46,8 @@ extension Workspace {
             latestSubmittedAt: latestSubmittedAt,
             remote: remote,
             agents: customSidebarAgentSnapshots(),
-            groupId: groupId
+            groupId: groupId,
+            taskStatus: effectiveTaskStatus.rawValue
         )
     }
 
@@ -140,6 +141,7 @@ extension Workspace {
                     ? activeRemoteTmuxControlSurfaceProjection(containerPanelID: panelId)?.surfaceID
                     : panelId
                 let git = reportedPanelGitBranch(panelId: panelId)
+                let prompt = panelPrompts[panelId]
                 surfaces.append(
                     CustomSidebarSurfaceSnapshot(
                         panelId: panelId,
@@ -150,7 +152,10 @@ extension Workspace {
                         directory: reportedPanelDirectory(panelId: panelId),
                         gitBranch: git?.branch,
                         gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: surfaceListeningPorts[panelId] ?? []
+                        listeningPorts: surfaceListeningPorts[panelId] ?? [],
+                        latestSubmittedMessage: prompt?.message,
+                        latestSubmittedAt: prompt?.submittedAt,
+                        hasUnreadNotification: hasUnreadNotification(panelId: panelId)
                     )
                 )
             }

@@ -212,8 +212,12 @@ extension TerminalSurface {
         let resolvedBackingHeight = backingSize?.height ?? (height * yScale)
         let rawWpx = pixelDimension(from: resolvedBackingWidth)
         let rawHpx = pixelDimension(from: resolvedBackingHeight)
+        let uncappedPixelSizeChanged = rawWpx != lastUncappedPixelWidth || rawHpx != lastUncappedPixelHeight
         lastUncappedPixelWidth = rawWpx
         lastUncappedPixelHeight = rawHpx
+        defer {
+            if uncappedPixelSizeChanged { onNaturalGridInputsChanged?() }
+        }
         let fittedSize = mobileViewportFittedSize(
             width: rawWpx,
             height: rawHpx,

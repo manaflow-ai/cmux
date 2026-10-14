@@ -6,6 +6,8 @@ let package = Package(
     name: "CmuxCloudTunnelCore",
     platforms: [
         .macOS(.v14),
+        // The iOS Cloud VPN extension (ios/CloudVPN) runs the same lifecycle.
+        .iOS(.v17),
     ],
     products: [
         .library(

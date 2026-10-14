@@ -76,7 +76,17 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         let panelId = try #require(workspace.focusedPanelId)
         let binding = Self.agentHookBinding(launchFlavor: .local)
 
-        #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == true)
+        // Pass the completed scan explicitly. The default reads the process-wide
+        // `SharedLiveAgentIndex.shared.index`, which stays nil in the app host
+        // until some other test's refresh finishes, and a missing index is
+        // deliberately "unknown" rather than "stale".
+        #expect(
+            workspace.isStaleAgentHookBinding(
+                binding,
+                panelId: panelId,
+                restorableAgentIndex: .empty
+            ) == true
+        )
     }
 
     @Test
@@ -92,8 +102,15 @@ struct WorkspaceIsStaleAgentHookBindingTests {
 
         // No local process can ever exist for a remote agent, so this must
         // NOT be reported as stale (that would delete a still-live remote
-        // binding on the next reconciliation).
-        #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == false)
+        // binding on the next reconciliation). Use the same completed, empty
+        // local scan as the `.local` case so only the launch flavor differs.
+        #expect(
+            workspace.isStaleAgentHookBinding(
+                binding,
+                panelId: panelId,
+                restorableAgentIndex: .empty
+            ) == false
+        )
     }
 
     @Test

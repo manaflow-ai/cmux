@@ -21,8 +21,12 @@ SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-agent-wrapper"
 SOURCE_TUI_PYTHON_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-python-wrapper"
 SOURCE_TUI_SITECUSTOMIZE = ROOT / "Resources" / "bin" / "cmux-hermes-sitecustomize.py"
 SESSION_ID = "01JZ123456789ABCDEFGHJKMNP"
-# How long run_wrapper lets the wrapper run before it reports a hang.
-WRAPPER_HANG_GUARD_SECONDS = 5
+# How long the wrapper may wait for its hook installer in launch-path checks.
+INSTALLER_BUDGET_SECONDS = 10
+# How long run_wrapper lets the wrapper run before it reports a hang. It must
+# outlast the installer budget plus the launch, or a slow installer on a busy
+# runner is killed with the wrapper before the wrapper can launch Hermes.
+WRAPPER_HANG_GUARD_SECONDS = INSTALLER_BUDGET_SECONDS + 15
 
 
 @dataclass
@@ -48,9 +52,42 @@ class WrapperResult:
     profile_homes: dict[str, str]
 
 
-def make_executable(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
+# Set only while priming a fixture's first exec; every fixture exits at once.
+PRIME_ENVIRONMENT_KEY = "CMUX_HERMES_TEST_PRIME_EXEC"
+
+
+def make_executable(fixtures: list[Path], path: Path, content: str) -> None:
+    """Write a fixture that exits at once while priming, and record it in `fixtures`."""
+    shebang, body = content.split("\n", 1)
+    path.write_text(
+        f'{shebang}\nif [ -n "${{{PRIME_ENVIRONMENT_KEY}:-}}" ]; then exit 0; fi\n{body}',
+        encoding="utf-8",
+    )
     path.chmod(0o755)
+    fixtures.append(path)
+
+
+def prime_first_exec(paths: list[Path]) -> None:
+    """Run each fresh executable once before a timed launch.
+
+    macOS assesses a newly written executable on its first exec, one file at a
+    time across the whole machine. On a runner where parallel tests keep
+    writing fixtures, the queue alone can outlast the hang guard. Installed
+    Hermes and the bundled wrapper and CLI were run before, so priming keeps
+    the timed launch to the wrapper's own work.
+    """
+    # Without CMUX_SURFACE_ID or a Hermes on PATH, the wrapper exits 127 at once.
+    environment = {"PATH": "/usr/bin:/bin", PRIME_ENVIRONMENT_KEY: "1"}
+    for path in paths:
+        subprocess.run(
+            [str(path)],
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=120,
+            check=False,
+        )
 
 
 def read_nul_values(path: Path) -> list[str]:
@@ -121,6 +158,8 @@ def run_wrapper(
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-wrapper-test-") as td:
         tmp = Path(td)
+        # Every fixture executable written below, primed before the timed launch.
+        fixtures: list[Path] = []
         wrapper_dir = tmp / "wrapper-bin"
         shim_dir = tmp / "cmux-cli-shims" / "surface-test"
         real_dir = tmp / "real-bin"
@@ -142,7 +181,7 @@ def run_wrapper(
             directory.mkdir(parents=True)
 
         if shadow_path_bash:
-            make_executable(shadow_dir / "bash", "#!/bin/sh\nexit 97\n")
+            make_executable(fixtures, shadow_dir / "bash", "#!/bin/sh\nexit 97\n")
 
         profile_homes = {
             name: hermes_home / "profiles" / name
@@ -192,6 +231,7 @@ def run_wrapper(
         if stale_tui_python_wrapper:
             stale_tui_python.parent.mkdir(parents=True)
             make_executable(
+                fixtures,
                 stale_tui_python,
                 "#!/bin/sh\n"
                 f"printf 'invoked\\n' > {str(stale_tui_python_log)!r}\n"
@@ -248,6 +288,7 @@ def run_wrapper(
         real_hermes = real_dir / "hermes"
         real_hermes_shebang = "#!/bin/bash" if shadow_path_bash else "#!/usr/bin/env bash"
         make_executable(
+            fixtures,
             real_hermes,
             real_hermes_shebang
             + """
@@ -329,6 +370,7 @@ fi
         bundled_cli = bundled_dir / "cmux"
         if cli_available:
             make_executable(
+                fixtures,
                 bundled_cli,
                 """#!/usr/bin/env bash
 set -euo pipefail
@@ -359,6 +401,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             # tempting fallback on PATH so the test does not depend on the
             # developer or CI machine having another cmux installation.
             make_executable(
+                fixtures,
                 real_dir / "cmux",
                 """#!/usr/bin/env bash
 set -euo pipefail
@@ -393,10 +436,10 @@ exit 0
             env.pop("FAKE_INSTALLER_GATE", None)
         # The wrapper kills its installer at this deadline and launches Hermes
         # anyway. Only the deadline tests pass one; every other run gives the
-        # installer as long as the hang guard, so a check waits for the
-        # installer to finish instead of racing its start on a busy runner.
+        # installer the full budget, so a check waits for the installer to
+        # finish instead of racing its start on a busy runner.
         if installer_timeout_seconds is None:
-            installer_timeout_seconds = WRAPPER_HANG_GUARD_SECONDS
+            installer_timeout_seconds = INSTALLER_BUDGET_SECONDS
         env["CMUX_HERMES_AGENT_HOOK_INSTALL_TIMEOUT_SECONDS"] = str(installer_timeout_seconds)
         if installer_start_delay_seconds:
             env["FAKE_INSTALLER_START_DELAY"] = str(installer_start_delay_seconds)
@@ -430,6 +473,7 @@ exit 0
         else:
             env.pop("CMUX_HERMES_AGENT_HOOKS_DISABLED", None)
 
+        prime_first_exec([wrapper, *fixtures])
         proc = subprocess.Popen(
             [str(wrapper), *argv],
             cwd=tmp,
@@ -769,6 +813,72 @@ def test_tui_python_wrapper_prefers_symlinked_venv_interpreter(failures: list[st
         )
 
 
+def run_tui_python_wrapper_under_python_launcher(
+    source_root: Path,
+    output: Path,
+) -> subprocess.CompletedProcess[str]:
+    # Mirror Hermes's process tree: a Python launcher starts an intermediate
+    # process (the Node TUI), which spawns the gateway through the wrapper.
+    # The trailing `exit` keeps sh from exec'ing the wrapper in its place.
+    env = os.environ.copy()
+    env.pop("CMUX_HERMES_TUI_REAL_PYTHON", None)
+    env["HERMES_PYTHON_SRC_ROOT"] = str(source_root)
+    gateway = [
+        str(SOURCE_TUI_PYTHON_WRAPPER),
+        "-c",
+        "import sys; open(sys.argv[1], 'w').write('launcher')",
+        str(output),
+    ]
+    launcher = (
+        "import subprocess, sys; "
+        "sys.exit(subprocess.run(['/bin/sh', '-c', '\"$0\" \"$@\"; exit $?'] + sys.argv[1:]).returncode)"
+    )
+    return subprocess.run(
+        [sys.executable, "-c", launcher, *gateway],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+def make_fake_tui_venv(source_root: Path, version: str, output: Path) -> None:
+    venv = source_root / ".venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text(
+        f"home = /nonexistent/bin\nversion_info = {version}\n",
+        encoding="utf-8",
+    )
+    python = venv / "bin" / "python"
+    python.write_text(
+        "#!/bin/sh\n"
+        f"printf venv > '{output}'\n",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+
+
+def test_tui_python_wrapper_skips_venv_for_other_python_version(failures: list[str]) -> None:
+    launcher_version = "%d.%d" % sys.version_info[:2]
+    cases = [
+        ("mismatched venv", "2.7.18", "launcher"),
+        ("matching venv", f"{launcher_version}.0", "venv"),
+    ]
+    for label, venv_version, expected in cases:
+        with tempfile.TemporaryDirectory(prefix="cmux-hermes-python-test-") as td:
+            tmp = Path(td)
+            source_root = tmp / "hermes"
+            output = tmp / "selected"
+            make_fake_tui_venv(source_root, venv_version, output)
+            result = run_tui_python_wrapper_under_python_launcher(source_root, output)
+            expect(result.returncode == 0, f"{label}: wrapper failed: {result.stderr}", failures)
+            selected = output.read_text(encoding="utf-8") if output.exists() else ""
+            expect(
+                selected == expected,
+                f"{label}: expected the {expected} interpreter, got {selected or 'nothing'}",
+                failures,
+            )
+
+
 def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) -> None:
     expected_events = [
         f"gateway:{event}:{turn}"
@@ -1006,6 +1116,7 @@ def main() -> int:
         test_tui_bridge_fails_closed_on_untrusted_session_files(failures)
         test_tui_gateway_registers_hooks_for_every_turn(failures)
         test_tui_python_wrapper_prefers_symlinked_venv_interpreter(failures)
+        test_tui_python_wrapper_skips_venv_for_other_python_version(failures)
         test_tui_gateway_rejects_retired_cmux_python_wrapper(failures)
         test_bundled_wrappers_ignore_path_bash_shadow(failures)
         test_explicit_classic_cli_skips_tui_watcher(failures)

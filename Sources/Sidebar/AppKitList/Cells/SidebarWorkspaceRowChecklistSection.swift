@@ -25,7 +25,7 @@ final class SidebarRowChecklistSection: NSView {
     private var orderedLines: [SidebarRowChecklistItemLine] = []
     private var freeLines: [SidebarRowChecklistItemLine] = []
     private let addRow = SidebarRowChecklistAddRow()
-    private let popoverPresenter = SidebarRowSwiftUIPopoverPresenter()
+    let popoverPresenter = SidebarRowSwiftUIPopoverPresenter()
 
     private var model: SidebarWorkspaceRowModel?
     private var actions: SidebarAppKitRowActions?

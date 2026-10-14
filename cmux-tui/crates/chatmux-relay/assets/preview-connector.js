@@ -11,7 +11,12 @@
   var chobitsu = window.chobitsu;
   if (!chobitsu) return;
   var scheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
-  var endpoint = scheme + location.host + '/__chatmux__/page';
+  var script = document.currentScript;
+  var capability = script && script.src
+    ? new URL(script.src, location.href).searchParams.get('capability')
+    : null;
+  if (!capability) return;
+  var endpoint = scheme + location.host + '/__chatmux__/page?capability=' + encodeURIComponent(capability);
   var retryMs = 1000;
   function connect() {
     var socket;

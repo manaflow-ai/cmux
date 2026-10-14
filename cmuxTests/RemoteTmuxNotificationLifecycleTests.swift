@@ -137,6 +137,26 @@ struct RemoteTmuxNotificationLifecycleTests {
     }
 
     @Test
+    func relayAliasesIncludeTrackedRemoteTmuxMirrorSurfaces() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        try harness.publishSinglePane()
+
+        let sessionMirror = try #require(harness.workspace.remoteTmuxSessionMirror)
+        let containerPanelID = try #require(sessionMirror.panelIdByWindow[2])
+        let mirror = try #require(
+            harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID)
+        )
+        let mirrorSurfaceID = try #require(mirror.surfaceIDsInLayoutOrder.first)
+        harness.workspace.trackRemoteTerminalSurface(mirrorSurfaceID)
+
+        let aliases = harness.workspace.remoteRelayIDAliasesForController()
+        #expect(aliases.surfaceAliases[mirrorSurfaceID] == mirrorSurfaceID)
+        let sessionSurfaceID = try #require(sessionMirror.controlPaneLocations().first?.pane.panel.id)
+        #expect(aliases.surfaceAliases[sessionSurfaceID] == sessionSurfaceID)
+    }
+
+    @Test
     func projectedPaneNotificationStoresOpensAndPreservesRecoverableRoute() throws {
         TerminalNotificationStore.shared.clearAll()
         let harness = try Harness()

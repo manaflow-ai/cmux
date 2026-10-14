@@ -39,15 +39,28 @@ extension NSResponder {
 extension NSEvent {
     /// Whether this command equivalent should go straight to the main menu.
     ///
-    /// Native Cmd+` and Cmd+Shift+` window cycling stays with AppKit so
-    /// key-window changes do not re-enter the direct-to-menu shortcut path.
+    /// Native window cycling (Cmd+` and the System Settings binding, each also
+    /// with Shift) stays with AppKit so key-window changes do not re-enter the
+    /// direct-to-menu shortcut path.
     public var cmuxRoutesDirectlyToMainMenu: Bool {
+        guard modifierFlags.contains(.command) else { return false }
+        return cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: SystemWindowCyclingShortcut.current())
+    }
+
+    /// Whether this command equivalent should go straight to the main menu,
+    /// given the system's window-cycling shortcut.
+    public func cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: SystemWindowCyclingShortcut?) -> Bool {
         let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command) else { return false }
 
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         if keyCode == 50,
            normalizedFlags == [.command] || normalizedFlags == [.command, .shift] {
+            return false
+        }
+        // ISO keyboards and remapped System Settings cycle windows with another
+        // key, such as the section key (keyCode 10).
+        if windowCyclingShortcut?.matches(keyCode: keyCode, modifierFlags: flags) == true {
             return false
         }
 

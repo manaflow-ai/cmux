@@ -32,8 +32,8 @@ export interface AuthedUser {
 }
 
 /** Max cache age. A revoked-but-unexpired token stays usable for at most this
- * long, which is acceptable for presence (read/announce, no mutations of
- * durable state). */
+ * long on read/announce routes; routes that change durable state verify with
+ * `fresh: true` and do not use a cached success. */
 export const AUTH_CACHE_TTL_MS = 60_000;
 const AUTH_CACHE_MAX_ENTRIES = 1024;
 /** Negative cache window for a token Stack rejected. Bounds the amplification
@@ -201,7 +201,11 @@ async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<Authed
 /** Verify the caller. Returns the resolved user or null when unauthenticated
  * or when Stack auth is not configured (fail closed, like
  * `isStackConfigured()` on the web side). */
-export async function verifyRequest(request: Request, env: AuthEnv): Promise<AuthedUser | null> {
+export async function verifyRequest(
+  request: Request,
+  env: AuthEnv,
+  options: { readonly fresh?: boolean } = {},
+): Promise<AuthedUser | null> {
   if (!env.STACK_PROJECT_ID || !env.STACK_PUBLISHABLE_CLIENT_KEY) return null;
   const token = bearerToken(request);
   if (!token) return null;
@@ -214,7 +218,10 @@ export async function verifyRequest(request: Request, env: AuthEnv): Promise<Aut
   const cached = authCache.get(cacheKey);
   // A live entry serves either a verified user or a verified failure (null),
   // so a rejected token does not re-hit Stack on every request.
-  if (cached && cached.expiresAt > now) return cached.user;
+  // `fresh` (durable mutations: device revocation, control-socket setup)
+  // never trusts a cached success, so a revoked bearer fails at once; a
+  // cached rejection still answers without another Stack call.
+  if (cached && cached.expiresAt > now && !(options.fresh && cached.user !== null)) return cached.user;
   authCache.delete(cacheKey);
 
   const user = await fetchStackUser(env, token);

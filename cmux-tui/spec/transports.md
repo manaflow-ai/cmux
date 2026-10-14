@@ -17,6 +17,12 @@ using `set-client-info` before `attach-surface`. Supporting servers then add
 application-authored special-color provenance to that attachment's color
 sidecars (see `events.md`); unadvertised attachments keep the legacy wire shape.
 
+Byte viewers that write their own sequences after a replay (color sidecars)
+advertise `terminal-pending-sequence-v1` the same way. Their `vt-state` and
+`resized` replays then end at a parser boundary and carry the incomplete
+sequence separately as `pending`; unadvertised attachments receive those bytes
+at the end of the replay instead.
+
 ## Unix Socket
 
 | Field | Value |

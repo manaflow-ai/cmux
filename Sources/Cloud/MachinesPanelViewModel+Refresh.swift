@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxCloud
 import CmuxCloudMachines
 import Foundation
@@ -63,6 +64,8 @@ extension MachinesPanelViewModel {
         updateListRefreshPresentation(isLoading: true, isRecovering: !routinePoll)
         let generation = refreshGeneration
         let scope = machinePinStore?.scopeIdentifier
+        // The New Machine sheet's cache reuses this read for its plan and count.
+        let sheetCacheScope = NewMachineSheetDataCache.shared?.scopeForIngest
         refreshTask = Task { [weak self] in
             // Only the last read in flight ends loading; a retired or chained one must not.
             defer { self?.clearListLoadingIfIdle() }
@@ -70,6 +73,9 @@ extension MachinesPanelViewModel {
             do { result = .success(try await client.listPage()) }
             catch { result = .failure(error) }
             guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
+            if case .success(let page) = result {
+                NewMachineSheetDataCache.shared?.ingest(page: page, scope: sheetCacheScope)
+            }
             self.applyRefreshResult(result, generation: generation, scope: scope)
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {

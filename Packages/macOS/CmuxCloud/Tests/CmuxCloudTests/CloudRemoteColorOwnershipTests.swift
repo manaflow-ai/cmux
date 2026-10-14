@@ -96,7 +96,7 @@ struct CloudRemoteColorOwnershipTests {
             JSONSerialization.data(withJSONObject: payload)
         ))
         switch frame {
-        case let .snapshot(_, _, _, _, colors), let .resized(_, _, _, _, colors), let .output(_, _, colors):
+        case let .snapshot(_, _, _, _, colors, _), let .resized(_, _, _, _, colors, _), let .output(_, _, colors):
             return try #require(colors)
         case let .colorsChanged(_, colors):
             return colors

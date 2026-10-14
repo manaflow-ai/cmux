@@ -40,6 +40,19 @@ struct CloudDisplayCatalogTests {
         #expect(service.snapshot?.displays.first?.id == "display:1")
     }
 
+    @Test("Creation sends one guest exec without a discovery round trip first")
+    func creationNeedsNoPriorDiscovery() async throws {
+        var commands: [String] = []
+        let service = CloudDisplayCoordinator { command, _ in
+            commands.append(command)
+            return .init(exitCode: 0, stdout: Self.isCreate(command) ? created : initial, stderr: "")
+        }
+        let result = try await service.create()
+        #expect(commands.count == 1 && Self.isCreate(commands[0]))
+        #expect(result.created == "display:2")
+        #expect(service.isAvailable)
+    }
+
     @Test("Account/provider retirement prevents a delayed display reply from publishing")
     func retiredCreationCannotPublish() async throws {
         let started = CloudLinkFirstValue<Bool>()
@@ -212,9 +225,12 @@ struct CloudDisplayCatalogTests {
         )
         catalog.register(provider)
         defer { catalog.unregister(machine: machine) }
-        await provider.refreshDisplays()
+        // Creation performs the first guest discovery itself. The Displays
+        // group is expanded by default, so a user can press + before an
+        // explicit expansion callback has refreshed this provider.
         let second = try await provider.createDisplay()
         #expect(second.id == SurfaceResourceID(machine: machine, kind: .display, key: "display:2"))
+        #expect(catalog.resources[second.id]?.title == "Display 2")
 
         func displayPorts() -> [String: Int?] {
             Dictionary(uniqueKeysWithValues: catalog.snapshot.resources(on: machine)
@@ -247,6 +263,17 @@ struct CloudDisplayCatalogTests {
         #expect(catalog.resources[second.id]?.url?.contains(":6902/") == true)
     }
 
+    @Test("Guest displays use numbered sidebar titles")
+    func numberedTitles() throws {
+        let snapshot = try decode("""
+        {"version":1,"canCreate":true,"displays":[
+          {"id":"display:1","number":1,"port":6901,"state":"running"},
+          {"id":"display:2","number":2,"port":6902,"state":"running"}]}
+        """)
+        let resources = snapshot.displays.map { $0.resource(on: .cloud("titles"), address: nil) }
+        #expect(resources.map(\.title) == ["Display 1", "Display 2"])
+    }
+
     /// Waits until the fake guest exec starts creating, or answers false when
     /// `operation` finishes first. `create()` can fail before it reaches the
     /// exec (a fake that no longer recognizes the create command, for example),
@@ -263,8 +290,8 @@ struct CloudDisplayCatalogTests {
         return await started.result == true
     }
 
-    /// Every guest command first runs `list` as a readiness probe (#13196,
-    /// 178d35e5da), so only the final action line tells a creation apart.
+    /// Every guest command first waits for `list` to succeed as a readiness
+    /// probe (#13196, #17132), so only the final action line tells a creation apart.
     private static func isCreate(_ command: String) -> Bool {
         command.contains("\"$path\" create --request-id ")
     }
@@ -274,7 +301,8 @@ struct CloudDisplayCatalogTests {
         let request = UUID()
         let create = CloudGuestDisplayScript.command(action: "create", requestID: request)
         let list = CloudGuestDisplayScript.command(action: "list")
-        #expect(create.contains("\"$path\" list > /dev/null 2>&1 || exit 1"))
+        #expect(create.contains("if \"$path\" list > /dev/null 2>&1; then"))
+        #expect(create.contains("[ \"$service_ready\" = 1 ] || exit 1"))
         #expect(create.contains("\"$path\" create --request-id \(request.uuidString.lowercased())"))
         #expect(Self.isCreate(create) && !Self.isCreate(list))
     }

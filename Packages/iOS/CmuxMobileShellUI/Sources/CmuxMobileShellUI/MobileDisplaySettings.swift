@@ -24,6 +24,7 @@ public final class MobileDisplaySettings {
     private nonisolated(unsafe) let defaults: UserDefaults
     public let haptics: MobileHapticFeedback
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
+    private static let feedShowsTabKey = "cmux.mobile.feedShowsTab"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
@@ -31,6 +32,9 @@ public final class MobileDisplaySettings {
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let unreadBadgeDiameterKey = "cmux.mobile.debug.unreadBadgeDiameter.v1"
+    private static let feedReplacesNotificationsKey = "cmux.mobile.debug.feedReplacesNotifications.v1"
+    private static let feedBubbleQuotesKey = "cmux.mobile.feedBubbleQuotes.v1"
+    private static let legacyFeedBubbleQuotesKey = "cmux.mobile.debug.feedBubbleQuotes.v1"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     private static let taskComposerFullLiquidGlassKey = "cmux.mobile.debug.taskComposerFullLiquidGlass.v1"
@@ -58,6 +62,28 @@ public final class MobileDisplaySettings {
     /// this writes through to the injected ``UserDefaults``.
     public var wrapWorkspaceTitles: Bool {
         didSet { defaults.set(wrapWorkspaceTitles, forKey: Self.wrapWorkspaceTitlesKey) }
+    }
+
+    /// The Feed replaces the Notifications tab; the legacy tab stays hidden
+    /// unless this brings it back from Settings.
+    public var feedReplacesNotifications: Bool {
+        didSet {
+            defaults.set(feedReplacesNotifications, forKey: Self.feedReplacesNotificationsKey)
+        }
+    }
+
+    /// Whether Feed rows show the event's terminal tab after its workspace.
+    /// Defaults to `false` (workspace only), for people who organize agents
+    /// by tab rather than by workspace.
+    public var feedShowsTab: Bool {
+        didSet { defaults.set(feedShowsTab, forKey: Self.feedShowsTabKey) }
+    }
+
+    /// Whether Feed quotes and recorded replies use the iMessage-style bubble
+    /// treatment. Defaults to `true` for every build; DEBUG keeps the Settings
+    /// toggle for local A/B comparisons with the original leading-bar layout.
+    var feedBubbleQuotes: Bool {
+        didSet { defaults.set(feedBubbleQuotes, forKey: Self.feedBubbleQuotesKey) }
     }
 
     /// Whether the alternate-screen sizing notice is shown. Defaults to `true`.
@@ -201,6 +227,13 @@ public final class MobileDisplaySettings {
         self.defaults = defaults
         self.haptics = haptics
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
+        self.feedShowsTab = defaults.bool(forKey: Self.feedShowsTabKey)
+        self.feedReplacesNotifications = defaults.object(
+            forKey: Self.feedReplacesNotificationsKey
+        ) as? Bool ?? true
+        self.feedBubbleQuotes = defaults.object(forKey: Self.feedBubbleQuotesKey) as? Bool
+            ?? defaults.object(forKey: Self.legacyFeedBubbleQuotesKey) as? Bool
+            ?? true
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true

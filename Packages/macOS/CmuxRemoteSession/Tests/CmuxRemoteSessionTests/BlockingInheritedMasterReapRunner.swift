@@ -12,8 +12,10 @@ final class BlockingInheritedMasterReapRunner:
     private let exitStartContinuation: AsyncStream<Void>.Continuation
     private let exitFinishContinuation: AsyncStream<Void>.Continuation
     private let exitGate = DispatchSemaphore(value: 0)
+    private let relayPort: Int
 
-    init() {
+    init(relayPort: Int) {
+        self.relayPort = relayPort
         (exitStarts, exitStartContinuation) = AsyncStream.makeStream()
         (exitFinishes, exitFinishContinuation) = AsyncStream.makeStream()
     }
@@ -27,7 +29,7 @@ final class BlockingInheritedMasterReapRunner:
                 status: 255,
                 stdout: "",
                 stderr:
-                    "remote port forwarding failed for listen port 64044"
+                    "remote port forwarding failed for listen port \(relayPort)"
             )
         }
         if Self.isControlCommand("exit", in: request.arguments) {

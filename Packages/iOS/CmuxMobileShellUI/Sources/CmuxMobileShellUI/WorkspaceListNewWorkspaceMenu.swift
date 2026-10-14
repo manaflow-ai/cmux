@@ -21,9 +21,8 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
         }
     }
 
-    /// One SSH computer: tap lists the kinds it can create (PRD D31). A
-    /// host serves every kind at once, so there is no default to guess
-    /// (HIG Menus: a menu offers a choice the button alone can't make).
+    /// One SSH computer: tap lists the kinds it can create. A host serves
+    /// every kind at once, so there is no default to guess.
     private func sshKindMenu(create: @escaping (MobileSSHWorkspaceKind) -> Void) -> some View {
         Menu {
             Section {
@@ -37,13 +36,13 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
         } label: {
             Image(systemName: "plus")
         }
-        .disabled(!value.canCreate)
+        .disabled(!value.isEnabled)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }
 
     /// "New cmux-tui Workspace", "New tmux Session", "New Shell"; a kind the
-    /// computer cannot create is dimmed with its reason as the subtitle.
+    /// computer cannot create is dimmed with the reason as the subtitle.
     @ViewBuilder
     private func kindItems(
         _ kinds: [WorkspaceCreateKindOption],
@@ -51,7 +50,7 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
     ) -> some View {
         ForEach(kinds) { option in
             Button {
-                guard value.canCreate, option.unavailableReason == nil else { return }
+                guard value.isEnabled, option.unavailableReason == nil else { return }
                 create(option.kind)
             } label: {
                 Text(option.kind.sshNewItemTitle)
@@ -68,43 +67,54 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
     /// One computer to create on: tap creates, long-press offers a group.
     private var singleComputerMenu: some View {
         Menu {
-            Button {
-                guard value.canCreate else { return }
-                actions.createWorkspace()
-            } label: {
-                Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus")
+            if value.canCreate {
+                Button {
+                    actions.createWorkspace()
+                } label: {
+                    Label(
+                        L10n.string("mobile.workspace.new", defaultValue: "New Workspace"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
+            } else if let target = value.singleConnectedTarget {
+                Button {
+                    actions.createWorkspaceOnComputer?(target, nil)
+                } label: {
+                    Label(
+                        L10n.string("mobile.workspace.new", defaultValue: "New Workspace"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
             }
-            .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
             groupButton
         } label: {
             Image(systemName: "plus")
         } primaryAction: {
-            guard value.canCreate else { return }
-            actions.createWorkspace()
+            actions.performPrimaryAction(for: value)
         }
-        .disabled(!value.canCreate)
+        .disabled(!value.isEnabled)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }
 
     /// Several computers under "All Computers": tap asks where the new
-    /// workspace goes (HIG Menus: a menu offers a choice the button alone
-    /// can't make; every item carries the same kind of status icon).
+    /// workspace goes; every item carries the same status treatment.
     private var computerMenu: some View {
         Menu {
             Section(L10n.string("mobile.workspace.new", defaultValue: "New Workspace")) {
                 ForEach(value.computerTargets) { target in
                     if target.sshKinds.isEmpty {
                         Button {
-                            guard value.canCreate else { return }
+                            guard target.statusText == nil else { return }
                             actions.createWorkspaceOnComputer?(target, nil)
                         } label: {
                             targetLabel(target)
                         }
-                        .accessibilityIdentifier("ssh.addMenu.computer.\(target.name)")
+                        .disabled(target.statusText != nil)
+                        .accessibilityIdentifier("MobileNewWorkspaceOnComputer-\(target.id)")
                     } else {
-                        // An SSH computer opens a submenu of the kinds it
-                        // can create; Macs keep creating directly.
                         Menu {
                             kindItems(target.sshKinds) { kind in
                                 actions.createWorkspaceOnComputer?(target, kind)
@@ -112,7 +122,7 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
                         } label: {
                             targetLabel(target)
                         }
-                        .accessibilityIdentifier("ssh.addMenu.computer.\(target.name)")
+                        .accessibilityIdentifier("MobileNewWorkspaceOnComputer-\(target.id)")
                     }
                 }
             }
@@ -124,13 +134,12 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
         } label: {
             Image(systemName: "plus")
         }
-        .disabled(!value.canCreate)
+        .disabled(!value.isEnabled)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }
 
-    /// Bare Text/Text/Image tuple: UIMenu reads title, subtitle, then icon
-    /// (see WorkspaceMacTitlePicker).
+    /// Bare Text/Text/Image tuple: UIMenu reads title, subtitle, then icon.
     @ViewBuilder
     private func targetLabel(_ target: WorkspaceCreateComputerTarget) -> some View {
         Text(target.name)

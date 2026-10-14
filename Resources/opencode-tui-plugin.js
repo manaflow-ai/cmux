@@ -1,0 +1,319 @@
+// cmux-opencode-tui-plugin-marker v2
+// OpenCode V2 bridge loaded inside each TUI process.
+// The server entry is inert; this module owns the TUI's cmux identity.
+
+import fs from "node:fs";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { createEffect, createRoot } from "solid-js";
+import { CMUXFeed } from "./index.js";
+
+const firstString = (...values) => values.find((value) => typeof value === "string" && value.trim())?.trim() || null;
+const properties = (event) => event?.data || event?.properties || {};
+
+function sessionID(event) {
+  const data = properties(event);
+  const info = data.info || data.message || {};
+  const part = data.part || {};
+  const permission = data.permission || {};
+  const sessionEventID = event?.type?.startsWith("session.") ? info.id : null;
+  return firstString(
+    data.sessionID,
+    data.sessionId,
+    data.session_id,
+    data.form?.sessionID,
+    data.form?.sessionId,
+    data.form?.session_id,
+    info.sessionID,
+    info.sessionId,
+    part.sessionID,
+    part.sessionId,
+    permission.sessionID,
+    permission.sessionId,
+    sessionEventID,
+    event?.sessionID,
+    event?.sessionId,
+  );
+}
+
+function cwd(ctx, event) {
+  const data = properties(event);
+  return firstString(
+    data.info?.directory,
+    data.info?.location?.directory,
+    data.location?.directory,
+    data.directory,
+    data.cwd,
+    event?.location?.directory,
+    ctx?.location?.directory,
+    ctx?.directory,
+    process.cwd(),
+  );
+}
+
+function rootFor(ctx, id) {
+  try { return ctx?.data?.session?.root?.(id) || id; } catch (_) { return id; }
+}
+
+/** Return true when a session's root is currently visible in this TUI. */
+function visibleRoots(ctx) {
+  const roots = new Set();
+  try {
+    const route = ctx?.ui?.router?.current?.() || ctx?.ui?.route?.current;
+    const routeID = route?.sessionID || route?.sessionId || route?.params?.sessionID || route?.params?.sessionId;
+    if ((route?.type === "session" || route?.name === "session") && routeID) {
+      roots.add(rootFor(ctx, routeID));
+    }
+    if (ctx?.ui?.tabs?.enabled?.() !== false) {
+      for (const tab of ctx?.ui?.tabs?.list?.() || []) {
+        const idForTab = typeof tab === "string" ? tab : tab?.sessionID || tab?.sessionId || tab?.id;
+        if (idForTab) roots.add(rootFor(ctx, idForTab));
+      }
+    }
+  } catch (_) {}
+  return roots;
+}
+
+/** Return true when a session's root is currently visible in this TUI. */
+export function sessionBelongsToTUI(ctx, id) {
+  if (!id) return false;
+  return visibleRoots(ctx).has(rootFor(ctx, id));
+}
+
+function createOwnership(ctx, onChange) {
+  let roots = new Set();
+  const refreshRoots = () => {
+    roots = visibleRoots(ctx);
+  };
+  const refresh = () => {
+    refreshRoots();
+    onChange?.();
+  };
+  refreshRoots();
+  const disposers = [];
+  for (const owner of [ctx?.ui?.router, ctx?.ui?.tabs]) {
+    for (const name of ["onChange", "subscribe", "listen"]) {
+      const subscribe = owner?.[name];
+      if (typeof subscribe !== "function") continue;
+      try {
+        const stop = subscribe.call(owner, refresh);
+        if (typeof stop === "function") disposers.push(stop);
+      } catch (_) {}
+      break;
+    }
+  }
+  return {
+    // OpenCode v2.0.21 exposes current()/list() but no stable route-change
+    // notification. Refresh on the event boundary so a session removed from
+    // a background tab, or a closed starter surface, cannot retain ownership.
+    belongs: (id) => {
+      refreshRoots();
+      return Boolean(id && roots.has(rootFor(ctx, id)));
+    },
+    refresh,
+    dispose: () => disposers.forEach((stop) => { try { stop(); } catch (_) {} }),
+  };
+}
+
+function resolveExecutable(name) {
+  for (const directory of (process.env.PATH || "").split(path.delimiter)) {
+    if (!directory) continue;
+    const candidate = path.join(directory, name);
+    try {
+      const stat = fs.statSync(candidate);
+      if (stat.isFile() && (stat.mode & 0o111)) return candidate;
+    } catch (_) {}
+  }
+  return name;
+}
+
+function launchArgv() {
+  const raw = Array.isArray(process.argv) ? process.argv.map(String) : [];
+  if (raw.length === 0) return [resolveExecutable("opencode")];
+  const worker = (value) => String(value).replaceAll("\\", "/").includes("/$bunfs/") && String(value).endsWith("/tui/worker.js");
+  const filtered = raw.filter((value, index) => index === 0 || !worker(value));
+  const first = path.basename(filtered[0] || "").toLowerCase();
+  if (first.includes("opencode") || first.includes("open-code")) return filtered;
+  const tail = filtered.slice(1);
+  if (tail.length && /opencode|open-code/i.test(path.basename(tail[0]))) tail.shift();
+  return [resolveExecutable("opencode"), ...tail];
+}
+
+function launchEnvironment(cwdValue, baseEnvironment = process.env) {
+  const env = { ...baseEnvironment, CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" };
+  delete env.AMP_API_KEY;
+  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+    const argv = launchArgv();
+    env.CMUX_AGENT_LAUNCH_KIND = "opencode";
+    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
+    env.CMUX_AGENT_LAUNCH_ARGV_B64 = Buffer.from(`${argv.join("\0")}\0`, "utf8").toString("base64");
+    env.CMUX_AGENT_LAUNCH_CWD = cwdValue || process.cwd();
+  }
+  return env;
+}
+
+/** Admit session restore without blocking the shared OpenCode service. */
+export function dispatchSessionHook(eventName, payload, spawnImpl = spawn, baseEnvironment = process.env) {
+  if (baseEnvironment.CMUX_OPENCODE_HOOKS_DISABLED === "1" || !baseEnvironment.CMUX_SURFACE_ID) return false;
+  const cmux = baseEnvironment.CMUX_OPENCODE_CMUX_BIN || "cmux";
+  try {
+    const child = spawnImpl(cmux, ["hooks", "enqueue", "opencode", eventName], {
+      env: launchEnvironment(payload.cwd, baseEnvironment),
+      stdio: ["pipe", "ignore", "ignore"],
+      detached: true,
+    });
+    child.stdin?.on?.("error", () => {});
+    child.on?.("error", () => {});
+    child.stdin?.end(JSON.stringify(payload));
+    child.unref?.();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function sessionEventName(event) {
+  const data = properties(event);
+  if (event?.type === "session.created") return "session-start";
+  if (event?.type === "session.deleted") return "session-end";
+  if (event?.type === "session.updated") return data.info?.time?.archived ? "session-end" : "session-start";
+  if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(event?.type)) return "stop";
+  if (event?.type === "session.idle") return "stop";
+  if (event?.type === "session.status" && (data.status?.type || data.status?.status || data.status) === "idle") return "stop";
+  return null;
+}
+
+function reportError(ctx, _error) {
+  try {
+    const toast = ctx?.ui?.toast?.show;
+    if (typeof toast === "function") {
+      toast.call(ctx.ui.toast, {
+        message: "cmux could not process the OpenCode event. Try again.",
+        variant: "error",
+      });
+    }
+  } catch (_) {}
+}
+
+async function deliverEvent(ctx, feed, event, id, environment) {
+  const hook = sessionEventName(event);
+  if (hook) {
+    dispatchSessionHook(hook, {
+      session_id: id,
+      cwd: cwd(ctx, event),
+      event: event.type,
+      hook_event_name: hook === "stop" ? "Stop" : event.type,
+    }, spawn, environment);
+  }
+  // The ownership check above is also the admission decision for the Feed
+  // bridge. Avoid scanning the visible tab set a second time for this event.
+  await feed.event({ event, ownedSessionId: id });
+}
+
+async function handleEvent(ctx, ownership, feed, details, environment, retrySessionStart) {
+  const event = details?.event || details;
+  const id = sessionID(event);
+  const hook = sessionEventName(event);
+  if (!id) return;
+  if (hook === "session-end") retrySessionStart?.cancel(id);
+  if (!ownership.belongs(id)) {
+    if (hook === "session-start") retrySessionStart?.enqueue(event, id);
+    return;
+  }
+  if (hook === "session-start") retrySessionStart?.cancel(id);
+  await deliverEvent(ctx, feed, event, id, environment);
+}
+
+// The expiry bounds memory for sessions that never become visible. It only
+// removes stale queue entries; route readiness is observed by Solid below.
+const SESSION_START_QUEUE_TTL_MS = 30_000;
+
+export async function createCMUXTUIBridge(ctx, options = {}) {
+  const environment = { ...process.env, ...options.environment };
+  let disposed = false;
+  // Keep missed session-start events until the TUI reports a route/tab change.
+  // The nested map lets session-end and delivery cancel one session in O(1).
+  const pending = new Map();
+  const cancelPending = (id) => {
+    const queued = pending.get(id);
+    if (!queued) return;
+    clearTimeout(queued.expiry);
+    pending.delete(id);
+  };
+  let feed;
+  let ownership;
+  const flushPending = () => {
+    if (disposed || !feed || !ownership) return;
+    for (const [id, queued] of pending) {
+      if (!ownership.belongs(id)) continue;
+      clearTimeout(queued.expiry);
+      pending.delete(id);
+      for (const event of queued.events.values()) {
+        void handleEvent(ctx, ownership, feed, event, environment, {
+          cancel: cancelPending,
+          enqueue: enqueueSessionStart,
+        }).catch((error) => reportError(ctx, error));
+      }
+    }
+  };
+  ownership = createOwnership(ctx, flushPending);
+  feed = await CMUXFeed(ctx, {
+    tui: true,
+    ownsSession: ownership.belongs,
+    locationForSession: () => ctx?.location,
+    environment,
+  });
+  function enqueueSessionStart(event, id) {
+    if (disposed) return;
+    let queued = pending.get(id);
+    if (!queued) {
+      queued = { events: new Map(), expiry: undefined };
+      queued.expiry = setTimeout(() => {
+        if (pending.get(id) === queued) pending.delete(id);
+      }, SESSION_START_QUEUE_TTL_MS);
+      pending.set(id, queued);
+    }
+    if (!queued.events.has(event.type)) queued.events.set(event.type, event);
+  };
+  const onEvent = ({ details, event }) => {
+    const incoming = details || event;
+    const incomingID = sessionID(incoming);
+    if (sessionEventName(incoming) === "session-end") cancelPending(incomingID);
+    // OpenCode v2 exposes route/tab state as reactive reads rather than a
+    // stable callback. Re-check queued starts at every event boundary too, so
+    // a restored route that commits between lifecycle events is admitted
+    // without a wall-clock retry or a dropped final attempt.
+    flushPending();
+    void handleEvent(ctx, ownership, feed, incoming, environment, {
+      cancel: cancelPending,
+      enqueue: enqueueSessionStart,
+    }).catch((error) => reportError(ctx, error));
+  };
+  const stop = ctx.data.listen(onEvent);
+  const disposeReactive = createRoot((dispose) => {
+    createEffect(() => {
+      // current() and list() are reactive reads in OpenCode v2. A route/tab
+      // commit therefore flushes queued lifecycle events even when idle.
+      ownership.refresh();
+      flushPending();
+    });
+    return dispose;
+  });
+  flushPending();
+  return () => {
+    disposed = true;
+    disposeReactive?.();
+    for (const queued of pending.values()) clearTimeout(queued.expiry);
+    pending.clear();
+    stop?.();
+    feed.dispose?.();
+    ownership.dispose();
+  };
+}
+
+export default {
+  id: "cmux.tui",
+  async tui(ctx) { return createCMUXTUIBridge(ctx); },
+  // Compatibility alias for older V2 snapshots that called setup().
+  async setup(ctx) { return createCMUXTUIBridge(ctx); },
+};

@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -492,6 +493,62 @@ class RateLimitTests(unittest.TestCase):
 
 
 class LabelSyncTests(unittest.TestCase):
+    def test_sync_manages_difficulty_labels_without_touching_unrelated_labels(self):
+        difficulty = {
+            entry["name"]: entry for entry in SYNC.load_manifest(MANIFEST)
+            if entry["name"].startswith("difficulty:")
+        }
+        self.assertEqual(set(difficulty), {f"difficulty:{level}" for level in range(1, 5)})
+        for entry in difficulty.values():
+            description = entry.get("description")
+            self.assertIsInstance(description, str, f"{entry['name']} needs a description")
+            self.assertTrue(description.strip(), f"{entry['name']} needs a description")
+
+        unrelated = {"name": "custom:keep", "color": "123456", "description": "Not managed"}
+        remote = {
+            "difficulty:1": dict(difficulty["difficulty:1"]),
+            "difficulty:2": {**difficulty["difficulty:2"], "description": "stale"},
+            "difficulty:3": {**difficulty["difficulty:3"], "color": "000000"},
+            "custom:keep": dict(unrelated),
+        }
+        calls = []
+
+        def fake_request(method, url, token, payload=None):
+            calls.append((method, payload))
+            if method == "GET":
+                return list(remote.values())
+            if method == "POST":
+                remote[payload["name"].lower()] = dict(payload)
+                return None
+            if method == "PATCH":
+                name = SYNC.urllib.parse.unquote(url.rsplit("/", 1)[-1]).lower()
+                self.assertIn(name, remote)
+                remote.pop(name)
+                remote[payload["new_name"].lower()] = {
+                    "name": payload["new_name"],
+                    "color": payload["color"],
+                    "description": payload["description"],
+                }
+                return None
+            self.fail(f"unexpected GitHub request: {method} {url}")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest = pathlib.Path(tmpdir) / "labels.json"
+            manifest.write_text(json.dumps({"labels": list(difficulty.values())}), encoding="utf-8")
+            with mock.patch.object(SYNC, "request", fake_request), mock.patch.dict(
+                SYNC.os.environ, {"GH_TOKEN": "test-token"}
+            ):
+                self.assertEqual(SYNC.main(["--manifest", str(manifest)]), 0)
+
+        self.assertCountEqual(
+            [method for method, _payload in calls], ["GET", "PATCH", "PATCH", "POST"]
+        )
+        self.assertEqual(remote["custom:keep"], unrelated)
+        for name, entry in difficulty.items():
+            self.assertEqual(remote[name]["name"], entry["name"])
+            self.assertEqual(remote[name]["color"].lower(), entry["color"].lower())
+            self.assertEqual(remote[name]["description"], entry["description"])
+
     def test_existing_labels_are_matched_case_insensitively(self):
         # GitHub label names are case-insensitively unique: treating `Area: CLI`
         # as missing means creating it, and that is a 422 that fails the sync.

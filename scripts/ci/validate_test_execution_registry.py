@@ -66,7 +66,7 @@ RECIPE_RUN_RE = re.compile(r"\bpython3?\s+scripts/verify-local\.py\b(?P<args>[^\
 RECIPE_TEST_RE = re.compile(r"tests/test_[A-Za-z0-9_.-]+\.py")
 RECIPE_STEP_NAME_RE = re.compile(r"\s*(-\s+)?name:")
 # Options that keep the default selection or narrow it only through `--only`.
-RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt"}
+RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt", "--jobs"}
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
@@ -86,7 +86,8 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
     """Every workflow's text, for asking whether a path is executed anywhere.
 
     A Linux guard does not have to live in ci-guards.yml to be live. The
-    always-on lanes run guards too -- testbox-broker-guard.yml deliberately has
+    routed CI lanes run guards too -- the Testbox checks now live in
+    ci-guards.yml's `ci` group, while testbox-broker-guard.yml deliberately has
     no path filter, and ci-artifact-transport.yml owns its own -- so checking
     ci-guards.yml alone rejects a test that demonstrably executes on every
     pull request.

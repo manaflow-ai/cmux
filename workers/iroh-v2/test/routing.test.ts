@@ -25,6 +25,7 @@ function fixture() {
       expect(internal.setup.device).toEqual(device);
       return Response.json({ path: internal.path, issueTicket: internal.issueTicket });
     },
+    dispatchAccount: async () => { throw new Error("team routes must never reach an account object"); },
   };
   return { calls, dependencies };
 }
@@ -116,4 +117,12 @@ test("control failures record the route, stage, operation and an unclassified ca
     method: "POST", headers: { "content-type": "application/json", authorization: "Bearer stack-token" }, body: JSON.stringify(setup),
   }), { ...dependencies, observe: event => events.push(event), stack: { verify: async () => { throw new Error("private upstream detail"); } } });
   expect(events).toEqual([expect.objectContaining({ route: "session", stage: "authenticate", operation: "none", cause: "Error" })]);
+  expect(events[0]).not.toHaveProperty("endpoint");
+  expect(events[0]).not.toHaveProperty("deviceId");
+
+  events.length = 0;
+  await routeControl(new Request("https://api.example/v2/control/session", {
+    method: "POST", headers: { "content-type": "application/json", authorization: "Bearer stack-token" }, body: JSON.stringify(setup),
+  }), { ...dependencies, observe: event => events.push(event), dispatchTeam: async () => { throw reset; } });
+  expect(events[0]).not.toHaveProperty("deviceId");
 });

@@ -73,7 +73,7 @@ struct FishShellIntegrationTests {
     @Test(.enabled(if: fishExecutablePath != nil))
     func testFishIntegrationConfigParsesWhenFishIsAvailable() throws {
         let fishExecutable = try requireFishExecutable()
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let integrationPath = repoRoot.appendingPathComponent("Resources/shell-integration/fish/config.fish")
@@ -424,7 +424,7 @@ struct FishShellIntegrationTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let integrationDir = repoRoot.appendingPathComponent("Resources/shell-integration", isDirectory: true)

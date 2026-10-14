@@ -404,6 +404,17 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
 #if DEBUG
+    /// Drops every queued mutation for deterministic test fixture teardown.
+    /// Production code never needs to discard non-notification mutations.
+    @MainActor
+    func discardAllMutationsForTesting() {
+        lock.lock()
+        pending.removeAll()
+        drainScheduled = false
+        currentNotificationGeneration &+= 1
+        lock.unlock()
+    }
+
     nonisolated func setDrainsSuspendedForTesting(_ suspended: Bool) {
         let shouldScheduleDrain: Bool
         lock.lock()

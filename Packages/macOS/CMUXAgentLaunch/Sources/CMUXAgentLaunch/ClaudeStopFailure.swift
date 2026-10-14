@@ -79,6 +79,25 @@ public struct ClaudeStopFailure: Equatable, Sendable {
         )
     }
 
+    /// The `agent.error.reported` journal detail: a stable failure-class
+    /// token, then the message. Auto-resume reads the token to tell a
+    /// transient failure (`overloaded`, `rate_limit`, `connection_dropped`)
+    /// from one a retry cannot fix (`usage_limit`, `authentication_failed`).
+    public var journalDetail: String {
+        let token = switch reason {
+        case .usageLimit: "usage_limit"
+        case .rateLimited: "rate_limit"
+        case .connectionDropped: "connection_dropped"
+        case .overloaded: "overloaded"
+        case .authentication: "authentication_failed"
+        case .billing: "billing_error"
+        case .outputLimit: "max_output_tokens"
+        case .apiError: "api_error"
+        }
+        guard let message, !message.isEmpty else { return token }
+        return "\(token): \(message)"
+    }
+
     /// Whether `eventName` names Claude Code's `StopFailure` hook event.
     public static func isStopFailureEvent(_ eventName: String?) -> Bool {
         eventName.map(normalizedEventName) == "stopfailure"

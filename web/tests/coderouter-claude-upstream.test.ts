@@ -156,6 +156,21 @@ describe("claude upstream input validation", () => {
 });
 
 describe("claude upstream accounts service", () => {
+  test("hasActive answers from metadata alone: an active account, never a disabled one", async () => {
+    const { service: svc, store } = service();
+    expect(await svc.hasActive("team-1")).toBe(false);
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    expect(await svc.hasActive("team-1")).toBe(true);
+    expect(await svc.hasActive("team-2")).toBe(false);
+    await svc.update("team-1", a.id, { state: "disabled" });
+    // A row that cannot be decrypted does not matter: nothing is decrypted.
+    const row = store.rows.get(a.id)!;
+    store.rows.set(a.id, { ...row, state: "active", ciphertext: "garbage" });
+    expect(await svc.hasActive("team-1")).toBe(true);
+    store.rows.set(a.id, { ...row, state: "disabled" });
+    expect(await svc.hasActive("team-1")).toBe(false);
+  });
+
   test("stores many accounts of mixed kinds and lists them without secrets", async () => {
     const { service: svc, store } = service();
     const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY, label: "prod" });
@@ -253,7 +268,7 @@ describe("claude upstream accounts service", () => {
     expect(pick.kind === "selected" && pick.upstream.accountId).toBe(b.id);
     await svc.update("team-1", b.id, { state: "disabled" });
     const exhausted = await svc.select("team-1", { stickyKey: null });
-    expect(exhausted).toEqual({ kind: "exhausted", total: 2, retryAfterSeconds: 30 });
+    expect(exhausted).toEqual({ kind: "exhausted", total: 2, retryAfterSeconds: 30, capacityRetryAfterSeconds: 30 });
     // Cooldown expiry brings the account back.
     store.clock.now = new Date(T0.getTime() + 31_000);
     const back = await svc.select("team-1", { stickyKey: null });
@@ -261,6 +276,23 @@ describe("claude upstream accounts service", () => {
     // Clamped cooldowns: a second is the floor.
     await svc.cooldown(a.id, 1, "upstream_transport");
     expect(store.rows.get(a.id)!.cooldownUntil!.getTime()).toBe(store.clock.now.getTime() + 1_000);
+  });
+
+  test("a revoked credential's cooldown is not a capacity recovery to hold for", async () => {
+    const { service: svc } = service();
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    const b = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY_2 });
+    await svc.cooldown(a.id, 15 * 60_000, "invalid_credential");
+    await svc.cooldown(b.id, 15 * 60_000, "invalid_credential");
+    expect(await svc.select("team-1", { stickyKey: null })).toEqual({
+      kind: "exhausted",
+      total: 2,
+      retryAfterSeconds: 900,
+      capacityRetryAfterSeconds: null,
+    });
+    await svc.cooldown(b.id, 20_000, "upstream_unavailable");
+    const mixed = await svc.select("team-1", { stickyKey: null });
+    expect(mixed).toMatchObject({ kind: "exhausted", retryAfterSeconds: 20, capacityRetryAfterSeconds: 20 });
   });
 
   test("without a sticky key the least recently used account is chosen", async () => {
@@ -361,6 +393,25 @@ describe("claude upstream routes", () => {
       body: JSON.stringify(body),
     });
   const params = (accountId: string) => ({ params: Promise.resolve({ accountId }) });
+
+  test("an organization import with no visibility is shared; a personal one stays private", async () => {
+    const visibilityFor = async (teamId: string, body: Record<string, unknown>) => {
+      const { service: svc } = service();
+      const add = mock(svc.add);
+      const { collection } = { collection: makeClaudeUpstreamHandlers({
+        resolveUsageTeam: mock(async () => ({ ok: true as const, teamId, stackUserId: "user_1" })) as never,
+        resolveContext: mock(async () => ({ ...context, value: { ...context.value, team: { ...context.value.team, teamId } } })) as never,
+        list: svc.list,
+        add: add as never,
+        removeAll: svc.removeAll,
+      }) };
+      expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY, ...body }))).status).toBe(201);
+      return (add.mock.calls[0] as unknown[])[3];
+    };
+    expect(await visibilityFor("team_1", {})).toBe("team");
+    expect(await visibilityFor("user_1", {})).toBe("private");
+    expect(await visibilityFor("team_1", { visibility: "private" })).toBe("private");
+  });
 
   test("requires manage permission for writes", async () => {
     const { collection, single } = handlers({ manage: false });

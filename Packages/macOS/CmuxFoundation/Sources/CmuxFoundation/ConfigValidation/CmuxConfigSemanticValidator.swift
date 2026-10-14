@@ -283,6 +283,9 @@ public struct CmuxConfigSemanticValidator {
     }
 
     private func resolvedReference(_ ref: String) -> [String: Any]? {
+        // "#" names the whole document, so a nested object can reuse the root
+        // schema (for example a settingPresets entry is a partial cmux.json).
+        if ref == "#" { return rootSchema }
         guard ref.hasPrefix("#/") else { return nil }
         var current: Any = rootSchema
         for component in ref.dropFirst(2).split(separator: "/") {

@@ -18,7 +18,8 @@ struct TerminalThemeGalleryModelTests {
     private func makeModel(
         existingConfig: String?,
         currentThemeValue: String?,
-        prefersDark: Bool = false
+        prefersDark: Bool = false,
+        themeDirectories: [URL] = []
     ) throws -> (TerminalThemeGalleryModel, CmuxManagedThemeConfigFile, ReloadLog) {
         let file = CmuxManagedThemeConfigFile(url: root.appendingPathComponent("config.ghostty"))
         if let existingConfig {
@@ -29,7 +30,7 @@ struct TerminalThemeGalleryModelTests {
         let model = TerminalThemeGalleryModel(
             context: TerminalThemeGalleryContext(
                 configFile: file,
-                themeDirectories: [],
+                themeDirectories: themeDirectories,
                 readCurrentThemeValue: { currentThemeValue },
                 prefersDarkAppearance: prefersDark
             ),
@@ -46,21 +47,75 @@ struct TerminalThemeGalleryModelTests {
             currentThemeValue: "light:Catppuccin Latte,dark:Catppuccin Mocha",
             prefersDark: true
         )
-        #expect(model.slot == .dark)
+        #expect(model.themeInUse == "Catppuccin Mocha")
 
         model.select("Nord")
 
-        #expect(model.selection == CmuxTerminalThemePair(light: "Catppuccin Latte", dark: "Nord"))
+        #expect(model.selection == CmuxTerminalThemePair(light: "Nord", dark: "Nord"))
+        #expect(model.themeInUse == "Nord")
         #expect(try file.readContents() == """
         font-size = 13
 
         # cmux themes start
-        theme = light:Catppuccin Latte,dark:Nord
+        theme = light:Nord,dark:Nord
         # cmux themes end
 
         """)
         #expect(log.phases == [.preview])
         #expect(model.hasPendingChange)
+    }
+
+    @Test("The highlighted card is the theme the terminal shows, even from a pair")
+    func highlightedThemeIsThemeInUse() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        // A pair written by `cmux themes set --light/--dark`, whose light side
+        // is a dark theme: the terminal shows the dark side in dark mode.
+        let (model, _, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Front End Delight,dark:Iceberg Light",
+            prefersDark: true
+        )
+
+        #expect(model.themeInUse == "Iceberg Light")
+
+        model.select("Front End Delight")
+
+        #expect(model.selection == CmuxTerminalThemePair(light: "Front End Delight", dark: "Front End Delight"))
+        #expect(model.themeInUse == "Front End Delight")
+    }
+
+    @Test("Changing the app appearance moves the highlight to the side now shown")
+    func appearanceChangeFollowsThemeInUse() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, _, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Violet Light,dark:3024 Night",
+            prefersDark: false
+        )
+        #expect(model.themeInUse == "Violet Light")
+
+        model.appearanceDidChange(prefersDark: true)
+
+        #expect(model.slotInUse == .dark)
+        #expect(model.themeInUse == "3024 Night")
+    }
+
+    @Test("A later gallery shows cached themes, then picks up theme files added since")
+    func reloadPicksUpAddedThemes() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let themesDirectory = root.appendingPathComponent("themes-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: themesDirectory, withIntermediateDirectories: true)
+        try "background = #000000\n".write(to: themesDirectory.appendingPathComponent("Alpha"), atomically: true, encoding: .utf8)
+
+        let (first, _, _) = try makeModel(existingConfig: nil, currentThemeValue: nil, themeDirectories: [themesDirectory])
+        await first.load()
+        #expect(first.themes.map(\.name) == ["Alpha"])
+
+        try "background = #ffffff\n".write(to: themesDirectory.appendingPathComponent("Beta"), atomically: true, encoding: .utf8)
+        let (second, _, _) = try makeModel(existingConfig: nil, currentThemeValue: nil, themeDirectories: [themesDirectory])
+        await second.load()
+
+        #expect(second.themes.map(\.name) == ["Alpha", "Beta"])
     }
 
     @Test("With no theme set, a pick fills both sides so Ghostty accepts it")
@@ -93,7 +148,6 @@ struct TerminalThemeGalleryModelTests {
         let (model, file, log) = try makeModel(existingConfig: original, currentThemeValue: "Nord")
 
         model.select("Rose Pine Dawn")
-        model.slot = .dark
         model.select("Rose Pine")
         model.revert()
 
@@ -115,7 +169,7 @@ struct TerminalThemeGalleryModelTests {
         #expect(try file.readContents() == "font-size = 13\n\ncursor-style = bar\n")
     }
 
-    @Test("A pick keeps the other side as cmux themes changed it after Settings opened")
+    @Test("Revert restores a pair cmux themes wrote after Settings opened")
     func pickReadsCurrentBlock() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let (model, file, _) = try makeModel(
@@ -126,9 +180,10 @@ struct TerminalThemeGalleryModelTests {
         // `cmux themes set --dark Dracula` from a terminal while Settings is open.
         try file.write(rawThemeValue: "light:Catppuccin Latte,dark:Dracula")
         model.select("Nord Light")
+        #expect(try file.managedThemeValue() == "light:Nord Light,dark:Nord Light")
 
-        #expect(try file.managedThemeValue() == "light:Nord Light,dark:Dracula")
-        #expect(model.selection == CmuxTerminalThemePair(light: "Nord Light", dark: "Dracula"))
+        model.revert()
+        #expect(try file.managedThemeValue() == "light:Catppuccin Latte,dark:Dracula")
     }
 
     @Test("Revert removes a config file the gallery created")
@@ -142,32 +197,35 @@ struct TerminalThemeGalleryModelTests {
         #expect(try file.readContents() == nil)
     }
 
-    @Test("An empty query shows curated themes that exist, matching the slot first")
-    func curatedResultsFollowSlot() {
+    @Test("An empty query lists every theme, those matching the appearance in use first")
+    func emptyQueryListsEveryTheme() {
         let themes = [
+            theme("3024 Night", background: "#090300"),
+            theme("Alabaster", background: "#f7f7f7"),
+            theme("Dracula", background: "#282a36"),
             theme("Nord", background: "#2e3440"),
             theme("Nord Light", background: "#e5e9f0"),
-            theme("Dracula", background: "#282a36"),
-            theme("catppuccin latte", background: "#eff1f5"),
         ]
 
         let light = TerminalThemeGalleryModel.results(in: themes, query: "", slot: .light)
-        #expect(light.themes.map(\.name) == ["catppuccin latte", "Nord Light", "Nord"])
+        #expect(light.matchingSlot.map(\.name) == ["Alabaster", "Nord Light"])
+        #expect(light.otherAppearance.map(\.name) == ["3024 Night", "Dracula", "Nord"])
+
         let dark = TerminalThemeGalleryModel.results(in: themes, query: " ", slot: .dark)
-        #expect(dark.themes.map(\.name) == ["Nord", "catppuccin latte", "Nord Light"])
+        #expect(dark.matchingSlot.map(\.name) == ["3024 Night", "Dracula", "Nord"])
+        #expect(dark.otherAppearance.map(\.name) == ["Alabaster", "Nord Light"])
+        #expect(dark.themes.count == themes.count)
     }
 
-    @Test("A query searches every theme and caps the card count")
-    func searchCapsResults() {
-        let themes = (0..<60).map { theme("Theme \($0)", background: "#000000") } + [theme("Dracula", background: "#282a36")]
+    @Test("A query returns every matching theme without a cap")
+    func searchReturnsEveryMatch() {
+        let themes = (0..<600).map { theme("Theme \($0)", background: "#000000") } + [theme("Dracula", background: "#282a36")]
 
         let dracula = TerminalThemeGalleryModel.results(in: themes, query: "drac", slot: .light)
         #expect(dracula.themes.map(\.name) == ["Dracula"])
-        #expect(!dracula.isTruncated)
 
         let many = TerminalThemeGalleryModel.results(in: themes, query: "theme", slot: .light)
-        #expect(many.themes.count == TerminalThemeGalleryModel.searchResultLimit)
-        #expect(many.isTruncated)
+        #expect(many.themes.count == 600)
     }
 
     private func theme(_ name: String, background: String) -> TerminalThemeGalleryModel.Theme {

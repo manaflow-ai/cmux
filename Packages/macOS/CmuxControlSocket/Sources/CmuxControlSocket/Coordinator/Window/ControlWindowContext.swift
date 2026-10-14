@@ -32,14 +32,24 @@ public protocol ControlWindowContext: AnyObject {
     /// Creates a new main window and makes it the active tab-manager target for
     /// `window.create` (create + defensive activation, as the legacy body did).
     ///
+    /// - Parameter title: The optional initial workspace title, applied before
+    ///   the window becomes visible.
     /// - Returns: The new window's id, or `nil` if creation failed.
-    func controlCreateWindowAndActivate() -> UUID?
+    func controlCreateWindowAndActivate(title: String?) -> UUID?
 
     /// Closes the window with the given id for `window.close`.
     ///
     /// - Parameter id: The window to close.
     /// - Returns: Whether a matching window was found and closed.
     func controlCloseWindow(id: UUID) -> Bool
+
+    /// Closes a window for a non-interactive caller, returning a safety outcome
+    /// when a live process would be terminated. The default preserves the
+    /// legacy boolean witness for test and transitional conformers.
+    func controlCloseWindow(id: UUID, force: Bool) -> ControlWindowCloseResolution
+
+    /// App-bundle-resolved messages for non-interactive window close.
+    func controlWindowCloseStrings() -> ControlWindowCloseStrings
 
     /// Snapshots every connected display for `window.displays`, in screen order.
     func controlAvailableDisplays() -> [ControlDisplayInfo]

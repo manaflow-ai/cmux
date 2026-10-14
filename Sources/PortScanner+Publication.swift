@@ -77,7 +77,7 @@ extension PortScanner {
         agentRevisions: [UUID: UInt64],
         completenessByWorkspace: [UUID: PortScanCompleteness],
         processScopeCompletenessByWorkspace: [UUID: PortScanCompleteness],
-        lsofScan: PortLsofScanResult?,
+        lsofScan: PortListenerScanResult?,
         inspectedPIDs: Set<Int>,
         requestID: UInt64
     ) {
@@ -166,7 +166,7 @@ extension PortScanner {
         agentRevisions: [UUID: UInt64],
         completenessByWorkspace: [UUID: PortScanCompleteness],
         processScopeCompletenessByWorkspace: [UUID: PortScanCompleteness],
-        lsofScan: PortLsofScanResult?,
+        lsofScan: PortListenerScanResult?,
         inspectedPIDs: Set<Int>,
         requestID: UInt64
     ) -> [AgentPortScanPublication] {

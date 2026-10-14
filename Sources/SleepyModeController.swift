@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSettingsUI
+import CmuxSettings
 import IOKit.pwr_mgt
 import SwiftUI
 
@@ -28,7 +29,9 @@ final class SleepyModeController {
 
     /// The single Sleepy Mode settings store, owned here (the app composition
     /// root) and injected into the overlay scene and the Preferences section.
-    let store = SleepyModeSettingsStore()
+    let store = SleepyModeSettingsStore(
+        configStore: JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+    )
 
     /// Power-action service (display sleep / real Mac lock / Low Power), owned
     /// here and injected into the scene; swap the runner for tests.

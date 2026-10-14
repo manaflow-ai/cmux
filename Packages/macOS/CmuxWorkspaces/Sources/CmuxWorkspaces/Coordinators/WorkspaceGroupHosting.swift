@@ -48,6 +48,10 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
     /// (DEBUG switch tracing + dismissal context ride along).
     func selectWorkspace(_ tab: Tab)
 
+    /// Returns whether a generated anchor is still an untouched shell.
+    /// Hosts own the terminal-specific definition of explicit use.
+    func workspaceGroupGeneratedAnchorIsUntouched(_ anchor: Tab) -> Bool
+
     // MARK: Sidebar multi-selection sync (CmuxSidebar model, owned app-side)
 
     /// The current sidebar multi-selection.
@@ -89,6 +93,8 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
 }
 
 public extension WorkspaceGroupHosting {
+    func workspaceGroupGeneratedAnchorIsUntouched(_ anchor: Tab) -> Bool { false }
+
     /// Hosts that do not persist workspace titles can leave this hook as a no-op.
     func workspaceGroupGeneratedAnchorNameDidChange(_ anchor: Tab, name: String) {}
 }

@@ -7,12 +7,14 @@ import Testing
     private func workspace(
         _ id: String,
         group: String? = nil,
+        pinned: Bool = false,
         unread: Bool = false,
         unreadCount: Int? = nil
     ) -> MobileWorkspacePreview {
         MobileWorkspacePreview(
             id: .init(rawValue: id),
             name: id,
+            isPinned: pinned,
             groupID: group.map { .init(rawValue: $0) },
             hasUnread: unread,
             unreadCount: unreadCount,
@@ -57,6 +59,24 @@ import Testing
         #expect(items == [
             .groupHeader(group("g", anchor: "a"), unread: .read),
             .workspace(workspace("b", group: "g"), indented: true),
+            .groupFooter("g"),
+        ])
+    }
+
+    @Test func pinnedGroupMembersRenderBeforeUnpinnedMembers() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("anchor", group: "g"),
+                workspace("unpinned", group: "g"),
+                workspace("pinned", group: "g", pinned: true),
+            ],
+            groups: [group("g", anchor: "anchor")]
+        )
+
+        #expect(items == [
+            .groupHeader(group("g", anchor: "anchor"), unread: .read),
+            .workspace(workspace("pinned", group: "g", pinned: true), indented: true),
+            .workspace(workspace("unpinned", group: "g"), indented: true),
             .groupFooter("g"),
         ])
     }

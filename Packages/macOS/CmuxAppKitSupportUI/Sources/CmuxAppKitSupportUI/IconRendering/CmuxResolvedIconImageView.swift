@@ -1,9 +1,15 @@
 public import AppKit
 
 /// AppKit image view that re-renders its icon when the window or effective appearance changes.
+///
+/// The rendered bitmap already carries every intended opacity (tint, hover,
+/// disabled), so it is drawn as-is by ``BitmapView`` rather than an
+/// `NSImageView`. `NSImageView` in a titlebar dims its image to about 45%
+/// whenever the window is not key, which made titlebar symbols change color
+/// on focus loss while drawn chrome beside them did not.
 @MainActor
 public final class CmuxResolvedIconImageView: NSView {
-    private let imageView = NSImageView(frame: .zero)
+    private let imageView = BitmapView(frame: .zero)
     private let renderer = CmuxResolvedIconRenderer()
     private var request: CmuxResolvedIconRequest?
     private var renderKey: RenderKey?
@@ -14,10 +20,6 @@ public final class CmuxResolvedIconImageView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.imageScaling = .scaleProportionallyDown
-        imageView.imageAlignment = .alignCenter
-        imageView.animates = false
-        imageView.contentTintColor = nil
         addSubview(imageView)
         NSLayoutConstraint.activate([
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -80,7 +82,6 @@ public final class CmuxResolvedIconImageView: NSView {
                 break
             }
         }
-        imageView.contentTintColor = nil
     }
 
     private func updateAccessibilityDescription(_ description: String?) {
@@ -190,5 +191,52 @@ public final class CmuxResolvedIconImageView: NSView {
                 }
             }
         }
+    }
+}
+
+/// Draws a pre-rendered bitmap centered in its bounds, scaled down (never up)
+/// to fit, matching `NSImageView`'s `.scaleProportionallyDown` +
+/// `.alignCenter` layout without its window-activity and enabled-state dimming.
+@MainActor
+final class BitmapView: NSView {
+    var image: NSImage? {
+        didSet {
+            guard image !== oldValue else { return }
+            if image?.size != oldValue?.size {
+                invalidateIntrinsicContentSize()
+            }
+            needsDisplay = true
+        }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override var intrinsicContentSize: NSSize {
+        image?.size ?? NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let image, image.size.width > 0, image.size.height > 0 else { return }
+        image.draw(
+            in: Self.drawRect(imageSize: image.size, in: bounds),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
+    }
+
+    /// The image rect: its natural size, shrunk proportionally when larger
+    /// than `bounds`, centered and pixel-aligned in points.
+    nonisolated static func drawRect(imageSize: NSSize, in bounds: NSRect) -> NSRect {
+        let scale = min(1, bounds.width / imageSize.width, bounds.height / imageSize.height)
+        let size = NSSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        return NSRect(
+            x: (bounds.midX - size.width / 2).rounded(),
+            y: (bounds.midY - size.height / 2).rounded(),
+            width: size.width,
+            height: size.height
+        )
     }
 }

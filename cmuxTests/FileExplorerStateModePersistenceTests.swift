@@ -115,6 +115,27 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         }
     }
 
+    func testInjectedDefaultsOwnCustomSidebarAvailabilityAndPersistence() throws {
+        let suiteName = "FileExplorerStateModePersistenceTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
+        defaults.set(true, forKey: customSidebarsKey)
+        defaults.set(RightSidebarMode.customSidebar.rawValue, forKey: modeKey)
+        defaults.set("status-board", forKey: customSidebarNameKey)
+
+        let state = FileExplorerState(defaults: defaults)
+
+        XCTAssertEqual(state.mode, .customSidebar)
+        XCTAssertTrue(RightSidebarMode.availableModes(defaults: defaults).contains(.customSidebar))
+        state.selectCustomSidebar(name: "next-board")
+        state.mode = .customSidebar
+        XCTAssertEqual(state.customSidebarName, "next-board")
+        XCTAssertEqual(defaults.string(forKey: customSidebarNameKey), "next-board")
+        XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.customSidebar.rawValue)
+    }
+
     func testCLIArgumentNormalizerMapsVaultAndSessionsToSessions() {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "files"), .files)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)

@@ -169,7 +169,7 @@ jobs:
           git fetch --no-tags --depth=1 --filter=blob:none origin "$SOURCE_SHA"
           # Only vendor/bonsplit is a Swift package; GhosttyKit is downloaded
           # by the submodule's recorded SHA without checking it out.
-          git submodule update --init --depth 1 vendor/bonsplit
+          bash "$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/init-submodule.sh" vendor/bonsplit
           echo "GHOSTTY_SHA=$(git ls-tree HEAD ghostty | awk '{print $3}')" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/rerun-out"
 
@@ -228,6 +228,12 @@ jobs:
             mkdir -p "$dest"
             rsync -aL "$(dirname "$framework_source")/" "$dest/"
           done
+          # Source-backed test fixtures resolve #fileID through this stable
+          # location, so baseline runs do not need the producer root.
+          CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source \
+            "$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/canonical-build-root.sh" \
+            --runtime-source "$PWD"
+          echo "CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source" >> "$GITHUB_ENV"
           receipt="$COMPILE_DERIVED_DATA/Build/Products/cmux-test-products.json"
           cat "$receipt"
           test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$receipt")" = "$SOURCE_SHA"

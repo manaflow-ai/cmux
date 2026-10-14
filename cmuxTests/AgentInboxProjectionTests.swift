@@ -1,0 +1,298 @@
+import AppKit
+import Foundation
+import Testing
+import CMUXAgentLaunch
+import CmuxAgentJournal
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite("Agent inbox projection")
+struct AgentInboxProjectionTests {
+    @Test("merges messages, pending decisions, and completed turns newest first")
+    func mergesSourcesInNewestFirstOrder() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let message = AgentMessage(
+            id: "message-1",
+            threadId: "thread-1",
+            senderName: "reviewer",
+            senderSurfaceId: "surface-agent",
+            senderWorkspaceId: "workspace-agent",
+            recipientSurfaceId: "surface-human",
+            recipientWorkspaceId: "workspace-human",
+            body: "Can you review the latest change?",
+            createdAt: now.addingTimeInterval(-30),
+            inReplyTo: nil,
+            state: .queued
+        )
+        let question = WorkstreamItem(
+            workstreamId: "claude-question",
+            source: .claude,
+            kind: .question,
+            createdAt: now.addingTimeInterval(-20),
+            payload: .question(
+                requestId: "question-1",
+                questions: [
+                    WorkstreamQuestionPrompt(
+                        id: "choice",
+                        prompt: "Which option?",
+                        multiSelect: false,
+                        options: [
+                            WorkstreamQuestionOption(id: "a", label: "Option A"),
+                            WorkstreamQuestionOption(id: "b", label: "Option B"),
+                        ]
+                    ),
+                ]
+            ),
+            context: WorkstreamContext(lastUserMessage: "Choose a direction")
+        )
+        let stop = WorkstreamItem(
+            workstreamId: "codex-turn",
+            source: .codex,
+            kind: .stop,
+            createdAt: now.addingTimeInterval(-5),
+            payload: .stop(reason: "completed"),
+            context: WorkstreamContext(lastUserMessage: "Implement the change")
+        )
+        let assistant = WorkstreamItem(
+            workstreamId: "codex-turn",
+            source: .codex,
+            kind: .assistantMessage,
+            createdAt: now.addingTimeInterval(-6),
+            payload: .assistantMessage(text: "Implemented the change.")
+        )
+
+        let items = AgentInboxProjection.project(
+            messages: [message],
+            workstreamItems: [question, assistant, stop],
+            workspaceTitles: [
+                "workspace-agent": "Agent Workspace",
+                "workspace-human": "Human Workspace",
+            ],
+            now: now
+        )
+
+        #expect(items.map(\.kind) == [.finishedTurn, .question, .agentMessage])
+        #expect(items[0].agentText == "Implemented the change.")
+        #expect(items[0].promptText == "Implement the change")
+        #expect(items[1].isUnread)
+        #expect(items[2].state == .queued)
+        #expect(items[2].workspaceTitle == "Agent Workspace")
+    }
+
+    @Test("search matches body, workspace, and agent name")
+    func searchFiltersAcrossVisibleFields() {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let message = AgentMessage(
+            id: "message-2",
+            threadId: "thread-2",
+            senderName: "planner",
+            senderSurfaceId: "surface-planner",
+            senderWorkspaceId: "workspace-planner",
+            recipientSurfaceId: "surface-human",
+            recipientWorkspaceId: "workspace-human",
+            body: "The migration plan is ready.",
+            createdAt: now,
+            inReplyTo: nil
+        )
+
+        let items = AgentInboxProjection.project(
+            messages: [message],
+            workstreamItems: [],
+            workspaceTitles: ["workspace-planner": "Release Planning"],
+            now: now
+        )
+
+        #expect(AgentInboxProjection.filtered(items, query: "release").count == 1)
+        #expect(AgentInboxProjection.filtered(items, query: "planner").count == 1)
+        #expect(AgentInboxProjection.filtered(items, query: "missing").isEmpty)
+    }
+
+    @Test("openAgentInbox resolves each workstream id once")
+    func openAgentInboxDeduplicatesWorkstreamIDsBeforeResolving() {
+        let now = Date(timeIntervalSince1970: 30_000)
+        let workstreamID = "claude-duplicate-session"
+        let assistant = WorkstreamItem(
+            workstreamId: workstreamID,
+            source: .claude,
+            kind: .assistantMessage,
+            createdAt: now,
+            payload: .assistantMessage(text: "First reply")
+        )
+        let stop = WorkstreamItem(
+            workstreamId: workstreamID,
+            source: .claude,
+            kind: .stop,
+            createdAt: now.addingTimeInterval(1),
+            payload: .stop(reason: "completed")
+        )
+
+        #expect(
+            AgentInboxProjection.uniqueWorkstreamIDs(from: [assistant, stop]) == [workstreamID]
+        )
+    }
+
+    @Test("agent inbox replies append a validated agent message")
+    func replyPathAppendsToAgentMessageStore() throws {
+        let store = AgentMessageStore(
+            fileURL: nil,
+            now: { Date(timeIntervalSince1970: 31_000) },
+            makeId: { "reply-1" }
+        )
+        let target = AgentInboxReplyTarget.agentMessage(
+            surfaceId: "agent-surface",
+            workspaceId: "agent-workspace",
+            replyTo: "incoming-1"
+        )
+
+        let sent = try AgentInboxReplySender.send(
+            body: "I checked the change.",
+            senderName: "you",
+            target: target,
+            workstreamTarget: nil,
+            store: store
+        )
+
+        #expect(sent.id == "reply-1")
+        #expect(sent.senderName == "you")
+        #expect(sent.recipientSurfaceId == "agent-surface")
+        #expect(sent.recipientWorkspaceId == "agent-workspace")
+        #expect(sent.body == "I checked the change.")
+        #expect(sent.inReplyTo == "incoming-1")
+        #expect(store.messages() == [sent])
+    }
+
+
+@Test("agent inbox does not move selection while the reply field is focused")
+func agentInboxReplyFieldOwnsArrowNavigation() {
+    #expect(!AgentInboxInteractionPolicy.shouldMoveSelection(isReplyFieldFocused: true))
+    #expect(AgentInboxInteractionPolicy.shouldMoveSelection(isReplyFieldFocused: false))
+}
+
+@Test("reply focus notifications target the inbox hosting window")
+@MainActor
+func agentInboxReplyFieldFocusUsesHostingWindow() {
+    let hostingWindow = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 240, height: 160),
+        styleMask: [.titled],
+        backing: .buffered,
+        defer: true
+    )
+    let unrelatedKeyWindow = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 240, height: 160),
+        styleMask: [.titled],
+        backing: .buffered,
+        defer: true
+    )
+
+    #expect(
+        AgentInboxReplyFieldFocusPolicy.notificationWindow(
+            hostingWindow: hostingWindow,
+            keyWindow: unrelatedKeyWindow
+        ) === hostingWindow
+    )
+}
+
+@Test("stale inbox loads cannot update a dismissed or newer presentation")
+func agentInboxOpenRequestRejectsStaleResults() {
+    let request = AgentInboxOpenRequest(generation: 2)
+    #expect(request.isCurrent(generation: 2, isPresented: true))
+    #expect(!request.isCurrent(generation: 1, isPresented: true))
+    #expect(!request.isCurrent(generation: 2, isPresented: false))
+}
+
+@Test("reply submission gate rejects duplicate in-flight submissions")
+func agentInboxReplySubmissionGateIsIdempotent() {
+    var gate = AgentInboxReplySubmissionGate()
+    let firstBegin = gate.begin()
+    #expect(firstBegin)
+    let duplicateBegin = gate.begin()
+    #expect(!duplicateBegin)
+    gate.finish()
+    let beginAfterFinish = gate.begin()
+    #expect(beginAfterFinish)
+}
+
+@Test("finished-turn read state survives a new inbox view")
+func agentInboxFinishedTurnReadStatePersists() throws {
+    let suiteName = "AgentInboxProjectionTests.finished-turn-read-state"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = AgentInboxReadStateStore(defaults: defaults)
+    store.markFinishedTurnRead("stop:finished-1")
+
+    #expect(AgentInboxReadStateStore(defaults: defaults).finishedTurnIDs == ["stop:finished-1"])
+}
+
+@Test("finished-turn read state prunes old entries")
+func agentInboxFinishedTurnReadStateIsBounded() throws {
+    let suiteName = "AgentInboxProjectionTests.finished-turn-read-state-cap"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = AgentInboxReadStateStore(defaults: defaults)
+    let ids = (0..<(AgentInboxReadStateStore.maxFinishedTurnIDs + 10)).map { "stop:finished-\($0)" }
+
+    for id in ids {
+        store.markFinishedTurnRead(id)
+    }
+
+    let persisted = AgentInboxReadStateStore(defaults: defaults).finishedTurnIDs
+    #expect(persisted.count == AgentInboxReadStateStore.maxFinishedTurnIDs)
+    #expect(!persisted.contains(ids[0]))
+    #expect(persisted.contains(ids.last!))
+}
+
+
+    @Test("legacy finished-turn read state is pruned when loaded")
+    func agentInboxFinishedTurnReadStatePrunesLegacyEntries() throws {
+        let suiteName = "AgentInboxProjectionTests.finished-turn-read-state-legacy"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let ids = (0..<(AgentInboxReadStateStore.maxFinishedTurnIDs + 10)).map { "stop:legacy-\($0)" }
+        defaults.set(try JSONEncoder().encode(ids), forKey: "agentInbox.finishedTurnIDs")
+
+        let loaded = AgentInboxReadStateStore(defaults: defaults).finishedTurnIDs
+        #expect(loaded.count == AgentInboxReadStateStore.maxFinishedTurnIDs)
+        #expect(!loaded.contains(ids[0]))
+        #expect(loaded.contains(ids.last!))
+    }
+
+    @Test("stale workstream resolution is ignored")
+    func agentInboxReplyResolutionOnlyAppliesToCurrentSelection() {
+        #expect(AgentInboxReplyResolutionPolicy.shouldApply(
+            resolvedWorkstreamID: "workstream-1",
+            selectedItemID: "workstream-1"
+        ))
+        #expect(!AgentInboxReplyResolutionPolicy.shouldApply(
+            resolvedWorkstreamID: "workstream-1",
+            selectedItemID: "workstream-2"
+        ))
+    }
+
+    @Test("decision IDs are absent for non-feed inbox items")
+    func agentInboxDecisionTargetOnlyReturnsFeedIDs() {
+        let target = AgentInboxReplyTarget.agentMessage(
+            surfaceId: "surface-1",
+            workspaceId: nil,
+            replyTo: nil
+        )
+        #expect(AgentInboxDecisionTarget.id(for: target) == nil)
+    }
+
+    @Test("command palette overlay state has one owner")
+    func commandPaletteOverlayStateDoesNotExposeInconsistentFlags() {
+        #expect(!CommandPaletteOverlayState.closed.isCommandPalettePresented)
+        #expect(!CommandPaletteOverlayState.closed.isAgentInboxPresented)
+        #expect(CommandPaletteOverlayState.palette.isCommandPalettePresented)
+        #expect(!CommandPaletteOverlayState.palette.isAgentInboxPresented)
+        #expect(CommandPaletteOverlayState.agentInbox.isCommandPalettePresented)
+        #expect(CommandPaletteOverlayState.agentInbox.isAgentInboxPresented)
+    }
+
+}

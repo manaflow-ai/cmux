@@ -202,6 +202,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: qoderPolicy)
         case "kimi":
             return preserveOptions(args, policy: kimiPolicy)
+        case "muse":
+            return preserveOptions(args, policy: musePolicy)
         case "ollama":
             return OllamaLaunchArgumentsPreserver().preservedArguments(args)
         default:

@@ -21,6 +21,7 @@ let authJson = {
 };
 let authJsonError: Error | null = null;
 const getUser = mock(async () => currentUser);
+const getTeam = mock(async (id: string) => ({ id }));
 const createTeam = mock(async ({ displayName, creatorUserId }: { displayName: string; creatorUserId?: string }) => ({
   id: "team-created",
   displayName,
@@ -36,7 +37,7 @@ let hostedCutoverReady = true;
 const hostedSubrouterCutoverReadyForTeam = mock(async () => hostedCutoverReady);
 
 mock.module("../app/lib/stack", () => ({
-  getStackServerApp: () => ({ getUser, getAuthJson, getTeam: async (id: string) => ({ id }), createTeam }),
+  getStackServerApp: () => ({ getUser, getAuthJson, getTeam, createTeam }),
   getNonRedirectingStackServerApp: () => ({ getUser, signOut }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
@@ -76,6 +77,7 @@ let calls: Array<{
   readonly body: unknown;
 }> = [];
 let listedAccounts: unknown[] = [];
+let listTeamQueries: string[] = [];
 let exchangeStatus = 200;
 let accountListStatus = 200;
 
@@ -100,10 +102,12 @@ beforeEach(() => {
   authJsonError = null;
   calls = [];
   listedAccounts = [];
+  listTeamQueries = [];
   hostedCutoverReady = true;
   exchangeStatus = 200;
   accountListStatus = 200;
   getUser.mockClear();
+  getTeam.mockClear();
   createTeam.mockClear();
   updateUser.mockClear();
   getAuthJson.mockClear();
@@ -111,6 +115,60 @@ beforeEach(() => {
   hostedSubrouterCutoverReadyForTeam.mockClear();
   captureCoderouterEvent.mockClear();
   globalThis.fetch = hostedFetch as typeof fetch;
+});
+
+describe("CodeRouter organization catalog latency", () => {
+  test.each([1, 10, 100, 1000])("lists %i member teams without per-team permission requests", async (count) => {
+    const teams = Array.from({ length: count }, (_, index) => ({
+      id: `team-${index}`,
+      displayName: `Team ${index}`,
+    }));
+    const hasPermission = mock(async () => false);
+    const listTeams = mock(async () => teams);
+    currentUser = { ...stackUser(), selectedTeam: teams[0]!, listTeams, hasPermission };
+
+    const response = await organizationsRoute.GET(request("/api/coderouter/organizations"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      selectedTeamId: "team-0",
+      teams: [
+        ...teams.map((team) => ({
+          id: team.id,
+          name: team.displayName,
+          personal: false,
+          permissions: { use: true, manageAccounts: true },
+        })),
+        { id: "user-1", name: "User One", personal: true,
+          permissions: { use: true, manageAccounts: true } },
+      ],
+    });
+    expect(listTeams).toHaveBeenCalledTimes(1);
+    expect(getUser).toHaveBeenCalledTimes(1);
+    expect(getTeam).not.toHaveBeenCalled();
+    expect(hasPermission).not.toHaveBeenCalled();
+  });
+
+  test("membership catalog remains available when API-key permission lookups fail", async () => {
+    const hasPermission = mock(async (): Promise<boolean> => {
+      throw new Error("permission service unavailable");
+    });
+    currentUser = { ...stackUser(), hasPermission };
+
+    const response = await organizationsRoute.GET(request("/api/coderouter/organizations"));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).teams.map((team: { id: string }) => team.id))
+      .toEqual(["team-a", "team-b", "user-1"]);
+    expect(hasPermission).not.toHaveBeenCalled();
+  });
+
+  test("still rejects an unauthenticated catalog request", async () => {
+    currentUser = null;
+    const response = await organizationsRoute.GET(request("/api/coderouter/organizations"));
+    expect(response.status).toBe(401);
+    expect(getTeam).not.toHaveBeenCalled();
+  });
 });
 
 describe("hosted Subrouter account routes", () => {
@@ -606,6 +664,9 @@ describe("hosted Subrouter account routes", () => {
       request("/api/subrouter/teams"),
     );
     expect(teamsResponse.status).toBe(200);
+    // The team catalog also carries billing fields: plan, seats, and the
+    // caller's Stack team_admin role (this fixture's user holds it everywhere).
+    const billing = { planId: null, seats: null, role: "admin", canManageBilling: true };
     expect(await teamsResponse.json()).toEqual({
       selectedTeamId: "team-a",
       teams: [
@@ -614,18 +675,21 @@ describe("hosted Subrouter account routes", () => {
           name: "Team A",
           personal: false,
           permissions: { use: true, manageAccounts: true },
+          ...billing,
         },
         {
           id: "team-b",
           name: "Team B",
           personal: false,
           permissions: { use: true, manageAccounts: true },
+          ...billing,
         },
         {
           id: "user-1",
           name: "User One",
           personal: true,
           permissions: { use: true, manageAccounts: true },
+          ...billing,
         },
       ],
     });
@@ -727,6 +791,7 @@ describe("hosted Subrouter account routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ selectedTeamId: "team-b" });
     expect(updateUser).toHaveBeenCalledWith({ selectedTeamId: "team-b" });
+    expect(listTeamQueries).toEqual(["team-b", "team-a"]);
 
     const unauthorized = await teamsRoute.PATCH(
       request("/api/subrouter/teams", {
@@ -765,10 +830,13 @@ function stackUser() {
     displayName: "User One",
     primaryEmail: "user@example.com",
     selectedTeam: { id: "team-a", displayName: "Team A" },
-    listTeams: async () => [
+    listTeams: async (options?: { query?: string }) => {
+      if (options?.query) listTeamQueries.push(options.query);
+      return [
       { id: "team-a", displayName: "Team A" },
       { id: "team-b", displayName: "Team B" },
-    ],
+      ];
+    },
     update: updateUser,
   };
 }

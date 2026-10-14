@@ -2,8 +2,8 @@ import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
-/// Another Mac's header row, on the same grid as This Mac's row and the cloud
-/// machine rows: the desktop glyph in the leading slot, the name, a dim
+/// Another Mac's header row, on the same grid as the cloud machine rows: the
+/// name (the My Devices header carries the desktop glyph for all of them), a dim
 /// instance tag for non-stable builds (a nightly or a dev tag; a stable Mac
 /// shows none), and a dim status fact only when the Mac is not simply online.
 /// Single- or two-line per the style, like ``CloudTreeLocalMachineRowContent``;
@@ -17,32 +17,25 @@ struct CloudTreeDeviceRowContent: View {
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
-                CloudTreeRowIcon(
-                    style: style,
-                    systemName: "desktopcomputer",
-                    tint: CloudTreeIconPalette.machine,
-                    dimmed: !row.isOnline
-                )
-                .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
-                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
-                    HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.detailGap) {
-                        name(weight: .medium)
-                        tag
-                        if style.machineRowLayout == .singleLine, let status = row.inlineStatus(now: now) {
-                            statusText(status)
-                        }
-                        Spacer(minLength: 0)
+            // No leading glyph: the My Devices header carries the one computer
+            // icon for every row under it, so the name starts the row.
+            VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
+                HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.detailGap) {
+                    name(weight: .medium)
+                    tag
+                    if style.machineRowLayout == .singleLine, let status = row.inlineStatus(now: now) {
+                        statusText(status)
                     }
-                    .frame(height: scaled(style.machineNameLineHeight))
-                    if style.machineRowLayout == .twoLine {
-                        Text(Self.subtitle(row, now: now))
-                            .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(height: scaled(style.machineSubtitleLineHeight))
-                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(height: scaled(style.machineNameLineHeight))
+                if style.machineRowLayout == .twoLine {
+                    Text(Self.subtitle(row, now: now))
+                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))

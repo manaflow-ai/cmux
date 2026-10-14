@@ -140,7 +140,8 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
                 isMultiSelected: true,
                 isRemote: true,
                 remoteState: .disconnected,
-                settings: settings
+                settings: settings,
+                hasManualCustomColor: true
             ),
             singleWorkspaceId: Self.rowInput(
                 workspaceId: singleWorkspaceId,
@@ -174,6 +175,9 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
         )
 
         let selected = list.selectedContextMenuTargetAggregate
+        #expect(selected.hasManualCustomColor)
+        let clickedOriginTintRow = try #require(rows[connectingWorkspaceId])
+        #expect(clickedOriginTintRow.rowSnapshot(list: list).contextMenu.hasManualCustomColor)
         #expect(selected.targetWorkspaceIds == [connectingWorkspaceId, disconnectedWorkspaceId])
         #expect(selected.remoteTargetWorkspaceIds == [connectingWorkspaceId, disconnectedWorkspaceId])
         #expect(!selected.allRemoteTargetsConnecting)
@@ -206,7 +210,8 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
         isMultiSelected: Bool,
         isRemote: Bool,
         remoteState: WorkspaceRemoteConnectionState,
-        settings: SidebarTabItemSettingsSnapshot
+        settings: SidebarTabItemSettingsSnapshot,
+        hasManualCustomColor: Bool = false
     ) -> SidebarWorkspaceRowInput {
         SidebarWorkspaceRowInput(
             workspaceId: workspaceId,
@@ -241,7 +246,8 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
             contextMenuPinState: nil,
             inferredTaskStatus: .todo,
             activeTodoOverride: nil,
-            isTodoStatusHidden: false
+            isTodoStatusHidden: false,
+            hasManualCustomColor: hasManualCustomColor
         )
     }
 

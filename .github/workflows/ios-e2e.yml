@@ -1,61 +1,82 @@
 name: iOS E2E
 
-# End-to-end Mac<->iPhone gate: a real Mac app on one runner, a real iOS
-# simulator app on another, and the dev web backend on the durable tailnet VM.
-# The iOS side signs in, pairs to the remote Mac through the backend, connects
-# over Iroh, and drives a 6-step streamed-terminal script whose steps each
-# cover a shipped regression (scripts/e2e/README.md). Topology, ACLs, secrets
-# and the promotion plan live in docs/ci/ios-e2e.md.
+# End-to-end Mac-to-iPhone gate: one macOS runner builds and runs the tagged
+# Mac app and iOS simulator app, while a Blacksmith Linux runner serves a fresh
+# per-run backend: the iroh-v2 and presence Durable Object Workers, Postgres,
+# and an Iroh relay. The apps sign in with Stack, pair and fetch relay
+# credentials through iroh-v2, then the terminal data path is forced through
+# the per-run relay. Topology, ACLs, secrets, and the promotion plan live in
+# docs/ci/ios-e2e.md.
 #
-# No workflow-level path filter on purpose: the `route` job decides skips so
-# the `ios-e2e-status` aggregate always reports a deterministic conclusion.
-# ci.yml takes the same approach — a paths: filter leaves the check MISSING
-# on unrelated PRs, which branch protection cannot require; a routed skip
-# still reports green.
+# No workflow-level path filter on purpose: the route job decides skips so the
+# ios-e2e-status aggregate always reports a deterministic conclusion.
+# The pull_request trigger stays off until the owner approves promotion (see
+# docs/ci/ios-e2e.md). The workflow is dispatchable while infrastructure and
+# the product path are validated.
+# pull_request:
 on:
   workflow_dispatch:
-  pull_request:
+    inputs:
+      backend_only:
+        description: "Bring up and health-check the per-run backend, then stop (no macOS job)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
-# A newer push to the same pull request replaces its run; dispatches never
-# cancel each other (same shape as test-ios.yml).
+# Trust boundary. Only workflow_dispatch runs this lane, which needs write
+# access. Every job that joins the tailnet or reads a secret runs in the
+# `ios-e2e` environment, whose deployment branch policy is the allow-list, and
+# joins with GitHub OIDC against the federated Tailscale identity "cmux iOS E2E
+# protected manual runs" (this workflow, workflow_dispatch, environment
+# ios-e2e): no stored Tailscale secret is used. That identity holds tag:ci and
+# owns the backend's role tag; the ACL (cmuxterm-hq
+# skills/infra/tsadmin/acl.manaflow.hujson) lets tag:ci reach only the
+# backend's Serve ports and SSH into it as `runner`
+# (docs/ci/ios-e2e.md#secrets-and-tailnet-identity).
+
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('ios-e2e-pr-{0}', github.event.pull_request.number) || format('ios-e2e-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # The whole teardown handshake is one file touched over Tailscale SSH: the
-  # Mac host's wait loop watches this local path instead of polling the
-  # GitHub API for the iOS job's status. A ~25-minute per-PR status-poll loop
-  # would draw down the repo-wide API rate limit that every other workflow
-  # shares (secondary-rate-limit stalls have hit this repo's CI before), and
-  # a local file needs no token on the Mac at all.
-  CMUX_E2E_DONE_FILE: /tmp/e2e-done-${{ github.run_id }}
-  # Deterministic tailnet hostname for the Mac host. The iOS job must address
-  # the Mac while BOTH jobs are still running, and GitHub job outputs only
-  # publish when the producing job completes — so the name is derived from
-  # the run id up front rather than exchanged at runtime.
-  CMUX_E2E_MAC_TAILNET_HOSTNAME: cmux-e2e-mac-${{ github.run_id }}
-  CMUX_E2E_BACKEND_HOST: cmux-dev-backend-1.tail137216.ts.net
+  # Deterministic backend name: the macOS job must address the backend while
+  # both run, and job outputs only publish when a job completes. run_attempt
+  # keeps a rerun from colliding with a not-yet-expired ephemeral node.
+  CMUX_E2E_BACKEND_TAILNET_HOSTNAME: cmux-e2e-backend-${{ github.run_id }}-${{ github.run_attempt }}
+  # Host of every backend origin. Its publicly trusted certificate was issued
+  # once (ios-e2e secrets CMUX_E2E_TLS_CERT/KEY); no node carries the name,
+  # and each runner maps it in /etc/hosts to this run's backend
+  # (docs/ci/ios-e2e.md#tls).
+  CMUX_E2E_BACKEND_NAME: cmux-e2e-backend.tail137216.ts.net
+  # Released by the macOS job over Tailscale SSH (no GitHub API polling).
+  CMUX_E2E_BACKEND_DONE_FILE: /tmp/e2e-backend-done-${{ github.run_id }}-${{ github.run_attempt }}
+  # iroh-relay release the backend serves: the version manaflow-ai/cmux-relay
+  # wraps, pinned by digest.
+  IROH_RELAY_VERSION: v1.0.2
+  IROH_RELAY_SHA256: 3d6c37a66f8b21da620f9d83ce4682639aa2de9910bbf1e8e7981cf8478964ea
 
 jobs:
   route:
-    # Decides whether the lane runs and which backend stack tag it uses.
-    # Cheap Linux layer so every PR gets a routed conclusion (see header).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Cheap Linux layer so every PR gets a routed conclusion once the trigger
+    # is promoted. The classifier integration remains intentionally explicit.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       run_e2e: ${{ steps.decide.outputs.run_e2e }}
+      run_clients: ${{ steps.decide.outputs.run_clients }}
       backend_tag: ${{ steps.decide.outputs.backend_tag }}
       web_changed: ${{ steps.decide.outputs.web_changed }}
     steps:
+      # Only the pull_request path diffs files; a dispatch skips the checkout,
+      # which is most of this job's time and gates the macOS job's start.
       - name: Checkout
+        if: github.event_name == 'pull_request'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # Depth 2 reaches both parents of the PR merge commit, which is all
-          # the backend-tag path check below needs to diff.
+          # Depth 2 reaches both parents of a PR merge commit, which is all
+          # the backend-tag path check needs to diff.
           fetch-depth: 2
           persist-credentials: false
 
@@ -64,37 +85,26 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          BACKEND_ONLY: ${{ inputs.backend_only }}
         run: |
           set -euo pipefail
-          # TODO(ios-e2e): stub router. Integrate
-          # scripts/ci/detect_ci_change_areas.py (the classifier ci.yml's
-          # `changes` job uses) so docs-only and unrelated diffs skip both
-          # macOS runners; until then every routed run says "run" and the
-          # lane's cost is bounded by it not being required (shadow mode,
-          # docs/ci/ios-e2e.md#promotion-plan).
-          run_e2e=false
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            run_e2e=true
+          run_clients=true
+          if [ "${BACKEND_ONLY:-false}" = "true" ]; then
+            run_clients=false
           fi
-          # Backend stack selection: a PR that changes web/ (API routes,
-          # services, drizzle schema — the code the stack actually runs) must
-          # not land its schema or API changes on the shared long-lived
-          # ci-main stack. It gets an isolated per-PR stack, tag ci<PR#>,
-          # reused across pushes so the stack keeps its database (dev-backend
-          # semantics: re-ensuring a tag updates its source in place).
-          # TODO(ios-e2e): align this path set with the `web` area in
-          # scripts/ci/detect_ci_change_areas.py instead of one regex.
+          # TODO(ios-e2e): integrate scripts/ci/detect_ci_change_areas.py so
+          # docs-only and unrelated diffs skip the expensive Mac job. Until
+          # then the lane runs in shadow mode when dispatched.
+          run_e2e=true
           web_changed=false
           if [ "$EVENT_NAME" = "pull_request" ]; then
             if git rev-parse -q --verify HEAD^2 >/dev/null; then
-              # HEAD is the PR merge commit; parent 1 is the base branch, so
-              # this diff is exactly the PR's changed files, no API call.
               if git diff --name-only HEAD^1 HEAD | grep -Eq '^web/'; then
                 web_changed=true
               fi
             else
-              # No merge commit to diff (detached/rebase edge): isolate
-              # rather than risk mutating the shared stack.
+              # Isolate a rebase or detached edge rather than mutating the
+              # shared stack when the changed-file diff is unavailable.
               web_changed=true
             fi
           fi
@@ -105,272 +115,397 @@ jobs:
           fi
           {
             echo "run_e2e=$run_e2e"
+            echo "run_clients=$run_clients"
             echo "web_changed=$web_changed"
             echo "backend_tag=$backend_tag"
           } >> "$GITHUB_OUTPUT"
           echo "route: run_e2e=$run_e2e web_changed=$web_changed backend_tag=$backend_tag"
 
   backend:
-    # Ensures a dev backend stack (web + Postgres) for this run's tag on the
-    # durable VM and proves the runner-side tailnet path to it before either
-    # macOS job spends its queue slot.
+    # A fresh backend for this run (scripts/e2e/backend-up.sh): iroh-v2 and
+    # presence in local workerd, Postgres, and iroh-relay, published on the
+    # tailnet by Tailscale Serve. Nothing is compiled, so bring-up is process
+    # start, and it overlaps the macOS job's app builds. It holds until the
+    # macOS job touches its done-file; the macOS job therefore does not
+    # `needs:` it and waits on its health endpoints instead.
     needs: route
-    # Every job that mounts secrets is fenced off from fork heads: a fork PR
-    # controls this workflow file's content, so it must never reach the
-    # tailnet OAuth client or the CI Stack account. success() must be spelled
-    # out — a custom `if:` replaces the implicit needs-succeeded condition.
-    # The aggregate reports forks as a neutral skip.
     if: >-
       success()
       && needs.route.outputs.run_e2e == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
-    outputs:
-      backend_url: ${{ steps.ensure.outputs.backend_url }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 150
+    environment: ios-e2e
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Join tailnet
-        # TODO(ios-e2e): pin to a commit SHA like the other third-party
-        # actions in this repo once the action version settles.
-        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
+      # Only what the backend runs: a full checkout of this repository is the
+      # slowest step otherwise.
+      - name: Checkout backend sources
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
+          persist-credentials: false
+          sparse-checkout: |
+            workers/iroh-v2
+            workers/presence
+            scripts/e2e
+          sparse-checkout-cone-mode: true
 
-      - name: Ping backend host
+      # Bun's package cache, not node_modules, and actions/cache, not a sticky
+      # disk: a sticky-disk key is repository-wide, so any branch's workflow
+      # could mount it and plant code this job would then run while holding
+      # the Stack server key. actions/cache is branch-scoped (a run reads only
+      # its own ref's and the default branch's entries), and `bun install
+      # --frozen-lockfile` checks packages against the lockfile's integrity
+      # hashes as it links them from this cache.
+      - name: Restore Bun package cache
+        id: bun-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: ios-e2e-bun-${{ hashFiles('workers/iroh-v2/bun.lock', 'workers/presence/bun.lock') }}
+          restore-keys: ios-e2e-bun-
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      # wrangler requires Node 22; the runner image ships 20.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      # Postgres's image pull runs behind the installs.
+      - name: Install dependencies
         run: |
           set -euo pipefail
-          # [infra-preflight] reds here are tailnet/ACL problems, never a
-          # product regression; the label keeps them out of flake triage
-          # (docs/ci/ios-e2e.md#infra-preflight-failure-labeling).
-          tailscale ping --timeout 5s -c 5 "$CMUX_E2E_BACKEND_HOST" || {
-            echo "::error::[infra-preflight] cannot reach $CMUX_E2E_BACKEND_HOST over the tailnet (ACL: tag:ci -> backend host)"
+          docker pull -q postgres:16-alpine >/dev/null &
+          pull=$!
+          (cd workers/iroh-v2 && bun install --frozen-lockfile) &
+          iroh=$!
+          (cd workers/presence && bun install --frozen-lockfile) &
+          presence=$!
+          wait "$iroh"
+          wait "$presence"
+          wait "$pull"
+
+      - name: Save Bun package cache
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: ios-e2e-bun-${{ hashFiles('workers/iroh-v2/bun.lock', 'workers/presence/bun.lock') }}
+
+      # The release tarball is cached and its digest is checked on every run,
+      # hit or miss, so a cache entry can never substitute the binary.
+      - name: Restore iroh-relay archive
+        id: relay-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/iroh-relay-archive
+          key: iroh-relay-${{ env.IROH_RELAY_VERSION }}-${{ env.IROH_RELAY_SHA256 }}
+
+      - name: Download iroh-relay archive
+        if: steps.relay-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/iroh-relay-archive"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/iroh-relay-archive/iroh-relay.tar.gz" \
+            "https://github.com/n0-computer/iroh/releases/download/${IROH_RELAY_VERSION}/iroh-relay-${IROH_RELAY_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+
+      - name: Verify and extract iroh-relay
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/iroh-relay-archive/iroh-relay.tar.gz"
+          echo "${IROH_RELAY_SHA256}  $archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/iroh-relay"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/iroh-relay" ./iroh-relay
+
+      - name: Save iroh-relay archive
+        if: steps.relay-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/iroh-relay-archive
+          key: iroh-relay-${{ env.IROH_RELAY_VERSION }}-${{ env.IROH_RELAY_SHA256 }}
+
+      # A runner that already runs Tailscale (a self-hosted fleet host) would
+      # have its own node re-registered and then logged out by the join below.
+      - name: Refuse a runner that already runs Tailscale
+        run: ./scripts/e2e/require-fresh-tailnet-host.sh
+
+      - name: Join tailnet
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+          tags: tag:e2e-backend
+          hostname: ${{ env.CMUX_E2E_BACKEND_TAILNET_HOSTNAME }}
+          # Tailscale SSH server: the macOS job releases this holder as
+          # `runner`, the only SSH the ACL grants into tag:e2e-backend.
+          args: --ssh
+
+      - name: Check the SSH login user
+        run: |
+          [ "$(id -un)" = runner ] || {
+            echo "::error::[infra-preflight] backend runs as $(id -un); the tailnet ACL admits SSH as runner only"
             exit 1
           }
 
-      - name: Ensure backend stack
-        id: ensure
+      - name: Start per-run backend
         env:
-          BACKEND_TAG: ${{ needs.route.outputs.backend_tag }}
-        run: |
-          set -euo pipefail
-          # TODO(ios-e2e): real ensure call. cmuxterm-hq's
-          # scripts/dev-backend.sh (shim for skills/infra/dev-backend/
-          # dev-backend.sh) owns these stacks: `dev-backend.sh url --tag
-          # <tag>` ensures the tagged web+Postgres Docker stack on the VM and
-          # prints its private Tailscale Serve URL; `status` shows the
-          # 12-running / 64-registered stack budget this job must respect
-          # before ensuring. It drives the VM's control API over SSH, so CI
-          # needs a dedicated deploy key — secret CMUX_DEV_BACKEND_SSH_KEY,
-          # NOT yet provisioned — loaded into an ssh-agent here and never
-          # written to disk or echoed. Until that lands, emit the serve
-          # origin shape so the drivers fail loudly against a missing stack
-          # instead of a missing variable.
-          backend_url="https://${CMUX_E2E_BACKEND_HOST}"
-          echo "backend_url=$backend_url" >> "$GITHUB_OUTPUT"
-          echo "ensure (stub): tag=$BACKEND_TAG url=$backend_url" >> "$GITHUB_STEP_SUMMARY"
+          CMUX_E2E_IROH_RELAY_BIN: ${{ runner.temp }}/iroh-relay/iroh-relay
+          # ios-e2e environment secrets: the dev Stack project of the CI
+          # account. Environment-only: backend-up.sh writes them to 0600
+          # .dev.vars files, never argv. No relay key: the relay is per run.
+          CMUX_E2E_STACK_PROJECT_ID: ${{ secrets.CMUX_E2E_STACK_PROJECT_ID }}
+          CMUX_E2E_STACK_PUBLISHABLE_KEY: ${{ secrets.CMUX_E2E_STACK_PUBLISHABLE_KEY }}
+          CMUX_E2E_STACK_SERVER_KEY: ${{ secrets.CMUX_E2E_STACK_SERVER_KEY }}
+          CMUX_E2E_TLS_CERT: ${{ secrets.CMUX_E2E_TLS_CERT }}
+          CMUX_E2E_TLS_KEY: ${{ secrets.CMUX_E2E_TLS_KEY }}
+        run: ./scripts/e2e/backend-up.sh up
 
-  mac-host:
-    # Compiles nothing: reuses the prebuilt tagged Mac app, signs it into the
-    # CI Stack account, advertises it through the backend so the iOS client
-    # can discover it, then blocks on the done-file until the iOS job signals
-    # (or the bounded wait expires). Starts in PARALLEL with ios-e2e — the
-    # sim's sign-in/pair sequence retries until the Mac is advertised, so
-    # serializing the jobs would only add queue time.
-    needs: [route, backend]
+      - name: Serve until the macOS job finishes
+        if: needs.route.outputs.run_clients == 'true'
+        # Above the macOS job's own ceiling, so the backend is never the first
+        # thing to disappear under a live client.
+        timeout-minutes: 140
+        env:
+          CMUX_E2E_WAIT_TIMEOUT_SECONDS: "8100"
+        run: ./scripts/e2e/backend-up.sh hold
+
+      - name: Upload backend logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-e2e-backend-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/e2e-backend/logs
+          if-no-files-found: warn
+          retention-days: 7
+
+      # Runs after the log upload. Blacksmith runners are ephemeral, but the
+      # job must not rely on that: stop every process and delete the files
+      # that hold the Stack server key and the per-run keys.
+      - name: Stop per-run backend
+        if: always()
+        run: ./scripts/e2e/backend-up.sh down
+
+  mac-ios-e2e:
+    # The Mac and simulator share one runner. That removes the runner-to-runner
+    # network shortcut while relay-only policy keeps terminal traffic on the
+    # same Iroh path the gate is meant to exercise.
+    # Deliberately not `needs: backend`: the backend holds until this job
+    # releases it, so waiting for its completion would deadlock.
+    needs: route
     if: >-
       success()
-      && needs.route.outputs.run_e2e == 'true'
+      && needs.route.outputs.run_clients == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 45
-    outputs:
-      # Debug/audit only. A job output is readable by dependents only after
-      # this job completes, and this job completes only after the signal —
-      # the iOS job addresses the Mac by CMUX_E2E_MAC_TAILNET_HOSTNAME (the
-      # deterministic name it joined with) instead.
-      tailnet_hostname: ${{ steps.tailnet-name.outputs.hostname }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 120
+    environment: ios-e2e
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
+      CMUX_IROH_V2_FORCE_RELAY: "1"
+      # Read by scripts/mobile-dev-launch.sh, which forwards them to the
+      # simulator app: a fresh install must not stop on the What's New sheet,
+      # and the driver expects the paired terminal already open.
+      CMUX_UITEST_SUPPRESS_WHATS_NEW: "1"
+      CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE: "1"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
-      - name: Checkout
+      - name: Checkout cmux
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # The app arrives prebuilt; the checkout is for the driver scripts.
-          submodules: false
+          submodules: recursive
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Download tagged Mac app product
+      - name: Install build prerequisites
         run: |
           set -euo pipefail
-          # TODO(ios-e2e): reuse the compiled Mac app instead of building.
-          # ci-macos.yml's admission job is the pattern: `python3
-          # scripts/ci/reuse_app_host_products.py key <derived-data>` derives
-          # the reuse key from the source/Xcode fingerprint, then `... restore
-          # <derived-data>` (GH_TOKEN in env) pulls a producer-`seal`ed
-          # Build/Products tree from a prior run's artifact or its R2 copy
-          # into an isolated DerivedData root, with hit/miss reasons on the
-          # step outputs. This job wants exactly that consumer path plus the
-          # tag stamping scripts/reload.sh applies (bundle
-          # com.cmuxterm.app.debug.<tag>, socket /tmp/cmux-debug-<tag>.sock),
-          # and needs `permissions: actions: read` once wired. Until then,
-          # fail fast with the infra label rather than idle for 45 minutes.
-          echo "::error::[infra-preflight] Mac app product download not implemented (see reuse_app_host_products.py TODO)"
-          exit 1
-
-      - name: Join tailnet
-        # TODO(ios-e2e): pin to a commit SHA (see backend job); also confirm
-        # the action's macOS-runner support on the Blacksmith image.
-        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-          # Deterministic name (see workflow env): the parallel iOS job must
-          # be able to SSH here without a runtime hostname exchange.
-          hostname: ${{ env.CMUX_E2E_MAC_TAILNET_HOSTNAME }}
-
-      - name: Publish tailnet hostname
-        id: tailnet-name
-        run: |
-          set -euo pipefail
-          # TODO(ios-e2e): the original design exchanged the hostname from
-          # `tailscale status --self --json` via a job output written before
-          # the wait. That cannot work for a PARALLEL consumer — job outputs
-          # publish only when the job completes, which here is after the
-          # signal — so the deterministic join hostname above is the real
-          # addressing mechanism. This output stays for logs, the aggregate,
-          # and any future sequential consumer.
-          hostname="$(tailscale status --self --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
-          echo "hostname=$hostname" >> "$GITHUB_OUTPUT"
-          echo "tailnet hostname: $hostname (expected prefix: $CMUX_E2E_MAC_TAILNET_HOSTNAME)"
-
-      - name: Launch Mac host and wait for the iOS job
-        # Step ceiling above the driver's own ~25m bounded wait so a wedged
-        # driver can never consume the whole job timeout doing nothing.
-        timeout-minutes: 30
-        env:
-          CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
-          CMUX_DEV_BACKEND_URL: ${{ needs.backend.outputs.backend_url }}
-          # ~25m bounded done-file loop inside the driver; the done-file path
-          # itself comes from the workflow env (no GitHub API polling — see
-          # the CMUX_E2E_DONE_FILE comment at the top).
-          CMUX_E2E_WAIT_TIMEOUT_SECONDS: "1500"
-          # Dedicated CI Stack account, the same secret pair
-          # ios-streamed-validate.yml uses; the app's dev-secrets resolution
-          # reads CMUX_DOGFOOD_STACK_* from the environment first. Values
-          # travel only through the environment — never echoed, never argv,
-          # never written to disk.
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-        run: ./scripts/e2e/mac-host.sh
-
-  ios-e2e:
-    # The client half: fresh named simulator, prebuilt sim app, sign-in ->
-    # pair -> Iroh connect -> 6-step terminal script (scripts/e2e/README.md).
-    # Runs in parallel with mac-host (see that job's comment) and ALWAYS
-    # signals the Mac's done-file at the end, pass or fail, so the Mac never
-    # waits out its full timeout on a failed client.
-    needs: [route, backend]
-    if: >-
-      success()
-      && needs.route.outputs.run_e2e == 'true'
-      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    # Simulator-capable pool: MACOS_RUNNER_IOS is the variable the iOS
-    # simulator lanes read (test-ios.yml, ios-streamed-validate.yml).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 45
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          submodules: false
-
-      - name: Select Xcode
-        # Canonical fleet selector (ranks by macOS SDK, aligns xcode-select);
-        # simctl needs a toolchain with an iOS 26 simulator runtime.
-        run: ./scripts/select-ci-xcode.sh
+          ./scripts/install-zig-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+          brew_bin="$(brew --prefix)/bin"
+          export PATH="$brew_bin:$PATH"
+          echo "$brew_bin" >> "$GITHUB_PATH"
+          if ! command -v axe >/dev/null 2>&1; then
+            brew install cameroncooke/axe/axe
+          fi
+          command -v axe >/dev/null 2>&1 || {
+            echo "::error::[infra-preflight] axe is missing from the simulator runner"
+            exit 1
+          }
 
       - name: Ensure iOS simulator runtime
         run: xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
 
-      - name: Download iOS simulator app product
+      - name: Materialize CI auth profile
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
           set -euo pipefail
-          # TODO(ios-e2e): reuse the iOS lane's compiled product instead of
-          # building. test-ios.yml's ios-simulator-build job stages and stamps
-          # the simulator Build/Products tree
-          # (scripts/ci/ios_simulator_test_product.py stamp) and uploads it
-          # as artifact `ios-test-product-<run_id>-<run_attempt>` (tar.gz);
-          # its consumers download by artifact id, trying
-          # scripts/ci/parallel_artifact_download.py first. This lane needs a
-          # cross-workflow lookup of the newest compatible product for this
-          # head SHA (the way reuse_app_host_products.py locates Mac
-          # products), or a tagged ios/scripts/reload.sh-style build as the
-          # cold fallback. Caveat to resolve while wiring: that artifact is
-          # the TEST-host product — confirm its bundle id and entitlements
-          # suit the dogfood sign-in path (dev.cmux.ios.<tag>) or re-stamp.
-          # Needs `permissions: actions: read` once wired. Until then, fail
-          # fast with the infra label.
-          echo "::error::[infra-preflight] iOS sim app product download not implemented (see test-ios.yml product-upload TODO)"
-          exit 1
+          if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
+            echo "::error::[infra-preflight] CI Stack credentials are missing"
+            exit 1
+          fi
+          mkdir -p "$HOME/.secrets"
+          (
+            umask 077
+            # The agent profile reads CMUX_UITEST_*; the secret names retain
+            # their existing CI account naming for compatibility.
+            printf 'CMUX_UITEST_STACK_EMAIL=%s\n' "$CMUX_DOGFOOD_STACK_EMAIL"
+            printf 'CMUX_UITEST_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_PASSWORD"
+          ) > "$HOME/.secrets/cmuxterm-dev.env"
+          chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
+
+      # A runner that already runs Tailscale (a self-hosted fleet host) would
+      # have its own node re-registered and then logged out by the join below.
+      - name: Refuse a runner that already runs Tailscale
+        run: ./scripts/e2e/require-fresh-tailnet-host.sh
 
       - name: Join tailnet
-        # TODO(ios-e2e): pin to a commit SHA (see backend job).
-        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
           tags: tag:ci
-          hostname: cmux-e2e-ios-${{ github.run_id }}
+          # The macOS install dominated this step (44 s); reuse it across runs.
+          use-cache: "true"
+
+      - name: Point the apps at this run's backend
+        run: |
+          set -euo pipefail
+          # iroh-v2 and presence come from this run's backend and are baked
+          # into both apps by the reload scripts. web/ is not on the path under
+          # test: its side paths (device registry, push, What's New, the Mac
+          # compatibility policy, the legacy broker) use shared staging.
+          ./scripts/e2e/backend-env.sh env >> "$GITHUB_ENV"
+          {
+            echo "CMUX_DEV_BACKEND_MODE=local"
+            echo "CMUX_DEV_API_BASE_URL=https://cmux-staging.vercel.app"
+            echo "CMUX_IROH_BROKER_BASE_URL=https://cmux-staging.vercel.app"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure Mac relay-only policy
+        run: |
+          set -euo pipefail
+          source scripts/lib/mobile-attach.sh
+          mac_bundle_id="$(cmux_attach_mac_bundle_id "$CMUX_E2E_TAG")"
+          defaults write "$mac_bundle_id" cmux.iroh.debug.transport-mode -string relayOnly
+          defaults write "$mac_bundle_id" cmux.iroh.v2.force-relay -bool true
+          # reload.sh bakes no presence origin; the Mac reads this default.
+          defaults write "$mac_bundle_id" presenceServiceURL -string "$CMUX_PRESENCE_BASE_URL"
 
       - name: Boot fresh named simulator
         run: |
           set -euo pipefail
-          # Per-run named sim so parallel runs on a shared mini never boot,
-          # install onto, or reset each other's device; the newest iPhone
-          # device type on the image keeps this from pinning a model name
-          # that ages out of the runner image.
-          DEVTYPE="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; ts=[t["identifier"] for t in json.load(sys.stdin)["devicetypes"] if t.get("productFamily")=="iPhone"]; print(ts[-1])')"
-          UDID="$(xcrun simctl create "cmux-e2e-${GITHUB_RUN_ID}" "$DEVTYPE")"
-          xcrun simctl boot "$UDID"
-          xcrun simctl bootstatus "$UDID" -b
-          echo "CMUX_E2E_SIM_UDID=$UDID" >> "$GITHUB_ENV"
-          echo "sim: cmux-e2e-${GITHUB_RUN_ID} ($DEVTYPE) $UDID"
+          # Newest available iOS runtime, then the newest iPhone it supports.
+          # "iPhone" productFamily also lists iPod touch, and the last device
+          # type overall may have no runtime on the image.
+          read -r runtime devtype < <(xcrun simctl list runtimes -j | python3 -c '
+          import json, sys
+          runtimes = [r for r in json.load(sys.stdin)["runtimes"]
+                      if r.get("isAvailable") and r.get("platform") == "iOS"]
+          if not runtimes:
+              sys.exit("no available iOS runtime")
+          runtime = max(runtimes, key=lambda r: [int(x) for x in r["version"].split(".")])
+          phones = [d for d in runtime.get("supportedDeviceTypes", [])
+                    if d.get("productFamily") == "iPhone" and d["name"].startswith("iPhone")]
+          if not phones:
+              sys.exit("runtime " + runtime["identifier"] + " supports no iPhone")
+          def generation(device):
+              digits = "".join(c if c.isdigit() else " " for c in device["name"]).split()
+              return (int(digits[0]) if digits else 0, "Pro" in device["name"], "Max" not in device["name"])
+          print(runtime["identifier"], max(phones, key=generation)["identifier"])')
+          udid="$(xcrun simctl create "cmux-e2e-${GITHUB_RUN_ID}" "$devtype" "$runtime")"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "CMUX_E2E_SIM_UDID=$udid" >> "$GITHUB_ENV"
+          echo "simulator: $udid ($devtype, $runtime)"
+
+      - name: Build and launch Mac app
+        run: |
+          set -euo pipefail
+          ./scripts/reload.sh \
+            --tag "$CMUX_E2E_TAG" \
+            --launch \
+            --auth-profile agent \
+            --credentials-file "$HOME/.secrets/cmuxterm-dev.env" \
+            --swift-frontend-workaround
+
+      - name: Build iOS simulator app
+        run: |
+          set -euo pipefail
+          ./ios/scripts/reload.sh \
+            --tag "$CMUX_E2E_TAG" \
+            --simulator-id "$CMUX_E2E_SIM_UDID" \
+            --simulator-only \
+            --no-launch \
+            --swift-frontend-workaround
+
+      - name: Configure and verify simulator relay-only policy
+        run: |
+          set -euo pipefail
+          source scripts/lib/mobile-attach.sh
+          mac_bundle_id="$(cmux_attach_mac_bundle_id "$CMUX_E2E_TAG")"
+          ios_bundle_id="dev.cmux.ios.$(cmux_attach__slug "$CMUX_E2E_TAG")"
+          xcrun simctl spawn "$CMUX_E2E_SIM_UDID" defaults write \
+            "$ios_bundle_id" cmux.iroh.debug.transport-mode -string relayOnly
+          xcrun simctl spawn "$CMUX_E2E_SIM_UDID" defaults write \
+            "$ios_bundle_id" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY -string 1
+          [ "$(defaults read "$mac_bundle_id" cmux.iroh.debug.transport-mode)" = "relayOnly" ]
+          [ "$(defaults read "$mac_bundle_id" cmux.iroh.v2.force-relay)" = "1" ]
+          [ "$(xcrun simctl spawn "$CMUX_E2E_SIM_UDID" defaults read "$ios_bundle_id" cmux.iroh.debug.transport-mode)" = "relayOnly" ]
+          [ "$(xcrun simctl spawn "$CMUX_E2E_SIM_UDID" defaults read "$ios_bundle_id" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY)" = "1" ]
+          echo "relay policy: Mac and iOS simulator forced to relayOnly" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for the per-run backend
+        # Normally already up: it started while the apps were compiling.
+        timeout-minutes: 11
+        run: |
+          set -euo pipefail
+          ./scripts/e2e/backend-env.sh hosts 300
+          ./scripts/e2e/backend-env.sh wait 300
+
+      - name: Sign in and pair simulator
+        run: |
+          set -euo pipefail
+          ./scripts/mobile-dev-launch.sh \
+            --tag "$CMUX_E2E_TAG" \
+            --simulator-id "$CMUX_E2E_SIM_UDID" \
+            --ensure-mac \
+            --detach \
+            --auth-profile agent \
+            --credentials-file "$HOME/.secrets/cmuxterm-dev.env"
+
+      - name: Verify relay policy after launch
+        run: |
+          set -euo pipefail
+          source scripts/lib/mobile-attach.sh
+          mac_bundle_id="$(cmux_attach_mac_bundle_id "$CMUX_E2E_TAG")"
+          ios_bundle_id="dev.cmux.ios.$(cmux_attach__slug "$CMUX_E2E_TAG")"
+          [ "$(defaults read "$mac_bundle_id" cmux.iroh.v2.force-relay)" = "1" ]
+          [ "$(xcrun simctl spawn "$CMUX_E2E_SIM_UDID" defaults read "$ios_bundle_id" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY)" = "1" ]
 
       - name: Run iOS E2E
         env:
-          CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
-          CMUX_DEV_BACKEND_URL: ${{ needs.backend.outputs.backend_url }}
           CMUX_E2E_EVIDENCE_DIR: ${{ runner.temp }}/e2e-evidence
-          # Same CI Stack account as mac-host: pairing's same-account RPC
-          # gate requires both ends to resolve one account. Environment-only,
-          # never echoed.
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-        run: ./scripts/e2e/ios-e2e-run.sh
-
-      - name: Signal Mac host teardown
-        # Always, pass or fail: this touch is what releases the Mac host's
-        # done-file wait. It rides Tailscale SSH because the ACL grants
-        # tag:ci -> tag:ci on port 22 ONLY — deliberately nothing wider, so
-        # Iroh's path probing can never carry the terminal stream between the
-        # runners over the tailnet and silently bypass the transport this
-        # lane exists to gate (docs/ci/ios-e2e.md#tailscale-acl-requirements).
-        if: always()
         run: |
           set -euo pipefail
-          # TODO(ios-e2e): confirm the login user Tailscale SSH maps for the
-          # Blacksmith macOS runner account in the tailnet ACL ("runner"
-          # assumed here). Best-effort: a missed signal only costs the Mac
-          # its own bounded wait, so it must not repaint a green E2E red.
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-            "runner@${CMUX_E2E_MAC_TAILNET_HOSTNAME}" \
-            "touch '${CMUX_E2E_DONE_FILE}'" \
-            || echo "::warning::[infra-preflight] could not signal ${CMUX_E2E_MAC_TAILNET_HOSTNAME}; its wait expires at its own ~25m bound"
+          ./scripts/e2e/ios-e2e-run.sh \
+            --tag "$CMUX_E2E_TAG" \
+            --sim-udid "$CMUX_E2E_SIM_UDID" \
+            --evidence-dir "$CMUX_E2E_EVIDENCE_DIR"
 
       - name: Upload E2E evidence
         if: always()
@@ -381,45 +516,66 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Stop tagged Mac app
+        if: always()
+        run: |
+          set -euo pipefail
+          pkill -f "DerivedData/cmux-${CMUX_E2E_TAG}/.*/cmux DEV" 2>/dev/null || true
+
       - name: Delete simulator
         if: always()
         run: |
+          set -euo pipefail
           [ -n "${CMUX_E2E_SIM_UDID:-}" ] || exit 0
           xcrun simctl shutdown "$CMUX_E2E_SIM_UDID" 2>/dev/null || true
           xcrun simctl delete "$CMUX_E2E_SIM_UDID" || true
 
+      - name: Release the backend
+        # Always, pass or fail: this touch ends the backend job's hold. It rides
+        # Tailscale SSH as `runner`, the only SSH the ACL grants into
+        # tag:e2e-backend. Best-effort: a missed signal only costs the backend
+        # its own bounded wait. The /etc/hosts line goes too.
+        if: always()
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+            "runner@${CMUX_E2E_BACKEND_TAILNET_HOSTNAME}" "touch '${CMUX_E2E_BACKEND_DONE_FILE}'" \
+            || echo "::warning::[infra-preflight] could not release ${CMUX_E2E_BACKEND_TAILNET_HOSTNAME}; its hold expires at its own bound"
+          ./scripts/e2e/backend-env.sh unhosts
+
+      - name: Remove CI auth profile
+        if: always()
+        run: |
+          rm -f "$HOME/.secrets/cmuxterm-dev.env"
+          rmdir "$HOME/.secrets" 2>/dev/null || true
+
   ios-e2e-status:
-    # The one conclusion branch protection will eventually require
-    # (docs/ci/ios-e2e.md#promotion-plan): green when the route skipped the
-    # lane or every needed job passed; red when the route said run and any
-    # needed job failed, was cancelled, or was skipped unexpectedly. Fork PRs
-    # are a neutral skip — the secret-fenced jobs cannot run there, and a red
-    # would block every outside contribution.
-    needs: [route, backend, mac-host, ios-e2e]
+    # The one conclusion branch protection will eventually require: green when
+    # the route skipped the lane or the Mac job passed, red when the route ran
+    # and the Mac job failed. Fork PRs are a neutral skip because secret-fenced
+    # jobs cannot run there.
+    needs: [route, backend, mac-ios-e2e]
     if: always()
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Aggregate
         env:
           ROUTE_RESULT: ${{ needs.route.result }}
           RUN_E2E: ${{ needs.route.outputs.run_e2e }}
+          RUN_CLIENTS: ${{ needs.route.outputs.run_clients }}
           BACKEND_TAG: ${{ needs.route.outputs.backend_tag }}
           BACKEND_RESULT: ${{ needs.backend.result }}
-          MAC_RESULT: ${{ needs.mac-host.result }}
-          IOS_RESULT: ${{ needs.ios-e2e.result }}
+          MAC_IOS_RESULT: ${{ needs.mac-ios-e2e.result }}
           IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
           {
             echo "### iOS E2E"
             echo "- route: $ROUTE_RESULT (run_e2e=${RUN_E2E:-<unset>}, backend tag=${BACKEND_TAG:-<unset>})"
-            echo "- backend: $BACKEND_RESULT · mac-host: $MAC_RESULT · ios-e2e: $IOS_RESULT"
+            echo "- backend: $BACKEND_RESULT · mac-ios-e2e: $MAC_IOS_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$IS_FORK" = "true" ]; then
-            # Neutral skip: report it and pass without judging jobs the fork
-            # fence intentionally skipped.
-            echo "- conclusion: neutral skip (fork PR; secret-fenced jobs cannot run)" >> "$GITHUB_STEP_SUMMARY"
+            echo "- conclusion: neutral skip (fork PR; secret-fenced job cannot run)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if [ "$ROUTE_RESULT" != "success" ]; then
@@ -431,13 +587,14 @@ jobs:
             exit 0
           fi
           fail=0
-          for pair in "backend:$BACKEND_RESULT" "mac-host:$MAC_RESULT" "ios-e2e:$IOS_RESULT"; do
-            job="${pair%%:*}"; result="${pair#*:}"
-            if [ "$result" != "success" ]; then
-              echo "::error::$job: $result (needed because route said run)"
-              fail=1
-            fi
-          done
+          if [ "$BACKEND_RESULT" != "success" ]; then
+            echo "::error::backend: $BACKEND_RESULT (needed because route said run)"
+            fail=1
+          fi
+          if [ "$RUN_CLIENTS" = "true" ] && [ "$MAC_IOS_RESULT" != "success" ]; then
+            echo "::error::mac-ios-e2e: $MAC_IOS_RESULT (needed because route said run)"
+            fail=1
+          fi
           if [ "$fail" -ne 0 ]; then
             echo "- conclusion: FAIL" >> "$GITHUB_STEP_SUMMARY"
             exit 1

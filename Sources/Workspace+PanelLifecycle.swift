@@ -191,6 +191,7 @@ extension Workspace {
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        if let panelId { noteAgentWakeAgentReported(panelId: panelId, statusKey: agentStatusKey(forAgentPIDKey: key)) }
         if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
@@ -214,6 +215,9 @@ extension Workspace {
         if didChange {
             if refreshPorts { refreshTrackedAgentPorts() }
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
+        }
+        if let store = AppDelegate.shared?.notificationStore {
+            pruneOrphanedRestoredAgentNotifications(store: store)
         }
         return didChange
     }
@@ -468,6 +472,8 @@ extension Workspace {
         }
         clearCloudMaterializationFailure(surfaceID: panelId)
         cancelReservedCloudTerminalPane(panelID: panelId)
+        cloudBrowserCreationTasks.removeValue(forKey: panelId)?.cancel()
+        pendingCloudBrowserPanelIDs.remove(panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -545,18 +551,25 @@ extension Workspace {
         panelDirectories.removeValue(forKey: panelId)
         panelDirectoryDisplayLabels.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
+        panelPrompts.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
+        panelAutomationLabels.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
         pinMutationTokensByPanelId.removeValue(forKey: panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        clearProgramStatusPanel(panelId: panelId)
         agentStatusEntriesByPanelId.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
+        discardAgentWakeVerification(
+            panelId: panelId,
+            panel: (removedPanel ?? panel) as? TerminalPanel
+        )
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)

@@ -68,11 +68,19 @@ whose CI reused main's build tours main's build. For evidence no tour can produc
 (a drag, a recording from a fleet dogfood), upload it with `scripts/pr-media.py`;
 the workflow uploads through the same tool.
 
-`pr-media-prune.yml` keeps the branch small: weekly it drops the folders of
-pull requests closed over 30 days ago (unless an upload touched them since)
-and squashes the branch to one commit, so images in those old comments stop
-loading. It is a dry run unless dispatched with `-f apply=true` or
-`CI_PR_MEDIA_PRUNE_APPLY` is 1.
+`pr-media-prune.yml` keeps the branch small. For open PRs it keeps the current
+head, every revision referenced in the PR body or comments, and up to three
+other revisions uploaded within 30 days. If the head has no published media,
+the latest available revision remains. Flat manual assets, unknown PRs,
+incomplete comment lists, and legacy revisions without reliable upload ages
+are kept. `<!-- cmux:pr-media:keep -->` in a PR body/comment preserves its
+whole root; append an exact branch path to preserve particular evidence.
+
+PRs closed over 30 days ago are dropped unless recently uploaded, explicitly
+kept, or referenced by a live PR. The branch is squashed to one commit; a small
+timestamp index preserves upload ages through that rewrite. Images in old
+closed PR comments can stop loading. It is a dry run unless dispatched with
+`-f apply=true` or `CI_PR_MEDIA_PRUNE_APPLY` is 1.
 
 Give a new tour a `paths` list of `fnmatch` globs (`*` crosses directories),
 for example `"paths": ["Sources/*Browser*", "Packages/macOS/CmuxBrowser/*"]`.
@@ -106,7 +114,7 @@ the `paths` globs [PR media](#pr-media) picks it by:
 | `{"clickAt": {"x": 0.1, "y": 0.2}}`, `hoverAt` | Acts on a point in the main window, 0 to 1 from the top left. Both also take `"modifiers"`. |
 | `{"clickAt": {"x": 0.5, "y": 0.4}, "modifiers": ["command"]}` | A cmd-click. Same modifier names as `key`. Needed for anything behind cmd-click, such as opening a link in terminal output. The modifiers are held as global keyboard state around the click, so a cmd-`hover` works the same way for hover affordances. |
 | `{"dragAt": {"from": {"x": 0.2, "y": 0.5}, "to": {"x": 0.1, "y": 0.5}, "duration": 0.2}}` | Presses at `from` and drags to `to`, in the same window space. Use it for resizers and other drag handles. |
-| `{"menu": ["File", "New Workspace"]}` | Clicks through the menu bar. |
+| `{"menu": ["File", "New Workspace"]}` | Clicks through the menu bar. Each element after the first names a direct child of the menu the one before it opened, so a submenu item needs its submenu in the path (`["File", "Workspace", "Rename Workspace…"]`). Titles repeat across menus and at different depths inside one menu, and only the full path tells them apart. |
 | `{"socket": "method", "params": {...}, "save": "name"}` | A v2 control socket request. The reply is attached; `save` keeps its `result`, and a later param `"${name.workspace_id}"` reads a field from it. |
 | `{"socketLine": "agent_journal_append {...}"}` | One raw v1 socket line, for verbs with no v2 method. Every `${name.path}` inside it is replaced with a saved value; numeric path parts index arrays (`${ws.surfaces.0.id}`). A reply starting with `ERROR` fails the step. |
 | `{"expect": target, "exists": false}` | Checks that an element exists (or not). |

@@ -263,8 +263,16 @@ def locate(prefix: str, revision: str) -> tuple[str, int | None]:
 
 def nearest_of_any_width(prefix: str, revisions: list[str]) -> tuple[str, int] | None:
     """The nearest seed of this width over REVISIONS, else the nearest of the
-    first SEEDED_JOB_WIDTHS width that has one. PREFIX is unscoped."""
+    first SEEDED_JOB_WIDTHS width that has one. PREFIX is unscoped.
+
+    A probe may set CMUX_SEED_REQUIRE_OWN_WIDTH when its runner's seed chain
+    must match the width used by its Swift driver. That avoids silently
+    adopting a seed from another runner shape when the matching chain has not
+    been published yet; the caller then compiles from its own width or cold.
+    """
     own = swift_jobs()
+    if os.environ.get("CMUX_SEED_REQUIRE_OWN_WIDTH") == "1":
+        return nearest(scoped(prefix, own), revisions)
     for jobs in (own, *(width for width in SEEDED_JOB_WIDTHS if width != own)):
         found = nearest(scoped(prefix, jobs), revisions)
         if found:

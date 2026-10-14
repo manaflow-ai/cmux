@@ -80,7 +80,8 @@ enum AgentForkSupport {
 
     static func supportsFork(
         snapshot: SessionRestorableAgentSnapshot,
-        isRemoteContext: Bool = false
+        isRemoteContext: Bool = false,
+        probeOutputTimeoutNanoseconds: Int64 = commandOutputTimeoutNanoseconds
     ) async -> Bool {
         let executableIdentityResolver = AgentForkExecutableIdentityResolver()
         let forkCapabilityProbeCache = ForkCapabilityProbeResultCache()
@@ -88,7 +89,8 @@ enum AgentForkSupport {
             snapshot: snapshot,
             isRemoteContext: isRemoteContext,
             executableIdentityResolver: executableIdentityResolver,
-            forkCapabilityProbeCache: forkCapabilityProbeCache
+            forkCapabilityProbeCache: forkCapabilityProbeCache,
+            probeOutputTimeoutNanoseconds: probeOutputTimeoutNanoseconds
         )
     }
 
@@ -96,7 +98,8 @@ enum AgentForkSupport {
         snapshot: SessionRestorableAgentSnapshot,
         isRemoteContext: Bool = false,
         executableIdentityResolver: AgentForkExecutableIdentityResolver,
-        forkCapabilityProbeCache: ForkCapabilityProbeResultCache
+        forkCapabilityProbeCache: ForkCapabilityProbeResultCache,
+        probeOutputTimeoutNanoseconds: Int64 = commandOutputTimeoutNanoseconds
     ) async -> Bool {
         guard forkCommandIdentityParts(snapshot: snapshot) != nil else { return false }
         if isRemoteContext,
@@ -124,6 +127,7 @@ enum AgentForkSupport {
                 executableIdentityResolver: executableIdentityResolver,
                 forkCapabilityProbeCache: forkCapabilityProbeCache,
                 probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: true,
+                probeOutputTimeoutNanoseconds: probeOutputTimeoutNanoseconds,
                 outputSupportsFork: { output in
                     piFamilyVersionSupportsFork(
                         output,
@@ -151,6 +155,7 @@ enum AgentForkSupport {
             cacheDiscriminator: "opencode-version",
             executableIdentityResolver: executableIdentityResolver,
             forkCapabilityProbeCache: forkCapabilityProbeCache,
+            probeOutputTimeoutNanoseconds: probeOutputTimeoutNanoseconds,
             outputSupportsFork: { output in
                 openCodeVersionSupportsFork(output)
             }
@@ -523,6 +528,7 @@ enum AgentForkSupport {
         executableIdentityResolver: AgentForkExecutableIdentityResolver,
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache,
         probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: Bool = false,
+        probeOutputTimeoutNanoseconds: Int64,
         outputSupportsFork: @Sendable (String) -> Bool
     ) async -> Bool {
         let requestedWorkingDirectory = probeWorkingDirectory(snapshot: snapshot)
@@ -551,7 +557,8 @@ enum AgentForkSupport {
             executable: probe.executable,
             arguments: probe.arguments,
             environment: snapshot.launchCommand?.environment,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            outputTimeoutNanoseconds: probeOutputTimeoutNanoseconds
         ) else {
             return false
         }
@@ -1078,13 +1085,15 @@ enum AgentForkSupport {
         executable: String,
         arguments: [String],
         environment: [String: String]?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        outputTimeoutNanoseconds: Int64
     ) async -> String? {
         let runner = AgentForkCommandOutputRunner(
             executable: executable,
             arguments: arguments,
             environment: environment,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            outputTimeoutNanoseconds: outputTimeoutNanoseconds
         )
         return await withTaskCancellationHandler {
             await runner.start()

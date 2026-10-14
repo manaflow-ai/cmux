@@ -15,7 +15,7 @@ public struct SudoExecutionRunner {
     private let processRunner: SudoBoundedProcessRunner
     private let reviewedScriptReader: SudoReviewedScriptReader
     private let expectedParentExecutableURL: URL
-    private let privilegedHelperExecutableURL: URL
+    private let helperResolver: any SudoBundledHelperResolving
     private let messages: SudoFailureMessages
     private let now: @Sendable () -> Date
 
@@ -24,13 +24,14 @@ public struct SudoExecutionRunner {
     /// - Parameters:
     ///   - paths: The enclosing app bundle's private sudo spool.
     ///   - expectedParentExecutableURL: The enclosing cmux GUI executable.
-    ///   - privilegedHelperExecutableURL: The bundled CLI re-entered after authentication.
+    ///   - helperPolicy: The pinned signing identity that authenticates the bundled executor
+    ///     before it is staged into a root-owned directory and re-entered after authentication.
     ///   - messages: Localized terminal diagnostics persisted with results.
     ///   - pamConfiguration: The sudo PAM policy reader.
     public init(
         paths: SudoBrokerPaths,
         expectedParentExecutableURL: URL,
-        privilegedHelperExecutableURL: URL,
+        helperPolicy: SudoBundledHelperPolicy,
         messages: SudoFailureMessages,
         pamConfiguration: SudoPAMConfiguration = SudoPAMConfiguration()
     ) {
@@ -48,7 +49,7 @@ public struct SudoExecutionRunner {
             signaler: signaler
         )
         self.expectedParentExecutableURL = expectedParentExecutableURL
-        self.privilegedHelperExecutableURL = privilegedHelperExecutableURL
+        helperResolver = SudoBundledHelperResolver(policy: helperPolicy)
         self.messages = messages
         now = { .now }
     }
@@ -61,7 +62,7 @@ public struct SudoExecutionRunner {
         processRunner: SudoBoundedProcessRunner,
         reviewedScriptReader: SudoReviewedScriptReader = SudoReviewedScriptReader(),
         expectedParentExecutableURL: URL,
-        privilegedHelperExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/false"),
+        helperResolver: any SudoBundledHelperResolving = SudoUnavailableHelperResolver(),
         messages: SudoFailureMessages,
         now: @Sendable @escaping () -> Date
     ) {
@@ -72,7 +73,7 @@ public struct SudoExecutionRunner {
         self.processRunner = processRunner
         self.reviewedScriptReader = reviewedScriptReader
         self.expectedParentExecutableURL = expectedParentExecutableURL
-        self.privilegedHelperExecutableURL = privilegedHelperExecutableURL
+        self.helperResolver = helperResolver
         self.messages = messages
         self.now = now
     }
@@ -165,6 +166,23 @@ public struct SudoExecutionRunner {
                 return 1
             }
 
+            // Bind execution to the exact bytes the user reviewed. The digest was
+            // recorded in the manifest at approval; any other capability bytes are refused.
+            guard let reviewedDigest = manifest.reviewedScriptSHA256,
+                  SudoSHA256.isValidHex(reviewedDigest),
+                  SudoSHA256.hex(reviewedScript) == reviewedDigest else {
+                try settle(
+                    SudoResult(
+                        id: requestID,
+                        status: .failed,
+                        errorCode: .stagingFailed,
+                        note: messages.stagingFailed
+                    ),
+                    auditStatus: "failed reviewed-script-digest"
+                )
+                return 1
+            }
+
             // The broker validated the requester's generation-qualified identity
             // when it approved the request and stops observing requester exit once
             // the script is staged. From here on execution is independent of the
@@ -196,10 +214,28 @@ public struct SudoExecutionRunner {
                 return 0
             }
 
+            // Authenticate the enclosing bundle and take the executor digest from its
+            // validated seal. The root side stages and re-verifies before executing.
+            let privilegedHelper: SudoVerifiedHelper
+            do {
+                privilegedHelper = try helperResolver.privilegedExecutor()
+            } catch {
+                try settle(
+                    SudoResult(
+                        id: requestID,
+                        status: .failed,
+                        errorCode: .processLaunchFailed,
+                        note: messages.processLaunchFailed
+                    ),
+                    auditStatus: "failed helper-signature"
+                )
+                return 0
+            }
+
             let command = SudoExecutionCommand.sudo(
                 approvedScriptURL: store.approvedScriptURL(id: requestID),
                 reviewedScript: reviewedScript,
-                privilegedHelperExecutableURL: privilegedHelperExecutableURL,
+                privilegedHelper: privilegedHelper,
                 deadline: manifest.deadline,
                 currentDirectoryURL: URL(
                     fileURLWithPath: manifest.currentDirectory,

@@ -8,9 +8,14 @@ final class ResolvedControlPathProcessRunner:
     @unchecked Sendable
 {
     private let base: any RemoteSessionProcessRunning
+    private let controlPath: String
 
-    init(base: any RemoteSessionProcessRunning) {
+    init(
+        base: any RemoteSessionProcessRunning,
+        controlPath: String = ResolvedControlPathFixture.path
+    ) {
         self.base = base
+        self.controlPath = controlPath
     }
 
     func run(
@@ -21,7 +26,7 @@ final class ResolvedControlPathProcessRunner:
            request.arguments.first == "-G" {
             return RemoteCommandResult(
                 status: 0,
-                stdout: "controlpath \(ResolvedControlPathFixture.path)\n",
+                stdout: "controlpath \(controlPath)\n",
                 stderr: ""
             )
         }

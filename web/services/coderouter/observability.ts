@@ -5,7 +5,8 @@ import { reportError } from "../observability/report";
 import * as analytics from "./analytics";
 import { errorSummary, exceptionEvent } from "./exceptionEvent";
 
-type CodeRouterFailure =
+export type CodeRouterFailure =
+  | "configuration"
   | "credential_decrypt"
   | "provider_usage"
   | "provider_refresh"
@@ -25,6 +26,16 @@ type CodeRouterFailure =
 export type CoderouterFailureOptions = {
   /** Set false when the active request finalizer emits the trace-linked exception. */
   readonly emitPostHogException?: boolean;
+  /**
+   * `tenant` marks state the team owns and must fix, such as a revoked
+   * provider sign-in. It stays visible as a warning but never pages anyone.
+   */
+  readonly fault?: "tenant" | "upstream";
+};
+
+export type CoderouterFailureSeverity = {
+  readonly sentry: "error" | "warning";
+  readonly posthog: "error" | "warning";
 };
 
 /**
@@ -32,6 +43,7 @@ export type CoderouterFailureOptions = {
  * issues; everything else (provider transport, rate limits) is `warning`.
  */
 const OPERATOR_FAULT_FAILURES: ReadonlySet<CodeRouterFailure> = new Set([
+  "configuration",
   "credential_decrypt",
   "rds",
   "analytics_delivery",
@@ -44,7 +56,7 @@ const OPERATOR_FAULT_FAILURES: ReadonlySet<CodeRouterFailure> = new Set([
   "alerts",
 ]);
 
-const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|header|key|prompt|response|secret|session|team.?id|token/i;
+const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|handoff|header|key|lease|prompt|response|secret|session|team.?id|token/i;
 // A route finalizer emits one trace-linked exception after the handler returns.
 // Keep step failures out of Error Tracking while that route scope is active;
 // cron and other background callers still emit their standalone exception.
@@ -88,6 +100,18 @@ export function addCoderouterBreadcrumb(
  * provider. The original error is never sent to Sentry. Events are joined
  * to the ClickHouse route row by the ledger request id when a route is active.
  */
+export function coderouterFailureSeverity(
+  failure: CodeRouterFailure,
+  options: CoderouterFailureOptions = {},
+): CoderouterFailureSeverity {
+  // `upstream` marks a transient provider fault the next attempt retries.
+  if (options.fault) return { sentry: "warning", posthog: "warning" };
+  return {
+    sentry: "error",
+    posthog: OPERATOR_FAULT_FAILURES.has(failure) ? "error" : "warning",
+  };
+}
+
 export function reportCoderouterFailure(
   failure: CodeRouterFailure,
   error: unknown,
@@ -95,7 +119,11 @@ export function reportCoderouterFailure(
   options: CoderouterFailureOptions = {},
 ): void {
   const errorType = error instanceof Error ? error.name : typeof error;
-  const safeContext = sanitizeCoderouterFailureContext(context);
+  const safeContext = {
+    ...sanitizeCoderouterFailureContext(context),
+    ...(options.fault ? { fault: options.fault } : {}),
+  };
+  const severity = coderouterFailureSeverity(failure, options);
   addCoderouterBreadcrumb(
     "error",
     `coderouter.${failure}`,
@@ -109,6 +137,9 @@ export function reportCoderouterFailure(
     failure,
     errorType,
     ...safeContext,
+  }, {
+    level: severity.sentry,
+    ...(options.fault ? { tags: { fault: options.fault } } : {}),
   });
   const provider = typeof context.provider === "string" ? context.provider : "unknown";
   const requestId = typeof context.request_id === "string" ? context.request_id : undefined;
@@ -122,17 +153,35 @@ export function reportCoderouterFailure(
         type: `coderouter.${failure}`,
         value: errorSummary(error),
         fingerprint: `coderouter.${failure}:${provider}`,
-        level: OPERATOR_FAULT_FAILURES.has(failure) ? "error" : "warning",
+        level: severity.posthog,
         error,
-        properties: {
-          coderouter_failure: failure,
-          coderouter_error_type: errorType,
-          ...(requestId ? { coderouter_request_id: requestId } : {}),
-          ...safeContext,
-        },
+        properties: backgroundExceptionProperties(failure, errorType, requestId, safeContext),
       }),
     ]);
   }
+}
+
+/**
+ * Outside a route (cron, deferred ledger or analytics work); a failure inside
+ * one is filed by the route finalizer. `operation` is the cross-product label
+ * for server exceptions, so a caller's own step name moves to
+ * `coderouter_operation` instead of replacing it.
+ */
+function backgroundExceptionProperties(
+  failure: CodeRouterFailure,
+  errorType: string,
+  requestId: string | undefined,
+  safeContext: Record<string, string | number | boolean>,
+): Record<string, string | number | boolean> {
+  const { operation: step, ...rest } = safeContext;
+  return {
+    coderouter_failure: failure,
+    coderouter_error_type: errorType,
+    ...(requestId ? { coderouter_request_id: requestId } : {}),
+    ...rest,
+    ...(step === undefined ? {} : { coderouter_operation: step }),
+    operation: "coderouter.background",
+  };
 }
 
 export function sanitizeCoderouterFailureContext(

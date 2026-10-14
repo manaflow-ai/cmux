@@ -56,6 +56,35 @@ extension TerminalSurface {
         return try callbackContext.withRuntimeClipboardPasteIntent(body)
     }
 
+    /// Marks a native pointer dispatch so its clipboard writes count as copy-on-select.
+    @MainActor
+    public func withPointerSelectionCopyIntent<Result>(
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        guard let callbackContext = surfaceCallbackContext?
+            .takeUnretainedValue() else {
+            return try body()
+        }
+        return try callbackContext.withPointerSelectionCopyIntent(body)
+    }
+
+    /// Marks a synchronous copy action as a user-approved clipboard write.
+    ///
+    /// Remote and manual mirror surfaces reject automatic OSC 52 writes, but
+    /// a copy action initiated by the user must still reach the Mac clipboard.
+    /// The marker is visible only to the matching runtime callback's call
+    /// stack, so it cannot authorize later or unrelated remote output.
+    @MainActor
+    public func withUserInitiatedClipboardWriteIntent<Result>(
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        guard let callbackContext = surfaceCallbackContext?
+            .takeUnretainedValue() else {
+            return try body()
+        }
+        return try callbackContext.withUserInitiatedClipboardWriteIntent(body)
+    }
+
     /// Performs an internal binding action without treating it as user input.
     @MainActor
     @discardableResult

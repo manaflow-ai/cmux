@@ -136,7 +136,7 @@ extension TerminalController {
                 workspaceId: dock.workspaceId,
                 surfaceId: surfaceID,
                 browserPanel: browserPanel,
-                webView: browserPanel.webView
+                webView: browserPanel.webViewForAutomationCommand()
             ),
             nil
         )

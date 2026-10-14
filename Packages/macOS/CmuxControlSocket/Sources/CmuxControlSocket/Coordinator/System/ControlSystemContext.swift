@@ -111,6 +111,7 @@ public protocol ControlSystemContext: AnyObject {
     ///   - surfaceID: The explicit `surface_id` / `tab_id`, if any.
     ///   - requestedFocus: The requested `focus` flag (the app applies the
     ///     focus-allowance policy).
+    ///   - force: Whether a close batch may terminate active processes.
     ///   - moveParams: The raw request params, passed through to the
     ///     still-app-side move-to-new-workspace family.
     /// - Returns: The action resolution.
@@ -121,6 +122,7 @@ public protocol ControlSystemContext: AnyObject {
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
+        force: Bool,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution
 
@@ -135,6 +137,9 @@ public protocol ControlSystemContext: AnyObject {
     ///
     /// - Returns: The localized tab-not-found message.
     func controlSystemTabNotFoundMessage() -> String
+
+    /// App-bundle-resolved message for active-process batch close refusal.
+    func controlSystemCloseStrings() -> ControlSystemCloseStrings
 
     /// Splits a surface off into its own pane for `surface.split_off` /
     /// `surface.drag_to_split`, delegating to the shared app-side

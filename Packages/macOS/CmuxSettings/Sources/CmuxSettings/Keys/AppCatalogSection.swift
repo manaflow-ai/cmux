@@ -58,6 +58,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "newWorkspacePlacement"
     )
 
+    /// Ordering used by the Go to Workspace command-palette switcher.
+    public let goToWorkspaceOrder = DefaultsKey<WorkspaceSwitcherOrder>(
+        id: "app.goToWorkspaceOrder",
+        defaultValue: .sidebar,
+        userDefaultsKey: "goToWorkspaceOrder"
+    )
+
     /// Folder the Open Folder panel starts in. Empty keeps the active
     /// workspace's directory. Supports a leading `~`.
     public let defaultWorkspacePath = DefaultsKey<String>(
@@ -203,6 +210,27 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     /// Gates the "Close workspace?" prompts (running processes, multi-workspace
     /// close). The "Close pinned workspace?" prompt is not gated by it.
+    public let warnBeforeClosingAgentSession = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingAgentSession",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingAgentSession",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingAgentSession",
+                defaultValue: "Warn Before Closing Active Agent Session"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-agent-session",
+            searchKeywords: ["close", "agent", "session", "working", "confirmation"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingAgentSession",
+                    keywords: ["warn", "close", "agent", "session"]
+                )
+            ))
+        )
+    )
+
     public let warnBeforeClosingWorkspace = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingWorkspace",
         defaultValue: true,

@@ -136,6 +136,9 @@ enum JSONCParser {
                                 didClose = true
                                 break
                             }
+                            if JSONCParser.isLineTerminator(current) {
+                                result.append(current)
+                            }
                             index = followingIndex
                         }
                         guard didClose else {

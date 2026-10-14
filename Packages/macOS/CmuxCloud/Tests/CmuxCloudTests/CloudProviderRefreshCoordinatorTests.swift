@@ -96,6 +96,89 @@ struct CloudProviderRefreshCoordinatorTests {
         #expect(forces == [false, true])
     }
 
+    @Test("Forced readers that resume after the trailing pass share its result")
+    func forcedReadersDoNotOpenDuplicateTrailingPasses() async {
+        let coordinator = CloudProviderRefreshCoordinator()
+        let initialStarted = CloudLinkFirstValue<Bool>()
+        let releaseInitial = CloudLinkFirstValue<Bool>()
+        var calls = 0
+        let operation: @MainActor (Bool) async -> Bool = { force in
+            calls += 1
+            if !force {
+                initialStarted.resolve(true)
+                _ = await releaseInitial.result
+            }
+            return true
+        }
+
+        let initial = Task { await coordinator.refresh(force: false, operation: operation) }
+        _ = await initialStarted.result
+        // Both forced callers are already waiting on the same old pass. The
+        // first continuation owns the trailing pass; the second must consume
+        // that result even if it resumes after the owner cleared inFlight.
+        let first = Task { await coordinator.refresh(force: true, operation: operation) }
+        let second = Task { await coordinator.refresh(force: true, operation: operation) }
+        releaseInitial.resolve(true)
+
+        #expect(await initial.value)
+        #expect(await first.value)
+        #expect(await second.value)
+        #expect(calls == 2)
+    }
+
+    @Test("Invalidation cannot be undone by a waiter that resumes late")
+    func invalidationDoesNotAllowStaleForcedPublication() async {
+        let coordinator = CloudProviderRefreshCoordinator()
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let operationReturned = CloudLinkFirstValue<Bool>()
+        let allowOperationToReturn = CloudLinkFirstValue<Bool>()
+        let secondEntered = CloudLinkFirstValue<Bool>()
+        var calls = 0
+        let operation: @MainActor (Bool) async -> Bool = { _ in
+            calls += 1
+            if calls == 1 {
+                started.resolve(true)
+                _ = await release.result
+                // Hold the pass owner after its I/O has completed. The test
+                // can now invalidate at a known point before the owner
+                // publishes or resumes any waiter.
+                operationReturned.resolve(true)
+                _ = await allowOperationToReturn.result
+                return false
+            }
+            return true
+        }
+
+        let first = Task { await coordinator.refresh(force: true, operation: operation) }
+        _ = await started.result
+        let second = Task {
+            // Admit the second waiter before releasing the first operation so
+            // both continuations participate in the invalidation boundary.
+            secondEntered.resolve(true)
+            return await coordinator.refresh(force: true, operation: operation)
+        }
+        _ = await secondEntered.result
+        release.resolve(true)
+        _ = await operationReturned.result
+        // Invalidate while the pass owner is held after the operation has
+        // completed. A stale result must not be published or reused.
+        coordinator.invalidate()
+        allowOperationToReturn.resolve(true)
+        #expect(await first.value)
+        #expect(await second.value)
+        // The second request arrived while the original entry was in flight,
+        // so it correctly receives one trailing forced pass of its own after
+        // the owner repairs the invalidated pass.
+        #expect(calls == 3)
+
+        // The invalidation forced a new operation. Invalidate once more so
+        // this read cannot reuse the current completion either.
+        coordinator.invalidate()
+        #expect(await coordinator.refresh(force: true, operation: operation))
+        #expect(calls == 4)
+    }
+
     @Test("A metadata change restarts an invalidated pass before releasing its readers")
     func invalidatedPassFinishesWithTheCurrentGraph() async {
         let coordinator = CloudProviderRefreshCoordinator()

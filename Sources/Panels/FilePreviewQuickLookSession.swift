@@ -59,23 +59,35 @@ final class FilePreviewQuickLookSession {
         )
     }
 
+    /// Unregisters a root and its last shared item before AppKit teardown can reenter an update.
+    /// Repeated calls for an already unregistered root have no effect.
     func dismantle(_ view: NSView) {
         guard liveViews.contains(view) else { return }
         liveViews.remove(view)
-        Self.releaseView(view)
         if liveViews.allObjects.isEmpty {
             item = nil
             itemRevision = nil
         }
+        // Retire the root only after the session has forgotten it and any
+        // last shared item. AppKit teardown can synchronously re-enter a
+        // representable update while the old QLPreviewView is deactivated.
+        Self.releaseView(view)
     }
 
+    /// Clears all root and item ownership before releasing the session's previews.
+    /// Reentrant updates during release cannot configure any of the retiring roots.
     func close() {
-        for view in liveViews.allObjects {
-            Self.releaseView(view)
-        }
+        let views = liveViews.allObjects
+        // A preview root can synchronously re-enter SwiftUI while AppKit
+        // detaches its inner QLPreviewView. Remove every root from the session
+        // before invoking teardown so that re-entrant updates cannot configure
+        // a retiring representable.
         liveViews.removeAllObjects()
         item = nil
         itemRevision = nil
+        for view in views {
+            Self.releaseView(view)
+        }
     }
 
     private static func makeView() -> NSView {

@@ -2,19 +2,21 @@ import AppKit
 import CmuxFoundation
 import SwiftUI
 
-/// The Terminal section's theme rows: the current light and dark themes, a
+/// The Themes section's terminal theme rows: the current light and dark themes, a
 /// Revert button while a pick is being previewed, the `cmux themes` terminal
 /// picker as a secondary path, and a gallery of theme cards below.
 @MainActor
 struct TerminalThemeSettingsRows: View {
     let hostActions: SettingsHostActions
     @State private var model: TerminalThemeGalleryModel?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsCardRow(
                 configurationReview: .settingsOnly,
-                String(localized: "settings.app.theme", defaultValue: "Theme"),
+                searchAnchorID: "setting:themes:terminal-theme",
+                String(localized: "settings.terminal.theme", defaultValue: "Terminal Theme"),
                 subtitle: model.map { Self.subtitle(for: $0.selection) }
             ) {
                 HStack(spacing: 8) {
@@ -64,6 +66,9 @@ struct TerminalThemeSettingsRows: View {
             }
             await galleryModel.load()
         }
+        .onChange(of: colorScheme) { _, newScheme in
+            model?.appearanceDidChange(prefersDark: newScheme == .dark)
+        }
     }
 
     private static func subtitle(for selection: CmuxTerminalThemePair) -> String {
@@ -85,7 +90,7 @@ struct TerminalThemeSettingsRows: View {
     }
 }
 
-/// Slot picker, search field and card grid for ``TerminalThemeGalleryModel``.
+/// Search field and card grid for ``TerminalThemeGalleryModel``.
 @MainActor
 private struct TerminalThemeGalleryView: View {
     @Bindable var model: TerminalThemeGalleryModel
@@ -94,24 +99,10 @@ private struct TerminalThemeGalleryView: View {
 
     var body: some View {
         let results = model.results
-        let selectedName = model.selectedName(for: model.slot)
+        let selectedName = model.themeInUse
 
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Picker(
-                    String(localized: "settings.terminal.themeGallery.slot", defaultValue: "Appearance", bundle: .module),
-                    selection: $model.slot
-                ) {
-                    Text(String(localized: "appearance.light", defaultValue: "Light"))
-                        .tag(TerminalThemeGalleryModel.Slot.light)
-                    Text(String(localized: "appearance.dark", defaultValue: "Dark"))
-                        .tag(TerminalThemeGalleryModel.Slot.dark)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .accessibilityIdentifier("SettingsTerminalThemeSlotPicker")
-
                 Spacer(minLength: 8)
 
                 TextField(
@@ -133,28 +124,8 @@ private struct TerminalThemeGalleryView: View {
                     .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                    ForEach(results.themes) { theme in
-                        TerminalThemeCard(
-                            theme: theme,
-                            isSelected: Self.matches(theme.name, selectedName),
-                            usedInLight: Self.matches(theme.name, model.selection.light),
-                            usedInDark: Self.matches(theme.name, model.selection.dark),
-                            onSelect: { model.select(theme.name) }
-                        )
-                    }
-                }
-                if results.isTruncated {
-                    Text(
-                        String(
-                            localized: "settings.terminal.themeGallery.truncated",
-                            defaultValue: "More themes match. Keep typing to narrow the list.",
-                            bundle: .module
-                        )
-                    )
-                    .cmuxFont(.caption)
-                    .foregroundStyle(.secondary)
-                }
+                themeGroup(results.matchingSlot, isDark: model.slotInUse == .dark, selectedName: selectedName)
+                themeGroup(results.otherAppearance, isDark: model.slotInUse != .dark, selectedName: selectedName)
             }
 
             if model.writeFailed {
@@ -172,6 +143,37 @@ private struct TerminalThemeGalleryView: View {
         .accessibilityIdentifier("SettingsTerminalThemeGallery")
     }
 
+    /// One appearance's cards under a "Dark Themes" or "Light Themes" heading.
+    @ViewBuilder
+    private func themeGroup(
+        _ themes: [TerminalThemeGalleryModel.Theme],
+        isDark: Bool,
+        selectedName: String?
+    ) -> some View {
+        if !themes.isEmpty {
+            Text(Self.groupTitle(isDark: isDark))
+                .cmuxFont(.caption, weight: .semibold)
+                .foregroundStyle(.secondary)
+                .padding(.top, 4)
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                ForEach(themes) { theme in
+                    TerminalThemeCard(
+                        theme: theme,
+                        isSelected: Self.matches(theme.name, selectedName),
+                        onSelect: { model.select(theme.name) }
+                    )
+                    .equatable()
+                }
+            }
+        }
+    }
+
+    private static func groupTitle(isDark: Bool) -> String {
+        isDark
+            ? String(localized: "settings.terminal.themeGallery.darkGroup", defaultValue: "Dark Themes", bundle: .module)
+            : String(localized: "settings.terminal.themeGallery.lightGroup", defaultValue: "Light Themes", bundle: .module)
+    }
+
     private static func matches(_ name: String, _ other: String?) -> Bool {
         guard let other else { return false }
         return name.caseInsensitiveCompare(other) == .orderedSame
@@ -180,55 +182,38 @@ private struct TerminalThemeGalleryView: View {
 
 /// One theme card: the theme's background with its name in its foreground
 /// color, a cursor block, and its 16 ANSI colors as two swatch rows.
-@MainActor
-private struct TerminalThemeCard: View {
+///
+/// Cards are built as they scroll into view, so each keeps its view count
+/// small: the background and swatches are one `Canvas`, colors are resolved
+/// once in ``TerminalThemeGalleryModel/PreviewColors``, and `Equatable` lets
+/// SwiftUI skip cards whose theme and selection did not change.
+struct TerminalThemeCard: View, Equatable {
     let theme: TerminalThemeGalleryModel.Theme
     let isSelected: Bool
-    let usedInLight: Bool
-    let usedInDark: Bool
     let onSelect: () -> Void
 
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.theme.name == rhs.theme.name && lhs.isSelected == rhs.isSelected
+    }
+
     var body: some View {
-        let colors = theme.colors
-        let background = colors.background?.color ?? Color(nsColor: .textBackgroundColor)
-        let foreground = colors.foreground?.color ?? Color(nsColor: .textColor)
+        let preview = theme.preview
+        let foreground = preview.foreground ?? Color(nsColor: .textColor)
 
         Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 5) {
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack(spacing: 4) {
-                        Text(verbatim: theme.name)
-                            .cmuxFont(size: 10, weight: .medium, design: .monospaced)
-                            .foregroundStyle(foreground)
-                            .lineLimit(1)
-                        RoundedRectangle(cornerRadius: 1, style: .continuous)
-                            .fill(colors.cursor?.color ?? foreground)
-                            .frame(width: 5, height: 11)
-                    }
-                    swatchRow(colors: colors, range: 0..<8)
-                    swatchRow(colors: colors, range: 8..<16)
-                }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(background)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                )
-
-                HStack(spacing: 4) {
-                    if usedInLight {
-                        badge(String(localized: "appearance.light", defaultValue: "Light"))
-                    }
-                    if usedInDark {
-                        badge(String(localized: "appearance.dark", defaultValue: "Dark"))
-                    }
-                }
-                .frame(height: 14)
+            HStack(spacing: 4) {
+                Text(verbatim: theme.name)
+                    .cmuxFont(size: 10, weight: .medium, design: .monospaced)
+                    .foregroundStyle(foreground)
+                    .lineLimit(1)
+                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                    .fill(preview.cursor ?? foreground)
+                    .frame(width: 5, height: 11)
             }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, minHeight: Self.previewHeight, alignment: .topLeading)
+            .background(TerminalThemeSwatches(preview: preview))
             .padding(5)
             .contentShape(Rectangle())
             .background(
@@ -242,59 +227,38 @@ private struct TerminalThemeCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(verbatim: theme.name))
-        .accessibilityValue(accessibilityValue)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        // Long names truncate; only realized cards pay for the tooltip.
         .help(Text(verbatim: theme.name))
     }
 
-    /// Says which appearances use this theme, or nothing when neither does.
-    private var accessibilityValue: String {
-        switch (usedInLight, usedInDark) {
-        case (true, true):
-            String(
-                localized: "settings.terminal.themeGallery.card.lightAndDark",
-                defaultValue: "Current light and dark theme",
-                bundle: .module
-            )
-        case (true, false):
-            String(
-                localized: "settings.terminal.themeGallery.card.light",
-                defaultValue: "Current light theme",
-                bundle: .module
-            )
-        case (false, true):
-            String(
-                localized: "settings.terminal.themeGallery.card.dark",
-                defaultValue: "Current dark theme",
-                bundle: .module
-            )
-        case (false, false):
-            ""
-        }
-    }
-
-    private func swatchRow(colors: GhosttyThemeColors, range: Range<Int>) -> some View {
-        HStack(spacing: 2) {
-            ForEach(range, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(colors.palette[index]?.color ?? Color.clear)
-                    .frame(height: 8)
-            }
-        }
-    }
-
-    private func badge(_ title: String) -> some View {
-        Text(title)
-            .cmuxFont(size: 9, weight: .medium)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(Color.secondary.opacity(0.15)))
-    }
+    /// Height of the drawn preview: name row plus two swatch rows.
+    static let previewHeight: CGFloat = 54
 }
 
-private extension GhosttyThemeRGB {
-    var color: Color {
-        Color(.sRGB, red: Double(red) / 255, green: Double(green) / 255, blue: Double(blue) / 255, opacity: 1)
+/// The card's background and its two rows of eight ANSI swatches, drawn in
+/// one pass.
+private struct TerminalThemeSwatches: View {
+    let preview: TerminalThemeGalleryModel.PreviewColors
+
+    var body: some View {
+        Canvas { context, size in
+            let card = Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6, style: .continuous)
+            context.fill(card, with: .color(preview.background ?? Color(nsColor: .textBackgroundColor)))
+            context.stroke(card, with: .color(Color.primary.opacity(0.1)), lineWidth: 1)
+
+            let inset: CGFloat = 8
+            let spacing: CGFloat = 2
+            let swatchHeight: CGFloat = 8
+            let width = (size.width - inset * 2 - spacing * 7) / 8
+            for row in 0..<2 {
+                let y = size.height - inset - swatchHeight - CGFloat(1 - row) * (swatchHeight + 7)
+                for column in 0..<8 {
+                    guard let color = preview.palette[row * 8 + column] else { continue }
+                    let rect = CGRect(x: inset + CGFloat(column) * (width + spacing), y: y, width: width, height: swatchHeight)
+                    context.fill(Path(roundedRect: rect, cornerRadius: 2, style: .continuous), with: .color(color))
+                }
+            }
+        }
     }
 }

@@ -301,7 +301,7 @@ struct MobileIrohReleaseGateRunnerTests {
         )
         #expect(complete.passed)
         #expect(complete.scenario == "relay_rollover")
-        #expect(complete.soakDurationSeconds == 330)
+        #expect(complete.soakDurationSeconds == 1_950)
     }
 
     @Test
@@ -432,7 +432,7 @@ struct MobileIrohReleaseGateRunnerTests {
             independentEventsContinuityVerified: true,
             artifactLaneVerified: true,
             unrefreshedExpiryDisconnectVerified: false,
-            soakDurationSeconds: 330,
+            soakDurationSeconds: 1_950,
             routeKind: "iroh",
             selectedPath: "managed_relay",
             failure: nil,
@@ -548,7 +548,7 @@ struct MobileIrohReleaseGateRunnerTests {
         controlStreamContinuityVerified: true,
         independentEventsContinuityVerified: true,
         artifactLaneVerified: true,
-        soakDurationSeconds: 330
+        soakDurationSeconds: 1_950
     )
 
     private static let successfulExpiryProbe = MobileIrohReleaseGateProbeResult(

@@ -72,6 +72,7 @@ struct SidebarSnapshotOwnerTests {
         let root = VerticalTabsSidebar(
             updateViewModel: UpdateStateModel(),
             fileExplorerState: FileExplorerState(),
+            sessionIndexStore: SessionIndexStore(),
             featureFlags: flags,
             sidebarUnread: SidebarUnreadModel(),
             titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),

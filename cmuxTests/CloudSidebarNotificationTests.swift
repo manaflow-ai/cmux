@@ -35,7 +35,7 @@ struct CloudSidebarNotificationTests {
         #expect(deliveries == [target])
         let arranged = CloudSidebarOrganizationTree(nodes: fixture.nodes(unread: sync.unreadTerminalIDs)).arrange(using: owner.state)
         let group = try #require(CloudSidebarOrganizationTree(nodes: arranged).parent(of: fixture.folderID("ws_1")))
-        #expect(group.children.map(\.id) == [fixture.folderID("ws_2"), fixture.folderID("ws_1")])
+        #expect(group.children.filter(\.canOrganize).map(\.id) == [fixture.folderID("ws_2"), fixture.folderID("ws_1")])
         #expect(group.children[0].hasUnreadDescendant)
         #expect(!group.children[1].hasUnreadDescendant)
         #expect(owner.perform(.down, id: fixture.folderID("ws_2"), nodes: arranged))
@@ -90,7 +90,7 @@ struct CloudSidebarNotificationTests {
         owner.raiseNotification(resource: SurfaceResourceID(machine: fixture.machine, kind: .terminal, key: "term_ws_2"), nodes: fixture.nodes())
         let arranged = CloudSidebarOrganizationTree(nodes: fixture.nodes()).arrange(using: owner.state)
         let parent = try #require(CloudSidebarOrganizationTree(nodes: arranged).parent(of: fixture.folderID("ws_1")))
-        #expect(parent.children.map(\.id) == [fixture.folderID("ws_1"), fixture.folderID("ws_2")])
+        #expect(parent.children.filter(\.canOrganize).map(\.id) == [fixture.folderID("ws_1"), fixture.folderID("ws_2")])
         #expect(parent.children[0].isPinned)
         #expect(owner.perform(.pin, id: fixture.folderID("ws_2"), nodes: fixture.nodes()))
         let pinnedOrder = owner.state
@@ -115,7 +115,7 @@ struct CloudSidebarNotificationTests {
             owner.raiseNotification(resource: terminal.id, nodes: tree)
             let arranged = CloudSidebarOrganizationTree(nodes: tree).arrange(using: owner.state)
             let parent = try #require(CloudSidebarOrganizationTree(nodes: arranged).parent(of: fixture.folderID("ws_1")))
-            #expect(parent.children.map(\.id) == [fixture.folderID("ws_1"), fixture.folderID("ws_2")])
+            #expect(parent.children.filter(\.canOrganize).map(\.id) == [fixture.folderID("ws_1"), fixture.folderID("ws_2")])
         }
     }
 
@@ -145,7 +145,7 @@ struct CloudSidebarNotificationTests {
         _ = fixture.catalog.replaceResources([fixture.snapshot().resources[0]], on: fixture.machine, from: fixture.provider)
         fixture.catalog.sidebarNotifications.flush()
         #expect(fixture.catalog.sidebarOrganization.state.groups.isEmpty)
-        #expect(fixture.catalog.sidebarNodes(on: fixture.machine).allSatisfy { $0.machine == fixture.machine })
+        #expect(fixture.catalog.sidebarNodes(on: fixture.machine).withoutCoderouterSection.allSatisfy { $0.machine == fixture.machine })
     }
 
     @Test("Sign-out retains pins but confirmed machine deletion forgets them durably")
@@ -188,14 +188,14 @@ struct CloudSidebarNotificationTests {
         let before = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: owner.state)
         let terminalOrders = Dictionary(uniqueKeysWithValues: CloudTreeNodeBuilder.flattened(before)
             .filter { $0.children.contains { if case .terminal = $0.kind { return true }; return false } }
-            .map { ($0.id, $0.children.map(\.id)) })
+            .map { ($0.id, $0.children.filter(\.canOrganize).map(\.id)) })
         let target = try #require(folder.children.last?.dragResource?.id)
         owner.raiseNotification(resource: target, nodes: before)
         let after = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: owner.state)
         let group = try #require(CloudSidebarOrganizationTree(nodes: after).parent(of: folder.id))
         #expect(group.children.first?.id == folder.id)
         for row in CloudTreeNodeBuilder.flattened(after) {
-            if let expected = terminalOrders[row.id] { #expect(row.children.map(\.id) == expected) }
+            if let expected = terminalOrders[row.id] { #expect(row.children.filter(\.canOrganize).map(\.id) == expected) }
         }
         #expect(CloudSidebarOrganizationStore(defaults: fixture.defaults).state == owner.state)
     }

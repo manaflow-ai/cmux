@@ -15,6 +15,7 @@ struct MachineCreateCoordinatorTests {
     @MainActor
     final class LaunchRecorder {
         var arguments: [[String]] = []
+        var operationIDs: [UUID] = []
         var progressHandlers: [@MainActor (String) -> Void] = []
         var completions: [@MainActor (CloudVMActionLauncher.Completion) -> Void] = []
         var starts = true
@@ -31,7 +32,8 @@ struct MachineCreateCoordinatorTests {
         }
 
         var cancellableLaunch: MachineCreateCoordinator.CancellableLaunch {
-            { [self] arguments, progress, completion in
+            { [self] operationID, arguments, progress, completion in
+                self.operationIDs.append(operationID)
                 self.arguments.append(arguments)
                 guard starts else { return nil }
                 progressHandlers.append(progress)
@@ -121,7 +123,7 @@ struct MachineCreateCoordinatorTests {
     @Test func awaitingCreateReturnsItsExactWorkspaceReceipt() async {
         let (coordinator, _, _, _, _) = makeCoordinator()
         let receipt = UUID()
-        let result = await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest()) { _, _, completion in
+        let result = await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest()) { _, _, _, completion in
             completion(CloudVMActionLauncher.Completion(
                 terminationStatus: 0, output: "", workspaceId: receipt, machineId: "created"
             ))
@@ -131,9 +133,25 @@ struct MachineCreateCoordinatorTests {
         #expect(!coordinator.hasRunningOperations)
     }
 
+    @Test func forkShowsPendingRowAndAdoptsTheForkedMachineFromItsReceipt() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        let request = MachineCreateRequest.fork(
+            sourceMachineID: "vm-source", sourceName: "Build machine", kind: .desktop, selectionWindowID: nil
+        )
+        #expect(coordinator.start(request, cancellableLaunch: launches.cancellableLaunch))
+        // The row exists before the CLI prints anything.
+        let pending = coordinator.operations.first
+        #expect(pending?.request.displayName == "Fork of Build machine")
+        #expect(pending?.isRunning == true)
+        #expect(launches.arguments.first == ["vm", "fork", "vm-source", "--focus", "false"])
+        // `cmux vm fork` output: the receipt names the copy before the attach finishes.
+        launches.progressHandlers.first?("Forked Cloud VM vm-copy\n  snapshot: sh-1\nOK machine=vm-copy\n")
+        #expect(coordinator.operations.first?.createdMachineID == "vm-copy")
+    }
+
     @Test func refusedAwaitedCreateReturnsWithoutPendingRow() async {
         let (coordinator, _, _, _, _) = makeCoordinator()
-        let result = await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest()) { _, _, _ in nil }
+        let result = await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest()) { _, _, _, _ in nil }
         #expect(result == nil)
         #expect(coordinator.operations.isEmpty)
     }
@@ -144,8 +162,8 @@ struct MachineCreateCoordinatorTests {
         let unrelatedID = try #require(coordinator.operations.first?.id)
         let (started, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let waiting = Task { @MainActor in
-            await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest(name: "cancelled")) { arguments, progress, completion in
-                let handle = launches.cancellableLaunch(arguments, progress, completion)
+            await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest(name: "cancelled")) { operationID, arguments, progress, completion in
+                let handle = launches.cancellableLaunch(operationID, arguments, progress, completion)
                 signal.yield(())
                 signal.finish()
                 return handle
@@ -645,7 +663,7 @@ struct MachinesPanelPendingCreateTests {
                 pendingCreates: pending,
                 snapshot: SurfaceCatalogSnapshot(machines: catalog, resources: [], projections: []),
                 localWorkspaces: []
-            )
+            ).withoutCoderouterSection
         }
         func rows(machines: [MachineSnapshot], catalog: [SurfaceMachineInfo] = [], pending: [MachineCreateOperation]) -> [String] {
             nodes(machines: machines, catalog: catalog, pending: pending).map(\.id)
@@ -729,7 +747,7 @@ struct MachinesPanelPendingCreateTests {
             pendingCreates: [running, failed],
             snapshot: .empty,
             localWorkspaces: []
-        )
+        ).withoutCoderouterSection
         #expect(nodes.map(\.id) == [
             "pending-machine:\(running.id.uuidString)",
             "pending-machine:\(failed.id.uuidString)",

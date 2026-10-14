@@ -189,7 +189,8 @@ extension CMUXCLI {
     /// value only defines the session-flags layer; it never replaces a lower
     /// layer, and copying lower layers into it would make Codex discover and
     /// run every user handler twice. Each value therefore carries exactly one
-    /// cmux group.
+    /// cmux group. The UserPromptSubmit and Stop groups hold a second, direct
+    /// handler that hands queued agent messages to Codex.
     /// Persistent hooks are inventoried read-only so the wrapper does not add a
     /// duplicate cmux producer. Only explicit `cmux hooks codex install` or
     /// `uninstall` commands mutate `CODEX_HOME`. No live socket is required.
@@ -217,20 +218,19 @@ extension CMUXCLI {
         // ~/.codex. Any write failure falls back to the inline snippet.
         let hooksDir = eventsToInject.isEmpty ? nil : Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
-        for event in eventsToInject {
-            let hookBody = Self.codexWrapperHookBody(event: event, for: codexDef)
+        func hookCommand(subcommand: String, body: String) throws -> String {
             let command: String
             if let scriptPath = hooksDir.flatMap({
-                Self.writeCodexHookScript(subcommand: event.cmuxSubcommand, body: hookBody, in: $0)
+                Self.writeCodexHookScript(subcommand: subcommand, body: body, in: $0)
             }) {
                 let shellCommand = CodexHookScriptName.shellCommand(forScriptPath: scriptPath)
                 if !shellCommand.contains("'''") {
                     command = shellCommand
                 } else {
-                    command = hookBody
+                    command = body
                 }
             } else {
-                command = hookBody
+                command = body
             }
             // TOML multi-line literal string ('''...''') preserves bytes verbatim
             // and may contain single quotes, so the embedded `echo '{}'` / `sh -c
@@ -240,7 +240,21 @@ extension CMUXCLI {
             guard !command.contains("'''") else {
                 throw CLIError(message: "Codex hook command contains a triple single quote and cannot be TOML-encoded.")
             }
-            let toml = "hooks.\(event.agentEvent)=[{hooks=[{type=\"command\",command='''\(command)''',timeout=\(event.timeoutMs)}]}]"
+            return command
+        }
+        for event in eventsToInject {
+            let toml = try event.configValue { subcommand in
+                if let companion = event.companion, subcommand == companion.cmuxSubcommand {
+                    return try hookCommand(
+                        subcommand: subcommand,
+                        body: Self.codexWrapperCompanionHookBody(companion, for: codexDef)
+                    )
+                }
+                return try hookCommand(
+                    subcommand: subcommand,
+                    body: Self.codexWrapperHookBody(event: event, for: codexDef)
+                )
+            }
             args.append("-c")
             args.append(toml)
         }
@@ -333,13 +347,37 @@ extension CMUXCLI {
 
     /// Names that the current wrapper schema may reference from a live session.
     static func currentCodexWrapperHookScriptFilenames(for def: AgentHookDef) -> Set<String> {
-        Set(CodexHookInjectionSchema.current.events.compactMap { event in
+        var names = Set(CodexHookInjectionSchema.current.events.compactMap { event in
             let body = codexWrapperHookBody(event: event, for: def)
             return CodexHookScriptName(
                 contents: "#!/bin/sh\n\(body)\n",
                 subcommand: event.cmuxSubcommand
             )?.filename
         })
+        for companion in CodexHookInjectionSchema.current.events.compactMap(\.companion) {
+            let body = codexWrapperCompanionHookBody(companion, for: def)
+            if let name = CodexHookScriptName(
+                contents: "#!/bin/sh\n\(body)\n",
+                subcommand: companion.cmuxSubcommand
+            )?.filename {
+                names.insert(name)
+            }
+        }
+        return names
+    }
+
+    /// A companion handler runs directly: its stdout (agent messages for
+    /// Codex) must reach Codex. It runs on every prompt and stop, so any
+    /// failure, including an unreachable app, answers `{}`.
+    private static func codexWrapperCompanionHookBody(
+        _ companion: CodexHookCompanion,
+        for def: AgentHookDef
+    ) -> String {
+        codexSynchronousAgentHookShellCommand(
+            "cmux hooks codex \(companion.cmuxSubcommand)",
+            for: def,
+            failOpen: true
+        )
     }
 
     private static func codexWrapperHookBody(

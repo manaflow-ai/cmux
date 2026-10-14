@@ -18,8 +18,17 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
             sessionID: max(1, Int(correlation.handle(for: String(connection.stableId())) ?? 1)),
             selectedPath: {
                 CmxIrohObservedConnectionPath(
-                    snapshots: connection.paths().map(CmxIrohConnectionPathSnapshot.init)
+                    snapshots: connection.paths()
+                        .prefix(CmxIrohConnectionPathCounts.maximumReportedPathCount)
+                        .map(CmxIrohConnectionPathSnapshot.init)
                 ).diagnosticPathKind
+            },
+            pathCounts: {
+                CmxIrohConnectionPathCounts(
+                    snapshots: connection.paths()
+                        .prefix(CmxIrohConnectionPathCounts.maximumReportedPathCount)
+                        .map(CmxIrohConnectionPathSnapshot.init)
+                )
             }
         )
         // Subscribe first. The observer serializes its initial snapshot with
@@ -43,18 +52,22 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
         let surface: UInt32?
         let sessionID: Int
         let selectedPath: @Sendable () -> DiagnosticPathKind
+        let pathCounts: @Sendable () -> CmxIrohConnectionPathCounts
         private var hasRecordedInitialPath = false
+        private var lastPathCounts: CmxIrohConnectionPathCounts?
 
         init(
             log: DiagnosticLog,
             surface: UInt32?,
             sessionID: Int,
-            selectedPath: @escaping @Sendable () -> DiagnosticPathKind
+            selectedPath: @escaping @Sendable () -> DiagnosticPathKind,
+            pathCounts: @escaping @Sendable () -> CmxIrohConnectionPathCounts = { .zero }
         ) {
             self.log = log
             self.surface = surface
             self.sessionID = sessionID
             self.selectedPath = selectedPath
+            self.pathCounts = pathCounts
         }
 
         func onEvent(event: PathEvent) async {
@@ -64,6 +77,7 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
                 .transportPathEvent, surface: surface,
                 a: redacted.kind.rawValue, b: redacted.pathKind.rawValue, c: sessionID
             ))
+            recordPathInventory()
             if redacted.kind == .selected || redacted.kind == .lagged {
                 // A lost event does not imply the previous path is still selected.
                 recordSelectedPath()
@@ -76,6 +90,20 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
             guard !hasRecordedInitialPath else { return }
             hasRecordedInitialPath = true
             recordSelectedPath()
+            recordPathInventory()
+        }
+
+        private func recordPathInventory() {
+            let counts = pathCounts()
+            guard counts != lastPathCounts else { return }
+            lastPathCounts = counts
+            log.record(DiagnosticEvent(
+                .transportPathInventory,
+                surface: surface,
+                a: counts.relay,
+                b: counts.nonRelay,
+                c: sessionID
+            ))
         }
 
         private func recordSelectedPath() {

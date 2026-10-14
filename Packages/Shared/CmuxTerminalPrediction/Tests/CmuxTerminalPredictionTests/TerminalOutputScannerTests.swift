@@ -26,7 +26,7 @@ struct TerminalOutputScannerTests {
 
     @Test func operatingSystemCommandsAreIgnorableWithEitherTerminator() {
         #expect(scan("\u{1B}]133;D;0\u{7}") == [.ignorable])
-        #expect(scan("\u{1B}]7;file:///home/leo\u{1B}\\") == [.ignorable])
+        #expect(scan("\u{1B}]7;file:///home/dev\u{1B}\\") == [.ignorable])
     }
 
     @Test func anEscapeEndsAStringSequenceAndStartsTheNextOne() {
@@ -55,21 +55,38 @@ struct TerminalOutputScannerTests {
         // Their payload is printable ASCII that never reaches the grid; read
         // as printed text it would contradict a correct prediction.
         #expect(scan("\u{1B}P+q544e\u{1B}\\") == [.ignorable])
-        #expect(scan("\u{1B}_Gf=100,a=T;AAAA\u{1B}\\") == [.ignorable])
+        #expect(scan("\u{1B}_private-app\u{1B}\\") == [.ignorable])
         #expect(scan("\u{1B}^private\u{1B}\\") == [.ignorable])
         #expect(scan("\u{1B}Xstart of string\u{1B}\\x") == [.ignorable, .printable(0x78)])
     }
 
+    @Test func imagesMoveTheCursorAndAreDisruptive() {
+        // A kitty graphics command and a sixel image both place an image and
+        // leave the cursor past it.
+        #expect(scan("\u{1B}_Gf=100,a=T;AAAA\u{1B}\\") == [.disruptive])
+        #expect(scan("\u{1B}P0;1q#0;2;0;0;0#0~~\u{1B}\\") == [.disruptive])
+        #expect(scan(["\u{1B}_G", "i=1;AAAA\u{1B}", "\\x"]) == [.disruptive, .printable(0x78)])
+    }
+
+    @Test func aCursorSaveAndRestoreDetourIsIgnorable() {
+        // A status line or clock repainted elsewhere, then the cursor put
+        // back where it was.
+        #expect(scan("\u{1B}7\u{1B}[24;70H12:01\u{1B}8x") == [.ignorable, .printable(0x78)])
+        #expect(scan("\u{1B}[s\u{1B}[1;1Hclock\u{1B}[ux") == [.ignorable, .printable(0x78)])
+        // An alternate-screen switch inside still counts.
+        #expect(scan("\u{1B}7\u{1B}[?1049h") == [.alternateScreen(true)])
+    }
+
     @Test func belIsPayloadInADeviceControlString() {
         // BEL is payload here, unlike in an OSC.
-        #expect(scan("\u{1B}Pq#0;2;0;0;0\u{7}#0!7~\u{1B}\\") == [.ignorable])
+        #expect(scan("\u{1B}P+q#0;2;0;0;0\u{7}#0!7~\u{1B}\\") == [.ignorable])
         // tmux passthrough doubles each ESC inside its DCS. Ghostty ends the
         // DCS at the first ESC and runs the inner sequence, and so does this.
         #expect(scan("\u{1B}Ptmux;\u{1B}\u{1B}]0;title\u{7}\u{1B}\\") == [.ignorable, .ignorable])
     }
 
     @Test func aDeviceControlStringSplitAcrossChunksIsStillOneSignal() {
-        #expect(scan(["\u{1B}_Gi=1;", "AAAA", "\u{1B}", "\\x"]) == [.ignorable, .printable(0x78)])
+        #expect(scan(["\u{1B}_ai=1;", "AAAA", "\u{1B}", "\\x"]) == [.ignorable, .printable(0x78)])
     }
 
     @Test func cancelAbortsAStringSequence() {
@@ -92,7 +109,7 @@ struct TerminalOutputScannerTests {
     }
 
     @Test func cursorMotionIsDisruptive() {
-        #expect(scan("\u{1B}[3D") == [.disruptive])
+        #expect(scan("\u{1B}[3D") == [.cursorLeftBy(3)])
         #expect(scan("\u{1B}[2K") == [.disruptive])
         #expect(scan("\u{1B}[H") == [.disruptive])
     }
@@ -104,9 +121,11 @@ struct TerminalOutputScannerTests {
         #expect(scan("\u{1B}[K\u{1B}[0K\u{1B}[P\u{1B}[1P") == [
             .clearAtCursor, .clearAtCursor, .clearAtCursor, .clearAtCursor
         ])
-        // Wider counts, other erase modes and selective erase are redraws.
+        // Other erase modes, wider deletes and selective erase are redraws.
+        // A wider move left is reported with its count for the engine's
+        // model of the line to judge.
         #expect(scan("\u{1B}[2D\u{1B}[1K\u{1B}[2P\u{1B}[?K") == [
-            .disruptive, .disruptive, .disruptive, .disruptive
+            .cursorLeftBy(2), .disruptive, .disruptive, .disruptive
         ])
     }
 

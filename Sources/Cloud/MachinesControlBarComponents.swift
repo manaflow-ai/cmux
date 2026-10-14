@@ -39,8 +39,8 @@ struct MachinesFreeAccessBanner: View {
             .layoutPriority(1)
             CloudBannerDismissButton(action: onDismiss)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+        .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundColor(isExpired ? Color.orange : .secondary)
         .contentShape(Rectangle())
@@ -106,5 +106,41 @@ struct MachinesChromeIconButton: View {
 
     private var symbolSource: CmuxResolvedIconSource {
         .systemSymbol(name: symbolName, accessibilityDescription: nil)
+    }
+}
+
+/// A short labeled chrome button for the one action the header must sell
+/// (Invite). Same height and tint rules as ``MachinesChromeIconButton``.
+struct MachinesChromeLabelButton: View {
+    let symbolName: String
+    let title: String
+    let accessibilityLabel: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: symbolName)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .cmuxFont(size: 11, weight: .medium)
+            }
+            // Same grey and hover rule as the tab bar's mode labels above.
+            .foregroundColor(RightSidebarChromeControlStyle.pillForegroundColor(isSelected: false, isHovered: isHovered))
+            .padding(.leading, 7)
+            // The text ends under the tab bar's close glyph (12 pt from the edge).
+            .padding(.trailing, 4)
+            .frame(height: 20)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(isHovered ? 0.08 : 0))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .safeHelp(accessibilityLabel)
+        .accessibilityLabel(accessibilityLabel)
     }
 }

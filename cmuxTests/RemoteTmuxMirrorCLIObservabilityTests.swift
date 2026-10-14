@@ -392,21 +392,29 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         ) throws {
             appDelegate = try #require(AppDelegate.shared)
             windowID = appDelegate.createMainWindow()
+            // These tests assert the remote mirror's projected panes. A window
+            // Dock is a separate container and is created lazily by unrelated
+            // UI setup; retire any restored Dock so it cannot add an incidental
+            // pane to workspace-scoped control snapshots.
+            appDelegate.teardownWindowDock(forWindowId: windowID)
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
             workspace = try #require(manager.selectedWorkspace)
             outerPanelID = try #require(workspace.focusedPanelId)
             if focusAwayFromMirror {
-                nonMirrorPanelID = try #require({
-                    switch workspace.newTerminalSplitOutcome(
-                        from: outerPanelID,
-                        orientation: .horizontal,
-                        focus: true,
-                        autoLayout: true
-                    ) {
-                    case .created(let panel): return panel.id
-                    default: return nil
-                    }
-                }())
+                // No closure here: capturing `workspace` (self) before every
+                // stored property is set fails definite initialization.
+                let splitPanelID: UUID?
+                if case .created(let panel) = workspace.newTerminalSplitOutcome(
+                    from: outerPanelID,
+                    orientation: .horizontal,
+                    focus: true,
+                    autoLayout: true
+                ) {
+                    splitPanelID = panel.id
+                } else {
+                    splitPanelID = nil
+                }
+                nonMirrorPanelID = try #require(splitPanelID)
             } else {
                 nonMirrorPanelID = nil
             }

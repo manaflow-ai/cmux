@@ -13,6 +13,7 @@ import {
   jobsContentLocales,
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
+  cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
@@ -220,12 +221,20 @@ export const agentReadablePages = [
   { path: "/docs/cloud/networking", title: "Cloud Files and Networking" },
   { path: "/docs/cloud/cli", title: "Cloud CLI Reference" },
   { path: "/docs/cloud/troubleshooting", title: "Cloud Security and Troubleshooting" },
+  { path: "/docs/coderouter", title: "CodeRouter" },
+  { path: "/docs/coderouter/agents", title: "CodeRouter Agents and Models" },
+  { path: "/docs/coderouter/cli", title: "CodeRouter CLI and Troubleshooting" },
   { path: "/docs/ssh", title: "SSH" },
   { path: "/docs/remote-tmux", title: "Remote tmux", locales: remoteTmuxDocsLocales },
   {
     path: "/docs/managed-policies",
     title: "Managed Policies (MDM)",
     locales: managedPoliciesDocsLocales,
+  },
+  {
+    path: "/docs/cloud-security",
+    title: "Cloud Security",
+    locales: cloudSecurityDocsLocales,
   },
   { path: "/docs/ios", title: "iOS App" },
   {
@@ -254,6 +263,7 @@ export const agentReadablePages = [
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
   { path: "/assets", title: "Brand Assets" },
+  { path: "/art", title: "Art" },
   { path: "/guides", title: "Guides" },
   { path: "/compare", title: "Compare cmux" },
   ...agentReadableComparePages,

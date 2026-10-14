@@ -69,6 +69,43 @@ public struct WindowChromeColorResolver: Sendable {
         )
     }
 
+    /// Returns `foreground` with just enough extra opacity to reach
+    /// `minimumContrast` (a WCAG contrast ratio) once composited over
+    /// `background`.
+    ///
+    /// Secondary chrome text is the label color at reduced opacity, which is
+    /// tuned for neutral backgrounds. Over a saturated mid-tone terminal
+    /// theme the same opacity can fall to about 2.6:1. A color that already
+    /// meets the floor comes back unchanged, so neutral themes keep the
+    /// system look; one that cannot reach it comes back fully opaque.
+    public func contrastFloored(
+        _ foreground: NSColor,
+        over background: NSColor,
+        minimumContrast: CGFloat
+    ) -> NSColor {
+        let color = foreground.usingColorSpace(.sRGB) ?? foreground
+        let backgroundLuminance = relativeLuminance(compositedColor(background, over: .black))
+        func contrast(atAlpha alpha: CGFloat) -> CGFloat {
+            let composited = compositedColor(color.withAlphaComponent(alpha), over: background)
+            return contrastRatio(relativeLuminance(composited), backgroundLuminance)
+        }
+        let startAlpha = color.alphaComponent
+        guard contrast(atAlpha: startAlpha) < minimumContrast else { return foreground }
+        guard contrast(atAlpha: 1) >= minimumContrast else { return color.withAlphaComponent(1) }
+        var low = startAlpha
+        var high: CGFloat = 1
+        for _ in 0..<12 {
+            let mid = (low + high) / 2
+            if contrast(atAlpha: mid) >= minimumContrast { high = mid } else { low = mid }
+        }
+        return color.withAlphaComponent(high)
+    }
+
+    /// Returns the WCAG contrast ratio between two opaque colors.
+    public func contrastRatio(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
+        contrastRatio(relativeLuminance(lhs), relativeLuminance(rhs))
+    }
+
     /// Returns the color scheme with stronger contrast against `backgroundColor`.
     public func readableColorScheme(for backgroundColor: NSColor) -> ColorScheme {
         let backgroundLuminance = relativeLuminance(backgroundColor)

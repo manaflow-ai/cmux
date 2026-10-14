@@ -18,8 +18,35 @@ import SwiftUI
 enum CmuxMain {
     /// Raises inherited descriptor limits before receipt writing or worker routing.
     static func main() {
-        FileDescriptorLimitController().raiseSoftLimitIfNeeded()
-        AppHostProcessReceipt.writeIfRequired()
+        // First: nothing may read preferences before an app-host test process
+        // switches to its own domain.
+        TestProcessDefaults.installIfHostingTests()
+        runStartup()
+    }
+
+    /// Runs the ordered startup steps shared by the process entry point and its
+    /// startup-order regression test.
+    static func runStartup(
+        defaults: UserDefaults = .standard,
+        raiseFileDescriptorLimit: () -> Void = {
+            FileDescriptorLimitController().raiseSoftLimitIfNeeded()
+        },
+        writeAppHostReceipt: () -> Void = {
+            AppHostProcessReceipt.writeIfRequired()
+        },
+        routeWorkers: () -> Void = {
+            CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
+        },
+        preloadSigningSecret: () -> Void = {
+            SurfaceResumeApprovalStore.preloadSigningSecret()
+        },
+        launchApp: () -> Void = {
+            cmuxApp.main()
+        }
+    ) {
+        installCrashOnExceptionsPolicy(defaults: defaults)
+        raiseFileDescriptorLimit()
+        writeAppHostReceipt()
 #if DEBUG
         // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
         // debug log file. Route bonsplit through the shared writer so the
@@ -28,8 +55,19 @@ enum CmuxMain {
         // appenders, concurrent lines interleaved and landed out of order.
         Bonsplit.DebugEventLog.setExternalSink { cmuxDebugLog($0) }
 #endif
-        CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
-        SurfaceResumeApprovalStore.preloadSigningSecret()
-        cmuxApp.main()
+        routeWorkers()
+        preloadSigningSecret()
+        launchApp()
+    }
+
+    /// Installs the AppKit policy that makes exceptions escaping the run loop fatal.
+    static func installCrashOnExceptionsPolicy(defaults: UserDefaults = .standard) {
+        // AppKit catches exceptions at the run-loop boundary by default. If one
+        // unwinds through a Swift concurrency job, that leaves the runtime's
+        // thread-local executor tracking pointing at the dead job's stack frame.
+        // The next main-actor check then crashes far from the original throw.
+        // Registering the default makes AppKit terminate at the throw instead.
+        // `register(defaults:)` preserves an explicit user or test override.
+        defaults.register(defaults: ["NSApplicationCrashOnExceptions": true])
     }
 }

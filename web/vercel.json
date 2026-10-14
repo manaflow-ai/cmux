@@ -16,6 +16,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/hexclave-inbox",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/vm-reconcile",
       "schedule": "7,17,27,37,47,57 * * * *"
     },
@@ -48,8 +52,20 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/account",
+      "schedule": "29 * * * *"
+    },
+    {
       "path": "/api/cron/push-token-revocations",
       "schedule": "37 * * * *"
+    },
+    {
+      "path": "/api/cron/team-seats",
+      "schedule": "11,41 * * * *"
+    },
+    {
+      "path": "/api/cron/apple-notifications",
+      "schedule": "17,47 * * * *"
     }
   ]
 }

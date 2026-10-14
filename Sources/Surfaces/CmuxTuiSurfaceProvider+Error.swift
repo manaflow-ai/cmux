@@ -11,6 +11,7 @@ extension CmuxTuiSurfaceProvider {
         case remotePlacementUnavailable(String)
         case remoteTabNotFound(String)
         case terminalNotCreated(String)
+        case browserNotCreated
         /// The terminal's process already ended on the machine.
         case terminalExited(String)
         /// The daemon did not answer the resolver within the bounded retries.
@@ -19,6 +20,7 @@ extension CmuxTuiSurfaceProvider {
         case invalidSnapshot(String)
         case snapshotOnly(String)
         case stateUnavailable(String)
+        case tabStateUnavailable(String)
         case invalidPreviewURL
         /// No user-space WireGuard hub in this build (no bundled cmux-tui client).
         case hubUnavailable
@@ -59,6 +61,8 @@ extension CmuxTuiSurfaceProvider {
                 )
             case .terminalNotCreated(let detail):
                 return "cmux-tui did not report the new terminal: \(detail)"
+            case .browserNotCreated:
+                return String(localized: "cloud.browser.creationUnavailable", defaultValue: "Cloud browsers are unavailable on this machine. Refresh the machine and retry.")
             case .terminalExited(let id):
                 return String(
                     format: String(
@@ -91,6 +95,14 @@ extension CmuxTuiSurfaceProvider {
                     format: String(
                         localized: "cloudTree.error.renameTerminalUnavailable",
                         defaultValue: "The current state for %@ is unavailable. Refresh and retry before renaming."
+                    ),
+                    id
+                )
+            case .tabStateUnavailable(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.renameTabUnavailable",
+                        defaultValue: "The current state for tab %@ is unavailable. Refresh and retry before renaming."
                     ),
                     id
                 )

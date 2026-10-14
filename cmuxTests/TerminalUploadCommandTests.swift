@@ -252,9 +252,9 @@ import Testing
         // fall back to the escaped remote path — not yield "" (a spurious failure).
         let emitted = TerminalUploadCommand.emittedText(
             commandStdout: "\u{1b}\u{01}\u{02}",
-            remotePath: "/tmp/cmux-drop-x.png"
+            remotePath: "/tmp/cmux-paste-x.png"
         )
-        #expect(emitted.contains("cmux-drop"))
+        #expect(emitted.contains("cmux-paste-x.png"))
     }
 
     // MARK: - Environment
@@ -365,6 +365,70 @@ import Testing
         #expect(text == "OUT:/tmp/a.png OUT:/tmp/b.png")
     }
 
+    @Test func realCopyToRemotePathNeedsNoDirectorySetup() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("Screen Shot.PNG")
+        let payload = Data("upload regression".utf8)
+        try payload.write(to: source)
+        var destinations: [String] = []
+        defer {
+            for path in destinations { try? fileManager.removeItem(atPath: path) }
+        }
+
+        // Model a fresh remote home, expanding ~/ as SCP would, and run the actual
+        // shell copy. The command does no mkdir and prints no path; cmux must
+        // supply a usable destination and return it for insertion after copying.
+        let runner = runner { command, environment, timeout, operation in
+            var environment = environment
+            let path = environment["CMUX_UPLOAD_REMOTE_PATH"] ?? ""
+            let destination = path.hasPrefix("~/") ? directory.path + String(path.dropFirst()) : path
+            environment["CMUX_UPLOAD_REMOTE_PATH"] = destination
+            destinations.append(destination)
+            return try TerminalCustomUploadRunner.spawnCommand(
+                command: command, environment: environment, timeout: timeout, operation: operation
+            )
+        }
+        let result = runner.runSync(
+            fileURLs: [source, source],
+            endpoint: endpoint(),
+            command: "cp \"$CMUX_UPLOAD_LOCAL_PATH\" \"$CMUX_UPLOAD_REMOTE_PATH\"",
+            operation: TerminalImageTransferOperation()
+        )
+        let text = try result.get()
+
+        #expect(destinations.count == 2)
+        #expect(Set(destinations).count == 2, "each upload needs its own destination")
+        for path in destinations {
+            #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == payload)
+        }
+        #expect(text == destinations.map(TerminalImageTransferPlanner.escapeForShell).joined(separator: " "))
+    }
+
+    @Test func customRemotePathPreservesLegacyExtensionShape() {
+        let uuid = UUID(uuidString: "12345678-1234-1234-1234-1234567890AB")!
+        #expect(
+            TerminalUploadCommand.customRemotePath(
+                for: URL(fileURLWithPath: "/tmp/file.tar-gz"),
+                uuid: uuid
+            ) == "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.tar-gz"
+        )
+    }
+
+    @Test func customRemotePathBoundsLongExtensionByUTF8Bytes() {
+        let uuid = UUID(uuidString: "12345678-1234-1234-1234-1234567890AB")!
+        let longExtension = String(repeating: "x", count: 300)
+        let path = TerminalUploadCommand.customRemotePath(
+            for: URL(fileURLWithPath: "/tmp/file.\(longExtension)"),
+            uuid: uuid
+        )
+
+        #expect(path == "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.\(String(repeating: "x", count: 16))")
+        #expect(path.utf8.count < 255)
+    }
+
     @Test func nonZeroExitFailsClosed() {
         let result = runner { _, _, _, _ in (1, "", "boom") }.runSync(
             fileURLs: [URL(fileURLWithPath: "/tmp/a.png")],
@@ -406,7 +470,7 @@ import Testing
         }
     }
 
-    // MARK: - Real /bin/sh process — exercises the default spawnCommand path
+    // MARK: - Real /bin/sh process, through spawnCommand
 
     @Test func realProcessCapturesLargeOutputWithoutDeadlock() {
         // Output far larger than a pipe buffer, from a pipeline (so the writer is a
@@ -452,8 +516,18 @@ import Testing
     @Test func realProcessDoesNotHangOnBackgroundedChild() {
         // The shell exits immediately but leaves a backgrounded process holding the
         // stdout write end; the bounded drain must still return with the echoed
-        // output rather than waiting on the orphan.
-        let result = TerminalCustomUploadRunner().runSync(
+        // output rather than waiting on the orphan. The orphan holds both pipes
+        // for the whole drain bound, so a short bound proves the same return.
+        let runner = TerminalCustomUploadRunner(runProcess: { command, environment, timeout, operation in
+            try TerminalCustomUploadRunner.spawnCommand(
+                command: command,
+                environment: environment,
+                timeout: timeout,
+                operation: operation,
+                drainTimeout: 0.5
+            )
+        })
+        let result = runner.runSync(
             fileURLs: [URL(fileURLWithPath: "/tmp/a.png")],
             endpoint: endpoint(),
             command: "sleep 30 & echo done",

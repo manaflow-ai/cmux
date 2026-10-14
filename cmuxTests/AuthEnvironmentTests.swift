@@ -580,12 +580,11 @@ struct AuthEnvironmentTests {
         #expect(state.workspaceId == nil)
     }
 
-    @Test("Pro welcome checklist automatic presentation requires Pro plan, feature flag, and unseen defaults")
+    @Test("Pro welcome checklist automatic presentation requires Pro plan and unseen defaults")
     func proWelcomeChecklistAutomaticPresentationRequiresAllGates() {
-        #expect(ProWelcomeChecklistPresenter.shouldPresentAutomatically(isPro: true, seen: false, flagEnabled: true))
-        #expect(!ProWelcomeChecklistPresenter.shouldPresentAutomatically(isPro: false, seen: false, flagEnabled: true))
-        #expect(!ProWelcomeChecklistPresenter.shouldPresentAutomatically(isPro: true, seen: true, flagEnabled: true))
-        #expect(!ProWelcomeChecklistPresenter.shouldPresentAutomatically(isPro: true, seen: false, flagEnabled: false))
+        #expect(ProWelcomeChecklistPresenter.shouldPresentAutomatically(isPro: true, seen: false))
+        #expect(!ProWelcomeChecklistPresenter.shouldPresentAutomatically(isPro: false, seen: false))
+        #expect(!ProWelcomeChecklistPresenter.shouldPresentAutomatically(isPro: true, seen: true))
     }
 
     @Test("Pro welcome checklist consume gate persists once only")
@@ -599,13 +598,11 @@ struct AuthEnvironmentTests {
         #expect(defaults.bool(forKey: ProWelcomeChecklistPresenter.seenDefaultsKey) == false)
         #expect(ProWelcomeChecklistPresenter.consumeAutomaticPresentation(
             isPro: true,
-            flagEnabled: true,
             defaults: defaults
         ))
         #expect(defaults.bool(forKey: ProWelcomeChecklistPresenter.seenDefaultsKey))
         #expect(!ProWelcomeChecklistPresenter.consumeAutomaticPresentation(
             isPro: true,
-            flagEnabled: true,
             defaults: defaults
         ))
     }
@@ -620,17 +617,13 @@ struct AuthEnvironmentTests {
 
         #expect(!ProWelcomeChecklistPresenter.consumeAutomaticPresentation(
             isPro: false,
-            flagEnabled: true,
             defaults: defaults
         ))
         #expect(!defaults.bool(forKey: ProWelcomeChecklistPresenter.seenDefaultsKey))
 
-        #expect(!ProWelcomeChecklistPresenter.consumeAutomaticPresentation(
-            isPro: true,
-            flagEnabled: false,
-            defaults: defaults
-        ))
-        #expect(!defaults.bool(forKey: ProWelcomeChecklistPresenter.seenDefaultsKey))
+        #expect(ProWelcomeChecklistPresenter.canPresentAutomatically(defaults: defaults))
+        #expect(ProWelcomeChecklistPresenter.consumeAutomaticPresentation(isPro: true, defaults: defaults))
+        #expect(!ProWelcomeChecklistPresenter.canPresentAutomatically(defaults: defaults))
     }
 
     @MainActor

@@ -10,6 +10,7 @@ import {
 import { sameOriginRedirectUrl } from "../lib/agent-page-redirects";
 import { requestOrigin } from "../lib/request-origin";
 import {
+  canonicalUrlFromHtml,
   headersForAgentPage,
   headersForLlmsTxt,
   localeFromCanonicalPath,
@@ -54,11 +55,10 @@ export async function GET(request: NextRequest) {
     return new NextResponse("Not found\n", { status: 404 });
   }
 
-  const sourceUrl = canonicalUrlFromResponse(htmlResponse, htmlUrl);
-  const markdown = markdownFromHtml({
-    html: await htmlResponse.text(),
-    sourceUrl,
-  });
+  const html = await htmlResponse.text();
+  const sourceUrl =
+    canonicalUrlFromHtml(html) ?? canonicalUrlFromResponse(htmlResponse, htmlUrl);
+  const markdown = markdownFromHtml({ html, sourceUrl });
   const body =
     variant.format === "txt" ? plainTextFromMarkdown(markdown) : markdown;
   return new NextResponse(body, {

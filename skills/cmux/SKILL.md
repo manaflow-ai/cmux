@@ -72,3 +72,4 @@ details.
 | [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe cmux.json settings edits and validation |
 | [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser automation on surface-backed webviews |
 | [../cmux-markdown/SKILL.md](../cmux-markdown/SKILL.md) | Markdown viewer panel with live file watching |
+| [../cmux-capture/SKILL.md](../cmux-capture/SKILL.md) | Screenshots and clips of a cmux window for evidence |

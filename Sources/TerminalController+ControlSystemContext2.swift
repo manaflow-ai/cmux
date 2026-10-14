@@ -35,6 +35,7 @@ extension TerminalController {
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
+        force: Bool = false,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
@@ -112,7 +113,16 @@ extension TerminalController {
             return max(rawTarget, pinnedCount)
         }
 
-        func closeTabs(_ tabIds: [TabID]) -> (closed: Int, skippedPinned: Int) {
+        func closeTabs(_ tabIds: [TabID]) -> ControlTabActionResolution {
+            let activeSurfaceIDs = tabIds.compactMap { tabId -> UUID? in
+                guard let targetPanelID = workspace.panelIdFromSurfaceId(tabId),
+                      !workspace.isPanelPinned(targetPanelID),
+                      workspace.panelNeedsConfirmClose(panelId: targetPanelID) else { return nil }
+                return targetPanelID
+            }
+            if !force, !activeSurfaceIDs.isEmpty {
+                return .confirmationRequired(activeSurfaceIDs)
+            }
             var closed = 0
             var skippedPinned = 0
             for tabId in tabIds {
@@ -128,7 +138,7 @@ extension TerminalController {
                     closed += 1
                 }
             }
-            return (closed, skippedPinned)
+            return finish(.closed(closed: closed, skippedPinned: skippedPinned))
         }
 
         switch action {
@@ -195,7 +205,7 @@ extension TerminalController {
             guard let browserPanel = workspace.browserPanel(for: panelId) else {
                 return .reloadNotBrowser
             }
-            browserPanel.reload()
+            browserPanel.reload(dialogOwner: .automation)
             return finish(.none)
 
         case "duplicate", "duplicate_tab":
@@ -210,7 +220,11 @@ extension TerminalController {
                 ))
             }
 
-            guard let newPanel = workspace.duplicateBrowserToRight(panelId: panelId, focus: focus) else {
+            guard let newPanel = workspace.duplicateBrowserToRight(
+                panelId: panelId,
+                focus: focus,
+                creationPolicy: .automationPreload
+            ) else {
                 return .duplicateFailed
             }
             return finish(.created(newPanel.id))
@@ -227,7 +241,8 @@ extension TerminalController {
                 focus: focus,
                 inheritWorkingDirectoryFallback: true,
                 workingDirectoryFallbackSourcePanelId: panelId,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let newPanel):
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
@@ -280,8 +295,7 @@ extension TerminalController {
                 return .tabNotFoundInPane
             }
             let targetIds = Array(tabs.prefix(index).map(\.id))
-            let closeResult = closeTabs(targetIds)
-            return finish(.closed(closed: closeResult.closed, skippedPinned: closeResult.skippedPinned))
+            return closeTabs(targetIds)
 
         case "close_right", "close_to_right":
             guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),
@@ -293,8 +307,7 @@ extension TerminalController {
                 return .tabNotFoundInPane
             }
             let targetIds = (index + 1 < tabs.count) ? Array(tabs.suffix(from: index + 1).map(\.id)) : []
-            let closeResult = closeTabs(targetIds)
-            return finish(.closed(closed: closeResult.closed, skippedPinned: closeResult.skippedPinned))
+            return closeTabs(targetIds)
 
         case "close_others", "close_other_tabs":
             guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),
@@ -304,8 +317,7 @@ extension TerminalController {
             let targetIds = workspace.bonsplitController.tabs(inPane: paneId)
                 .map(\.id)
                 .filter { $0 != anchorTabId }
-            let closeResult = closeTabs(targetIds)
-            return finish(.closed(closed: closeResult.closed, skippedPinned: closeResult.skippedPinned))
+            return closeTabs(targetIds)
 
         default:
             return .unknownAction

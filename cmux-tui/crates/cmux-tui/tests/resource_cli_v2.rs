@@ -824,7 +824,7 @@ fn local_plugin_jsonl_never_connects_to_the_session_socket() {
     let invalid = parse_single_json(&invalid.stderr);
     assert_eq!(invalid["code"], "validation.invalid");
     assert_eq!(invalid["retryable"], false);
-    assert_eq!(invalid["details"]["field"], "sidebar_plugin");
+    assert_eq!(invalid["details"]["field"], "plugin");
     assert!(invalid["details"]["reason"].is_string());
     fs::remove_dir_all(dir).unwrap();
 }

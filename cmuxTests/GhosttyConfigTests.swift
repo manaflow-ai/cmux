@@ -3635,11 +3635,18 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testShouldInjectCJKFontFallbackAllowsSingleFontWithoutExplicitOverrides() throws {
+        // Probe coverage explicitly: an unresolvable family fails closed
+        // (#9193), so relying on JetBrains Mono being installed made this
+        // depend on the machine's fonts.
         try withTempConfig("font-family = JetBrains Mono\n") { path in
             XCTAssertTrue(
                 GhosttyApp.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
-                    configPaths: [path]
+                    configPaths: [path],
+                    rangeCoverageProbe: { fontFamily, _ in
+                        XCTAssertEqual(fontFamily, "JetBrains Mono")
+                        return false
+                    }
                 )
             )
         }
@@ -5060,7 +5067,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             )
         }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
@@ -5162,7 +5169,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             )
         }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
@@ -5293,7 +5300,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let integrationPath = repoRoot.appendingPathComponent("Resources/shell-integration/cmux-bash-integration.bash")

@@ -1,12 +1,16 @@
 public import Foundation
+public import Observation
 
 /// Persists signature-based Cloud banner dismissals in user defaults.
 @MainActor
+@Observable
 public final class CloudBannerDismissalStore {
     private static let defaultsKey = "cmux.cloud.banner.dismissed"
 
+    @ObservationIgnored
     private let defaults: UserDefaults
-    private var dismissedSignatures: [String: String]
+    /// The signatures currently hidden by this store's banner surfaces.
+    public private(set) var dismissedSignatures: [String: String]
 
     /// Creates a dismissal repository backed by the supplied defaults store.
     ///
@@ -19,16 +23,12 @@ public final class CloudBannerDismissalStore {
 
     /// Returns whether the current signature was dismissed for the identifier.
     ///
-    /// The persisted map is reloaded before every read so a long-lived client
-    /// observes dismissals written by another live client.
-    ///
     /// - Parameters:
     ///   - id: Stable identifier for the banner instance.
     ///   - signature: State-and-copy signature for the current banner.
     /// - Returns: `true` only when the stored signature exactly matches.
     public func isDismissed(id: String, signature: String) -> Bool {
-        dismissedSignatures = Self.load(from: defaults)
-        return dismissedSignatures[id] == signature
+        dismissedSignatures[id] == signature
     }
 
     /// Records a dismissal without overwriting newer entries from another client.
@@ -37,8 +37,9 @@ public final class CloudBannerDismissalStore {
     ///   - id: Stable identifier for the banner instance.
     ///   - signature: State-and-copy signature to suppress.
     public func dismiss(id: String, signature: String) {
-        dismissedSignatures = Self.load(from: defaults)
-        dismissedSignatures[id] = signature
+        var next = Self.load(from: defaults)
+        next[id] = signature
+        dismissedSignatures = next
         persist()
     }
 
@@ -46,8 +47,9 @@ public final class CloudBannerDismissalStore {
     ///
     /// - Parameter id: Stable identifier whose dismissal should be cleared.
     public func clear(id: String) {
-        dismissedSignatures = Self.load(from: defaults)
-        dismissedSignatures.removeValue(forKey: id)
+        var next = Self.load(from: defaults)
+        next.removeValue(forKey: id)
+        dismissedSignatures = next
         persist()
     }
 

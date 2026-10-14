@@ -314,6 +314,10 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     case terminalWorkStarted = 81
     /// The phase returned; `ms` is elapsed time, not a PTY acknowledgement.
     case terminalWorkFinished = 82
+    /// A snapshot of native Iroh paths visible to one connection. `a` is the
+    /// relay path count, `b` is the non-relay path count, and `c` is the
+    /// positive, process-local session correlation ID.
+    case transportPathInventory = 83
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

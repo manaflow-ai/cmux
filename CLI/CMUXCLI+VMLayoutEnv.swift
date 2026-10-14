@@ -203,7 +203,20 @@ extension CMUXCLI {
 
     /// How long `--open` keeps trying before handing the human the manual command.
     static let vmLayoutOpenAttempts = 5
-    static let vmLayoutOpenRetryDelay: TimeInterval = 1
+    /// Seconds between open attempts. `CMUX_VM_LAYOUT_OPEN_RETRY_DELAY_SECONDS`
+    /// overrides the default so tests against a mock socket do not wait it out.
+    static func vmLayoutOpenRetryDelay(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        guard let raw = environment["CMUX_VM_LAYOUT_OPEN_RETRY_DELAY_SECONDS"],
+              let parsed = TimeInterval(raw),
+              parsed.isFinite,
+              parsed > 0,
+              parsed <= 1 else {
+            return 1
+        }
+        return parsed
+    }
 
     /// The geometry-honoring open (`vm.workspace_open`, the same method the sidebar row
     /// and `cmux vm workspace open` use) for a workspace the shim built moments ago.
@@ -231,7 +244,7 @@ extension CMUXCLI {
                 lastFailure = error.message
             }
             if attempt < Self.vmLayoutOpenAttempts {
-                Thread.sleep(forTimeInterval: Self.vmLayoutOpenRetryDelay)
+                Thread.sleep(forTimeInterval: Self.vmLayoutOpenRetryDelay())
             }
         }
         throw CLIError(message: String(format: String(localized: "cli.vm.layout.applyTheLayoutIsAppliedToWorkspace", defaultValue: "vm layout apply: the layout is applied to workspace %1$@ on %2$@, but it could not be opened here yet (%3$@). Open it with: cmux vm workspace open %4$@ %5$@"), String(describing: remoteWorkspace), String(describing: machine), String(describing: lastFailure), String(describing: machine), String(describing: remoteWorkspace)))

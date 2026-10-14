@@ -794,6 +794,42 @@ struct NotificationFeedHistoryTests {
         #expect((rows.first?["body"] as? String)?.utf8.count == NotificationFeedHistoryRecord.historyBodyByteLimit)
     }
 
+    @Test func agentFeedDoesNotImportNotificationHistory() async throws {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        let notification = notification(
+            workspaceID: UUID(),
+            title: "Notification said",
+            body: "Hello from Codex",
+            date: Date(timeIntervalSince1970: 2_000),
+            isRead: false
+        )
+        store.notificationFeedHistory.record(notification, supersededIDs: [])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "agent-feed-list",
+                method: "feed.list",
+                params: [:],
+                auth: nil
+            )
+        )
+        let payload = try responsePayload(response)
+        let rows = try #require(payload["items"] as? [[String: Any]])
+        #expect(rows.allSatisfy { $0["source"] as? String != "notification" })
+
+        let textResponse = TerminalController.shared.v2MobileFeedText(
+            params: ["item_id": notification.id.uuidString, "offset": 0]
+        )
+        guard case let .ok(rawTextPayload) = textResponse,
+              let textPayload = rawTextPayload as? [String: Any] else {
+            Issue.record("Expected cached notification row to remain readable by feed.text")
+            return
+        }
+        #expect(textPayload["text"] as? String == "Notification said\nAgent\nHello from Codex")
+    }
+
     @Test func feedListBoundsOversizedLeadingRowWithoutDroppingFeed() async throws {
         let store = TerminalNotificationStore.shared
         let workspaceID = UUID()

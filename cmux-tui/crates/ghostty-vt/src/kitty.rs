@@ -186,17 +186,53 @@ impl KittyInFlightTracker {
         Ok((prefix, partial))
     }
 
-    pub(crate) fn replay_prefix_fits(&self, max_bytes: usize) -> Result<()> {
+    /// Whether the stream is inside a direct Kitty command this tracker
+    /// retains completely.
+    pub(crate) fn has_partial_command(&self) -> bool {
+        !self.overflowed
+            && matches!(&self.scan, KittyStreamScan::Kitty(command) if !command.overflowed)
+    }
+
+    pub(crate) fn has_unreplayable_command(&self) -> bool {
+        // A tracker-level overflow can also mean that a completed multipart
+        // chunk exceeded the retention budget. CAN cannot undo that command
+        // after the parser has returned to ground, so only an actively
+        // overflowed command is recoverable here.
+        !self.overflowed
+            && matches!(&self.scan, KittyStreamScan::Kitty(command) if command.overflowed)
+    }
+
+    pub(crate) fn has_unreplayable_prefix(&self) -> bool {
+        self.overflowed
+    }
+
+    pub(crate) fn discard_unreplayable(&mut self) {
+        self.scan = KittyStreamScan::Ground;
+        self.overflowed = false;
+        // CAN aborts only the command that is currently being parsed. Keep a
+        // completed m=1 prefix so checkpoint replay can still resume the
+        // native upload when a later m=0 chunk arrives. An overflowed first
+        // chunk has no prefix to preserve, so leave the tracker idle there.
+        if self.prefix.is_empty() {
+            self.loading = false;
+        }
+    }
+
+    /// The completed upload chunks and the partial command, separately, under
+    /// the same budget as [`Self::replay_prefix_checked`].
+    pub(crate) fn replay_prefix_and_partial_checked(
+        &self,
+        max_bytes: usize,
+    ) -> Result<(Vec<u8>, Vec<u8>)> {
         let (prefix, partial) = self.replay_prefix_parts()?;
-        let Some(total) = prefix.len().checked_add(partial.len()) else {
-            return Err(Error::OutOfSpace);
-        };
+        let total = prefix.len().checked_add(partial.len()).ok_or(Error::OutOfSpace)?;
         if total > max_bytes {
             return Err(Error::OutOfSpace);
         }
-        Ok(())
+        Ok((prefix.to_vec(), partial.to_vec()))
     }
 
+    #[cfg(test)]
     pub(crate) fn replay_prefix_checked(&self, max_bytes: usize) -> Result<Vec<u8>> {
         let (prefix, partial) = self.replay_prefix_parts()?;
         let total = prefix.len().checked_add(partial.len()).ok_or(Error::OutOfSpace)?;
@@ -1215,6 +1251,40 @@ mod tests {
             tracker.write(b"\x1b_Gm=0;AAAA\x1b\\");
             assert!(tracker.replay_prefix(usize::MAX).is_empty());
         }
+    }
+
+    #[test]
+    fn discarding_an_unreplayable_command_preserves_completed_chunks() {
+        let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
+        let mut tracker = KittyInFlightTracker::default();
+        tracker.set_max_bytes(64);
+        tracker.write(first);
+
+        // Overflow the active continuation while keeping the completed m=1
+        // prefix within the tracker's replay budget.
+        tracker.write(b"\x1b_Gm=0;this-command-is-too-large");
+        tracker.discard_unreplayable();
+        assert_eq!(tracker.replay_prefix(usize::MAX), first);
+
+        tracker.write(b"\x1b_Gm=0;B\x1b\\");
+        assert!(tracker.replay_prefix(usize::MAX).is_empty());
+    }
+
+    #[test]
+    fn completed_overflow_blocks_later_active_recovery() {
+        let mut first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;".to_vec();
+        first.resize(128, b'A');
+        first.extend_from_slice(b"\x1b\\");
+        let mut tracker = KittyInFlightTracker::default();
+        tracker.set_max_bytes(64);
+        tracker.write(&first);
+
+        let mut active = b"\x1b_Gm=0;".to_vec();
+        active.resize(128, b'B');
+        tracker.write(&active);
+        assert!(tracker.overflowed);
+        assert!(matches!(&tracker.scan, KittyStreamScan::Kitty(command) if command.overflowed));
+        assert!(!tracker.has_unreplayable_command());
     }
 
     #[test]

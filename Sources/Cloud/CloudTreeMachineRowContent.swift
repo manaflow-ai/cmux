@@ -12,25 +12,23 @@ struct CloudTreeMachineRowContent: View {
     var resources: CloudTreeMachineResourceSection? = nil
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var fontMagnification
 
+    /// Generated names use adjective-colour-noun, so the tail is the word that
+    /// distinguishes machines. Keep both ends when space is tight.
+    static let nameTruncationMode: Text.TruncationMode = .middle
+
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
-                CloudTreeRowIcon(
-                    style: style,
-                    systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
-                    tint: CloudTreeIconPalette.machine
-                )
-                .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
-                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
-                    nameRow
-                    if style.machineRowLayout == .twoLine {
-                        Text(subtitle)
-                            .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(height: scaled(style.machineSubtitleLineHeight))
-                    }
+            // No leading glyph: the Cloud Machines header carries the one cloud
+            // icon for every row under it, so the name starts the row.
+            VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
+                nameRow
+                if style.machineRowLayout == .twoLine {
+                    Text(subtitle)
+                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))
@@ -47,12 +45,27 @@ struct CloudTreeMachineRowContent: View {
                     .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .truncationMode(Self.nameTruncationMode)
                     .layoutPriority(1)
+                if let statusSymbol {
+                    CmuxSystemSymbolImage(
+                        magnified: statusSymbol,
+                        pointSize: style.detailSize,
+                        weight: .medium,
+                        tint: Color(nsColor: .secondaryLabelColor)
+                    )
+                    .accessibilityHidden(true)
+                }
             }
             Spacer(minLength: 0)
         }
         .frame(height: scaled(style.machineNameLineHeight))
+    }
+
+    /// The status glyph drawn after the name. A locked machine keeps its lock
+    /// there, so the name stays on the column every other machine row uses.
+    var statusSymbol: String? {
+        machine.freeAccess == .expired ? "lock.fill" : nil
     }
 
     /// Combines this machine's identity, activity, and resource readings for assistive technology.
@@ -143,6 +156,11 @@ struct CloudTreeMachineRowContent: View {
             parts.append(machine.id)
         }
         parts.append(machine.kindLabel)
+        // Before the age, so "by Ada Lovelace · 3 hours ago" reads as one
+        // thought: who made it and when.
+        if let author = CloudMachineCreatorLabel.text(creator: machine.createdBy) {
+            parts.append(author)
+        }
         if let createdAt = machine.createdAt {
             // `now`, not `Date()`: every other part of this struct reads the
             // injected clock, so the age was the one value a test could not

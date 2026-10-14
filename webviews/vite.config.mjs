@@ -16,6 +16,18 @@ export default defineConfig({
       },
     }),
     tailwindcss(),
+    {
+      // `@pierre/diffs` declares `sideEffects: false`, which is right for the
+      // main-thread exports but tree-shakes the worker entry (a self-registering
+      // `onmessage` script with no exports) down to an empty chunk.
+      name: "cmux-diff-worker-side-effects",
+      transform(code, id) {
+        if (id.endsWith("/@pierre/diffs/dist/worker/worker.js")) {
+          return { code, map: null, moduleSideEffects: true };
+        }
+        return null;
+      },
+    },
   ],
   build: {
     emptyOutDir: true,
@@ -33,10 +45,12 @@ export default defineConfig({
     // load grants read access to the whole output directory.
     modulePreload: false,
     rollupOptions: {
-      input: { main: "src/main.tsx" },
+      input: { main: "src/main.tsx", "diff-worker": "src/diff-worker.ts" },
       output: {
         format: "es",
-        entryFileNames: "main.mjs",
+        // `main.mjs` is the page entry the host HTML loads; the worker entry
+        // sits under `chunks/` so `diffSurface.mjs` can spawn it as a sibling.
+        entryFileNames: (chunk) => (chunk.name === "main" ? "main.mjs" : "chunks/[name].mjs"),
         // Stable (un-hashed) chunk names. The diff viewer copies these into its
         // long-lived `/tmp/cmux-diff-viewer-$uid/assets/cmux-webviews-app`
         // cache and overwrites in place via a size+mtime check; content hashes
@@ -48,33 +62,63 @@ export default defineConfig({
         // names do not collide.
         chunkFileNames: "chunks/[name].mjs",
         assetFileNames: "assets/[name][extname]",
-        // Collapse the diff syntax-highlighting vendor (`@pierre/diffs` +
-        // shiki, including its ~300 dynamically-imported TextMate grammars)
-        // into one lazy chunk loaded only by the diff surface. Left split,
-        // shiki emits hundreds of grammar files that both duplicate the
-        // vendored diff worker grammars and push the diff viewer custom
-        // scheme's per-token allowlist toward its 1024-file cap. Per-grammar
-        // lazy loading (and de-duplicating against the worker copy) is a
-        // follow-up once the allowlist cap is revisited.
+        // The diff surface statically imports `@pierre/diffs` (renderer,
+        // worker pool manager, shiki core), which lands in one `diff-vendor`
+        // chunk. Everything shiki resolves on demand (TextMate grammars,
+        // bundled themes, the Oniguruma WASM blob, Pierre's own themes) stays
+        // a dynamic import so each becomes its own stably named lazy chunk
+        // that the diff viewer custom scheme registers per token and the page
+        // fetches only for the languages present in the diff. Collapsing them
+        // into `diff-vendor` evaluates every grammar on open (~10MB). The
+        // eager set is budgeted by `scripts/check-webviews-diff-budget.mjs`.
+        // The highlight worker (`src/diff-worker.ts`, emitted as
+        // `chunks/diff-worker.mjs`) is a second entry of this same graph, so
+        // shiki core lives once in `shiki-core` (imported by both threads)
+        // and the WASM chunk is one file shared by the page and every worker.
+        // Grammars are resolved on the main thread and posted to the workers.
         manualChunks(id) {
+          const shikiLanguage = id.match(/\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/);
+          if (shikiLanguage) {
+            return `shiki-lang-${shikiLanguage[1]}`;
+          }
+          const shikiTheme = id.match(/\/@shikijs\/themes\/dist\/([^/]+)\.mjs$/);
+          if (shikiTheme) {
+            return `shiki-theme-${shikiTheme[1]}`;
+          }
+          if (id.includes("/shiki/dist/wasm.mjs") || id.includes("/@shikijs/engine-oniguruma/dist/wasm-inlined.mjs")) {
+            return "shiki-wasm";
+          }
+          const pierreTheme = id.match(/\/@pierre\/theme\/dist\/(pierre-[^/]+)\.mjs$/);
+          if (pierreTheme) {
+            return `pierre-theme-${pierreTheme[1]}`;
+          }
           // Vite's dynamic-import preload helper is the one module the slim
           // entry statically imports. Pin it to the always-shared `vendor`
           // chunk so Rollup never co-locates it with a surface vendor chunk,
           // which would make the entry statically pull that chunk (e.g. the
           // agent session eagerly loading the 10MB diff vendor bundle).
           if (id.includes("vite/preload-helper")) {
-            return "vendor";
+            return "preload-helper";
+          }
+          // The highlight worker entry stays in its own entry chunk; routing it
+          // into `diff-vendor` would make the worker evaluate the main-thread
+          // renderer (and React) on start.
+          if (id.endsWith("/@pierre/diffs/dist/worker/worker.js")) {
+            return undefined;
           }
           if (!id.includes("node_modules")) {
             return undefined;
           }
           if (
-            id.includes("/@pierre/") ||
             id.includes("/shiki/") ||
             id.includes("/@shikijs/") ||
             id.includes("/oniguruma-parser/") ||
-            id.includes("/oniguruma-to-es/")
+            id.includes("/oniguruma-to-es/") ||
+            id.includes("/node_modules/diff/")
           ) {
+            return "shiki-core";
+          }
+          if (id.includes("/@pierre/")) {
             return "diff-vendor";
           }
           // Framework code both surfaces share. Pinning it to a stable `vendor`
