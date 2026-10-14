@@ -129,9 +129,14 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
             rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && !(field as HTMLInputElement).disabled
           );
         });
+      // A card under the composer's location strip draws its rim on ::before (composerLocation.css),
+      // so the rim's focus step is read there too.
       const look = (element: Element) => {
         const style = getComputedStyle(element);
-        return [style.boxShadow, style.borderColor, style.backgroundColor, style.color, style.outlineStyle].join("|");
+        const rim = getComputedStyle(element, "::before").boxShadow;
+        return [style.boxShadow, rim, style.borderColor, style.backgroundColor, style.color, style.outlineStyle].join(
+          "|",
+        );
       };
       const ancestors = (field: HTMLElement) => {
         const chain: Element[] = [];
