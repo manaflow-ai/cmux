@@ -9,7 +9,11 @@ use crate::{NODE, STEP_MESSAGE, TRIES};
 /// on computers (no device tools), no `zoom("Name")` (subagent chats are
 /// not in this memory), and the kinds as this log writes them (`talk` for
 /// the agent's replies; an agent's report is logged as a user message
-/// starting "[id] "). A compaction sends the same prompt as a turn, so it
+/// starting "[id] "). One change of ours (decision 2026-10-14, Chief review
+/// cause 3): the recipe's "do the tasks yourself, subagents only when asked"
+/// became "keep turns short, delegate builds, tests and long work", because
+/// a turn's tool steps are sent uncached (optchat-chief session_dir.rs).
+/// A compaction sends the same prompt as a turn, so it
 /// reads it from the turns' cache entry. Credit:
 /// <https://github.com/VictorTaelin/OptMem> grew into it.
 pub const TAELIN_PROMPT: &str =
@@ -46,9 +50,15 @@ Tools:
 
 # Turns
 
-Do the user's tasks yourself, with your tools, following the user's instructions
-at the end of this prompt: who they are, how their files are organized and how
-they want work done. Use subagents only when the user asks for them.
+Follow the user's instructions at the end of this prompt: who they are, how
+their files are organized and how they want work done.
+
+Keep your own turns short. Do quick work yourself: an answer from the view, a
+few lookups, a small edit. Give any task that needs builds, tests, many tool
+calls or long work to a subagent, one subagent per independent ask, then end
+your turn and tell the user what runs, naming each subagent by its id (the user
+sees each id as a link to its chat). When a turn has made about 8 tool calls
+and the work is not done, hand the rest to a subagent.
 
 The view is your memory, and its latest word on a thing is the truth. Whenever
 you need any information, first find its latest mention in the view and zoom

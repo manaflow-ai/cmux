@@ -727,7 +727,10 @@ steps with tiny outputs; Claude Code's own rolling marks win only past
 about 400 output tokens per step at 12 steps (32% cheaper at about 1k).
 Claude Code reads the setting at process start, so a turn cannot switch
 after its first step, and 11 of 13 real turns made 1-2 requests: every
-turn keeps our mark, and tool-heavy work goes to subagents. Subagents never carry our mark: their
+turn keeps our mark, and tool-heavy work goes to subagents (the prompt's
+"Turns" section says so: builds, tests, many tool calls and long work go to a
+subagent, one per ask, and a turn hands the rest on after about 8 tool calls).
+Subagents never carry our mark: their
 sessions are long, and Claude Code's own marks cache them step by step.
 
 `turn.start` records the marked piece and the TTL (`layout.mark`,
