@@ -95,9 +95,13 @@ struct SubtleElevationTests {
         cell.isLifted = true
         let ghost = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2)
-        let roots = [try #require(dock.layer), cell.backgroundLayer, try #require(ghost.panel.contentView?.layer),
-                     try #require(CmuxToastView(toast: CmuxToast(id: "t", message: "Saved")).layer)]
-        for layer in roots.flatMap(Self.layers(in:)) where layer.shadowOpacity > 0 {
+        let views: [NSView] = [dock, cell, try #require(ghost.panel.contentView),
+                               CmuxToastView(toast: CmuxToast(id: "t", message: "Saved"))]
+        // Each view's layer tree, and its subviews' (a layer-backed subview outside a window is
+        // not yet a sublayer of its parent's layer).
+        let layers = views.flatMap(Self.layers(of:)) + Self.layers(in: cell.backgroundLayer)
+        #expect(layers.contains { $0.shadowOpacity > 0 })
+        for layer in layers where layer.shadowOpacity > 0 {
             let color = layer.shadowColor.flatMap { NSColor(cgColor: $0) }?.alphaComponent ?? 1
             #expect(layer.shadowRadius * 2 <= Self.maxBlur, "\(layer)")
             #expect(CGFloat(layer.shadowOpacity) * color <= Self.maxAlpha + 0.001, "\(layer)")
@@ -108,6 +112,10 @@ struct SubtleElevationTests {
         #expect(layer.shadowRadius == raised.layerRadius)
         #expect(layer.shadowOffset == raised.layerOffset(flipped: flipped))
         #expect(abs(CGFloat(layer.shadowOpacity) - raised.alpha) < 0.001)
+    }
+
+    private static func layers(of view: NSView) -> [CALayer] {
+        (view.layer.map(layers(in:)) ?? []) + view.subviews.flatMap(layers(of:))
     }
 
     private static func layers(in root: CALayer) -> [CALayer] {
