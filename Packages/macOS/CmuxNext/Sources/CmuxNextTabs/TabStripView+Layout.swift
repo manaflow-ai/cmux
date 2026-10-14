@@ -95,6 +95,7 @@ extension TabStripView {
             scroll.snap()
             for id in dying { removeTab(id) }
         }
+        TabSeparatorVisibility.apply(to: self)
         startAnimating()
         applyFrames()
     }

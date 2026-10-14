@@ -2,16 +2,17 @@ public import CoreGraphics
 
 /// Hit testing and highlight rects for tab drops.
 public nonisolated enum DropZoneGeometry {
-    /// The zone of pane cell `rect` under `point`, as classic cmux picks it
-    /// (pane-drop-targets DESIGN.md): the zones divide the pane body below
-    /// its `header`-point tab bar (flipped, y grows down); over the tab bar
-    /// a tab joins the pane (center). Left, then right, then top, then
-    /// bottom wins when the point is inside that edge's band, so left and
-    /// right own the corners; else center. The preview (`highlightRect`)
-    /// and the commit both take the target from here (R47). `previous` is
-    /// the zone the preview shows in this pane now: with a hysteresis
-    /// margin (`dropZoneHysteresis`, 0 by default as classic) it holds
-    /// until the pointer is that far past its line.
+    /// The zone of pane cell `rect` under `point` (pane-drop-targets
+    /// DESIGN.md (c), the first-principles rule): the zones divide the pane
+    /// body below its `header`-point tab bar (flipped, y grows down); over
+    /// the tab bar a tab joins the pane (center). Each edge owns a band
+    /// (`band(for:)`); a point inside several bands (a corner) goes to the
+    /// edge it is relatively nearest to (depth / band), so a corner splits
+    /// along the edge the pointer is closer to; else center. The preview
+    /// (`highlightRect`) and the commit both take the target from here
+    /// (R47). `previous` is the zone the preview shows in this pane now: it
+    /// holds until the pointer is `dropZoneHysteresis` past its line, so a
+    /// pointer held on a line never flickers.
     public static func zone(at point: CGPoint, in rect: CGRect, header: CGFloat = 0, footer: CGFloat = 0, style: LayoutStyle,
                             previous: PaneDropZone? = nil) -> PaneDropZone {
         let top = rect.minY + min(max(0, header), rect.height)
@@ -22,27 +23,34 @@ public nonisolated enum DropZoneGeometry {
         let bandX = band(for: body.width, style: style)
         let bandY = band(for: body.height, style: style)
         let margin = max(0, style.dropZoneHysteresis)
-        func inside(_ zone: PaneDropZone, extra: CGFloat) -> Bool {
-            switch zone {
-            case .left: point.x - body.minX < bandX + extra
-            case .right: body.maxX - point.x < bandX + extra
-            case .top: point.y - body.minY < bandY + extra
-            case .bottom: body.maxY - point.y < bandY + extra
-            case .center: false
+        // Depth into each edge's band as a share of the band (< 1 is inside).
+        func reach(_ zone: PaneDropZone) -> CGFloat {
+            let extra: CGFloat = switch previous {
+            case zone?: margin
+            case .center?: -min(margin, (zone.splitAxis == .horizontal ? bandX : bandY) / 2)
+            default: 0
+            }
+            return switch zone {
+            case .left: (point.x - body.minX) / max(1, bandX + extra)
+            case .right: (body.maxX - point.x) / max(1, bandX + extra)
+            case .top: (point.y - body.minY) / max(1, bandY + extra)
+            case .bottom: (body.maxY - point.y) / max(1, bandY + extra)
+            case .center: .infinity
             }
         }
-        if let previous, previous != .center, inside(previous, extra: margin) { return previous }
-        let extra: CGFloat = previous == .center ? -margin : 0
-        for zone in [PaneDropZone.left, .right, .top, .bottom] where inside(zone, extra: extra) { return zone }
-        return .center
+        if let previous, previous != .center, reach(previous) < 1 { return previous }
+        let candidates = [PaneDropZone.left, .right, .top, .bottom].map { ($0, reach($0)) }.filter { $0.1 < 1 }
+        return candidates.min { $0.1 < $1.1 }?.0 ?? .center
     }
 
-    /// An edge band: a fraction of the extent, at least the style's minimum
-    /// (classic: `max(80, extent * 0.25)`). A pane narrower than two bands
-    /// has no center across that axis, as in classic.
+    /// An edge band: a share of the extent between the style's floor and
+    /// cap (`dropEdgeFraction` 0.25 within 40...120 pt), and never more than
+    /// a third of it, so every pane keeps a center of at least a third of
+    /// each axis to join (DESIGN.md (c)2).
     static func band(for extent: CGFloat, style: LayoutStyle) -> CGFloat {
         let raw = extent * style.dropEdgeFraction
-        return max(1, min(max(raw, style.dropEdgeRange.lowerBound), style.dropEdgeRange.upperBound))
+        let clamped = min(max(raw, style.dropEdgeRange.lowerBound), style.dropEdgeRange.upperBound)
+        return max(1, min(clamped, extent / 3))
     }
 
     /// Drop target under `point` (content space). Column gap zones win over

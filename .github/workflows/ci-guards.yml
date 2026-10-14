@@ -402,7 +402,7 @@ jobs:
 
       # Runs the agent-chat boundary tests (a real server process and the
       # cmux-chat script; run-tests.ts).
-      - name: Run agent-chat unit tests
+      - name: Run agent-chat tests
         if: ${{ matrix.group == 'preflight-agent-chat' }}
         working-directory: agent-chat
         run: bun run test
