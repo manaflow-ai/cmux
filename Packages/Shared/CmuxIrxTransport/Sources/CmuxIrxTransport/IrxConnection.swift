@@ -373,20 +373,19 @@ public actor IrxConnection {
     /// descriptor or stream EOF as complete-connection closure.
     public func acceptUniLane() async throws -> (IrxLaneDescriptor, IrxStreamReader)? {
         while !Task.isCancelled {
+            // The tuple is built outside every do/catch: Swift -O drops tuple elements returned
+            // from an awaiting do (swiftlang/swift#92698, cx-21wc5).
+            let stream: RecvStream
+            do { stream = try await connection.acceptUni() } catch { return nil }
+            let reader = IrxStreamReader(stream, activity: inboundActivity)
+            var descriptor: IrxLaneDescriptor?
             do {
-                let stream = try await connection.acceptUni()
-                let reader = IrxStreamReader(stream, activity: inboundActivity)
-                do {
-                    if let descriptor = try await reader.readControlFrame(IrxLaneDescriptor.self) {
-                        return (descriptor, reader)
-                    }
-                } catch {
-                    // A later event stream may repair this optional feature.
-                }
-                await reader.stop(errorCode: 2)
+                descriptor = try await reader.readControlFrame(IrxLaneDescriptor.self)
             } catch {
-                return nil
+                // A later event stream may repair this optional feature.
             }
+            if let descriptor { return (descriptor, reader) }
+            await reader.stop(errorCode: 2)
         }
         return nil
     }

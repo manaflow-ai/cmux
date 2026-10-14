@@ -19,7 +19,7 @@ Ends with quitEndSessions, then the scratch Chief's acpmux, router and owner.
 Exit: 0 all passed; 1 the brain did not start again; 2 no reply; 3 the CLI error.
 Usage: chief-brain-restart-live.py --tag TAG --app APP [--deadline 120] [--reply-wait 240] [--out DIR]
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, time
+import argparse, json, os, shutil, socket, subprocess, sys, tempfile, time
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--tag", required=True)
@@ -34,7 +34,9 @@ BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 ACPMUX = os.path.join(APP, "Contents/Resources/bin/acpmux")
 DEBUG_SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-SCRATCH = tempfile.mkdtemp(prefix=f"chief-restart-{TAG}-")
+# A short path: the brain's sockets (optchat/tools.sock) must fit sun_path
+# (104 bytes); a job's TMPDIR is too deep.
+SCRATCH = tempfile.mkdtemp(prefix="cbr-", dir="/tmp")
 HOME_DIR = os.path.join(SCRATCH, "chief")
 LOCK = os.path.join(HOME_DIR, "state", "host.lock")
 os.makedirs(opts.out, exist_ok=True)
@@ -138,19 +140,25 @@ env.update({"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1
 config = os.path.join(SCRATCH, "cmux.json")
 open(config, "w").write("{}")
 env["CMUX_NEXT_CONFIG_FILE"] = config
+# The temp home never pushes a memory backup or imports this host's old Chiefs.
+os.makedirs(os.path.join(HOME_DIR, "optchat"), exist_ok=True)
+open(os.path.join(HOME_DIR, "optchat", "settings.json"), "w").write('{"backup": {"remote": false}}\n')
+open(os.path.join(HOME_DIR, "migration.json"), "w").write('{"status": "test home: nothing to import"}\n')
 log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
 code = 0
 try:
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 300):
         say("FAIL: the app did not come up")
-        sys.exit(1)
+        code = 1
+        raise SystemExit
     rpc("action.run", {"id": "home.show"})
     first = wait(brain_pid, 180)
     say(f"step 1: brain pid {first}; app pid {app.pid}")
     if not first:
         say("FAIL: no brain after Home opened\n" + host_log_tail())
-        sys.exit(1)
+        code = 1
+        raise SystemExit
     stopped = subprocess.run([CLI, "chief", "shutdown", "--chief-home", HOME_DIR], capture_output=True, text=True, timeout=90,
                              env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")})
     say(f"step 2: chief shutdown exit {stopped.returncode}: {stopped.stderr.strip()}")
@@ -175,7 +183,10 @@ try:
     if probe.returncode == 0 or not clear or "os error 35" in said or "temporarily unavailable" in said:
         say("FAIL step 4: no clear error (want a nonzero exit naming the timeout or the closed connection)")
         code = code or 3
+except SystemExit:
+    pass
 finally:
     end(app)
+    shutil.rmtree(SCRATCH, ignore_errors=True)
     say("result", "PASS" if code == 0 else f"FAIL {code}")
 sys.exit(code)
