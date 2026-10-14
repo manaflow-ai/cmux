@@ -117,10 +117,11 @@ import Testing
         window.contentView?.addSubview(labeled)
         labeled.themedToolTip = "Reload"
         presenter.enter(try Self.tracker(labeled))
-        try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(2_000))
-        try await Self.settle()
         #expect(presenter.shown == nil, "a button titled Reload showed the tooltip Reload")
+        // Past the delay, before a shown tooltip's recheck (500 ms) could put it away.
+        clock.advance(by: .milliseconds(900))
+        try await Self.settle()
+        #expect(presenter.shown == nil, "a button titled Reload showed the tooltip Reload after the delay")
         // An icon-only neighbor still shows its own.
         presenter.exit(try Self.tracker(labeled))
         presenter.enter(try Self.tracker(buttons[0]))

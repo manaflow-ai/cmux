@@ -8,11 +8,15 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
+import { HOVER_INTENT } from "./hoverIntent";
 
-/** A page's tooltips show at once, with no hover delay (POLISH), and close at once. */
+/**
+ * A page's tooltips wait the hover delay before the first shows, then show at once while the group
+ * is warm (`timeout`), as AppKit's do (ui/hoverIntent.ts), and close at once.
+ */
 export function TooltipProvider({ children }: { children: ReactNode }) {
   return (
-    <BaseTooltip.Provider delay={0} closeDelay={0}>
+    <BaseTooltip.Provider delay={HOVER_INTENT.tooltipDelay} closeDelay={0} timeout={HOVER_INTENT.tooltipWarm}>
       {children}
     </BaseTooltip.Provider>
   );

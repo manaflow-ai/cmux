@@ -2,8 +2,10 @@ public import AppKit
 import CmuxNextWakeups
 
 /// The app's one tooltip (Leo, 2026-10-12: no stock macOS bubble). A view sets `themedToolTip`
-/// (`.themedHelp` in SwiftUI); hovering it shows this tooltip at once (POLISH: no hover delay on the
-/// first show), below the view and kept on screen. It
+/// (`.themedHelp` in SwiftUI); hovering it shows this tooltip below the view, kept on screen, with
+/// AppKit's hover intent (Leo, 2026-10-14; `HoverIntent`): the first waits `tooltipDelay`, a
+/// neighbor's then shows at once while the group is warm, and a control whose own label already
+/// names it shows none. It
 /// draws in the view's theme scope: the elevated surface, the primary ink, a hairline border, a
 /// small radius and a shortcut hint in the secondary ink. Pages draw the same tooltip
 /// (webviews/src/ui/titleTooltips.ts, `.ui-tooltip`). A click, a key, a scroll or the app going
@@ -23,6 +25,14 @@ public final class TooltipPresenter {
 
     private let checker: DemandTimer
     private let quiet: DemandTimer
+    /// The hover intent's one timer: the initial delay, then the warm group's cool-down.
+    private let intentTimer: DemandTimer
+    private var intent = HoverIntent<ObjectIdentifier>(delay: HoverIntentTiming.standard.tooltipDelay,
+                                                       warmFor: HoverIntentTiming.standard.tooltipWarm)
+    /// The timing to use instead of the tunables' (tests).
+    var timing: HoverIntentTiming?
+    /// The tooltip the pointer rests on, shown or waiting for its delay.
+    private weak var candidate: TooltipTracker?
     /// A scroll is under way: rows pass under the pointer, and none shows its tooltip.
     private var scrolling = false
     private(set) lazy var panel = TooltipPanel()
@@ -37,6 +47,7 @@ public final class TooltipPresenter {
     init(clock: any Clock<Duration> = ContinuousClock()) {
         checker = DemandTimer(owner: "tooltip-check", clock: clock)
         quiet = DemandTimer(owner: "tooltip-scroll", clock: clock)
+        intentTimer = DemandTimer(owner: "tooltip-intent", clock: clock)
     }
 
     /// The pointer entered a tooltip's view or region.
@@ -61,9 +72,12 @@ public final class TooltipPresenter {
         }
     }
 
-    /// Puts the tooltip away; nothing shows again until the pointer enters another view.
+    /// Puts the tooltip away; nothing shows again until the pointer enters another view, and the
+    /// next one waits the full delay (a click or a key ends the warm group, as in AppKit).
     public func dismiss() {
         inside.removeAll()
+        candidate = nil
+        run(intent.dismiss())
         hide()
     }
 
@@ -83,17 +97,43 @@ public final class TooltipPresenter {
         }
     }
 
-    /// Picks the deepest tooltip under the pointer and shows it at once.
+    /// Picks the deepest tooltip under the pointer and hands it to the hover intent, which shows it
+    /// after the delay or at once while warm.
     private func resolve() {
         inside.removeAll { $0.view == nil || $0.text == nil }
         guard !scrolling else { return }
-        let target = inside.max { $0.depth < $1.depth }
-        guard target !== current else { return }
-        hide()
-        current = target
-        guard target != nil else { return }
-        watch()
-        show()
+        let target = inside.filter { !$0.repeatsVisibleLabel }.max { $0.depth < $1.depth }
+        candidate = target
+        if target != nil { watch() }
+        let timing = self.timing ?? .current
+        intent.delay = timing.tooltipDelay
+        intent.warmFor = timing.tooltipWarm
+        run(intent.hover(target.map(ObjectIdentifier.init)))
+        if target == nil, inside.isEmpty, shown == nil, !intent.isWarm { unwatch() }
+    }
+
+    private func run(_ effects: [HoverIntent<ObjectIdentifier>.Effect]) {
+        for effect in effects {
+            switch effect {
+            case .schedule(let token, let delay):
+                intentTimer.schedule(after: delay) { @MainActor [weak self] in self?.deadline(token) }
+            case .cancelTimer:
+                intentTimer.cancel()
+            case .show(let id):
+                hide()
+                guard let tracker = candidate, ObjectIdentifier(tracker) == id else { continue }
+                current = tracker
+                watch()
+                show()
+            case .hide:
+                hide()
+            }
+        }
+    }
+
+    private func deadline(_ token: Int) {
+        run(intent.deadline(token))
+        if inside.isEmpty, shown == nil, !scrolling, !intent.isWarm { unwatch() }
     }
 
     private func show() {
@@ -114,7 +154,7 @@ public final class TooltipPresenter {
         if shown != nil { panel.orderOut(nil) }
         shown = nil
         current = nil
-        if inside.isEmpty, !scrolling { unwatch() }
+        if inside.isEmpty, !scrolling, candidate == nil, !intent.isWarm { unwatch() }
     }
 
     /// While a tooltip shows: its view still in a visible window, not hidden, the app active and the

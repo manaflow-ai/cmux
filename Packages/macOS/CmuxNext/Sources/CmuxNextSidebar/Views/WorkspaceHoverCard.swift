@@ -18,7 +18,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// 2026-10-13), so a sweep down the list shows none and leaving a row
     /// cancels its pending card. Once a card shows, moving down the list
     /// slides it over.
-    var delay: Duration { .milliseconds(Int((MotionTunables.hoverCardDwell.value * 1_000).rounded())) }
+    var delay: Duration { HoverIntentTiming.current.cardDwell }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
     var coordinator: HoverCardCoordinator {

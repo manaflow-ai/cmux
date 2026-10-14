@@ -32,8 +32,6 @@ export const TICK_REST_WIDTH = TICK_WIDTHS[TICK_WIDTHS.length - 1];
 export const TICK_CURRENT_WIDTH = TICK_WIDTHS[2];
 /// Space kept free above and below the column and the popover.
 export const EDGE_MARGIN = 8;
-/// The pause before the first popover shows; moving between ticks shows the next at once.
-export const POPOVER_DELAY_MS = 110;
 /// Blocks of a reply the preview keeps (the popover clamps to three lines).
 const PREVIEW_BLOCKS = 4;
 const PREVIEW_CHARS = 360;

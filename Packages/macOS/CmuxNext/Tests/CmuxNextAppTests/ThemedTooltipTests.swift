@@ -35,10 +35,11 @@ import Testing
         #expect(button.toolTip == nil)
         #expect(button.accessibilityHelp() == "New Tab")
 
-        let presenter = TooltipPresenter.shared
+        let presenter = Self.instantPresenter()
+        defer { presenter.timing = nil }
         let tracker = try #require(TooltipTracker.whole(of: button))
         presenter.dismiss()
-        // POLISH (Instant): the first tooltip opens on the first frame, no hover delay.
+        // The hover delay is TooltipHoverIntentTests'; here it is zero, so the tooltip shows on enter.
         presenter.enter(tracker)
         #expect(presenter.shown?.text == "New Tab")
         #expect(presenter.shown?.shortcut == "⌘T")
@@ -74,7 +75,7 @@ import Testing
         window.contentView?.addSubview(header)
         header.themedToolTip = "This Mac"
         add.themedToolTip = "New Workspace"
-        let presenter = TooltipPresenter.shared
+        let presenter = Self.instantPresenter()
         presenter.dismiss()
 
         // The pointer comes straight onto the button: whichever enter arrives last, the button's shows.
@@ -92,6 +93,7 @@ import Testing
         #expect(presenter.shown?.text == "Default")
         presenter.dismiss()
         #expect(presenter.shown == nil)
+        presenter.timing = nil
         window.orderOut(nil)
     }
 
@@ -107,10 +109,11 @@ import Testing
         window.contentView?.addSubview(second)
         first.themedToolTip = "First"
         second.themedToolTip = "Second"
-        let presenter = TooltipPresenter.shared
+        let presenter = Self.instantPresenter()
         presenter.dismiss()
         defer {
             presenter.dismiss()
+            presenter.timing = nil
             window.orderOut(nil)
         }
 
@@ -132,6 +135,15 @@ import Testing
         #expect(Self.near(low, NSPoint(x: 874, y: 36)), "\(low)")
         let high = TooltipPresenter.origin(for: size, below: NSRect(x: 100, y: 500, width: 40, height: 20), on: screen)
         #expect(Self.near(high, NSPoint(x: 60, y: 474)), "\(high)")
+    }
+
+    /// The shared presenter with no hover delay (the delay and warm group are TooltipHoverIntentTests').
+    static func instantPresenter() -> TooltipPresenter {
+        let presenter = TooltipPresenter.shared
+        var timing = HoverIntentTiming.standard
+        timing.tooltipDelay = .zero
+        presenter.timing = timing
+        return presenter
     }
 
     static func near(_ lhs: NSPoint, _ rhs: NSPoint) -> Bool {

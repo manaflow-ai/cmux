@@ -102,7 +102,6 @@ test("an untruncated control's tooltip keeps the standard width and shows its sh
   expect(tip.querySelector(".ui-tooltip-hint")?.textContent).toBe("⌘T");
 });
 
-
 test("rows passing under a scroll do not flash their tooltips; the row under the pointer shows once it stops", async () => {
   // Review of #19902: with no hover delay, scrolling a list under a resting pointer flashed each row's tooltip.
   const doc = page(`<div id="a" title="First">a</div><div id="b" title="Second">b</div>`);
@@ -152,7 +151,9 @@ class FakeClock {
 
 function toolbar(clock: FakeClock) {
   const labels = ["Back", "Forward", "Reload", "Share", "Downloads"];
-  const doc = page(labels.map((label, index) => `<button id="b${index}" title="${label}"></button>`).join(""), { clock });
+  const doc = page(labels.map((label, index) => `<button id="b${index}" title="${label}"></button>`).join(""), {
+    clock,
+  });
   const buttons = labels.map((_, index) => doc.getElementById(`b${index}`)!);
   buttons.forEach((button, index) => {
     button.getBoundingClientRect = () => ({ left: 10 + index * 30, top: 10, width: 24, height: 24 }) as DOMRect;
@@ -218,7 +219,9 @@ test("a fast sweep across a toolbar shows no tooltip", async () => {
 
 test("a control whose own text says the tooltip shows none", async () => {
   const clock = new FakeClock();
-  const doc = page(`<button id="reload" title="Reload">Reload</button><button id="icon" title="Back"></button>`, { clock });
+  const doc = page(`<button id="reload" title="Reload">Reload</button><button id="icon" title="Back"></button>`, {
+    clock,
+  });
   for (const id of ["reload", "icon"])
     doc.getElementById(id)!.getBoundingClientRect = () => ({ left: 10, top: 10, width: 60, height: 24 }) as DOMRect;
   const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;

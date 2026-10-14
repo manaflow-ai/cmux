@@ -100,7 +100,7 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
       selector,
     );
   const settle = (page: Page, ms = 150) => page.waitForTimeout(ms);
-  /** The visible hint texts once they equal `want` (hints load on first use, then wait 500 ms). */
+  /** The visible hint texts once they equal `want` (hints load on first use; keyboard focus shows them at once). */
   async function hints(page: Page, want: string[]) {
     await page
       .waitForFunction(

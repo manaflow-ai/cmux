@@ -1,10 +1,12 @@
 // Tooltips for plain `title` attributes, for pages (the agent pane) whose controls carry them. A
 // native `title` tooltip in a web view waits about a second, draws where the pointer happens to
-// be, and can run past the view's edge. Each `title` shows here instead: at once, with no hover
-// delay (POLISH), and kept inside the window. The text moves to `data-tooltip`, so the native tooltip never also appears;
+// be, and can run past the view's edge. Each `title` shows here instead, kept inside the window,
+// with the app's hover intent (ui/hoverIntent.ts): the first waits the hover delay, a neighbor's
+// then shows at once while the group is warm. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
 // A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's.
 // Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
+import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
 
 /// Room kept between the tooltip and the window's edges, and its gap from the element.
 const EDGE = 6;
@@ -66,8 +68,19 @@ export function tooltipPosition(
   return { left: Math.round(left), top: Math.round(top) };
 }
 
+/// Whether `element`'s own text already says `text` (a labeled control): no tooltip then, as
+/// #20375 rules (test/tooltip-rules.ts). Text the element cuts off still shows in full.
+function repeatsLabel(element: Element, text: string): boolean {
+  const own = element.textContent?.replace(/\s+/g, " ").trim().toLowerCase();
+  return !!own && own === text.replace(/\s+/g, " ").trim().toLowerCase() && !clips(element);
+}
+
 /// Shows `title` and `data-tooltip` text for hovered elements of `doc`. Returns the uninstaller.
-export function installTooltips(doc: Document): () => void {
+/// `options` swap the pages' tooltip group and its timers (tests).
+export function installTooltips(
+  doc: Document,
+  options: { group?: HoverGroup; clock?: HoverClock; delay?: number } = {},
+): () => void {
   const win = doc.defaultView;
   if (!win) return () => {};
   const tip = doc.createElement("div");
@@ -134,10 +147,29 @@ export function installTooltips(doc: Document): () => void {
   // The show waits for the next frame: measuring the tooltip lays out the page, and done at once it
   // landed in the frame of a click that opens a menu (a long frame); a click before then cancels it.
   let frame: number | undefined;
-  const hide = () => {
+  const hideTip = () => {
     if (frame !== undefined) win.cancelAnimationFrame(frame);
     frame = undefined;
     tip.hidden = true;
+  };
+  // The hover delay and the warm group (ui/hoverIntent.ts) decide when `target` shows.
+  const intent = new HoverIntent<Element>({
+    // A test's clock gets its own group; pages share the one tooltip group.
+    group: options.group ?? (options.clock ? new HoverGroup(HOVER_INTENT.tooltipWarm, options.clock) : tooltipGroup),
+    clock: options.clock,
+    delay: options.delay,
+    show: (element) => {
+      if (element !== target) return;
+      frame = win.requestAnimationFrame(() => {
+        frame = undefined;
+        show();
+      });
+    },
+    hide: hideTip,
+  });
+  const hide = () => {
+    intent.hover(null);
+    hideTip();
     target = undefined;
   };
   let quiet: ReturnType<typeof setTimeout> | undefined;
@@ -151,13 +183,15 @@ export function installTooltips(doc: Document): () => void {
       return;
     }
     if (element === target) return;
-    hide();
-    if (!element || !textOf(element)) return;
+    const text = element ? textOf(element) : "";
+    if (!element || !text || repeatsLabel(element, text)) {
+      hide();
+      return;
+    }
+    // Straight from one element to the next: the intent swaps them (at once while warm).
+    hideTip();
     target = element;
-    frame = win.requestAnimationFrame(() => {
-      frame = undefined;
-      show();
-    });
+    intent.hover(element);
   };
   const onOut = (event: PointerEvent) => {
     // Leaving the element (not moving onto one of its children) hides it.
@@ -167,9 +201,11 @@ export function installTooltips(doc: Document): () => void {
   };
   // A click, a key, a scroll or the window losing focus puts the tooltip away; the element under
   // the pointer shows it again only once the pointer leaves it and comes back.
+  // Only moving from one control to the next keeps tooltips quick, not a click or a scroll.
   const dismiss = () => {
     const under = target;
-    hide();
+    intent.dismiss();
+    hideTip();
     target = under;
   };
   const onScroll = () => {
@@ -185,7 +221,7 @@ export function installTooltips(doc: Document): () => void {
       if (!element?.isConnected || element === target || !textOf(element)) return;
       hide();
       target = element;
-      show();
+      intent.hover(element);
     }, SCROLL_QUIET);
   };
   doc.addEventListener("pointerover", onOver);
@@ -196,6 +232,7 @@ export function installTooltips(doc: Document): () => void {
   win.addEventListener("blur", dismiss);
   return () => {
     dismiss();
+    intent.dispose();
     doc.removeEventListener("pointerover", onOver);
     doc.removeEventListener("pointerout", onOut);
     doc.removeEventListener("pointerdown", dismiss, true);

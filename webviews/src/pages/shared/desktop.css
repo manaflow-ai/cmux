@@ -311,3 +311,14 @@ input[type="submit"] {
   --surface-text-min: 100%;
   --surface-blur: none;
 }
+
+/* Hover intent (ui/hoverIntent.ts, Leo 2026-10-14): a row's hover fill appears on the frame the
+   pointer reaches it, with no fade-in, so a fast sweep down a list or a menu lights no row with a
+   half-faded tint. Leaving still fades as the row's own transition says (the native sidebar's rows
+   cross-fade, #20315). */
+:is([class*="-row"], [class*="-item"], [class*="-option"], [role="option"], [role="menuitem"]):is(
+    :hover,
+    [data-highlighted]
+  ) {
+  transition-duration: 0s !important;
+}
