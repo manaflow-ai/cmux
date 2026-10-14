@@ -8,6 +8,7 @@
     "agent.message.mark",
     "agent.message.send",
     "agent.report",
+    "agent.runtime.list",
     "browser.activate",
     "browser.attach",
     "browser.back",

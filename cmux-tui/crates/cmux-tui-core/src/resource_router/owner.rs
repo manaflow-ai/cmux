@@ -113,6 +113,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::BrowserInputWheel
         | ResourceOperation::BrowserClose => OperationOwner::Content,
         ResourceOperation::AgentList
+        | ResourceOperation::AgentRuntimeList
         | ResourceOperation::AgentReport
         | ResourceOperation::FrontendProjectionGet
         | ResourceOperation::FrontendProjectionPut
