@@ -205,9 +205,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
   opacity: 1;
 }
-/* Focus in the composer: its rounded edge takes one step toward the theme accent, drawn in
-   composerLocation.css with the rim; shell mode takes its own accent here. The prompt itself draws
-   no ring (desktop.css, cx-ncc.57). Rings are whole device pixels (desktop.css hairline tokens). */
+/* Focus in the composer: its rim lifts a little in tone (composerLocation.css); shell mode takes
+   its own accent here, the mode's mark. The prompt itself draws no ring (desktop.css, cx-ncc.57).
+   Rings are whole device pixels (desktop.css hairline tokens). */
 .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
   box-shadow: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
 }
