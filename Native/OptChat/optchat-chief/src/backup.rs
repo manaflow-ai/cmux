@@ -64,13 +64,11 @@ pub struct BackupConfig {
 /// `~/.cmux/chief/com.cmuxterm.app.debug.<tag>`): like a tagged home, its
 /// remote backup stays off unless configured, so dogfood tags make no repositories.
 fn is_dev_build_home(home: &Path) -> bool {
-    home.file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|name| {
-            ["com.cmuxterm.app.debug", "com.cmuxterm.app.staging"]
-                .iter()
-                .any(|base| name == *base || name.starts_with(&format!("{base}.")))
-        })
+    home.file_name().and_then(|n| n.to_str()).is_some_and(|name| {
+        ["com.cmuxterm.app.debug", "com.cmuxterm.app.staging"]
+            .iter()
+            .any(|base| name == *base || name.starts_with(&format!("{base}.")))
+    })
 }
 
 fn on_off(text: &str) -> Option<bool> {
