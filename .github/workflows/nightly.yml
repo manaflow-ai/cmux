@@ -4677,6 +4677,54 @@ jobs:
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"
           done
 
+  # The nightly reel (scripts/cmux-next/media/reel.py): each pull request in this
+  # build's signed notes with its tour's "after" clip and a title card, joined
+  # into one video, and a page listing them, on the pr-media branch at
+  # nightly-next/<build>/. Evidence only: no job needs this one, and it never
+  # reports the nightly as failed.
+  publish-nightly-reel:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-release-notes]
+    if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-release-notes.result == 'success'"
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    # contents: write reaches the pr-media branch through scripts/pr-media.py.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-notes
+          path: notes
+      - name: Install ffmpeg
+        timeout-minutes: 6
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v fc-match >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg fontconfig fonts-dejavu-core >/dev/null
+          fi
+      - name: Build and publish the reel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+        run: |
+          set -euo pipefail
+          # The notes this run signed and published, checked against the content key.
+          python3 scripts/cmux-next/media/reel.py --build "$NIGHTLY_BUILD" --notes "notes/$NIGHTLY_BUILD.json" \
+            --out "$RUNNER_TEMP/reel" --publish | tee "$RUNNER_TEMP/reel.log"
+          {
+            echo "### cmux NEXT nightly reel, build $NIGHTLY_BUILD"
+            echo
+            grep -E '^https://' "$RUNNER_TEMP/reel.log" | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # A cancelled job (a timeout reports as cancelled) counts as a failure. On
   # nightly-next the signed release notes are part of the publication: a
   # published build whose notes jobs did not both succeed is reported too
