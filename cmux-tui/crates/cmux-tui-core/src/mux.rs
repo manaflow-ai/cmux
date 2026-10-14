@@ -7910,6 +7910,9 @@ impl Mux {
         if !lifecycle_ready {
             return false;
         }
+        // Like adoption: a cwd reported while the host was reconnecting waited
+        // for the running lifecycle.
+        self.publish_pending_terminal_directories();
         #[cfg(debug_assertions)]
         if self
             .terminal_host_reconnect_completion_failures

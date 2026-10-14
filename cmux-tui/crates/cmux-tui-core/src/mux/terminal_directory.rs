@@ -142,11 +142,14 @@ mod tests {
         let created =
             crate::resource_router::handle_resource_message(&mux, &request.to_string()).unwrap();
         assert_eq!(created["ok"], true, "{created}");
-        assert!(
-            published_cwds(&mux).iter().any(|cwd| cwd == "/srv/early"),
-            "the first prompt's cwd never reached the event feed: {:?}",
-            published_cwds(&mux)
+        let cwds = published_cwds(&mux);
+        assert_eq!(
+            cwds.iter().filter(|cwd| *cwd == "/srv/early").count(),
+            1,
+            "the first prompt's cwd must reach the event feed exactly once: {cwds:?}"
         );
+        // The report follows the creation that made the terminal public.
+        assert_eq!(cwds.last().unwrap(), "/srv/early", "{cwds:?}");
         mux.shutdown();
     }
 }
