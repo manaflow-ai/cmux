@@ -19,15 +19,6 @@ extension TabStripView {
             tabs.insert(contentsOf: members, at: min(max(groupDrag.currentTabIndex, 0), tabs.count))
         }
         var items = TabGroupOrdering.layoutItems(tabs, groups: groups.byID, selectedID: model.selectedID, chipWidths: groups.chipWidths())
-        if model.style == .chrome {
-            let titles = Dictionary(tabs.map { ($0.id, $0.title.isEmpty ? Strings.untitled : $0.title) }, uniquingKeysWith: { first, _ in first })
-            let font = Typography.body
-            for index in items.indices where !items[index].isPinned && !items[index].isGroupChip && items[index].fixedWidth == nil {
-                guard let title = titles[items[index].id] else { continue }
-                let width = ceil((title as NSString).size(withAttributes: [.font: font]).width)
-                items[index].naturalWidth = metrics.naturalTabWidth(titleWidth: width)
-            }
-        }
         if let index = dropPlaceholderIndex {
             let pinnedCount = tabs.count(where: \.isPinned)
             let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: dropPlaceholderGroup, fixedWidth: groups.phantomWidth)

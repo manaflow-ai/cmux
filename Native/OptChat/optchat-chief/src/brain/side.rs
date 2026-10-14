@@ -33,9 +33,9 @@ impl Brain {
                     return;
                 }
                 // Not read: a conversation the Chief is not in, and a
-                // message whose author is known not to be a person (only
-                // people wake a Chief). An unknown author is read: the
-                // read refreshes the participants.
+                // message whose author is known to wake no Chief (an agent
+                // that is not a Chief). An unknown author is read: the read
+                // refreshes the participants.
                 match self.side_member.get(&conversation) {
                     Some(None) => return,
                     Some(Some(people)) if people.get(&message.author) == Some(&false) => return,
@@ -52,7 +52,7 @@ impl Brain {
     }
 
     /// Caches whether the Chief takes part in `summary`'s conversation, and
-    /// which of its participants are people.
+    /// which of its participants can wake it (people and Chiefs).
     fn note_side_members(&mut self, summary: &Summary) {
         let participant = &self.settings.membership.participant;
         let member = summary.participants.iter().any(|p| &p.id == participant);
@@ -61,10 +61,9 @@ impl Brain {
                 .participants
                 .iter()
                 .map(|p| {
-                    (
-                        p.id.clone(),
-                        p.kind == cmux_conversation::ParticipantKind::Human,
-                    )
+                    let wakes = p.kind == cmux_conversation::ParticipantKind::Human
+                        || cmux_chief::rules::is_chief(summary, &p.id);
+                    (p.id.clone(), wakes)
                 })
                 .collect()
         });
@@ -121,16 +120,17 @@ impl Brain {
             return;
         }
         match self.read_side(conversation, from) {
-            Ok((summary, messages)) => {
+            Ok((summary, read)) => {
                 let participant = self.settings.membership.participant.clone();
                 self.note_side_members(&summary);
-                for m in &messages {
+                for m in &read {
                     if m.author == participant {
                         self.mux_messages.insert(m.id.clone());
                     }
                 }
-                for message in messages {
-                    self.side_message(conversation, &summary, message);
+                let pending: Vec<Message> = read.iter().filter(|m| m.seq > from).cloned().collect();
+                for message in pending {
+                    self.side_message(conversation, &summary, &read, message);
                 }
             }
             Err(OpError::Rejected(why)) => {
@@ -154,8 +154,9 @@ impl Brain {
         }
     }
 
-    /// Every message of `conversation` after `from`, oldest first, with its
-    /// summary (the wake rule needs the participants).
+    /// What was read of `conversation`, oldest first: the snapshot's tail
+    /// and older pages back to `from`, with its summary (the wake rule needs
+    /// the participants, the Chief streak the threads' tails).
     fn read_side(
         &mut self,
         conversation: &str,
@@ -164,26 +165,31 @@ impl Brain {
         let Some(daemon) = self.daemon.as_mut() else {
             return Err(OpError::Transport("no connection".into()));
         };
-        let (summary, messages) = daemon.snapshot(conversation, PAGE)?;
-        let mut pending: Vec<Message> = messages.into_iter().filter(|m| m.seq > from).collect();
-        while let Some(first) = pending.first().map(|m| m.seq)
+        let (summary, mut read) = daemon.snapshot(conversation, PAGE)?;
+        while let Some(first) = read.first().map(|m| m.seq)
             && first > from + 1
         {
             let older = daemon.history(conversation, first, PAGE)?;
             if older.is_empty() {
                 break;
             }
-            let mut merged: Vec<Message> = older.into_iter().filter(|m| m.seq > from).collect();
-            merged.append(&mut pending);
-            pending = merged;
+            let mut merged = older;
+            merged.append(&mut read);
+            read = merged;
         }
-        Ok((summary, pending))
+        Ok((summary, read))
     }
 
     /// One message of a woken side conversation: the main conversation's
     /// wake rule; a waking message is queued for a turn in `conversation`,
     /// anything else moves its floor once nothing of it is queued.
-    fn side_message(&mut self, conversation: &str, summary: &Summary, message: Message) {
+    fn side_message(
+        &mut self,
+        conversation: &str,
+        summary: &Summary,
+        read: &[Message],
+        message: Message,
+    ) {
         let handled = self.side_handled.get(conversation).copied().unwrap_or(0);
         let repeat = self
             .state
@@ -201,17 +207,25 @@ impl Brain {
         });
         if (!text.trim().is_empty() || has_images)
             && chief_wakes(
-                &self.settings.membership.participant,
-                self.settings.membership.group_wake,
+                &self.settings.membership.rule(true),
                 summary,
                 &message,
                 |id| self.mux_messages.contains(id),
             )
+            && self.under_chief_budget(conversation, summary, read, &message)
         {
-            let labelled = labelled(summary, &text);
+            let labelled = if self.settings.membership.local_side {
+                labelled_from(summary, &message.author, &text)
+            } else {
+                labelled(summary, &text)
+            };
+            let by_person = summary.participants.iter().any(|p| {
+                p.id == message.author && p.kind == cmux_conversation::ParticipantKind::Human
+            });
             match crate::approval::Answer::parse(&text) {
-                // An answer to this conversation's pending approval.
-                Some(answer) if self.has_approval(Some(conversation)) => {
+                // An answer to this conversation's pending approval (only a
+                // person answers one, never another Chief).
+                Some(answer) if by_person && self.has_approval(Some(conversation)) => {
                     self.answer_approval(answer, &message, Some(conversation));
                     if let Err(e) = self.chat.append(optchat_core::Kind::User, &labelled) {
                         (self.log)(&format!("logging an approval failed: {e}"));
@@ -256,6 +270,49 @@ impl Brain {
         }
     }
 
+    /// The loop guard: a message by another Chief wakes this one only while
+    /// its thread's Chief streak (`cmux_chief::rules::chief_streak`, this
+    /// message included) is under `CHIEF_TURN_BUDGET`, and while the owner
+    /// would still take an agent's reply in the conversation
+    /// (`owner_agent_streak` under `MAX_AGENT_TURNS`, the owner's own guard,
+    /// which is per conversation and lower today). A person's message always
+    /// passes (it resets both).
+    fn under_chief_budget(
+        &self,
+        conversation: &str,
+        summary: &Summary,
+        read: &[Message],
+        message: &Message,
+    ) -> bool {
+        use cmux_chief::rules::{CHIEF_TURN_BUDGET, chief_streak, is_chief, owner_agent_streak};
+        if !is_chief(summary, &message.author) {
+            return true;
+        }
+        // At the newest message read (of the thread, of the conversation):
+        // the reply goes after it.
+        let root = cmux_chief::rules::reply_thread(message);
+        let thread_tail = read
+            .iter()
+            .rev()
+            .find(|m| m.thread_root.as_deref() == Some(root) || m.id == root)
+            .filter(|m| m.seq > message.seq)
+            .unwrap_or(message);
+        let tail = read
+            .last()
+            .filter(|m| m.seq > message.seq)
+            .unwrap_or(message);
+        let streak = chief_streak(summary, read, thread_tail);
+        let owner = owner_agent_streak(summary, read, tail);
+        if streak >= CHIEF_TURN_BUDGET || owner >= cmux_conversation::MAX_AGENT_TURNS {
+            (self.log)(&format!(
+                "{conversation}: Chiefs paused ({streak} Chief messages in this thread, {owner} agent messages in the conversation since a person wrote); {} stays quiet",
+                message.id
+            ));
+            return false;
+        }
+        true
+    }
+
     /// The floor of `conversation` (None: main) whose handled seq is
     /// `handled`: one before its first message still queued, else `handled`.
     pub(super) fn floor_of(&self, conversation: Option<&str>, handled: u64) -> u64 {
@@ -271,6 +328,26 @@ impl Brain {
     }
 }
 
+/// [`labelled`] with the author's kind and name (local side conversations,
+/// where people and other Chiefs write):
+/// `[in conv <id> "<title>" from person|Chief|agent "<name>"]`. The name is
+/// cleaned as the title is; the kind comes from the participant record, so a
+/// Chief named like a person still reads as a Chief.
+fn labelled_from(summary: &Summary, author: &str, text: &str) -> String {
+    let participant = summary.participants.iter().find(|p| p.id == author);
+    let name = clean_label(participant.map_or(author, |p| p.display_name.as_str()));
+    let kind = if cmux_chief::rules::is_chief(summary, author) {
+        "Chief"
+    } else if participant.is_some_and(|p| p.kind == cmux_conversation::ParticipantKind::Human) {
+        "person"
+    } else {
+        "agent"
+    };
+    let base = labelled(summary, "");
+    let head = base.trim_end().trim_end_matches(']');
+    format!("{head} from {kind} \"{name}\"] {text}")
+}
+
 /// Longest title (characters) in a side message's label.
 const LABEL_TITLE_CHARS: usize = 80;
 
@@ -280,18 +357,23 @@ const LABEL_TITLE_CHARS: usize = 80;
 /// other control characters, brackets and quotes, and is cut to
 /// `LABEL_TITLE_CHARS`: it cannot end the label or fake a line.
 fn labelled(summary: &Summary, text: &str) -> String {
-    let cleaned: String = summary
-        .title
+    let title = clean_label(&summary.title);
+    format!("[in conv {} \"{title}\"] {text}", summary.id)
+}
+
+/// Users' text in a label: no newlines or other control characters, no
+/// brackets or quotes, at most `LABEL_TITLE_CHARS`.
+fn clean_label(text: &str) -> String {
+    let cleaned: String = text
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
         .filter(|c| !matches!(c, '[' | ']' | '"'))
         .collect();
-    let title: String = cleaned
+    cleaned
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .chars()
         .take(LABEL_TITLE_CHARS)
-        .collect();
-    format!("[in conv {} \"{title}\"] {text}", summary.id)
+        .collect()
 }
