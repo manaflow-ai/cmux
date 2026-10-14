@@ -5,6 +5,7 @@
 Launches the tagged app itself (no activation, a scratch cmux.json, an isolated Chief home) on a
 GUI host and builds one sidebar:
 
+  shell     the first workspace, a plain terminal
   done      a terminal whose program reported done over OSC 7501 (left unseen)
   working   a terminal whose program reports working (the spinner)
   web       a browser tab on a local page with a favicon (a favicon tab row; tab rows are listed)
@@ -165,10 +166,11 @@ def focused_terminal():
 def new_workspace(name):
     """A new focused workspace named `name`; returns (workspace id, terminal id)."""
     before = set(workspace_ids())
-    terminal_before = focused_terminal()
-    action("workspace.newAtBottom")
+    reply = action("workspace.newAtBottom") or {}
+    created = reply.get("created") or []
     made = wait(lambda: next((w for w in workspace_ids() if w not in before), None), 30)
-    terminal = wait(lambda: (lambda t: t if t and t != terminal_before else None)(focused_terminal()), 15)
+    # The action names the terminal it made; the snapshot's focus may lag behind it.
+    terminal = next((c for c in created if str(c).startswith("term_")), None) or wait(focused_terminal, 15)
     cli("workspace", "current", "rename", name)
     return made, terminal
 
@@ -255,10 +257,8 @@ try:
     print("launched pid", app.pid, flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and rows("workspace"), 180):
         sys.exit("the tagged app did not come up")
-    wait(focused_terminal, 30)
-    done_terminal = focused_terminal()
-    cli("workspace", "current", "rename", "done")
-
+    cli("workspace", "current", "rename", "shell")
+    _, done_terminal = new_workspace("done")
     _, working_terminal = new_workspace("working")
     check(bool(done_terminal and working_terminal), "the done and working workspaces have terminals")
     # done is reported while another workspace is focused, so it stays unseen.
@@ -284,7 +284,9 @@ try:
     wait(lambda: sum(1 for r in rows("workspace") if r.get("group") == group) >= 2, 15)
     cli("workspace", "current", "rename", "group member B")
     check(bool(wait(lambda: rows("group"), 10)), "group: the group header is listed")
-    check(bool(wait(lambda: any(g.get("state") == "working" for g in sidebar().get("status_glyphs") or []), 15)),
+    check(bool(wait(lambda: any((g.get("title") or {}).get("text") == "done" for g in sidebar().get("status_glyphs") or []), 15)),
+          "done: the done row shows its status mark")
+    check(bool(wait(lambda: any(str(g.get("state", "")).startswith("working") for g in sidebar().get("status_glyphs") or []), 15)),
           "working: a row shows the working spinner")
 
     pid = app.pid
