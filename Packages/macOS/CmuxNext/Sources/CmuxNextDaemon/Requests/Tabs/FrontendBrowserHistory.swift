@@ -33,7 +33,7 @@ public struct FrontendBrowserHistory: Codable, Sendable, Equatable {
     /// rebuilds the engine's back list and scroll position. Only this Mac's
     /// daemon keeps it; nil when it would not fit.
     public struct EngineState: Codable, Sendable, Equatable {
-        /// "webkit" or "chromium".
+        /// "webkit-2" or "chromium-2" (`BrowserHistoryWriter`; older tags are not restored).
         public var engine: String
         public var data: String
 

@@ -120,6 +120,8 @@ export interface Env {
   readonly STRIPE_USAGE_KEY?: string
   /** `e2e` on the development Worker only: the usage sync uses the e2e price set (1 USD included; billing-catalog.ts). */
   readonly BILLING_USAGE_PRICE_SET?: string
+  /** `1`: a team the usage sync has not seen on a billable subscription stops at its plan's included AI amount (inference/included-stop.ts). */
+  readonly USAGE_HARD_STOP_UNBILLED?: string
   readonly INTEGRATIONS_KMS_KEY_ARN?: string
   readonly INTEGRATIONS_KMS_REGION?: string
   /** Secrets: the IAM user's access key, allowed only kms:Encrypt and kms:Decrypt with our encryption context. */

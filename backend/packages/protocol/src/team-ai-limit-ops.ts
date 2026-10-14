@@ -59,6 +59,25 @@ export const TeamAiLimitMember = Schema.Struct({
   spent_usd: Schema.Number
 }).annotate({ identifier: "TeamAiLimitMember" })
 
+/**
+ * The team line (cx-y79zh S5): the team's AI usage this period against its plan's included amount.
+ * Billed: usage above the included amount is billed at cost; the period is the billing period and the
+ * amount is per team or per seat (x seats). Not billed: the UTC month; with the stop on, AI calls stop
+ * at the included amount until the next month.
+ */
+export const TeamAiUsageLine = Schema.Struct({
+  billed: Schema.Boolean,
+  included_usd: Schema.NullOr(Schema.Number),
+  per_seat: Schema.Boolean,
+  seats: Schema.Int,
+  /** -1 when the usage meter did not answer. */
+  spent_usd: Schema.Number,
+  period_start: Schema.NullOr(Schema.Int),
+  period_end: Schema.Int,
+  stop_applies: Schema.Boolean,
+  stopped: Schema.Boolean
+}).annotate({ identifier: "TeamAiUsageLine" })
+
 export const TeamAiLimitGet = def({
   name: "team.ai_limit.get",
   owner: "cloud:TeamDO",
@@ -75,10 +94,12 @@ export const TeamAiLimitGet = def({
     me: TeamAiLimitMember,
     /** Only for team admins and billing members (billing.manage); 200 per page. */
     members: Schema.optionalKey(Schema.Array(TeamAiLimitMember)),
+    /** Only beside members: the team's usage against its included amount. */
+    team_usage: Schema.optionalKey(TeamAiUsageLine),
     next_cursor: Schema.optionalKey(Schema.NullOr(Schema.String))
   }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
-  docs: "Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend.",
+  docs: "Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount.",
   cli: { path: "team ai-limit get", visible: true },
   mcp: { expose: "never", group: "team" }
 })
