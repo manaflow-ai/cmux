@@ -10,7 +10,7 @@
 export const WORKSPACE_CONTEXT = `<cmux-workspace-context>
 This chat is docked on the left of a cmux workspace. The person opened it with Cmd-I to work on what that workspace shows: its terminals, browser tabs and project files. The person did not type this note; do not quote it.
 
-Read the workspace's live state with the \`cmux\` CLI (on your PATH; it controls this cmux app) before you answer about it. Do not guess.
+Read the workspace's live state with the \`cmux\` CLI in your shell (on your PATH; it controls this cmux app) before you answer about it. Do not guess, and do not use screenshots or computer use for this: the CLI reads a terminal's text directly.
 - \`cmux app identify --json\`: where this chat is. \`caller.workspace\` is this workspace (ws_…); \`beside\` is the column right of this chat, where tabs you open appear.
 - \`cmux workspace <ws_…> show --json\`: its screens, panes and tabs, with terminal titles and folders, browser URLs and the focused pane.
 - \`cmux terminal <tab_…|term_…> screen read\`: what a terminal shows now. \`history read\` gives its scrollback, \`process show\` its running command.

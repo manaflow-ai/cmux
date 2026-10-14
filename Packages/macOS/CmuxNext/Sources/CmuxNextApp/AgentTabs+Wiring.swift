@@ -274,14 +274,16 @@ extension AgentTabStore {
                 return (.failed, nil)
             }
             let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected)
+            let outcome: AgentSessionBindOutcome, sequence: UInt64? // one return: swiftlang/swift#92698 (cx-21wc5)
             do {
                 _ = try await connection.request(request)
-                return (.taken, await connection.eventSequence())
+                (outcome, sequence) = (.taken, await connection.eventSequence())
             } catch {
                 let text = String(describing: error)
                 services.daemon.logger.error("bind-conversation-tab-session: \(text, privacy: .public)")
-                return (text.contains(BindConversationTabSessionRequest.conflictPrefix) ? .conflict : .failed, nil)
+                (outcome, sequence) = (text.contains(BindConversationTabSessionRequest.conflictPrefix) ? .conflict : .failed, nil)
             }
+            return (outcome, sequence)
         }
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
