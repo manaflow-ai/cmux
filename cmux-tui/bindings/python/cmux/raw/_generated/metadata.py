@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '51c00043a9a8aed2eca070157fec1e513d5244b984cf2b1dd25a31637989b9d6'
+IR_SHA256 = '2aa331c20b3e6ca393f281f5bf1ff219ba1c48d5e9ffceb4cca2b82ef05e14f5'
 
 
 @dataclass(frozen=True)
@@ -481,6 +481,60 @@ COMMANDS = {
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-attachment-link': CommandMetadata(
+        'cloud-attachment-link',
+        'local-admin',
+        12,
+        'cloud-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'hash': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'variant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-attachment-read': CommandMetadata(
+        'cloud-attachment-read',
+        'local-admin',
+        12,
+        'cloud-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'hash': CommandFieldMetadata(None, None),
+            'length': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'variant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-attachment-upload': CommandMetadata(
+        'cloud-attachment-upload',
+        'local-admin',
+        12,
+        'cloud-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'byte_count': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'data': CommandFieldMetadata(None, None),
+            'duration_ms': CommandFieldMetadata(None, None),
+            'height': CommandFieldMetadata(None, None),
+            'mime_type': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'piece': CommandFieldMetadata(None, None),
+            'poster': CommandFieldMetadata(None, None),
+            'preview': CommandFieldMetadata(None, None),
+            'sha256': CommandFieldMetadata(None, None),
+            'upload': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-conversation-history': CommandMetadata(
         'cloud-conversation-history',
         'local-admin',
@@ -596,6 +650,19 @@ COMMANDS = {
             'limit': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-inbox-op': CommandMetadata(
+        'cloud-inbox-op',
+        'local-admin',
+        12,
+        'conversation-inbox-state-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-inbox-subscribe': CommandMetadata(
         'cloud-inbox-subscribe',
         'local-admin',
@@ -648,6 +715,18 @@ COMMANDS = {
         {
         },
     ),
+    'cloud-participant-avatar-get': CommandMetadata(
+        'cloud-participant-avatar-get',
+        'local-admin',
+        12,
+        'participant-avatars-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'participant_id': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-session-clear': CommandMetadata(
         'cloud-session-clear',
         'local-admin',
@@ -691,6 +770,20 @@ COMMANDS = {
         None,
         {
             'participant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-attachment-link': CommandMetadata(
+        'conversation-attachment-link',
+        'local-admin',
+        12,
+        'ws-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'hash': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'variant': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-attachment-read': CommandMetadata(
@@ -802,6 +895,18 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'messages': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-inbox-op': CommandMetadata(
+        'conversation-inbox-op',
+        'local-admin',
+        12,
+        'conversation-inbox-state-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-link-resolve': CommandMetadata(
@@ -2181,6 +2286,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'page': CommandFieldMetadata(None, None),
         },
     ),
     'pairing-response': CommandMetadata(
@@ -3574,6 +3680,7 @@ EVENTS = {
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
     'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'conversation-draft': EventMetadata('conversation-draft', 12, 'conversation-draft-events-v1', ('subscribe',), 'emitted'),
+    'conversation-inbox-changed': EventMetadata('conversation-inbox-changed', 12, 'conversation-inbox-state-v1', ('subscribe',), 'emitted'),
     'conversation-run-changed': EventMetadata('conversation-run-changed', 12, 'conversation-runs-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
@@ -3593,6 +3700,7 @@ EVENTS = {
     'pairing-resolved': EventMetadata('pairing-resolved', 7, None, ('subscribe',), 'emitted'),
     'pane-added': EventMetadata('pane-added', 7, None, ('subscribe-deltas',), 'emitted'),
     'pane-closed': EventMetadata('pane-closed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'participant-avatar-changed': EventMetadata('participant-avatar-changed', 12, 'participant-avatars-v1', ('subscribe',), 'emitted'),
     'personal-changed': EventMetadata('personal-changed', 12, 'profiles-v1', ('subscribe',), 'emitted'),
     'program-status-changed': EventMetadata('program-status-changed', 12, None, ('subscribe',), 'emitted'),
     'render-delta': EventMetadata('render-delta', 7, None, ('attach-render',), 'emitted'),

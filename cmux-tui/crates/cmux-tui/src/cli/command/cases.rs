@@ -627,13 +627,17 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "--body",
                 "tests passed",
                 "--level",
-                "success",
+                "info",
                 "--terminal",
                 TERMINAL,
             ],
             "notification.create",
         ),
         (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
+        (
+            vec!["agent", "message", "release", "msg_1", "--recipient", TERMINAL, "--approve"],
+            "agent.message.release",
+        ),
         (
             vec![
                 "agent",

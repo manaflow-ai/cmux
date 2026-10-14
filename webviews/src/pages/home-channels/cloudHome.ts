@@ -56,6 +56,24 @@ export class CloudHome {
     return this.known.has(id);
   }
 
+  /** Whether participant `id` (not the person) is in a cloud conversation this page read: its
+   *  picture is the Cloud owner's. */
+  hasParticipant(id: string): boolean {
+    return this.conversationWith(id) !== undefined;
+  }
+
+  /** A cloud conversation this page knows that has participant `id` (not the person): a head that
+   *  names them, else a DM with them. Cloud answers another participant's picture only with one. */
+  conversationWith(id: string): string | undefined {
+    if (id === LOCAL_USER) return undefined;
+    for (const [conversation, head] of this.heads) {
+      const people = head.participants;
+      if (Array.isArray(people) && people.some((person) => (person as Json | null)?.id === id && (person as Json).left_at === undefined)) return conversation;
+    }
+    for (const [conversation, entry] of this.entries) if (entry.dm_peer === id) return conversation;
+    return undefined;
+  }
+
   /** The person's id rewritten to the page's `me` in an owner value (people, authors, cursors). */
   localize<T>(value: T): T {
     const me = this.participant;
@@ -134,6 +152,8 @@ export class CloudHome {
       unread: num(entry.unread),
       mentions: num(entry.mentions),
       pinned: entry.pinned === true,
+      ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
+      ...(entry.marked_unread === true ? { markedUnread: true } : {}),
       muted: entry.muted === true,
       lastText: base.lastText ?? (String(entry.preview ?? "") || undefined),
     };
@@ -322,5 +342,7 @@ function fromEntry(entry: Json): HomeConversation {
     mentions: num(entry.mentions),
     muted: entry.muted === true,
     pinned: entry.pinned === true,
+    ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
+    ...(entry.marked_unread === true ? { markedUnread: true } : {}),
   };
 }

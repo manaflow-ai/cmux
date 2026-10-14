@@ -45,6 +45,16 @@ impl ChiefHome {
         cwd: &Path,
     ) -> Self {
         let exe = std::env::current_exe().ok();
+        // In another app's terminal, that app's Chief variables are not this
+        // build's (per-build isolation S4): the own bundle's home.
+        let other_app = crate::app_identity::in_other_apps_terminal(&env, exe.as_deref());
+        let env = move |key: &str| {
+            if other_app && crate::app_identity::OTHER_APP_STATE_KEYS.contains(&key) {
+                None
+            } else {
+                env(key)
+            }
+        };
         let bundle = crate::app_identity::AppIdentity::detect(&env, exe.as_deref())
             .and_then(|identity| identity.bundle_id)
             .or_else(|| {
@@ -139,6 +149,13 @@ impl ChiefHome {
 
     pub(super) fn host_lock(&self) -> PathBuf {
         self.root.join("state/host.lock")
+    }
+
+    /// Written by `cmux chief shutdown`: while it is there the app
+    /// (ChiefBrainWatch) starts no brain on its own; the next `cmux chief`
+    /// or Home ask takes it away.
+    pub(super) fn shutdown_marker(&self) -> PathBuf {
+        self.root.join("state/shutdown")
     }
 
     pub(super) fn token_file(&self) -> PathBuf {

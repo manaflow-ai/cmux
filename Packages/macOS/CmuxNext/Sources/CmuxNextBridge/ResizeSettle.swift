@@ -12,7 +12,10 @@ public struct ResizeSettle<Key: Hashable & Sendable, Size: Equatable & Sendable>
         var stableFor = 0
     }
 
-    public let stableFrames: Int
+    /// Frames a size must hold before it is sent; at least 1 (the next frame).
+    public var stableFrames: Int {
+        didSet { stableFrames = max(1, stableFrames) }
+    }
     private var pending: [Key: Entry] = [:]
 
     public init(stableFrames: Int = 2) {
