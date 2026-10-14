@@ -494,7 +494,7 @@ impl Mux {
                 let record = ConversationTabRecord::from_wire(&tab["conversation"])
                     .context("the closed conversation tab has no valid record")?;
                 let target = ConversationTabTarget::Pane(Some(pane));
-                self.new_conversation_tab_as(actor, target, record, None, None)?.surface.id
+                self.new_conversation_tab_as(actor, target, record, None, None, None)?.surface.id
             }
             Some("browser") if tab.get("remote").is_some_and(|value| !value.is_null()) => {
                 let record = RemoteTerminalRecord::from_wire(&tab["remote"])

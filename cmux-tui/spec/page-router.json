@@ -49,6 +49,17 @@
         "apps.grant.set"
       ],
       "events": []
+    },
+    "agent": {
+      "description": "The agent pane, and in it the New Tab page (page id from cmux-page://cmux.agent). It asks the folder trust question of a chat on another machine (cx-1bhjj): it reads the folder's trust, and its answer needs the person's gesture. No other page reads folder trust: it tells a page which folders the person works in.",
+      "read": [
+        "agent_session.trust.get"
+      ],
+      "gesture": [
+        "agent_session.trust.set"
+      ],
+      "confirm": [],
+      "events": []
     }
   },
   "namespaces": {
@@ -70,6 +81,16 @@
         "apps.hidden.set",
         "apps.grant.set",
         "apps.grant.revoke"
+      ]
+    },
+    "agent_session": {
+      "owner": "agent_session.trust",
+      "description": "Folder trust of a chat of this machine (agent-session-trust, commands.md; cx-1bhjj): `agent_session.trust.get {surface, cwd}` answers acpmux's acp.trust.get, `agent_session.trust.set {surface, cwd, level, home_confirmed?}` records an answer (acp.trust.set). The tab must be an agent tab of this store; the machine kind gate and the home folder rule of agent-session-start apply, and a page never sends home_confirmed (it cannot prove the person chose the home folder first). Unix socket only (a WebSocket page gets agent_session.not_trusted); a set needs origin user. The call runs on the relay's connection (one relay connection per pane).",
+      "read": [
+        "agent_session.trust.get"
+      ],
+      "mutation": [
+        "agent_session.trust.set"
       ]
     }
   }
