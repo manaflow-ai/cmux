@@ -1,7 +1,7 @@
 #if DEBUG
 public import AppKit
 
-/// `debug.titlebar_band` (DEBUG builds): what a press does across a window's
+/// `debug.layers` with `titlebar_band` (DEBUG builds): what a press does across a window's
 /// top row, in `debug.mouse` coordinates (window-local points from the
 /// top-left). Per sampled row `y`, runs of x with one answer: whether
 /// `TitlebarDragPolicy` moves the window there, the view a click lands on,

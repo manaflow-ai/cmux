@@ -1,5 +1,4 @@
 import CmuxNextControl
-import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 
@@ -43,11 +42,6 @@ extension AppControl {
             .mainActor("debug.home.sidebar_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugHomeSidebarFixture.handle(call.params, services: services))
-            },
-            .mainActor("debug.titlebar_band") { [weak services] call in
-                let id = call.params["window"]?.stringValue
-                guard let window = services?.windows.controllers.first(where: { id == nil || $0.state.id == id })?.window else { return .value(["error": "no window"]) }
-                return .value(JSONValue(foundation: TitlebarBandMap.report(window, step: CGFloat(call.params["step"]?.doubleValue ?? 2))) ?? .null)
             },
             .mainActor("debug.tab_drag") { [weak services] _ in
                 guard let services else { return .value(.null) }

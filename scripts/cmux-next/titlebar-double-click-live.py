@@ -15,7 +15,7 @@ frame right after and 1.5 s later:
   minimize  the window stops being visible
   none      the frame stays put
 
-Points come from `debug.titlebar_band` (DEBUG builds): the sidebar header (top
+Points come from `debug.layers` with `titlebar_band` (DEBUG builds): the sidebar header (top
 left, beside the traffic lights), empty tab-strip space, and a split divider's
 handle in the top row, where a double-click is the divider's and the window
 stays put whatever the setting. Zoom mode first runs the Window > Zoom action
@@ -101,12 +101,12 @@ def launch(mode):
 
 
 def points():
-    """From `debug.titlebar_band` at y 12: the middle of the sidebar header's widest window-moving
+    """From `debug.layers` `titlebar_band` at y 12: the middle of the sidebar header's widest window-moving
     run, of the main area's widest one (empty tab-strip space), and a split divider's handle (a
     press there is the divider's: the window must stay put whatever the setting)."""
     rpc("debug.window_frame", {"frame": START})
     time.sleep(0.8)
-    band = rpc("debug.titlebar_band")
+    band = rpc("debug.layers", {"titlebar_band": True})["titlebar_band"]
     row = min(band["rows"], key=lambda r: abs(r["y"] - 12))
     report["band_row"] = row
     moving = [r for r in row["runs"] if r["moves"] and r["hit"] not in ("DividerHandleView", "SidebarResizeHandle")]
