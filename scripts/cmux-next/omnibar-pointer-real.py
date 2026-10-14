@@ -332,7 +332,7 @@ if os.path.exists(SOCKET):
 app = subprocess.Popen([BINARY], env={
     "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-    "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1000,760", **dict(kv.split("=", 1) for kv in opts.env)},
+    "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **dict(kv.split("=", 1) for kv in opts.env)},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
 print(f"app pid {app.pid}, out {opts.out}, screen height {SCREEN_H}, scale {SCALE}", flush=True)
 
@@ -343,6 +343,8 @@ try:
     if not focus.get("windows"):
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     WINDOW = ((quiet_wait(lambda: (rpc("debug.focus") or {}).get("windows"), 60) or [{}])[0]).get("id")
+    # Low on the screen, clear of the top right where notification banners show over the toolbar's end.
+    rpc("debug.window_frame", {"window": WINDOW, "frame": [40, 40, 1100, 680]})
     activate()
     print("app active:", app_active(), "main window:", (main_window() or {}).get("frame"), flush=True)
     PAGE_URL = serve()
