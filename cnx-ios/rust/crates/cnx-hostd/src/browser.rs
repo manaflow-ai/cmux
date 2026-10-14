@@ -313,6 +313,9 @@ pub async fn serve(
         .then_some(peer.video.as_ref())
         .flatten()
         .filter(|video| !video.is_closed());
+    // The phone's tag for this tab's lane frames (cnx_link::media::tag).
+    let video_tag = args.get("video_tag").and_then(Value::as_u64).and_then(|tag| u32::try_from(tag).ok());
+    let track = track.map(|video| (video, video_tag));
     let result = splice(addr, &secret, peer, sender, receiver, cancelled, track).await;
     config.release(tab, viewer).await;
     result
@@ -325,8 +328,21 @@ async fn splice(
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
     mut cancelled: oneshot::Receiver<()>,
-    track: Option<&cnx_link::media::VideoOut>,
+    track: Option<(&cnx_link::media::VideoOut, Option<u32>)>,
 ) -> Result<(), Refusal> {
+    let video_tag = track.and_then(|(_, tag)| tag);
+    // A tagged phone keeps only its own tab's lane frames (the lane changes
+    // tabs without telling it when); an older phone sent no tag.
+    let lane_frame = |frame: cmux_rd_core::reassembly::CompleteFrame| {
+        let access_unit = Bytes::from(frame.body.access_unit);
+        cnx_link::media::OutgoingFrame {
+            access_unit: match video_tag {
+                Some(tag) => cnx_link::media::tag::append(&access_unit, tag),
+                None => access_unit,
+            },
+            capture_us: frame.body.t_capture_us,
+        }
+    };
     let stream = TcpStream::connect(addr)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("browser host: {e}")))?;
@@ -343,7 +359,7 @@ async fn splice(
     // the page's frames ride the media lane. A newer browser channel on the
     // same link takes the lane over; this one then carries its video on
     // the channel again (the host deframer stays, so frames stay whole).
-    let mut claim = track.map(|video| video.claim());
+    let mut claim = track.map(|(video, _)| video.claim());
     let mut host_deframer = claim.as_ref().map(|_| StreamDeframer::default());
     let mut bridge = crate::browser_track::TrackBridge::new();
     let epoch = Instant::now();
@@ -378,9 +394,14 @@ async fn splice(
             }
         };
         let uncongested = async {
-            match uncongested {
+            // A lane whose sender ended stays "congested" forever; never
+            // wake for it (the claim goes when its channel does).
+            let drained = match uncongested {
                 Some(drained) => drained.await,
-                None => std::future::pending().await,
+                None => false,
+            };
+            if !drained {
+                std::future::pending::<()>().await;
             }
         };
         tokio::select! {
@@ -418,11 +439,7 @@ async fn splice(
                     }
                     if let Some(c) = claim.as_ref() {
                         for frame in frames {
-                            let outgoing = cnx_link::media::OutgoingFrame {
-                                access_unit: Bytes::from(frame.body.access_unit),
-                                capture_us: frame.body.t_capture_us,
-                            };
-                            if c.send(outgoing).await.is_err() {
+                            if c.send(lane_frame(frame)).await.is_err() {
                                 break;
                             }
                         }
@@ -494,11 +511,7 @@ async fn splice(
                 );
             }
             for frame in bridge.tick(now) {
-                let outgoing = cnx_link::media::OutgoingFrame {
-                    access_unit: Bytes::from(frame.body.access_unit),
-                    capture_us: frame.body.t_capture_us,
-                };
-                let _ = c.send(outgoing).await;
+                let _ = c.send(lane_frame(frame)).await;
             }
             let feedback = bridge.feedback(c.state().congested, now);
             if !feedback.is_empty() && host_write.write_all(&feedback).await.is_err() {

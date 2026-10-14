@@ -157,13 +157,23 @@ fn closed() -> CnxError {
     CnxError::Closed { message: "the browser stream is closed".into() }
 }
 
+/// This stream's share of the link's media lane.
+pub(crate) struct Track {
+    pub lane: VideoIn,
+    pub frames: VideoFrames,
+    /// The tag this stream's `open` asked hostd to put on its frames
+    /// (`cnx_link::media::tag`); frames with another tag (or none) are
+    /// another tab's.
+    pub tag: u32,
+}
+
 /// Starts the viewer loop on an open `browser` channel; `track` is the
 /// link's media lane with this stream's subscription to it.
 pub(crate) fn start(
     sender: Arc<ChannelSender>,
     receiver: ChannelReceiver,
     observer: Arc<dyn BrowserObserver>,
-    track: Option<(VideoIn, VideoFrames)>,
+    track: Option<Track>,
 ) -> Arc<BrowserStream> {
     let (commands, rx) = mpsc::unbounded_channel();
     let stats = Arc::new(Mutex::new(BrowserStats::default()));
@@ -177,6 +187,7 @@ pub(crate) fn start(
         epoch,
         track,
         track_frame: 0,
+        track_synced: false,
     };
     tokio::spawn(viewer.run(sender, receiver, rx));
     Arc::new(BrowserStream { commands, stats, epoch })
@@ -189,9 +200,11 @@ struct Viewer {
     observer: Arc<dyn BrowserObserver>,
     stats: Arc<Mutex<BrowserStats>>,
     epoch: Instant,
-    track: Option<(VideoIn, VideoFrames)>,
+    track: Option<Track>,
     /// Frame numbers of track frames (the RTP stream has none).
     track_frame: u32,
+    /// A keyframe of this stream's own tag arrived: later frames decode.
+    track_synced: bool,
 }
 
 impl Viewer {
@@ -237,8 +250,8 @@ impl Viewer {
                     }
                     Some(Command::Keyframe) => {
                         let _ = self.session.request_keyframe(0);
-                        if let Some((_, frames)) = &self.track {
-                            frames.request_keyframe();
+                        if let Some(track) = &self.track {
+                            track.frames.request_keyframe();
                         }
                     }
                     Some(Command::Decoded(us)) => {
@@ -251,11 +264,11 @@ impl Viewer {
                 },
                 frame = async {
                     match self.track.as_mut() {
-                        Some((_, frames)) => frames.frames.recv().await,
+                        Some(track) => track.frames.frames.recv().await,
                         None => std::future::pending().await,
                     }
                 } => match frame {
-                    Some(frame) => self.track_frame(frame),
+                    Some(frame) => self.lane_frame(frame),
                     // Another tab took the lane: video comes on the channel.
                     None => self.track = None,
                 },
@@ -284,6 +297,26 @@ impl Viewer {
         session.min(input).min(self.now() + 100_000)
     }
 
+    /// One frame from the media lane: this stream's own (by tag), from its
+    /// first keyframe on.
+    fn lane_frame(&mut self, mut frame: ReceivedFrame) {
+        let Some(track) = &self.track else { return };
+        if cnx_link::media::tag::strip(&mut frame.access_unit) != Some(track.tag) {
+            // Another tab's (the lane is switching), or an untagged frame.
+            return;
+        }
+        if !self.track_synced {
+            if !frame.keyframe {
+                // This tab's claim started mid-stream (or its first
+                // keyframe went to the tab before): ask again.
+                track.frames.request_keyframe();
+                return;
+            }
+            self.track_synced = true;
+        }
+        self.track_frame(frame);
+    }
+
     /// One frame from the media lane.
     fn track_frame(&mut self, frame: ReceivedFrame) {
         let now = self.now();
@@ -307,8 +340,8 @@ impl Viewer {
             stats.clock_offset_us = clock.map(|c| c.offset_us);
             stats.clock_rtt_us = clock.map(|c| c.rtt_us);
             stats.video_track = true;
-            if let Some((lane, _)) = &self.track {
-                let lane = lane.stats();
+            if let Some(track) = &self.track {
+                let lane = track.lane.stats();
                 stats.track_frames_dropped = lane.frames_dropped;
                 stats.track_packets_recovered = lane.packets_recovered;
             }

@@ -89,6 +89,11 @@ pub struct ReceiverCore {
     /// waiting for a keyframe.
     next_seq: Option<u64>,
     blocked_since: Option<u64>,
+    /// The next frame is incomplete with nothing missing before its newest
+    /// packet (its tail is still on the way, or lost): it waits from the
+    /// newest arrival.
+    tail_since: Option<u64>,
+    last_arrival_us: u64,
     last_pli_us: Option<u64>,
     pli_wanted: bool,
     /// Send one PLI on the next poll without dropping what is buffered.
@@ -106,6 +111,8 @@ impl ReceiverCore {
             highest: None,
             next_seq: None,
             blocked_since: None,
+            tail_since: None,
+            last_arrival_us: 0,
             last_pli_us: None,
             pli_wanted: true,
             pli_now: false,
@@ -136,6 +143,7 @@ impl ReceiverCore {
     pub fn request_keyframe(&mut self) {
         self.next_seq = None;
         self.blocked_since = None;
+        self.tail_since = None;
         self.pli_wanted = true;
         self.last_pli_us = None;
     }
@@ -179,6 +187,7 @@ impl ReceiverCore {
         if self.highest.is_none_or(|h| seq > h) {
             self.highest = Some(seq);
         }
+        self.last_arrival_us = now_us;
         self.packets.insert(
             seq,
             Slot {
@@ -251,6 +260,7 @@ impl ReceiverCore {
             self.packets.pop_first();
         }
         self.blocked_since = None;
+        self.tail_since = None;
     }
 
     /// Releases what is complete and returns the RTCP to send now.
@@ -269,17 +279,26 @@ impl ReceiverCore {
                         self.release(frame, &mut frames);
                     }
                     None => {
-                        // Blocked only by a hole: a frame whose last packets
-                        // are still on their way (a large keyframe on a slow
-                        // path) is not a loss, however long it takes.
-                        let hole = self.highest.is_some_and(|h| {
-                            h >= next && (self.packets.range(next..=h).count() as u64) < h - next + 1
-                        });
-                        if !hole {
+                        let Some(highest) = self.highest.filter(|h| *h >= next) else {
                             self.blocked_since = None;
+                            self.tail_since = None;
                             break;
-                        }
-                        let since = *self.blocked_since.get_or_insert(now_us);
+                        };
+                        // A hole (a missing packet before the newest one)
+                        // waits from when it was found, however much else
+                        // arrives. A frame with nothing missing but its tail
+                        // waits from the newest arrival: a large keyframe
+                        // still arriving on a slow path is never given up,
+                        // and a lost tail (the marker, with nothing after it
+                        // for the NACK generator to notice) still is.
+                        let hole = (self.packets.range(next..=highest).count() as u64) < highest - next + 1;
+                        let since = if hole {
+                            self.tail_since = None;
+                            *self.blocked_since.get_or_insert(now_us)
+                        } else {
+                            self.blocked_since = None;
+                            *self.tail_since.insert(self.last_arrival_us)
+                        };
                         if now_us.saturating_sub(since) < self.deadline_us() {
                             break;
                         }
@@ -356,7 +375,7 @@ impl ReceiverCore {
     /// When [`Self::poll`] has work next.
     pub fn next_deadline_us(&self, now_us: u64) -> u64 {
         let mut next = now_us + 1_000_000;
-        if let Some(since) = self.blocked_since {
+        for since in [self.blocked_since, self.tail_since].into_iter().flatten() {
             next = next.min(since + self.deadline_us());
         }
         if self.next_seq.is_none() && self.pli_wanted {
@@ -414,14 +433,17 @@ pub(crate) async fn run(
         }
         let (frames, rtcp) = core.poll(super::micros_since(epoch));
         if !frames.is_empty() {
-            let mut subscriber = inner.subscriber.lock().await;
+            let mut subscribers = inner.subscribers.lock().await;
             let mut overflow = false;
             for frame in frames {
-                match subscriber.as_ref().map(|tx| tx.try_send(frame)) {
-                    Some(Ok(())) | None => {}
-                    Some(Err(mpsc::error::TrySendError::Full(_))) => overflow = true,
-                    Some(Err(mpsc::error::TrySendError::Closed(_))) => *subscriber = None,
-                }
+                subscribers.retain(|tx| match tx.try_send(frame.clone()) {
+                    Ok(()) => true,
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        overflow = true;
+                        true
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => false,
+                });
             }
             if overflow {
                 // The consumer fell behind; restart its decoder at a keyframe.
@@ -433,7 +455,7 @@ pub(crate) async fn run(
         }
         stats.send_replace(core.stats());
     }
-    inner.subscriber.lock().await.take();
+    inner.subscribers.lock().await.clear();
 }
 
 #[cfg(test)]
@@ -602,6 +624,33 @@ mod tests {
         }
         assert!(now - start > receiver.deadline_us());
         assert_eq!(receiver.stats().frames_dropped, 0);
+    }
+
+    /// The last packet of a frame (its marker) is lost and nothing follows
+    /// (a still page): no NACK can notice, so the frame is given up after
+    /// the deadline from the newest arrival and a PLI asks for a keyframe.
+    #[test]
+    fn a_lost_tail_with_nothing_after_it_is_given_up() {
+        let mut sender = SenderCore::new(SenderConfig::default(), 1);
+        let mut receiver = ReceiverCore::new(ReceiverConfig::default());
+        receiver.set_rtt(10_000);
+        let sent = frames(&mut sender, 3, 0);
+        for p in sent[0].iter().chain(&sent[1]) {
+            receiver.push(p.clone(), 0);
+        }
+        assert_eq!(receiver.poll(0).0.len(), 2);
+        let tail = &sent[2];
+        assert!(tail.len() > 1);
+        for p in &tail[..tail.len() - 1] {
+            receiver.push(p.clone(), 20_000);
+        }
+        let (out, rtcp) = receiver.poll(20_000 + receiver.deadline_us() - 1);
+        assert!(out.is_empty() && !has_pli(&rtcp));
+        assert_eq!(receiver.next_deadline_us(30_000), 20_000 + receiver.deadline_us());
+        let (out, rtcp) = receiver.poll(20_000 + receiver.deadline_us());
+        assert!(out.is_empty());
+        assert!(has_pli(&rtcp));
+        assert_eq!(receiver.stats().frames_dropped, 1);
     }
 
     /// One roam can be announced twice (host endpoints, then the reflexive

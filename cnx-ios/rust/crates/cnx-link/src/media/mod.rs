@@ -39,6 +39,7 @@ pub mod h264;
 pub mod receiver;
 pub mod resend;
 pub mod sender;
+pub mod tag;
 pub mod track;
 pub mod twcc;
 pub mod wireguard;
@@ -285,12 +286,11 @@ impl VideoClaim {
         *self.inner.state.borrow()
     }
 
-    /// Resolves once the lane is no longer congested (at once if it is not).
-    pub fn uncongested(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+    /// Resolves with `true` once the lane is no longer congested (at once if
+    /// it is not), or `false` when the lane's sender ended first.
+    pub fn uncongested(&self) -> impl std::future::Future<Output = bool> + Send + 'static {
         let mut state = self.inner.state.clone();
-        async move {
-            let _ = state.wait_for(|s| !s.congested).await;
-        }
+        async move { state.wait_for(|s| !s.congested).await.is_ok() }
     }
 }
 
@@ -323,7 +323,9 @@ pub struct ReceiverStats {
     pub packets_recovered: u64,
 }
 
-/// The phone side of a lane: one subscriber at a time gets the frames.
+/// The phone side of a lane. [`VideoIn::subscribe`] takes the frames from
+/// every earlier subscriber; [`VideoIn::subscribe_shared`] gets them beside
+/// the others (each viewer then keeps its own tab's, by [`tag`]).
 #[derive(Clone)]
 pub struct VideoIn {
     inner: Arc<InInner>,
@@ -331,7 +333,7 @@ pub struct VideoIn {
 
 pub(crate) struct InInner {
     kind: CarrierKind,
-    subscriber: Mutex<Option<mpsc::Sender<ReceivedFrame>>>,
+    subscribers: Mutex<Vec<mpsc::Sender<ReceivedFrame>>>,
     keyframe: mpsc::UnboundedSender<()>,
     stats: watch::Receiver<ReceiverStats>,
 }
@@ -342,8 +344,8 @@ impl std::fmt::Debug for VideoIn {
     }
 }
 
-/// A subscriber's frames; it ends when a newer subscriber takes over or the
-/// lane closes.
+/// A subscriber's frames; it ends when a newer exclusive subscriber takes
+/// over or the lane closes.
 pub struct VideoFrames {
     pub frames: mpsc::Receiver<ReceivedFrame>,
     keyframe: mpsc::UnboundedSender<()>,
@@ -370,7 +372,7 @@ impl VideoIn {
         let (stats_tx, stats_rx) = watch::channel(ReceiverStats::default());
         let inner = Arc::new(InInner {
             kind: carrier.kind(),
-            subscriber: Mutex::new(None),
+            subscribers: Mutex::new(Vec::new()),
             keyframe: keyframe_tx,
             stats: stats_rx,
         });
@@ -382,10 +384,28 @@ impl VideoIn {
         self.inner.kind
     }
 
-    /// Takes the frames from now on (and asks for a keyframe to start from).
+    /// Takes the frames from now on, from every earlier subscriber (and
+    /// asks for a keyframe to start from).
     pub async fn subscribe(&self) -> VideoFrames {
+        self.subscribe_with(true).await
+    }
+
+    /// Gets every frame from now on beside the other subscribers (and asks
+    /// for a keyframe to start from). For viewers that keep only their own
+    /// tab's frames ([`tag`]).
+    pub async fn subscribe_shared(&self) -> VideoFrames {
+        self.subscribe_with(false).await
+    }
+
+    async fn subscribe_with(&self, exclusive: bool) -> VideoFrames {
         let (tx, rx) = mpsc::channel(8);
-        *self.inner.subscriber.lock().await = Some(tx);
+        {
+            let mut subscribers = self.inner.subscribers.lock().await;
+            if exclusive {
+                subscribers.clear();
+            }
+            subscribers.push(tx);
+        }
         let _ = self.inner.keyframe.send(());
         VideoFrames { frames: rx, keyframe: self.inner.keyframe.clone() }
     }

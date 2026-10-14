@@ -531,7 +531,10 @@ async fn browser_video(kind: TransportKind, phone_lane: bool) {
         None => None,
     };
     let mut tab_a = link
-        .open("browser", serde_json::json!({"tab": "sA", "url": "https://example.com/", "video": "track"}))
+        .open(
+            "browser",
+            serde_json::json!({"tab": "sA", "url": "https://example.com/", "video": "track", "video_tag": 0xa1}),
+        )
         .await
         .unwrap();
     let mut rd = RdReader::default();
@@ -557,6 +560,11 @@ async fn browser_video(kind: TransportKind, phone_lane: bool) {
     }
     assert!(got[0].keyframe);
     assert!(got.iter().skip(1).any(|f| !f.keyframe));
+    // Each lane frame carries tab A's tag, after its slices.
+    for frame in &mut got {
+        assert_eq!(cnx_link::media::tag::strip(&mut frame.access_unit), Some(0xa1));
+    }
+    assert!(cnx_link::media::h264::is_keyframe(&got[0].access_unit));
     // The channel carries no main-stream video meanwhile.
     let quiet = tokio::time::Instant::now() + Duration::from_millis(500);
     loop {
@@ -575,9 +583,24 @@ async fn browser_video(kind: TransportKind, phone_lane: bool) {
         }
     }
     // Tab B takes the lane; tab A's video returns to its channel.
-    let mut tab_b = link.open("browser", serde_json::json!({"tab": "sB", "video": "track"})).await.unwrap();
+    let mut tab_b = link
+        .open("browser", serde_json::json!({"tab": "sB", "video": "track", "video_tag": 0xb2}))
+        .await
+        .unwrap();
     let mut rd_b = RdReader::default();
     assert_eq!(rd_b.control(&mut tab_b).await["t"], "welcome");
+    // The lane goes over to tab B: its frames carry B's tag, and A's stop.
+    loop {
+        let mut frame = tokio::time::timeout(Duration::from_secs(10), frames.frames.recv())
+            .await
+            .expect("a lane frame after the takeover")
+            .unwrap();
+        match cnx_link::media::tag::strip(&mut frame.access_unit) {
+            Some(0xa1) => continue,
+            Some(0xb2) => break,
+            other => panic!("a lane frame tagged {other:?}"),
+        }
+    }
     loop {
         let datagram = rd.datagram(&mut tab_a).await;
         let (header, _) = cmux_rd_proto::DatagramHeader::decode(&datagram).unwrap();

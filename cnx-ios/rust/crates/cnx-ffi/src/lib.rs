@@ -261,20 +261,25 @@ impl LinkHandle {
                 Some(cnx_link::media::MediaLane::In(lane)) if args.get("video").is_none() => Some(lane),
                 _ => None,
             };
+            // This tab's frames carry `video_tag` (media/tag.rs): the lane
+            // switches tabs without telling the phone when, and a refused
+            // `open` never switches it, so each viewer keeps its own frames
+            // beside the others instead of taking them from the tab before.
+            let tag = u32::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..4].try_into().unwrap_or_default());
             if lane.is_some() {
                 args["video"] = serde_json::Value::from("track");
+                args["video_tag"] = serde_json::Value::from(tag);
             }
             let channel = link.open("browser", args).await?;
-            // Take the lane's frames only once this tab's `open` is queued:
-            // a malformed request leaves the tab that has them now
-            // undisturbed, and the keyframe request (a PLI on the lane)
-            // follows the `open`, so it usually reaches this tab's claim.
-            let frames = match &lane {
-                Some(lane) => Some(lane.subscribe().await),
+            let track = match lane {
+                Some(lane) => {
+                    let frames = lane.subscribe_shared().await;
+                    Some(browser::Track { lane, frames, tag })
+                }
                 None => None,
             };
             let (sender, receiver) = channel.split();
-            Ok(browser::start(Arc::new(sender), receiver, observer, lane.zip(frames)))
+            Ok(browser::start(Arc::new(sender), receiver, observer, track))
         })
         .await
     }
