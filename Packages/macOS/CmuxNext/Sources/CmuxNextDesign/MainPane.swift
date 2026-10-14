@@ -2,10 +2,10 @@ public import CoreGraphics
 public import Foundation
 
 /// The curved main pane (cx-rkgu, Leo 2026-10-10): the workspace content
-/// is one rounded card beside the sidebar, as in Edge. Where it meets the
-/// window's edges it takes the window's own edge and corners (Leo
-/// 2026-10-13, one container level): a gutter there drew a second rounded
-/// outline inside the window's, over wallpaper art most of all. Under
+/// sits inset in the window chrome as one rounded card, as in Edge. A
+/// gutter of 0 (Debug Settings, 2026-10-14) is the flush opt-in: the pane
+/// meets the window's edges and takes the window's own corners, so one
+/// outline shows there instead of the gutter's second one. Under
 /// `appearance.sidebarSurface` separate, the chrome around the card
 /// (sidebar, gutter, titlebar) is shaded a little darker so the curve reads
 /// on the one surface; by default it shares the card's surface
@@ -22,8 +22,8 @@ nonisolated extension ChromeTunables {
         code: "ChromeTunables.mainPaneCornerRadius")
     public static let mainPaneGutter = Tunable<CGFloat>.number(
         "chrome.mainPane.gutter", .sidebar, "Main pane gutter",
-        help: "Space between the curved main pane and the titlebar and the window edges. 0: the pane meets the window edge and takes its corners.",
-        default: 0, range: 0...24, step: 0.5, unit: .points, code: "ChromeTunables.mainPaneGutter")
+        help: "Space between the curved main pane and the titlebar and the window edges. 0 (flush): the pane meets the window edge and takes its corners.",
+        default: 6, range: 0...24, step: 0.5, unit: .points, code: "ChromeTunables.mainPaneGutter")
     public static let mainPaneShadeLight = Tunable<Double>.number(
         "chrome.mainPane.shadeLight", .sidebar, "Main pane chrome shade (light)",
         help: "Light themes: black over the chrome around the curved main pane, so the pane reads as a card.",
@@ -43,8 +43,8 @@ extension Metrics {
     /// Whether the workspace content is the curved main pane.
     public static var mainPaneCurved: Bool { ChromeTunables.mainPaneCurved.value }
     /// Inset of the main pane from the titlebar and window edges (beside
-    /// the sidebar its row inset is the gap); 0 by default, so the pane
-    /// meets the window edge and one outline shows there.
+    /// the sidebar its row inset is the gap); 0 is the flush opt-in, where
+    /// the pane meets the window edge and one outline shows there.
     public static var mainPaneGutter: CGFloat { mainPaneCurved ? scale(ChromeTunables.mainPaneGutter.value) : 0 }
     /// Corner radius of the main pane; 0 when it is edge to edge.
     public static var mainPaneCornerRadius: CGFloat { mainPaneCurved ? scale(ChromeTunables.mainPaneCornerRadius.value) : 0 }
