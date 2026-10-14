@@ -71,9 +71,23 @@ export function threadStatus(thread: HomeThreadObject | undefined, lastReplySeq:
   return resolved && (lastReplySeq === undefined || lastReplySeq <= resolved.seq) ? "resolved" : "open";
 }
 
-/** A thread's title: its own, else the root's first line. */
+/** The longest derived title (the row truncates by width before this). */
+const TITLE_MAX = 120;
+
+/** A thread's title: its own, else the root's first non-empty line without Markdown marks or a
+ * trailing colon. */
 export function threadTitle(root: HomeMessage): string {
-  return root.thread?.title || messageText(root).split("\n", 1)[0]!.trim();
+  if (root.thread?.title) return root.thread.title;
+  const line =
+    messageText(root)
+      .split("\n")
+      .map((part) => part.trim())
+      .find((part) => part.length > 0) ?? "";
+  const plain = line
+    .replace(/^#+\s+|^[-*>]\s+|^\d+\.\s+/, "")
+    .replace(/[*_`~]/g, "")
+    .replace(/[:;,]\s*$/, "");
+  return plain.length > TITLE_MAX ? `${plain.slice(0, TITLE_MAX - 1)}…` : plain;
 }
 
 /** The thread a message belongs to (its root's id), or undefined for a top-level message. */

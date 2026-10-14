@@ -154,7 +154,14 @@ function ListRow({
         {showAuthor && <span className="lg-row-author">{author}</span>}
         <span className="lg-row-text">{preview}</span>
       </span>
-      {badge > 0 && <span className="lg-count">{badge}</span>}
+      {badge > 0 && (
+        <span
+          className="lg-count"
+          aria-label={format(row.mentions > 0 ? "unread.mentions" : "unread.messages", String(badge))}
+        >
+          {badge}
+        </span>
+      )}
     </button>
   );
 }

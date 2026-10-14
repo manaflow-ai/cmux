@@ -1,11 +1,14 @@
 // The Cmd-K palette: the center of navigation. One field over three groups: conversations (every
 // room and person, newest first when the field is empty), the open conversation's threads (title,
-// status, reply count) and actions on what is open (new channel, resolve the thread, copy a link,
-// next unread). Rows are ranked by the command palette's own ranker (rankPalette), so fuzzy and
-// acronym rules match the app palette. ui/Dialog traps focus and returns it; the field owns the
-// arrows, Return and Escape; the list is a listbox with the active row on aria-activedescendant.
-import { useId, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+// status, reply count) and actions on what is open (new channel, resolve the thread, assign it,
+// copy a link, next unread). Rows are ranked by the command palette's own ranker (rankPalette), so
+// fuzzy and acronym rules match the app palette. The shared primitives own the keyboard, roles and
+// focus: ui/Dialog traps focus and returns it; ui/Combobox owns the combobox and listbox roles,
+// the arrows and the highlighted row. A group's name shows over its first row (not read out: each
+// row's own label says what it is).
+import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { rankPalette, type PaletteRankEntry } from "../../palette/ranker";
+import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
 import type { Strings } from "../shared/i18n";
 
@@ -19,7 +22,7 @@ export interface PaletteItem {
   meta?: string;
   keywords?: string[];
   mark?: ReactNode;
-  /** The key that does the same outside the palette ("E", "⌥↓"). */
+  /** The key that does the same outside the palette ("E", "⌥⇧↓"). */
   shortcut?: string;
   run(): void;
 }
@@ -38,8 +41,6 @@ export function Palette({
 }) {
   const { t } = strings;
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
-  const listId = useId();
   const entries = useMemo<PaletteRankEntry[]>(
     () =>
       items.map((item) => ({
@@ -50,36 +51,30 @@ export function Palette({
       })),
     [items],
   );
-  const groups = useMemo(() => {
+  // Ranked within each group, groups in a fixed order.
+  const results = useMemo(() => {
     const ranked = rankPalette({ entries, query, keepsSectionOrder: true });
     const order = ranked.flatMap((section) => section.rows.map((row) => items[row.index]!));
-    return GROUPS.map((group) => ({ group, rows: order.filter((item) => item.group === group).slice(0, LIMIT) })).filter(
-      (entry) => entry.rows.length > 0,
-    );
+    return GROUPS.flatMap((group) => order.filter((item) => item.group === group).slice(0, LIMIT));
   }, [entries, items, query]);
-  const flat = groups.flatMap((entry) => entry.rows);
-  const current = Math.min(active, Math.max(flat.length - 1, 0));
-  const pick = (item: PaletteItem | undefined) => {
+  const byId = useMemo(() => new Map(results.map((item) => [item.id, item])), [results]);
+  const firsts = useMemo(() => {
+    const seen = new Set<PaletteGroup>();
+    return new Set(results.filter((item) => !seen.has(item.group) && seen.add(item.group)).map((item) => item.id));
+  }, [results]);
+  const submit = (value: string) => {
+    const item = byId.get(value) ?? results[0];
     if (!item) return;
     onClose();
     item.run();
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown" || (event.key === "n" && event.ctrlKey)) {
+  // Tab would complete the field to an item id; the palette has nothing to complete.
+  // Option-Up/Down move the list (useHomeKeys); they must not change the conversation behind it.
+  const onCommand = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Tab" || (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")))
       event.preventDefault();
-      setActive((current + 1) % Math.max(flat.length, 1));
-    } else if (event.key === "ArrowUp" || (event.key === "p" && event.ctrlKey)) {
-      event.preventDefault();
-      setActive((current - 1 + flat.length) % Math.max(flat.length, 1));
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      pick(flat[current]);
-    } else if (event.key === "Tab") {
-      event.preventDefault();
-    }
   };
   const label = t("palette.placeholder");
-  let index = -1;
   return (
     <Dialog
       open
@@ -90,52 +85,42 @@ export function Palette({
       className="lg-palette"
       backdropClassName="lg-scrim"
     >
-      <input
-        className="lg-palette-input"
-        role="combobox"
-        aria-expanded="true"
-        aria-controls={listId}
-        aria-activedescendant={flat.length > 0 ? `${listId}-${current}` : undefined}
-        aria-label={label}
+      <Combobox
+        suggestions={results.map((item) => item.id)}
+        onQuery={setQuery}
+        onSubmit={submit}
+        onCancel={onClose}
+        label={label}
         placeholder={label}
-        value={query}
-        spellCheck={false}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setActive(0);
+        inline
+        autoHighlight="always"
+        cancelOnBlur={false}
+        onCommand={onCommand}
+        rootClassName="lg-palette-root"
+        inputClassName="lg-palette-input"
+        listClassName="lg-palette-list"
+        itemClassName="lg-palette-row"
+        renderItem={(id) => {
+          const item = byId.get(id);
+          if (!item) return null;
+          return (
+            <>
+              {firsts.has(id) && (
+                <span className="lg-palette-heading" aria-hidden="true">
+                  {t(`palette.${item.group}`)}
+                </span>
+              )}
+              <span className="lg-palette-line">
+                <span className="lg-palette-mark">{item.mark}</span>
+                <span className="lg-palette-title">{item.title}</span>
+                {item.meta && <span className="lg-palette-meta">{item.meta}</span>}
+                {item.shortcut && <kbd className="lg-kbd">{item.shortcut}</kbd>}
+              </span>
+            </>
+          );
         }}
-        onKeyDown={onKeyDown}
       />
-      <div className="lg-palette-list" role="listbox" id={listId} aria-label={label}>
-        {groups.map((entry) => (
-          <div key={entry.group} role="group" aria-label={t(`palette.${entry.group}`)} className="lg-palette-group">
-            <div className="lg-palette-heading" aria-hidden="true">
-              {t(`palette.${entry.group}`)}
-            </div>
-            {entry.rows.map((item) => {
-              index += 1;
-              const mine = index;
-              return (
-                <div
-                  key={item.id}
-                  id={`${listId}-${mine}`}
-                  role="option"
-                  aria-selected={mine === current}
-                  className={`lg-palette-row${mine === current ? " active" : ""}`}
-                  onPointerMove={() => setActive(mine)}
-                  onClick={() => pick(item)}
-                >
-                  <span className="lg-palette-mark">{item.mark}</span>
-                  <span className="lg-palette-title">{item.title}</span>
-                  {item.meta && <span className="lg-palette-meta">{item.meta}</span>}
-                  {item.shortcut && <kbd className="lg-kbd">{item.shortcut}</kbd>}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-        {flat.length === 0 && <p className="lg-palette-none">{t("switcher.none")}</p>}
-      </div>
+      {results.length === 0 && <p className="lg-palette-none">{t("switcher.none")}</p>}
       <p className="lg-palette-hint" aria-hidden="true">
         {t("switcher.hint")}
       </p>

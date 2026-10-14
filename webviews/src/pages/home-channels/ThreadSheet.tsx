@@ -1,9 +1,13 @@
 // The thread sheet: slides in from the end edge over the timeline (not a third column, so the
 // page works at the Home dock width). A thread is an object: the header shows its status (press
-// it or E to resolve or reopen), where it lives, its title and one muted line (owner, replies,
-// people). Then the root, the replies in tree order with depth rails (capped at 4 indents), and a
-// reply composer; Reply on any reply nests under it. Escape closes the sheet.
+// it or E to resolve or reopen), where it lives, its title (press it to rename; an empty title
+// shows the root's first line again) and one muted line (owner, which opens a menu of the
+// participants; replies; people). Then the root, the replies in tree order with depth rails
+// (capped at 4 indents), and a reply composer; Reply on any reply nests under it. Escape closes
+// the sheet (or the title field first).
 import { useMemo, useState } from "react";
+import { KeyboardScope } from "../../ui/KeyboardScope";
+import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../ui/Menu";
 import type { Strings } from "../shared/i18n";
 import { Composer } from "./Composer";
 import { HomeIcon } from "./icons";
@@ -32,6 +36,12 @@ export interface ThreadSheetProps {
   highlight?: string;
   onClose(): void;
   onToggleStatus(): void;
+  /** Who can own the thread (the conversation's participants). */
+  owners: readonly HomeParticipant[];
+  /** Sets the owner; "" clears it. */
+  onSetOwner(owner: string): void;
+  /** Sets the title; "" clears it. Resolves true when the owner took it. */
+  onRename(title: string): Promise<boolean>;
   onSend(text: string, parent?: string): Promise<boolean>;
   onCopyLink(message: HomeMessage): void;
   onReact(message: HomeMessage, value: string): void;
@@ -62,6 +72,9 @@ export function ThreadSheet({
   highlight,
   onClose,
   onToggleStatus,
+  owners,
+  onSetOwner,
+  onRename,
   onSend,
   onCopyLink,
   onReact,
@@ -75,6 +88,8 @@ export function ThreadSheet({
 }: ThreadSheetProps) {
   const { t, format } = strings;
   const [replyTo, setReplyTo] = useState<HomeMessage | undefined>();
+  const [renaming, setRenaming] = useState<string | undefined>();
+  const [ownerMenu, setOwnerMenu] = useState(false);
   const tree = useMemo(() => threadMessages(messages, root), [messages, root]);
   const count = replyCount(tree.replies, stats);
   const rows = useMemo<TimelineRow[]>(() => {
@@ -96,7 +111,15 @@ export function ThreadSheet({
     return list;
   }, [tree, root, count]);
   const authors = new Set([...(tree.root ? [tree.root.author] : []), ...tree.replies.map((m) => m.author)]);
-  const owner = thread ? (people.get(thread.owner)?.name ?? thread.owner) : "";
+  const owner = thread?.owner ? (people.get(thread.owner)?.name ?? thread.owner) : undefined;
+  const saveTitle = (value: string) => {
+    const next = value.trim();
+    // Unchanged (or the derived title kept as it was): nothing to send.
+    if (!thread || next === thread.title) return setRenaming(undefined);
+    void onRename(next).then((done) => {
+      if (done) setRenaming(undefined);
+    });
+  };
   const resolved = thread?.status === "resolved";
   return (
     <aside className="lg-sheet" data-status={thread?.status ?? "open"} aria-label={thread?.title || t("thread.title")}>
@@ -135,9 +158,63 @@ export function ThreadSheet({
             <HomeIcon name="close" size={16} />
           </button>
         </div>
-        <h2 className="lg-sheet-title">{thread?.title || t("thread.title")}</h2>
+        {renaming !== undefined ? (
+          <KeyboardScope
+            handleKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                saveTitle(renaming);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                setRenaming(undefined);
+              }
+            }}
+          >
+          <input
+            className="lg-sheet-title-field"
+            aria-label={t("thread.rename")}
+            value={renaming}
+            maxLength={200}
+            // The field opens from a press on the title: it takes the keyboard at once.
+            // oxlint-disable-next-line jsx-a11y/no-autofocus
+            autoFocus
+            onChange={(event) => setRenaming(event.target.value)}
+            onBlur={() => saveTitle(renaming)}
+          />
+          </KeyboardScope>
+        ) : (
+          <h2 className="lg-sheet-title">
+            <button
+              type="button"
+              className="lg-sheet-title-button"
+              title={t("thread.rename")}
+              disabled={!thread}
+              onClick={() => setRenaming(thread?.title ?? "")}
+            >
+              {thread?.title || t("thread.title")}
+            </button>
+          </h2>
+        )}
         <p className="lg-sheet-meta">
-          {owner && <span>{format("thread.owner", owner)}</span>}
+          <Menu open={ownerMenu} onOpenChange={setOwnerMenu}>
+            <MenuButton
+              className="lg-owner-button"
+              label={`${owner ? format("thread.owner", owner) : t("thread.noOwner")}, ${t("thread.setOwner")}`}
+              title={t("thread.setOwner")}
+            >
+              {owner ? format("thread.owner", owner) : t("thread.noOwner")}
+            </MenuButton>
+            <MenuPopup side="bottom" align="start">
+              {owners.map((participant) => (
+                <MenuItem key={participant.id} onSelect={() => onSetOwner(participant.id)}>
+                  {participant.name}
+                </MenuItem>
+              ))}
+              {thread?.owner && <MenuSeparator />}
+              {thread?.owner && <MenuItem onSelect={() => onSetOwner("")}>{t("thread.noOwner")}</MenuItem>}
+            </MenuPopup>
+          </Menu>
           <span>{count === 1 ? t("thread.replies.one") : format("thread.replies.many", String(count))}</span>
           <span>{format("thread.people", String(authors.size))}</span>
         </p>

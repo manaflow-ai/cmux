@@ -151,7 +151,6 @@ export function Timeline({
                   <MessageRow
                     message={row.message}
                     head={row.head}
-                    thread={row.thread}
                     people={people}
                     me={me}
                     strings={strings}
