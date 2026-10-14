@@ -4,6 +4,9 @@ import CnxTerminal
 import CnxWorkspaces
 import SwiftUI
 import UIKit
+import OSLog
+
+private let warmLog = Logger(subsystem: "dev.cmux.cnx", category: "terminal")
 
 /// Plugs CnxTerminal into the workspace tabs in its embedded chrome: TabsKit
 /// owns the status bar area and the toolbar, the terminal's actions go into
@@ -95,6 +98,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         if let frame = host.model.snapshot { lastFrames[id] = frame }
         host.model.session.stop()
         liveTabs.remove(id)
+        warmLog.info("terminal tab \(id, privacy: .public) cooled (warm set of \(Self.warmLimit, privacy: .public)), last frame \(self.lastFrames[id] == nil ? "none" : "kept", privacy: .public)")
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
