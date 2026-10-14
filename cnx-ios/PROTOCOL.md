@@ -144,6 +144,31 @@ with 4001 `moved`.
   addresses, so this is usually far nearer than the Worker relay: on
   2026-10-13 it measured 16 ms RTT against 240 to 345 ms through the
   Worker. The relay frames stay as the fallback.
+- WireGuard roaming (no wire change for signaling; older peers simply never
+  announce): a side whose network changed (the phone's `NWPathMonitor`, the
+  Mac's routing socket) moves its tunnel onto a new UDP socket and at once
+  sends an authenticated datagram from it (a keepalive on a session younger
+  than 120 s, else a handshake initiation); the peer follows the new
+  address (WireGuard endpoint roaming) and answers the reachability marker
+  at once. Until the new route is confirmed every datagram also goes
+  through the relay and to all of the peer's candidates, and for 3 s after
+  a roam both sides also spray candidates every 100 ms. The roaming side
+  learns its new reflexive address with STUN on the new socket and the
+  phone takes a fresh TURN allocation. New endpoints travel inside the
+  tunnel: an overlay UDP datagram to port 7421 of the peer's overlay
+  address, JSON `{"t":"endpoints","generation":N,"endpoints":["ip:port"]}`
+  (at most 16, `generation` grows per announcement), answered with
+  `{"t":"ack","generation":N}` and resent after 0.15, 0.4, 1, 2 and 4 s until
+  acknowledged. An empty list means "same endpoints, my network changed".
+  A side that receives an announcement replaces its candidates (unless
+  empty) and resends the data messages it sent in the last 20 s (at most
+  128); so does a side whose route changes or that roams. WireGuard's replay
+  window drops the copies that already arrived, and TCP inside the tunnel
+  never waits out its 1 s minimum retransmission timeout. While the
+  confirmed route is TURN, plain UDP candidates are tried every 5 s, so a
+  direct path wins again. A side whose signaling socket was replaced moves
+  its sessions to the new socket (relay frames and `bye`) and announces an
+  empty list.
 - `{"type":"error","code","message","sessionId"?}` for refusals (`not_owner`,
   `offline`, `rate_limited`, `bad_request` for malformed frames or a `from`
   that is not the socket's device). A refused relay frame is answered at most

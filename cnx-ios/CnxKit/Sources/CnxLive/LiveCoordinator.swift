@@ -206,16 +206,18 @@ public final class LiveCoordinator {
     private static var networkProbeStarted = false
 
     /// DEBUG: launched with `CNX_NETWORK_PROBE=roam` (or `loss`, no roam),
-    /// measure a simulated network change once, 3 s after the first link
-    /// comes up, and log the result as `network_probe {json}`.
+    /// measure a simulated network change once, `CNX_NETWORK_PROBE_DELAY`
+    /// seconds (default 3) after the first link comes up, and log the result
+    /// as `network_probe {json}`.
     private func runNetworkProbeIfAsked(_ link: any MacLink) {
         guard !Self.networkProbeStarted, let mode = ProcessInfo.processInfo.environment["CNX_NETWORK_PROBE"],
               let probing = link as? any NetworkChangeProbing else { return }
         Self.networkProbeStarted = true
         let roam = mode != "loss"
+        let delay = Double(ProcessInfo.processInfo.environment["CNX_NETWORK_PROBE_DELAY"] ?? "") ?? 3
         let clock = clock
         Task.detached {
-            try? await clock.sleep(for: .seconds(3))
+            try? await clock.sleep(for: .seconds(delay))
             log.notice("network_probe start roam=\(roam, privacy: .public)")
             let result = await probing.networkChangeProbe(roam: roam, windowMillis: roam ? 3000 : 20000)
             log.notice("network_probe \(result, privacy: .public)")
