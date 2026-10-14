@@ -141,6 +141,10 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.tab.set_profile": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "caffeinate.cycle_variant": {
       "scope": "caffeinate:write",
       "class": "mutation"
