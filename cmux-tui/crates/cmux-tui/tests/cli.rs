@@ -3689,6 +3689,9 @@ mod conversation_threads;
 #[path = "cli/conversation_tree.rs"]
 mod conversation_tree;
 #[cfg(unix)]
+#[path = "cli/conversation_thread_objects.rs"]
+mod conversation_thread_objects;
+#[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
 #[cfg(unix)]
