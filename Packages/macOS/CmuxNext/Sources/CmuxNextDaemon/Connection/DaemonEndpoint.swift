@@ -243,6 +243,10 @@ public struct DaemonCapabilities: Sendable {
     /// `page-credential`: the verified app gets a credential for its own page, which then gets
     /// the person's Cloud lease (`ws-cloud-conversations-v1`, cx-hnmbt.4).
     public let pageCredential = "page-credential-v1"
+    /// `page-credential {page}`: any trusted local connection gets a single-use credential bound
+    /// to one page (its Origin only, never the Cloud lease); the Chief home's owner, whose app
+    /// connection is not the verified app, hands the Channels page one.
+    public let scopedPageCredential = "page-credential-scoped-v1"
     /// `ws-listen`: a running owner opens its loopback page listener on
     /// request (cx-hnmbt.5); an older owner is handed off to the bundled build.
     public let wsListen = "ws-listen-v1"
@@ -359,7 +363,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, wsListen, wsListenOrigins, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, browserDevices, projectList, splitClientKeys, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,

@@ -11,6 +11,7 @@
 //! (plans/cmux-next/mcp.md).
 
 mod action_tools;
+mod agent_tools;
 mod browser_tools;
 mod config;
 mod keybinding_tools;
@@ -32,7 +33,8 @@ use serde_json::{Map, Value, json};
 use super::command::RequestPlan;
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
-use transport::{CallFailure, FailureKind, Prefix};
+use transport::Prefix;
+pub(super) use transport::{CallFailure, FailureKind};
 
 /// Runs one daemon request for the agent composite surface. The composite
 /// surface uses the same socket discovery, routing, idempotency and deadline
@@ -51,12 +53,20 @@ pub(super) fn agent_app(
     timeout: Duration,
     idempotency_key: Option<&str>,
 ) -> Result<Value, Value> {
-    transport::app_method(global, method, params, timeout, idempotency_key)
+    transport::app_method(global, method, params, timeout, idempotency_key, false)
         .map_err(agent_failure_value)
 }
 
+/// The CLI's transport as a `Backend`, so the agent composite surface runs
+/// one code path for the CLI and for MCP tools.
+pub(super) fn cli_backend(global: GlobalArgs) -> impl Backend {
+    LiveBackend { global }
+}
+
+/// A failed owner call as the CLI prints it: the owner's error with its
+/// `state` and idempotency key in `details`.
 #[cfg(unix)]
-fn agent_failure_value(failure: CallFailure) -> Value {
+pub(super) fn agent_failure_value(failure: CallFailure) -> Value {
     let mut error = failure.error;
     if let Some(object) = error.as_object_mut() {
         let details = object.entry("details").or_insert_with(|| Value::Object(Map::new()));
@@ -107,12 +117,15 @@ pub(super) trait Backend {
         plan: RequestPlan,
         prefixes: &[Prefix],
     ) -> Result<Value, CallFailure>;
+    /// `mutation`: the request changes app state, so a transport failure
+    /// after sending leaves its outcome unknown (`in_progress`).
     fn app(
         &self,
         method: &str,
         params: Value,
         timeout: Duration,
         idempotency_key: Option<&str>,
+        mutation: bool,
     ) -> Result<Value, CallFailure>;
     fn browser(
         &self,
@@ -155,8 +168,9 @@ impl Backend for LiveBackend {
         params: Value,
         timeout: Duration,
         idempotency_key: Option<&str>,
+        mutation: bool,
     ) -> Result<Value, CallFailure> {
-        transport::app_method(&self.global, method, params, timeout, idempotency_key)
+        transport::app_method(&self.global, method, params, timeout, idempotency_key, mutation)
     }
 
     fn browser(
@@ -388,6 +402,7 @@ impl<B: Backend> Server<B> {
             .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
         tools.push(action_tools::window_list_tool());
         tools.push(super::agents::snapshot_tool());
+        tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.push(render_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
@@ -397,7 +412,7 @@ impl<B: Backend> Server<B> {
     }
 
     fn refresh_actions(&mut self) {
-        match self.backend.app("action.list", json!({}), super::app::READ_TIMEOUT, None) {
+        match self.backend.app("action.list", json!({}), super::app::READ_TIMEOUT, None, false) {
             Ok(list) => {
                 (self.actions, self.action_exclusions) = action_tools::from_list(&list);
                 self.actions_loaded = true;
@@ -492,13 +507,16 @@ impl<B: Backend> Server<B> {
                 .map_err(agent_failure_value);
             let app = self
                 .backend
-                .app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None)
+                .app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None, false)
                 .map_err(agent_failure_value);
             let snapshot = super::agents::compose_snapshot(daemon, app);
             if let Some(error) = super::agents::snapshot_error(&snapshot) {
                 return Ok(tool_error(envelope(error, "not_run", None)));
             }
             return Ok(success(super::agents::snapshot_page(snapshot, offset, limit), false));
+        }
+        if let Some(tool) = agent_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
         }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments) {
@@ -509,7 +527,13 @@ impl<B: Backend> Server<B> {
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
                 Ok(params) => {
-                    match self.backend.app(tool.method, params, super::app::READ_TIMEOUT, None) {
+                    match self.backend.app(
+                        tool.method,
+                        params,
+                        super::app::READ_TIMEOUT,
+                        None,
+                        false,
+                    ) {
                         Ok(value) => success(value, false),
                         Err(failure) => failure_result(failure),
                     }
@@ -552,7 +576,7 @@ impl<B: Backend> Server<B> {
                 None,
             ));
         }
-        match self.backend.app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None) {
+        match self.backend.app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None, false) {
             Ok(snapshot) => success(json!({ "items": snapshot["topology"]["windows"] }), false),
             Err(failure) => failure_result(failure),
         }
@@ -564,7 +588,7 @@ impl<B: Backend> Server<B> {
             Err(error) => return tool_error(envelope(error, "not_run", None)),
         };
         let timeout = super::app::WAITING_RUN_TIMEOUT;
-        match self.backend.app("action.run", params, timeout, key.as_deref()) {
+        match self.backend.app("action.run", params, timeout, key.as_deref(), true) {
             Ok(value) => success(value, true),
             Err(failure) => failure_result(failure),
         }
