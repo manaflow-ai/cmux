@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719.
+// cmux-tui mux protocol 12, IR 4523c41c1c0ed458c4026263ec9f4a53599e1a44c40b131d2d026f4d61a2bf52.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -659,6 +659,24 @@ pub struct ConversationAgentTokenRequest {
 pub struct ConversationAgentTokenResult {
     pub participant: String,
     pub token: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentLinkRequest {
+    pub conversation: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub variant: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentLinkResult {
+    pub expires_in_ms: u64,
+    pub path: String,
 }
 
 #[rustfmt::skip]
@@ -3911,6 +3929,10 @@ impl CmuxClient {
 
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
         self.execute(&CONVERSATION_AGENT_TOKEN_METADATA, &request)
+    }
+
+    pub fn conversation_attachment_link(&mut self, request: ConversationAttachmentLinkRequest) -> Result<ConversationAttachmentLinkResult> {
+        self.execute(&CONVERSATION_ATTACHMENT_LINK_METADATA, &request)
     }
 
     pub fn conversation_attachment_read(&mut self, request: ConversationAttachmentReadRequest) -> Result<ConversationAttachmentReadResult> {

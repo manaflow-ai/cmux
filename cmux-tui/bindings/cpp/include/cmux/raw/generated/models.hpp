@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719";
+inline constexpr std::string_view kProtocolIrSha256 = "4523c41c1c0ed458c4026263ec9f4a53599e1a44c40b131d2d026f4d61a2bf52";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -273,6 +273,8 @@ struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
 struct ConversationAgentTokenRequest;
 struct ConversationAgentTokenResult;
+struct ConversationAttachmentLinkRequest;
+struct ConversationAttachmentLinkResult;
 struct ConversationAttachmentReadRequest;
 struct ConversationAttachmentReadResult;
 struct ConversationAttachmentUploadRequest;
@@ -1655,6 +1657,20 @@ struct ConversationAgentTokenResult {
     std::string participant{};
     std::string token{};
     friend bool operator==(const ConversationAgentTokenResult&, const ConversationAgentTokenResult&) = default;
+};
+
+struct ConversationAttachmentLinkRequest {
+    std::string conversation{};
+    std::string hash{};
+    Field<std::string> name{};
+    Field<std::string> variant{};
+    friend bool operator==(const ConversationAttachmentLinkRequest&, const ConversationAttachmentLinkRequest&) = default;
+};
+
+struct ConversationAttachmentLinkResult {
+    std::uint64_t expires_in_ms{};
+    std::string path{};
+    friend bool operator==(const ConversationAttachmentLinkResult&, const ConversationAttachmentLinkResult&) = default;
 };
 
 struct ConversationAttachmentReadRequest {
@@ -6931,6 +6947,18 @@ template <>
 struct Codec<ConversationAgentTokenResult> {
     static Result<Json> encode(const ConversationAgentTokenResult& value);
     static Result<ConversationAgentTokenResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationAttachmentLinkRequest> {
+    static Result<Json> encode(const ConversationAttachmentLinkRequest& value);
+    static Result<ConversationAttachmentLinkRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationAttachmentLinkResult> {
+    static Result<Json> encode(const ConversationAttachmentLinkResult& value);
+    static Result<ConversationAttachmentLinkResult> decode(const Json& value);
 };
 
 template <>

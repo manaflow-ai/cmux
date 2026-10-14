@@ -548,6 +548,7 @@
       "cloud-mux-ack",
       "conversation-attachment-upload",
       "conversation-attachment-read",
+      "conversation-attachment-link",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
       "feed-local-handoff-done"

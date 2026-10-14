@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719";
+pub const ir_sha256 = "4523c41c1c0ed458c4026263ec9f4a53599e1a44c40b131d2d026f4d61a2bf52";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4132,6 +4132,31 @@ pub fn conversationAgentToken(client: anytype, request: ConversationAgentTokenRe
             .authority = "local-admin",
             .since = 12,
             .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationAttachmentLinkRequest = struct {
+    conversation: []const u8,
+    hash: []const u8,
+    name: wire.Field([]const u8) = .absent,
+    variant: wire.Field([]const u8) = .absent,
+};
+
+pub const ConversationAttachmentLinkResult = struct {
+    expires_in_ms: u64,
+    path: []const u8,
+};
+
+pub fn conversationAttachmentLink(client: anytype, request: ConversationAttachmentLinkRequest) !wire.Decoded(ConversationAttachmentLinkResult) {
+    return client.callTyped(
+        ConversationAttachmentLinkResult,
+        .{
+            .name = "conversation-attachment-link",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "ws-attachments-v1",
         },
         request,
     );
@@ -10408,7 +10433,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 257;
+pub const command_count: usize = 258;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10459,6 +10484,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "conversation-agent-token", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-attachment-link", .authority = "local-admin", .since = 12, .capability = "ws-attachments-v1", .stream = null },
     .{ .name = "conversation-attachment-read", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },
     .{ .name = "conversation-attachment-upload", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },
     .{ .name = "conversation-bind", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },

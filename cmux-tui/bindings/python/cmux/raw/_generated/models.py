@@ -2450,6 +2450,22 @@ class ConversationAgentTokenResult:
 
 
 @dataclass(frozen=True)
+class ConversationAttachmentLinkRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-link/request'
+    conversation: str
+    hash: str
+    name: Union[str, None, MissingType] = field(default=MISSING)
+    variant: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentLinkResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-link/result'
+    expires_in_ms: int
+    path: str
+
+
+@dataclass(frozen=True)
 class ConversationAttachmentReadRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-read/request'
     conversation: str
@@ -5610,6 +5626,8 @@ __all__ = [
     'CloudSessionStatusRequest',
     'ConversationAgentTokenRequest',
     'ConversationAgentTokenResult',
+    'ConversationAttachmentLinkRequest',
+    'ConversationAttachmentLinkResult',
     'ConversationAttachmentReadRequest',
     'ConversationAttachmentReadResult',
     'ConversationAttachmentUploadRequest',

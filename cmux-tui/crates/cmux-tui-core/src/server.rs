@@ -152,6 +152,7 @@ mod browser_profiles;
 pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_conversations;
+mod attachment_http;
 mod conversation_attachments;
 mod conversation_resource;
 mod resource_trust;
@@ -1682,6 +1683,7 @@ enum Command {
     /// server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
     ConversationAttachmentRead(conversation_attachments::ReadParams),
+    ConversationAttachmentLink(conversation_attachments::LinkParams),
     ConversationImport(conversations::ImportParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
@@ -3550,6 +3552,7 @@ fn handle_command_with_cancellation(
         }
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
+        Command::ConversationAttachmentLink(p) => conversation_attachments::link(mux, client, p),
         Command::ConversationImport(params) => conversations::import(mux, client, params),
         Command::CreateProfile {
             name,

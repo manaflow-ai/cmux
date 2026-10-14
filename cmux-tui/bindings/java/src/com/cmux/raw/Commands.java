@@ -59,6 +59,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_AGENT_TOKEN = new CommandMetadata("conversation-agent-token", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_ATTACHMENT_LINK = new CommandMetadata("conversation-attachment-link", Authority.LOCAL_ADMIN, 12, "ws-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_ATTACHMENT_READ = new CommandMetadata("conversation-attachment-read", Authority.LOCAL_ADMIN, 12, "local-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_ATTACHMENT_UPLOAD = new CommandMetadata("conversation-attachment-upload", Authority.LOCAL_ADMIN, 12, "local-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_BIND = new CommandMetadata("conversation-bind", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -320,6 +321,7 @@ public final class Commands {
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);
         values.put("conversation-agent-token", CONVERSATION_AGENT_TOKEN);
+        values.put("conversation-attachment-link", CONVERSATION_ATTACHMENT_LINK);
         values.put("conversation-attachment-read", CONVERSATION_ATTACHMENT_READ);
         values.put("conversation-attachment-upload", CONVERSATION_ATTACHMENT_UPLOAD);
         values.put("conversation-bind", CONVERSATION_BIND);

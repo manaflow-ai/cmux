@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719'
+IR_SHA256 = '4523c41c1c0ed458c4026263ec9f4a53599e1a44c40b131d2d026f4d61a2bf52'
 
 
 @dataclass(frozen=True)
@@ -663,6 +663,20 @@ COMMANDS = {
         None,
         {
             'participant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-attachment-link': CommandMetadata(
+        'conversation-attachment-link',
+        'local-admin',
+        12,
+        'ws-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'hash': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'variant': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-attachment-read': CommandMetadata(

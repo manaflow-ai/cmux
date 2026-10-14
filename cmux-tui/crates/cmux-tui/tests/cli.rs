@@ -3727,6 +3727,9 @@ mod wg_hub;
 #[cfg(unix)]
 #[path = "cli/ws_conversations.rs"]
 mod ws_conversations;
+#[cfg(unix)]
+#[path = "cli/ws_attachments.rs"]
+mod ws_attachments;
 use state_helpers::*;
 
 #[cfg(unix)]
