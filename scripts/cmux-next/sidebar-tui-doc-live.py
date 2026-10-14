@@ -21,6 +21,8 @@ workspace rail, left columns); the daemon's document from `sidebar.get`.
    that ends its `session.events` stream and every stream it opens again;
    the TUI logs each end. A CLI sidebar.move after that still reaches the
    drawn order (the idle-tick fallback read), with no tree change to carry it.
+7. Doc slice 3: the TUI echoes sidebar-doc-v1 and placement-shift-v1, and a new top workspace
+   sends its event stream the new placement only (no restatement).
 
 Usage: sidebar-tui-doc-live.py --binary path/to/cmux-tui [--workdir DIR]
 Needs tmux. Prints one PASS/FAIL line per check; exits 1 on any FAIL.
@@ -145,6 +147,10 @@ class Proxy:
         self.listener.bind(str(path))
         self.listener.listen(8)
         self.clients: list[dict] = []
+        # What the TUI echoed in set-client-info, and the workspace_placement
+        # upserts of each delta the daemon sent it (placement id -> index).
+        self.echoed: list[list[str]] = []
+        self.placement_deltas: list[dict[str, int]] = []
         threading.Thread(target=self._accept, daemon=True).start()
 
     def end_streams(self) -> None:
@@ -193,6 +199,9 @@ class Proxy:
 
     def _up(self, client: dict, downstream: socket.socket, upstream: socket.socket) -> None:
         for line in self._lines(downstream):
+            if b'"set-client-info"' in line:
+                with self.lock:
+                    self.echoed.append(json.loads(line).get("capabilities") or [])
             if b'"session.events"' in line:
                 request = json.loads(line)
                 with self.lock:
@@ -207,6 +216,12 @@ class Proxy:
             with self.lock:
                 if message and message.get("stream_id") in client["dead"]:
                     continue
+                if message and message.get("type") == "stream_item":
+                    placements = {c["id"]: c["value"]["index"]
+                                  for c in (message.get("item") or {}).get("changes") or []
+                                  if c.get("resource") == "workspace_placement" and c.get("kind") == "state_upsert"}
+                    if placements:
+                        self.placement_deltas.append(placements)
                 with client["write"]:
                     downstream.sendall(line + b"\n")
                 stream_id = client["opens"].pop(message.get("id"), None) if message else None
@@ -360,6 +375,28 @@ def main() -> int:
 
         check("TUI order == sidebar.get order (initial)", bool(wait_for("initial", matches_doc)),
               {"tui": tui.order(), "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
+
+        # Doc slice 3: the TUI reads the order from the document, so it
+        # echoes sidebar-doc-v1 and placement-shift-v1, and a new top workspace
+        # sends its stream only the new placement, not a restatement of every
+        # row it shifted.
+        check("the TUI echoes sidebar-doc-v1 and placement-shift-v1 in set-client-info",
+              any("sidebar-doc-v1" in caps and "placement-shift-v1" in caps for caps in proxy.echoed),
+              proxy.echoed)
+        with proxy.lock:
+            proxy.placement_deltas.clear()
+        known = {(r["session_id"], r["workspace_key"]) for r in daemon.raw({"cmd": "list-personal"})["workspaces"]}
+        probe = daemon.ok("workspace.create", {"name": "s6-probe", "initial_content": "empty"}, mutate=True)
+        probe_id = probe["value"]["workspace_id"]
+        rows = daemon.raw({"cmd": "list-personal"})["workspaces"]
+        probe_row = next(r for r in rows if (r["session_id"], r["workspace_key"]) not in known)
+        shifted = [r for r in rows if r["index"] > probe_row["index"]]
+        seen = wait_for("probe placement", lambda: list(proxy.placement_deltas), timeout=10)
+        check("a new top workspace sends the TUI one placement, no restatement of the shifted rows",
+              bool(seen) and len(shifted) >= len(NAMES) and all(len(delta) == 1 for delta in seen),
+              {"deltas": seen, "shifted": len(shifted)})
+        daemon.ok("workspace.close", {"workspace": probe_id}, mutate=True)
+        wait_for("probe gone", lambda: "s6-probe" not in "".join(tui.screen()), timeout=10)
 
         # Pin from the TUI: focus the rail, select s6-charlie, press p.
         def select(name: str) -> None:
