@@ -150,3 +150,49 @@ fn progress_reaches_clients_in_the_subagent_model() {
             "toolUses": 4, "elapsedMs": 3212, "action": "Count: n2", "agents": {"done": 1, "started": 3}}])
     );
 }
+
+/// The app's stop on a background agent or workflow row: `_acpmux/subagent_stop`
+/// becomes Claude's `stop_task` control request for the subagent's task, and
+/// Claude's answer answers the request.
+#[tokio::test]
+async fn stopping_a_background_subagent_stops_its_claude_task() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    t.inbound(&json!({"type": "system", "subtype": "task_started", "task_id": "wx2", "tool_use_id": "toolu_w",
+        "description": "Two tiny agents", "task_type": "local_workflow"}))
+        .await;
+    let stop = |id: i64, child: &str| {
+        Message::request(
+            id,
+            "_acpmux/subagent_stop",
+            json!({"sessionId": "acp-1", "subagentSessionId": child}),
+        )
+    };
+    let Outbound::Lines(lines) = t.outbound(&stop(7, "acp-1/toolu_w")).await else {
+        panic!("stop answered at once instead of asking Claude")
+    };
+    assert_eq!(
+        lines,
+        vec![json!({"type": "control_request", "request_id": "stop-7",
+            "request": {"subtype": "stop_task", "task_id": "wx2"}})]
+    );
+    let ack = json!({"type": "control_response",
+        "response": {"subtype": "success", "request_id": "stop-7", "response": {}}});
+    let replies: Vec<_> = t
+        .inbound(&ack)
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            Message::Response { id, error, .. } => Some((id, error)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(replies, vec![(json!(7), None)]);
+
+    // A subagent this chat does not have is an error, not a stray stop.
+    let Outbound::Reply(Message::Response { error: Some(_), .. }) =
+        t.outbound(&stop(8, "acp-1/toolu_gone")).await
+    else {
+        panic!("stopping an unknown subagent did not fail")
+    };
+}
