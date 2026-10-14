@@ -61,6 +61,32 @@ import Testing
         #expect(!harness.flow.isSigningIn && !harness.flow.isPresentingSignIn)
     }
 
+    @Test func cancelledBrowserCompletionAcceptsLateSafariCallback() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let callbackState = harness.callbackState(harness.factory.sessions[0])
+
+        // Safari may continue the sign-in page after the hosted session has
+        // already reported cancellation. The callback must remain valid for
+        // this attempt even though its awaited signIn call has resolved.
+        harness.factory.sessions[0].cancel()
+
+        #expect(await attempt.value == false)
+        await harness.waitForCondition { !harness.flow.isSigningIn }
+
+        let callbackResult = await harness.flow.handleCallbackURL(
+            harness.callbackURL(state: callbackState)
+        )
+
+        #expect(callbackResult)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
     @Test func handoffOpenFailureEndsAttemptAndAllowsRetry() async {
         // The default browser fails to launch on the handed-off attempt.
         let harness = HostBrowserSignInFlowHarness(openSucceeds: false)
