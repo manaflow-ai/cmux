@@ -4,6 +4,7 @@
 /// panes"): a split, close, move, swap, zoom, column reveal or screen switch
 /// applies in one frame. On restores the springs. `ui.animationSpeed` "off"
 /// and Reduce Motion still snap them.
+// lint:allow namespace-type — the cmux.json key and parser beside the sibling setting enums the ratchet holds (QuitBehaviorSetting, CenterFocusedColumnSetting); it changes shape with them.
 public nonisolated enum PaneAnimationsSetting {
     public static let configPath = ["ui", "paneAnimations"]
     public static let fallback = false
