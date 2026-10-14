@@ -189,6 +189,8 @@ export class MockHomeProvider implements PageClient {
   constructor(
     private readonly draft?: MockDraft,
     longThread = false,
+    /** The owner refuses pins and marks (the page puts the row back and says why). */
+    private readonly refuseInbox = false,
   ) {
     if (longThread) addLongThread(this.data);
   }
@@ -256,6 +258,7 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.pin:
       case HomeOps.markUnread: {
+        if (this.refuseInbox) throw pageError("cmux.page.unavailable", "this cmux instance keeps no pins");
         const index = this.data.conversations.findIndex((c) => c.id === id);
         if (index < 0) throw pageError("cmux.home.not_found", id);
         const current = this.data.conversations[index]!;

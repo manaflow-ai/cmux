@@ -78,7 +78,11 @@ const keyOpen: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ role: "menu" }));
   const target = ctx.find({ testId: "context-target" }).getBoundingClientRect();
   const menu = ctx.find({ role: "menu" }).getBoundingClientRect();
-  if (Math.abs(menu.top - target.bottom) > 2 && menu.bottom > target.top)
+  const view = ctx.document.defaultView!;
+  // Below the control at its start edge; flipped up only when there is no room below.
+  const below = Math.abs(menu.top - target.bottom) <= 2;
+  const flipped = Math.abs(menu.bottom - target.bottom) <= 2 && target.bottom + menu.height > view.innerHeight - 4;
+  if (!(below || flipped) || Math.abs(menu.left - target.left) > 2)
     throw new Error(`the menu did not open at the control: ${JSON.stringify({ menu, target })}`);
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));

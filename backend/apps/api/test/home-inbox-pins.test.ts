@@ -33,6 +33,8 @@ const call = async (path: string, token: string, body: unknown) => {
 }
 const op = (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => call("/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })
 const read = (token: string, name: string, params: unknown) => call("/v1/read", token, { op: name, params })
+/** An inbox op exactly as the daemon's `cloud-inbox-op` sends it: `{op, params, idempotency_key}`, no origin. */
+const inboxOp = (token: string, name: string, params: unknown) => call("/v1/ops", token, { op: name, params, idempotency_key: crypto.randomUUID() })
 const signIn = async (sub: string, email: string, name: string) => {
   const token = await sessionToken(sub, email, name)
   expect((await op(token, "user.ensure", {})).json.ok).toBe(true)
@@ -72,10 +74,10 @@ describe("Home list pins and marks over HTTP (the person's own inbox)", { timeou
 
     // Alice pins both at the pin times her client chose: the later pin lists second.
     const t = 1_791_970_000_000
-    const pinned = await op(alice.token, "inbox.pin", { conversation: solo, pinned: true, position: t })
+    const pinned = await inboxOp(alice.token, "inbox.pin", { conversation: solo, pinned: true, position: t })
     expect(pinned.json.ok, JSON.stringify(pinned.json)).toBe(true)
     expect(pinned.json.value).toMatchObject({ conversation: solo, pinned: true, pin_position: t })
-    expect((await op(alice.token, "inbox.pin", { conversation: shared, pinned: true, position: t + 1 })).json.ok).toBe(true)
+    expect((await inboxOp(alice.token, "inbox.pin", { conversation: shared, pinned: true, position: t + 1 })).json.ok).toBe(true)
     let mine = await list(alice.token)
     expect(mine.slice(0, 2).map((e) => [e.conversation, e.pinned, e.pin_position])).toEqual([
       [solo, true, t],
@@ -87,12 +89,12 @@ describe("Home list pins and marks over HTTP (the person's own inbox)", { timeou
     expect(bobs.pin_position).toBeUndefined()
 
     // Marked unread: Alice's flag only; the read cursor stays.
-    const marked = await op(alice.token, "inbox.mark_unread", { conversation: shared, unread: true })
+    const marked = await inboxOp(alice.token, "inbox.mark_unread", { conversation: shared, unread: true })
     expect(marked.json.value).toMatchObject({ conversation: shared, marked_unread: true, pinned: true })
     expect((await list(bob.token)).find((e) => e.conversation === shared)!.marked_unread).toBe(false)
 
     // Unpinned: no position, and it falls back among the unpinned entries.
-    expect((await op(alice.token, "inbox.pin", { conversation: solo, pinned: false })).json.value).toMatchObject({ conversation: solo, pinned: false })
+    expect((await inboxOp(alice.token, "inbox.pin", { conversation: solo, pinned: false })).json.value).toMatchObject({ conversation: solo, pinned: false })
     mine = await list(alice.token)
     expect(mine[0]!.conversation).toBe(shared)
     const unpinned = mine.find((e) => e.conversation === solo)!
@@ -100,7 +102,7 @@ describe("Home list pins and marks over HTTP (the person's own inbox)", { timeou
     expect(unpinned.pin_position).toBeUndefined()
 
     // A conversation Bob is not in has no entry in his inbox; a negative position is refused.
-    expect((await op(bob.token, "inbox.pin", { conversation: solo, pinned: true })).json.ok).toBe(false)
-    expect((await op(alice.token, "inbox.pin", { conversation: shared, pinned: true, position: -1 })).json.ok).toBe(false)
+    expect((await inboxOp(bob.token, "inbox.pin", { conversation: solo, pinned: true })).json.ok).toBe(false)
+    expect((await inboxOp(alice.token, "inbox.pin", { conversation: shared, pinned: true, position: -1 })).json.ok).toBe(false)
   })
 })

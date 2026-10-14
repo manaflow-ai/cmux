@@ -6254,7 +6254,8 @@ position, or a "marked unread" flag. The same op shapes as the Cloud owner's
 person inbox (`inbox.pin`, `inbox.mark_unread`): `op` is
 `{kind:"inbox.pin", pinned:bool, position?:uint64}` or
 `{kind:"inbox.mark_unread", unread:bool}`. The actor is the connection's
-principal and must be a participant (`conversation_rejected`
+principal (a person, or an agent such as a Chief: each participant keeps its
+own state) and must be a participant (`conversation_rejected`
 `not_participant`; an unknown conversation is `unknown_conversation`). This is
 not a conversation op: the state is kept beside the conversation (no `rev`,
 no `conversation-changed`, no idempotency ledger; values are absolute, so a

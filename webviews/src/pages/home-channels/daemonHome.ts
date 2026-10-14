@@ -478,7 +478,29 @@ export class DaemonHomeClient implements PageClient {
       await this.daemon.request("cloud-inbox-op", { conversation: conversationId, idempotency_key: key, op });
       return { conversation: conversationId };
     }
-    await this.daemon.request("conversation-inbox-op", { conversation: conversationId, op });
+    // What the list state will be, at once: a conversation change that lands before the owner's
+    // answer keeps it (the page shows it already); a refusal puts the old state back.
+    const before = this.listState.get(conversationId);
+    const next: Json = { ...before };
+    if (op.kind === "inbox.pin") {
+      next.pinned = op.pinned === true;
+      next.pin_position = op.pinned === true ? (op.position ?? before?.pin_position) : undefined;
+    } else next.marked_unread = op.unread === true;
+    this.listState.set(conversationId, next);
+    try {
+      const state = await this.daemon.request<Json>("conversation-inbox-op", { conversation: conversationId, op });
+      this.listState.set(conversationId, {
+        pinned: state.pinned,
+        pin_position: state.pin_position,
+        marked_unread: state.marked_unread,
+      });
+    } catch (error) {
+      if (this.listState.get(conversationId) === next) {
+        if (before) this.listState.set(conversationId, before);
+        else this.listState.delete(conversationId);
+      }
+      throw error;
+    }
     return { conversation: conversationId };
   }
 

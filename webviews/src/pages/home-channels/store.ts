@@ -268,7 +268,7 @@ export class HomeChannelsStore {
         error: undefined,
         inboxState: inbox.inboxState === true,
       });
-      if (selected && selected !== this.snapshot.selected) await this.select(selected);
+      if (selected && selected !== this.snapshot.selected) await this.select(selected, false);
       else if (selected) await this.reloadPage(selected);
     } catch (error) {
       this.set({ error: describe(error), loading: false });
@@ -276,10 +276,11 @@ export class HomeChannelsStore {
   }
 
   /** Opens a conversation: its newest page, then marks it read. */
-  async select(id: string): Promise<void> {
+  async select(id: string, opened = true): Promise<void> {
     if (id === this.snapshot.selected && this.snapshot.messages.length > 0) return;
-    // Opening a conversation I marked unread reads it: the mark goes.
-    if (this.snapshot.conversations.get(id)?.markedUnread) void this.setMarkedUnread(id, false);
+    // Opening a conversation I marked unread reads it: the mark goes (not the page's own first
+    // pick at load: a mark stays until I open the conversation).
+    if (opened && this.snapshot.conversations.get(id)?.markedUnread) void this.setMarkedUnread(id, false);
     this.set({
       selected: id,
       messages: [],
@@ -567,7 +568,9 @@ export class HomeChannelsStore {
       } satisfies HomePinRequest);
       return true;
     } catch (error) {
-      this.patchConversation(id, { pinned: before.pinned, pinPosition: before.pinPosition });
+      // Back, unless the owner's own change came meanwhile.
+      if (this.snapshot.conversations.get(id)?.pinned === pinned)
+        this.patchConversation(id, { pinned: before.pinned, pinPosition: before.pinPosition });
       this.set({ error: describe(error) });
       return false;
     }
@@ -586,7 +589,8 @@ export class HomeChannelsStore {
       } satisfies HomeMarkUnreadRequest);
       return true;
     } catch (error) {
-      this.patchConversation(id, { markedUnread: before.markedUnread });
+      if ((this.snapshot.conversations.get(id)?.markedUnread === true) === unread)
+        this.patchConversation(id, { markedUnread: before.markedUnread });
       this.set({ error: describe(error) });
       return false;
     }

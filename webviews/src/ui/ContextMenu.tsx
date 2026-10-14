@@ -145,13 +145,6 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
       run(enabled[active]);
     }
   };
-  /** Opens at `point` for the control at `target` (focus returns to it when the menu closes). */
-  const openAt = (target: Element | null, at: { x: number; y: number }) => {
-    onOpen?.();
-    setActive(0);
-    returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
-    setPoint(at);
-  };
   return (
     <div
       className={cx("ui-context-menu-host", className)}
@@ -161,12 +154,20 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
         const target = event.target instanceof Element ? event.target : null;
         // A key in the open menu (a portal, so React passes it up here) is the menu's own.
         if (!target || menu.current?.contains(target)) return;
-        if (targets === "own" && !event.currentTarget.contains(target)) return;
-        if (ignore && target.closest(ignore)) return;
         event.preventDefault();
+        // The same path as a right-click at the control's bottom start corner: a host that learns
+        // the menu's subject from its own contextmenu capture handler sees this open too, and the
+        // selection, `ignore` and `targets` rules apply alike.
         const rect = target.getBoundingClientRect();
         const rtl = getComputedStyle(target).direction === "rtl";
-        openAt(target, { x: rtl ? rect.right : rect.left, y: rect.bottom });
+        target.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: rtl ? rect.right : rect.left,
+            clientY: rect.bottom,
+          }),
+        );
       }}
       onContextMenu={(event) => {
         // A menu inside this host already took the right-click (its own item's Hide, inside a
@@ -176,7 +177,11 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
         if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
         if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
         event.preventDefault();
-        openAt(event.target instanceof Element ? event.target : null, { x: event.clientX, y: event.clientY });
+        onOpen?.();
+        setActive(0);
+        const target = event.target instanceof Element ? event.target : null;
+        returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
+        setPoint({ x: event.clientX, y: event.clientY });
       }}
     >
       {children}
