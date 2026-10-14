@@ -146,6 +146,11 @@ impl Hub {
             composer_draft: None,
             // Filled below with the fork's own seqs of the marked prompts it copies.
             bookmarks: Default::default(),
+            // The fork keeps the chat's tools off (`hub/tools.rs`); its spawn lists them again.
+            tools: crate::store::ToolInventory {
+                off: parent_meta.tools.off.clone(),
+                ..Default::default()
+            },
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {
