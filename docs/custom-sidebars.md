@@ -367,7 +367,8 @@ with:
   current working/needs-input state began), `lifecycle` (the hosting pane's
   agent lifecycle as the built-in sidebar shows it: `unknown`, `running`,
   `background_work_pending`, `needs_input` or `idle`; an agent error also
-  reads `needs_input`; omitted for ended sessions and panes without a
+  reads `needs_input`; only the pane's current session carries it, so it is
+  omitted for older or ended sessions on the pane and for panes without a
   lifecycle; unlike `status`, it tells a finished turn with pending
   background work apart from a truly idle one), `title` (first user prompt),
   `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting

@@ -76,6 +76,8 @@ extension Workspace {
             }
         }
         let workspaceIdString = id.uuidString
+        var liveSessionIdBySurfaceId: [String: String] = [:]
+        var resolvedLiveSurfaceIds: Set<String> = []
         var agents: [CustomSidebarAgentSnapshot] = []
         for record in records {
             let panelId = record.surfaceID.flatMap(UUID.init(uuidString:))
@@ -100,9 +102,18 @@ extension Workspace {
                 status = "ended"
                 stateSince = nil
             }
+            var isCurrentPanelSession = false
+            if let surfaceId = record.surfaceID, panelId != nil {
+                if resolvedLiveSurfaceIds.insert(surfaceId).inserted {
+                    liveSessionIdBySurfaceId[surfaceId] = service.registry
+                        .liveSession(surfaceID: surfaceId)?.sessionID
+                }
+                isCurrentPanelSession = liveSessionIdBySurfaceId[surfaceId] == record.sessionID
+            }
             let lifecycle = Self.customSidebarAgentLifecycle(
                 state: record.state,
                 agentSource: record.agentKind.sourceName,
+                isCurrentPanelSession: isCurrentPanelSession,
                 panelLifecycles: panelId.flatMap { agentLifecycleStatesByPanelId[$0] }
             )
             agents.append(
@@ -140,14 +151,25 @@ extension Workspace {
     /// the same journal-derived phase the built-in sidebar renders. Unlike
     /// `status`, it can report `background_work_pending`.
     ///
-    /// The lifecycle is keyed by panel and agent, not by session, so an ended
-    /// record reports none rather than a newer session's phase on that panel.
-    static func customSidebarAgentLifecycle(
+    /// The journal keys lifecycle by panel and agent, not by session, so only
+    /// the panel's current live session (`AgentChatSessionRegistry.liveSession`)
+    /// gets it; older or ended records on the same panel report `nil` rather
+    /// than borrow that session's phase.
+    ///
+    /// - Parameters:
+    ///   - state: The record's registry state.
+    ///   - agentSource: The record's raw agent source, e.g. "claude".
+    ///   - isCurrentPanelSession: Whether the record is its panel's live session.
+    ///   - panelLifecycles: The hosting panel's lifecycle by status key.
+    /// - Returns: The lifecycle wire name, or `nil` when none applies.
+    nonisolated static func customSidebarAgentLifecycle(
         state: ChatAgentState,
         agentSource: String,
+        isCurrentPanelSession: Bool,
         panelLifecycles: [String: AgentHibernationLifecycleState]?
     ) -> String? {
         if case .ended = state { return nil }
+        guard isCurrentPanelSession else { return nil }
         let key = FeedCoordinator.lifecycleStatusKey(forSource: agentSource)
         guard let lifecycle = panelLifecycles?[key] else { return nil }
         switch lifecycle {

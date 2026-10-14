@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
 import Testing
@@ -19,6 +20,7 @@ struct CustomSidebarAgentLifecycleTests {
         let lifecycle = Workspace.customSidebarAgentLifecycle(
             state: .idle,
             agentSource: "claude",
+            isCurrentPanelSession: true,
             panelLifecycles: ["claude_code": .backgroundWorkPending]
         )
         #expect(lifecycle == "background_work_pending")
@@ -37,6 +39,7 @@ struct CustomSidebarAgentLifecycleTests {
             let lifecycle = Workspace.customSidebarAgentLifecycle(
                 state: .working(since: Date(timeIntervalSince1970: 1)),
                 agentSource: "codex",
+                isCurrentPanelSession: true,
                 panelLifecycles: ["codex": phase]
             )
             #expect(lifecycle == expected[phase])
@@ -50,23 +53,23 @@ struct CustomSidebarAgentLifecycleTests {
             "codex": .running,
         ]
         #expect(Workspace.customSidebarAgentLifecycle(
-            state: .idle, agentSource: "claude", panelLifecycles: panelLifecycles
+            state: .idle, agentSource: "claude", isCurrentPanelSession: true, panelLifecycles: panelLifecycles
         ) == "needs_input")
         #expect(Workspace.customSidebarAgentLifecycle(
-            state: .idle, agentSource: "codex", panelLifecycles: panelLifecycles
+            state: .idle, agentSource: "codex", isCurrentPanelSession: true, panelLifecycles: panelLifecycles
         ) == "running")
         #expect(Workspace.customSidebarAgentLifecycle(
-            state: .idle, agentSource: "opencode", panelLifecycles: panelLifecycles
+            state: .idle, agentSource: "opencode", isCurrentPanelSession: true, panelLifecycles: panelLifecycles
         ) == nil)
     }
 
     @Test("ended sessions and unbound panels report no lifecycle")
     func endedOrUnboundOmitted() {
         #expect(Workspace.customSidebarAgentLifecycle(
-            state: .ended, agentSource: "claude", panelLifecycles: ["claude_code": .running]
+            state: .ended, agentSource: "claude", isCurrentPanelSession: true, panelLifecycles: ["claude_code": .running]
         ) == nil)
         #expect(Workspace.customSidebarAgentLifecycle(
-            state: .idle, agentSource: "claude", panelLifecycles: nil
+            state: .idle, agentSource: "claude", isCurrentPanelSession: true, panelLifecycles: nil
         ) == nil)
     }
 
@@ -84,7 +87,54 @@ struct CustomSidebarAgentLifecycleTests {
         #expect(Workspace.customSidebarAgentLifecycle(
             state: .idle,
             agentSource: "claude",
+            isCurrentPanelSession: true,
             panelLifecycles: workspace.agentLifecycleStatesByPanelId[panelId]
         ) == "background_work_pending")
+    }
+
+    @Test("a record that is not its panel's current session reports no lifecycle")
+    func nonCurrentSessionOmitted() {
+        #expect(Workspace.customSidebarAgentLifecycle(
+            state: .idle,
+            agentSource: "claude",
+            isCurrentPanelSession: false,
+            panelLifecycles: ["claude_code": .backgroundWorkPending]
+        ) == nil)
+    }
+
+    @Test("two live sessions of one agent on a panel: only the current one gets the lifecycle")
+    func olderSessionOnSamePanelDoesNotBorrowLifecycle() throws {
+        let registry = AgentChatSessionRegistry()
+        let surfaceID = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let olderID = UUID().uuidString
+        let newerID = UUID().uuidString
+        for (sessionID, offset) in [(olderID, 0.0), (newerID, 10.0)] {
+            _ = registry.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .sessionStart,
+                source: "codex",
+                workspaceId: workspaceID,
+                surfaceId: surfaceID,
+                receivedAt: Date(timeIntervalSince1970: 1_800_000_000 + offset)
+            ))
+        }
+        let older = try #require(registry.record(sessionID: olderID))
+        let newer = try #require(registry.record(sessionID: newerID))
+        #expect(older.state != .ended)
+        #expect(newer.state != .ended)
+        let liveSessionID = try #require(registry.liveSession(surfaceID: surfaceID)?.sessionID)
+        #expect(liveSessionID == newerID)
+
+        let panelLifecycles: [String: AgentHibernationLifecycleState] = ["codex": .backgroundWorkPending]
+        let lifecycles = [older, newer].map { record in
+            Workspace.customSidebarAgentLifecycle(
+                state: record.state,
+                agentSource: record.agentKind.sourceName,
+                isCurrentPanelSession: record.sessionID == liveSessionID,
+                panelLifecycles: panelLifecycles
+            )
+        }
+        #expect(lifecycles == [nil, "background_work_pending"])
     }
 }

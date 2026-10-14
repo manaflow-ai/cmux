@@ -22,7 +22,8 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
     /// The hosting panel's agent-lifecycle phase as the built-in sidebar sees
     /// it: "unknown" | "running" | "background_work_pending" |
     /// "needs_input" | "idle" (`agents[j].lifecycle`). `nil` when the panel
-    /// has no lifecycle for this agent or the session has ended.
+    /// has no lifecycle for this agent or the session is not the panel's
+    /// current live session.
     public let lifecycle: String?
     /// When the current working/needs-input state began; `nil` for idle and
     /// ended (`agents[j].sinceEpoch`).
