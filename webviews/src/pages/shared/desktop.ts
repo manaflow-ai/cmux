@@ -48,6 +48,8 @@ export function installDesktopLayer(doc: Document = document): void {
   installTooltips(doc);
   const view = doc.defaultView;
   if (!view) return;
+  // HAIRLINE: rims and rings in whole device pixels at every scale and zoom (desktop.css).
+  updateHairline(doc);
   // SEE-THROUGH: follows the host's theme payload (window.cmuxTheme.apply fires `cmux-theme`).
   updateSeeThrough(doc);
   view.addEventListener("cmux-theme", () => updateSeeThrough(doc));
@@ -61,6 +63,21 @@ export function installDesktopLayer(doc: Document = document): void {
   view.addEventListener("dblclick", (event) => {
     if (caller && isTitleBar(event.target)) void caller.call(TITLE_BAR_DOUBLE_CLICK, {}).catch(() => undefined);
   });
+}
+
+/** Sets `--cmux-hairline` (one device pixel) and `--cmux-hairline-ring` (the whole device pixels
+ * nearest one CSS pixel) on the root from devicePixelRatio, and again whenever it changes: a display
+ * move, the host's page zoom or uiScale. A rim thinner than a device pixel breaks at its rounded
+ * corners in macOS WebKit (desktop.css). */
+export function updateHairline(doc: Document = document): void {
+  const view = doc.defaultView;
+  if (!view) return;
+  const ratio = view.devicePixelRatio > 0 ? view.devicePixelRatio : 1;
+  const root = doc.documentElement.style;
+  root.setProperty("--cmux-hairline", `${1 / ratio}px`);
+  root.setProperty("--cmux-hairline-ring", `${Math.max(1, Math.round(ratio)) / ratio}px`);
+  if (typeof view.matchMedia !== "function") return;
+  view.matchMedia(`(resolution: ${ratio}dppx)`).addEventListener("change", () => updateHairline(doc), { once: true });
 }
 
 /** Sets or clears ``SEE_THROUGH_ATTRIBUTE`` from the resolved page background. Without a host theme

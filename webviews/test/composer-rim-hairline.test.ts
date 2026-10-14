@@ -70,10 +70,13 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
       return entries
         .filter((entry) => /\binset\b/.test(entry))
         .map((entry) => {
-          const lengths = [...entry.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) => Number(match[1]));
+          const lengths = [...entry.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) =>
+            Number(match[1]),
+          );
           const color = entry.match(/(?:rgba?|color)\([^)]*\)/)?.[0] ?? "";
           const alphaMatch = color.match(/\/\s*([\d.]+)\)|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/);
-          const alpha = color === "" || color.includes("transparent") ? 0 : alphaMatch ? Number(alphaMatch[1] ?? alphaMatch[2]) : 1;
+          const alpha =
+            color === "" || color.includes("transparent") ? 0 : alphaMatch ? Number(alphaMatch[1] ?? alphaMatch[2]) : 1;
           return { spread: lengths[3] ?? 0, alpha };
         });
     }, id);
@@ -93,7 +96,8 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
         for (const { spread } of rest) expect(devicePixels(spread, scale), `${id} rim at ${scale}x`).toBe(1);
       }
       const shell = await insets(page, "shell");
-      for (const { spread } of shell) expect(Number.isInteger(devicePixels(spread, scale)), `shell rim at ${scale}x`).toBe(true);
+      for (const { spread } of shell)
+        expect(Number.isInteger(devicePixels(spread, scale)), `shell rim at ${scale}x`).toBe(true);
       for (const [id, field] of [
         ["composer", "composer-field"],
         ["shell", "shell-field"],
@@ -104,7 +108,9 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
         expect(ring.length, `${id} draws a focus ring`).toBeGreaterThan(0);
         for (const { spread } of ring) {
           const pixels = devicePixels(spread, scale);
-          expect(Number.isInteger(pixels) && pixels >= 1, `${id} focus ring at ${scale}x is ${pixels} device px`).toBe(true);
+          expect(Number.isInteger(pixels) && pixels >= 1, `${id} focus ring at ${scale}x is ${pixels} device px`).toBe(
+            true,
+          );
           // The ring keeps its 1px look: one CSS pixel wherever a CSS pixel is whole device pixels.
           if (Number.isInteger(scale)) expect(spread, `${id} focus ring at ${scale}x`).toBe(1);
         }
