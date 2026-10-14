@@ -11,13 +11,13 @@ A local page sets and prints a cookie, localStorage, sessionStorage and an Index
 each engine:
 
   1. `browser profile create` makes profiles A and B (new and empty);
-  2. `browser tab open --profile A --engine E` opens the page in A and sets the values "a";
+  2. `browser profile open URL --profile A --engine E` opens the page in A and sets the values "a";
   3. `browser tab TAB set-profile --profile B` (daemon verb; the app follows the record and
      re-makes the page): same tab id and position, the page reloads, every value is empty;
   4. the page sets "b" in B;
   5. the app action `browser-profile move-tab` moves it back to A: A's cookie, localStorage and
      IndexedDB show "a" again (sessionStorage and back/forward stay with the old page);
-  6. `browser tab open --profile B` opens a tab straight in B: it shows "b".
+  6. `browser profile open URL --profile B` opens a tab straight in B: it shows "b".
 
 After each step the daemon's record (`tab show`: extra.browser_profile_id) and the app's view
 (`browser TAB state`: profile) must both name the profile.
@@ -221,10 +221,10 @@ def run_engine(engine, url):
     a = find(daemon("browser", "profile", "create", "--name", a_name)[1], "id")
     b = find(daemon("browser", "profile", "create", "--name", b_name)[1], "id")
     check(bool(a) and bool(b) and a != b and "default" not in (a, b), f"{engine}: new profiles A {a} and B {b}")
-    listed = [p.get("name") for p in find(daemon("browser", "profile", "list")[1], "profiles") or []]
+    listed = [p.get("name") for p in find(daemon("browser", "profile", "list")[1], "browser_profiles") or []]
     check(a_name in listed and b_name in listed, f"{engine}: profile list names A and B")
-    code, opened = daemon("browser", "tab", "open", "--url", url + "?set=a", "--profile", a_name, "--engine", engine)
-    tab = find(opened, "tab_id")
+    code, opened = daemon("browser", "profile", "open", url + "?set=a", "--profile", a_name, "--engine", engine)
+    tab = find(opened, "tab_resource_id")
     check(code == 0 and bool(tab), f"{engine}: tab opened in A: {tab}")
     if not tab:
         return
@@ -264,8 +264,8 @@ def run_engine(engine, url):
     check(back.get("cookie") == "a" and back.get("local") == "a" and back.get("idb") == "a" and back.get("session") == "",
           f"{engine}: back in A shows a/a/a, sessionStorage empty: {back}")
 
-    code, opened = daemon("browser", "tab", "open", "--url", url, "--profile", b, "--engine", engine)
-    other = find(opened, "tab_id")
+    code, opened = daemon("browser", "profile", "open", url, "--profile", b, "--engine", engine)
+    other = find(opened, "tab_resource_id")
     check(code == 0 and bool(other), f"{engine}: new tab opened straight in B: {other}")
     if other:
         seen = profiles_match(other, b)
