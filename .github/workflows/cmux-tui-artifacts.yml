@@ -2226,12 +2226,13 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: assets/tree
 
-      # Any ref but feat-cmux-next publishes a shared tree key only with its
+      # A pull request tree (github.ref is the base branch here, so the step
+      # has no ref condition), like any ref but feat-cmux-next, publishes a
+      # shared tree key only with its
       # daemon-tests marker, written first (cx-kfbom): branch run
       # 38511998456 published tree c77d397b3a9f without one and blocked every
       # feat-cmux-next promotion with that key (2026-10-14).
       - name: Mark the tree daemon-tested before publishing it
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}

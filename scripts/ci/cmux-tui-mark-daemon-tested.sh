@@ -35,9 +35,18 @@ print(json.dumps({
     "result": "success",
 }, indent=2))
 PY
-  python3 "$script_dir/upload-r2-object.py" --file "$tmp/daemon-tests.json" --endpoint-url "$R2_ENDPOINT" \
-    --bucket cmux-binaries --key "cmux-tui/tree/$key/daemon-tests.json" \
-    --cache-control "public, max-age=31536000, immutable" --content-type application/json --write-once
+  if ! python3 "$script_dir/upload-r2-object.py" --file "$tmp/daemon-tests.json" --endpoint-url "$R2_ENDPOINT" \
+      --bucket cmux-binaries --key "cmux-tui/tree/$key/daemon-tests.json" \
+      --cache-control "public, max-age=31536000, immutable" --content-type application/json --write-once; then
+    # Another run that tested the same key may have written its own marker
+    # between the check and this write-once upload: any marker is valid.
+    if curl -fsSL --proto '=https' -o /dev/null "https://files.cmux.com/cmux-tui/tree/$key/daemon-tests.json?verify=$GITHUB_RUN_ID-retry"; then
+      echo "tree $key got a daemon-tests marker from another run"
+      return 0
+    fi
+    echo "error: could not write the daemon-tests marker of tree $key" >&2
+    return 1
+  fi
   echo "marked tree $key as daemon-tested"
 }
 

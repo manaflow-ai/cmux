@@ -2352,7 +2352,10 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
         publish = next(i for i, step in enumerate(names) if step.startswith("Publish the") and "trusted helper" in step)
         assert mark < publish, name
         assert marker_script in job["steps"][mark]["run"], name
-        assert job["steps"][mark]["if"] == "${{ github.ref != 'refs/heads/feat-cmux-next' }}", name
+        # A pull_request_target run's github.ref is the base branch
+        # (feat-cmux-next): the PR publisher marks unconditionally.
+        expected_if = "${{ github.ref != 'refs/heads/feat-cmux-next' }}" if name == "publish-tree" else None
+        assert job["steps"][mark].get("if") == expected_if, name
     # feat-cmux-next itself keeps publishing without waiting for the tests.
     assert "github.ref == 'refs/heads/feat-cmux-next' || (needs.cmux-next-daemon-tests.result == 'success'" in jobs["publish-tree"]["if"]
     marker = jobs["publish-tree-tested"]
