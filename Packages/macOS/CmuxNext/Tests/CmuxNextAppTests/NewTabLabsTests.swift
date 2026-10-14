@@ -34,21 +34,25 @@ struct NewTabLabsTests {
         let (settings, directory) = try await Self.settings()
         defer { try? FileManager.default.removeItem(at: directory) }
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
-        model.onNewTabSetting = { change in Task { await NewTabPage.save(change, settings: settings) } }
+        // Each save is kept and awaited, as NewTabStyleSwitchTests does (#20423): the reload reads
+        // the file on a detached task, which yields on this actor do not wait for.
+        var saves: [Task<Void, Never>] = []
+        model.onNewTabSetting = { change in saves.append(Task { await NewTabPage.save(change, settings: settings) }) }
 
         let reply = await Self.toggle(model, "previewFeatures", true)
         #expect(reply["ok"] as? Bool == true)
-        for _ in 0..<400 where !settings.snapshot.lab(.previewFeatures, teamBuild: false) { await Task.yield() }
+        for save in saves { await save.value }
         #expect(settings.snapshot.lab(.previewFeatures, teamBuild: false))
 
         _ = await Self.toggle(model, "previewFeatures", false)
-        for _ in 0..<400 where settings.snapshot.lab(.previewFeatures, teamBuild: true) { await Task.yield() }
+        for save in saves { await save.value }
         #expect(!settings.snapshot.lab(.previewFeatures, teamBuild: true))
 
         // A name that is not a Labs flag writes nothing.
         let before = try String(contentsOf: directory.appending(path: "cmux.json"), encoding: .utf8)
         _ = await Self.toggle(model, "notAFlag", true)
-        for _ in 0..<50 { await Task.yield() }
+        #expect(saves.count == 3)
+        for save in saves { await save.value }
         #expect(try String(contentsOf: directory.appending(path: "cmux.json"), encoding: .utf8) == before)
     }
 

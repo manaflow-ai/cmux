@@ -325,8 +325,9 @@ def load_section(section, seen_keys, section_ids):
 def check_flag(src, key, row):
     """A Labs flag: a `labs.` toggle with an owner, created < expires (YYYY-MM-DD), a cohort whose
     default is the row's default, and its one-line intent in `help`."""
-    if not key.startswith("labs.") or row.get("kind") != "toggle":
-        fail(src, "%s: a Labs flag is a labs.<name> toggle" % key)
+    # The flag's name is its key's one segment after `labs.`: LabsFlag.path is ["labs", name].
+    if len(key.split(".")) != 2 or not key.startswith("labs.") or "name" in row or row.get("kind") != "toggle":
+        fail(src, "%s: a Labs flag is a labs.<name> toggle (no name override)" % key)
     if set(FLAG_FIELDS) - set(row) or not isinstance(row["owner"], str) or not row["owner"].strip():
         fail(src, "%s: a Labs flag needs %s" % (key, ", ".join(sorted(FLAG_FIELDS))))
     try:
@@ -335,9 +336,9 @@ def check_flag(src, key, row):
         fail(src, "%s: created and expires are YYYY-MM-DD dates" % key)
     if not created < expires:
         fail(src, "%s: expires must come after created" % key)
-    if row["cohort"] not in COHORTS:
+    if not isinstance(row["cohort"], str) or row["cohort"] not in COHORTS:
         fail(src, "%s: cohort is one of %s" % (key, ", ".join(sorted(COHORTS))))
-    if row["default"] != (row["cohort"] == "default"):
+    if row.get("default") != (row["cohort"] == "default"):
         fail(src, "%s: default is true exactly when the cohort is default" % key)
     if not row.get("help"):
         fail(src, "%s: help is the flag's one-line intent" % key)

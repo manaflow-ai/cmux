@@ -13,7 +13,12 @@ function onFlags(root: Element): Set<string> {
   return new Set((root.getAttribute("data-labs") ?? "").split(" ").filter(Boolean));
 }
 
-/** Whether the Labs flag `name` is on in this page now. Off outside the app (no `data-labs`). */
+/**
+ * Whether the Labs flag `name` is on in this page now. Off outside the app (no `data-labs`). A
+ * page's first moments can carry the list from when its web view was made (a prewarmed page);
+ * the app sets the current one once the page loads, so code that must follow a change uses
+ * `useLabsFlag`.
+ */
 export function labsFlag(name: LabsFlagName, root: Element = document.documentElement): boolean {
   return onFlags(root).has(name);
 }
