@@ -108,7 +108,6 @@ impl Sandbox {
 
     fn chief_with(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
         let child = Command::new(bin())
-            .envs(env.iter().copied())
             .arg("chief")
             .args(args)
             .env("LC_ALL", "C")
@@ -128,6 +127,8 @@ impl Sandbox {
             .env_remove("CMUX_SOCKET_PATH")
             .env_remove("CMUX_BUNDLE_ID")
             .env_remove("CMUX_TAG")
+            // The test's own variables last, so no removal above drops one.
+            .envs(env.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
