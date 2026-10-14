@@ -52,6 +52,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_CONVERSATION_THREAD = new CommandMetadata("cloud-conversation-thread", Authority.LOCAL_ADMIN, 12, "conversation-thread-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_UNSUBSCRIBE = new CommandMetadata("cloud-conversation-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_INBOX_LIST = new CommandMetadata("cloud-inbox-list", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_INBOX_OP = new CommandMetadata("cloud-inbox-op", Authority.LOCAL_ADMIN, 12, "conversation-inbox-state-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_INBOX_SUBSCRIBE = new CommandMetadata("cloud-inbox-subscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_INBOX_UNSUBSCRIBE = new CommandMetadata("cloud-inbox-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_MUX_ACK = new CommandMetadata("cloud-mux-ack", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -69,6 +70,7 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_DRAFT = new CommandMetadata("conversation-draft", Authority.LOCAL_ADMIN, 12, "conversation-draft-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_HISTORY = new CommandMetadata("conversation-history", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_IMPORT = new CommandMetadata("conversation-import", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_INBOX_OP = new CommandMetadata("conversation-inbox-op", Authority.LOCAL_ADMIN, 12, "conversation-inbox-state-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_LINK_RESOLVE = new CommandMetadata("conversation-link-resolve", Authority.LOCAL_ADMIN, 12, "conversation-tree-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_LIST = new CommandMetadata("conversation-list", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_OP = new CommandMetadata("conversation-op", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -319,6 +321,7 @@ public final class Commands {
         values.put("cloud-conversation-thread", CLOUD_CONVERSATION_THREAD);
         values.put("cloud-conversation-unsubscribe", CLOUD_CONVERSATION_UNSUBSCRIBE);
         values.put("cloud-inbox-list", CLOUD_INBOX_LIST);
+        values.put("cloud-inbox-op", CLOUD_INBOX_OP);
         values.put("cloud-inbox-subscribe", CLOUD_INBOX_SUBSCRIBE);
         values.put("cloud-inbox-unsubscribe", CLOUD_INBOX_UNSUBSCRIBE);
         values.put("cloud-mux-ack", CLOUD_MUX_ACK);
@@ -336,6 +339,7 @@ public final class Commands {
         values.put("conversation-draft", CONVERSATION_DRAFT);
         values.put("conversation-history", CONVERSATION_HISTORY);
         values.put("conversation-import", CONVERSATION_IMPORT);
+        values.put("conversation-inbox-op", CONVERSATION_INBOX_OP);
         values.put("conversation-link-resolve", CONVERSATION_LINK_RESOLVE);
         values.put("conversation-list", CONVERSATION_LIST);
         values.put("conversation-op", CONVERSATION_OP);
