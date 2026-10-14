@@ -320,7 +320,10 @@ export function ModelPicker(props: ModelPickerProps) {
     return owner;
   }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
-  const olderCount = searching || starredView ? 0 : shownSections(selected, runsHere).older.length;
+  const olderCount =
+    searching || starredView || (selected && loginFor(selected) !== undefined)
+      ? 0
+      : shownSections(selected, runsHere).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate

@@ -2368,7 +2368,8 @@ function AcpmuxPane() {
     };
   }, [connected, healthHarness, healthLocal, healthRecheck, readHarnessHealth]);
   // Every harness this Mac's acpmux last found signed out, for the model picker's rail (cx-ae9eb):
-  // read with the chat's own health, and again when a Log In comes back.
+  // read once the pane's direct client connects (a restored pane connects after its first render),
+  // and again when a Log In comes back.
   const [signedOut, setSignedOut] = useState<Record<string, string>>({});
   const signedOutRechecked = useRef(0);
   useEffect(() => {
@@ -2388,7 +2389,7 @@ function AcpmuxPane() {
     return () => {
       live = false;
     };
-  }, [connected, healthLocal, healthRecheck]);
+  }, [connected, healthLocal, healthRecheck, catalogSource]);
   const signIn = useMemo<SignIn>(
     () => ({
       signedOut,
