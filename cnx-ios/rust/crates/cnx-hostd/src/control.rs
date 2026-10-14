@@ -10,7 +10,7 @@
 //!   the app's acpmux WebSocket, sent at start and on `need_acpmux` (it moves
 //!   when acpmux restarts).
 //! - `{"type":"devices","devices":[{"id","identity_key","approval_key"}],
-//!   "denied":[id]}`: the phones the user approved, and those whose request
+//!   "denied":[{"id","identity_key"}]}`: the phones the user approved, and those whose request
 //!   the user refused (`pairing.rs`). Sent at start and on every change.
 //!
 //! - `{"type":"drop_phone","phone_device_id":"<uuid>"}`: the owner removed this
@@ -170,7 +170,7 @@ mod tests {
         );
         assert_eq!(
             Inbound::parse(
-                r#"{"type":"devices","devices":[{"id":"p","identity_key":"04","approval_key":"04"}],"denied":["q"]}"#
+                r#"{"type":"devices","devices":[{"id":"p","identity_key":"04","approval_key":"04"}],"denied":[{"id":"q","identity_key":"04"}]}"#
             ),
             Some(Inbound::Devices(crate::pairing::DeviceTrust {
                 devices: vec![crate::pairing::TrustedDevice {
@@ -178,7 +178,7 @@ mod tests {
                     identity_key: "04".into(),
                     approval_key: "04".into()
                 }],
-                denied: vec!["q".into()],
+                denied: vec![crate::pairing::DeniedDevice { id: "q".into(), identity_key: "04".into() }],
             }))
         );
         assert_eq!(

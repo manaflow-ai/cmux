@@ -46,7 +46,7 @@ import Testing
         #expect(line.last == 0x0A)
         let object = try #require(try JSONSerialization.jsonObject(with: line.dropLast()) as? [String: Any])
         #expect(object["type"] as? String == "devices")
-        #expect(object["denied"] as? [String] == ["p2"])
+        #expect(object["denied"] as? [[String: String]] == [["id": "p2", "identity_key": Self.identity]])
         let listed = try #require(object["devices"] as? [[String: String]])
         #expect(listed == [["id": "p1", "identity_key": Self.identity, "approval_key": Self.approval]])
         let params = devices.approversParams(macDevice: "mac-1")

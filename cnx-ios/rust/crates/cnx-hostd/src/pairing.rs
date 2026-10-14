@@ -52,9 +52,16 @@ pub struct TrustedDevice {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct DeviceTrust {
     pub devices: Vec<TrustedDevice>,
-    /// Device ids whose current request the user refused.
+    /// Identity keys the user refused for a device id: refused at once, never asked again.
     #[serde(default)]
-    pub denied: Vec<String>,
+    pub denied: Vec<DeniedDevice>,
+}
+
+/// One request the user refused: that device id with that identity key.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DeniedDevice {
+    pub id: String,
+    pub identity_key: String,
 }
 
 /// Where a decision about this request stands.
@@ -73,7 +80,7 @@ impl DeviceTrust {
             .any(|d| d.id == id && d.identity_key == identity_key && d.approval_key == approval_key)
         {
             Standing::Trusted
-        } else if self.denied.iter().any(|d| d == id) {
+        } else if self.denied.iter().any(|d| d.id == id && d.identity_key == identity_key) {
             Standing::Denied
         } else {
             Standing::Unknown
@@ -225,7 +232,7 @@ pub async fn serve(
         loop {
             match standing(&trust.borrow_and_update()) {
                 Standing::Trusted => return Ok(()),
-                Standing::Denied if asked => {
+                Standing::Denied => {
                     return Err(("denied", "the Mac did not allow this iPhone".into()));
                 }
                 _ => {}
@@ -283,11 +290,13 @@ mod tests {
                 identity_key: "i".into(),
                 approval_key: "a".into(),
             }],
-            denied: vec!["q".into()],
+            denied: vec![DeniedDevice { id: "q".into(), identity_key: "i".into() }],
         };
         assert_eq!(trust.standing("p", "i", "a"), Standing::Trusted);
         assert_eq!(trust.standing("p", "i", "b"), Standing::Unknown);
         assert_eq!(trust.standing("x", "i", "a"), Standing::Unknown);
         assert_eq!(trust.standing("q", "i", "a"), Standing::Denied);
+        // A new identity key (the phone signed out and in) asks again.
+        assert_eq!(trust.standing("q", "j", "a"), Standing::Unknown);
     }
 }

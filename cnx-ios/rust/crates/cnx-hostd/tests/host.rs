@@ -9,7 +9,7 @@ use bytes::Bytes;
 use cnx_hostd::config::{AcpmuxTarget, ServiceConfig};
 use cnx_hostd::control::Event;
 use cnx_hostd::host::{AnswerContext, IceSource, serve_signaling};
-use cnx_hostd::pairing::{DeviceTrust, Pairing, TrustedDevice, challenge_message};
+use cnx_hostd::pairing::{DeniedDevice, DeviceTrust, Pairing, TrustedDevice, challenge_message};
 use cnx_link::testing::{FakeOptions, FakeSignaling};
 use cnx_link::{
     Channel, ChannelEvent, Connected, DialError, DialOptions, LinkConfig, SignalingClient, TransportKind,
@@ -420,12 +420,15 @@ async fn a_phone_the_user_refused_is_closed_denied() {
     let mut channel = auth(&connected.link, &fixture, &keys, &keys.identity, "pair").await;
     assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
     let _ = fixture.events.as_ref().unwrap().lock().await.recv().await;
-    fixture
-        .trust
-        .as_ref()
-        .unwrap()
-        .send_replace(Some(DeviceTrust { devices: vec![], denied: vec![fixture.phone_id.clone()] }));
+    fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
+        devices: vec![],
+        denied: vec![DeniedDevice { id: fixture.phone_id.clone(), identity_key: keys.identity_hex.clone() }],
+    }));
     assert_eq!(drain(&mut channel).await.1, "denied");
+    // The next try with the same key is refused at once, without asking.
+    let mut again = auth(&connected.link, &fixture, &keys, &keys.identity, "pair").await;
+    assert_eq!(drain(&mut again).await.1, "denied");
+    assert!(fixture.events.as_ref().unwrap().lock().await.try_recv().is_err());
     let mut daemon = connected.link.open("daemon", serde_json::json!({})).await.unwrap();
     assert_eq!(drain(&mut daemon).await.1, "unpaired");
 }
