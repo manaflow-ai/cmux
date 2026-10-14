@@ -468,8 +468,11 @@ impl Hub {
                 // and it has no `_meta.provenance` (the person rewrote it).
                 "queue_updated" => {
                     if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id) {
-                        for k in ["text", "prompt", "control", "trustGate", "_meta"] {
+                        for k in ["text", "prompt", "control", "trustGate"] {
                             q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
+                        }
+                        if let Some(meta) = q.msg.get_mut("_meta").and_then(Value::as_object_mut) {
+                            meta.remove("provenance");
                         }
                     }
                 }

@@ -568,15 +568,13 @@ fn deliver_queued(
 /// the message still goes out, as plain text; a name that would not pass is
 /// left out.
 fn provenance(message: &Value, recipient: &str) -> Option<Value> {
-    let field = |key: &str| {
-        message[key].as_str().filter(|value| {
-            !value.trim().is_empty() && value.len() <= 256 && !value.contains(char::is_control)
-        })
-    };
+    let fits =
+        |value: &&str| !value.trim().is_empty() && value.len() <= 256 && !value.contains(unshown);
+    let field = |key: &str| message[key].as_str().filter(fits);
     let mut provenance = json!({
         "kind": "agent_message",
         "from": field("sender")?,
-        "to": recipient,
+        "to": Some(recipient).filter(fits)?,
         "msgId": field("id")?,
         "threadId": field("thread_id")?,
     });
@@ -587,6 +585,17 @@ fn provenance(message: &Value, recipient: &str) -> Option<Value> {
         provenance["replyTo"] = json!(parent);
     }
     Some(provenance)
+}
+
+/// What acpmux refuses in a provenance field: a control, a line or paragraph
+/// separator, or a bidi or zero-width format mark.
+fn unshown(c: char) -> bool {
+    c.is_control()
+        || (c.is_whitespace() && c != ' ')
+        || matches!(
+            c,
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+        )
 }
 
 fn failure_text(failure: &Failure) -> String {

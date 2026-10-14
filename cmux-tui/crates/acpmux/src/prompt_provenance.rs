@@ -87,7 +87,18 @@ fn valid(key: &str, value: &str) -> bool {
     } else {
         value.len() <= MAX_FIELD_BYTES
     };
-    fits && !value.trim().is_empty() && !value.chars().any(char::is_control)
+    fits && !value.trim().is_empty() && !value.chars().any(unshown)
+}
+
+/// A character that breaks the one line or changes how it reads: a control, a line or
+/// paragraph separator, or a bidi or zero-width format mark.
+fn unshown(c: char) -> bool {
+    c.is_control()
+        || (c.is_whitespace() && c != ' ')
+        || matches!(
+            c,
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+        )
 }
 
 /// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`).
