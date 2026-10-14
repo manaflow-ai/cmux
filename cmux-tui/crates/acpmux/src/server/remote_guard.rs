@@ -16,7 +16,9 @@
 //!   with the canonical path (symlinks resolved, no `..`).
 //! - A session method acpmux does not handle itself is not passed to the
 //!   harness (`requests.rs` catch-all), so no harness extension method can
-//!   take caller params that spawn or read.
+//!   take caller params that spawn or read. LocalApp may pass
+//!   `_acpmux/subagent_stop`, which only stops a task the agent already runs
+//!   (`forwards`).
 //!
 //! - Web only (ACP-REMOTE-GUARD), allow lists: only the `ask` and `deny-all`
 //!   policies, rules that cannot auto-approve, the cited asking modes
@@ -40,6 +42,14 @@
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
 use std::path::Path;
+
+/// Whether a session method acpmux does not handle itself goes on to the
+/// harness from `origin`: anything from the unix socket, and from the app only
+/// the stop of a running background subagent (no params that spawn or read).
+pub(super) fn forwards(origin: super::Origin, m: &str) -> bool {
+    use super::Origin::{Local, LocalApp};
+    origin == Local || (origin == LocalApp && m == method::MUX_SUBAGENT_STOP)
+}
 
 /// The rules a control request from `origin` runs under. A proven peer
 /// forwarding for its own Web client marks it `_meta.acpmux.via = "web"`.
