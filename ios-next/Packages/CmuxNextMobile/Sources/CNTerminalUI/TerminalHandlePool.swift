@@ -90,13 +90,14 @@ public final class TerminalHandlePool {
     }
 
     /// The open terminal's live view becomes its static card: its last
-    /// presented frame is the card image and it stops drawing (`resume`
-    /// with `rendering(true)` when it is opened again). Returns false when
-    /// it has no frame (the card keeps its image and the view keeps drawing).
+    /// presented frame (when it has one) is the card image, and it stops
+    /// drawing until `showLive`. Returns false when it has no live view.
     @discardableResult
     public func showAsCard(_ terminalId: String) -> Bool {
-        guard let h = handles[terminalId], let image = h.snapshot(maxPixelWidth: thumbnails.cardPixelWidth) else { return false }
-        thumbnails.setImage(terminalId, image: image)
+        guard let h = handles[terminalId], h.hasRenderer else { return false }
+        if let image = h.snapshot(maxPixelWidth: thumbnails.cardPixelWidth) {
+            thumbnails.setImage(terminalId, image: image)
+        }
         h.setRendering(false)
         return true
     }

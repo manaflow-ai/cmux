@@ -136,9 +136,14 @@ struct BrowserScreen: View {
     @State private var menuExpanded = false
     @State private var menuContent = false
     @State private var creatingTab = false
-    /// The active terminal shown on the settled grid by its static card
-    /// (the live view stays mounted for the zoom, hidden and not drawing).
-    @State private var terminalCardKey: String?
+    /// On the settled grid: the tab that was active when the grid settled
+    /// (`gridNoTerminal` when none). Its terminal's live view stays mounted
+    /// for the zoom back (hidden, not drawing); every card, the active one
+    /// included, is a grid card that moves with the grid's reflow and swipe.
+    @State private var gridSettledKey: String?
+    /// Terminals whose live view was paused for the grid.
+    @State private var gridPausedTerminals: Set<String> = []
+    private static let gridNoTerminal = "\u{0}none"
     /// Card images, captured when the overview opens so the hidden grid does
     /// not re-render on every live frame.
     @State private var overviewImages: [String: UIImage] = [:]
@@ -244,7 +249,9 @@ struct BrowserScreen: View {
                             // On the settled grid the terminal layer draws the
                             // active terminal's card live.
                             hiddenTabId: zoomState.phase == .overview
-                                ? (tabs.activeTerminal != nil && terminalCardKey != tabs.activeKey ? tabs.activeKey : nil) : zoomTabId,
+                                // Before the settle handler ran (one update):
+                                // the live view still stands in for its card.
+                                ? (tabs.activeTerminal != nil && gridSettledKey == nil ? tabs.activeKey : nil) : zoomTabId,
                             gridInteractive: zoomState.gridInteractive,
                             controlsInteractive: overviewVisible && zoomState.headingToOverview,
                             scroll: gridScroll, position: $overviewPosition,
@@ -263,7 +270,11 @@ struct BrowserScreen: View {
                     .accessibilityHidden(!zoomState.gridInteractive)
             }
 
-            if let terminal = tabs.activeTerminal, let key = tabs.activeKey {
+            // On the settled grid only the terminal the grid opened from keeps
+            // its (hidden) live view; one that became active there (a close,
+            // a new tab) is just its card until it is opened.
+            if let terminal = tabs.activeTerminal, let key = tabs.activeKey,
+               zoomState.phase != .overview || gridSettledKey == nil || gridSettledKey == key {
                 terminalLayer(terminal.id, key: key)
             }
 
@@ -415,19 +426,24 @@ struct BrowserScreen: View {
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
         // Terminal cards render only while the grid shows.
         .onChange(of: overviewVisible, initial: true) { _, visible in tabs.setGridVisible(visible) }
-        // On the settled grid the open terminal is a static card too: its
-        // live view's last frame becomes the card, and the view (kept for
-        // the zoom back, showing that same frame) stops drawing.
+        // On the settled grid every card is static, the active one too: the
+        // open terminal's live view's last frame becomes its card, and the
+        // view (kept for the zoom back, showing that same frame) stops drawing.
         .onChange(of: zoomState.phase == .overview) { _, onGrid in
             model.holdsFrames = onGrid
             if onGrid {
-                if let id = tabs.activeTerminal?.id, let key = tabs.activeKey, tabs.terminalShowAsCard?(id) == true {
-                    terminalCardKey = key
-                }
-            } else if let key = terminalCardKey {
-                terminalCardKey = nil
-                if let id = TabItem.terminalId(fromKey: key) { tabs.terminalShowLive?(id) }
+                gridSettledKey = tabs.activeKey ?? Self.gridNoTerminal
+                pauseActiveTerminalForGrid()
+            } else {
+                gridSettledKey = nil
+                for id in gridPausedTerminals { tabs.terminalShowLive?(id) }
+                gridPausedTerminals = []
             }
+        }
+        // A terminal that becomes active on the settled grid (its active tab
+        // was closed) stays a card: no live view is created for it there.
+        .onChange(of: tabs.activeKey) { _, _ in
+            if zoomState.phase == .overview { pauseActiveTerminalForGrid() }
         }
         .onAppear {
             zoomDriver.onSettle = { phase in
@@ -470,6 +486,13 @@ struct BrowserScreen: View {
         }
     }
 
+    /// The active terminal's live view (if it has one) shows its last frame
+    /// as its card and stops drawing while the grid is settled.
+    private func pauseActiveTerminalForGrid() {
+        guard let id = tabs.activeTerminal?.id, !gridPausedTerminals.contains(id) else { return }
+        if tabs.terminalShowAsCard?(id) == true { gridPausedTerminals.insert(id) }
+    }
+
     /// A grid card's frame on screen (the grid's reported content origin).
     private func cardRect(_ key: String) -> CGRect {
         let index = tabs.items.firstIndex { $0.id == key } ?? 0
@@ -490,7 +513,7 @@ struct BrowserScreen: View {
         let ready = terminalReady(id)
         let onPage = zoomState.phase == .page && !chrome.swiping
         // Its static card stands in for it on the settled grid.
-        let asCard = zoomState.phase == .overview && terminalCardKey == key
+        let asCard = zoomState.phase == .overview && gridSettledKey == key
         ZStack(alignment: .topLeading) {
             terminalContent(id, CGSize(width: size.width, height: size.height - safeTop - pageBottom - 64))
                 .padding(.top, safeTop)
