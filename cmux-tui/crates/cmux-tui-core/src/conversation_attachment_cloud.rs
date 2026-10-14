@@ -45,7 +45,8 @@ impl CloudUpload {
                 Sink::File { path, file } => {
                     drop(file);
                     let mut bytes = Vec::new();
-                    let read = fs::File::open(&path).and_then(|mut file| file.read_to_end(&mut bytes));
+                    let read =
+                        fs::File::open(&path).and_then(|mut file| file.read_to_end(&mut bytes));
                     let _ = fs::remove_file(&path);
                     match read {
                         Ok(_) if failure.is_none() => out.push((kind, bytes)),

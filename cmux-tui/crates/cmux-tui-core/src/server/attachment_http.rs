@@ -133,7 +133,8 @@ fn respond_cloud(
     // The app's lease, of the same person the link was made for.
     let Some(service) = mux.cloud_conversations().filter(|service| {
         service.app_holds_lease()
-            && super::cloud_attachments::lease_identity(service).is_ok_and(|lease| lease == link.lease)
+            && super::cloud_attachments::lease_identity(service)
+                .is_ok_and(|lease| lease == link.lease)
     }) else {
         return stream.write_all(&plain(404, "Not Found"));
     };

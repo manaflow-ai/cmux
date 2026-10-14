@@ -97,9 +97,15 @@ pub(super) fn cloud_range(
         Err(CloudError::Rejected { code, .. }) if code == "attachment.url_expired" => {
             let url = signed_url(mux, service, conversation, hash, piece, true)?;
             match service.attachment_range(&url, offset, length) {
-                Err(CloudError::Rejected { code, message, .. }) if code == "attachment.url_expired" => {
-                    Err(CloudError::Rejected { code: "attachment.forbidden".into(), message, retryable: false }
-                        .into())
+                Err(CloudError::Rejected { code, message, .. })
+                    if code == "attachment.url_expired" =>
+                {
+                    Err(CloudError::Rejected {
+                        code: "attachment.forbidden".into(),
+                        message,
+                        retryable: false,
+                    }
+                    .into())
                 }
                 other => Ok(other?),
             }
