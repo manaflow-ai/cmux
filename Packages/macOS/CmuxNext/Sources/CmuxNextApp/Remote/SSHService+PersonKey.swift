@@ -65,6 +65,7 @@ extension SSHService {
     /// and only the person's click restarts it. One preparation per machine at a time. True once
     /// this app's key is bound to the daemon that will run the chat.
     func restartWithApprovalsIfIdle(_ session: SSHMachineSession, _ preparation: AgentPaneRemoteApprovals.Preparation) async -> Bool {
+        logger.info("keyed restart before a chat on \(session.host.destination.description, privacy: .public): \(String(describing: preparation), privacy: .public)")
         switch preparation {
         case .daemonSaidSafe:
             return await RemoteApprovalPreparations.shared.run(machine: session.machineID, keepBusy: false) { [self] in
