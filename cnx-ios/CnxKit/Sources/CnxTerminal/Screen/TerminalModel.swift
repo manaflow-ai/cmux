@@ -62,6 +62,18 @@ public final class TerminalModel {
     /// Embedded (workspace tab): the page as last seen, for the tab grid card.
     public internal(set) var snapshot: UIImage?
 
+    /// A tab rebuilt after it was cooled out of the warm set (a new, empty
+    /// surface): its page as last seen, which the page shows dimmed under the
+    /// connecting label until the Mac's terminal is attached again. Cleared on
+    /// attach, so a later dropped link never covers the live surface with it.
+    public private(set) var coldFrame: UIImage?
+
+    public func restoreLastFrame(_ image: UIImage?) {
+        guard let image else { return }
+        coldFrame = image
+        if snapshot == nil { snapshot = image }
+    }
+
     /// Set by the controller.
     weak var controller: TerminalViewController?
 
@@ -78,6 +90,7 @@ public final class TerminalModel {
     func ingest(_ event: TerminalSessionEvent) {
         let connection = connectionState.applying(event)
         if connection != connectionState { connectionState = connection }
+        if connection.isAttached, coldFrame != nil { coldFrame = nil }
         switch event {
         case .output:
             // The bytes are scanned once per display frame (`scanOutput`).

@@ -3,15 +3,27 @@ import CnxModel
 import CnxTerminal
 import CnxWorkspaces
 import SwiftUI
+import UIKit
+import OSLog
+
+private let warmLog = Logger(subsystem: "dev.cmux.cnx", category: "terminal")
 
 /// Plugs CnxTerminal into the workspace tabs in its embedded chrome: TabsKit
 /// owns the status bar area and the toolbar, the terminal's actions go into
 /// the page menu, and the grid card is a snapshot of the page (no second live
-/// surface). One host (model + controller) per tab, kept while the tab exists,
-/// so the surface and scrollback survive tab switches.
+/// surface). One host (model + controller) per tab. The `warmLimit` most
+/// recently shown tabs keep their surface and attached session, so switching
+/// between them needs no reattach and no new surface; an older one is cooled
+/// (session detached, surface released) and keeps its last frame, which its
+/// page shows at once, dimmed, while it reattaches.
 @MainActor
 final class GhosttyTerminalTabContent: TerminalTabContent {
+    /// Live Ghostty surfaces (and Mac attaches) kept across tab switches.
+    static let warmLimit = 4
     private var hosts: [String: TerminalTabHost] = [:]
+    private var warm = TerminalWarmSet<String>(limit: GhosttyTerminalTabContent.warmLimit)
+    /// Cooled tabs' pages as last seen.
+    private var lastFrames: [String: UIImage] = [:]
     /// Tabs whose host runs on a live session (the rest show the connecting
     /// placeholder, or the mock in DEBUG mock mode).
     private var liveTabs: Set<String> = []
@@ -39,6 +51,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             hosts[id] = nil
             workspaceOwner[id] = nil
             liveTabs.remove(id)
+            warm.remove(id)
+            lastFrames[id] = nil
         }
         let live = sessionProvider?(tab)
         if let host = hosts[tab.id], live == nil { return host }
@@ -54,6 +68,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             title: tab.title
         )
         model.uploader = live == nil ? nil : uploaderProvider?(tab)
+        model.restoreLastFrame(lastFrames.removeValue(forKey: tab.id))
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
         workspaceOwner[tab.id] = workspace.id
@@ -65,10 +80,25 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hosts = [:]
         workspaceOwner = [:]
         liveTabs = []
+        warm = TerminalWarmSet(limit: Self.warmLimit)
+        lastFrames = [:]
     }
 
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
-        AnyView(TerminalTabPage(host: host(for: tab, in: workspace), insets: context.safeAreaInsets, isInteractive: context.isInteractive))
+        let host = host(for: tab, in: workspace)
+        for id in warm.touch(tab.id) { cool(id) }
+        return AnyView(TerminalTabPage(host: host, insets: context.safeAreaInsets, isInteractive: context.isInteractive))
+    }
+
+    /// Releases a tab that fell out of the warm set: its Mac attach and its
+    /// Ghostty surface go, its last frame stays for the card and for the page
+    /// when it is shown again (a new host, attached in the background).
+    private func cool(_ id: String) {
+        guard let host = hosts.removeValue(forKey: id) else { return }
+        if let frame = host.model.snapshot { lastFrames[id] = frame }
+        host.model.session.stop()
+        liveTabs.remove(id)
+        warmLog.info("terminal tab \(id, privacy: .public) cooled (warm set of \(Self.warmLimit, privacy: .public)), last frame \(self.lastFrames[id] == nil ? "none" : "kept", privacy: .public)")
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {

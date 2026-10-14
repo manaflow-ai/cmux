@@ -270,7 +270,7 @@ public struct RootView: View {
         }
         #endif
         guard live == nil, !auth.isMock, let base = auth.apiBaseURL else { return }
-        let api = LiveAPI(baseURL: base) { [auth] in try await auth.accessToken(forceRefresh: $0) }
+        let api = LiveAPI(baseURL: base) { [auth] in try await auth.serviceAccessToken(forceRefresh: $0) }
         let coordinator = LiveCoordinator(
             store: store,
             api: api,

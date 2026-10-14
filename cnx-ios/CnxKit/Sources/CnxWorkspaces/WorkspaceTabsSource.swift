@@ -162,6 +162,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func activate(_ id: TabsKitTab.ID) {
         guard workspaceTab(id) != nil else { return }
+        // verify/e2e: the touch that switches tabs (the rig's tab_switch t0).
+        ConnectTimeline.shared.event("tab_activate", detail: id)
         selectedTabID = id
         store.noteOpened(tabID: id, in: workspaceID)
         CnxTheme.standard.haptics.selection()

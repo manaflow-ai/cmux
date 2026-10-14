@@ -119,9 +119,32 @@ public final class AppStore {
 
     /// Replaces one Mac's workspaces, keeping the others.
     public func replaceWorkspaces(macID: String, with next: [Workspace]) {
-        let others = workspaces.filter { $0.macID != macID || pendingWorkspaceIDs.contains($0.id) }
-        let merged = others + next
+        let merged = Self.reconciled(workspaces, macID: macID, with: next, keeping: pendingWorkspaceIDs)
         if merged != workspaces { workspaces = merged }
+    }
+
+    /// `current` with one Mac's rows replaced by `next` in place: the Mac's
+    /// block stays where its first (cached or live) row was, so the first live
+    /// answer after a launch does not move that Mac's rows behind every other
+    /// Mac's (a reorder the list animates). Other Macs' rows and this phone's
+    /// pending creations stay where they are.
+    nonisolated static func reconciled(_ current: [Workspace], macID: String, with next: [Workspace],
+                                       keeping pending: Set<String>) -> [Workspace] {
+        var result: [Workspace] = []
+        result.reserveCapacity(current.count + next.count)
+        var placed = false
+        for workspace in current {
+            if workspace.macID == macID, !pending.contains(workspace.id) {
+                if !placed {
+                    result += next
+                    placed = true
+                }
+            } else {
+                result.append(workspace)
+            }
+        }
+        if !placed { result += next }
+        return result
     }
 
     /// A Stack Auth team as the account reports it.
