@@ -3,18 +3,19 @@
 
 Reads the pull requests merged into feat-cmux-next or main since the last run
 (GitHub GraphQL search, one query per run; never a REST polling loop), takes
-the beads each one names, and for each open bead closes it only when the
+the beads each one names in its title, body, or commits, and for each open bead closes it only when the
 landing says it is the whole bead:
   - the title or body says "closes", "fixes" or "resolves" <bead> (the
     convention for the final pull request of a bead), or
   - the title names the bead with no part or slice marker ("part 2", "2/3",
     "slice", "partial", "wip", ...) and no other open pull request names it,
 and the bead is not an epic and has no open children. It closes with
-"landed <sha> (#N): <title>", as its assignee (the claim guard refuses anyone
-else without --force, which this never passes) or as leo when it is
-unassigned. Any other landing gets a bd comment with the pull request link: a
-partial close is worse than none. A bead the body only mentions is untouched.
-A closed or unknown bead is skipped. The board is reached through BEADS_SSH_HOST
+"landed <sha> (#N): <title>" as `--actor leo`. Any other landing gets a bd
+comment with the pull request link: a partial close is worse than none. A closed
+or unknown bead is skipped. Open
+pull requests on feat-cmux-next that name no bead get a task created from
+their title, with the pull request as its external reference, and a GraphQL
+comment links the new bead back to the PR. The board is reached through BEADS_SSH_HOST
 (the host whose ~/agent-tasks holds the board) or, for tests, BEADS_BD_COMMAND
 (an executable run with bd's arguments); with neither set it refuses to run.
 State lives in BEAD_AUTOCLOSE_STATE: the latest merge handled and the pull
@@ -47,7 +48,18 @@ QUERY = """
 query($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: 100, after: $after) {
     pageInfo { hasNextPage endCursor }
-    nodes { ... on PullRequest { number title body url mergedAt mergeCommit { oid } baseRefName } }
+    nodes { ... on PullRequest {
+      id number title body url mergedAt createdAt mergeCommit { oid } baseRefName
+      commits(first: 100) { nodes { commit { message } } }
+      comments(first: 50) { nodes { body } }
+    } }
+  }
+}
+"""
+COMMENT_MUTATION = """
+mutation($subjectId: ID!, $body: String!) {
+  addComment(input: {subjectId: $subjectId, body: $body}) {
+    commentEdge { node { url } }
   }
 }
 """
@@ -55,8 +67,9 @@ query($q: String!, $after: String) {
 
 def merged_pull_requests(since: str) -> list[dict]:
     pulls, after = [], None
-    base = " ".join(f"base:{name}" for name in BASES)
-    query = f"repo:{REPO} is:pr is:merged merged:>={since} {base}"
+    # Search once, then filter the two accepted target branches locally. GitHub
+    # search treats repeated `base:` qualifiers as AND, which would match none.
+    query = f"repo:{REPO} is:pr is:merged merged:>={since}"
     while True:
         args = ["gh", "api", "graphql", "-f", f"query={QUERY}", "-f", f"q={query}"]
         if after:
@@ -70,11 +83,26 @@ def merged_pull_requests(since: str) -> list[dict]:
 
 
 def open_pull_requests_naming(bead_id: str) -> list[int]:
-    query = f'repo:{REPO} is:pr is:open "{bead_id}" in:title'
+    query = f'repo:{REPO} is:pr is:open "{bead_id}" base:feat-cmux-next'
     args = ["gh", "api", "graphql", "-f", f"query={QUERY}", "-f", f"q={query}"]
     page = json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)
     return [node["number"] for node in page["data"]["search"]["nodes"]
-            if node and bead_id in BEAD_ID.findall(node["title"])]
+            if node and bead_id in beads_named(node)]
+
+
+def open_pull_requests() -> list[dict]:
+    pulls, after = [], None
+    query = f"repo:{REPO} is:pr is:open base:feat-cmux-next"
+    while True:
+        args = ["gh", "api", "graphql", "-f", f"query={QUERY}", "-f", f"q={query}"]
+        if after:
+            args += ["-f", f"after={after}"]
+        page = json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)
+        search = page["data"]["search"]
+        pulls.extend(node for node in search["nodes"] if node and node.get("baseRefName") == "feat-cmux-next")
+        if not search["pageInfo"]["hasNextPage"]:
+            return pulls
+        after = search["pageInfo"]["endCursor"]
 
 
 class BoardUnreachable(Exception):
@@ -108,8 +136,23 @@ def explicit_closes(pull: dict) -> list[str]:
     return [match.lower() for match in CLOSES.findall(f"{pull['title']}\n{pull.get('body') or ''}")]
 
 
-def beads_named(pull: dict) -> list[str]:
-    return list(dict.fromkeys(BEAD_ID.findall(pull["title"]) + explicit_closes(pull)))
+def beads_named(pull: dict, *, include_comments: bool = False) -> list[str]:
+    texts = [pull.get("title") or "", pull.get("body") or ""]
+    texts.extend(
+        (commit.get("message") or (commit.get("commit") or {}).get("message") or "")
+        for commit in (pull.get("commits") or {}).get("nodes", [])
+    )
+    if include_comments:
+        texts.extend(comment.get("body") or "" for comment in (pull.get("comments") or {}).get("nodes", []))
+    return list(dict.fromkeys(match.lower() for text in texts for match in BEAD_ID.findall(text)))
+
+
+def add_pull_request_comment(pull: dict, body: str) -> None:
+    args = ["gh", "api", "graphql", "-f", f"query={COMMENT_MUTATION}", "-f",
+            f"subjectId={pull['id']}", "-f", f"body={body}"]
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode:
+        raise BoardUnreachable((result.stderr or result.stdout).strip())
 
 
 def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
@@ -122,8 +165,7 @@ def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
     sha = (pull.get("mergeCommit") or {}).get("oid", "")[:12]
     link = pull.get("url") or f"https://github.com/{REPO}/pull/{pull['number']}"
     landed = f"landed {sha} (#{pull['number']}): {pull['title']}"
-    assignee = bead.get("assignee") or ""
-    actor = assignee if assignee and assignee != "unassigned" else "leo"
+    actor = "leo"
     children = bd_json("children", bead_id) or []
     open_children = [child["id"] for child in children if child.get("status") != "closed"]
     explicit = bead_id in explicit_closes(pull)
@@ -145,6 +187,33 @@ def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
         if result.returncode != 0:
             return f"failed {bead_id} as {actor}: {(result.stderr or result.stdout).strip()}"
     return f"close {bead_id} as {actor}: {landed}"
+
+
+def create_for_pull(pull: dict, dry_run: bool) -> tuple[str, str]:
+    """Create and link the bead for a new bead-less pull request."""
+    title = (pull.get("title") or "").strip()
+    url = pull.get("url") or f"https://github.com/{REPO}/pull/{pull['number']}"
+    description = (
+        f"Automatically created for {url}.\n\n"
+        f"Opened pull request: {url}\n\n{pull.get('body') or ''}"
+    )
+    if dry_run:
+        return "dry-run", f"create bead for {url}: {title}"
+    result = bd("--actor", "leo", "create", title, "--description", description,
+                "--external-ref", url, "--labels", "cmux-next", "--json")
+    if result.returncode:
+        return "", f"failed create for #{pull['number']}: {(result.stderr or result.stdout).strip()}"
+    try:
+        created = json.loads(result.stdout)
+    except ValueError:
+        return "", f"failed create for #{pull['number']}: bd returned invalid JSON"
+    if isinstance(created, list):
+        created = created[0] if created else {}
+    bead_id = str(created.get("id") or "").strip()
+    if not bead_id:
+        return "", f"failed create for #{pull['number']}: bd returned no id"
+    add_pull_request_comment(pull, f"Bead `{bead_id}` created for this PR by the cmux coordinator.")
+    return bead_id, f"create {bead_id} for #{pull['number']} and link it on the PR"
 
 
 def parse_time(text: str) -> datetime:
@@ -200,6 +269,7 @@ def main() -> int:
         state.parent.mkdir(parents=True, exist_ok=True)
         state.write_text(json.dumps({"last": last, "handled": kept}, sort_keys=True) + "\n")
 
+    open_failed = False
     try:
         for pull in merged_pull_requests(since):
             number = str(pull["number"])
@@ -212,13 +282,19 @@ def main() -> int:
             if not any(outcome.startswith("failed ") for outcome in outcomes):
                 handled[number] = pull["mergedAt"]  # a failed close retries while in the window
                 last = max(last, pull["mergedAt"]) if last else pull["mergedAt"]
+        for pull in open_pull_requests():
+            if beads_named(pull, include_comments=True):
+                continue
+            _, outcome = create_for_pull(pull, args.dry_run)
+            print(f"#{pull['number']} {outcome}")
+            open_failed = open_failed or outcome.startswith("failed ")
     except BoardUnreachable as error:
         save()
         print(f"bead-autoclose: the board is unreachable ({error}); the rest waits for the next run",
               file=sys.stderr)
         return 1
     save()
-    return 0
+    return 1 if open_failed else 0
 
 
 if __name__ == "__main__":
