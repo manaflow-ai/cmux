@@ -38,14 +38,48 @@ pub(crate) struct AppIdentity {
 impl AppIdentity {
     /// The app this process belongs to: the environment an app terminal
     /// sets, else the app bundle around `exe`. `None` outside any cmux app.
+    ///
+    /// A `cmux` bundled in one app but run in another app's terminal (the
+    /// environment names another bundle id or tag) acts for its own bundle
+    /// and says so once on stderr (per-build isolation S4, cx-is1kf.5): the
+    /// other app's socket, session and Chief are never this build's.
     pub(crate) fn detect(env: impl Fn(&str) -> Option<String>, exe: Option<&Path>) -> Option<Self> {
         let non_empty = |key: &str| env(key).filter(|value| !value.trim().is_empty());
         let socket_override = non_empty("CMUX_SOCKET_PATH").map(PathBuf::from);
         let env_bundle = non_empty("CMUX_BUNDLE_ID");
         let env_tag = non_empty("CMUX_TAG");
-        if socket_override.is_some() || env_bundle.is_some() || env_tag.is_some() {
-            return Some(Self::new(env_bundle, env_tag.as_deref(), socket_override));
+        if socket_override.is_none() && env_bundle.is_none() && env_tag.is_none() {
+            return Self::from_bundle(exe);
         }
+        let from_env = Self::new(env_bundle, env_tag.as_deref(), socket_override);
+        match Self::from_bundle(exe) {
+            Some(own) if own.names_other_build(&from_env) => {
+                warn_other_app_once(&own, &from_env);
+                Some(own)
+            }
+            _ => Some(from_env),
+        }
+    }
+
+    /// Whether the app-terminal identity `env` names another build than
+    /// this bundle: another bundle id, or another tag where both have one.
+    /// An environment with only `CMUX_SOCKET_PATH` (a Chief brain's turn)
+    /// names no build.
+    fn names_other_build(&self, env: &Self) -> bool {
+        match (&env.bundle_id, &self.bundle_id) {
+            (Some(theirs), Some(ours)) if theirs != ours => return true,
+            (None, _) if env.tag.is_none() => return false,
+            _ => {}
+        }
+        match (&env.tag, &self.tag) {
+            (Some(theirs), Some(ours)) => theirs != ours,
+            (Some(_), None) => true,
+            _ => false,
+        }
+    }
+
+    /// The app bundle around `exe`, if it is a cmux app.
+    fn from_bundle(exe: Option<&Path>) -> Option<Self> {
         let bundle = exe.and_then(containing_app_bundle)?;
         let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
         let dictionary = info.as_dictionary()?;
@@ -127,6 +161,29 @@ impl AppIdentity {
     pub(crate) fn daemon_session(&self) -> Option<String> {
         self.build().app_session()
     }
+}
+
+/// One stderr line per process: this `cmux` belongs to `own` but runs in a
+/// terminal of `other`, and acts for its own app.
+fn warn_other_app_once(own: &AppIdentity, other: &AppIdentity) {
+    static WARNED: std::sync::Once = std::sync::Once::new();
+    let name = |identity: &AppIdentity| {
+        let bundle = identity.bundle_id.as_deref().unwrap_or("an unknown bundle");
+        match identity.tag.as_deref() {
+            Some(tag) => format!("{bundle} (tag {tag})"),
+            None => bundle.to_owned(),
+        }
+    };
+    WARNED.call_once(|| {
+        eprintln!(
+            "cmux: warning: this cmux belongs to {}, but this terminal is of {}; it acts for its own app. \
+             To act for {}, run that app's own cmux; to use this one without the warning, unset \
+             CMUX_BUNDLE_ID CMUX_TAG CMUX_SOCKET_PATH.",
+            name(own),
+            name(other),
+            name(other)
+        );
+    });
 }
 
 /// The app's session socket: `DaemonLauncher` starts the owner with
