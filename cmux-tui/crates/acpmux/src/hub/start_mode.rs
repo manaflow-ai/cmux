@@ -169,17 +169,26 @@ pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
     })
 }
 
+/// Modes that ask (or only read) on harnesses the asking table leaves out:
+/// the Codex bridge's `ask` and `read-only`.
+const NARROW_MODES: [&str; 2] = ["ask", "read-only"];
+
 /// The level of mode `mode` on a harness of `family`: a full-access mode,
-/// a mode that asks before each change, or any other (the harness's own).
-fn level_of(mode: &str, family: &str) -> DefaultMode {
+/// a mode that asks before each change (`asking`: the merged asking table's
+/// row for the family), or any other (the harness's own).
+fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
     if FULL_ACCESS_MODES.contains(&mode) {
         return DefaultMode::FullAccess;
     }
-    let asking = crate::web_modes::ASKING_MODES
+    let reviewed = crate::web_modes::ASKING_MODES
         .iter()
         .find(|(f, _)| *f == family)
         .is_some_and(|(_, modes)| modes.contains(&mode));
-    if asking || mode == "ask" { DefaultMode::Ask } else { DefaultMode::Standard }
+    if reviewed || asking.iter().any(|m| m == mode) || NARROW_MODES.contains(&mode) {
+        DefaultMode::Ask
+    } else {
+        DefaultMode::Standard
+    }
 }
 
 impl DefaultMode {
@@ -242,7 +251,8 @@ impl Hub {
         {
             return;
         }
-        let level = level_of(mode, &crate::web_modes::family_of(&meta)).as_str();
+        let family = crate::web_modes::family_of(&meta);
+        let level = level_of(mode, &family, self.web_modes().modes(&family)).as_str();
         let mut cfg = self.config.write().await;
         if cfg.harnesses.get(&meta.harness).is_some_and(profile_sets_mode) {
             return;

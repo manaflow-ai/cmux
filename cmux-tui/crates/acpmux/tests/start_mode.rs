@@ -212,15 +212,14 @@ async fn the_latest_pick_is_the_start_mode_of_every_new_chat_after_a_restart() {
 
     // A unix socket client (an agent, a script) is no pick, and cannot widen
     // a chat to full access.
-    let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
-    assert!(r.get("error").is_none(), "{r}");
     let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
     let (chat, _) = agent.chat(&dir, "claude").await;
-    let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "plan"})).await;
+    let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(last_pick(&dir), json!("fullAccess"));
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
-    assert_eq!(last_pick(&dir), json!("ask"));
+    assert_eq!(last_pick(&dir), json!("fullAccess"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
