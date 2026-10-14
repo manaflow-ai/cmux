@@ -258,6 +258,41 @@ cuts relative to its own target rather than to the measured delivery rate
 (GCC's 0.85 × acknowledged rate), and grows at most 8 % per second. Moving
 it closer to GCC is a change to `cmux-rd-core` and is left as follow-up.
 
+### Review of the whole lane (rbvideo and wgmedia), 2026-10-14
+
+A correctness-first review of the branch found, and these commits fixed:
+
+- **Frames still arriving were given up.** The receiver started the give-up
+  deadline when a frame's first packet arrived, so a large IDR on a slow
+  path (100 kB at 2.5 Mbit/s is about 320 ms) was dropped with no loss at
+  all, and the PLI asked for another large IDR. Only a hole in the
+  sequence numbers starts the deadline now.
+- **A lane task leaked per WebRTC link that never streamed.** The phone's
+  receiver waited forever for a track. Both cores now end when the link
+  closes.
+- **A packet could be lost without a NACK on WebRTC.** `recv_rtp` read the
+  track through the interceptors inside a `select!`; a read dropped after
+  the NACK generator counted the packet lost it. A task now pumps each
+  track into a queue, as the WireGuard carrier does.
+- **Frame ages of 13 hours** when the RTP timestamp was slightly ahead of
+  the clock estimate (signed now).
+- **Extra keyframes after a roam.** One roam is announced twice, and a
+  signaling move announces an empty list; only a new first endpoint moves
+  the path epoch now, and path-change PLIs are rate limited.
+- **Tab switch ordering.** The phone subscribed to the lane before it sent
+  the new tab's `open`, so the keyframe request could reach the old tab's
+  claim. It subscribes after. Remaining: frames are not tagged by claim, so
+  for about one round trip after a switch the new tab's view can show the
+  old tab's frames until the new claim's first keyframe (follow-up: a
+  claim id in a header extension, or a new SSRC per claim).
+- **hostd** treated a lagged keyframe receiver as no request, and reopened
+  the frame gate up to 100 ms after the lane drained.
+
+Open suspicion: NACK resends reuse the original transport-wide sequence
+number (no RTX), so a late resend can make TWCC report numbers in between
+as lost and overstate the loss the controller sees. RTX (or restamping
+resends) is the follow-up if field data shows it.
+
 ## WireGuard: media on the datagram lane vs a PeerConnection in the tunnel
 
 The user has decided on WireGuard for everything, with WebRTC used only for
