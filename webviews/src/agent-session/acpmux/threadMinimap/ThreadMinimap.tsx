@@ -238,6 +238,15 @@ export function ThreadMinimap({
         }
         const turn = live.current.turns[index];
         if (!turn) return;
+        // A clicked row takes focus, as a clicked button does in Chromium (WebKit focuses none), so
+        // Tab goes on from the rail. Like a pointer's focus there, it neither grows the row nor
+        // holds the card open.
+        const row = target instanceof Element ? target.closest<HTMLElement>("[data-tick]") : null;
+        if (row && row.ownerDocument.activeElement !== row) {
+          pressing.current = true;
+          row.focus({ preventScroll: true });
+          pressing.current = false;
+        }
         // The bookmark dot's spot past the tick (the row's right end) toggles the mark.
         if (target instanceof Element && target.closest("[data-dot-hit]") && live.current.marks.can(turn)) {
           live.current.marks.toggle(turn);
