@@ -148,11 +148,6 @@ import Testing
     @Test func nothingOnTheCardMovesUnderReduceMotion() throws {
         _ = NSApplication.shared
         let card = SidebarNowPlayingCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNowPlayingCardView.height(for: Self.track())))
-        let window = NSWindow(contentRect: card.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = card
-        window.orderFrontRegardless()
         /// Every animation on the card that slides (anything but a discrete step) or repeats.
         func sliding() -> [String] {
             func animated(_ layer: CALayer) -> [String] {
