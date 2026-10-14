@@ -32,9 +32,48 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     public var title: String {
         switch self {
         case .art(let art): return art.label
-        case .system(let path), .file(let path): return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        case .system(let path): return Self.systemTitle(path)
+        case .file(let path): return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .module)
         }
+    }
+
+    /// A macOS wallpaper's name: a shipped video's without its cut, an aerial's from idleassetsd.
+    private static func systemTitle(_ path: String) -> String {
+        let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        guard AppleWallpapers.isVideo(path) else { return name }
+        if let aerial = AppleWallpapers.system.aerialNames()[name] { return aerial }
+        return [" Light", " Dark", " Landscape"].reduce(name) { $0.replacingOccurrences(of: $1, with: "") }
+    }
+
+    /// Whether the window plays this choice as a looping video (a shipped wallpaper, an aerial,
+    /// or the person's own movie); its first frame stands in while paused.
+    public var isVideo: Bool {
+        switch self {
+        case .system(let path), .file(let path): return AppleWallpapers.isVideo(path)
+        case .art, .desktop: return false
+        }
+    }
+
+    /// The picker group: the art's collection, the person's own images, or Moving wallpapers for
+    /// every video (Apple's, downloaded aerials, the person's own); nil for the untitled group.
+    public var pickerCollection: (id: String, title: String)? {
+        switch self {
+        case .art(let art): return (art.collection.rawValue, art.collection.title)
+        case .file: return isVideo ? Self.videoCollection : (BackdropUserImages.collection, BackdropUserImages.collectionTitle)
+        case .system: return isVideo ? Self.videoCollection : nil
+        case .desktop: return nil
+        }
+    }
+
+    private static var videoCollection: (String, String) {
+        (AppleWallpapers.videoCollection, String(localized: "backdrop.collection.video", defaultValue: "Moving wallpapers", bundle: .module))
+    }
+
+    /// Whether the window plays another file in light and dark (Apple's moving wallpaper's cuts).
+    public var followsAppearance: Bool {
+        if case .system(let path) = self { return AppleWallpapers.hasCuts(path) }
+        return false
     }
 
     /// The attribution shown below the thumbnail.
@@ -43,7 +82,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .art(let art): return art.attribution
         case .system(let path):
             return String(localized: "backdrop.system.attribution", defaultValue: "macOS system wallpaper · %@", bundle: .module)
-                .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).lastPathComponent)
+                .replacingOccurrences(of: "%@", with: Self.systemTitle(path))
         case .file(let path):
             return String(localized: "backdrop.file.attribution", defaultValue: "Your image · %@", bundle: .module)
                 .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).lastPathComponent)
@@ -93,16 +132,32 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     public var imageURL: URL? {
         switch self {
         case .art(let art): return art.imageURL
-        case .system(let path), .file(let path): return URL(fileURLWithPath: path)
+        case .system(let path): return AppleWallpapers.file(for: path, dark: false)
+        case .file(let path): return URL(fileURLWithPath: path)
         case .desktop: return nil
         }
     }
 
     /// The selected image file, reading the desktop picture of the main screen for ``desktop``.
+    /// Apple's moving wallpaper resolves to its cut for the app's light or dark appearance.
     @MainActor public func resolvedImageURL() -> URL? {
-        guard case .desktop = self else { return imageURL }
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
-        return NSWorkspace.shared.desktopImageURL(for: screen)
+        resolvedImageURL(dark: NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+    }
+
+    /// The selected file in light or dark: Apple's moving wallpaper's cut for the appearance.
+    @MainActor public func resolvedImageURL(dark: Bool) -> URL? {
+        switch self {
+        case .system(let path): return AppleWallpapers.file(for: path, dark: dark)
+        case .desktop:
+            guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
+            return NSWorkspace.shared.desktopImageURL(for: screen)
+        case .art, .file: return imageURL
+        }
+    }
+
+    /// The image cache's key: the id, and for a choice that follows the appearance, which one.
+    public func variantID(dark: Bool) -> String {
+        followsAppearance ? "\(id)|\(dark ? "dark" : "light")" : id
     }
 
     /// Decodes a persisted selection, accepting the legacy `backdropArt` value.

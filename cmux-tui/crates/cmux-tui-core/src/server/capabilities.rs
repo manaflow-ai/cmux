@@ -37,6 +37,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_start() {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
+        capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
@@ -143,6 +144,7 @@ pub(super) fn advertised_capabilities(
         TAB_DRAG_CAPABILITY,
         TAB_WORKSPACE_NAME_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
+        TAB_SPLIT_KEEP_FOCUS_CAPABILITY,
         TAB_COLUMN_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
