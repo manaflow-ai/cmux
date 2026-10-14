@@ -53,12 +53,14 @@ pub use lifecycle::{
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 mod peers;
+pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
 mod permissions;
 pub mod person;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
+mod start_mode;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;

@@ -242,8 +242,8 @@ pub(crate) fn harness_command(
             .env("ACPMUX_SESSION_ID", id)
             .env("ACPMUX_SESSION_NAME", sname)
             .env("ACPMUX_SOCKET", crate::config::socket_path())
-            // The caller the cmux CLI names to the app: its tabs open in the
-            // column right of this session's chat (beside_caller).
+            // Its caller token (hub/person.rs (a)); the cmux CLI's caller (beside_caller).
+            .env(crate::hub::person::CALLER_TOKEN_ENV, crate::hub::person::caller_token(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
     }
     cmd.args(args)

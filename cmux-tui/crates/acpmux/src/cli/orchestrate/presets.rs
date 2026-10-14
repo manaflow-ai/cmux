@@ -149,7 +149,7 @@ pub(crate) async fn preset(
                 .split_once('=')
                 .ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
             match k {
-                "harness" | "model" | "effort" | "policy" | "description" => {
+                "harness" | "model" | "effort" | "policy" | "description" | "mode" => {
                     set.insert(k.into(), if v.is_empty() { Value::Null } else { json!(v) });
                 }
                 _ if k.starts_with("env.") => {
@@ -170,7 +170,7 @@ pub(crate) async fn preset(
                     set.insert("args".into(), args);
                 }
                 _ => return Err(AppError::usage(format!(
-                    "unknown key {k:?}; use harness, model, effort, policy, description, env.KEY, args"
+                    "unknown key {k:?}; use harness, model, effort, policy, description, mode, env.KEY, args"
                 ))
                 .into()),
             }
