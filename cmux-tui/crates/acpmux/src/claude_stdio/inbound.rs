@@ -269,7 +269,21 @@ impl Translator {
                         let input = req.get("input").cloned().unwrap_or(Value::Null);
                         let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                         let acp_id = Value::from(1_000_000 + n);
-                        self.control_out.lock().await.insert(rid.clone(), acp_id.clone());
+                        // Claude Code's permission suggestions are opaque
+                        // PermissionUpdate objects. Keep them byte-for-byte
+                        // until the person chooses the matching always option;
+                        // Claude installs them only when they are returned as
+                        // `updatedPermissions` in the control response.
+                        let permission_suggestions = req
+                            .get("permission_suggestions")
+                            .filter(|value| !value.is_null())
+                            .cloned();
+                        let offers_lasting_allow =
+                            has_permission_suggestions(permission_suggestions.as_ref());
+                        self.control_out.lock().await.insert(
+                            rid.clone(),
+                            ControlRequest { acp_id: acp_id.clone(), permission_suggestions },
+                        );
                         let interactive = req
                             .get("requires_user_interaction")
                             .and_then(Value::as_bool)
@@ -277,7 +291,7 @@ impl Translator {
                         let mut options = vec![
                             json!({"optionId": "allow_once", "name": if interactive { "Answer" } else { "Allow" }, "kind": "allow_once"}),
                         ];
-                        if !interactive {
+                        if !interactive && offers_lasting_allow {
                             options.push(json!({"optionId": "allow_always", "name": "Allow for this session", "kind": "allow_always"}));
                         }
                         options.push(json!({"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}));
