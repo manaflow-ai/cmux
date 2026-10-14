@@ -1,6 +1,6 @@
 public import CmuxNextDaemon
 public import CmuxNextSidebar
-import Foundation
+public import Foundation
 
 /// The home daemon's sidebar document (`sidebar-doc-v1`) for
 /// `SidebarDocStore`: the wire calls of `SidebarDocClient`, as JSON bytes

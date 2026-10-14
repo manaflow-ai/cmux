@@ -184,7 +184,7 @@ public nonisolated struct SidebarMirrorIntent: Hashable, Sendable, Encodable {
 /// `view`'s input: the live workspaces (the doc keeps closed ones only
 /// where its section keeps them), the filter text and the collapsed groups
 /// (empty: every group lists its members; the list folds them itself). The
-/// window's own membership stays the App's (`SidebarMembership.filter`).
+/// window's own membership stays the App's (`SidebarSection.filter`).
 public nonisolated struct SidebarViewRequest: Hashable, Sendable, Encodable {
     public var live: [SidebarDocWorkspaceRef]
     public var filter: String?

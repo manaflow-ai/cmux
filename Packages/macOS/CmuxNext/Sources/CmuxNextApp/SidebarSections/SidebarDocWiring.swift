@@ -70,36 +70,6 @@ enum SidebarDocWiring {
     /// document is not active (the older path handles it).
     static func handle(_ intent: SidebarIntent, bridge: SidebarBridge) -> Bool {
         guard let store = SidebarDocStore.current, let drag = drag(bridge) else { return false }
-        let model = bridge.model, title = SidebarDocStore.moveTitle
-        func items(_ ids: [SidebarWorkspaceID]) -> [String] { ids.compactMap { drag.item(.workspace($0)) }.count == ids.count ? ids.compactMap { drag.item(.workspace($0)) } : [] }
-        func layoutMove(_ moving: [String], _ section: LayoutSectionID, _ index: Int) {
-            store.move(moving, to: SidebarDocDrag.target(section, index: index, moving: moving, layout: model.layout), title: title)
-        }
-        switch intent {
-        case .reorder(let ids, let position):
-            guard let target = drag.target(position, moving: items(ids), model: model) else { return false }
-            store.move(items(ids), to: target, title: title)
-        case .reorderGroup(let group, let index):
-            guard let section = model.sections.first(where: { $0.nodes.contains { $0.id == .group(group) } }),
-                  let target = drag.target(DropPosition(section: section.id, index: index), moving: [group.rawValue], model: model) else { return false }
-            store.move([group.rawValue], to: target, title: title)
-        case .move(let ids, let group):
-            guard let section = store.records.items[group.rawValue]?.section else { return false }
-            store.move(items(ids), to: SidebarDocTarget(section: section, parent: group.rawValue), title: title)
-        case .setPinned(let ids, let pinned):
-            pinned ? store.pin(items(ids), title: PinStrings.pinWorkspace) : store.unpin(items(ids), title: PinStrings.unpinWorkspace)
-        case .setGroupPinned(let group, let pinned):
-            // The old "pin group" is plain Pin: the group moves into Pinned.
-            pinned ? store.pin([group.rawValue], title: PinStrings.pinWorkspace) : store.unpin([group.rawValue], title: PinStrings.unpinWorkspace)
-        case .dropOnLayoutSection(let ids, let section, let index):
-            layoutMove(items(ids), section, index)
-        case .layout(.itemMove(let id, let section, let index)):
-            layoutMove([id.rawValue], section, index)
-        case .toggleCollapse(.group):
-            model.apply(intent) // client view state on the document
-        default:
-            return false
-        }
-        return true
+        return store.handle(intent, model: bridge.model, drag: drag, pinTitle: PinStrings.pinWorkspace, unpinTitle: PinStrings.unpinWorkspace)
     }
 }

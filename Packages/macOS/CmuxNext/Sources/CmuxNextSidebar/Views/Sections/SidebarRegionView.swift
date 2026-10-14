@@ -98,9 +98,16 @@ final class SidebarRegionView: NSView {
 
     /// Height the content needs at `width`.
     func update(_ content: Content, width: CGFloat) {
+        // `layoutResult` is always the layout of the shown content at `width`
+        // (`relayout` keeps it so), so the same inputs need no new layout.
+        if content == self.content && width == self.width { return }
+        SidebarPerfCounters.add(.bandUpdates)
         let shown = displayed(content)
         let result = Self.layout(shown, width: width)
-        guard content != self.content || result != layoutResult else { return }
+        guard content != self.content || result != layoutResult else {
+            self.width = width
+            return
+        }
         self.content = content
         self.width = width
         layoutResult = result
