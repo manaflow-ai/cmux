@@ -113,9 +113,8 @@ public final class TerminalHandlePool {
             if let image = handle.model.controller?.snapshot(maxPixelWidth: thumbnails.cardPixelWidth) {
                 thumbnails.resume(id, image: image)
             } else {
-                handle.model.controller?.visibleLines { [weak self] lines, grid in
-                    self?.thumbnails.resume(id, lines: lines, grid: grid)
-                } ?? thumbnails.resume(id)
+                // No frame to keep: the off-screen renderer draws the card.
+                thumbnails.resume(id)
             }
         }
         enforceRendererCap()

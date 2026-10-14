@@ -46,6 +46,11 @@ public final class TerminalThumbnails {
     /// Terminals open full screen: their card comes from the open view when
     /// it closes; no off-screen surface parses them meanwhile.
     @ObservationIgnored private var suspended: Set<String> = []
+    /// Cards waiting for a surface to draw their first (or restyled) image.
+    @ObservationIgnored private var pendingImage: [String] = []
+    @ObservationIgnored private var lastWanted: [String] = []
+    /// Terminals that ended on the Mac (their card says so; never attached again).
+    @ObservationIgnored private var ended: Set<String> = []
     /// The light/dark style each card image was drawn in.
     @ObservationIgnored private var imageStyles: [String: UIUserInterfaceStyle] = [:]
 
@@ -89,48 +94,76 @@ public final class TerminalThumbnails {
             for t in live.values { t.stop() }
             live.removeAll()
         }
-        let mirrored = connection.hostInfo?.supports(.terminalMirror) ?? false
         let wanted = terminalIds.filter { !suspended.contains($0) }
+        lastWanted = wanted
         for id in wanted {
             order.removeAll { $0 == id }
             order.append(id)
         }
         if restyled { for t in live.values { t.restyle(self.style, page: pageSize) } }
-        // Every visible card gets an image: cards without one go first and may
-        // take the slot of a live card that already has an image (that card
-        // keeps its last image and rotates back in later).
-        // A card drawn in the other appearance needs a new image too.
-        let needImage = wanted.filter { live[$0] == nil && (images[$0] == nil || imageStyles[$0] != self.style) }
-        let haveImage = wanted.filter { live[$0] == nil && !needImage.contains($0) }
-        TerminalMemory.trace("thumbnails show \(terminalIds.count) ids, need \(needImage.count), live \(live.count), client \(connection.client != nil)")
-        for id in needImage + haveImage {
-            guard let client = connection.client else { break }
-            if live.count >= maxLive {
-                let victims = order.filter { live[$0] != nil && images[$0] != nil && imageStyles[$0] == self.style && !needImage.contains($0) }
-                guard needImage.contains(id), let victim = victims.first(where: { !wanted.contains($0) }) ?? victims.first else { continue }
-                live.removeValue(forKey: victim)?.stop()
-            }
-            let headless = HeadlessTerminal(terminalId: id, client: client, interval: refreshInterval, mirrored: mirrored,
-                                            style: self.style, page: pageSize) { [weak self] result in
-                guard let self else { return }
-                switch result {
-                case .image(let image, let drawnStyle):
-                    self.images[id] = image
-                    self.imageStyles[id] = drawnStyle
-                    self.lastLines[id] = nil
-                case .text(let lines, let grid):
-                    self.render(id, lines: lines, grid: grid)
-                case .ended:
-                    self.images[id] = TerminalCardRenderer.endedImage(size: self.cardSize, style: self.style)
-                    self.imageStyles[id] = self.style
-                }
-            }
-            live[id] = headless
-            headless.start()
+        // Cards with no image (or one in the other appearance) queue for a
+        // slot; at most `maxLive` surfaces run. When a queued card is waiting,
+        // a live card hands its slot over as soon as it has drawn its image
+        // (it keeps that image), so every card gets one however many there
+        // are. Cards that already have an image fill free slots to stay live.
+        pendingImage = wanted.filter { live[$0] == nil && !ended.contains($0) && (images[$0] == nil || imageStyles[$0] != self.style) }
+        let haveImage = wanted.filter { live[$0] == nil && !pendingImage.contains($0) }
+        TerminalMemory.trace("thumbnails show \(terminalIds.count) ids, need \(pendingImage.count), live \(live.count), client \(connection.client != nil)")
+        // Live cards that are not wanted any more make room first.
+        for id in live.keys where !wanted.contains(id) && !pendingImage.isEmpty {
+            live.removeValue(forKey: id)?.stop()
         }
+        // Live cards whose image is current hand over to waiting ones now.
+        for (id, _) in live where !pendingImage.isEmpty && images[id] != nil && imageStyles[id] == self.style && live.count >= maxLive {
+            live.removeValue(forKey: id)?.stop()
+        }
+        startPending()
+        _ = haveImage
         while live.count > maxLive, let oldest = order.first(where: { live[$0] != nil && !wanted.contains($0) }) {
             live.removeValue(forKey: oldest)?.stop()
         }
+    }
+
+    /// Starts queued cards while slots are free.
+    private func startPending() {
+        while live.count < maxLive, !pendingImage.isEmpty, connection.client != nil {
+            start(pendingImage.removeFirst())
+        }
+        // Everyone has an image: free slots go back to shown cards, most
+        // recently shown first, so they keep following their output.
+        guard pendingImage.isEmpty else { return }
+        for id in lastWanted.reversed() where live.count < maxLive && live[id] == nil && !suspended.contains(id) && !ended.contains(id) {
+            start(id)
+        }
+    }
+
+    private func start(_ id: String) {
+        guard live[id] == nil, let client = connection.client else { return }
+        let mirrored = connection.hostInfo?.supports(.terminalMirror) ?? false
+        let headless = HeadlessTerminal(terminalId: id, client: client, interval: refreshInterval, mirrored: mirrored,
+                                        style: self.style, page: pageSize) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .image(let image, let drawnStyle):
+                self.images[id] = image
+                self.imageStyles[id] = drawnStyle
+                self.lastLines[id] = nil
+            case .text(let lines, let grid):
+                self.render(id, lines: lines, grid: grid)
+            case .ended:
+                self.images[id] = TerminalCardRenderer.endedImage(size: self.cardSize, style: self.style)
+                self.imageStyles[id] = self.style
+                self.ended.insert(id)
+                self.live.removeValue(forKey: id)?.stop()
+            }
+            // Hand the slot to a card still waiting for its first image.
+            if !self.pendingImage.isEmpty, self.imageStyles[id] == self.style, let done = self.live.removeValue(forKey: id) {
+                done.stop()
+            }
+            self.startPending()
+        }
+        live[id] = headless
+        headless.start()
     }
 
     /// The page a card shows, in points (the screen's width, the card's
@@ -197,22 +230,29 @@ public final class TerminalThumbnails {
     }
 
     /// The light/dark style of the app's key window (its override included).
+    /// The appearance the app's content is drawn in: the root view
+    /// controller's traits, which carry the app's own override (SwiftUI
+    /// `preferredColorScheme`, set on the hosting controller rather than the
+    /// window) as well as the system's appearance.
     private var windowStyle: UIUserInterfaceStyle {
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        // The app's own override (Settings > Appearance) if any, else the
-        // system's appearance.
-        let content = windows.filter { $0.windowLevel == .normal && !$0.isHidden }
-        let override = content.map(\.overrideUserInterfaceStyle).first { $0 != .unspecified }
-        let style = override ?? UIScreen.main.traitCollection.userInterfaceStyle
+        let window = contentWindows.first(where: \.isKeyWindow) ?? contentWindows.first
+        let style = window?.rootViewController?.traitCollection.userInterfaceStyle
+            ?? window?.traitCollection.userInterfaceStyle ?? UIScreen.main.traitCollection.userInterfaceStyle
         return style == .dark ? .dark : .light
     }
 
-    /// Redraws when any app window switches between light and dark.
+    private var contentWindows: [UIWindow] {
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+            .filter { $0.windowLevel == .normal && !$0.isHidden }
+    }
+
+    /// Redraws when the app's content switches between light and dark (the
+    /// system's appearance or the app's own setting).
     private func observeWindows() {
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        for window in windows where observedWindows[ObjectIdentifier(window)] == nil {
-            observedWindows[ObjectIdentifier(window)] = window.registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
-                [weak self] (_: UIWindow, _: UITraitCollection) in
+        for window in contentWindows {
+            guard let root = window.rootViewController, observedWindows[ObjectIdentifier(root)] == nil else { continue }
+            observedWindows[ObjectIdentifier(root)] = root.registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+                [weak self] (_: UIViewController, _: UITraitCollection) in
                 // Read the new appearance after UIKit finished applying it.
                 Task { @MainActor in self?.systemStyleChanged() }
             }
@@ -227,6 +267,9 @@ public final class TerminalThumbnails {
         redrawAll()
         // Live cards draw again in the new theme; others when next shown.
         for t in live.values { t.restyle(resolved, page: pageSize) }
+        // Cards not live now are redrawn in the new appearance in turn.
+        pendingImage = lastWanted.filter { live[$0] == nil && !ended.contains($0) && imageStyles[$0] != style }
+        startPending()
     }
 }
 
@@ -329,6 +372,7 @@ final class HeadlessTerminal {
     private var page: (size: CGSize, scale: CGFloat)
     private var fontSize: Double = TerminalFontSize.stored
     private var fitPasses = 0
+    private var delivered = false
     private var lastCellWidth: Double = 0
     private var appliedFont: Double?
     private var gridGeneration: UInt64 = 0
@@ -533,7 +577,7 @@ final class HeadlessTerminal {
     }
 
     /// The presented frame once Ghostty has set it (a few main-actor turns
-    /// at most), else the text of the visible rows.
+    /// at most); without one the card keeps its image and retries.
     private func deliverFrame(_ ref: SurfaceRef, after previous: (UInt32, UInt32)?) async {
         // Ghostty presents on its renderer thread: wait (bounded) for a frame
         // that is not the one shown before this draw.
@@ -544,21 +588,25 @@ final class HeadlessTerminal {
                let cg = GhosttySnapshot.image(of: view) {
                 TerminalMemory.trace("thumbnail \(terminalId): frame \(cg.width)x\(cg.height) style=\(style == .dark ? "dark" : "light")")
                 onResult(.image(UIImage(cgImage: cg), style))
+                delivered = true
                 return
             }
             do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
         }
-        if let cg = GhosttySnapshot.image(of: view) {
-            TerminalMemory.trace("thumbnail \(terminalId): stale frame (no new frame in time)")
+        // A frame from before this draw may be in the old theme: only use it
+        // when the card has nothing yet.
+        if !delivered, let cg = GhosttySnapshot.image(of: view) {
+            TerminalMemory.trace("thumbnail \(terminalId): earlier frame (no new frame in time)")
             onResult(.image(UIImage(cgImage: cg), style))
+            delivered = true
+            dirty = true
             return
         }
-        TerminalMemory.trace("thumbnail \(terminalId): no frame, text fallback")
-        let grid = self.grid
-        let lines = await withCheckedContinuation { (c: CheckedContinuation<[String], Never>) in
-            queue.async { c.resume(returning: Self.readLines(ref.surface, cols: grid.cols, rows: grid.rows)) }
-        }
-        if !stopped { onResult(.text(lines, grid)) }
+        // No frame yet (the renderer had nothing to present): keep the last
+        // image and try again on the next interval; never a monochrome text
+        // stand-in.
+        TerminalMemory.trace("thumbnail \(terminalId): no frame yet, retrying")
+        dirty = true
     }
 
     /// The viewport's rows as text (output queue only), within the grid the
