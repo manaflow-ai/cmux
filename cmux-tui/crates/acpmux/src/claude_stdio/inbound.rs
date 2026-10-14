@@ -414,6 +414,17 @@ impl Translator {
                         ));
                     }
                 }
+                // The result of a turn acpmux already ended, before Claude Code
+                // read the next prompt: it ends only the abandoned prompts.
+                let abandoned = std::mem::take(&mut *self.abandoned.lock().await);
+                if !abandoned.is_empty() && self.prompt_echo.lock().await.is_some() {
+                    for k in abandoned {
+                        self.pending.lock().await.remove(&k);
+                        let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                        out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
+                    }
+                    return out;
+                }
                 // A steered line Claude Code has not read yet: it runs it as
                 // one more turn of this prompt, whose result ends it (when
                 // echoes come at all; without them the steer fails below).

@@ -231,6 +231,10 @@ pub struct Translator {
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// Prompts still unanswered when the next one went out: acpmux ended
+    /// their turn itself (a Stop Claude Code answered late, `hub/cancel.rs`).
+    /// Claude Code's result for them comes before it reads the next prompt.
+    abandoned: Mutex<Vec<String>>,
     /// Steered prompts (user lines written during a turn) Claude Code has
     /// not echoed yet, oldest first, as (line uuid, ACP request id): each is
     /// answered at its echo.
@@ -315,6 +319,7 @@ impl Translator {
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
+            abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
