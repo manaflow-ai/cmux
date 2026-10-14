@@ -172,6 +172,20 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar remove-section",
                 destructive: true, surfacePlan: plan(menus: [p(.sidebarSection, .close, 100)])
             ),
+            // The open workspaces the section lists (Pinned too; the workspaces
+            // section: its window's list); the section and its items stay.
+            ActionDescriptor(
+                id: "sidebar.section.closeWorkspaces", title: t("action.sidebar.section.closeWorkspaces", "Close All Workspaces in Section"),
+                keywords: ["sidebar", "section", "pinned", "close", "workspaces", "all"], category: .sidebar, symbol: "xmark.square",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar close-section-workspaces",
+                destructive: true, surfacePlan: plan(menus: [p(.sidebarSection, .close, 110)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.section.newWorkspace", title: t("action.sidebar.section.newWorkspace", "New Workspace in Section"),
+                keywords: ["sidebar", "section", "pinned", "new", "workspace", "create"], category: .sidebar, symbol: "plus.square",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar new-section-workspace",
+                surfacePlan: plan(menus: [p(.sidebarSection, .create, 105)])
+            ),
             // Leo (2026-10-06): Projects and Chats hide from their headers'
             // menus and come back from the sidebar's menu or Settings
             // (`sidebar.showProjects`, `sidebar.showChats`; scripts set those).
@@ -233,8 +247,9 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 111, folder: .group)])
             ),
-            // cx-13w3: compact (one line) or expanded (T3 Code / Codex style) workspace rows
-            // (`sidebar.density`); the sidebar's Options offers the one that applies.
+            // cx-13w3: compact (one line), comfortable (one line, taller) or expanded
+            // (T3 Code / Codex style) workspace rows (`sidebar.density`); the sidebar's
+            // Options offers the ones that do not apply now.
             ActionDescriptor(
                 id: "sidebar.density.compact", title: t("action.sidebar.density.compact", "Sidebar Density: Compact"),
                 keywords: ["sidebar", "density", "compact", "rows", "one line", "dense"], category: .sidebar, symbol: "list.dash",
@@ -242,10 +257,16 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 132, folder: .options)])
             ),
             ActionDescriptor(
+                id: "sidebar.density.comfortable", title: t("action.sidebar.density.comfortable", "Sidebar Density: Comfortable"),
+                keywords: ["sidebar", "density", "comfortable", "rows", "one line", "taller", "spacious", "medium", "roomy"],
+                category: .sidebar, symbol: "list.bullet", surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 133, folder: .options)])
+            ),
+            ActionDescriptor(
                 id: "sidebar.density.expanded", title: t("action.sidebar.density.expanded", "Sidebar Density: Expanded"),
                 keywords: ["sidebar", "density", "expanded", "rows", "preview", "two lines", "t3", "codex"], category: .sidebar,
                 symbol: "list.bullet.below.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 133, folder: .options)])
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 134, folder: .options)])
             ),
             // Leo (2026-10-09): the sidebar's and a workspace row's menus
             // check Show Tabs Under Workspaces (`sidebar.showWorkspaceTabs`;

@@ -11,8 +11,37 @@ public import Observation
 /// the mock runs standalone.
 @Observable @MainActor
 public final class SidebarModel {
-    /// Pinned area first (optional), then one section per machine.
-    public var sections: [SidebarSection]
+    /// Pinned area first (optional), then one section per machine. A set is
+    /// a structural change (`sectionsRevision` moves, the list reloads); a row
+    /// content change goes through `patchWorkspaces` and reloads nothing.
+    public var sections: [SidebarSection] {
+        get {
+            access(keyPath: \.sections)
+            return storedSections
+        }
+        set {
+            // An unchanged set is no structural change (an intent that edits nothing).
+            guard newValue != storedSections else { return }
+            withMutation(keyPath: \.sections) {
+                storedSections = newValue
+                sectionsRevision &+= 1
+            }
+            rowIndex = nil
+        }
+    }
+    @ObservationIgnored private var storedSections: [SidebarSection]
+    /// Moves on every structural set of `sections`: readers compare it instead
+    /// of the rows themselves (one counter, not a deep compare of 1,000 rows).
+    @ObservationIgnored public private(set) var sectionsRevision: UInt64 = 0
+    /// `sectionsRevision`, read so a tracked reader hears the next structural set.
+    public var observedSectionsRevision: UInt64 {
+        access(keyPath: \.sections)
+        return sectionsRevision
+    }
+    /// Where each workspace sits in `sections`; rebuilt on the first patch after a set.
+    @ObservationIgnored var rowIndex: SidebarRowIndex?
+    /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
+    @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
@@ -85,6 +114,8 @@ public final class SidebarModel {
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// How rows show their state (`SidebarRowBadgeStyle`); nil follows the Debug setting.
+    public var rowBadgeStyle: SidebarRowBadgeStyle?
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
     /// Minimal mode (`sidebar.minimal`): rows draw only icon, name and marks.
@@ -129,7 +160,7 @@ public final class SidebarModel {
     @ObservationIgnored public var onPresentationChange: ((SidebarPresentation) -> Void)?
 
     public init(sections: [SidebarSection] = [], activeWorkspaceID: WorkspaceID? = nil) {
-        self.sections = sections
+        storedSections = sections
         collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id))
         self.activeWorkspaceID = activeWorkspaceID
         if let activeWorkspaceID { selection = [activeWorkspaceID] }
@@ -231,7 +262,48 @@ public final class SidebarModel {
             let collapsed = collapsedSections.contains(shown[index].id)
             if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
         }
-        if sections != shown { sections = shown }
+        sections = shown // the setter skips an unchanged list
+    }
+
+    /// Row content of workspaces already listed (status, title, unread,
+    /// progress, icon), written in place without a structural change, then
+    /// told to `onRowsPatched`. A row this window does not list (another
+    /// window's workspace, a top-region tile) is skipped. Returns false and
+    /// writes nothing when the change moves rows (filter, folder buckets,
+    /// listed tabs); the caller then sets the sections.
+    public func patchWorkspaces(_ rows: [SidebarWorkspace]) -> Bool {
+        guard !rows.isEmpty else { return true }
+        if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
+        guard let index = rowIndex else { return false }
+        // A filter may match or drop a listed row: shown again; a row this window does not list changes nothing.
+        guard filterText.isEmpty else { return !rows.contains { !index.paths(of: $0.id).isEmpty } }
+        var patched: [SidebarWorkspace] = []
+        var writes: [(SidebarRowIndex.Path, SidebarWorkspace)] = []
+        for var row in rows {
+            let paths = index.paths(of: row.id)
+            guard let path = paths.first else { continue }
+            let old = SidebarRowIndex.workspace(at: path, in: storedSections)
+            row.rowState = old.rowState
+            row.machineID = old.machineID
+            guard row != old else { continue }
+            guard !Self.movesRows(from: old, to: row, groupsByFolder: groupsByFolder, listsTabs: showWorkspaceTabs) else { return false }
+            for path in paths {
+                // Each listed copy keeps its own row state (a saved stale row beside the live one).
+                var copy = row
+                copy.rowState = SidebarRowIndex.workspace(at: path, in: storedSections).rowState
+                writes.append((path, copy))
+            }
+            patched.append(row)
+        }
+        for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }
+        if !patched.isEmpty { onRowsPatched?(patched) }
+        return true
+    }
+
+    /// A content change that changes which rows the list draws.
+    private static func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace, groupsByFolder: Bool, listsTabs: Bool) -> Bool {
+        if groupsByFolder && old.folder != new.folder { return true }
+        return listsTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
     }
 
     /// Clears closed workspaces from the selection and picks a new active one.

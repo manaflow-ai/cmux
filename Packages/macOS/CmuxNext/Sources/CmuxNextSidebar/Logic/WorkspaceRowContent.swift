@@ -34,6 +34,15 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var time: String?
     /// Expanded rows: a third line (the computer, the pull request).
     public var meta: String?
+    /// A one-line status on an otherwise one-line compact row (one reported entry, or the hooks'
+    /// status line), drawn dim on the right of the name's line so the row keeps its height
+    /// (Thunderdome 2026-10-14). The hover card lists every entry.
+    public var trailingStatus: String?
+    /// What the name's line ends with: an expanded row's age, else a one-line status.
+    public var trailingText: String? { time ?? trailingStatus }
+    /// Compact rows under a badge style (`SidebarRowBadgeStyle`): the dim time since the last
+    /// change on the right, unless the second line shows the last activity already.
+    public var badgeTime: String?
     /// The status block under the name (classic's): the reported entries
     /// with `agentStatus` on, the log line with `log` on and the progress
     /// label with `progress` on. Nil when none of those is reported, so a
@@ -67,8 +76,20 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         // Another computer's workspace names its folder after the computer, so the row says
         // where its terminals run (`host · ~/code/app`), unless the folder element shows it already (cx-gaq9).
         let folder = machine != nil && !set.secondLine.contains(.directory) ? Self.nonEmpty(ws.directory) : nil
-        let items = [Self.nonEmpty(machine), folder, Self.nonEmpty(ws.stage)].compactMap { $0 }
-            + set.secondLine.compactMap { Self.text(of: $0, in: ws, now: now) }
+        let lead = [Self.nonEmpty(machine), folder, Self.nonEmpty(ws.stage)].compactMap { $0 }
+        let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
+        var items = lead + secondLine.map(\.1)
+        var status = Self.status(ws.reported, set)
+        // A one-line status leaves a one-line row one line: its text moves to the name's line.
+        let others = lead + secondLine.filter { $0.0 != .agentStatus }.map(\.1)
+        var trailing: String?
+        if others.isEmpty {
+            if let line = secondLine.first(where: { $0.0 == .agentStatus })?.1, status == nil {
+                (trailing, items) = (line, [])
+            } else if let block = status, block.entries.count == 1, block.log == nil, block.progressLabel == nil {
+                (trailing, status) = (block.entries[0].displayText, nil)
+            }
+        }
         let working = ws.agentWorking && set.shows(.working)
         self.init(
             icon: set.shows(.icon) ? ws.icon : nil,
@@ -78,8 +99,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             activity: Self.activity(ws.activity, working: working, progress: set.shows(.progress)),
             progress: set.shows(.progress) ? ws.progress : nil,
             showsWorking: working,
-            status: Self.status(ws.reported, set)
+            status: status
         )
+        trailingStatus = trailing
+        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now) }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
