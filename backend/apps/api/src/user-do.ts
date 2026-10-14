@@ -10,6 +10,7 @@ import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
+import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
 import type { Env } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
 import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
@@ -223,6 +224,8 @@ export class UserDO extends OwnerDO<UserState> {
     return { frames }
   }
 
+  async avatar(call: AvatarCall) { return avatarRpc(this.ctx, this.env, this.existing()?.currentState, call) } // RPC: participant avatars (user-avatars.ts)
+
   /** RPC: inbox reads. `inbox.list` pages the entries; `inbox.dm_peer` finds an existing DM with a peer (design Q2). */
   async readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
     // A chief token never reads the owner's inbox (DM previews); a future chief that needs it gets an explicit grant (cx-59n8.11).
@@ -232,11 +235,8 @@ export class UserDO extends OwnerDO<UserState> {
     return readInboxOp(this.inbox, entity, op, params, () => this.scheduleAlarm())
   }
 
-  /**
-   * RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the
-   * user's `allow_requests_from`, never the discovery flags. An object that never served this
-   * user answers the default without binding.
-   */
+  /** RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the user's
+   *  `allow_requests_from`, never the discovery flags; an object that never served this user answers the default without binding. */
   async homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom> {
     if (this.boundEntity() !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_requests_from
     return homeUser.homeSettingsOf(this.bind(entity).currentState.home_settings).allow_requests_from

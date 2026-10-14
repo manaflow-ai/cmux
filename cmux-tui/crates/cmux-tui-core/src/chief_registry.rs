@@ -11,8 +11,10 @@
 //! one `agent_` + 26 Crockford base32. The default record is written on the
 //! first open, so an install keeps its one Chief with no migration. A
 //! deleted id stays as a tombstone and is never reused. Avatar bytes are
-//! rows keyed by SHA-256; the write that drops the last reference deletes
-//! them in the same transaction.
+//! rows keyed by SHA-256: the ONE avatar store of the daemon, for Chiefs
+//! (their record's `avatar`) and people (`participant_avatar`,
+//! participant-avatars-v1); the write that drops the last reference of any
+//! participant deletes them in the same transaction.
 //!
 //! The owner rules (who may write what) are the caller's
 //! (server/chief_registry_resource.rs); this module checks values, keeps one
@@ -47,7 +49,29 @@ const DEFAULT_NEW_TOOLS: [&str; 3] = ["spawn", "tell", "workspaces"];
 /// The fields a Chief may be allowed to change about itself.
 pub(crate) const SELF_EDITABLE: [&str; 5] =
     ["avatar", "display_name", "instructions", "personality", "role"];
-const AVATAR_TYPES: [&str; 4] = ["image/gif", "image/jpeg", "image/png", "image/webp"];
+/// The avatar types (the alias's media_type values).
+pub(crate) const AVATAR_TYPES: [&str; 4] = ["image/gif", "image/jpeg", "image/png", "image/webp"];
+/// The fields a page changes only on the person's gesture
+/// (`chief-profile-ws-v1`): the person's grant (tools, harnesses, the engine's
+/// harness, model and effort, self_edit), and what the Chief is told to do
+/// (instructions, personality). Chief messages render in that page, so
+/// injected content must not plant behavior a Chief then acts on.
+pub(crate) const GESTURE_FIELDS: [&str; 8] = [
+    "effort",
+    "harness",
+    "harnesses",
+    "instructions",
+    "model",
+    "personality",
+    "self_edit",
+    "tools",
+];
+
+/// Whether request fields name a field a page changes only on the person's
+/// gesture ([`GESTURE_FIELDS`]).
+pub(crate) fn names_gesture_field(fields: &Map<String, Value>) -> bool {
+    GESTURE_FIELDS.iter().any(|field| fields.contains_key(*field))
+}
 
 /// A refusal; the resource layer maps it to `operation.failed` with
 /// `details.reason` [`Refusal::reason`] (or `validation.invalid` for a field).
@@ -119,6 +143,17 @@ pub(crate) struct ChiefRecord {
     pub updated_at: String,
 }
 
+/// A person's avatar write (`participant.avatar.set`), as committed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PersonAvatarWrite {
+    pub avatar: Option<AvatarRef>,
+    pub revision: u64,
+    #[serde(default)]
+    pub changed: bool,
+    #[serde(default)]
+    pub replayed: bool,
+}
+
 /// An avatar change: new bytes, or none.
 pub(crate) enum AvatarChange {
     Set { media_type: String, bytes: Vec<u8> },
@@ -170,6 +205,12 @@ impl ChiefStore {
                sha256 TEXT PRIMARY KEY NOT NULL,
                media_type TEXT NOT NULL,
                data BLOB NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS participant_avatar (
+               participant TEXT PRIMARY KEY NOT NULL,
+               sha256 TEXT NOT NULL,
+               media_type TEXT NOT NULL,
+               bytes INTEGER NOT NULL
              );
              CREATE TABLE IF NOT EXISTS op_ledger (
                seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -255,6 +296,118 @@ impl ChiefStore {
             |row| row.get(0),
         )?;
         Ok(Ok(Some((avatar, data))))
+    }
+
+    /// A person's avatar (participant-avatars-v1): its reference and bytes.
+    pub(crate) fn person_avatar(&self, participant: &str) -> anyhow::Result<AvatarBytes> {
+        let row: Option<(String, String, i64, Vec<u8>)> = self
+            .connection
+            .query_row(
+                "SELECT p.sha256, p.media_type, p.bytes, a.data FROM participant_avatar p
+                 JOIN avatar a ON a.sha256 = p.sha256 WHERE p.participant = ?1",
+                [participant],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
+        Ok(row.map(|(sha256, media_type, bytes, data)| {
+            (AvatarRef { sha256, media_type, bytes: u64::try_from(bytes).unwrap_or(0) }, data)
+        }))
+    }
+
+    /// Sets or clears a person's avatar in the shared store, once per
+    /// (`participant`, `key`): a replay with the same `request` answers the
+    /// committed result (`replayed`), another request under the key is
+    /// [`Refusal::KeyConflict`]. The bytes no participant references any more
+    /// go in the same transaction. `revision` is the people's avatar
+    /// revision (it moves on every change); `changed` is whether this write
+    /// changed the stored picture.
+    pub(crate) fn set_person_avatar(
+        &mut self,
+        participant: &str,
+        key: &str,
+        request: &Value,
+        change: AvatarChange,
+    ) -> anyhow::Result<Outcome<PersonAvatarWrite>> {
+        let fingerprint = fingerprint(request)?;
+        let transaction =
+            self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let committed: Option<(String, String, String)> = transaction
+            .query_row(
+                "SELECT fingerprint, result, operation FROM op_ledger WHERE actor = ?1 AND key = ?2",
+                params![participant, key],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        if let Some((stored, result, operation)) = committed {
+            if stored != fingerprint {
+                return Ok(Err(Refusal::KeyConflict(operation)));
+            }
+            let mut write: PersonAvatarWrite = serde_json::from_str(&result)?;
+            write.replayed = true;
+            write.changed = false;
+            return Ok(Ok(write));
+        }
+        let before: Option<String> = transaction
+            .query_row(
+                "SELECT sha256 FROM participant_avatar WHERE participant = ?1",
+                [participant],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let stored = match change {
+            AvatarChange::Set { media_type, bytes } => {
+                let avatar = store_avatar_bytes(&transaction, &media_type, &bytes)?;
+                transaction.execute(
+                    "INSERT INTO participant_avatar (participant, sha256, media_type, bytes)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT(participant) DO UPDATE SET sha256 = excluded.sha256,
+                       media_type = excluded.media_type, bytes = excluded.bytes",
+                    params![participant, avatar.sha256, avatar.media_type, avatar.bytes as i64],
+                )?;
+                Some(avatar)
+            }
+            AvatarChange::Clear => {
+                transaction.execute(
+                    "DELETE FROM participant_avatar WHERE participant = ?1",
+                    [participant],
+                )?;
+                None
+            }
+        };
+        let text: Option<String> = transaction
+            .query_row("SELECT value FROM meta WHERE key = 'avatar_rev'", [], |r| r.get(0))
+            .optional()?;
+        let mut revision: u64 = text.and_then(|t| t.parse().ok()).unwrap_or(0);
+        let changed = before.as_deref() != stored.as_ref().map(|a| a.sha256.as_str());
+        if changed {
+            revision += 1;
+            transaction.execute(
+                "INSERT INTO meta (key, value) VALUES ('avatar_rev', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [revision.to_string()],
+            )?;
+        }
+        let write = PersonAvatarWrite { avatar: stored, revision, changed, replayed: false };
+        transaction.execute(
+            "INSERT INTO op_ledger (actor, key, operation, fingerprint, result)
+             VALUES (?1, ?2, 'participant.avatar.set', ?3, ?4)",
+            params![participant, key, fingerprint, serde_json::to_string(&write)?],
+        )?;
+        transaction.execute(
+            "DELETE FROM op_ledger WHERE actor = ?1 AND seq NOT IN
+               (SELECT seq FROM op_ledger WHERE actor = ?1 ORDER BY seq DESC LIMIT ?2)",
+            params![participant, LEDGER_KEYS_PER_ACTOR],
+        )?;
+        collect_avatars(&transaction)?;
+        transaction.commit()?;
+        Ok(Ok(write))
+    }
+
+    /// The ledger's actors, oldest first (tests: who a write is recorded as).
+    #[cfg(test)]
+    pub(crate) fn ledger_actors(&self) -> rusqlite::Result<Vec<String>> {
+        let mut statement = self.connection.prepare("SELECT actor FROM op_ledger ORDER BY seq")?;
+        statement.query_map([], |row| row.get(0))?.collect()
     }
 
     /// Runs `write` once per (`actor`, `key`): a replay with the same
@@ -363,12 +516,7 @@ pub(crate) fn update(
     apply(&mut record, fields);
     match avatar {
         Some(AvatarChange::Set { media_type, bytes }) => {
-            let sha256 = hex(&Sha256::digest(&bytes));
-            tx.execute(
-                "INSERT OR IGNORE INTO avatar (sha256, media_type, data) VALUES (?1, ?2, ?3)",
-                params![sha256, media_type, bytes],
-            )?;
-            record.avatar = Some(AvatarRef { sha256, media_type, bytes: bytes.len() as u64 });
+            record.avatar = Some(store_avatar_bytes(tx, &media_type, &bytes)?);
         }
         Some(AvatarChange::Clear) => record.avatar = None,
         None => {}
@@ -455,25 +603,44 @@ pub(crate) fn validate_fields(fields: &Map<String, Value>) -> Option<Refusal> {
         .or_else(|| set("self_edit", Some(&SELF_EDITABLE)))
 }
 
-/// Checks an avatar image: a known type, at most [`MAX_AVATAR_BYTES`], and
-/// bytes that are that type.
-pub(crate) fn validate_avatar(media_type: &str, bytes: &[u8]) -> Option<Refusal> {
-    if !AVATAR_TYPES.contains(&media_type) {
-        return Some(Refusal::Invalid(
-            "media_type",
-            "must be image/png, image/jpeg, image/gif or image/webp".into(),
-        ));
+/// The media type of an avatar image from its first bytes (PNG, JPEG, GIF
+/// or WebP), never from what a caller claims; `None` for anything else.
+pub(crate) fn sniff_avatar(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
     }
+}
+
+/// Checks an avatar image: 1 to [`MAX_AVATAR_BYTES`] bytes of a PNG, JPEG,
+/// GIF or WebP; returns its media type (from the bytes).
+pub(crate) fn validate_avatar(bytes: &[u8]) -> Result<&'static str, Refusal> {
     if bytes.is_empty() || bytes.len() > MAX_AVATAR_BYTES {
-        return Some(Refusal::Invalid("data", format!("must be 1 to {MAX_AVATAR_BYTES} bytes")));
+        return Err(Refusal::Invalid("data", format!("must be 1 to {MAX_AVATAR_BYTES} bytes")));
     }
-    let matches = match media_type {
-        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
-        "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
-        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
-        _ => bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP",
-    };
-    (!matches).then(|| Refusal::Invalid("data", format!("is not a {media_type} image")))
+    sniff_avatar(bytes)
+        .ok_or_else(|| Refusal::Invalid("data", "must be a PNG, JPEG, GIF or WebP image".into()))
+}
+
+/// Keeps `bytes` once in the shared store; their reference.
+fn store_avatar_bytes(
+    tx: &rusqlite::Transaction<'_>,
+    media_type: &str,
+    bytes: &[u8],
+) -> anyhow::Result<AvatarRef> {
+    let sha256 = hex(&Sha256::digest(bytes));
+    tx.execute(
+        "INSERT OR IGNORE INTO avatar (sha256, media_type, data) VALUES (?1, ?2, ?3)",
+        params![sha256, media_type, bytes],
+    )?;
+    Ok(AvatarRef { sha256, media_type: media_type.to_owned(), bytes: bytes.len() as u64 })
 }
 
 /// Writes the checked `fields` into `record`. Sets are stored sorted and
@@ -529,7 +696,7 @@ fn load(connection: &Connection, id: &str) -> anyhow::Result<Option<ChiefRecord>
     stored.flatten().map(|text| serde_json::from_str(&text).map_err(Into::into)).transpose()
 }
 
-/// Deletes avatar bytes no live record names.
+/// Deletes avatar bytes that no live Chief record and no person names.
 fn collect_avatars(tx: &rusqlite::Transaction<'_>) -> anyhow::Result<()> {
     let mut statement = tx.prepare("SELECT record FROM chief WHERE record IS NOT NULL")?;
     let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
@@ -540,6 +707,11 @@ fn collect_avatars(tx: &rusqlite::Transaction<'_>) -> anyhow::Result<()> {
         }
     }
     drop(statement);
+    let mut people = tx.prepare("SELECT sha256 FROM participant_avatar")?;
+    for sha in people.query_map([], |row| row.get::<_, String>(0))? {
+        used.insert(sha?);
+    }
+    drop(people);
     let stored: Vec<String> = {
         let mut statement = tx.prepare("SELECT sha256 FROM avatar")?;
         let rows = statement.query_map([], |row| row.get::<_, String>(0))?;

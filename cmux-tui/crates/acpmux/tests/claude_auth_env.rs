@@ -78,6 +78,26 @@ fn scratch(tag: &str, rc: &str) -> PathBuf {
     dir
 }
 
+/// The daemon's PATH: python3 (linked into `<dir>/bin`) and the system
+/// directories, never the host's own PATH. A fleet host's PATH holds real
+/// agent CLIs (codex, claude, gemini): the daemon would discover and probe
+/// them, and Codex's shell snapshot sources the fake HOME's `~/.zshrc`, so
+/// the login shell would seem to run more often than it does.
+fn bare_path(dir: &Path) -> String {
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let python = std::env::var_os("PATH")
+        .iter()
+        .flat_map(std::env::split_paths)
+        .map(|d| d.join("python3"))
+        .find(|p| p.is_file())
+        .expect("python3 on the test's PATH");
+    let link = bin.join("python3");
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(python, &link).unwrap();
+    format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.display())
+}
+
 struct Daemon {
     child: std::process::Child,
     socket: PathBuf,
@@ -114,7 +134,7 @@ async fn start_config(dir: &Path, config: Value, extra: &[(&str, &str)]) -> Daem
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
     cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
         .env_clear()
-        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("PATH", bare_path(dir))
         .env("HOME", dir.join("home"))
         .env("SHELL", dir.join("loginsh"))
         .env("TMPDIR", std::env::temp_dir())
@@ -297,7 +317,7 @@ async fn a_claude_only_on_the_login_path_starts() {
     std::fs::create_dir_all(&shims).unwrap();
     write_executable(
         &shims.join("claude"),
-        &format!("#!/bin/sh\nexec env FAKE_CLAUDE_VIA=mise-shim python3 {FAKE_CLAUDE} \"$@\"\n"),
+        &format!("#!/bin/sh\nexec env FAKE_CLAUDE_VIA=mise-shim python3 '{FAKE_CLAUDE}' \"$@\"\n"),
     );
     let harness =
         json!({"argv": ["claude"], "kind": "claude-stdio", "env": {"FAKE_CLAUDE_AUTH": "1"}});

@@ -215,7 +215,7 @@ final class TopHomePageView: NSView {
         view.autoresizingMask = [.width, .height]
         transcriptColumn.addSubview(view)
         host = view
-        services.home.homeDidOpen()
+        services.home.homeDidOpen(asked: true)
         if window?.firstResponder === window || window?.firstResponder == nil { focusPrimaryInput() }
     }
 

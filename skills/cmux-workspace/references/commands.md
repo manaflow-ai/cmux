@@ -120,7 +120,7 @@ cmux terminal term_… process wait --timeout-ms 600000
 
 ```bash
 cmux notify --title "Done" --body "Task complete"      # attached to the caller terminal
-cmux notification create --title "Done" --body "Task complete" --level success
+cmux notification create --title "Done" --body "Task complete" --level info
 cmux notification list --json
 cmux notification clear --terminal "$CMUX_TUI_TERMINAL_ID"
 cmux pane flash-focused                                  # app action

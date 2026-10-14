@@ -335,7 +335,7 @@ impl Hub {
             }
         }
 
-        self.record_launch_roots(session, profile).await;
+        self.record_spawn_inputs(session, profile).await;
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
         *session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             Default::default();
