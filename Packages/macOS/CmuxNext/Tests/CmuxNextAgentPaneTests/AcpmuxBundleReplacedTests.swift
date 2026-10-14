@@ -42,7 +42,8 @@ struct AcpmuxBundleReplacedTests {
         try FileManager.default.copyItem(at: binary, to: bin.appendingPathComponent("acpmux"))
         func environment() throws -> AcpmuxEnvironment {
             try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin,
-                                                   environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]))
+                                                   environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket],
+                                                   executableOverride: nil))
         }
 
         // Each step is named, so a failure says whether the update or the setup broke.
