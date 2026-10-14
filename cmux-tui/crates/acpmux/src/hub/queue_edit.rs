@@ -95,6 +95,8 @@ impl Hub {
                 blocks,
                 control: stricter(q.run.control, control),
                 trust_gate: q.run.trust_gate || trust_gate,
+                // The person rewrote it: it is no longer the sender's message.
+                provenance: None,
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone())
@@ -161,6 +163,7 @@ impl Hub {
                     blocks: q.run.blocks.clone(),
                     control,
                     trust_gate: q.run.trust_gate,
+                    provenance: q.run.provenance.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }
