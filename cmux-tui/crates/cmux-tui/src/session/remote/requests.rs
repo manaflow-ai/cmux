@@ -312,6 +312,7 @@ impl RemoteSession {
         for (_, request) in pending {
             let _ = request.response.send(json!({"shutdown": true}));
         }
+        self.sidebar_doc.fail_pending();
         if let Ok(Some(sequence)) = self.interactive_writer.last_enqueued_sequence() {
             let _ = self.wait_for_ordered_write(sequence);
         }

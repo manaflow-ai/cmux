@@ -19,7 +19,7 @@ use cmux_tui_core::resource::{PROTOCOL, StreamPublicId};
 
 use super::*;
 use crate::session::sidebar_doc::{
-    BatchOutcome, PINNED_SECTION_ID, SIDEBAR_DOC_CAPABILITY, SidebarDocModel,
+    BatchOutcome, ItemRow, PINNED_SECTION_ID, SIDEBAR_DOC_CAPABILITY, SidebarDocModel,
 };
 use crate::session::tree::TreeView;
 
@@ -32,6 +32,17 @@ pub(crate) struct SidebarDropAnchors {
     pub after: Option<String>,
 }
 
+/// A `sidebar.move` target next to `anchor` (`side`: "before" or "after"),
+/// in the anchor's section and group.
+fn drop_target(anchor: ItemRow, side: &str) -> Value {
+    let mut to = json!({"section": anchor.section});
+    to[side] = Value::String(anchor.id);
+    if let Some(parent) = anchor.parent {
+        to["parent"] = Value::String(parent);
+    }
+    to
+}
+
 /// Stream ends in a row that open the stream again at once.
 const MAX_STREAM_RESTARTS: u64 = 3;
 
@@ -41,15 +52,19 @@ pub(crate) struct RemoteSidebarDoc {
     pending: Mutex<HashMap<String, Sender<Value>>>,
     /// The open `session.events` stream.
     stream: Mutex<Option<String>>,
+    /// The cursor of the stream's last item: a reopened stream resumes from
+    /// it with deltas instead of a full session snapshot.
+    cursor: Mutex<Option<Value>>,
     /// A start or refetch worker is running.
     loading: AtomicBool,
     /// A gap was seen: the worker reads the document again.
     dirty: AtomicBool,
-    /// Stream ends since the last applied batch. Past the limit the stream
-    /// opens again only at the next tree refresh, so a stream the daemon
-    /// keeps ending cannot loop.
+    /// Stream ends since the last batch that changed the document. Past the
+    /// limit the stream opens again only at the next tree refresh, so a
+    /// stream the daemon keeps ending cannot loop.
     stream_restarts: AtomicU64,
-    /// The daemon refused the protocol on this connection: keep the old path.
+    /// The daemon refused the document on this connection: keep the old
+    /// path. A timeout or a closed transport does not set it.
     unavailable: AtomicBool,
     next_id: AtomicU64,
 }
@@ -72,7 +87,30 @@ impl RemoteSidebarDoc {
     fn pending(&self) -> std::sync::MutexGuard<'_, HashMap<String, Sender<Value>>> {
         lock(&self.pending)
     }
+
+    fn cursor(&self) -> std::sync::MutexGuard<'_, Option<Value>> {
+        lock(&self.cursor)
+    }
+
+    /// Wake every waiting request: the connection is closing.
+    pub(super) fn fail_pending(&self) {
+        self.pending().clear();
+    }
 }
+
+/// The daemon answered a request with a structured error: the document is
+/// not available on this connection (a timeout or a closed transport is not
+/// this).
+#[derive(Debug)]
+struct Protocol2Refused(String);
+
+impl std::fmt::Display for Protocol2Refused {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Protocol2Refused {}
 
 impl RemoteSession {
     /// Whether the TUI draws and edits the daemon's sidebar document.
@@ -138,17 +176,24 @@ impl RemoteSession {
                 // (a reopened stream) draws nothing new.
                 Ok(()) if installed => session.emit(MuxEvent::TreeChanged),
                 Ok(()) => {}
-                Err(error) => {
-                    if session.request_shutdown_error().is_none() {
-                        crate::client_log::warn(
-                            "sidebar",
-                            &format!(
-                                "sidebar document unavailable, keeping the session order: {error:#}"
-                            ),
-                        );
-                        doc.unavailable.store(true, Ordering::Release);
-                        session.emit(MuxEvent::TreeChanged);
+                Err(_) if session.request_shutdown_error().is_some() => {}
+                Err(error) if error.downcast_ref::<Protocol2Refused>().is_some() => {
+                    crate::client_log::warn(
+                        "sidebar",
+                        &format!(
+                            "sidebar document unavailable, keeping the session order: {error:#}"
+                        ),
+                    );
+                    doc.unavailable.store(true, Ordering::Release);
+                    let stream = doc.stream().take();
+                    if let Some(stream) = stream {
+                        session.cancel_sidebar_stream(&stream);
                     }
+                    session.emit(MuxEvent::TreeChanged);
+                }
+                // A timeout: the next tree refresh tries again.
+                Err(error) => {
+                    crate::client_log::warn("sidebar", &format!("sidebar document: {error:#}"));
                 }
             }
         });
@@ -166,9 +211,30 @@ impl RemoteSession {
             // Register first: the first items can follow the response at once.
             *self.sidebar_doc.stream() = Some(stream_id.clone());
             let mut fields = Map::new();
-            fields.insert("stream_id".into(), Value::String(stream_id));
-            if let Err(error) = self.protocol2_request("session.events", fields, false) {
+            fields.insert("stream_id".into(), Value::String(stream_id.clone()));
+            let cursor = self.sidebar_doc.cursor().clone();
+            let mut opened = match cursor {
+                Some(cursor) => {
+                    let mut resumed = fields.clone();
+                    resumed.insert("cursor".into(), cursor);
+                    self.protocol2_request("session.events", resumed, false)
+                }
+                None => self.protocol2_request("session.events", fields.clone(), false),
+            };
+            if opened
+                .as_ref()
+                .is_err_and(|error| error.downcast_ref::<Protocol2Refused>().is_some())
+                && self.sidebar_doc.cursor().take().is_some()
+            {
+                // A cursor the daemon no longer covers: open with a snapshot.
+                opened = self.protocol2_request("session.events", fields, false);
+            }
+            if let Err(error) = opened {
                 *self.sidebar_doc.stream() = None;
+                if error.downcast_ref::<Protocol2Refused>().is_none() {
+                    // Not answered: the daemon may have opened it anyway.
+                    self.cancel_sidebar_stream(&stream_id);
+                }
                 return Err(error);
             }
         }
@@ -217,7 +283,10 @@ impl RemoteSession {
     }
 
     /// `sidebar.move` the item of `workspace` next to an anchor. A slot
-    /// between two members of a group is in that group, as drawn.
+    /// inside a section or a group lands there, as drawn. A slot on the
+    /// border of two (the end of Pinned and the start of the machine list,
+    /// the end of a group and the next loose row) keeps the workspace in the
+    /// one it is in; when it is in neither, it joins the one above.
     pub(crate) fn sidebar_move_workspace(
         &self,
         workspace: &str,
@@ -230,6 +299,7 @@ impl RemoteSession {
                 .workspace_item(workspace)
                 .map(|item| item.id.clone())
                 .ok_or_else(|| anyhow::anyhow!("the sidebar does not place this workspace yet"))?;
+            let dragged = model.workspace_item(workspace).cloned();
             let anchor = |workspace: &Option<String>| {
                 workspace
                     .as_deref()
@@ -237,21 +307,25 @@ impl RemoteSession {
                     .filter(|anchor| anchor.id != item)
                     .cloned()
             };
-            let to = if let Some(anchor) = anchor(&anchors.before) {
-                json!({"section": anchor.section, "parent": anchor.parent, "before": anchor.id})
-            } else if let Some(anchor) = anchor(&anchors.after) {
-                json!({"section": anchor.section, "parent": anchor.parent, "after": anchor.id})
-            } else {
-                anyhow::bail!("the drop slot has no placed neighbor");
+            let container = |row: &ItemRow| (row.section.clone(), row.parent.clone());
+            let own = dragged.as_ref().map(container);
+            let to = match (anchor(&anchors.after), anchor(&anchors.before)) {
+                (Some(after), Some(before)) if container(&after) == container(&before) => {
+                    drop_target(before, "before")
+                }
+                (Some(after), Some(before)) => {
+                    if own.as_ref() == Some(&container(&before)) {
+                        drop_target(before, "before")
+                    } else {
+                        drop_target(after, "after")
+                    }
+                }
+                (None, Some(before)) => drop_target(before, "before"),
+                (Some(after), None) => drop_target(after, "after"),
+                (None, None) => anyhow::bail!("the drop slot has no placed neighbor"),
             };
             (item, to)
         };
-        let mut to = to;
-        if to["parent"].is_null()
-            && let Some(object) = to.as_object_mut()
-        {
-            object.remove("parent");
-        }
         let mut fields = Map::new();
         fields.insert("items".into(), json!([item]));
         fields.insert("to".into(), to);
@@ -305,9 +379,15 @@ impl RemoteSession {
         }
         let response = match rx.recv_timeout(REMOTE_REQUEST_TIMEOUT) {
             Ok(response) => response,
-            Err(_) => {
+            Err(RecvTimeoutError::Timeout) => {
                 forget();
                 anyhow::bail!("{operation} timed out");
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(match self.request_shutdown_error() {
+                    Some(error) => error.into(),
+                    None => anyhow::anyhow!("{operation}: the connection closed"),
+                });
             }
         };
         if response.get("ok").and_then(Value::as_bool) == Some(true) {
@@ -316,11 +396,29 @@ impl RemoteSession {
         let error = response.get("error");
         let code = error.and_then(|error| error.get("code")).and_then(Value::as_str);
         let message = error.and_then(|error| error.get("message")).and_then(Value::as_str);
-        anyhow::bail!(
+        Err(Protocol2Refused(format!(
             "{operation} refused: {} {}",
             code.unwrap_or("error"),
             message.unwrap_or("no message")
-        )
+        ))
+        .into())
+    }
+
+    /// Release a stream this client no longer reads. Nothing waits for the
+    /// answer; items of an unknown stream are ignored.
+    fn cancel_sidebar_stream(&self, stream_id: &str) {
+        let id =
+            format!("tui-sidebar-{}", self.sidebar_doc.next_id.fetch_add(1, Ordering::Relaxed));
+        let request = json!({
+            "protocol": PROTOCOL,
+            "type": "request",
+            "id": id,
+            "operation": "stream.cancel",
+            "params": {"machine": "current", "session": "current", "stream": stream_id},
+        });
+        if let Ok(message) = serde_json::to_string(&request) {
+            let _ = self.interactive_writer.enqueue(message, false);
+        }
     }
 
     /// A `cmux.protocol/2` line: a response to one of this connection's
@@ -341,6 +439,9 @@ impl RemoteSession {
                 };
                 if !ours {
                     return;
+                }
+                if let Some(cursor) = value.get("cursor").filter(|cursor| cursor.is_object()) {
+                    *self.sidebar_doc.cursor() = Some(cursor.clone());
                 }
                 if kind == "stream_end" {
                     // A gap or a closed stream: open it again and read the
@@ -363,7 +464,7 @@ impl RemoteSession {
                     .map(Vec::as_slice)
                     .unwrap_or_default();
                 let outcome = self.sidebar_doc.model().apply_batch(changes);
-                if outcome != BatchOutcome::Stale {
+                if outcome == BatchOutcome::Changed {
                     self.sidebar_doc.stream_restarts.store(0, Ordering::Release);
                 }
                 match outcome {

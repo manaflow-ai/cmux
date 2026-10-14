@@ -42,6 +42,12 @@ impl App {
     pub(super) fn move_workspace_to_drop_slot(&mut self, workspace: WorkspaceId, insertion: usize) {
         let workspaces = self.tree.workspaces();
         let insertion = insertion.min(workspaces.len());
+        // A drop on the dragged row's own slot changes nothing.
+        if let Some(index) = workspaces.iter().position(|view| view.id == workspace)
+            && (insertion == index || insertion == index + 1)
+        {
+            return;
+        }
         let public = |index: usize| {
             workspaces[index].resource_id.as_ref().map(|resource| resource.as_str().to_string())
         };

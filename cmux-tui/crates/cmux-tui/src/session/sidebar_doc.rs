@@ -154,21 +154,28 @@ impl SidebarDocModel {
             return BatchOutcome::Unchanged;
         }
         let Some(held) = self.revision else { return BatchOutcome::Stale };
-        let Some(marker) = sidebar
+        // One batch can carry several revisions (an old write folded in
+        // before the op): it spans the lowest previous to the highest.
+        let mut span: Option<(u64, u64)> = None;
+        for marker in sidebar
             .iter()
-            .find(|change| change.get("resource").and_then(Value::as_str) == Some(DOC_RESOURCE))
-            .and_then(|change| change.get("value"))
-        else {
-            // Item rows without the revision marker cannot be placed in
-            // the revision order: read the whole document again.
-            return BatchOutcome::Stale;
-        };
-        let (Some(revision), Some(previous)) = (
-            marker.get("revision").and_then(decimal),
-            marker.get("previous_revision").and_then(decimal),
-        ) else {
-            return BatchOutcome::Stale;
-        };
+            .filter(|change| change.get("resource").and_then(Value::as_str) == Some(DOC_RESOURCE))
+            .filter_map(|change| change.get("value"))
+        {
+            let (Some(revision), Some(previous)) = (
+                marker.get("revision").and_then(decimal),
+                marker.get("previous_revision").and_then(decimal),
+            ) else {
+                return BatchOutcome::Stale;
+            };
+            span = Some(match span {
+                Some((low, high)) => (low.min(previous), high.max(revision)),
+                None => (previous, revision),
+            });
+        }
+        // Item rows without the revision marker cannot be placed in the
+        // revision order: read the whole document again.
+        let Some((previous, revision)) = span else { return BatchOutcome::Stale };
         if revision <= held {
             return BatchOutcome::Unchanged;
         }

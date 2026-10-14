@@ -12,6 +12,9 @@ workspace rail, left columns); the daemon's document from `sidebar.get`.
    machine's section, and the TUI order matches.
 4. `sidebar.move` and `sidebar.pin` from the CLI (`cmux raw operation`): the
    TUI order follows each one, Pinned in document order.
+5. Mouse drags in the TUI rail (SGR mouse input through tmux): a drop between
+   two pinned rows pins the workspace there; a drop on the dragged row's own
+   slot changes nothing (it must not unpin).
 
 Usage: sidebar-tui-doc-live.py --binary path/to/cmux-tui [--workdir DIR]
 Needs tmux. Prints one PASS/FAIL line per check; exits 1 on any FAIL.
@@ -153,6 +156,28 @@ class Tui:
                     seen.append(name)
         return seen
 
+    def row_of(self, name: str) -> tuple[int, int]:
+        """(column, row), 0-based, of `name` in the rail."""
+        for row, line in enumerate(self.screen()):
+            column = line[:RAIL_COLUMNS].find(name)
+            if column >= 0:
+                return column, row
+        raise RuntimeError(f"{name} is not drawn")
+
+    def mouse(self, code: int, column: int, row: int, release: bool = False) -> None:
+        sequence = f"\x1b[<{code};{column + 1};{row + 1}{'m' if release else 'M'}"
+        self.tmux("send-keys", "-t", "tui", "-l", sequence)
+        time.sleep(0.1)
+
+    def drag(self, name: str, to_row: int) -> None:
+        """Press on `name`, move to `to_row` in steps, release there."""
+        column, row = self.row_of(name)
+        self.mouse(0, column, row)
+        step = 1 if to_row >= row else -1
+        for y in list(range(row + step, to_row + step, step)) or [to_row]:
+            self.mouse(32, column, y)
+        self.mouse(0, column, to_row, release=True)
+
     def keys(self, *keys: str) -> None:
         for key in keys:
             self.tmux("send-keys", "-t", "tui", key)
@@ -250,6 +275,10 @@ def main() -> int:
               ws_item(daemon.ok("sidebar.get"), ids["s6-charlie"]))
         first = wait_for("drawn first", lambda: tui.order()[:1] == ["s6-charlie"])
         check("TUI draws the pinned workspace first", bool(first), tui.order())
+        listed = daemon.raw({"cmd": "list-workspaces"})
+        session_order = [w["name"] for w in (listed["workspaces"] if isinstance(listed, dict) else listed) if w.get("name") in ids]
+        check("the drawn order is the document's, not the session order",
+              tui.order() != session_order, {"tui": tui.order(), "list-workspaces": session_order})
         check("TUI order == sidebar.get order (after TUI pin)", bool(wait_for("after pin", matches_doc)),
               {"tui": tui.order(), "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
 
@@ -284,6 +313,27 @@ def main() -> int:
         check("TUI draws Pinned first, in document order (after CLI pins)",
               bool(wait_for("after pins", lambda: matches_doc() and tui.order()[:2] == ["s6-bravo", "s6-alpha"])),
               {"tui": tui.order(), "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
+        # Drag s6-charlie onto s6-alpha's name row: the slot between the two
+        # pinned rows s6-bravo and s6-alpha.
+        tui.keys("Escape")
+        _, alpha_row = tui.row_of("s6-alpha")
+        tui.drag("s6-charlie", alpha_row)
+        dragged = wait_for("drag pin", lambda: ws_item(daemon.ok("sidebar.get"), ids["s6-charlie"])["section"] == PINNED
+                           and tui.order()[:3] == ["s6-bravo", "s6-charlie", "s6-alpha"])
+        check("TUI drag into Pinned -> sidebar.get has it there, drawn in place", bool(dragged),
+              {"tui": tui.order(), "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
+        check("TUI order == sidebar.get order (after drag)", bool(wait_for("after drag", matches_doc)),
+              {"tui": tui.order(), "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
+        # Drag the last pinned row (s6-alpha) and drop it on its own second
+        # row: its own slot, so nothing changes (the next row is unpinned).
+        before = daemon.ok("sidebar.get")["revision"]
+        _, alpha_row = tui.row_of("s6-alpha")
+        tui.drag("s6-alpha", alpha_row + 1)
+        time.sleep(1.5)
+        after = daemon.ok("sidebar.get")
+        check("TUI drop on the dragged row's own slot changes nothing",
+              after["revision"] == before and ws_item(after, ids["s6-alpha"])["section"] == PINNED,
+              {"revision": [before, after["revision"]], "alpha": ws_item(after, ids["s6-alpha"])})
         print("final TUI order:", tui.order(), flush=True)
         print("final doc order:", doc_order(daemon.ok("sidebar.get"), names_by_id), flush=True)
     finally:
