@@ -1133,15 +1133,6 @@ body,
   flex: 1;
   min-height: 0;
 }
-/* The Home page's link router (homeLinks.ts): a plain box the page fills. */
-.hc-links {
-  display: flex;
-  flex-direction: column;
-}
-.hc-links > * {
-  flex: 1;
-  min-height: 0;
-}
 .hc-instance {
   display: flex;
   align-items: center;
