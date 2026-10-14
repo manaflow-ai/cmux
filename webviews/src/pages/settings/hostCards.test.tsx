@@ -49,6 +49,48 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
   page.unmount();
 });
 
+test("Apple Wallpapers: one not downloaded says so and opens the Wallpaper pane; it can still be picked", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const apple = { collection: "apple", collection_title: "Apple Wallpapers" };
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: [
+        ...(page.provider.host.backdrops ?? []),
+        {
+          id: "system:/S/Sonoma.heic",
+          title: "Sonoma",
+          attribution: "macOS system wallpaper · Sonoma",
+          ...apple,
+          downloaded: true,
+        },
+        { id: "system:/S/Grid Green.madesktop", title: "Grid Green", attribution: "", ...apple, downloaded: false },
+      ],
+    }),
+  );
+  await settle();
+  const group = page.container.querySelector<HTMLElement>('[data-collection="apple"]')!;
+  expect(group.querySelector(".backdrop-group-title")!.textContent).toBe("Apple Wallpapers");
+  const cells = [...group.querySelectorAll<HTMLElement>(".backdrop-grid > *")];
+  expect(cells.map((cell) => cell.textContent)).toEqual([
+    "SonomamacOS system wallpaper · Sonoma",
+    "Grid GreenNot downloadedGet in System Settings",
+  ]);
+  const get = [...group.querySelectorAll("button")].find((button) => button.textContent === "Get in System Settings")!;
+  await act(async () => get.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.wallpaper_settings").length).toBe(1);
+  expect(runs(page, "cmux.settings.set").length).toBe(0);
+  // Its thumbnail stands in until it is downloaded, so it can be chosen now.
+  await act(async () => group.querySelector<HTMLButtonElement>('button[aria-label="Grid Green"]')!.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({
+    key: "appearance.background",
+    value: "system:/S/Grid Green.madesktop",
+  });
+  page.unmount();
+});
+
 test("Shuffle Daily is a tile that keeps appearance.background daily", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const tile = page.container.querySelector<HTMLButtonElement>('[data-card="backdrop"] [aria-label="Shuffle Daily"]')!;

@@ -35,6 +35,8 @@ public final class WindowMaterialView: NSView {
     private var loadedSelection: BackdropSelection?
     private var loadedArt: BackdropArt?
     private var loadedTexture: BackdropTexture?
+    /// The appearance the art was loaded for, when it follows the appearance (a dynamic wallpaper).
+    private var loadedAppearance: BackdropAppearance?
     private var artImage: NSImage?
     private let images: BackdropImageStore
     /// Loads the art the last `apply` asked for when it was not decoded yet.
@@ -149,24 +151,7 @@ public final class WindowMaterialView: NSView {
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
             loadedTexture = backdrop.texture
-            artLoad?.cancel()
-            artLoad = nil
-            let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
-            let texture = backdrop.texture
-            // Decoded art shows at once. Otherwise an earlier launch's snapshot shows in this
-            // first frame, and the full image replaces it in place; without one the window shows
-            // the theme's colors until the art, decoded off the main actor, fades in.
-            let ready = shown.flatMap { images.cached($0, texture: texture) }
-            showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture) }))
-            if let shown, ready == nil {
-                let fades = artImage == nil
-                artLoad = Task { [weak self, images] in
-                    let image = await images.image(shown, texture: texture)
-                    guard !Task.isCancelled, let self, let image else { return }
-                    self.showArt(image)
-                    if fades, let layer = self.artView.layer { Motion.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
-                }
-            }
+            loadArt()
         }
         artView.isHidden = hidesArt || artImage == nil
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
@@ -193,6 +178,38 @@ public final class WindowMaterialView: NSView {
         tintView.isHidden = !shows
         tintView.layer?.backgroundColor = shows ? color.cgColor : nil
         updateInactiveTint()
+    }
+
+    /// A dynamic wallpaper shows its picture for the window's new appearance.
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if let loadedAppearance, loadedAppearance != BackdropAppearance(effectiveAppearance) {
+            loadArt()
+        }
+    }
+
+    /// Loads the art of the last ``apply(_:tint:)`` for the window's appearance.
+    private func loadArt() {
+        artLoad?.cancel()
+        artLoad = nil
+        let shown = loadedSelection ?? loadedArt.map(BackdropSelection.art)
+        let texture = loadedTexture ?? .default
+        let appearance = BackdropAppearance(effectiveAppearance)
+        loadedAppearance = shown.map(images.followsAppearance) == true ? appearance : nil
+        // Decoded art shows at once. Otherwise an earlier launch's snapshot shows in this
+        // first frame, and the full image replaces it in place; without one the window shows
+        // the theme's colors until the art, decoded off the main actor, fades in.
+        let ready = shown.flatMap { images.cached($0, texture: texture, appearance: appearance) }
+        showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture, appearance: appearance) }))
+        if let shown, ready == nil {
+            let fades = artImage == nil
+            artLoad = Task { [weak self, images] in
+                let image = await images.image(shown, texture: texture, appearance: appearance)
+                guard !Task.isCancelled, let self, let image else { return }
+                self.showArt(image)
+                if fades, let layer = self.artView.layer { Motion.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
+            }
+        }
     }
 
     private func showArt(_ image: NSImage?) {
