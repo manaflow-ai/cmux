@@ -2217,6 +2217,11 @@ impl Terminal {
     /// callers must publish the returned bytes to every attached parser before
     /// resuming the live stream.
     pub fn discard_unreplayable_replay(&mut self) -> Option<Vec<u8>> {
+        // CAN cannot undo completed multipart chunks. Reject recovery even
+        // when a later control string also exceeds the generic replay budget.
+        if self.kitty_inflight.has_unreplayable_prefix() {
+            return None;
+        }
         // The generic VT boundary can still retain a complete replay for an
         // APC while the Kitty-specific tracker has already overflowed its
         // smaller upload budget. In that case the generic result is not a

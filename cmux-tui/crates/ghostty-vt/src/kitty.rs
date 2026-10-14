@@ -202,6 +202,10 @@ impl KittyInFlightTracker {
             && matches!(&self.scan, KittyStreamScan::Kitty(command) if command.overflowed)
     }
 
+    pub(crate) fn has_unreplayable_prefix(&self) -> bool {
+        self.overflowed
+    }
+
     pub(crate) fn discard_unreplayable(&mut self) {
         self.scan = KittyStreamScan::Ground;
         self.overflowed = false;
