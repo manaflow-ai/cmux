@@ -105,8 +105,8 @@ SWIFT_JOB_INPUTS = (
     "scripts/cmux-next/build-app-ffi.sh",
 )
 
-# Keep the fast gate narrow. App-host, manifest, resource and toolchain edits
-# continue to use the Release configuration as their pull-request gate.
+# Keep the per-PR route narrow. App-host, manifest, resource and toolchain edits
+# are covered by the batch Release cadence and the base-push backstop.
 CANARY_SWIFT_PREFIXES = (
     PACKAGE + "Sources/",
 )

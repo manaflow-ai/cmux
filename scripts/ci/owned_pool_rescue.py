@@ -121,9 +121,10 @@ both glaeda-side-* labels that only the minis' non-root runners carry. Most
 side lanes take the job's Blacksmith default on attempt 2 and later. cmux-next
 keeps trusted attempts 1 and 2 on the owned side label and only overflows a
 later bot attempt after its ten-minute queue budget. So the first job on an owned label marks the run as on a persistent
-pool (a job behind a Linux gate appears once the gate ends), and the watch
-stops once every owned job has been accepted, which a side lane's few short
-jobs reach in minutes. A refused side-lane job gets the run's failed jobs
+pool (a job behind a Linux gate appears once the gate ends). The watch stays
+through run completion: a job behind a gate can be created after the first
+owned job is accepted, and glaeda's runner hook can refuse it at that point.
+A refused side-lane job gets the run's failed jobs
 re-run; a stuck one gets the run cancelled and its failed and cancelled jobs
 re-run, keeping the jobs that had already finished. That re-run takes the
 lane's configured retry route, so the watch ends there or continues on
@@ -170,8 +171,7 @@ It stops watching, doing nothing, when:
   or a side-lane workflow, of a trusted non-PR run of a side-lane workflow, of
   main's full-suite dispatch of ci.yml, or of a dispatch in
   DISPATCH_WORKFLOW_PATHS;
-- a side-lane run finished with no job on an owned label, or the fleet
-  accepted all of its owned jobs;
+- a side-lane run finished with no job on an owned label;
 - on a re-run of failed jobs, no job runs on an owned label once
   late-placement, if it re-ran, has finished;
 - on a full re-run, `changes` and late-placement finished without that
@@ -255,17 +255,27 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 # app build asks for one through this watch.
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 SIDE_WORKFLOW_PATHS = frozenset({
+    ".github/workflows/agent-brands.yml",
     ".github/workflows/auth-refresh-tests.yml",
+    ".github/workflows/cmux-next-base-autofix.yml",
+    ".github/workflows/cmux-next-batch.yml",
+    ".github/workflows/cmux-next-frame-pacing.yml",
+    ".github/workflows/cmux-next-media.yml",
+    ".github/workflows/cmux-next-pr-autofix.yml",
+    ".github/workflows/cmux-next-shim-cpp.yml",
     # feat-cmux-next only; on attempt 1 its placement job (side_lane_placement.py) puts a Mac job on the
     # side label only while a side runner is idle, and uploads the owned-pool-watch marker when one is.
     ".github/workflows/cmux-next.yml",
+    ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
+    ".github/workflows/test-feed-reply-providers.yml",
 })
+TRUSTED_TARGET_SIDE_PATHS = frozenset({".github/workflows/cmux-tui-artifacts.yml"})
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
 CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
@@ -274,6 +284,7 @@ CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
 # these is owned-eligible like a same-repository pull request. merge_group,
 # workflow_run and pull_request_target are not: they can carry fork code.
 TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
+TRUSTED_SIDE_TARGET_EVENTS = frozenset({"pull_request_target"})
 # The dispatch workflows' job that runs ios_runner_pool.py (or, in
 # iroh-release-gate.yml, e2e_runner_pool.py).
 E2E_PICKER_JOB = "runner"
@@ -825,14 +836,17 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     expected = "workflow_dispatch" if e2e else "pull_request"
     # A side lane's trusted non-PR run (push, schedule, dispatch) is watched too.
     side_trusted = side and run.get("event") in TRUSTED_SIDE_EVENTS
-    if run.get("event") != expected and not on_main and not ios_pull and not side_trusted:
+    side_target = side and run.get("event") in TRUSTED_SIDE_TARGET_EVENTS
+    if side_target and path not in TRUSTED_TARGET_SIDE_PATHS:
+        return "pull_request_target events are not owned-code runs"
+    if run.get("event") != expected and not on_main and not ios_pull and not side_trusted and not side_target:
         what = f"{expected} or a dispatch on {MAIN_BRANCH}" if path == CI_WORKFLOW_PATH else expected
         return f"a {run.get('event') or 'unknown'} run of {path}, not a {what}"
     head = (run.get("head_repository") or {}).get("full_name") or ""
     if head.casefold() != repository.casefold():
         return "a fork head; forks never take a persistent pool"
     attempt = int(run.get("run_attempt") or 0)
-    if attempt != 1:
+    if attempt != 1 and not (run.get("status") == "completed" and run.get("conclusion") == "failure"):
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e and not ios_pull:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True,
@@ -1001,13 +1015,11 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 # admission, so its watch goes on until the run finishes.
                 own_admission = any(job.get("name") == ADMISSION_JOB
                                     and not carried(job, target.attempt_started_at) for job in jobs)
-                if (target.attempt > 1 and not target.full_rerun and not own_admission and owned
-                        and all(accepted(job, seen_at) for job in owned)):
-                    # The fleet took the retry; later attempts never come back to it.
-                    return "stop", "the fleet accepted the retry"
-                if target.side and owned and all(accepted(job, seen_at) for job in owned):
-                    # A side lane's jobs are all created by now, and none can be refused any more.
-                    return "stop", "the fleet accepted the side-lane jobs"
+                # Do not stop merely because the currently visible jobs were
+                # accepted. A Linux gate or a sibling can create another job
+                # later, and its runner hook may refuse it after this point.
+                # Stay until the run completes (or the bounded watch expires)
+                # so every owned-pool refusal gets a retry.
         if now() >= deadline:
             return "stop", "watch limit reached"
         sleep(interval)

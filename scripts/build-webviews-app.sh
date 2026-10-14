@@ -11,23 +11,37 @@ MODE=build
 # change the output. --skip-checks runs only `vp build`: the app build path
 # (build-web-bundles.sh) uses it, and CI keeps the checks.
 RUN_CHECKS=1
+SKIP_TYPECHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) MODE=--check ;;
     --skip-checks) RUN_CHECKS=0 ;;
+    --skip-typecheck)
+      # CI runs the typecheck as a separate step after this source build.
+      # Keep the normal build path unchanged, while avoiding a duplicate
+      # typecheck in the React apps job.
+      SKIP_TYPECHECK=1 ;;
     --out)
       [ $# -ge 2 ] || { echo "error: --out needs a directory" >&2; exit 2; }
       case "$2" in /*) OUT_DIR="$2" ;; *) OUT_DIR="$PWD/$2" ;; esac
       shift ;;
-    *) echo "usage: $0 [--check] [--skip-checks] [--out DIR]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--check] [--skip-checks] [--skip-typecheck] [--out DIR]" >&2; exit 2 ;;
   esac
   shift
 done
 
+if [ "$SKIP_TYPECHECK" = 1 ] && [ "$MODE" != "--check" ]; then
+  echo "error: --skip-typecheck requires --check" >&2
+  exit 2
+fi
+
 "$ROOT/scripts/check-webviews-bun-version.sh"
 
 build_app() {
-  if [ "$RUN_CHECKS" = 1 ]; then
+  if [ "$SKIP_TYPECHECK" = 1 ]; then
+    bun run verify:tanstack-router
+    bun run vp build
+  elif [ "$RUN_CHECKS" = 1 ]; then
     bun run build
   else
     bun run vp build
