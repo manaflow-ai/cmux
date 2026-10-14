@@ -5,7 +5,7 @@ import Testing
 
 /// Recently Closed leaves out what reopening gives nothing back for (Leo 2026-10-11: it was full of
 /// "workspace-35 about:blank" and "about:blank about:blank" rows): a tab the daemon marks `empty`
-/// (an untouched New Tab page) and a tab, screen or workspace made only of those. A chat is kept
+/// (an untouched New Tab page) and a tab, screen, workspace or window made only of those. A chat is kept
 /// as a browser tab on `about:blank` too, but unmarked: it stays, named without the placeholder. A
 /// workspace that kept a real tab stays, and its line names that tab, not the New Tab page beside it.
 @MainActor
@@ -40,6 +40,8 @@ struct ClosedBlankItemsTests {
             ("New Tab page", Self.closed("tab", name: "about:blank", Self.newTabPage)),
             ("workspace of New Tab pages", Self.closed("workspace", name: "workspace-35", Self.newTabPage, Self.newTabPage)),
             ("empty workspace", Self.closed("workspace", name: "workspace-36")),
+            // Leo 2026-10-14: a closed window of New Tab pages listed as its workspace.
+            ("window of New Tab pages", Self.closed("window", name: "workspace-35", Self.newTabPage)),
             ("terminal", Self.closed("tab", Self.terminal)),
             ("chat", Self.closed("tab", name: "Fix the flaky upload test", Self.chat)),
             ("untitled chat", Self.closed("tab", name: "about:blank", Self.untitledChat)),

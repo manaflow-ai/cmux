@@ -145,9 +145,10 @@ final class HistoryService {
     }
 
     /// Closed tabs, screens and workspaces, as the daemons record them
-    /// (`closed-history-v2`): the only closed history (reopen-closed.md 9).
+    /// (`closed-history-v2`): the only closed history (reopen-closed.md 9). Newest first, one
+    /// row per thing (``newestOnce(_:)``).
     func closedEntries() -> [HistoryEntry] {
-        DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }.map { entry in
+        Self.newestOnce(DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }.map { entry in
             let item = entry.item, tab = Self.shownTab(item)
             let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
             case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
@@ -164,17 +165,28 @@ final class HistoryService {
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
                                 detail: detail, machineName: local ? nil : entry.daemon.machineID,
                                 payload: .closed(closed))
+        })
+    }
+
+    /// `entries` newest first, a thing closed again (the same page, folder or workspace on the
+    /// same machine) once, at its newest close (Leo 2026-10-14: Recently Closed is high signal).
+    static func newestOnce(_ entries: [HistoryEntry]) -> [HistoryEntry] {
+        var seen = Set<[String?]>()
+        return entries.sorted { $0.time > $1.time }.filter { entry in
+            guard case .closed(let item) = entry.payload else { return true }
+            return seen.insert([item.kind.rawValue, item.machine, item.title, item.url, item.cwd]).inserted
         }
     }
 
     /// Whether reopening `item` gives something back (Leo 2026-10-11: Recently Closed was full of
-    /// "workspace-35 about:blank" rows). A group or a window always does; a tab, screen or
-    /// workspace only with a tab that is not ``isBlank(_:)``.
+    /// "workspace-35 about:blank" rows): a tab, screen, workspace, group or window only with a
+    /// tab that is not ``isBlank(_:)`` (Leo 2026-10-14: a window of New Tab pages listed too).
     static func isWorthReopening(_ item: CmuxNextDaemon.ClosedItem) -> Bool {
-        item.group != nil || item.kind == .window || item.tabs.contains { !isBlank($0) }
+        item.tabs.contains { !isBlank($0) }
     }
 
-    /// An untouched New Tab page or a browser on `about:blank`, as the daemon marks it (`empty`).
+    /// An untouched New Tab page or a browser on `about:blank` or `chrome://newtab/`, as the
+    /// daemon marks it (`empty`).
     /// A closed chat with no title yet or a remote terminal looks the same otherwise, and reopens.
     static func isBlank(_ tab: CmuxNextDaemon.ClosedItem.Tab) -> Bool { tab.empty }
 
