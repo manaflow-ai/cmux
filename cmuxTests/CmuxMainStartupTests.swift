@@ -54,7 +54,9 @@ struct CmuxMainStartupTests {
                             browser: nil,
                             markdown: nil,
                             filePreview: nil,
-                            rightSidebarTool: nil
+                            rightSidebarTool: nil,
+                            gitBranch: nil,
+                            project: nil
                         )],
                         statusEntries: [],
                         logEntries: [],
