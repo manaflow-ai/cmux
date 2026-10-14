@@ -240,5 +240,37 @@ export const localCases = (c: Corpus): void => {
   linkTurns.advance(10_000)
   c.op(linkTurns, "loop guard: a fifth agent link preview is refused", MUX, "p9", send("p9", [link({})]), "agent_budget")
 
+  // attachment parts (cmux-conversation attachments.rs, home-core attachments.ts): the shape rules both
+  // owners apply to a send or an edit. Each owner also checks the part against its own record of the
+  // hash (local: conversation-attachment-upload; cloud: the upload intent), outside the reducer.
+  const files = new CoreHost()
+  const sha = (ch: string) => ch.repeat(64)
+  const photo = (over: Record<string, unknown> = {}) =>
+    ({ type: "attachment", hash: sha("a"), name: "screen.png", mime_type: "image/png", byte_count: 2_400_000, width: 2880, height: 1800, ...over }) as never
+  const clip = (over: Record<string, unknown> = {}) =>
+    ({ type: "attachment", hash: sha("b"), name: "run.mp4", mime_type: "video/mp4", byte_count: 18_000_000, width: 1920, height: 1080, duration_ms: 42_000, ...over }) as never
+  const jpeg = (ch: string, byte_count: number) => ({ hash: sha(ch), mime_type: "image/jpeg", byte_count })
+  c.op(files, "attachment: an image with its preview", ALICE, "f1", send("f1", [photo({ preview: jpeg("c", 512_000) })]), "commit")
+  c.op(files, "attachment: a video with its poster and a caption", ALICE, "f2", send("f2", [text("the run"), clip({ poster: { ...jpeg("d", 2_000_000), mime_type: "image/webp" } })]), "commit")
+  c.op(files, "attachment: four images and a PDF in one message", ALICE, "f3", send("f3", [photo(), photo({ hash: sha("e"), name: "b.jpg", mime_type: "image/jpeg" }), photo({ hash: sha("f"), name: "c.gif", mime_type: "image/gif" }), photo({ hash: sha("1"), name: "d.webp", mime_type: "image/webp" }), { type: "attachment", hash: sha("2"), name: "spec.pdf", mime_type: "application/pdf", byte_count: 90_000 } as never]), "commit")
+  c.op(files, "attachment: 100000000 bytes fit", ALICE, "f4", send("f4", [clip({ byte_count: 100_000_000 })]), "commit")
+  c.op(files, "attachment: an agent's attachment-only message is not a turn", MUX, "f5", send("f5", [clip({ hash: sha("3") })]), "commit")
+  c.op(files, "attachment: one byte over 100000000", ALICE, "f0", send("f0", [clip({ byte_count: 100_000_001 })]), "invalid_parts")
+  c.op(files, "attachment: an SVG is never on the allow list", ALICE, "f0", send("f0", [photo({ name: "logo.svg", mime_type: "image/svg+xml" })]), "invalid_parts")
+  c.op(files, "attachment: a denied extension under an allowed type", ALICE, "f0", send("f0", [photo({ name: "setup.exe", mime_type: "application/zip" })]), "invalid_parts")
+  c.op(files, "attachment: an upper-case type", ALICE, "f0", send("f0", [photo({ mime_type: "IMAGE/PNG" })]), "invalid_parts")
+  c.op(files, "attachment: a hash that is not 64 lowercase hex digits", ALICE, "f0", send("f0", [photo({ hash: "A".repeat(64) })]), "invalid_parts")
+  c.op(files, "attachment: a name with a path separator", ALICE, "f0", send("f0", [photo({ name: "../x.png" })]), "invalid_parts")
+  c.op(files, "attachment: a 256-character name", ALICE, "f0", send("f0", [photo({ name: `${"n".repeat(252)}.png` })]), "invalid_parts")
+  c.op(files, "attachment: zero bytes", ALICE, "f0", send("f0", [photo({ byte_count: 0 })]), "invalid_parts")
+  c.op(files, "attachment: a zero width", ALICE, "f0", send("f0", [photo({ width: 0 })]), "invalid_parts")
+  c.op(files, "attachment: a poster on an image", ALICE, "f0", send("f0", [photo({ poster: jpeg("c", 1_000) })]), "invalid_parts")
+  c.op(files, "attachment: a preview on a video", ALICE, "f0", send("f0", [clip({ preview: jpeg("c", 1_000) })]), "invalid_parts")
+  c.op(files, "attachment: a PNG poster", ALICE, "f0", send("f0", [clip({ poster: { ...jpeg("c", 1_000), mime_type: "image/png" } })]), "invalid_parts")
+  c.op(files, "attachment: a poster over 2000000 bytes", ALICE, "f0", send("f0", [clip({ poster: jpeg("c", 2_000_001) })]), "invalid_parts")
+  c.op(files, "attachment: a preview over 512000 bytes", ALICE, "f0", send("f0", [photo({ preview: jpeg("c", 512_001) })]), "invalid_parts")
+  const firstPhoto = files.messages[0]!
+  c.op(files, "attachment: an edit may swap the file", ALICE, "f6", { kind: "message.edit", message_id: firstPhoto.id, parts: [text("better"), photo({ hash: sha("4") })] }, "commit")
+
   questionCases(c)
 }
