@@ -1,6 +1,6 @@
 import type { Env } from "./env.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
-import { isUsagePlan, USAGE_METER_EVENT, USAGE_PLANS, USAGE_PRODUCT_ID, usagePriceLookupKey, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
+import { INCLUDED_MODES, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, usageIncludedMode, usageIncludedUsd, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
 
 /**
  * The usage sync (cx-y79zh S4, plans/cmux-next/usage-billing.md section 3, placement option a): the
@@ -16,8 +16,12 @@ import { isUsagePlan, USAGE_METER_EVENT, USAGE_PLANS, USAGE_PRODUCT_ID, usagePri
  *    an idempotency key per subscription. The plan item is never changed.
  * 3. The level: UsageMeterDO.level for the usage item's current period, sent as a meter event (the
  *    meter aggregates `last`, so a repeat cannot double bill). The identifier names the level's state
- *    (period, micros, fact count, last fact time): the same state is the same event; any new fact or
- *    correction is a new event. Unchanged levels are not sent again.
+ *    (period, micros, fact count, last fact time, and per seat the seats): the same state is the same
+ *    event; any new fact, correction or seat change is a new event. Unchanged levels are not sent again.
+ * 4. The included mode (billing-catalog.ts): per team, the whole level goes to the graduated price's
+ *    meter; per seat, the level above included x seats goes to the flat price's meter. Seats are the
+ *    plan item's quantity, the most seen at any run in the period (a seat removed late in the period
+ *    does not take its included amount back), and a closed period's final push reuses them.
  *
  * Keys: STRIPE_USAGE_KEY. This phase is test mode only: a live key is refused before any call, in
  * every environment (live objects and live subscriptions are Lawrence's step).
@@ -50,7 +54,7 @@ export interface SyncReport {
   failed: number
 }
 
-type StripeItem = { id: string; price: { id: string; product: string | { id: string }; lookup_key?: string | null; recurring?: { interval?: string } | null }; current_period_start?: number; current_period_end?: number }
+type StripeItem = { id: string; quantity?: number; price: { id: string; product: string | { id: string }; lookup_key?: string | null; recurring?: { interval?: string } | null }; current_period_start?: number; current_period_end?: number }
 type StripeSubscription = { id: string; status: string; customer: string | { id: string }; metadata?: Record<string, string>; items: { data: StripeItem[] } }
 
 const stripeFetch = async (key: string, method: "GET" | "POST", path: string, form?: Record<string, string>, idempotencyKey?: string): Promise<any> => {
@@ -117,17 +121,19 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   }
   const key = env.STRIPE_USAGE_KEY!
   const set = usagePriceSet(env)
-  // Every usage price of every set is a usage item (never a plan item); the set in force picks the target.
-  const allSets: UsagePriceSet[] = ["v1", "e2e"]
-  // At most 10 lookup keys per request (Stripe): 2 sets x 4 plans.
-  const asked = new Set(allSets.flatMap((s) => USAGE_PLANS.map((p) => usagePriceLookupKey(p, s))))
-  const priceList = await stripeFetch(key, "GET", `/v1/prices?active=true&limit=20&${[...asked].map((k) => `lookup_keys[]=${encodeURIComponent(k)}`).join("&")}`)
+  // Every usage price of every set and mode is a usage item (never a plan item); the set in force picks the target.
+  const asked = [...new Set(USAGE_PRICE_SET_NAMES.flatMap((s) => USAGE_PLANS.flatMap((p) => INCLUDED_MODES.map((m) => usagePriceLookupKey(p, s, m)))))]
+  const askedSet = new Set(asked)
   const priceOf = new Map<UsagePlan, string>()
   const usagePrices = new Set<string>()
-  for (const p of priceList.data as Array<{ id: string; lookup_key: string }>) {
-    if (!asked.has(p.lookup_key)) continue
-    usagePrices.add(p.id)
-    for (const plan of USAGE_PLANS) if (p.lookup_key === usagePriceLookupKey(plan, set)) priceOf.set(plan, p.id)
+  // At most 10 lookup keys per request (Stripe).
+  for (let i = 0; i < asked.length; i += 10) {
+    const priceList = await stripeFetch(key, "GET", `/v1/prices?active=true&limit=20&${asked.slice(i, i + 10).map((k) => `lookup_keys[]=${encodeURIComponent(k)}`).join("&")}`)
+    for (const p of priceList.data as Array<{ id: string; lookup_key: string }>) {
+      if (!askedSet.has(p.lookup_key)) continue
+      usagePrices.add(p.id)
+      for (const plan of USAGE_PLANS) if (p.lookup_key === usagePriceLookupKey(plan, set)) priceOf.set(plan, p.id)
+    }
   }
   const isUsageItem = (i: StripeItem) => usagePrices.has(i.price.id) || idOf(i.price.product) === USAGE_PRODUCT_ID
 
@@ -141,22 +147,28 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   const perCustomer = new Map<string, number>()
   for (const sub of counted) perCustomer.set(idOf(sub.customer), (perCustomer.get(idOf(sub.customer)) ?? 0) + 1)
 
-  /** Sends the level of [start, end) for this subscription when it changed; `final` = a closed period's last push. */
-  const pushLevel = async (team: string, sub: StripeSubscription, start: number, end: number) => {
+  /**
+   * Sends the level of [start, end) for this subscription when it changed, in the period's mode: per team the
+   * whole level, per seat the level above included x seats (`seats` = the most the period has seen).
+   */
+  const pushLevel = async (team: string, sub: StripeSubscription, start: number, end: number, mode: IncludedMode, includedUsd: number, seatsNow: number) => {
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
     const level = await meter.level(team, start * 1000, end * 1000)
-    const identifier = `ai:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}`
-    const sent = await meter.pushedLevel(team, sub.id, start)
-    if (sent === identifier || (sent === null && level.facts === 0)) return false
+    const sent = await meter.pushState(team, sub.id, start)
+    const seats = mode === "per_seat" ? Math.max(seatsNow, sent?.mode === "per_seat" ? sent.seats : 1) : 1
+    // per_team keeps the S4 identifier form, so a deploy does not resend every unchanged level.
+    const identifier = mode === "per_seat" ? `ais:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}:${seats}` : `ai:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}`
+    if (sent?.identifier === identifier || (sent === null && level.facts === 0)) return false
+    const value = usageMeterValueMicros(mode, level.micros, includedUsd, seats)
     const timestamp = Math.min(Math.floor(Date.now() / 1000), end - 1)
     try {
-      await stripeFetch(key, "POST", "/v1/billing/meter_events", { event_name: USAGE_METER_EVENT, "payload[stripe_customer_id]": idOf(sub.customer), "payload[value]": (level.micros / 1_000_000).toFixed(6), identifier, timestamp: String(timestamp) }, identifier)
+      await stripeFetch(key, "POST", "/v1/billing/meter_events", { event_name: usageMeterEvent(mode), "payload[stripe_customer_id]": idOf(sub.customer), "payload[value]": (value / 1_000_000).toFixed(6), identifier, timestamp: String(timestamp) }, identifier)
     } catch (e) {
       // The same identifier was already accepted (a run that died before it recorded the push).
       const err = e as { status?: number; stripeMessage?: string }
       if (!(err.status === 400 && /identifier/i.test(err.stripeMessage ?? "") && /(already|duplicate|exists)/i.test(err.stripeMessage ?? ""))) throw e
     }
-    await meter.recordPush(team, sub.id, start, end, identifier, level.micros)
+    await meter.recordPush(team, sub.id, start, end, identifier, level.micros, { mode, seats, included_usd: includedUsd, sent_micros: value })
     return true
   }
 
@@ -194,14 +206,25 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
         report.skipped++
         continue
       }
+      const mode = usageIncludedMode(plan, set)
+      const includedUsd = usageIncludedUsd(plan, set)
       const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team!))
-      // The team can be billed above its included amount until this period ends (inference/included-stop.ts).
-      await meter.markBillable(team!, sub.id, end)
+      // The period's seats: the plan item's quantity, or more when the period already saw more (the bill and the console agree, review P3).
+      const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
+      const seen = mode === "per_seat" ? await meter.pushState(team!, sub.id, start) : null
+      const seats = seen?.mode === "per_seat" ? Math.max(quantity, seen.seats) : quantity
+      // The team can be billed above its included amount until this period ends (inference/included-stop.ts);
+      // the mark also names the period's included amount for the console (team.ai_limit.get).
+      await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: includedUsd })
       // Period close (review P2): after a renewal, the closed period gets its final level once more,
-      // dated inside it, while its invoice is still a draft (Stripe waits about an hour).
+      // dated inside it, while its invoice is still a draft (Stripe waits about an hour). It keeps the
+      // closed period's own mode and seats.
       const prev = await meter.previousPush(team!, sub.id, start)
-      if (prev && (await pushLevel(team!, sub, prev.period_start, prev.period_end))) report.pushed++
-      if (await pushLevel(team!, sub, start, end)) report.pushed++
+      if (prev) {
+        const prevMode = isIncludedMode(prev.mode) ? prev.mode : "per_team"
+        if (await pushLevel(team!, sub, prev.period_start, prev.period_end, prevMode, prev.included_usd ?? includedUsd, prev.seats)) report.pushed++
+      }
+      if (await pushLevel(team!, sub, start, end, mode, includedUsd, seats)) report.pushed++
       else report.unchanged++
     } catch (e) {
       report.failed++

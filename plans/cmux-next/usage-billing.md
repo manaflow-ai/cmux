@@ -385,3 +385,49 @@ by design); alerts on truncation and on sync failure are live steps.
   every billable mark expires and every paying team stops at its included amount.)
   Usage items stay on subscriptions (metered, so nothing is billed without meter events); a cleanup
   run can remove them if live billing is abandoned.
+
+## 13. S5: team included amount per team and per seat (built, test mode)
+
+Lawrence 2026-10-14: support both. Config shape: the mode is part of the price set, per plan
+(`USAGE_INCLUDED_MODES` in `backend/apps/api/src/billing-catalog.ts`), beside the included USD.
+
+| mode | price | meter | what the sync sends |
+| --- | --- | --- | --- |
+| per_team | graduated, `cmux-ai-usage-<plan>-incl<N>-<set>`: N units at 0, then 1.00 USD | `cmux_ai_usage` | the period's whole level |
+| per_seat | flat 1.00 USD per unit, `cmux-ai-usage-<plan>-seat<N>-<set>` | `cmux_ai_usage_above_included` | the level above N x seats, never below 0 |
+
+- Two meters, so a meter value always means one thing. A plan changes mode only in a new price set,
+  at a period boundary (a mode change moves the usage item to the other meter's price).
+- Seats = the plan item's quantity, the most seen at any sync run in the period: a seat removed late
+  in the period does not take its included amount back (errs toward the customer). The per-seat
+  identifier names the seats, so a seat change is a new meter event. A closed period's final push after
+  renewal reuses that period's mode and seats (usage_push columns `mode`, `seats`, `included_usd`).
+- v1 (production values): every plan per team, Team included 20 USD per team (as built). Which mode
+  the live Team plan uses is Lawrence's choice; switching is a new price set (`v2`) with
+  `team: "per_seat"`.
+- e2e (development Worker): Team per seat, and Max per seat at 0.5 USD so that the agent's personal
+  team can prove the per-seat path with a 2-seat Max plan item (`stripe-usage-e2e.ts MODE=seat`).
+- The included-amount stop (section 11) counts the plan's amount per team for a team that is not
+  billable; seats are known only from a billable subscription.
+- Console: `team.ai_limit.get` returns `team_usage` beside the members list (billing.manage readers):
+  billed or not, the included amount (x seats per seat), spend this period (the billing period when
+  billed, else the UTC month), and whether the stop applies or stopped the team.
+- Proof: route tests in `backend/apps/api/test/inference-spend-facts.test.ts` ("team included amount
+  per seat", "the console's team usage line"), payment service faked at HTTP.
+
+## 14. S5: the console usage view (two designs, Lawrence picks)
+
+- The Team page's "AI usage" section (`backend/apps/dashboard/src/routes/-ai-usage-view.tsx`) for
+  billing.manage readers: the team's usage this period against the included amount and the stop state
+  (`team_usage`), each member's spend next to their limit with an inline edit (set or clear a personal
+  limit), and the team default (change or reset to the cmux default). Members see their own line only.
+  React over HTTP against the Worker ops; no Swift. Copy in en and ja, no vendor names.
+- Two designs: `meter` (a progress line, member rows with thin bars) and `ledger` (three figures and a
+  quiet table). Row actions appear on hover or keyboard focus. The page uses `meter` until Lawrence picks;
+  `?ai_view=ledger` shows the other on the real page.
+- Preview with sample data, both designs in six states (billed per team, billed per seat above the
+  included amount, unbilled near the stop, unbilled above it with the stop off, stopped, plan not known):
+  https://console-staging.cmux.dev/preview/ai-usage (not served on console.cmux.dev).
+- Browser check (`backend/apps/dashboard/test-browser/ai-usage-preview.mjs`, run on a Freestyle VM):
+  actions hidden at rest, shown on hover and on focus, Edit opens a field, Save shows the new limit, no
+  page errors, for both designs.
