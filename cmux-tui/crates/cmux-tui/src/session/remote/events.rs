@@ -441,7 +441,8 @@ impl RemoteSession {
                     // already fail closed for a known-exited surface.
                     self.drop_surface(id);
                     self.tree_stale.store(true, Ordering::Release);
-                    self.emit(MuxEvent::SurfaceExited(id));
+                    let end = value.get("end").filter(|end| !end.is_null()).cloned();
+                    self.emit(MuxEvent::SurfaceExited(id, end.map(std::sync::Arc::new)));
                 }
             }
             Some("title-changed") => {
