@@ -762,7 +762,11 @@ fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
     assert_eq!(result["isError"], false, "{result}");
     assert_eq!(result["structuredContent"]["rendered"], true);
     assert_eq!(result["structuredContent"]["bytes"], page.len());
-    assert_eq!(server.backend.sent.borrow().len(), sent, "the chat draws the call; no owner is asked");
+    assert_eq!(
+        server.backend.sent.borrow().len(),
+        sent,
+        "the chat draws the call; no owner is asked"
+    );
 
     for arguments in [json!({"html": "  "}), json!({}), json!({"html": page, "url": "x"})] {
         let refused = call(&mut server, "render", arguments.clone());
