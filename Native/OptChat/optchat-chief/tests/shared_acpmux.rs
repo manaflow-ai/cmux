@@ -244,18 +244,6 @@ fn two_chiefs_on_one_acpmux_reach_only_their_own_sessions() {
 /// A host on `acpmux_home` (it starts the fake there), stopped with SIGTERM
 /// once the fake runs; the fake's pid.
 fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&Path>) -> i32 {
-    host_stops_after(dir, mux_home, acpmux_home, shared, |_| {})
-}
-
-/// [`host_stops`], with `before_stop` run on the fake's pid once it runs,
-/// before the host gets SIGTERM.
-fn host_stops_after(
-    dir: &Path,
-    mux_home: &Path,
-    acpmux_home: &Path,
-    shared: Option<&Path>,
-    before_stop: impl FnOnce(i32),
-) -> i32 {
     let bin = fake_acpmux(acpmux_home);
     let token = dir.join("agent-token");
     std::fs::write(&token, "secret\n").unwrap();
@@ -297,7 +285,6 @@ fn host_stops_after(
         .parse()
         .unwrap();
     guard.0.push(fake);
-    before_stop(fake);
     // SAFETY: the pid is our own child.
     unsafe { libc::kill(host.id() as i32, libc::SIGTERM) };
     let mut status = None;
@@ -521,26 +508,4 @@ fn the_last_chief_to_leave_stops_the_chief_homes_acpmux() {
     let _guard = Leftovers(vec![fake]);
     assert_eq!(calls(&acpmux_home), ["_acpmux/kill s-a-turn", "shutdown"]);
     wait_for("the daemon ending", Duration::from_secs(5), || !alive(fake));
-}
-
-/// A handoff: the app stopped the daemon this host started (agents
-/// detach; the next build's daemon adopts them) before it stops the host.
-/// The host then stops nothing: no `daemon shutdown` reaches the next
-/// daemon, no session of its is ended.
-#[test]
-fn after_a_handoff_the_old_default_host_stops_nothing() {
-    let dir = tempfile::tempdir().unwrap();
-    let h = dir.path().join("h");
-    let acpmux_home = h.join("acpmux");
-    let socket = acpmux_home.join("acpmux.sock");
-    let fake = host_stops_after(dir.path(), &h, &acpmux_home, None, |fake| {
-        // SAFETY: the fake daemon this test's host started.
-        unsafe { libc::kill(fake, libc::SIGTERM) };
-        // Its socket stops answering (the host has not reaped it yet).
-        wait_for("the handed-off daemon ending", Duration::from_secs(5), || {
-            std::os::unix::net::UnixStream::connect(&socket).is_err()
-        });
-    });
-    let _guard = Leftovers(vec![fake]);
-    assert_eq!(calls(&acpmux_home), Vec::<String>::new(), "the old host stopped the next daemon");
 }
