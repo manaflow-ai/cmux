@@ -86,10 +86,7 @@ impl LaunchLedger {
     pub fn view(&self) -> LedgerView {
         let entries = self.entries.lock().unwrap_or_else(|error| error.into_inner());
         LedgerView {
-            entries: entries
-                .iter()
-                .map(|(key, entry)| (*key, entry.terminal_id.clone()))
-                .collect(),
+            entries: entries.iter().map(|(key, entry)| (*key, entry.terminal_id.clone())).collect(),
         }
     }
 
@@ -151,7 +148,8 @@ impl LaunchLedger {
         // A process the tree reaches keeps that terminal over a ledger one.
         let mut seen = HashSet::new();
         observations.retain(|(pid, _)| seen.insert(*pid));
-        let by_pid: HashMap<u32, &ProcessLink> = links.iter().map(|link| (link.pid, link)).collect();
+        let by_pid: HashMap<u32, &ProcessLink> =
+            links.iter().map(|link| (link.pid, link)).collect();
         let observations: Vec<Observation> = observations
             .into_iter()
             .filter_map(|(pid, terminal_id)| {
@@ -175,10 +173,8 @@ pub(super) fn ledger_descendants<'v>(
     if view.is_empty() {
         return Vec::new();
     }
-    let mut roots: Vec<(&ProcessLink, &'v str)> = links
-        .iter()
-        .filter_map(|link| Some((link, view.terminal_of(link.key())?)))
-        .collect();
+    let mut roots: Vec<(&ProcessLink, &'v str)> =
+        links.iter().filter_map(|link| Some((link, view.terminal_of(link.key())?))).collect();
     roots.sort_unstable_by(|a, b| {
         b.0.started_ms.cmp(&a.0.started_ms).then_with(|| a.0.pid.cmp(&b.0.pid))
     });
