@@ -17,7 +17,7 @@ import Testing
 /// synchronous, so the process-wide motion state cannot leak into another test.
 @MainActor @Suite(.serialized) struct LiveResizeTrackingTests {
     final class Panes: LayoutPaneContentProvider {
-        func makeContentView(for pane: PaneID) -> NSView { NSView() }
+        func makeContentView(for pane: CmuxNextLayout.PaneID) -> NSView { NSView() }
     }
 
     final class Owner: ResizeTarget {
@@ -55,7 +55,7 @@ import Testing
         root.layoutSubtreeIfNeeded()
         root.driver.isManual = true
         let screen = try #require(root.screenViews["s"])
-        func settled(_ pane: PaneID) -> Bool {
+        func settled(_ pane: CmuxNextLayout.PaneID) -> Bool {
             guard let shown = screen.displayedFrame(of: pane), let target = screen.geometry.panes[pane] else { return false }
             return abs(shown.minX - target.minX) < 0.5 && abs(shown.width - target.width) < 0.5
         }
@@ -83,8 +83,8 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         try #require(Motion.animatesFades, "animation speed is off on this host")
-        let tabs = (0..<8).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }
-        let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: TabID("tab0")))
+        let tabs = (0..<8).map { CmuxNextTabs.TabItem(id: CmuxNextTabs.TabID("tab\($0)"), title: "Tab \($0)") }
+        let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: CmuxNextTabs.TabID("tab0")))
         let window = Self.window(width: 1600, height: 40)
         window.contentView = strip
         strip.frame = NSRect(x: 0, y: 0, width: 1600, height: TabStripView.preferredHeight)
