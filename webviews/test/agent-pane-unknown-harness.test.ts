@@ -55,8 +55,7 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
     enforcement: {
       policy: "ask",
       label: "native_policy",
-      detail:
-        "scripted mode unknown; acpmux policy ask (the daemon default); host isolation unverified",
+      detail: "scripted mode unknown; acpmux policy ask (the daemon default); host isolation unverified",
       isolation: "unverified",
     },
     models: null,
@@ -125,9 +124,7 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined })
-          ? undefined
-          : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
@@ -173,9 +170,7 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
     page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    await page.goto(
-      `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
-    );
+    await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     const drawn = page.locator(".acpmux-composer-prompt, .acpmux-pane-failed").first();
     await drawn.waitFor({ timeout: 60_000 });
     await page.waitForTimeout(1_000);
@@ -185,13 +180,9 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("Is feat-cmux-next green?");
       await page.keyboard.press("Enter");
-      await page.waitForFunction(
-        () => document.body.textContent?.includes("Is feat-cmux-next green?"),
-        null,
-        {
-          timeout: 15_000,
-        },
-      );
+      await page.waitForFunction(() => document.body.textContent?.includes("Is feat-cmux-next green?"), null, {
+        timeout: 15_000,
+      });
       await page.waitForTimeout(1_000);
       failedSending = await page.locator(".acpmux-pane-failed").count();
     }
