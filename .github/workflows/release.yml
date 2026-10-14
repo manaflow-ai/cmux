@@ -114,14 +114,15 @@ jobs:
     # no headroom. Keep at least 25 percent above the measured duration. The thin
     # arm64 and x86_64 variants add two more helper and DMG notarizations, which
     # run serially after the universal one.
-    timeout-minutes: 150
+    timeout-minutes: 355
     env:
-      # Apple held the helper submission past the script's 25m default twice on
-      # 2026-10-14 (v0.65.2, runs 38569849033 and 38599823062) while 0.65.1 took
-      # 3m. Stable has no pending-notarization resume, so a timeout restarts the
-      # whole job; wait longer here. Build reaches the wait in about 25 minutes;
-      # the thin-variant step lowers this to 15m each to stay inside 150 minutes.
-      CMUX_HELPER_WAIT_TIMEOUT: 75m
+      # Apple held the helper submission past the script's 25m default three
+      # times on 2026-10-14 (v0.65.2) while other team submissions sat In
+      # Progress for over five hours; 0.65.1 took 3m. Stable has no
+      # pending-notarization resume, so a timeout restarts the whole job. Wait up
+      # to 4h, inside a job limit just under Blacksmith's 6h; the thin-variant
+      # step keeps a shorter wait because its helpers process alongside this one.
+      CMUX_HELPER_WAIT_TIMEOUT: 240m
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -714,8 +715,8 @@ jobs:
           CMUX_CHANNEL: stable
           # The thin helpers were submitted next to the universal one and have
           # been processing through its wait, so a short wait each keeps the two
-          # serial variants inside the job's 150-minute limit.
-          CMUX_HELPER_WAIT_TIMEOUT: 15m
+          # serial variants inside the job limit.
+          CMUX_HELPER_WAIT_TIMEOUT: 30m
         run: |
           set -euo pipefail
           for arch in arm64 x86_64; do
