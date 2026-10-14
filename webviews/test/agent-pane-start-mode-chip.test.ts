@@ -112,14 +112,20 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
         // acpmux takes the pick, then tells every watcher the chat's new mode.
         const entry = chats.get(String(params.sessionId))!;
         entry.session = { ...entry.session, modes: modes(String(params.modeId)) };
-        if (!daemonState.pinned && params.modeId !== "plan") daemonState.startMode = String(params.modeId);
+        const takes = !daemonState.pinned && params.modeId !== "plan" && daemonState.startMode !== params.modeId;
+        if (takes) daemonState.startMode = String(params.modeId);
         const changed = JSON.stringify({
           jsonrpc: "2.0",
           method: "_acpmux/session_changed",
           params: { sessionId: entry.session.sessionId, session: entry.session, kind: "mode", recordKind: "mode" },
         });
+        // A pick it takes as the start mode: every local watcher asks `_acpmux/start_mode` again.
+        const notice = JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/start_mode_changed", params: {} });
         queueMicrotask(() => {
-          for (const socket of sockets) socket.send(changed);
+          for (const socket of sockets) {
+            socket.send(changed);
+            if (takes) socket.send(notice);
+          }
         });
         return null;
       }
@@ -252,6 +258,32 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     reset(true);
     const { context, other } = await newChatAfterPick();
     expect(await settledChip(other)).toBe("Mode");
+    await context.close();
+  });
+  test("a pending chat follows a pick made after it opened", async () => {
+    reset(false);
+    const context = await browser!.newContext({ viewport: { width: 900, height: 760 } });
+    // The new chat opens first, in full access, and acpmux has not started it (session/new held).
+    const other = await context.newPage();
+    await other.goto(url(OTHER));
+    await other.getByText("Docs updated.").waitFor();
+    await other.evaluate(() => {
+      const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
+        .cmuxAcpmuxActions;
+      void actions?.["chat.new"]?.({ harness: "claude" });
+    });
+    await other.getByText("Docs updated.").waitFor({ state: "detached" });
+    expect(await settledChip(other)).toBe("Full access");
+    // Then the person picks Normal in another pane: the pending chat names Normal before any send.
+    const picked = await context.newPage();
+    await picked.goto(url(PICKED));
+    await picked.getByText("Retry added.").waitFor();
+    await picked.locator(".acpmux-access-trigger").click();
+    await picked.locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Normal" }).click();
+    await other.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Normal", CHIP, {
+      timeout: 10_000,
+    });
+    expect(calls.some((call) => call.method === "session/prompt")).toBe(false);
     await context.close();
   });
 });
