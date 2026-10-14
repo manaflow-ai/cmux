@@ -191,6 +191,7 @@
         "CmuxNextTasks",
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
+        "CmuxNextUpdateEverything",
         "CmuxNextUpdater",
         "CmuxNextWakeups"
       ],
@@ -870,6 +871,12 @@
     "CmuxNextTerminalGeometry": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextUpdateEverything": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdateEverything",
       "targets": [],
       "packages": []
     },
