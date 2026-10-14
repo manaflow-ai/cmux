@@ -8260,7 +8260,7 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مساعد اتصال Cloud لا يعمل على هذا الـ Mac. انقر على «ربط» لتشغيله."
+            "value": "مساعد اتصال Cloud لا يعمل على هذا الـ Mac. انقر على «اتصال» لتشغيله."
           }
         },
         "bs": {
@@ -8302,7 +8302,7 @@
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’helper di connessione Cloud non è in esecuzione su questo Mac. Fai clic su Collega per avviarlo."
+            "value": "L’helper di connessione Cloud non è in esecuzione su questo Mac. Fai clic su Connetti per avviarlo."
           }
         },
         "ja": {
@@ -8350,19 +8350,19 @@
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ตัวช่วยการเชื่อมต่อ Cloud ไม่ได้ทำงานอยู่บน Mac เครื่องนี้ คลิก เชื่อม เพื่อเริ่มการทำงาน"
+            "value": "ตัวช่วยการเชื่อมต่อ Cloud ไม่ได้ทำงานอยู่บน Mac เครื่องนี้ คลิก เชื่อมต่อ เพื่อเริ่มการทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud bağlantı yardımcısı bu Mac'te çalışmıyor. Başlatmak için Bağla'ya tıklayın."
+            "value": "Cloud bağlantı yardımcısı bu Mac'te çalışmıyor. Başlatmak için Bağlan'a tıklayın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Помічник підключення Cloud не запущено на цьому Mac. Натисніть «Підключити», щоб запустити його."
+            "value": "Помічник підключення Cloud не запущено на цьому Mac. Натисніть «Під’єднати», щоб запустити його."
           }
         },
         "vi": {
@@ -8380,7 +8380,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 Mac 上未執行 Cloud 連接輔助程式。按一下「連接」以啟動它。"
+            "value": "此 Mac 上未執行 Cloud 連線輔助程式。按一下「連線」以啟動它。"
           }
         }
       }
