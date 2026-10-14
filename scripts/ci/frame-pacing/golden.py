@@ -177,7 +177,6 @@ class Driver:
         self.call("debug.new_tab", {"action": "drop_spare"})
         strip = self.call("debug.new_tab", {"action": "frame_strip", "key": "t", "duration_ms": 600, "scale": 0.5,
                                             "dir": str(self.out / "capture-new-tab")}, timeout=15)
-        strip.pop("frames", None)
         self.save("capture_new_tab", strip)
         self.key("w", ["command"])
 
