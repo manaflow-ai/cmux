@@ -152,7 +152,7 @@ public final class FeedStore {
         }
     }
     /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).
-    @ObservationIgnored private let readMarks: FeedReadMarks?
+    @ObservationIgnored private var readMarks: FeedReadMarks?
     @ObservationIgnored private var readIDs: [String] = []
 
     private func recordReadMarks() {
@@ -256,6 +256,23 @@ public final class FeedStore {
     }
 
     /// Replaces every item (live mode starts empty).
+    /// The signed-in account's read flags (`FeedReadMarks.forAccount`): another
+    /// account on this phone never sees them, and the same account keeps them
+    /// across sign-out (verify/persistence.md).
+    public func useReadMarks(_ marks: FeedReadMarks?) {
+        readMarks = marks
+        readIDs = marks?.load() ?? []
+    }
+
+    /// Sign-out: the Feed's items leave memory (the account's archive is
+    /// deleted by the caller); nothing is saved for it any more.
+    public func clearForSignOut() {
+        onItemsChange = nil
+        actions = nil
+        replaceAll([])
+        useReadMarks(nil)
+    }
+
     public func replaceAll(_ next: [FeedItem]) {
         items = next.sorted { $0.createdAt > $1.createdAt }
         unseenNewIDs = []

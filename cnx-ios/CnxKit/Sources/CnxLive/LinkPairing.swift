@@ -190,7 +190,7 @@ public struct LinkPairing: Sendable {
         return .proven(key.lowercased())
     }
 
-    /// Sign-out: asks the Mac to forget this phone (best effort, over a live link).
+    /// "Remove This iPhone from My Macs": asks the Mac to forget this phone (best effort, over a live link).
     public func unpair(link: any MacLink, macID: String) async {
         guard let (identity, approval) = try? keys.publicKeys(),
               let channel = try? await link.openChannel(service: "auth", args: [

@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 /// Client-generated device UUIDs persisted in the Keychain (PROTOCOL.md "Devices").
 ///
@@ -8,7 +7,13 @@ import Security
 /// socket. The backend keeps one socket per device and a newer one replaces
 /// the older (close 4000), so sharing one id would cut the relay whenever the
 /// presence listener reconnects.
-public struct DeviceIdentity: Sendable {
+///
+/// The ids belong to one account on this phone: the service binds a device id
+/// to the user who registered it (`403 not_owner` for anyone else), and a Mac
+/// approves a phone by its link id. So they are kept per user and survive
+/// sign-out: the same account signing in again is the same phone, and its Macs
+/// do not ask again (verify/persistence.md). Another account gets its own ids.
+public struct DeviceIdentity: Sendable, Equatable {
     public let link: String
     public let presence: String
 
@@ -17,44 +22,36 @@ public struct DeviceIdentity: Sendable {
         self.presence = presence
     }
 
-    /// Reads (or creates and stores) both ids.
-    public static func load(service: String = "dev.cmux.cnx.device") -> DeviceIdentity {
-        DeviceIdentity(link: id(service: service, account: "link"), presence: id(service: service, account: "presence"))
+    public static let defaultService = "dev.cmux.cnx.device"
+
+    /// Reads (or creates and stores) both ids of `userID` on this phone.
+    ///
+    /// Migration: builds before per-user ids kept one pair (accounts `link`,
+    /// `presence`) and deleted it on every sign-out, so a pair that exists
+    /// belongs to the account signed in now; the first load adopts it.
+    public static func load(userID: String, store: any DeviceSecretStore = KeychainSecretStore(),
+                            service: String = defaultService) -> DeviceIdentity {
+        DeviceIdentity(link: id(userID: userID, kind: "link", store: store, service: service),
+                       presence: id(userID: userID, kind: "presence", store: store, service: service))
     }
 
-    /// Sign-out: forgets both ids. The service binds a device id to the user
-    /// who registered it (`403 not_owner` for anyone else), so the next account
-    /// gets new ones.
-    public static func reset(service: String = "dev.cmux.cnx.device") {
-        for account in ["link", "presence"] {
-            let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-            SecItemDelete(query as CFDictionary)
-        }
+    /// Account deletion: forgets this account's ids (the service deleted its devices).
+    public static func forget(userID: String, store: any DeviceSecretStore = KeychainSecretStore(),
+                              service: String = defaultService) {
+        for kind in ["link", "presence"] { store.delete(service: service, account: account(kind, userID)) }
     }
 
-    static func id(service: String, account: String) -> String {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: AnyObject?
-        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-           let data = result as? Data, let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil {
+    static func account(_ kind: String, _ userID: String) -> String { "\(kind).\(userID)" }
+
+    static func id(userID: String, kind: String, store: any DeviceSecretStore, service: String) -> String {
+        let account = account(kind, userID)
+        store.adopt(service: service, from: kind, to: account)
+        if let data = try? store.read(service: service, account: account),
+           let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil {
             return value
         }
         let value = UUID().uuidString.lowercased()
-        let add: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            kSecValueData as String: Data(value.utf8),
-        ]
-        SecItemDelete(add as CFDictionary)
-        SecItemAdd(add as CFDictionary, nil)
+        try? store.write(Data(value.utf8), service: service, account: account)
         return value
     }
 }

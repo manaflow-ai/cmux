@@ -73,6 +73,9 @@ public struct RootView: View {
     /// cleared on sign-out, where Welcome crossfades in, settled.
     @State private var welcomeCut = false
     @AppStorage("cnx.setupComplete") private var setupComplete = false
+    /// The account whose preferences are live (`AccountPreferences`); sign-out
+    /// puts them away under it.
+    @State private var accountUserID: String?
     private let options: ShellLaunchOptions
 
     public init(auth: CnxAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -165,6 +168,14 @@ public struct RootView: View {
             accountChanged()
             await auth.loadTeams()
         }
+        // The account's own preferences (setup done, its Mac per team, last
+        // tab) come back before the first frame of its session, so the same
+        // account signing in again skips setup (verify/persistence.md).
+        .onChange(of: auth.isSignedIn ? auth.user?.id : nil, initial: true) { _, id in
+            guard let id, !auth.isMock else { return }
+            AccountPreferences.standard.activate(userID: id)
+            accountUserID = id
+        }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
@@ -229,34 +240,31 @@ public struct RootView: View {
     }
 
     /// Every sign-out path (setup's footer, Settings → Sign out, a session the
-    /// service ended) lands here: live data stops, the account's teams, Macs,
-    /// workspaces and stored preferences go, the device ids are replaced (the
-    /// service binds them to their first user), and Welcome crossfades in,
+    /// service ended) lands here: live data stops; the account's teams, Macs,
+    /// workspaces, Feed and snapshots leave the screen and the disk; its
+    /// preferences are put away under its id; and Welcome crossfades in,
     /// already settled (its intro plays once per cold launch).
+    ///
+    /// This iPhone keeps its identity for the account: device ids, Secure
+    /// Enclave keys and pinned Macs, so its Macs' approvals still hold when the
+    /// same account signs in again (verify/persistence.md). Removing it from
+    /// the Macs is its own action (Settings → Devices).
     private func signedOut() {
-        // The phone asks the linked Mac to forget it, then deletes its keys
-        // (verify/phone-approvals.md); live data stops after that try.
-        if let ending = live {
-            Task { @MainActor in
-                await ending.unpair()
-                ending.stop()
-            }
-        } else if !auth.isMock {
-            PhoneKeys().reset()
-        }
+        let ending = live
         live = nil
         setupPlan = nil
         asksNotifications = nil
-        store.resetForSignOut()
-        // The next account starts on Home, not in this one's workspace.
-        LastOpenMemory.standard.save(nil)
-        if !auth.isMock {
-            DeviceIdentity.reset()
-            LiveCoordinator.forgetSnapshots()
+        if auth.isMock {
+            // The next account starts on Home, not in this one's workspace.
+            LastOpenMemory.standard.save(nil)
+            setupComplete = false
+        } else {
+            AccountSignOut().signedOut(userID: accountUserID, session: ending)
+            accountUserID = nil
         }
-        setupComplete = false
+        store.resetForSignOut()
         welcomeCut = false
-        log.info("signed out: account state reset")
+        log.info("signed out: account state reset, device identity kept")
     }
 
     /// Starts live data for a signed-in account (before setup, so setup sees
@@ -282,26 +290,22 @@ public struct RootView: View {
         let coordinator = LiveCoordinator(
             store: store,
             api: api,
-            identity: DeviceIdentity.load(),
+            identity: DeviceIdentity.load(userID: user.id),
             userID: user.id,
             deviceName: UIDevice.current.name,
             transport: settings.transport.link,
             relayOnly: DeveloperOptions.relayOnly,
             dialer: FFIMacLinkDialer(),
-            keys: PhoneKeys()
+            keys: PhoneKeys(userID: user.id)
         )
         coordinator.onFollow = { [auth] teamID in
             guard !teamID.hasPrefix("personal-") else { return }
             Task { await auth.selectTeam(teamID) }
         }
         live = coordinator
-        // Before the session ends (the link closes with it): stop pushes to this phone,
-        // and ask the linked Mac to forget it (verify/phone-approvals.md).
-        auth.willSignOut = { [weak coordinator] in
-            async let push: Void = PushRegistration.shared.unregister()
-            async let unpair: Void = coordinator?.unpair() ?? ()
-            _ = await (push, unpair)
-        }
+        // Before the session ends: stop pushes to this phone. The Macs keep
+        // their approval of it (verify/persistence.md).
+        auth.willSignOut = AccountSignOut().willSignOut { await PushRegistration.shared.unregister() }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
     }

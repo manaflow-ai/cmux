@@ -46,15 +46,43 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
     }
 
     private let service: String
+    /// Whose keys these are: `identity.<user>` / `approval.<user>` (nil: the
+    /// shared `identity` / `approval` items of builds before per-user keys).
+    public let userID: String?
+    private let store: any DeviceSecretStore
+    private let enclave: Bool
     private let lock = NSLock()
     private var cached: (identity: AnyKey, approval: AnyKey)?
     /// A stored key could not be read back and was replaced (review m8).
     private var replaced = false
 
-    /// One key pair per bundle (a Demo and a Production install never share keys).
-    public init(service: String = (Bundle.main.bundleIdentifier ?? "dev.cmux.cnx") + ".phone-keys") {
-        self.service = service
+    public static let defaultService = (Bundle.main.bundleIdentifier ?? "dev.cmux.cnx") + ".phone-keys"
+
+    /// One key pair per bundle and account (a Demo and a Production install
+    /// never share keys, and two accounts on one phone never share keys). The
+    /// keys survive sign-out, so the same account signing in again is the
+    /// phone its Macs approved (verify/persistence.md).
+    ///
+    /// Migration: builds before per-user keys kept one pair and deleted it on
+    /// sign-out, so a pair that exists belongs to the account signed in now;
+    /// the first `PhoneKeys(userID:)` adopts it.
+    public init(userID: String? = nil, service: String = PhoneKeys.defaultService,
+                store: any DeviceSecretStore = KeychainSecretStore()) {
+        self.init(userID: userID, service: service, store: store, enclave: Self.hasEnclave)
     }
+
+    /// `enclave` false: software keys (DEBUG only; tests on a Mac with an enclave).
+    init(userID: String?, service: String, store: any DeviceSecretStore, enclave: Bool) {
+        self.service = service
+        self.userID = userID
+        self.store = store
+        self.enclave = enclave
+        if userID != nil {
+            for kind in ["identity", "approval"] { store.adopt(service: service, from: kind, to: account(kind)) }
+        }
+    }
+
+    private func account(_ kind: String) -> String { userID.map { "\(kind).\($0)" } ?? kind }
 
     /// X9.63 (65-byte uncompressed) points as lowercase hex.
     public func publicKeys() throws -> (identity: String, approval: String) {
@@ -94,12 +122,19 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
         }
     }
 
-    /// Sign-out: deletes both keys; the next link makes new ones (and asks the Mac again).
+    /// "Remove This iPhone from My Macs" and account deletion: deletes both
+    /// keys; the next link makes new ones, and every Mac asks again. Sign-out
+    /// keeps them (verify/persistence.md).
     public func reset() {
         lock.withLock { cached = nil }
-        for account in ["identity", "approval"] {
-            SecItemDelete(query(account) as CFDictionary)
+        for kind in ["identity", "approval"] {
+            store.delete(service: service, account: account(kind))
         }
+    }
+
+    /// Whether this account has keys on this phone (no key is made).
+    public var hasStoredKeys: Bool {
+        (try? store.read(service: service, account: account("identity"))) != nil
     }
 
     // MARK: Storage
@@ -124,7 +159,7 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
     }
 
     private func key(_ account: String, presence: Bool) throws -> AnyKey {
-        if Self.hasEnclave {
+        if enclave {
             if let blob = try read(account) {
                 if let key = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob) { return .enclave(key) }
                 // Unreadable (say a restore onto another enclave): a new key, and the Mac asks again.
@@ -156,39 +191,31 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
     }
 
     /// Deletes an unreadable stored key (the caller holds the lock).
-    private func discard(_ account: String) {
-        SecItemDelete(query(account) as CFDictionary)
+    private func discard(_ kind: String) {
+        store.delete(service: service, account: account(kind))
         replaced = true
     }
 
     /// Tests: stores raw bytes as a key, as a damaged item would be.
-    func storeRaw(_ data: Data, account: String) throws {
+    func storeRaw(_ data: Data, account kind: String) throws {
         lock.withLock { cached = nil }
-        SecItemDelete(query(account) as CFDictionary)
-        try write(account, data)
+        try write(kind, data)
     }
 
-    private func query(_ account: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-         kSecAttrAccount as String: account]
+    private func read(_ kind: String) throws -> Data? {
+        do {
+            return try store.read(service: service, account: account(kind))
+        } catch let failure as KeychainSecretStore.Failure {
+            throw Failure.keychain(failure.status)
+        }
     }
 
-    private func read(_ account: String) throws -> Data? {
-        var q = query(account)
-        q[kSecReturnData as String] = true
-        var out: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &out)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess else { throw Failure.keychain(status) }
-        return out as? Data
-    }
-
-    private func write(_ account: String, _ data: Data) throws {
-        var q = query(account)
-        q[kSecValueData as String] = data
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(q as CFDictionary, nil)
-        guard status == errSecSuccess else { throw Failure.keychain(status) }
+    private func write(_ kind: String, _ data: Data) throws {
+        do {
+            try store.write(data, service: service, account: account(kind))
+        } catch let failure as KeychainSecretStore.Failure {
+            throw Failure.keychain(failure.status)
+        }
     }
 
     static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }

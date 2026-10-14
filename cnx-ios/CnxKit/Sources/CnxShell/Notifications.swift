@@ -137,6 +137,10 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
         guard let live else { throw NotSignedIn() }
         try await live.deleteAccountData()
     }
+
+    func removeThisPhoneFromMacs() async {
+        await live?.removeThisPhoneFromMacs()
+    }
 }
 #endif
 
@@ -167,5 +171,7 @@ final class MockDeviceDirectory: SettingsDeviceDirectory {
     }
 
     func deleteAccountData() async throws {}
+
+    func removeThisPhoneFromMacs() async {}
 }
 #endif

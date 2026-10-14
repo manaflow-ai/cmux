@@ -63,6 +63,8 @@ public final class LiveCoordinator {
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let api: LiveAPI
     @ObservationIgnored let identity: DeviceIdentity
+    /// Where `identity` and the pairing keys are kept (the Keychain; memory in tests).
+    @ObservationIgnored let secrets: any DeviceSecretStore
     @ObservationIgnored let userID: String
     @ObservationIgnored let deviceName: String
     /// The phone's keys; nil (tests, mock) skips pairing.
@@ -84,8 +86,14 @@ public final class LiveCoordinator {
     /// The pairing run on a link: input-lane channels (another stream, which can
     /// overtake `auth`) wait for it (review m6), and Retry re-runs a refused one (M2).
     @ObservationIgnored private var pairingGate: (link: any MacLink, passed: Task<Bool, Never>)?
-    /// Sign-out's unpair ran (it runs once: a second one would make new keys).
-    @ObservationIgnored private var unpairStarted = false
+    /// The account was deleted: sign-out keeps nothing of it.
+    @ObservationIgnored public private(set) var accountDeleted = false
+    /// Signed out: nothing more is saved for the account.
+    @ObservationIgnored private var stopped = false
+    /// "Remove This iPhone from My Macs" is running.
+    @ObservationIgnored private var removalRunning = false
+    /// How many times this phone was removed from its Macs (tests).
+    @ObservationIgnored public private(set) var removedFromMacsCount = 0
     /// Terminal tabs handed out, reattached on every new link.
     @ObservationIgnored private var terminals: [WeakTerminal] = []
     private struct WeakTerminal { weak var session: DaemonTerminalSession? }
@@ -137,8 +145,11 @@ public final class LiveCoordinator {
         feedStore: FeedStore = .shared,
         keys: PhoneKeys? = nil,
         snapshots: LiveSnapshotStore = .standard,
+        secrets: any DeviceSecretStore = KeychainSecretStore(),
+        readMarks: FeedReadMarks? = nil,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
+        self.secrets = secrets
         ConnectTimeline.shared.mark("coordinator_start")
         self.snapshots = snapshots
         self.store = store
@@ -161,6 +172,7 @@ public final class LiveCoordinator {
         feed.hub = acpmux
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
+        feedStore.useReadMarks(readMarks ?? .forAccount(userID))
         feedStore.replaceAll(archive.load())
         feedStore.onItemsChange = { [weak self] _ in self?.scheduleFeedSave(archive) }
         feedStore.actions = feed
@@ -552,6 +564,7 @@ public final class LiveCoordinator {
     /// devices, push tokens and preferences.
     public func deleteAccountData() async throws {
         try await api.deleteMe()
+        forgetThisPhone()
     }
 
     /// Where a notification's session lives: the agent tab bound to it, or
@@ -566,6 +579,7 @@ public final class LiveCoordinator {
 
     /// Sign-out: stops discovery, presence and the link.
     public func stop() {
+        stopped = true
         discoveryTask?.cancel()
         discoveryTask = nil
         teamTask?.cancel()
@@ -895,15 +909,34 @@ public final class LiveCoordinator {
         }
     }
 
-    /// Sign-out: asks the linked Mac to forget this phone, then deletes its keys.
-    /// Runs once (review m4): a second call would load, and so create, new keys.
-    public func unpair() async {
-        guard let pairing, !unpairStarted else { return }
-        unpairStarted = true
+    /// Settings → Devices → "Remove This iPhone from My Macs": asks the linked
+    /// Mac to forget this phone, deletes this account's pairing keys (so no
+    /// Mac that approved them can be reached with them again), and redials,
+    /// so the next link asks the Mac to allow this iPhone again.
+    /// Sign-out does not do this: it keeps the phone's identity and approvals
+    /// (verify/persistence.md). One removal at a time (review m4: a second
+    /// one racing it would load, and so create, new keys mid-unpair).
+    public func removeThisPhoneFromMacs() async {
+        guard let pairing, !removalRunning else { return }
+        removalRunning = true
+        defer { removalRunning = false }
         if let link = currentLink, let macID = self.link.target?.macID {
             await pairing.unpair(link: link, macID: macID)
         }
         pairing.keys.reset()
+        removedFromMacsCount += 1
+        // Drop the link that the Mac approved with the old keys, and dial again.
+        let target = self.link.target
+        self.link.send(.target(nil))
+        if target != nil { retarget() }
+    }
+
+    /// Account deletion, after the service forgot the account: this phone's
+    /// keys and device ids for it go too (they can never be used again).
+    public func forgetThisPhone() {
+        accountDeleted = true
+        pairing?.keys.reset()
+        DeviceIdentity.forget(userID: userID, store: secrets)
     }
 
     /// A live session for a terminal tab of the Mac (`s<surface>`), or nil
@@ -1042,7 +1075,7 @@ public final class LiveCoordinator {
         guard !feedSavePending else { return }
         feedSavePending = true
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, !stopped else { return }
             feedSavePending = false
             archive.save(feed.store.items)
         }
