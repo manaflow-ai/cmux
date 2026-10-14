@@ -204,33 +204,59 @@ extension Workspace {
     /// interrupt, a timed-out or failed hook) no longer leaves "Running".
     static let agentTurnSettlementGrace: Duration = .seconds(3)
 
+    /// The bounded wait before a settlement re-checks the pane. Tests replace
+    /// it to run the grace without real time.
+    nonisolated(unsafe) static var agentTurnSettlementWait: @Sendable (Duration) async throws -> Void = { duration in
+        try await Task.sleep(for: duration)
+    }
+
     /// Settles a pane whose agent reported the end of its activity over
     /// OSC 7501 while its hook-driven lifecycle still says running.
+    ///
+    /// Each change for a panel restarts its pending settlement, so the grace
+    /// always runs from the latest edge, and a new working report cancels it.
     private func scheduleAgentTurnSettlement(
         panelId: UUID,
         previous: ProgramStatusRecordStore,
         current: ProgramStatusRecordStore
     ) {
         let settlement = ProgramStatusAgentSettlement()
+        for (taskKey, task) in agentTurnSettlementTasks where taskKey.hasPrefix(panelId.uuidString) {
+            let statusKey = String(taskKey.dropFirst(panelId.uuidString.count + 1))
+            if settlement.isActive(statusKey: statusKey, in: current) {
+                task.cancel()
+                agentTurnSettlementTasks.removeValue(forKey: taskKey)
+            }
+        }
         let endedKeys = settlement.endedActivityStatusKeys(previous: previous, current: current)
             .filter { agentLifecycleStatesByPanelId[panelId]?[$0] == .running }
-        guard !endedKeys.isEmpty else { return }
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.agentTurnSettlementGrace)
-            guard let self else { return }
-            for key in endedKeys.sorted() {
-                self.settleAgentTurnFromProgramStatus(key: key, panelId: panelId)
+        let edge = Date()
+        for key in endedKeys {
+            let taskKey = "\(panelId.uuidString)|\(key)"
+            agentTurnSettlementTasks[taskKey]?.cancel()
+            agentTurnSettlementTasks[taskKey] = Task { @MainActor [weak self] in
+                do {
+                    try await Self.agentTurnSettlementWait(Self.agentTurnSettlementGrace)
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                self.agentTurnSettlementTasks.removeValue(forKey: taskKey)
+                self.settleAgentTurnFromProgramStatus(key: key, panelId: panelId, edge: edge)
             }
         }
     }
 
-    /// Re-checks the pane after the grace period, then journals the turn end
-    /// so the lifecycle reducer agrees, and replaces the stale row with Idle.
-    func settleAgentTurnFromProgramStatus(key: String, panelId: UUID) {
+    /// Re-checks the pane after the grace, then settles it at the time the
+    /// agent's activity ended. Any hook report after that edge wins: a late
+    /// Stop already settled the turn, and a new prompt started another one.
+    func settleAgentTurnFromProgramStatus(key: String, panelId: UUID, edge: Date) {
         guard panels[panelId] != nil,
               agentLifecycleStatesByPanelId[panelId]?[key] == .running else { return }
+        if let reported = agentStatusEntriesByPanelId[panelId]?[key]?.timestamp, reported > edge {
+            return
+        }
         let store = programStatusStoresByPanelId[panelId] ?? ProgramStatusRecordStore()
-        // A new turn started meanwhile: the agent is working again.
         guard !ProgramStatusAgentSettlement().isActive(statusKey: key, in: store) else { return }
         let source = key == "claude_code" ? "claude" : key
 #if DEBUG
@@ -241,10 +267,10 @@ extension Workspace {
                   binding.kind?.lowercased() == source else { return nil }
             return binding.checkpointId
         }
-        if let sessionID {
-            let draft = AgentJournalEventDraft(
+        let draft = sessionID.map { sessionID in
+            AgentJournalEventDraft(
                 kind: .turnCompleted,
-                occurredAtMs: Int64(Date().timeIntervalSince1970 * 1_000),
+                occurredAtMs: Int64(edge.timeIntervalSince1970 * 1_000),
                 source: source,
                 agentKey: key,
                 sessionId: sessionID,
@@ -252,18 +278,20 @@ extension Workspace {
                 surfaceId: panelId.uuidString,
                 nativeEvent: "program_status_idle"
             )
-            if draft.validationProblem() == nil {
-                AgentJournalLifecycleCenter.shared.enqueueAppend(draft)
-            }
         }
-        setAgentLifecycle(key: key, panelId: panelId, lifecycle: .idle)
+        if let draft, draft.validationProblem() == nil {
+            // The journal projects the lifecycle, so it and the reducer agree.
+            AgentJournalLifecycleCenter.shared.enqueueAppend(draft)
+        } else {
+            setAgentLifecycle(key: key, panelId: panelId, lifecycle: .idle)
+        }
         setStatusEntry(
             SidebarStatusEntry(
                 key: key,
                 value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                 icon: "pause.circle.fill",
                 color: "#8E8E93",
-                timestamp: Date()
+                timestamp: edge
             ),
             key: key,
             panelId: panelId
