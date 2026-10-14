@@ -50,6 +50,7 @@ public actor SignalingClient {
     private let keepAliveInterval: Duration
     private var socket: URLSessionWebSocketTask?
     private var runTask: Task<Void, Never>?
+    private var reconnectImmediately = false
     private var connectWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private nonisolated let messageHub = Broadcaster<SignalMessage>()
     private nonisolated let presenceHub = Broadcaster<HostPresence>()
@@ -116,6 +117,14 @@ public actor SignalingClient {
     public func start() {
         guard runTask == nil else { return }
         runTask = Task { await self.run() }
+    }
+
+    /// Drops the current socket and reconnects without backoff, for a socket
+    /// that looks connected but lost a frame (an offer that got no answer).
+    public func reconnectNow() {
+        guard runTask != nil, let socket else { start(); return }
+        reconnectImmediately = true
+        socket.cancel(with: .goingAway, reason: nil)
     }
 
     public func stop() {
@@ -207,6 +216,11 @@ public actor SignalingClient {
                 if (try? await tokenRefresher()) != nil { attempt = 0; continue }
             }
             refreshedForExpiry = false
+            if reconnectImmediately {
+                reconnectImmediately = false
+                attempt = 0
+                continue
+            }
             attempt += 1
             do { try await clock.sleep(for: backoff.delay(forAttempt: attempt)) } catch { return }
         }

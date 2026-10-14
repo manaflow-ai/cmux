@@ -35,8 +35,16 @@ public final class WebRTCConnector: Connector {
         /// libwebrtc itself moves to `failed` after about 30 s.
         public var disconnectGrace: Duration
 
-        public init(relayOnly: Bool = false, connectTimeout: Duration = .seconds(20), disconnectGrace: Duration = .seconds(20)) {
+        /// How long to wait for the host's answer before assuming the offer
+        /// was lost (for example on a stale signaling socket) and retrying.
+        public var answerTimeout: Duration
+        /// How often the selected candidate pair is re-read while open.
+        public var pathPollInterval: Duration
+
+        public init(relayOnly: Bool = false, connectTimeout: Duration = .seconds(12), disconnectGrace: Duration = .seconds(20),
+                    answerTimeout: Duration = .seconds(3), pathPollInterval: Duration = .seconds(2)) {
             self.relayOnly = relayOnly; self.connectTimeout = connectTimeout; self.disconnectGrace = disconnectGrace
+            self.answerTimeout = answerTimeout; self.pathPollInterval = pathPollInterval
         }
     }
 
@@ -53,16 +61,32 @@ public final class WebRTCConnector: Connector {
     }
 
     public func connect(hostId: String) async throws -> any LinkTransport {
+        let start = ContinuousClock.now
+        // ICE config (cached by the backend client) and the signaling socket
+        // are fetched in parallel.
         async let ice = fetchICE()
         try await signaling.waitUntilConnected()
-        let transport = try WebRTCLinkTransport(hostId: hostId, ice: try await ice, signaling: signaling, options: options)
+        let signalingReady = ContinuousClock.now - start
+        let config = try await ice
+        let iceReady = ContinuousClock.now - start
+        webRTCLog.info("connect \(hostId, privacy: .public): signaling ready \(Self.ms(signalingReady), privacy: .public) ms, ice config \(Self.ms(iceReady), privacy: .public) ms")
+        let transport = try WebRTCLinkTransport(hostId: hostId, ice: config, signaling: signaling, options: options)
         do {
             try await transport.open()
         } catch {
             transport.close(reason: (error as? LocalizedError)?.errorDescription ?? "\(error)")
+            if case TransportError.connectFailed(let m) = error, m == WebRTCLinkTransport.noAnswerMessage {
+                // The offer most likely went into a dead socket.
+                await signaling.reconnectNow()
+            }
             throw error
         }
+        webRTCLog.info("connect \(hostId, privacy: .public): link \(transport.sessionId, privacy: .public) open after \(Self.ms(ContinuousClock.now - start), privacy: .public) ms")
         return transport
+    }
+
+    static func ms(_ d: Duration) -> Int {
+        Int(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000)
     }
 }
 
@@ -85,6 +109,14 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
     private var pendingRemoteCandidates: [RTCIceCandidate] = []
     private var signalTask: Task<Void, Never>?
     private var graceTask: Task<Void, Never>?
+    private var pathPollTask: Task<Void, Never>?
+    /// Last (local, remote) candidate types reported, to emit only changes.
+    private var reportedPair: (CandidateType?, CandidateType?)?
+    /// bytesReceived per candidate pair at the previous stats read.
+    private var pairBytes: [String: Double] = [:]
+    private let createdAt = ContinuousClock.now
+
+    static let noAnswerMessage = "Your Mac did not answer the connection request."
 
     init(hostId: String, ice: ICEConfiguration, signaling: SignalingClient, options: WebRTCConnector.Options) throws {
         self.hostId = hostId
@@ -146,13 +178,23 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
             }
         }
         try await signaling.send(Self.offerMessage(hostId: hostId, sessionId: sessionId, sdp: sdp, relayOnly: options.relayOnly))
+        stage("offer sent")
 
         let timeout = options.connectTimeout
         let timer = Task { [weak self] in
             do { try await ContinuousClock().sleep(for: timeout) } catch { return }
+            self?.stage("timed out")
             self?.failOpen(TransportError.timedOut)
         }
         defer { timer.cancel() }
+        let answerTimeout = options.answerTimeout
+        let answerTimer = Task { [weak self] in
+            do { try await ContinuousClock().sleep(for: answerTimeout) } catch { return }
+            guard let self, !self.lock.withLock({ self.remoteDescriptionSet }) else { return }
+            self.stage("no answer")
+            self.failOpen(TransportError.connectFailed(Self.noAnswerMessage))
+        }
+        defer { answerTimer.cancel() }
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, any Error>) in
             lock.lock()
             if isOpen { lock.unlock(); c.resume(); return }
@@ -168,7 +210,49 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
             close(reason: "Relay only: the selected path is \(found), not relay.")
             throw TransportError.connectFailed("Relay only: could not establish a TURN relay path (selected \(found)).")
         }
+        stage("channels open (\(path.summary))")
+        lock.withLock { reportedPair = (path.localCandidate, path.remoteCandidate) }
         continuation.yield(.pathChanged(path))
+        startPathPolling()
+    }
+
+    /// Logs a connect stage with the time since this link was created.
+    private func stage(_ name: String) {
+        webRTCLog.info("link \(self.sessionId, privacy: .public) +\(WebRTCConnector.ms(ContinuousClock.now - self.createdAt), privacy: .public) ms \(name, privacy: .public)")
+    }
+
+    /// Re-reads the selected pair every `pathPollInterval` while open, so the
+    /// path label follows renominations within that interval.
+    private func startPathPolling() {
+        let interval = options.pathPollInterval
+        let task = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await ContinuousClock().sleep(for: interval) } catch { return }
+                guard let self else { return }
+                await self.reportPathIfChanged()
+            }
+        }
+        let closed = lock.withLock { () -> Bool in
+            if !isClosed { pathPollTask = task }
+            return isClosed
+        }
+        if closed { task.cancel() }
+    }
+
+    /// Emits `.pathChanged` when the selected pair's candidate types changed.
+    func reportPathIfChanged() async {
+        let path = await pathInfo()
+        let changed = lock.withLock { () -> Bool in
+            guard isOpen, !isClosed else { return false }
+            let pair = (path.localCandidate, path.remoteCandidate)
+            if let old = reportedPair, old.0 == pair.0, old.1 == pair.1 { return false }
+            reportedPair = pair
+            return true
+        }
+        if changed {
+            webRTCLog.notice("link \(self.sessionId, privacy: .public) path now \(path.summary, privacy: .public)")
+            continuation.yield(.pathChanged(path))
+        }
     }
 
     /// The offer frame. `policy:"relay"` (PROTOCOL §5) asks the host to use a
@@ -202,6 +286,7 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
     private func handleSignal(_ message: SignalMessage) {
         switch message {
         case .answer(_, _, _, let sdp):
+            stage("answer received")
             peerConnection.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { [weak self] error in
                 guard let self else { return }
                 if let error {
@@ -271,6 +356,7 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         waiter?.resume(throwing: TransportError.connectFailed(reason ?? "Connection closed"))
         signalTask?.cancel()
         graceTask?.cancel()
+        pathPollTask?.cancel()
         for c in channels { c.close() }
         peerConnection.close()
         continuation.yield(.closed(reason: reason))
@@ -283,7 +369,11 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         let report: RTCStatisticsReport = await withCheckedContinuation { c in
             peerConnection.statistics { c.resume(returning: $0) }
         }
-        let info = Self.pathInfo(from: report)
+        let info = lock.withLock { () -> PathInfo in
+            let (info, bytes) = Self.pathInfo(from: report, previousBytes: pairBytes)
+            pairBytes = bytes
+            return info
+        }
         let pairs = report.statistics.values.filter { $0.type == "candidate-pair" || $0.type == "transport" }
             .map { "\($0.type) \($0.id) \($0.values.filter { ["state", "nominated", "selectedCandidatePairId", "localCandidateId", "remoteCandidateId", "bytesReceived"].contains($0.key) })" }
         webRTCLog.debug("path stats \(self.sessionId, privacy: .public): \(pairs.joined(separator: " | "), privacy: .public)")
@@ -293,21 +383,30 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         return info
     }
 
-    static func pathInfo(from report: RTCStatisticsReport) -> PathInfo {
+    /// The pair in use: libwebrtc's `selectedCandidatePairId`, unless since
+    /// the previous read a different succeeded pair received traffic and the
+    /// selected one received none (the peer switched paths and the stat lags).
+    /// Returns the path and the bytes-received snapshot for the next read.
+    static func pathInfo(from report: RTCStatisticsReport, previousBytes: [String: Double] = [:]) -> (PathInfo, [String: Double]) {
         let stats = report.statistics
-        // The transport's selected pair is libwebrtc's own answer. Without
-        // it, use the nominated succeeded pair carrying the most traffic
-        // (several pairs can be nominated over a link's life).
+        func bytes(_ s: RTCStatistics) -> Double { (s.values["bytesReceived"] as? NSNumber)?.doubleValue ?? 0 }
+        let succeeded = stats.values.filter { $0.type == "candidate-pair" && ($0.values["state"] as? String) == "succeeded" }
+        var snapshot: [String: Double] = [:]
+        for p in succeeded { snapshot[p.id] = bytes(p) }
         var pairId = stats.values.first { $0.type == "transport" && $0.values["selectedCandidatePairId"] != nil }?
             .values["selectedCandidatePairId"] as? String
+        if !previousBytes.isEmpty {
+            func delta(_ id: String) -> Double { (snapshot[id] ?? 0) - (previousBytes[id] ?? snapshot[id] ?? 0) }
+            let busiest = succeeded.max { delta($0.id) < delta($1.id) }
+            if let busiest, delta(busiest.id) > 0, busiest.id != pairId, pairId.map(delta) ?? 0 <= 0 {
+                pairId = busiest.id
+            }
+        }
         if pairId == nil {
-            func bytes(_ s: RTCStatistics) -> Double { (s.values["bytesReceived"] as? NSNumber)?.doubleValue ?? 0 }
-            pairId = stats.values.filter {
-                $0.type == "candidate-pair" && ($0.values["state"] as? String) == "succeeded" && (($0.values["nominated"] as? NSNumber)?.boolValue ?? false)
-            }.max { bytes($0) < bytes($1) }?.id
+            pairId = succeeded.filter { (($0.values["nominated"] as? NSNumber)?.boolValue ?? false) }.max { bytes($0) < bytes($1) }?.id
         }
         var info = PathInfo(transport: "webrtc")
-        guard let pairId, let pair = stats[pairId] else { return info }
+        guard let pairId, let pair = stats[pairId] else { return (info, snapshot) }
         func type(_ key: String) -> CandidateType? {
             guard let id = pair.values[key] as? String, let raw = stats[id]?.values["candidateType"] as? String else { return nil }
             return CandidateType(rawValue: raw) ?? .unknown
@@ -315,7 +414,7 @@ final class WebRTCLinkTransport: NSObject, LinkTransport, @unchecked Sendable {
         info.localCandidate = type("localCandidateId")
         info.remoteCandidate = type("remoteCandidateId")
         if let rtt = (pair.values["currentRoundTripTime"] as? NSNumber)?.doubleValue { info.rttMs = rtt * 1000 }
-        return info
+        return (info, snapshot)
     }
 
     private func checkAllOpen() {
@@ -348,10 +447,7 @@ extension WebRTCLinkTransport: RTCPeerConnectionDelegate {
         lock.unlock()
         guard open else { return }
         webRTCLog.info("link \(self.sessionId, privacy: .public) selected pair changed: \(reason, privacy: .public)")
-        Task { [weak self] in
-            guard let self else { return }
-            self.continuation.yield(.pathChanged(await self.pathInfo()))
-        }
+        Task { [weak self] in await self?.reportPathIfChanged() }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
@@ -386,10 +482,9 @@ extension WebRTCLinkTransport: RTCPeerConnectionDelegate {
             let open = isOpen
             lock.unlock()
             if open {
-                Task { [weak self] in
-                    guard let self else { return }
-                    self.continuation.yield(.pathChanged(await self.pathInfo()))
-                }
+                Task { [weak self] in await self?.reportPathIfChanged() }
+            } else {
+                stage("ice \(newState == .connected ? "connected" : "completed")")
             }
         default:
             break

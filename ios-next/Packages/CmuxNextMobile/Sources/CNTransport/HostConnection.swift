@@ -167,9 +167,11 @@ public final class HostConnection {
             state = attempt == 0 ? .connecting : .reconnecting(attempt: attempt, lastError: lastError)
             var transport: (any LinkTransport)?
             var client: HostClient?
+            let started = ContinuousClock.now
             do {
                 let t = try await connector.connect(hostId: hostId)
                 transport = t
+                let linkOpen = ContinuousClock.now - started
                 guard isCurrent() else { t.close(); return }
                 let c = HostClient(transport: t, clock: clock)
                 client = c
@@ -179,11 +181,19 @@ public final class HostConnection {
                 self.hostInfo = info
                 generation += 1
                 attempt = 0
-                var path = await t.pathInfo()
-                path.rttMs = await measureRTT(c)
+                let path = await t.pathInfo()
                 guard isCurrent(), self.client === c else { c.close(); return }
+                // Connected as soon as hello succeeds; the first RTT arrives
+                // from a ping right after instead of delaying "connected".
                 state = .connected(path)
+                hostConnectionLog.info("connected to \(hostId, privacy: .public): link \(Self.ms(linkOpen), privacy: .public) ms, hello \(Self.ms(ContinuousClock.now - started), privacy: .public) ms (\(path.summary, privacy: .public))")
                 startSession(client: c, transport: t)
+                Task { [weak self] in
+                    guard let self, let rtt = await self.measureRTT(c), self.client === c,
+                          case .connected(var current) = self.state else { return }
+                    current.rttMs = rtt
+                    self.state = .connected(current)
+                }
                 let reason = await c.waitUntilClosed()
                 guard isCurrent() else { return }
                 if self.client === c { tearDownSession() }
@@ -195,6 +205,7 @@ public final class HostConnection {
                 client?.close()
                 transport?.close()
                 lastError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                hostConnectionLog.notice("connect to \(hostId, privacy: .public) failed after \(Self.ms(ContinuousClock.now - started), privacy: .public) ms: \(lastError ?? "", privacy: .public)")
             }
             guard isCurrent() else { return }
             attempt += 1
@@ -247,6 +258,10 @@ public final class HostConnection {
             }
         }
         sessionTasks = [forward, ping, paths]
+    }
+
+    static func ms(_ d: Duration) -> Int {
+        Int(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000)
     }
 
     private func measureRTT(_ client: HostClient) async -> Double? {
