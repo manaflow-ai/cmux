@@ -63,9 +63,8 @@ struct SplitPaneGridFitTests {
         return !panes.isEmpty && panes.allSatisfy { $0.surfaceStatus.terminal?.grid != nil && $0.surfaceStatus.terminal?.fitGrid != nil }
     }
 
-    /// Panes whose terminal is not drawn at the pane's content height (a legacy scroller may
-    /// take width), or renders a grid other
-    /// than the one its view fits.
+    /// Panes whose terminal surface is not as tall as the pane draws it (a legacy scroller may
+    /// take width), or that renders a grid other than the one its surface fits.
     private static func mismatched(_ controller: WindowController) -> [String] {
         panes(controller).compactMap { pane in
             let status = pane.surfaceStatus
