@@ -68,7 +68,8 @@ export function bookmarksHeard(sessionId: string | undefined, list: unknown): vo
 }
 
 /// Reads the session's marks from acpmux, once per transport, and brings over the marks this pane
-/// kept in localStorage for it before (keys `<session>#user-<seq>#<hash>`), then forgets those.
+/// kept in localStorage for it before (keys `<session>#user-<seq>#<hash>`). A key is forgotten
+/// only once acpmux holds its mark; one it refused waits for the next attach.
 function load(sessionId: string): void {
   const via = transport;
   if (!via || loaded.has(sessionId)) return;
@@ -78,7 +79,9 @@ function load(sessionId: string): void {
       if (via !== transport) return;
       const held = seqs(reply) ?? [];
       settle(sessionId, held);
-      for (const seq of takeLocalMarks(sessionId)) if (!held.includes(seq)) toggleWith(via, sessionId, seq, true);
+      for (const { key, seq } of localMarks(sessionId))
+        if (seq === undefined || held.includes(seq)) forgetLocalMark(key);
+        else toggleWith(via, sessionId, seq, true, () => forgetLocalMark(key));
     },
     () => {
       // Unreachable or an older acpmux: no marks, and the next transport asks again.
@@ -87,7 +90,8 @@ function load(sessionId: string): void {
   );
 }
 
-function toggleWith(via: BookmarkTransport, sessionId: string, seq: number, on: boolean): void {
+/// `kept` runs once acpmux has taken the change.
+function toggleWith(via: BookmarkTransport, sessionId: string, seq: number, on: boolean, kept?: () => void): void {
   const waiting = pending.get(sessionId) ?? new Map<number, boolean>();
   pending.set(sessionId, waiting.set(seq, on));
   const before = marks.get(sessionId) ?? NONE;
@@ -101,6 +105,7 @@ function toggleWith(via: BookmarkTransport, sessionId: string, seq: number, on: 
   };
   via.set(sessionId, seq, on).then(
     (reply) => {
+      kept?.();
       if (via !== transport) return;
       done();
       const held = seqs(reply);
@@ -154,22 +159,28 @@ function subscribe(listener: () => void): () => void {
 
 const currentVersion = () => version;
 
-/// The seqs this pane kept for `sessionId` in localStorage, removed from it.
-function takeLocalMarks(sessionId: string): number[] {
+/// The marks this pane kept for `sessionId` in localStorage: each key and its seq (none if unreadable).
+function localMarks(sessionId: string): { key: string; seq: number | undefined }[] {
+  const prefix = `${sessionId}#user-`;
+  return readLocalMarks()
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => ({ key, seq: promptSeq(key.slice(sessionId.length + 1).split("#")[0] ?? "") }));
+}
+
+function forgetLocalMark(key: string): void {
   try {
-    const storage = globalThis.localStorage;
-    const parsed: unknown = JSON.parse(storage?.getItem(STORAGE_KEY) ?? "[]");
-    if (!Array.isArray(parsed)) return [];
-    const prefix = `${sessionId}#user-`;
-    const mine = parsed.filter((key): key is string => typeof key === "string" && key.startsWith(prefix));
-    if (!mine.length) return [];
-    const rest = parsed.filter((key) => !mine.includes(key));
-    if (rest.length) storage.setItem(STORAGE_KEY, JSON.stringify(rest));
-    else storage.removeItem(STORAGE_KEY);
-    return mine.flatMap((key) => {
-      const seq = promptSeq(key.slice(sessionId.length + 1).split("#")[0] ?? "");
-      return seq === undefined ? [] : [seq];
-    });
+    const rest = readLocalMarks().filter((kept) => kept !== key);
+    if (rest.length) globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
+    else globalThis.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Storage blocked: the key stays, and acpmux already holds its mark.
+  }
+}
+
+function readLocalMarks(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === "string") : [];
   } catch {
     return [];
   }

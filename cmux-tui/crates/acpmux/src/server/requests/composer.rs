@@ -23,7 +23,7 @@ pub(super) async fn handle(
     params: &Value,
 ) -> Result<Value, RpcError> {
     if m == method::MUX_BOOKMARK_GET || m == method::MUX_BOOKMARK_SET {
-        return bookmarks(hub, m, params);
+        return bookmarks(hub, m, params).await;
     }
     let s = hub.resolve(session_key(params)?)?;
     if m == method::MUX_DRAFT_GET {
@@ -46,7 +46,7 @@ pub(super) async fn handle(
 
 /// `_acpmux/bookmark_get` and `_acpmux/bookmark_set`: the chat's prompt bookmarks
 /// (`hub/bookmarks.rs`). A peer's chat never gets here: `peer_forward.rs` sends it to its owner.
-fn bookmarks(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
+async fn bookmarks(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
     let s = hub.resolve(session_key(params)?)?;
     if m == method::MUX_BOOKMARK_GET {
         let marks: Vec<u64> = s.meta().bookmarks.iter().copied().collect();
@@ -60,6 +60,6 @@ fn bookmarks(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError>
         .get("bookmarked")
         .and_then(Value::as_bool)
         .ok_or_else(|| RpcError::invalid_params("bookmarked is required"))?;
-    let marks = hub.set_bookmark(&s, seq, bookmarked)?;
+    let marks = hub.set_bookmark(&s, seq, bookmarked).await?;
     Ok(json!({"sessionId": s.id, "bookmarks": marks}))
 }
