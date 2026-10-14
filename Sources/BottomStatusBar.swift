@@ -33,7 +33,6 @@ struct BottomStatusBar: View {
     private func bar(_ feed: StatusBarFeed) -> some View {
         let size = CGFloat(min(max(fontSize, StatusBarCatalogSection.fontSizeRange.lowerBound), StatusBarCatalogSection.fontSizeRange.upperBound))
         return StatusBarLine(segments: Self.segments(feed.content), fontSize: size, alignment: frameAlignment, openLink: open)
-            .padding(.horizontal, 10)
             .frame(height: size + 11)
             .clipped()
             .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))

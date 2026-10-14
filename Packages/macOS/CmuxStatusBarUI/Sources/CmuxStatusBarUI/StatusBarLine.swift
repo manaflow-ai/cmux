@@ -3,7 +3,8 @@ public import CmuxStatusBar
 public import SwiftUI
 
 /// One line of `statusBar.command` output: colored runs in a monospaced font,
-/// with each OSC 8 link a click target.
+/// with each OSC 8 link a click target. It takes exactly the width it is
+/// offered; a line longer than that scrolls sideways.
 public struct StatusBarLine: View {
     private let segments: [StatusBarSegment]
     private let fontSize: CGFloat
@@ -27,8 +28,12 @@ public struct StatusBarLine: View {
     public var body: some View {
         ViewThatFits(in: .horizontal) {
             line.frame(maxWidth: .infinity, alignment: alignment)
-            // Wider than the window: keep the start in view and cut the end.
-            line.frame(maxWidth: .infinity, alignment: .leading)
+            // Wider than the window. A frame with only a maxWidth would answer
+            // with the line's full width and push the window's content out
+            // past both edges; a ScrollView answers with the width offered.
+            ScrollView(.horizontal, showsIndicators: false) {
+                line
+            }
         }
     }
 
@@ -46,6 +51,8 @@ public struct StatusBarLine: View {
         .font(.system(size: fontSize, design: .monospaced))
         .lineLimit(1)
         .fixedSize()
+        // Inside the scroll content, so scrolled text reaches the window edges.
+        .padding(.horizontal, 10)
     }
 
     @ViewBuilder
