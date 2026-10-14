@@ -544,6 +544,9 @@ export class AcpmuxDirectClient {
   /// one starts (an acpmux that waits on an agent ignoring the cancel).
   private stopGaveUp = false;
   private stopTimer?: ReturnType<typeof setTimeout>;
+  /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
+  /// rebuild (loadOlder, lag resync) replays older ones, which must not cancel the grace.
+  private stopAfterSeq?: number;
   /// A fork's `forked` boundary event: its copied history ends there (cx-ncc.61's versions).
   private forkedAtSeq: number | undefined;
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
@@ -816,6 +819,7 @@ export class AcpmuxDirectClient {
   private resetSessionState(): void {
     clearTimeout(this.stopTimer);
     this.stopGaveUp = false;
+    this.stopAfterSeq = undefined;
     this.events = [];
     this.historyExhausted = false;
     this.rows.clear();
@@ -1424,6 +1428,14 @@ export class AcpmuxDirectClient {
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
   }
 
+  /// A turn event newer than Stop ends its grace and its give-up.
+  private stopAnswered(event: EventRecord): void {
+    if (this.stopAfterSeq === undefined || event.seq <= this.stopAfterSeq) return;
+    clearTimeout(this.stopTimer);
+    this.stopGaveUp = false;
+    this.stopAfterSeq = undefined;
+  }
+
   private reduce(event: EventRecord): void {
     this.rows.current = event.seq;
     try {
@@ -1490,9 +1502,8 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
-        this.stopGaveUp = false;
         // A Stop before this turn never judges it.
-        clearTimeout(this.stopTimer);
+        this.stopAnswered(event);
         this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
       } else if (event.kind === "message_superseded") {
         const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
@@ -1505,9 +1516,8 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
-        this.stopGaveUp = false;
         // Stop was answered: its grace must not judge the next turn.
-        clearTimeout(this.stopTimer);
+        this.stopAnswered(event);
         this.pendingPermission = undefined;
         this.groupedPermissions.clear();
         this.openQuestions.clear();
@@ -2011,6 +2021,7 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
     clearTimeout(this.stopTimer);
+    this.stopAfterSeq = this.lastSeq;
     this.stopTimer = setTimeout(() => {
       if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       if (!this.turnOpen && this.summary?.status !== "running") return;
