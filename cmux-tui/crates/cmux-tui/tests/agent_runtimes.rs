@@ -70,8 +70,13 @@ impl Daemon {
     }
 
     fn runtimes(&self) -> Value {
+        self.resource("agent.runtime.list")
+    }
+
+    /// A v2 read of the current session.
+    fn resource(&self, operation: &str) -> Value {
         let request = json!({"protocol": "cmux.protocol/2", "type": "request", "id": "1",
-                             "operation": "agent.runtime.list",
+                             "operation": operation,
                              "params": {"machine": "current", "session": "current"}});
         let mut reader = self.line(&request);
         let mut line = String::new();
@@ -125,38 +130,49 @@ const STAND_IN_ARGS: &str = "stand_in_agent --exact";
 /// its terminal's session (`setsid`), as `nohup`/`setsid` launches and agent
 /// daemons do, then writes `<pid> <ppid>` to that file before it waits.
 const DETACH: &str = "CMUX_RUNTIMES_DETACH";
+/// Set to a file path in a stand-in agent's environment: the stand-in lives
+/// while that file exists, at most [`STAND_IN_MAX`].
+const ALIVE: &str = "CMUX_RUNTIMES_ALIVE";
+const STAND_IN_MAX: Duration = Duration::from_secs(300);
 
 /// The body of a stand-in agent process; a no-op in a normal test run.
 #[test]
 fn stand_in_agent() {
-    if std::env::var_os(STAND_IN).is_some() {
-        if let Some(ready) = std::env::var_os(DETACH) {
-            // SAFETY: setsid takes no arguments and touches no memory.
-            assert_ne!(unsafe { libc::setsid() }, -1, "setsid failed");
-            let ready = PathBuf::from(ready);
-            let partial = ready.with_extension("partial");
-            let ids = format!("{} {}", std::process::id(), std::os::unix::process::parent_id());
-            fs::write(&partial, ids).unwrap();
-            fs::rename(&partial, &ready).unwrap();
-        }
+    if std::env::var_os(STAND_IN).is_none() {
+        return;
+    }
+    if let Some(ready) = std::env::var_os(DETACH) {
+        // SAFETY: setsid takes no arguments and touches no memory.
+        assert_ne!(unsafe { libc::setsid() }, -1, "setsid failed");
+        let ready = PathBuf::from(ready);
+        let partial = ready.with_extension("partial");
+        let ids = format!("{} {}", std::process::id(), std::os::unix::process::parent_id());
+        fs::write(&partial, ids).unwrap();
+        fs::rename(&partial, &ready).unwrap();
+    }
+    let Some(alive) = std::env::var_os(ALIVE).map(PathBuf::from) else {
         std::thread::sleep(Duration::from_secs(60));
+        return;
+    };
+    let deadline = Instant::now() + STAND_IN_MAX;
+    while alive.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
-/// A detached stand-in agent, killed when the test ends: closing its
-/// terminal no longer ends it.
+/// A detached stand-in agent. Closing its terminal no longer ends it; it
+/// ends when this is dropped and its alive file goes (no signal, so a
+/// reused pid is never hit).
 struct DetachedAgent {
     pid: u32,
     /// Its parent when it started: the terminal's shell.
     ppid: u32,
+    alive: PathBuf,
 }
 
 impl Drop for DetachedAgent {
     fn drop(&mut self) {
-        if let Ok(pid) = i32::try_from(self.pid) {
-            // SAFETY: kill takes plain integers.
-            unsafe { libc::kill(pid, libc::SIGKILL) };
-        }
+        let _ = fs::remove_file(&self.alive);
     }
 }
 
@@ -166,10 +182,12 @@ fn start_detached_agent(daemon: &Daemon) -> DetachedAgent {
     let codex = daemon.dir.join("codex");
     fs::copy(std::env::current_exe().unwrap(), &codex).unwrap();
     let ready = daemon.dir.join("detached.ready");
+    let alive = daemon.dir.join("detached.alive");
+    fs::write(&alive, "").unwrap();
     let created = daemon.raw(json!({
         "cmd": "run",
-        "argv": ["/bin/sh", "-c", format!("{STAND_IN}=1 {DETACH}={} {} {STAND_IN_ARGS}; :",
-                                          ready.display(), codex.display())],
+        "argv": ["/bin/sh", "-c", format!("{STAND_IN}=1 {DETACH}={} {ALIVE}={} {} {STAND_IN_ARGS}; :",
+                                          ready.display(), alive.display(), codex.display())],
         "new_workspace": true,
         "name": "detached",
     }));
@@ -179,7 +197,7 @@ fn start_detached_agent(daemon: &Daemon) -> DetachedAgent {
         if let Ok(ids) = fs::read_to_string(&ready) {
             let ids: Vec<u32> = ids.split(' ').filter_map(|id| id.parse().ok()).collect();
             assert_eq!(ids.len(), 2, "bad ready file: {ids:?}");
-            return DetachedAgent { pid: ids[0], ppid: ids[1] };
+            return DetachedAgent { pid: ids[0], ppid: ids[1], alive };
         }
         assert!(Instant::now() < deadline, "the detached stand-in never became ready");
         std::thread::sleep(Duration::from_millis(25));
@@ -203,7 +221,7 @@ fn reparented_runtime(daemon: &Daemon, agent: &DetachedAgent) -> Value {
 }
 
 #[test]
-fn cmux_next_agent_runtimes_keep_a_listed_detached_agent_verified_after_its_terminal_closes() {
+fn cmux_next_agent_runtimes_keep_a_detached_agents_runtime_id_and_terminal_across_the_close() {
     let daemon = Daemon::start();
     let agent = start_detached_agent(&daemon);
     // Listed while its terminal lives: verified through the process tree.
@@ -236,14 +254,17 @@ fn cmux_next_agent_runtimes_observe_a_detached_agent_when_its_terminal_closes() 
     let daemon = Daemon::start();
     let agent = start_detached_agent(&daemon);
     // Never listed before the close: the close itself records the agent.
+    // The daemon's only terminal is the agent's.
+    let terminals = daemon.resource("terminal.list");
+    let terminals = terminals.as_array().cloned().unwrap_or_default();
+    assert_eq!(terminals.len(), 1, "{terminals:?}");
+    let terminal = terminals[0]["id"].clone();
+    assert!(terminal.as_str().is_some_and(|id| id.starts_with("term_")), "{terminal}");
     daemon.close_all();
     let runtime = reparented_runtime(&daemon, &agent);
     assert_eq!(runtime["attribution"]["status"], "verified", "{runtime}");
     assert_eq!(runtime["attribution"]["source"], "launch_ledger", "{runtime}");
-    assert!(
-        runtime["attribution"]["terminal_id"].as_str().is_some_and(|id| id.starts_with("term_")),
-        "{runtime}"
-    );
+    assert_eq!(runtime["attribution"]["terminal_id"], terminal, "{runtime}");
     assert_eq!(runtime["can_stop_safely"], false, "{runtime}");
 }
 
