@@ -47,7 +47,7 @@ extension DockSplitStore {
                         panelIds: terminalPanelIds
                     )
         }
-        let panelSnapshots = orderedPanelIds
+        let builtPanelSnapshots = orderedPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
                 // A Dock's owner UUID can change when its window/workspace is restored or
@@ -85,6 +85,9 @@ extension DockSplitStore {
                     agentProcessPresence: agentProcessPresence
                 )
             }
+        let panelSnapshots = restorableAgentIndex?.removingTranscriptlessClaudeResume(
+            from: builtPanelSnapshots
+        ) ?? builtPanelSnapshots
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
         let sourceWorkspaceIdsByPanelId: [UUID: UUID] = Dictionary(
             uniqueKeysWithValues: panelSnapshots.compactMap { panel -> (UUID, UUID)? in

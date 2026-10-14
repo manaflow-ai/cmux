@@ -141,9 +141,15 @@ struct ClaudeTranscriptlessRestoreTests {
 
     /// Saves the source workspace with `index`, forces unknown liveness (the
     /// live-tab-at-quit case from #20246), and restores the result.
+    private enum TranscriptTiming {
+        case never
+        case beforeIndexLoad
+        case afterIndexLoad
+    }
+
     private func saveAndRestore(
         _ fixture: Fixture,
-        transcriptWritten: Bool,
+        transcript: TranscriptTiming,
         index: (Fixture) -> RestorableAgentSessionIndex
     ) throws -> (terminal: SessionTerminalPanelSnapshot?, input: String?) {
         let source = Workspace(
@@ -154,14 +160,18 @@ struct ClaudeTranscriptlessRestoreTests {
         let panelID = try #require(source.focusedPanelId)
         let sessionID = UUID().uuidString.lowercased()
         try writeHookRecord(fixture, sessionID: sessionID, workspaceID: source.id, panelID: panelID)
-        if transcriptWritten {
+        if transcript == .beforeIndexLoad {
             try writeTranscript(fixture, sessionID: sessionID)
         }
         source.surfaceResumeBindingsByPanelId[panelID] = hookBinding(fixture, sessionID: sessionID)
 
+        let agentIndex = index(fixture)
+        if transcript == .afterIndexLoad {
+            try writeTranscript(fixture, sessionID: sessionID)
+        }
         var snapshot = source.sessionSnapshot(
             includeScrollback: false,
-            restorableAgentIndex: index(fixture)
+            restorableAgentIndex: agentIndex
         )
         let savedTerminal = snapshot.panels.first?.terminal
         for panelIndex in snapshot.panels.indices {
@@ -184,7 +194,7 @@ struct ClaudeTranscriptlessRestoreTests {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
-        let result = try saveAndRestore(fixture, transcriptWritten: false) { loadIndex($0) }
+        let result = try saveAndRestore(fixture, transcript: .never) { loadIndex($0) }
 
         #expect(result.terminal?.resumeBinding == nil)
         #expect(result.terminal?.agent == nil)
@@ -196,12 +206,24 @@ struct ClaudeTranscriptlessRestoreTests {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
-        let result = try saveAndRestore(fixture, transcriptWritten: true) { loadIndex($0) }
+        let result = try saveAndRestore(fixture, transcript: .beforeIndexLoad) { loadIndex($0) }
 
         let binding = try #require(result.terminal?.resumeBinding)
         #expect(binding.kind == "claude")
         let input = try #require(result.input)
         #expect(input == " cmux restore claude \(binding.checkpointId ?? "")\n", Comment(rawValue: input))
+    }
+
+    @Test("A first prompt sent after the index loaded keeps the Claude binding")
+    func transcriptWrittenAfterIndexLoadKeepsBinding() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let result = try saveAndRestore(fixture, transcript: .afterIndexLoad) { loadIndex($0) }
+
+        let binding = try #require(result.terminal?.resumeBinding)
+        #expect(binding.kind == "claude")
+        #expect(result.input == " cmux restore claude \(binding.checkpointId ?? "")\n")
     }
 
     @Test("A cached index is not evidence that a transcript is still missing")
@@ -211,7 +233,7 @@ struct ClaudeTranscriptlessRestoreTests {
 
         // The cached copy may predate the first prompt. The restore CLI checks
         // the transcript again before it launches anything.
-        let result = try saveAndRestore(fixture, transcriptWritten: false) {
+        let result = try saveAndRestore(fixture, transcript: .never) {
             loadIndex($0).markingIncomplete()
         }
 

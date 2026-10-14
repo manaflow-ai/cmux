@@ -105,7 +105,7 @@ extension Workspace {
                 for: self,
                 panelIds: Set(allPanelIds)
             )
-        let panelSnapshots = allPanelIds
+        let builtPanelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
                 sessionPanelSnapshot(
@@ -134,6 +134,9 @@ extension Workspace {
                     agentProcessPresence: agentProcessPresence
                 )
             }
+        let panelSnapshots = restorableAgentIndex?.removingTranscriptlessClaudeResume(
+            from: builtPanelSnapshots
+        ) ?? builtPanelSnapshots
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
         let layout = layoutCodec.pruned(rawLayout, keeping: persistedPanelIds) ?? .pane(
             SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)

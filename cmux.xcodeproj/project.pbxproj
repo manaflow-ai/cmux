@@ -3123,6 +3123,7 @@
 		842300000000000000000003 /* RestorableAgentProcessLiveness+ProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000004 /* RestorableAgentProcessLiveness+ProcessIdentity.swift */; };
 		C0A710140000000000000002 /* RestorableAgentSession+ComputerUse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710140000000000000001 /* RestorableAgentSession+ComputerUse.swift */; };
 		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
+		A354816DF0BD4BF87C895D88 /* RestorableAgentSessionIndex+ClaudeTranscriptlessResume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AD342B158976C822DD03E1B /* RestorableAgentSessionIndex+ClaudeTranscriptlessResume.swift */; };
 		9923A0019923A0019923A001 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9923A0029923A0029923A002 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift */; };
 		A401DFE16CF1BC7701922F8B /* RestorableAgentSessionIndex+ProcessCensus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008194BFAF62176FE8C0340A /* RestorableAgentSessionIndex+ProcessCensus.swift */; };
 		7DB6CFFD0F8C9EB3DB5041B2 /* RestorableAgentSessionIndex+SnapshotLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B4D50DCEF633BE0A75CD4A /* RestorableAgentSessionIndex+SnapshotLiveness.swift */; };
@@ -7656,6 +7657,7 @@
 		842300000000000000000004 /* RestorableAgentProcessLiveness+ProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentProcessLiveness+ProcessIdentity.swift"; sourceTree = "<group>"; };
 		C0A710140000000000000001 /* RestorableAgentSession+ComputerUse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/RestorableAgentSession+ComputerUse.swift"; sourceTree = "<group>"; };
 		A5001661 /* RestorableAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSession.swift; sourceTree = "<group>"; };
+		8AD342B158976C822DD03E1B /* RestorableAgentSessionIndex+ClaudeTranscriptlessResume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSessionIndex+ClaudeTranscriptlessResume.swift"; sourceTree = "<group>"; };
 		9923A0029923A0029923A002 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSessionIndex+ManagedSessionIdentity.swift"; sourceTree = "<group>"; };
 		008194BFAF62176FE8C0340A /* RestorableAgentSessionIndex+ProcessCensus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSessionIndex+ProcessCensus.swift"; sourceTree = "<group>"; };
 		E7B4D50DCEF633BE0A75CD4A /* RestorableAgentSessionIndex+SnapshotLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSessionIndex+SnapshotLiveness.swift"; sourceTree = "<group>"; };
@@ -10691,6 +10693,7 @@
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
 				FEE760B8DF421ADA91B9E469 /* Workspace+DeferredAgentRestoreAdmission.swift */,
 				F164F24D9F2A42688990D73E /* DeferredAgentResumeAdmissionOwner.swift */,
+				8AD342B158976C822DD03E1B /* RestorableAgentSessionIndex+ClaudeTranscriptlessResume.swift */,
 				D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */,
 				9923B0019923B0019923B001 /* PendingTerminalStartupRestoreChatBinding.swift */,
 				9923B0029923B0029923B002 /* PendingTerminalStartupRestore.swift */,
@@ -16294,6 +16297,7 @@
 				842300000000000000000003 /* RestorableAgentProcessLiveness+ProcessIdentity.swift in Sources */,
 				C0A710140000000000000002 /* RestorableAgentSession+ComputerUse.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
+				A354816DF0BD4BF87C895D88 /* RestorableAgentSessionIndex+ClaudeTranscriptlessResume.swift in Sources */,
 				9923A0019923A0019923A001 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift in Sources */,
 				A401DFE16CF1BC7701922F8B /* RestorableAgentSessionIndex+ProcessCensus.swift in Sources */,
 				7DB6CFFD0F8C9EB3DB5041B2 /* RestorableAgentSessionIndex+SnapshotLiveness.swift in Sources */,
