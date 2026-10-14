@@ -121,7 +121,7 @@
         ]
       },
       "id" : "closeWindow",
-      "main_menu" : null,
+      "main_menu" : "file",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -137,7 +137,35 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "guiOnly",
+      "cli" : "offered",
+      "cli_name" : "app close-other-windows",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.closeOthers",
+      "main_menu" : "file",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Close Other Windows",
+      "title_key" : "action.window.closeOthers",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "app close-all-windows",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -150,7 +178,7 @@
       "default_shortcut" : null,
       "id" : "closeAllWindows",
       "main_menu" : "file",
-      "mcp" : "guiOnly",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
@@ -4081,6 +4109,62 @@
       "palette_suggested" : null,
       "title" : "Close All Workspaces in Group",
       "title_key" : "action.workspaceGroup.closeWorkspaces",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group close-others",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.closeOthers",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Close Other Groups",
+      "title_key" : "action.workspaceGroup.closeOthers",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group duplicate",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.duplicate",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Duplicate Workspace Group",
+      "title_key" : "action.workspaceGroup.duplicate",
       "title_table" : "ActionCatalog"
     },
     {
@@ -18731,8 +18815,8 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-archive-chat",
+      "cli" : "offered",
+      "cli_name" : "agent archive-chat",
       "context_menu" : "guiOnly",
       "context_menus" : [
 
@@ -18750,7 +18834,7 @@
       },
       "id" : "agentPane.archiveChat",
       "main_menu" : null,
-      "mcp" : "guiOnly",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.agents",
@@ -26684,6 +26768,62 @@
       "title_table" : "SidebarSectionActions"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "sidebar close-section-workspaces",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.section.closeWorkspaces",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Close All Workspaces in Section",
+      "title_key" : "action.sidebar.section.closeWorkspaces",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar new-section-workspace",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.section.newWorkspace",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Workspace in Section",
+      "title_key" : "action.sidebar.section.newWorkspace",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "action sidebar-section-hide",
       "context_menu" : "offered",
@@ -26961,6 +27101,34 @@
       "palette_suggested" : null,
       "title" : "Sidebar Density: Compact",
       "title_key" : "action.sidebar.density.compact",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-density-comfortable",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.density.comfortable",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sidebar Density: Comfortable",
+      "title_key" : "action.sidebar.density.comfortable",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -32491,9 +32659,9 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.density.expanded",
+              "id" : "sidebar.density.comfortable",
               "kind" : "action",
-              "label" : "Expanded Rows",
+              "label" : "Comfortable Rows",
               "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
@@ -32504,14 +32672,28 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.density.expanded",
+              "kind" : "action",
+              "label" : "Expanded Rows",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 5
+              "order" : 6
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 6,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32844,7 +33026,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "sidebar.item.add",
+          "id" : "sidebar.section.newWorkspace",
           "kind" : "action",
           "order" : 1,
           "visible_when" : {
@@ -32856,14 +33038,27 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.item.add",
+          "kind" : "action",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 2
+          "order" : 3
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.section.rename",
           "kind" : "action",
-          "order" : 3,
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -32995,7 +33190,7 @@
           ],
           "folder" : "appearance",
           "kind" : "folder",
-          "order" : 4,
+          "order" : 5,
           "title" : "Appearance",
           "title_key" : "menu.folder.appearance",
           "title_table" : "Localizable"
@@ -33031,21 +33226,21 @@
           ],
           "folder" : "options",
           "kind" : "folder",
-          "order" : 5,
+          "order" : 6,
           "title" : "Options",
           "title_key" : "menu.folder.options",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 6
+          "order" : 7
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.section.toggleCollapsed",
           "kind" : "action",
           "label" : "Collapse\/Expand Section",
-          "order" : 7,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33056,7 +33251,7 @@
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 9
         },
         {
           "children" : [
@@ -33102,20 +33297,20 @@
           ],
           "folder" : "move",
           "kind" : "folder",
-          "order" : 9,
+          "order" : 10,
           "title" : "Move",
           "title_key" : "menu.folder.move",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.section.hide",
           "kind" : "action",
-          "order" : 11,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33126,13 +33321,26 @@
         },
         {
           "kind" : "separator",
-          "order" : 12
+          "order" : 13
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.section.remove",
           "kind" : "action",
-          "order" : 13,
+          "order" : 14,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.section.closeWorkspaces",
+          "kind" : "action",
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33146,7 +33354,7 @@
           "id" : "sidebar.item.hideApp",
           "kind" : "action",
           "label" : "Hide App",
-          "order" : 14,
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -35353,14 +35561,27 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "workspaceGroup.duplicate",
+          "kind" : "action",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 1
+          "order" : 2
         },
         {
           "enabled_when" : "can_perform",
           "id" : "workspaceGroup.rename",
           "kind" : "action",
-          "order" : 2,
+          "order" : 3,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -35373,7 +35594,7 @@
           "enabled_when" : "can_perform",
           "id" : "workspaceGroup.togglePin",
           "kind" : "action",
-          "order" : 3,
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -35557,7 +35778,7 @@
           ],
           "folder" : "appearance",
           "kind" : "folder",
-          "order" : 4,
+          "order" : 5,
           "title" : "Appearance",
           "title_key" : "menu.folder.appearance",
           "title_table" : "Localizable"
@@ -35606,21 +35827,21 @@
           ],
           "folder" : "options",
           "kind" : "folder",
-          "order" : 5,
+          "order" : 6,
           "title" : "Options",
           "title_key" : "menu.folder.options",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 6
+          "order" : 7
         },
         {
           "enabled_when" : "can_perform",
           "id" : "toggleFocusedWorkspaceGroupCollapsed",
           "kind" : "action",
           "label" : "Collapse\/Expand Group",
-          "order" : 7,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -35660,14 +35881,14 @@
           ],
           "folder" : "group",
           "kind" : "folder",
-          "order" : 8,
+          "order" : 9,
           "title" : "Group",
           "title_key" : "menu.folder.group",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 9
+          "order" : 10
         },
         {
           "children" : [
@@ -35757,20 +35978,20 @@
           ],
           "folder" : "move",
           "kind" : "folder",
-          "order" : 10,
+          "order" : 11,
           "title" : "Move",
           "title_key" : "menu.folder.move",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 11
+          "order" : 12
         },
         {
           "enabled_when" : "can_perform",
           "id" : "workspaceGroup.editConfig",
           "kind" : "action",
-          "order" : 12,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -35783,7 +36004,7 @@
           "enabled_when" : "can_perform",
           "id" : "workspaceGroup.copyID",
           "kind" : "action",
-          "order" : 13,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -35794,7 +36015,7 @@
         },
         {
           "kind" : "separator",
-          "order" : 14
+          "order" : 15
         },
         {
           "children" : [
@@ -35838,11 +36059,24 @@
 
                 ]
               }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.closeOthers",
+              "kind" : "action",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             }
           ],
           "folder" : "close",
           "kind" : "folder",
-          "order" : 15,
+          "order" : 16,
           "title" : "Close",
           "title_key" : "menu.folder.close",
           "title_table" : "Localizable"
