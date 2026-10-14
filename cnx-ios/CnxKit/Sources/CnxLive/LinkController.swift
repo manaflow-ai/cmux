@@ -102,6 +102,34 @@ public final class LinkController {
         return link
     }
 
+    /// Path updates come in bursts (one interface goes, another comes);
+    /// the roam waits this long for the burst to end.
+    nonisolated static let networkSettle: Duration = .milliseconds(150)
+    @ObservationIgnored private var networkTask: Task<Void, Never>?
+
+    /// The phone's network changed or came back: the live link moves onto it
+    /// without a redial (WireGuard roams in place), and a link that already
+    /// failed redials now instead of at its backoff.
+    public func networkChanged(baseURL: URL, teamID: String, deviceID: String) {
+        networkTask?.cancel()
+        let dialer = dialer
+        let accessToken = accessToken
+        let clock = clock
+        networkTask = Task { [weak self] in
+            do { try await clock.sleep(for: Self.networkSettle) } catch { return }
+            ConnectTimeline.shared.mark("network_changed")
+            // Detached: the roam must not wait for the main actor.
+            let steps = await Task.detached { () -> [(String, Double)] in
+                guard let token = try? await accessToken(false) else { return [] }
+                return await dialer.networkChanged(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
+            }.value
+            log.info("network changed: \(steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "), privacy: .public)")
+            ConnectTimeline.shared.mark("network_roamed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
+            guard let self, !Task.isCancelled else { return }
+            if case .waiting = self.phase { self.send(.foreground) }
+        }
+    }
+
     /// Sign-out: forget warm sockets and cached servers.
     public func resetWarmState() async {
         await dialer.resetWarmState()

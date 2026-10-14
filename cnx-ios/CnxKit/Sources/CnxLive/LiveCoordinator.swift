@@ -91,6 +91,8 @@ public final class LiveCoordinator {
     private struct WeakTerminal { weak var session: DaemonTerminalSession? }
     @ObservationIgnored private var chiefLive = false
     @ObservationIgnored private var discoveryTask: Task<Void, Never>?
+    /// Follows the phone's network (Wi-Fi, cellular, airplane mode).
+    @ObservationIgnored private var networkTask: Task<Void, Never>?
     /// The account's Macs that were online at the last look (nil before the first).
     @ObservationIgnored private var previouslyOnline: Set<String>?
     /// The account's own Macs at the last discovery (nil before the first):
@@ -195,6 +197,55 @@ public final class LiveCoordinator {
         }
         observeLink()
         restoreSnapshot()
+        watchNetwork()
+    }
+
+    // MARK: Network changes
+
+    #if DEBUG
+    private static var networkProbeStarted = false
+
+    /// DEBUG: launched with `CNX_NETWORK_PROBE=roam` (or `loss`, no roam),
+    /// measure a simulated network change once, 3 s after the first link
+    /// comes up, and log the result as `network_probe {json}`.
+    private func runNetworkProbeIfAsked(_ link: any MacLink) {
+        guard !Self.networkProbeStarted, let mode = ProcessInfo.processInfo.environment["CNX_NETWORK_PROBE"],
+              let probing = link as? any NetworkChangeProbing else { return }
+        Self.networkProbeStarted = true
+        let roam = mode != "loss"
+        let clock = clock
+        Task.detached {
+            try? await clock.sleep(for: .seconds(3))
+            log.notice("network_probe start roam=\(roam, privacy: .public)")
+            let result = await probing.networkChangeProbe(roam: roam, windowMillis: roam ? 3000 : 20000)
+            log.notice("network_probe \(result, privacy: .public)")
+        }
+    }
+    #endif
+
+    private func watchNetwork() {
+        let monitor = NetworkPathMonitor()
+        networkTask = Task { [weak self] in
+            for await event in monitor.events {
+                guard let self else { return }
+                self.networkPathChanged(event)
+            }
+        }
+    }
+
+    /// The phone moved to another network or lost it: links roam in place
+    /// (no redial), presence reconnects.
+    func networkPathChanged(_ event: NetworkPathEvent) {
+        switch event {
+        case .lost:
+            log.info("network lost")
+            ConnectTimeline.shared.mark("network_lost")
+        case .changed(let path):
+            log.info("network changed: \(path, privacy: .public)")
+            presence?.kick()
+            guard let teamID = registeredTeamID else { return }
+            link.networkChanged(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
+        }
     }
 
     // MARK: Warm start
@@ -566,6 +617,8 @@ public final class LiveCoordinator {
 
     /// Sign-out: stops discovery, presence and the link.
     public func stop() {
+        networkTask?.cancel()
+        networkTask = nil
         discoveryTask?.cancel()
         discoveryTask = nil
         teamTask?.cancel()
@@ -630,6 +683,9 @@ public final class LiveCoordinator {
     // MARK: Link
 
     private func linkChanged(_ link: (any MacLink)?) {
+        #if DEBUG
+        if let link { runNetworkProbeIfAsked(link) }
+        #endif
         acpmux.macLink = nil
         currentLink = link
         servedLink = nil
