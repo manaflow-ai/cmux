@@ -1915,6 +1915,15 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
         XCTAssertEqual(promptCount, 1, "Don't ask again also stops the running-process prompt (#20517)")
     }
 
+    func testRunningProcessWorkspaceCheckboxWarnsItAlsoSkipsThatPrompt() {
+        XCTAssertEqual(
+            CloseDontAskAgainCheckbox.title(offering: [.workspace, .safety]),
+            "Don’t ask again, even when a process is running"
+        )
+        XCTAssertEqual(CloseDontAskAgainCheckbox.title(offering: .workspace), "Don’t ask again")
+        XCTAssertEqual(CloseDontAskAgainCheckbox.title(offering: [.tab, .safety]), "Don’t ask again")
+    }
+
     func testUntickedDontAskAgainKeepsWarningOn() {
         let manager = makeManager()
         let workspace = manager.tabs[1]

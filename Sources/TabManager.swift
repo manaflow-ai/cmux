@@ -7465,7 +7465,19 @@ enum CloseDontAskAgainCheckbox {
     static func add(to alert: NSAlert, offering kinds: CloseWarningKinds) {
         guard !kinds.subtracting(.safety).isEmpty else { return }
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = String(
+        alert.suppressionButton?.title = title(offering: kinds)
+    }
+
+    /// Turning off the workspace warning also skips its running-process
+    /// prompt, so that checkbox says so before the user ticks it.
+    static func title(offering kinds: CloseWarningKinds) -> String {
+        if kinds.isSuperset(of: [.workspace, .safety]) {
+            return String(
+                localized: "dialog.close.dontAskAgainEvenWhenRunning",
+                defaultValue: "Don’t ask again, even when a process is running"
+            )
+        }
+        return String(
             localized: "dialog.close.dontAskAgain",
             defaultValue: "Don’t ask again"
         )
