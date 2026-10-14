@@ -465,6 +465,7 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         .value("mux-home")
         .map(PathBuf::from)
         .unwrap_or_else(mux_home);
+    let _ = HOST_HOME.set(home.clone());
     let source = match conversation_source(flags) {
         Ok(source) => source,
         Err(why) => {
@@ -574,10 +575,12 @@ fn start(
     let mut daemon_env = pinned.clone();
     // The Chief home whose codex homes acpmux's built-in codex presets use
     // (acpmux `config/chief_builtins.rs`): in the daemon's own environment.
-    daemon_env.insert(
-        "ACPMUX_CHIEF_MUX_HOME".to_owned(),
-        home.display().to_string(),
-    );
+    // A shared acpmux (one per Chief home) names the Chief home, whose
+    // `c/<id>` directories hold the other Chiefs (acpmux maps their ids).
+    let chief_mux_home = env("CMUX_CHIEF_HOME")
+        .filter(|_| crate::acpmux_daemon::shared())
+        .unwrap_or_else(|| home.display().to_string());
+    daemon_env.insert("ACPMUX_CHIEF_MUX_HOME".to_owned(), chief_mux_home);
     daemon_env.insert(
         "ACPMUX_PROBE_HARNESSES".to_owned(),
         probe_harnesses(
@@ -1471,12 +1474,28 @@ static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 /// Stops the acpmux daemon this host started, once: its agent hosts and
 /// their sessions (and their MCP children) end with it; a daemon this host
 /// did not start is left alone. A second caller waits for the first.
+/// On a shared acpmux (`acpmux_daemon::shared`) the daemon stays: other
+/// Chiefs use it; only this Chief's own sessions end.
 fn stop_started_acpmux() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
+        if crate::acpmux_daemon::shared() {
+            let home = HOST_HOME.get().cloned().unwrap_or_else(mux_home);
+            match crate::agents::end_own_sessions(&home) {
+                Ok(names) => log(format!(
+                    "shared acpmux: ended this Chief's {} session(s); the daemon keeps running",
+                    names.len()
+                )),
+                Err(e) => log(format!("shared acpmux: ending this Chief's sessions: {e}")),
+            }
+            return;
+        }
         crate::acpmux_daemon::shutdown_started(&|line| log(line));
     });
 }
+
+/// This host's `MUX_HOME` (`--mux-home`), for the stop path.
+static HOST_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// Set just before the brain's loop starts.
 static BRAIN_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
