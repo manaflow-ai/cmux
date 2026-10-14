@@ -176,10 +176,7 @@ impl Context {
     fn codex(&self, home: &Path) -> Option<String> {
         let own = home.join("optchat/codex/bin/codex");
         let bundled = self.bundle.as_ref().map(|b| b.join("chief-codex/codex"));
-        std::iter::once(own)
-            .chain(bundled)
-            .find(|p| p.is_file())
-            .map(|p| p.display().to_string())
+        std::iter::once(own).chain(bundled).find(|p| p.is_file()).map(|p| p.display().to_string())
     }
 
     /// `path` with the bundle directory first, once.

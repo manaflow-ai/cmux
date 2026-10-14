@@ -388,9 +388,8 @@ async fn a_built_in_preset_of_an_unknown_chief_is_refused() {
         ("optchat-sub-0badc0de", "fclaude"),
         ("optchat-sub-0badc0de-codex", "fcodex"),
     ] {
-        let r = chief
-            .call("_acpmux/presets", json!({"name": name, "set": {"harness": harness}}))
-            .await;
+        let r =
+            chief.call("_acpmux/presets", json!({"name": name, "set": {"harness": harness}})).await;
         let message = r["error"]["message"].as_str().unwrap_or_default();
         assert!(message.contains("0badc0de is not a Chief"), "{name}: {r}");
         let r = chief.call("_acpmux/presets", json!({"name": name})).await;
