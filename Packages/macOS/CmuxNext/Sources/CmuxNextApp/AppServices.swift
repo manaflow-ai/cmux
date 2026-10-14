@@ -115,6 +115,7 @@ final class AppServices {
         let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
+        SidebarDocWiring.start(self, layout: service)
         return service
     }()
     /// Each pane's own Show Tab Bar choice (`PaneTabBar`).

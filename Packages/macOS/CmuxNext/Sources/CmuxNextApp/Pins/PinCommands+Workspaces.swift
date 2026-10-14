@@ -28,6 +28,9 @@ extension PinCommands {
     /// layout ref for the workspace, the owner refuses, or no pin
     /// capability on its daemon).
     func setWorkspacePinned(_ id: String, pinned: Bool, origin: ActionOrigin) throws {
+        if let store = SidebarDocStore.current, store.isActive, let item = SidebarDocWiring.item(workspace: id, context.services.machines) {
+            return pinned ? store.pin([item], title: PinStrings.pinWorkspace) : store.unpin([item], title: PinStrings.unpinWorkspace)
+        }
         if pinsAreTiles {
             guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
             let document = layout.document

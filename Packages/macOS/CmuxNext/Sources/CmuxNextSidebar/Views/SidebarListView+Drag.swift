@@ -47,6 +47,11 @@ extension SidebarListView {
         drag.grabOffsetX = press.point.x - rowFrame.minX
         drag.lastY = press.point.y
         self.drag = drag
+        // The document's acceptance table: the drag's one reducer call before its drop.
+        if let doc = model.docDrag, let items = doc.items(payload) {
+            drag.docItems = items
+            drag.docAcceptance = doc.begin(items)
+        }
         suppressed.formUnion(hidden)
         setHovered(nil)
         for key in hidden { rowViews[key]?.alphaValue = 0 }
@@ -66,6 +71,7 @@ extension SidebarListView {
             drag.movingUp = point.y < drag.lastY
             drag.lastY = point.y
         }
+        if drag.docItems != nil { return updateDocDrag(drag, point: point) }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
         let resolved = drag.resolve(card: card, displayed: displayed, base: base, sections: model.sections, ungroupedFirst: model.ungroupedFirst)
         guard let target = SidebarGroupDrop.gate(self, drag, card: card, resolved: resolved) else { return }
@@ -78,6 +84,15 @@ extension SidebarListView {
         guard let drag else { return }
         autoscroll.stop()
         if SidebarListPinDrop.finish(self, drag) { return }
+        if let items = drag.docItems, let doc = model.docDrag {
+            guard let target = drag.docTarget else { return cancelDrag() }
+            self.drag = nil
+            revealedActive = nil
+            doc.drop(items, target)
+            suppressed = drag.hiddenKeys
+            reload(animated: true)
+            return land(drag)
+        }
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
         revealedActive = nil // A drop moves rows, not the list: its reload anchors on the first visible row (cx-fnfj).
@@ -98,6 +113,25 @@ extension SidebarListView {
         reload(animated: true)
         land(drag)
     }
+    /// A document drag's move: geometry only (no reducer call, no layout
+    /// pass after the first), then the list shows the drop as before.
+    private func updateDocDrag(_ drag: Drag, point: NSPoint) {
+        guard let doc = model.docDrag else { return }
+        if drag.docGeometry == nil {
+            let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
+            drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance)
+        }
+        guard let (geometry, rows) = drag.docGeometry else { return }
+        let y = SidebarDragGeometry.baseY(displayY: drag.probeCard.midY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
+        guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else { return }
+        drag.docTarget = hit.target
+        let target = hit.target == nil ? nil : rows[hit.slot.key].map { SidebarDocDrag.display(hit, row: $0) }
+        drag.lift.setRefused(hit.target == nil)
+        guard target != drag.target else { return }
+        drag.target = target
+        reload(animated: true)
+    }
+
     func cancelDrag() {
         guard let drag else { return }
         autoscroll.stop()

@@ -42,6 +42,13 @@ final class SidebarListDrag {
     var renameOnLand: WorkspaceID?
     /// The last pointer y in the list and the drag's vertical direction.
     var lastY: CGFloat = 0, movingUp = false
+    /// The sidebar document's drag (sidebar-v2 S5): the moved items, the
+    /// acceptance table from the drag's one `drag_begin`, the geometry built
+    /// once over the list without the dragged rows, and the move a drop makes.
+    var docItems: [String]?
+    var docAcceptance: [String: SidebarDocAcceptance] = [:]
+    var docGeometry: (SidebarDragGeometry, [String: SidebarRow])?
+    var docTarget: SidebarDocTarget?
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?

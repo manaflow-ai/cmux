@@ -287,6 +287,11 @@ public struct DaemonCapabilities: Sendable {
     /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
     /// cmux-tui PR #16842).
     public let sidebarLayout = "sidebar-layout-v1"
+    /// The one sidebar document (`sidebar.get|move|pin|unpin|apply|adopt`,
+    /// `sidebar_item`/`sidebar_section` on `session.events`;
+    /// .cmux-scratch/sidebar-rewrite/CONTRACT.md). Without it the sidebar
+    /// keeps the personal order and `sidebar-layout-v1` path.
+    public let sidebarDoc = "sidebar-doc-v1"
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public let paletteUsage = "palette-usage-v1"
@@ -352,7 +357,7 @@ public struct DaemonCapabilities: Sendable {
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, browserDevices, projectList, splitClientKeys,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, paletteUsage, browserDevices, projectList, splitClientKeys,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
 

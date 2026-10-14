@@ -149,8 +149,13 @@ public final class SidebarModel {
     public var isFiltering: Bool { filterMatches != nil }
 
     /// Drag and keyboard reorder are off while the drawn order is not the
-    /// model's: filtering, or grouping by folder.
-    public var locksReorder: Bool { isFiltering || groupsByFolder }
+    /// model's: filtering, or grouping by folder. On the sidebar document a
+    /// drag moves next to the row it is dropped by (an anchor), so it also
+    /// works while filtering.
+    public var locksReorder: Bool { (isFiltering && docDrag == nil) || groupsByFolder }
+    /// The sidebar document's drag half (sidebar-v2 S5), set by the App
+    /// while the document is active.
+    @ObservationIgnored public var docDrag: SidebarDocDrag?
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }

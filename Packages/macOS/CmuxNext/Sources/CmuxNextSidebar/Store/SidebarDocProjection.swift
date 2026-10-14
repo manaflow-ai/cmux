@@ -1,0 +1,174 @@
+import Foundation
+
+/// The mirror's rows as the existing sidebar views draw them, so the look
+/// stays the same: every section that is not a machine's becomes a layout
+/// section (Pinned first, untitled, with the tile or row look it carries;
+/// custom and app sections as before), the machine sections become the
+/// workspace list (one `workspaces` section where the first one sits), and
+/// each machine's rows become its nodes in the document's order. Pure: it
+/// only regroups rows the reducer ordered.
+public nonisolated struct SidebarDocProjection: Hashable, Sendable {
+    /// One node of a machine section.
+    public enum Node: Hashable, Sendable {
+        case workspace(SidebarDocWorkspaceRef, item: String)
+        case group(Group)
+    }
+
+    public struct Group: Hashable, Sendable {
+        public var id: String
+        public var name: String
+        public var color: String?
+        public var icon: String?
+        public var collapsed: Bool
+        public var members: [SidebarDocWorkspaceRef]
+    }
+
+    /// The bands' sections, with the workspace list's place.
+    public var layout: SidebarLayoutDocument
+    /// Each machine's nodes in order, by session id.
+    public var machines: [String: [Node]]
+    /// The item that places each workspace (any section).
+    public var items: [SidebarDocWorkspaceRef: String]
+    /// The machine section of each session.
+    public var machineSections: [String: String]
+    /// Live workspaces the document does not place yet (`sidebar.adopt`).
+    public var unplaced: [SidebarDocWorkspaceRef]
+
+    /// The layout item kind of a group placed in Pinned or a custom section.
+    public static let groupKind = "group"
+
+    public init(rows: [SidebarDocRow], records: SidebarDocRecords, revision: UInt64) {
+        var sections: [LayoutSection] = []
+        var machines: [String: [Node]] = [:]
+        var items: [SidebarDocWorkspaceRef: String] = [:]
+        var machineSections: [String: String] = [:]
+        var unplaced: [SidebarDocWorkspaceRef] = []
+        var placedList = false
+        var sectionIndex: [String: Int] = [:]
+
+        for row in rows {
+            guard let record = records.sections[row.section] else { continue }
+            if let session = record.session {
+                machineSections[session] = record.id
+                if !placedList {
+                    placedList = true
+                    sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list, content: .workspaces))
+                }
+                Self.place(row, session: session, records: records, into: &machines, items: &items, unplaced: &unplaced)
+                continue
+            }
+            if sectionIndex[record.id] == nil {
+                sectionIndex[record.id] = sections.count
+                sections.append(Self.section(record))
+            }
+            guard row.depth == 0, let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { continue }
+            if let ref = item.body.workspace { items[ref] = id }
+            sections[index].items.append(Self.layoutItem(item))
+        }
+        if !placedList {
+            sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list, content: .workspaces))
+        }
+        layout = SidebarLayoutDocument(revision: revision, sections: sections)
+        self.machines = machines
+        self.items = items
+        self.machineSections = machineSections
+        self.unplaced = unplaced
+    }
+
+    private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout [String: [Node]],
+                              items: inout [SidebarDocWorkspaceRef: String], unplaced: inout [SidebarDocWorkspaceRef]) {
+        guard let id = row.item, let item = records.items[id] else {
+            if let ref = row.ref { unplaced.append(ref) }
+            return
+        }
+        switch item.body {
+        case .workspace(let ref):
+            items[ref] = id
+            if let parent = row.parent ?? item.parent, row.depth > 0 {
+                guard var nodes = machines[session], let last = nodes.indices.last, case .group(var group) = nodes[last], group.id == parent else { return }
+                group.members.append(ref)
+                nodes[last] = .group(group)
+                machines[session] = nodes
+            } else {
+                machines[session, default: []].append(.workspace(ref, item: id))
+            }
+        case let .group(name, color, icon, collapsed):
+            machines[session, default: []].append(.group(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [])))
+        default:
+            break
+        }
+    }
+
+    static func section(_ record: SidebarDocSection) -> LayoutSection {
+        var contribution: String?
+        if case .app(let name) = record.kind { contribution = name }
+        return LayoutSection(id: LayoutSectionID(record.id), title: record.title, showsTitle: record.showsTitle, region: record.region,
+                             look: record.look, arrangement: record.arrangement, room: record.room, maxRows: record.maxRows,
+                             content: contribution == nil ? .items : .app, contribution: contribution)
+    }
+
+    static func layoutItem(_ item: SidebarDocItem) -> LayoutItem {
+        LayoutItem(id: LayoutItemID(item.id), ref: ref(item.body, id: item.id), showsLabel: item.showsLabel, span: item.span, label: label(item))
+    }
+
+    /// The layout ref of an item body; a workspace by its qualified id `<session>:<ws_…>`.
+    static func ref(_ body: SidebarDocBody, id: String) -> LayoutItemRef {
+        switch body {
+        case .workspace(let ref): .workspace("\(ref.sessionID):\(ref.workspaceID)")
+        case .group: LayoutItemRef(kind: groupKind, value: id)
+        case .builtin(let value): LayoutItemRef(kind: LayoutItemRef.builtInKind, value: value)
+        case .app(let value): .app(value)
+        case .url(let value, _): .url(value)
+        case .tab(let value): .tab(value)
+        case .room(let value): .room(value)
+        case .savedGroup(let value): .savedGroup(value)
+        case .other(let kind): LayoutItemRef(kind: kind, value: id)
+        }
+    }
+
+    private static func label(_ item: SidebarDocItem) -> String? {
+        switch item.body {
+        case .group(let name, _, _, _): name
+        case .url(_, let title): title ?? item.label
+        default: item.label
+        }
+    }
+
+    /// The machine section's id of a workspace list position, else the
+    /// layout section's id.
+    public func docSection(machine session: String?) -> String? {
+        session.flatMap { machineSections[$0] }
+    }
+}
+
+extension SidebarDocStore {
+    /// The projection of the current document over `live` (memoized per
+    /// version and live set, so a rebuild costs one `view` call).
+    public func projection(live: [SidebarDocWorkspaceRef]) -> SidebarDocProjection? {
+        guard isActive else { return nil }
+        if let cached = projectionCache, cached.version == version, cached.live == live { return cached.projection }
+        guard let rows = rows(SidebarViewRequest(live: live)) else { return nil }
+        let projection = SidebarDocProjection(rows: rows, records: records, revision: records.revision)
+        projectionCache = (version, live, projection)
+        return projection
+    }
+
+    /// Rebuilds `shown` over `live` (the App's observation of the
+    /// document's version and the live workspaces); asks the daemon to
+    /// place live workspaces it lacks.
+    public func show(live: [SidebarDocWorkspaceRef]) {
+        let next = projection(live: live)
+        if next != shown { shown = next }
+        if let next, !next.unplaced.isEmpty { adopt(next.unplaced) }
+    }
+
+    /// The target that puts moved items where `index` (counted without
+    /// them) falls among `siblings` (item ids in shown order): before the
+    /// sibling there, after the last one, or first.
+    public static func target(section: String, parent: String? = nil, index: Int, siblings: [String], moving: Set<String>) -> SidebarDocTarget {
+        let staying = siblings.filter { !moving.contains($0) }
+        if index < staying.count, index >= 0 { return SidebarDocTarget(section: section, parent: parent, before: staying[index]) }
+        if let last = staying.last { return SidebarDocTarget(section: section, parent: parent, after: last) }
+        return SidebarDocTarget(section: section, parent: parent, index: 0)
+    }
+}

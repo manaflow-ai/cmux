@@ -76,7 +76,7 @@ extension SidebarRegionView {
         } else {
             SidebarReorderLift.follow(drag.lift, top: origin.y, visible: host.visibleRect)
         }
-        if isWorkspaceItem(drag.subject), let probe = dropToListProbe {
+        if isWorkspaceItem(drag.subject) || (drag.subject.itemID != nil && listTakesAnyItem?() == true), let probe = dropToListProbe {
             drag.dropsToList = probe(convert(point, to: nil))
             if drag.dropsToList {
                 // Over the list the band shows the drop's outcome: itself
@@ -104,6 +104,7 @@ extension SidebarRegionView {
         reorder = nil
         _ = dropToListProbe?(nil)
         if drag.dropsToList, case let .item(id) = drag.subject {
+            // The document moves the item into the list (no remove): the band shows it until the move lands.
             onDropToList?(id)
             return land(drag)
         }

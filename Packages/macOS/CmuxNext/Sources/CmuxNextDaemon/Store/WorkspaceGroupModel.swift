@@ -39,6 +39,12 @@ public final class WorkspaceGroupModel: Identifiable {
     }
 
     func setCollapsed(_ value: Bool) { if collapsed != value { collapsed = value } }
+
+    /// A group the sidebar document places (`sidebar-doc-v1`): the App
+    /// keeps one model per document group and updates it in place.
+    public convenience init(document s: WorkspaceGroupSnapshot) { self.init(s) }
+
+    public func apply(document s: WorkspaceGroupSnapshot) { update(s) }
 }
 
 /// Sidebar flattening: ungrouped workspaces first, then each group in order

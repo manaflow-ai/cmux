@@ -24,7 +24,9 @@ enum DebugSidebarRows {
     }
 
     private static func rows(services: AppServices) -> JSONValue {
-        .object(["windows": .array(services.windows.controllers.map { controller in
+        // `doc`: the sidebar document path is on, and the mirror's FFI calls so far (two per drag: drag_begin, the drop).
+        .object(["doc": .object(["active": .bool(SidebarDocStore.current?.isActive == true), "ffi_calls": .number(Double(SidebarMirror.calls))]),
+                 "windows": .array(services.windows.controllers.map { controller in
             let sidebar = controller.sidebar.container.sidebarView
             let (rows, selection, dragging) = sidebar.debugRows()
             return .object([

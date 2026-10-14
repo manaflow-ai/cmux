@@ -8,8 +8,24 @@ import AppKit
 // type: SidebarView is at its god-type limit.)
 @MainActor enum SidebarPinDrops {
     static func install(_ sidebar: SidebarView) {
-        sidebar.aboveRegion.dropToListProbe = { [weak sidebar] windowPoint in sidebar.map { isOverList($0, windowPoint) } ?? false }
-        sidebar.aboveRegion.onDropToList = { [weak sidebar] id in sidebar?.model.send(.layout(.itemRemove(id))) }
+        let lastPoint = SidebarBandToList()
+        sidebar.aboveRegion.dropToListProbe = { [weak sidebar] windowPoint in
+            if let windowPoint { lastPoint.point = windowPoint }
+            return sidebar.map { isOverList($0, windowPoint) } ?? false
+        }
+        // On the document any item can go into the list, at the drop point (one move).
+        sidebar.aboveRegion.listTakesAnyItem = { [weak sidebar] in sidebar?.model.docDrag != nil }
+        sidebar.aboveRegion.onDropToList = { [weak sidebar] id in
+            guard let sidebar else { return }
+            defer { lastPoint.point = nil }
+            if let doc = sidebar.model.docDrag, let point = lastPoint.point {
+                let list = sidebar.list
+                let (geometry, _) = doc.geometry(list.displayed, width: list.bounds.width, acceptance: doc.begin([id.rawValue]))
+                if let target = geometry.hit(list.convert(point, from: nil))?.target { return doc.drop([id.rawValue], target) }
+                return
+            }
+            sidebar.model.send(.layout(.itemRemove(id)))
+        }
         // A drop's preview or landing changed a band's height: the bands lay
         // out again, so no gap stays above the list (cx-odqn).
         for region in sidebar.bandRegions { region.onHeightChange = { [weak sidebar] in sidebar?.needsLayout = true } }
@@ -65,4 +81,9 @@ import AppKit
         sidebar.showDropOutline(scroll.convert(scroll.bounds, to: nil), refused: false)
         return true
     }
+}
+
+/// The last pointer of a band item's drag over the list (its drop point).
+@MainActor final class SidebarBandToList {
+    var point: NSPoint?
 }

@@ -14,6 +14,7 @@ enum PersonalSidebar {
     /// home session's section only, so each group appears once; an empty
     /// group being deleted (`PersonalStore.endingGroups`) does not show.
     static func sections(of daemon: DaemonService, room: ProfileID, machines: MachineRegistry) -> [SidebarSection] {
+        if let sections = SidebarDocWiring.sections(of: daemon, room: room, machines: machines) { return sections } // the sidebar document (sidebar-v2)
         let personal = machines.local.store.personal
         guard personal.isLoaded, let session = daemon.store.registryID else { return daemon.store.sidebarSections }
         let groups = personal.groups.filter { personal.groupRooms[$0.id] == room }.sorted { $0.index < $1.index }
