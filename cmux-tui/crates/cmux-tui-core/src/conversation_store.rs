@@ -794,6 +794,13 @@ pub enum ConversationEvent {
     /// capability in `set-client-info` (never the remote relay or
     /// `conversation.events`).
     Avatar { participant: String, avatar: Option<Value> },
+    /// A Chief was created, edited (a picture too) or deleted
+    /// (`chief-events-v1`, cx-ebm.60.4): its id and `created`, `updated` or
+    /// `deleted`; a client reads the record with `chief.profile.get`. Not
+    /// conversation state; `subscribe` delivers it only to a connection that
+    /// echoed the capability in `set-client-info` (never the remote relay or
+    /// `conversation.events`).
+    Chief { chief: String, change: &'static str },
 }
 
 impl ConversationEvent {
@@ -838,6 +845,11 @@ impl ConversationEvent {
                 "participant": participant,
                 "avatar": avatar,
             }),
+            Self::Chief { chief, change } => json!({
+                "event": "chief-changed",
+                "chief": chief,
+                "change": change,
+            }),
         }
     }
 
@@ -849,6 +861,11 @@ impl ConversationEvent {
     /// Avatar changes go on `subscribe` only to a connection that asked.
     pub(crate) const fn is_avatar(&self) -> bool {
         matches!(self, Self::Avatar { .. })
+    }
+
+    /// Chief changes go on `subscribe` only to a connection that asked.
+    pub(crate) const fn is_chief(&self) -> bool {
+        matches!(self, Self::Chief { .. })
     }
 
     /// Drafts travel on `conversation.events`, and on `subscribe` only to a
