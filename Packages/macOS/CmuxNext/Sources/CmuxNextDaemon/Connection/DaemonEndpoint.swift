@@ -310,7 +310,11 @@ public struct DaemonCapabilities: Sendable {
     /// Set once at launch, before the first connection, by the App when this
     /// build has the sidebar document mirror (its rows come from the document,
     /// never from `workspace_placement`).
-    nonisolated(unsafe) public static var echoesPlacementShift = false
+    public static var echoesPlacementShift: Bool {
+        get { placementShiftEcho.withLock { $0 } }
+        set { placementShiftEcho.withLock { $0 = newValue } }
+    }
+    private static let placementShiftEcho = OSAllocatedUnfairLock(initialState: false)
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public let paletteUsage = "palette-usage-v1"
