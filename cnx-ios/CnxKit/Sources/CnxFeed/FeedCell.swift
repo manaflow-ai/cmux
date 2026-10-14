@@ -165,6 +165,8 @@ struct FeedCell: View {
             chip(dot: nil, symbol: "questionmark.bubble", text: "Question")
         case .failed:
             chip(dot: .cnxDanger, symbol: nil, text: "Failed")
+        case .needsInput where item.resolution == nil:
+            chip(dot: .cnxWarning, symbol: nil, text: "Needs input")
         default:
             EmptyView()
         }
@@ -222,6 +224,20 @@ struct FeedCell: View {
         case .question(let question):
             QuestionCard(question: question, showsHeader: false) { answer in
                 withAnimation(.cnxSmooth) { store.answer(item.id, answer: answer) }
+            }
+        case .needsInput:
+            if let resolution = item.resolution {
+                Label(resolution, systemImage: "checkmark.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            } else {
+                // A TUI prompt: the phone cannot answer it here.
+                Button(action: open) {
+                    Label("Answer in Terminal", systemImage: "terminal")
+                }
+                .buttonStyle(CnxCapsuleButtonStyle(.primary, size: .compact))
+                .accessibilityIdentifier("feed.terminal.open")
             }
         case .permission(let request):
             if let resolution = item.resolution {
@@ -325,11 +341,14 @@ struct FeedCell: View {
 
     private var footer: some View {
         HStack(spacing: 0) {
-            footerButton("bubble.left", "Reply") {
-                withAnimation(.cnxSmooth) { replying.toggle() }
-                replyFocused = replying
+            // A terminal agent takes its input in the terminal (Open), not as a new prompt.
+            if !item.opensTerminal {
+                footerButton("bubble.left", "Reply") {
+                    withAnimation(.cnxSmooth) { replying.toggle() }
+                    replyFocused = replying
+                }
+                Spacer()
             }
-            Spacer()
             footerButton("arrow.up.right.square", "Open", action: open)
             Spacer()
             footerButton(copied ? "checkmark" : "doc.on.doc", "Copy") {
@@ -416,6 +435,7 @@ struct AgentAvatar: View {
         case "codex": "chevron.left.forwardslash.chevron.right"
         case "cursor": "cursorarrow.rays"
         case "gemini": "sparkles"
+        case "terminal": "terminal"
         default: "sparkle"
         }
     }
@@ -423,8 +443,10 @@ struct AgentAvatar: View {
 
 /// Where Feed actions that leave the Feed go (Reply sends into the tab's agent).
 @MainActor
-final class FeedRouting {
-    static let shared = FeedRouting()
+public final class FeedRouting {
+    public static let shared = FeedRouting()
     var sendPrompt: ((FeedItem, String) -> Void)?
+    /// Opens a terminal agent's tab on the Workspaces tab (set by the shell).
+    public var openTerminal: ((FeedItem) -> Void)?
 }
 #endif

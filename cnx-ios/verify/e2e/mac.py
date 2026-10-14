@@ -60,16 +60,6 @@ def dev_credential():
 RIG_BUNDLE = re.compile(r"\.cnx[.-]e2e[.-][0-9A-Za-z]+$")
 
 
-def _alive(pid):
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-
 def running_rig_apps():
     """[(pid, bundle_id, bundle_path)] of every running rig Mac app (a `cnx-e2e-*`
     tagged build, bundle id com.cmuxterm.app.debug.cnx.e2e.<sha8>), from lsappinfo."""
@@ -80,9 +70,16 @@ def running_rig_apps():
         pid = re.search(r"\bpid = (\d+)", entry)
         if not bundle or not pid or not RIG_BUNDLE.search(bundle.group(1)):
             continue
-        if "exited-with-subordinates" in entry or not _alive(int(pid.group(1))):
-            continue  # lsappinfo keeps an exited app's entry while its helpers live on
+        # A quit app whose daemons outlive it is listed "exited-with-subordinates": not running.
+        if "exited" in entry:
+            continue
         path = re.search(r'bundle path="([^"]+)"', entry)
+        try:
+            os.kill(int(pid.group(1)), 0)  # lsappinfo can keep an app that already exited
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            pass
         apps.append((int(pid.group(1)), bundle.group(1), path.group(1) if path else "?"))
     return apps
 

@@ -13,6 +13,10 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         case permission(ACPPermissionRequest)
         case finished
         case failed
+        /// A terminal agent (Codex, Claude Code in a terminal tab) waits for the
+        /// person: an approval or a question in its TUI. It is answered in the
+        /// terminal, so the item opens the tab instead of answering inline.
+        case needsInput
     }
 
     /// The message this event answers, shown as an iMessage-style quote bubble.
@@ -51,6 +55,9 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     /// the card shows it instead of its buttons, and never claims "Allowed"
     /// before the signed answer went out (review m10).
     public var pending: String?
+    /// The event came from a terminal tab (a terminal agent's notification):
+    /// opening it shows the terminal, and it takes no inline reply.
+    public var opensTerminal = false
 
     public init(
         id: String, kind: Kind, workspaceID: String, tabID: String, agentName: String, harness: String,
@@ -72,7 +79,7 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         guard resolution == nil else { return false }
         switch kind {
         case .question(let question): return question.isPending
-        case .permission: return true
+        case .permission, .needsInput: return true
         default: return false
         }
     }
@@ -152,7 +159,7 @@ public final class FeedStore {
         }
     }
     /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).
-    @ObservationIgnored private let readMarks: FeedReadMarks?
+    @ObservationIgnored private var readMarks: FeedReadMarks?
     @ObservationIgnored private var readIDs: [String] = []
 
     private func recordReadMarks() {
@@ -256,6 +263,23 @@ public final class FeedStore {
     }
 
     /// Replaces every item (live mode starts empty).
+    /// The signed-in account's read flags (`FeedReadMarks.forAccount`): another
+    /// account on this phone never sees them, and the same account keeps them
+    /// across sign-out (verify/persistence.md).
+    public func useReadMarks(_ marks: FeedReadMarks?) {
+        readMarks = marks
+        readIDs = marks?.load() ?? []
+    }
+
+    /// Sign-out: the Feed's items leave memory (the account's archive is
+    /// deleted by the caller); nothing is saved for it any more.
+    public func clearForSignOut() {
+        onItemsChange = nil
+        actions = nil
+        replaceAll([])
+        useReadMarks(nil)
+    }
+
     public func replaceAll(_ next: [FeedItem]) {
         items = next.sorted { $0.createdAt > $1.createdAt }
         unseenNewIDs = []
@@ -297,6 +321,12 @@ public final class FeedStore {
     }
 
     public func item(id: String) -> FeedItem? { items.first { $0.id == id } }
+
+    /// Drops an item the source withdrew (a duplicate of another event).
+    public func remove(_ id: String) {
+        items.removeAll { $0.id == id }
+        unseenNewIDs.removeAll { $0 == id }
+    }
 
     /// Marks an open ask resolved elsewhere (another device or the Mac).
     public func resolveElsewhere(_ id: String, text: String) {

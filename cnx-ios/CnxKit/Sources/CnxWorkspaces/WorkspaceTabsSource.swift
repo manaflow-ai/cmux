@@ -272,7 +272,34 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Opens the tab on the Mac and activates it once the Mac lists it (so a
     /// terminal attaches at once and a chat is bound to its session). A
     /// refusal shows as a notice; nothing phone-only is ever added.
+    ///
+    /// TabsKit puts a placeholder card in the grid while `createTab` is running and
+    /// reflows the grid around it (upstream request U7). So `createTab` returns at once
+    /// with no tab, and the request runs here: the grid keeps its cards until the Mac
+    /// lists the new tab, the workspace screen shows "Opening…" meanwhile
+    /// (`pendingTabTitle`), and a refusal leaves the grid exactly as it was. Once the Mac
+    /// lists the tab it becomes active and `openedTab` asks the screen to open it.
     public func createTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
+        guard pendingTabTitle == nil else { return nil }
+        pendingTabTitle = option.title
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let id = await self.requestTab(option)
+            self.pendingTabTitle = nil
+            if let id { self.openedTab = id }
+        }
+        return nil
+    }
+
+    /// The new-tab option being created on the Mac ("New Claude Chat"), or nil.
+    public private(set) var pendingTabTitle: String?
+    /// A tab the Mac just created and this phone made active: the screen leaves the
+    /// grid for it, then clears this.
+    public var openedTab: TabsKitTab.ID?
+
+    /// Asks the Mac for the tab and waits for it. Nothing is added here before the Mac
+    /// answers; a refusal shows a toast and changes nothing.
+    func requestTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
         guard let workspace else {
             show("This workspace is no longer on \(macName).")
             return nil

@@ -7,6 +7,11 @@
 //! goes through the backend relay and is also sprayed at the peer's
 //! endpoints (the hole punch). The link is one TCP stream to
 //! `overlayIP:7420`.
+//!
+//! Roaming (`roam.rs`): after a network change a side moves the session onto
+//! a fresh UDP socket and TURN allocation, re-learns its reflexive address,
+//! and tells the peer its new endpoints inside the tunnel. The session, its
+//! keys and its TCP streams stay.
 
 use std::collections::HashSet;
 use std::io;
@@ -31,6 +36,14 @@ use zeroize::Zeroizing;
 use super::{DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind};
 use crate::api::stun_servers;
 use crate::signaling::{RelayFrame, SessionEvent, SignalEnvelope, SignalPayload, SignalingClient};
+use crate::timing::Timeline;
+
+#[path = "wireguard_roam.rs"]
+mod roam;
+use roam::{Control, Session};
+pub use roam::{network_changed, rehome, roam_timeline};
+#[doc(hidden)]
+pub use roam::{roam_session, simulate_network_loss};
 
 /// The link's TCP port inside the tunnel (PROTOCOL.md).
 pub const LINK_PORT: u16 = 7420;
@@ -83,21 +96,17 @@ fn parse_key(text: &str) -> Result<[u8; 32], DialError> {
 }
 
 /// The machine's primary local address (no packet is sent).
-fn primary_local_ip() -> Option<IpAddr> {
+pub fn primary_local_ip() -> Option<IpAddr> {
     let probe = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     probe.connect("192.0.2.1:9").ok()?;
     probe.local_addr().ok().map(|addr| addr.ip()).filter(|ip| !ip.is_unspecified())
 }
 
-/// Host and server-reflexive endpoints of `socket`.
-async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Vec<String> {
+/// Host endpoints of a socket on `port` (no STUN).
+fn host_endpoints(port: u16, options: &DialOptions) -> Vec<SocketAddr> {
     if options.relay_only {
         return Vec::new();
     }
-    let port = match socket.local_addr() {
-        Ok(addr) => addr.port(),
-        Err(_) => return Vec::new(),
-    };
     let mut endpoints = Vec::new();
     if options.include_loopback {
         endpoints.push(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port));
@@ -105,45 +114,76 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Vec<Stri
     if let Some(ip) = primary_local_ip() {
         endpoints.push(SocketAddr::new(ip, port));
     }
-    let servers = stun_servers(&options.ice_servers);
-    if !servers.is_empty() {
-        let mut transactions = Vec::new();
-        for server in &servers {
-            let Ok(mut addresses) = tokio::net::lookup_host(server.as_str()).await else { continue };
-            let Some(address) = addresses.find(SocketAddr::is_ipv4) else { continue };
-            let mut transaction = [0u8; 12];
-            getrandom::fill(&mut transaction).expect("operating system randomness");
-            if socket.send_to(&cmux_transport::stun::binding_request(transaction), address).await.is_ok() {
-                transactions.push(transaction);
-            }
-        }
-        let deadline = Instant::now() + STUN_WAIT;
-        let mut buffer = [0u8; 1500];
-        while !transactions.is_empty() {
-            let Ok(Ok((len, _))) = tokio::time::timeout_at(deadline, socket.recv_from(&mut buffer)).await
-            else {
-                break;
-            };
-            let found = transactions.iter().position(|transaction| {
-                cmux_transport::stun::parse_binding_success(&buffer[..len], transaction).is_ok_and(
-                    |reflexive| {
-                        if !endpoints.contains(&reflexive) {
-                            endpoints.push(reflexive);
-                        }
-                        true
-                    },
-                )
-            });
-            if let Some(index) = found {
-                transactions.swap_remove(index);
-            }
+    endpoints
+}
+
+/// The IPv4 addresses of the STUN servers in `options`.
+async fn resolve_stun(options: &DialOptions) -> Vec<SocketAddr> {
+    let mut addresses = Vec::new();
+    for server in stun_servers(&options.ice_servers) {
+        let Ok(mut found) = tokio::net::lookup_host(server.as_str()).await else { continue };
+        if let Some(address) = found.find(SocketAddr::is_ipv4) {
+            addresses.push(address);
         }
     }
-    endpoints
-        .into_iter()
-        .filter(|endpoint| !(options.exclude_cgnat && super::is_cgnat(endpoint.ip())))
-        .map(|endpoint| endpoint.to_string())
-        .collect()
+    addresses
+}
+
+/// The endpoints offered to the peer: `endpoints` as text, without CGNAT
+/// addresses when the options exclude them.
+fn offered(endpoints: impl IntoIterator<Item = SocketAddr>, options: &DialOptions) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for endpoint in endpoints {
+        if options.exclude_cgnat && super::is_cgnat(endpoint.ip()) {
+            continue;
+        }
+        let text = endpoint.to_string();
+        if !out.contains(&text) {
+            out.push(text);
+        }
+    }
+    out
+}
+
+/// Host and server-reflexive endpoints of `socket`, and the STUN servers
+/// used (kept for roaming).
+async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> (Vec<String>, Vec<SocketAddr>) {
+    if options.relay_only {
+        return (Vec::new(), Vec::new());
+    }
+    let port = match socket.local_addr() {
+        Ok(addr) => addr.port(),
+        Err(_) => return (Vec::new(), Vec::new()),
+    };
+    let mut endpoints = host_endpoints(port, options);
+    let servers = resolve_stun(options).await;
+    let mut transactions = Vec::new();
+    for address in &servers {
+        let mut transaction = [0u8; 12];
+        getrandom::fill(&mut transaction).expect("operating system randomness");
+        if socket.send_to(&cmux_transport::stun::binding_request(transaction), address).await.is_ok() {
+            transactions.push(transaction);
+        }
+    }
+    let deadline = Instant::now() + STUN_WAIT;
+    let mut buffer = [0u8; 1500];
+    while !transactions.is_empty() {
+        let Ok(Ok((len, _))) = tokio::time::timeout_at(deadline, socket.recv_from(&mut buffer)).await else {
+            break;
+        };
+        let found = transactions.iter().position(|transaction| {
+            cmux_transport::stun::parse_binding_success(&buffer[..len], transaction).is_ok_and(|reflexive| {
+                if !endpoints.contains(&reflexive) {
+                    endpoints.push(reflexive);
+                }
+                true
+            })
+        });
+        if let Some(index) = found {
+            transactions.swap_remove(index);
+        }
+    }
+    (offered(endpoints, options), servers)
 }
 
 /// The first plain `turn:` URL over UDP and its credentials, as
@@ -305,7 +345,7 @@ fn turn_targets(endpoints: &[String], options: &DialOptions) -> Vec<SocketAddr> 
 }
 
 /// Sends one datagram through the backend relay.
-type RelaySend = Box<dyn Fn(&[u8]) + Send>;
+type RelaySend = Box<dyn Fn(&[u8]) + Send + Sync>;
 
 /// The peer's endpoints this side may use.
 fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> {
@@ -343,6 +383,30 @@ struct Route {
     addr: SocketAddr,
 }
 
+/// How long after a roam (this side's or the peer's) every datagram also
+/// goes to the peer's plain UDP candidates, so a new NAT mapping opens on
+/// both sides while the route settles.
+const ROAM_SPRAY: Duration = Duration::from_secs(3);
+/// Spacing of those extra datagrams inside the window.
+const ROAM_SPRAY_GAP: Duration = Duration::from_millis(100);
+/// Data messages sent in this long before a roam, a route change or a new
+/// signaling socket are sent again on the new route: those that went into
+/// the dead route would otherwise cost TCP inside the tunnel its 1 s
+/// minimum retransmission timeout, or after a long outage (airplane mode)
+/// its backed-off one. WireGuard's replay window drops the copies that did
+/// arrive. As long as the link's own keepalive timeout.
+const REPLAY_AGE: Duration = Duration::from_secs(20);
+/// At most this many datagrams are kept for that (about 100 ms of a
+/// 15 Mbit/s stream; a whole outage of retransmissions and keepalives).
+const REPLAY_MAX: usize = 128;
+/// A route that flips between two addresses of the same peer (a LAN and a
+/// hairpinned public address while candidates are sprayed) replays at most
+/// this often; a roam of this side always replays.
+const REPLAY_GAP: Duration = Duration::from_secs(1);
+/// While the confirmed route is TURN, plain UDP candidates are tried this
+/// often, so the session goes back to a direct path once one works again.
+const UPGRADE_SPRAY_GAP: Duration = Duration::from_secs(5);
+
 /// The carriers: one UDP socket for direct paths, an optional TURN
 /// allocation, and the backend relay.
 ///
@@ -352,16 +416,22 @@ struct Route {
 /// datagram goes through the backend relay as well. The confirmation is a
 /// relay frame whose datagram is the single byte `0xff` (PROTOCOL.md), sent
 /// by a side whenever an authenticated UDP or TURN datagram from its peer
-/// arrives (at most every 3 s).
+/// arrives (at most every 3 s, and at once when the route changed).
 ///
 /// An address the OS refuses to send to (macOS Local Network privacy
 /// returns `EHOSTUNREACH` for LAN peers) is never chosen as the route again,
 /// so a peer reachable on the LAN one way and through TURN the other way
-/// settles on TURN instead of flapping.
+/// settles on TURN instead of flapping. A roam forgets those refusals: the
+/// new network may route them.
+///
+/// The roaming side of the tunnel (`roam.rs`) changes the carriers through
+/// [`Control`] messages, which the underlay applies before its next send or
+/// receive.
 struct HybridUnderlay {
     socket: UdpSocket,
-    drop_outbound_udp: bool,
-    refuse_udp_to: Option<fn(&SocketAddr) -> bool>,
+    options: DialOptions,
+    /// The peer's endpoints as it last announced them.
+    peer_endpoints: Vec<String>,
     /// Peer endpoints for plain UDP.
     candidates: Vec<SocketAddr>,
     turn: Option<TurnCarrier>,
@@ -380,6 +450,26 @@ struct HybridUnderlay {
     relay_out: RelaySend,
     relay_in: mpsc::UnboundedReceiver<Bytes>,
     path: watch::Sender<LinkPath>,
+    control: mpsc::UnboundedReceiver<Control>,
+    /// STUN transactions of the current socket still unanswered, and where
+    /// the reflexive addresses go.
+    stun: Vec<([u8; 12], SocketAddr)>,
+    reflexive: Option<mpsc::UnboundedSender<SocketAddr>>,
+    /// Until when candidates are sprayed after a roam, and when next.
+    spray_until: Option<Instant>,
+    next_spray: Option<Instant>,
+    /// The current roam's marks, until the new route is confirmed.
+    roam: Option<Timeline>,
+    /// The socket's network is gone (debug and tests): nothing it sends
+    /// leaves and nothing arrives.
+    blackhole: bool,
+    /// Test support: addresses plain UDP was sent to; with
+    /// `DialOptions::restrict_inbound_udp`, UDP from anywhere else is dropped.
+    sent_to: HashSet<SocketAddr>,
+    /// What was sent lately, for the replay after a route change.
+    recent: std::collections::VecDeque<(Instant, Bytes)>,
+    /// When a route change last replayed.
+    last_replay: Option<Instant>,
 }
 
 const UDP_PATH: PathId = PathId(0);
@@ -387,13 +477,187 @@ const RELAY_PATH: PathId = PathId(1);
 const TURN_PATH: PathId = PathId(2);
 
 impl HybridUnderlay {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        socket: UdpSocket,
+        options: &DialOptions,
+        peer_endpoints: &[String],
+        turn: Option<TurnCarrier>,
+        relay_out: RelaySend,
+        relay_in: mpsc::UnboundedReceiver<Bytes>,
+        path: watch::Sender<LinkPath>,
+        control: mpsc::UnboundedReceiver<Control>,
+    ) -> Self {
+        let mut underlay = Self {
+            socket,
+            options: options.clone(),
+            peer_endpoints: Vec::new(),
+            candidates: Vec::new(),
+            turn,
+            turn_targets: Vec::new(),
+            direct: None,
+            last_direct: None,
+            last_udp: None,
+            refused: HashSet::new(),
+            confirmed: false,
+            last_marker: None,
+            relay_out,
+            relay_in,
+            path,
+            control,
+            stun: Vec::new(),
+            reflexive: None,
+            spray_until: None,
+            next_spray: None,
+            roam: None,
+            blackhole: false,
+            sent_to: HashSet::new(),
+            recent: std::collections::VecDeque::new(),
+            last_replay: None,
+        };
+        underlay.set_peer_endpoints(peer_endpoints.to_vec());
+        underlay
+    }
+
+    fn set_peer_endpoints(&mut self, endpoints: Vec<String>) {
+        self.candidates =
+            usable_endpoints(&endpoints, &self.options).iter().filter_map(|text| text.parse().ok()).collect();
+        self.peer_endpoints = endpoints;
+        self.retarget_turn();
+    }
+
+    fn retarget_turn(&mut self) {
+        self.turn_targets =
+            if self.turn.is_some() { turn_targets(&self.peer_endpoints, &self.options) } else { Vec::new() };
+    }
+
+    /// Apply the roaming side's changes.
+    fn apply(&mut self, control: Control) {
+        let now = Instant::now();
+        match control {
+            Control::Rebind { socket, stun, reflexive, timeline } => {
+                tracing::debug!(local = ?socket.local_addr().ok(), "WireGuard roams onto a new socket");
+                // The old route's address stays a candidate (a peer-reflexive
+                // one may be in no announcement).
+                if let Some(route) = self.direct.take()
+                    && route.carrier == Carrier::Udp
+                    && !self.options.relay_only
+                    && !self.candidates.contains(&route.addr)
+                {
+                    self.candidates.push(route.addr);
+                }
+                self.socket = socket;
+                self.blackhole = false;
+                // The old allocation belongs to the old network's 5-tuple.
+                self.turn = None;
+                self.turn_targets.clear();
+                self.last_direct = None;
+                self.last_udp = None;
+                self.refused.clear();
+                self.sent_to.clear();
+                self.confirmed = false;
+                self.last_marker = None;
+                self.spray_until = Some(now + ROAM_SPRAY);
+                self.next_spray = None;
+                self.stun.clear();
+                for server in stun {
+                    let mut transaction = [0u8; 12];
+                    getrandom::fill(&mut transaction).expect("operating system randomness");
+                    let request = cmux_transport::stun::binding_request(transaction);
+                    if self.socket.try_send_to(&request, server).is_ok() {
+                        self.stun.push((transaction, server));
+                    }
+                }
+                self.reflexive = Some(reflexive);
+                self.roam = Some(timeline);
+                self.publish_path();
+                self.replay_recent(true);
+            }
+            Control::Turn(turn) => {
+                self.turn = Some(turn);
+                self.retarget_turn();
+            }
+            Control::PeerEndpoints(endpoints) => {
+                tracing::debug!(?endpoints, "WireGuard peer announced new endpoints");
+                // An empty list says only that the peer's network changed.
+                if !endpoints.is_empty() {
+                    self.set_peer_endpoints(endpoints);
+                }
+                self.spray_until = Some(now + ROAM_SPRAY);
+                self.next_spray = None;
+                self.last_marker = None;
+                // What we sent toward its old network may be lost.
+                self.replay_recent(true);
+            }
+            Control::Rehomed => {
+                self.last_marker = None;
+                // Relay frames sent on the dead socket are lost.
+                if !self.direct_only() {
+                    self.replay_recent(true);
+                }
+            }
+            Control::Blackhole => {
+                self.blackhole = true;
+                self.turn = None;
+                self.turn_targets.clear();
+            }
+        }
+    }
+
+    fn record(&mut self, datagram: &[u8]) {
+        // Handshake messages are never worth repeating.
+        if cmux_transport::classify(datagram) != cmux_transport::DatagramClass::WireGuardData {
+            return;
+        }
+        let now = Instant::now();
+        while self.recent.len() >= REPLAY_MAX
+            || self.recent.front().is_some_and(|(at, _)| now.duration_since(*at) > REPLAY_AGE)
+        {
+            self.recent.pop_front();
+        }
+        self.recent.push_back((now, Bytes::copy_from_slice(datagram)));
+    }
+
+    /// Send what went out lately again, on the current route. Replays for
+    /// a route change (not `forced`) happen at most every [`REPLAY_GAP`].
+    fn replay_recent(&mut self, forced: bool) {
+        let now = Instant::now();
+        if !forced {
+            if self.last_replay.is_some_and(|last| now.duration_since(last) < REPLAY_GAP) {
+                return;
+            }
+            self.last_replay = Some(now);
+        }
+        let recent: Vec<Bytes> = self
+            .recent
+            .iter()
+            .filter(|(at, _)| now.duration_since(*at) <= REPLAY_AGE)
+            .map(|(_, datagram)| datagram.clone())
+            .collect();
+        if !recent.is_empty() {
+            tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
+        }
+        for datagram in recent {
+            self.transmit(&datagram);
+        }
+    }
+
+    fn drain_control(&mut self) {
+        while let Ok(control) = self.control.try_recv() {
+            self.apply(control);
+        }
+    }
+
     /// Send one UDP datagram; `false` when the OS refused it.
-    fn send_udp(&self, datagram: &[u8], target: SocketAddr) -> bool {
-        if self.refuse_udp_to.is_some_and(|refuse| refuse(&target)) {
+    fn send_udp(&mut self, datagram: &[u8], target: SocketAddr) -> bool {
+        if self.options.refuse_udp_to.is_some_and(|refuse| refuse(&target)) {
             return false;
         }
-        if self.drop_outbound_udp {
+        if self.options.drop_outbound_udp || self.blackhole {
             return true;
+        }
+        if self.options.restrict_inbound_udp {
+            self.sent_to.insert(target);
         }
         // A full socket drops the datagram; WireGuard and TCP retransmit.
         match self.socket.try_send_to(datagram, target) {
@@ -427,11 +691,45 @@ impl HybridUnderlay {
         }
     }
 
+    /// Plain UDP to every usable candidate but `except`.
+    fn spray(&mut self, datagram: &[u8], except: Option<SocketAddr>) {
+        let mut refused = Vec::new();
+        for candidate in self.candidates.clone() {
+            if Some(candidate) != except
+                && !self.refused.contains(&candidate)
+                && !self.send_udp(datagram, candidate)
+            {
+                refused.push(candidate);
+            }
+        }
+        self.refused.extend(refused);
+    }
+
+    /// With a route: also try the other candidates, often right after a
+    /// roam, now and then while the route is not plain UDP (so a direct
+    /// path is found again).
+    fn maybe_spray(&mut self, datagram: &[u8], route: Route) {
+        let now = Instant::now();
+        let roaming = self.spray_until.is_some_and(|until| now < until);
+        let gap = if roaming {
+            ROAM_SPRAY_GAP
+        } else if route.carrier != Carrier::Udp {
+            UPGRADE_SPRAY_GAP
+        } else {
+            return;
+        };
+        if self.next_spray.is_some_and(|next| now < next) {
+            return;
+        }
+        self.next_spray = Some(now + gap);
+        self.spray(datagram, Some(route.addr));
+    }
+
     fn direct_only(&self) -> bool {
         self.confirmed && self.direct.is_some()
     }
 
-    fn publish_path(&self) {
+    fn publish_path(&mut self) {
         let path = match self.direct {
             Some(route) if self.confirmed => match route.carrier {
                 Carrier::Udp => LinkPath::Direct,
@@ -439,6 +737,11 @@ impl HybridUnderlay {
             },
             _ => LinkPath::Relay,
         };
+        if path != LinkPath::Relay
+            && let Some(roam) = self.roam.take()
+        {
+            roam.mark(if path == LinkPath::Direct { "roam_direct" } else { "roam_turn" });
+        }
         self.path.send_if_modified(|current| std::mem::replace(current, path) != path);
     }
 
@@ -449,10 +752,26 @@ impl HybridUnderlay {
         self.confirmed = false;
         self.publish_path();
     }
+
+    /// A STUN answer to this socket's own binding request: consumed.
+    fn stun_answer(&mut self, datagram: &[u8], source: SocketAddr) -> bool {
+        if self.stun.is_empty() {
+            return false;
+        }
+        let Some(index) = self.stun.iter().position(|(_, server)| *server == source) else { return false };
+        let Ok(reflexive) = cmux_transport::stun::parse_binding_success(datagram, &self.stun[index].0) else {
+            return false;
+        };
+        self.stun.swap_remove(index);
+        if let Some(tx) = &self.reflexive {
+            let _ = tx.send(reflexive);
+        }
+        true
+    }
 }
 
-impl Underlay for HybridUnderlay {
-    fn send(&mut self, datagram: &[u8]) {
+impl HybridUnderlay {
+    fn transmit(&mut self, datagram: &[u8]) {
         if self.direct_only() && self.last_direct.is_some_and(|last| last.elapsed() > DIRECT_STALE) {
             // Nothing came back on the route for a while: offer the relay
             // again (and the peer's marker re-confirms the route if it works).
@@ -465,7 +784,9 @@ impl Underlay for HybridUnderlay {
                 self.direct = None;
                 self.demote("send refused");
                 (self.relay_out)(datagram);
+                return;
             }
+            self.maybe_spray(datagram, route);
             return;
         }
         (self.relay_out)(datagram);
@@ -484,15 +805,10 @@ impl Underlay for HybridUnderlay {
                         turn.send(datagram, *target);
                     }
                 }
+                self.maybe_spray(datagram, route);
             }
             None => {
-                let mut refused = Vec::new();
-                for candidate in &self.candidates {
-                    if !self.refused.contains(candidate) && !self.send_udp(datagram, *candidate) {
-                        refused.push(*candidate);
-                    }
-                }
-                self.refused.extend(refused);
+                self.spray(datagram, None);
                 if let Some(turn) = &self.turn {
                     for target in &self.turn_targets {
                         turn.send(datagram, *target);
@@ -501,13 +817,30 @@ impl Underlay for HybridUnderlay {
             }
         }
     }
+}
+
+impl Underlay for HybridUnderlay {
+    fn send(&mut self, datagram: &[u8]) {
+        self.drain_control();
+        self.record(datagram);
+        self.transmit(datagram);
+    }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+        while let Poll::Ready(Some(control)) = self.control.poll_recv(cx) {
+            self.apply(control);
+        }
         loop {
             let mut read = ReadBuf::new(buffer);
             match self.socket.poll_recv_from(cx, &mut read) {
                 Poll::Ready(Ok(source)) => {
                     let len = read.filled().len();
+                    if self.blackhole
+                        || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
+                        || self.stun_answer(&buffer[..len], source)
+                    {
+                        continue;
+                    }
                     return Poll::Ready(Ok(Received {
                         len,
                         origin: Origin { path: UDP_PATH, addr: Some(source) },
@@ -516,6 +849,11 @@ impl Underlay for HybridUnderlay {
                 // ICMP unreachable and friends: keep going on the relay.
                 Poll::Ready(Err(error)) => {
                     tracing::trace!(%error, "UDP receive error");
+                    if self.blackhole {
+                        // A socket whose network went away can fail every
+                        // receive at once; wait for the roam instead of spinning.
+                        break;
+                    }
                     continue;
                 }
                 Poll::Pending => break,
@@ -560,6 +898,9 @@ impl Underlay for HybridUnderlay {
         };
         if let (Some(carrier), Some(addr)) = (carrier, origin.addr) {
             let route = Route { carrier, addr };
+            if let Some(roam) = &self.roam {
+                roam.mark("roam_first_packet");
+            }
             if carrier == Carrier::Udp {
                 self.last_udp = Some(now);
             }
@@ -574,11 +915,16 @@ impl Underlay for HybridUnderlay {
                 if self.direct.is_some() {
                     // The marker confirmed the old route, not this one (our
                     // UDP may be dropped silently): relay again until the
-                    // peer confirms what arrives on the new route.
+                    // peer confirms what arrives on the new route, and tell
+                    // the peer at once that its datagrams reach us here.
                     tracing::debug!(?route, "WireGuard direct route changed");
                     self.confirmed = false;
+                    self.last_marker = None;
+                    self.direct = Some(route);
+                    self.replay_recent(false);
+                } else {
+                    self.direct = Some(route);
                 }
-                self.direct = Some(route);
             }
             self.last_direct = Some(now);
             if self.last_marker.is_none_or(|last| now.duration_since(last) >= MARKER_INTERVAL) {
@@ -605,123 +951,102 @@ impl Underlay for HybridUnderlay {
     }
 }
 
-/// Holds the tunnel and the task that feeds it relay frames.
+/// Holds the tunnel; dropping it ends the session.
 struct Guard {
-    net: Arc<Mutex<Option<Arc<WgNet>>>>,
-    task: tokio::task::JoinHandle<()>,
-    signaling: SignalingClient,
-    session_id: String,
-    peer: String,
+    session: Arc<Session>,
 }
 
 impl Drop for Guard {
     fn drop(&mut self) {
-        self.task.abort();
-        // Tell the peer, so its tunnel stops sending relay frames the
-        // backend can only answer with `offline` or `not_owner`.
-        if self.net.lock().unwrap_or_else(PoisonError::into_inner).take().is_some() {
-            let _ = self.signaling.send_signal(
-                &self.peer,
-                &self.session_id,
-                SignalPayload::Bye { reason: "closed".into() },
-            );
-        }
-        self.signaling.unsubscribe(&self.session_id);
+        self.session.close();
     }
 }
 
 struct Tunnel {
-    net: Arc<Mutex<Option<Arc<WgNet>>>>,
+    session: Arc<Session>,
     path: watch::Receiver<LinkPath>,
-    relay_in: mpsc::UnboundedSender<Bytes>,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn start_tunnel(
-    signaling: &SignalingClient,
-    session_id: &str,
-    peer_device: &str,
+/// What a side knows when it starts its tunnel.
+struct TunnelSpec<'a> {
+    session_id: &'a str,
+    peer_device: &'a str,
     socket: UdpSocket,
     private_key: Zeroizing<[u8; 32]>,
     peer_key: [u8; 32],
     own_ip: Ipv4Addr,
     peer_ip: Ipv4Addr,
-    peer_endpoints: &[String],
+    peer_endpoints: &'a [String],
+    /// What this side offered the peer.
+    own_endpoints: Vec<String>,
     turn: Option<TurnCarrier>,
+    /// The phone allocates TURN (again after a roam) when offered one.
+    dialer: bool,
+    stun: Vec<SocketAddr>,
+}
+
+fn start_tunnel(
+    signaling: &SignalingClient,
+    spec: TunnelSpec<'_>,
     options: &DialOptions,
 ) -> Result<Tunnel, DialError> {
-    let session_uuid =
-        Uuid::parse_str(session_id).map_err(|_| DialError::Unexpected("sessionId is not a UUID".into()))?;
-    let peer_uuid = Uuid::parse_str(peer_device)
+    let session_uuid = Uuid::parse_str(spec.session_id)
+        .map_err(|_| DialError::Unexpected("sessionId is not a UUID".into()))?;
+    let peer_uuid = Uuid::parse_str(spec.peer_device)
         .map_err(|_| DialError::Unexpected("peer deviceId is not a UUID (relay frames need one)".into()))?;
-    let relay_signaling = signaling.clone();
+    // The relay goes through whichever signaling socket the session is on
+    // now: a roam can move it to a new one.
+    let current = Arc::new(Mutex::new(signaling.clone()));
+    let relay_signaling = Arc::clone(&current);
     let relay_out = Box::new(move |datagram: &[u8]| {
         let frame = RelayFrame {
             session_id: session_uuid,
             peer: peer_uuid,
             datagram: Bytes::copy_from_slice(datagram),
         };
-        let _ = relay_signaling.send_relay(&frame);
+        let client = relay_signaling.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let _ = client.send_relay(&frame);
     });
     let (relay_tx, relay_rx) = mpsc::unbounded_channel();
     let (path_tx, path_rx) = watch::channel(LinkPath::Relay);
-    let underlay = HybridUnderlay {
-        socket,
-        drop_outbound_udp: options.drop_outbound_udp,
-        refuse_udp_to: options.refuse_udp_to,
-        candidates: usable_endpoints(peer_endpoints, options)
-            .iter()
-            .filter_map(|text| text.parse().ok())
-            .collect(),
-        turn_targets: if turn.is_some() { turn_targets(peer_endpoints, options) } else { Vec::new() },
-        turn,
-        direct: None,
-        last_direct: None,
-        last_udp: None,
-        refused: HashSet::new(),
-        confirmed: false,
-        last_marker: None,
+    let (control_tx, control_rx) = mpsc::unbounded_channel();
+    let underlay = HybridUnderlay::new(
+        spec.socket,
+        options,
+        spec.peer_endpoints,
+        spec.turn,
         relay_out,
-        relay_in: relay_rx,
-        path: path_tx,
-    };
+        relay_rx,
+        path_tx,
+        control_rx,
+    );
     let host = |ip: Ipv4Addr| IpNetwork::new(IpAddr::V4(ip), 32).expect("host prefix");
     let config = WgConfig {
-        private_key,
-        addresses: vec![InterfaceAddress { address: IpAddr::V4(own_ip), prefix: 32 }],
+        private_key: spec.private_key,
+        addresses: vec![InterfaceAddress { address: IpAddr::V4(spec.own_ip), prefix: 32 }],
         mtu: MTU,
-        peer_public_key: peer_key,
+        peer_public_key: spec.peer_key,
         preshared_key: None,
-        allowed_ips: vec![host(peer_ip)],
+        allowed_ips: vec![host(spec.peer_ip)],
         endpoint: None,
         persistent_keepalive: Some(KEEPALIVE_SECONDS),
-        peer_addresses: vec![IpAddr::V4(peer_ip)],
+        peer_addresses: vec![IpAddr::V4(spec.peer_ip)],
     };
     let net = WgNet::start_with_underlay(config, underlay).map_err(transport_error)?;
-    Ok(Tunnel { net: Arc::new(Mutex::new(Some(Arc::new(net)))), path: path_rx, relay_in: relay_tx })
-}
-
-/// Feed relay frames to the tunnel; drop the tunnel on `bye`.
-fn follow(mut events: SessionEvents, tunnel: &Tunnel) -> tokio::task::JoinHandle<()> {
-    let relay_in = tunnel.relay_in.clone();
-    let net = Arc::clone(&tunnel.net);
-    tokio::spawn(async move {
-        loop {
-            match events.session.recv().await {
-                Some(SessionEvent::Relay(datagram)) => {
-                    let _ = relay_in.send(datagram);
-                }
-                Some(SessionEvent::Signal(envelope)) => {
-                    if matches!(envelope.payload, SignalPayload::Bye { .. }) {
-                        net.lock().unwrap_or_else(PoisonError::into_inner).take();
-                        return;
-                    }
-                }
-                // Direct UDP can outlive a signaling outage.
-                Some(SessionEvent::Disconnected) | None => return,
-            }
-        }
-    })
+    let session = Session::register(roam::SessionParts {
+        session_id: spec.session_id.to_owned(),
+        peer: spec.peer_device.to_owned(),
+        dialer: spec.dialer,
+        peer_ip: spec.peer_ip,
+        signaling: current,
+        net: Arc::new(Mutex::new(Some(Arc::new(net)))),
+        control: control_tx,
+        relay_in: relay_tx,
+        options: options.clone(),
+        stun: spec.stun,
+        endpoints: spec.own_endpoints,
+    });
+    Ok(Tunnel { session, path: path_rx })
 }
 
 /// The running tunnel, unless `bye` already dropped it.
@@ -747,13 +1072,14 @@ impl Dialer for WireGuardDialer {
     ) -> DialFuture<'a> {
         Box::pin(async move {
             let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(transport_error)?;
-            let (mut endpoints, turn) =
+            let ((mut endpoints, stun), turn) =
                 tokio::join!(gather_endpoints(&socket, options), TurnCarrier::allocate(&options.ice_servers));
             if let Some(turn) = &turn {
                 endpoints.push(turn.relayed.to_string());
             }
             options.timeline.mark("endpoints_gathered");
             let (private_key, public_key) = keypair();
+            let own_endpoints = endpoints.clone();
             signaling
                 .send_signal(
                     mac,
@@ -790,31 +1116,28 @@ impl Dialer for WireGuardDialer {
             if peer_ip == DIALER_OVERLAY {
                 return Err(DialError::Unexpected("peer overlay address collides".into()));
             }
-            let tunnel = start_tunnel(
-                signaling,
+            let spec = TunnelSpec {
                 session_id,
-                mac,
+                peer_device: mac,
                 socket,
                 private_key,
                 peer_key,
-                DIALER_OVERLAY,
+                own_ip: DIALER_OVERLAY,
                 peer_ip,
-                &peer_endpoints,
+                peer_endpoints: &peer_endpoints,
+                own_endpoints,
                 turn,
-                options,
-            )?;
-            for datagram in early_relay {
-                let _ = tunnel.relay_in.send(datagram);
-            }
-            let task = follow(events, &tunnel);
-            let guard = Guard {
-                net: Arc::clone(&tunnel.net),
-                task,
-                signaling: signaling.clone(),
-                session_id: session_id.to_owned(),
-                peer: mac.to_owned(),
+                dialer: true,
+                stun,
             };
-            let net = running(&tunnel.net)?;
+            let tunnel = start_tunnel(signaling, spec, options)?;
+            for datagram in early_relay {
+                tunnel.session.relay(datagram);
+            }
+            tunnel.session.follow(events.session);
+            let guard = Guard { session: Arc::clone(&tunnel.session) };
+            let net = tunnel.session.net()?;
+            tunnel.session.start_control(&net).await;
             let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
             let stream = net.connect(link_addr).await.map_err(transport_error)?;
             // The input lane: a second TCP stream to the same port, opened
@@ -864,30 +1187,27 @@ impl Dialer for WireGuardDialer {
                 .map_err(|_| DialError::Unexpected("wg-init overlayIP is not IPv4".into()))?;
             let own_ip = if peer_ip == ANSWER_OVERLAY { DIALER_OVERLAY } else { ANSWER_OVERLAY };
             let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(transport_error)?;
-            let endpoints = gather_endpoints(&socket, options).await;
+            let (endpoints, stun) = gather_endpoints(&socket, options).await;
             let (private_key, own_public) = keypair();
-            let tunnel = start_tunnel(
-                signaling,
-                &first.session_id,
-                &first.from,
+            let spec = TunnelSpec {
+                session_id: &first.session_id,
+                peer_device: &first.from,
                 socket,
                 private_key,
                 peer_key,
                 own_ip,
                 peer_ip,
-                &peer_endpoints,
-                None,
-                options,
-            )?;
-            let task = follow(events, &tunnel);
-            let guard = Guard {
-                net: Arc::clone(&tunnel.net),
-                task,
-                signaling: signaling.clone(),
-                session_id: first.session_id.clone(),
-                peer: first.from.clone(),
+                peer_endpoints: &peer_endpoints,
+                own_endpoints: endpoints.clone(),
+                turn: None,
+                dialer: false,
+                stun,
             };
-            let net = running(&tunnel.net)?;
+            let tunnel = start_tunnel(signaling, spec, options)?;
+            tunnel.session.follow(events.session);
+            let guard = Guard { session: Arc::clone(&tunnel.session) };
+            let net = tunnel.session.net()?;
+            tunnel.session.start_control(&net).await;
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
             drop(net);
             signaling

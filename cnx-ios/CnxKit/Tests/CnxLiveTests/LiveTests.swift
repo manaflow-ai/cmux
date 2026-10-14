@@ -100,10 +100,16 @@ import Testing
 struct MockDialer: MacLinkDialer {
     let fail: Bool
     var dialed: (@Sendable (LinkEndpoint) -> Void)?
+    var roamed: (@Sendable (String) -> Void)?
     func dial(_ endpoint: LinkEndpoint, transport: CnxTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         dialed?(endpoint)
         if fail { throw LinkError(code: "timeout", message: "") }
         return MockMacLink(transport: transport)
+    }
+
+    func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
+        roamed?(teamID)
+        return [("roam_direct", 12)]
     }
 }
 
@@ -130,6 +136,27 @@ struct MockDialer: MacLinkDialer {
         controller.send(.relayOnly(false))
         for _ in 0..<200 where !(controller.phase.isConnected && seen.values.count == 2) { await Task.yield() }
         #expect(seen.values == [true, false])
+    }
+
+    /// A network change roams the live link in place: the dialer is told
+    /// once (a burst of path updates settles first) and nothing redials.
+    @Test func networkChangeRoamsWithoutRedialing() async throws {
+        let dials = Seen()
+        let roams = Seen()
+        let dialer = MockDialer(fail: false, dialed: { _ in dials.append(true) }, roamed: { _ in roams.append(true) })
+        let controller = LinkController(transport: .wireGuard, dialer: dialer, accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
+        let url = URL(string: "https://x")!
+        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
+        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while roams.values.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(roams.values.count == 1)
+        #expect(dials.values.count == 1)
+        #expect(controller.phase.isConnected)
     }
 
     @Test func dialFailureWaitsWithReadableReason() async throws {

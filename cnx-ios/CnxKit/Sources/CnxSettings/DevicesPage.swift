@@ -15,6 +15,10 @@ public protocol SettingsDeviceDirectory: AnyObject {
     var relayAvailable: Bool? { get }
     /// Account deletion, first step: the service forgets this account.
     func deleteAccountData() async throws
+    /// "Remove This iPhone from My Macs": the linked Mac forgets this phone,
+    /// its pairing keys are replaced, and the next connection asks the Mac
+    /// again. Sign-out does not do this (verify/persistence.md).
+    func removeThisPhoneFromMacs() async
 }
 
 /// The account's devices from the service, shared by the Settings root (its
@@ -56,6 +60,8 @@ struct DevicesPage: View {
     let directory: (any SettingsDeviceDirectory)?
     let list: SettingsDeviceList
     @State private var pendingRemoval: SettingsDevice?
+    @State private var confirmingPhoneRemoval = false
+    @State private var removingPhone = false
     @State private var removalError: ServiceFailureMessage?
     /// Rows whose removal is in flight (shown dimmed, not removable twice).
     @State private var removing: Set<String> = []
@@ -99,6 +105,19 @@ struct DevicesPage: View {
                     Text("Sign out to remove this iPhone.")
                 }
             }
+            if directory != nil {
+                Section {
+                    Button(role: .destructive) {
+                        confirmingPhoneRemoval = true
+                    } label: {
+                        Text(removingPhone ? "Removing…" : "Remove This iPhone from My Macs")
+                    }
+                    .disabled(removingPhone)
+                    .accessibilityIdentifier("settings.removeThisPhone")
+                } footer: {
+                    Text("Signing out keeps this iPhone allowed on your Macs. Remove it to make each Mac ask again before it connects.")
+                }
+            }
             if let loadError = list.loadError {
                 Section { Text(loadError).font(theme.type.meta).foregroundStyle(theme.colors.danger) }
             }
@@ -121,6 +140,12 @@ struct DevicesPage: View {
         } message: { device in
             Text(Self.removalExplanation(device, connected: isConnected(device), honorsRemoval: honorsRemoval(device),
                                          displayName: displayName(device)))
+        }
+        .alert("Remove this iPhone from your Macs?", isPresented: $confirmingPhoneRemoval) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) { Task { await removeThisPhone() } }
+        } message: {
+            Text("Your Mac forgets this iPhone and its keys are replaced. The next time it connects, the Mac asks you to allow it again. You stay signed in.")
         }
         .alert("Couldn't remove", isPresented: Binding(get: { removalError != nil }, set: { if !$0 { removalError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -280,6 +305,14 @@ struct DevicesPage: View {
         case .failed: .error
         case .offline: .offline
         }
+    }
+
+    private func removeThisPhone() async {
+        guard let directory, !removingPhone else { return }
+        removingPhone = true
+        defer { removingPhone = false }
+        await directory.removeThisPhoneFromMacs()
+        theme.haptics.success()
     }
 
     private func remove(_ device: SettingsDevice) async {

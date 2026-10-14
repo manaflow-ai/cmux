@@ -526,6 +526,35 @@ mod tests {
         assert!(answer.contains("unavailable"));
     }
 
+    /// The exact lines the iOS Feed sends for terminal agents (CnxLive
+    /// TerminalFeed): the notification ledger read and the per-tab read mark
+    /// the Mac's own notifications panel uses. Both were already on the
+    /// allowlist; nothing new is opened for the Feed.
+    #[test]
+    fn allows_the_terminal_feed() {
+        for line in [
+            br#"{"cmd":"subscribe","id":"m1","tree_events":"deltas"}"#.as_slice(),
+            br#"{"cmd":"list-notifications","id":"m2","limit":100}"#,
+            br#"{"cmd":"ack-tab-notifications","id":"m3","surface":7}"#,
+            br#"{"cmd":"list-agents","id":"m4"}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
+        // Nothing beyond the ledger: replies into a terminal, the activity
+        // stream and the session journal stay refused.
+        for line in [
+            br#"{"cmd":"notification-reply","id":"m5","notification":1,"text":"y"}"#.as_slice(),
+            br#"{"cmd":"subscribe-activity","id":"m6"}"#,
+            br#"{"cmd":"session.journal.subscribe","id":"m7"}"#,
+        ] {
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
+        }
+    }
+
     #[test]
     fn mirrors_the_swift_allowlist() {
         let swift = include_str!(

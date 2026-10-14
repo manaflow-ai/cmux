@@ -1,7 +1,7 @@
 # Draft: #13742 trust call for the cmux-next iPhone link
 
 Not posted. This is the draft of one consolidated comment for
-https://github.com/manaflow-ai/cmux/issues/13742. It covers the four trust
+https://github.com/manaflow-ai/cmux/issues/13742. It covers the five trust
 decisions behind cmux on iPhone (the cnx app) reaching a cmux-next Mac. The
 relay analysis is `cnx-ios/SECURITY.md`; the pairing and approval design is
 `cnx-ios/verify/phone-approvals.md` (both on `feat-cnx-ios`).
@@ -14,14 +14,14 @@ With Settings > Mobile > Allow iPhone Connections on, the cmux app on the same
 account's iPhone opens the Mac's workspaces, terminals, browser tabs, agent
 chats and Chief. Every phone request reaches the Mac through `cnx-hostd`, a
 helper the Mac app runs, which passes it to one service (`daemon`, `acpmux`,
-`chief`, `file`, `upload`) through a default-deny policy. Four calls need an
+`chief`, `file`, `upload`) through a default-deny policy. Five calls need an
 answer before these land.
 
 Threats considered for each: a stolen sign-in token, a malicious or
 compromised Mac, a lost phone, an observer on the relay or TURN path, and
 prompt injection from agent output.
 
-Things that hold for all four:
+Things that hold for all five:
 
 - **Admission.** The Worker stamps the dialer's user on every signal
   (`fromUserId`, PROTOCOL.md "Admission"), and hostd admits only the Mac's
@@ -212,6 +212,52 @@ person). Evidence: acpmux `tests/workspace_roots.rs` (before refused, only the
 person sets it, `/` and home dropped, symlink and `..` out refused, cleared
 refuses again). Recommendation: approve it together with (a).
 
+### 5. Sign-out keeps this iPhone's Mac approval (`feat-cnx-ios-persist`)
+
+**What changes.** Until now, signing out of the phone asked the linked Mac to
+forget it and deleted its device ids and Secure Enclave keys, so signing back
+in to the same account meant a new "Allow “<phone>” to connect?" dialog on
+every Mac. Now the phone keeps its identity for each account: the link and
+presence device ids (Keychain, this device only, after first unlock), the two
+enclave keys (`identity.<user>`, `approval.<user>`) and the pinned Mac keys.
+Sign-out only stops pushes (`DELETE /v1/devices/:id/push`) and drops the
+account's data on the phone: the Feed, workspace snapshots and unsent Chief
+messages. The old removal is now its own action, Settings > Devices > "Remove
+This iPhone from My Macs": the linked Mac forgets the phone, the keys are
+replaced, and every Mac asks again. Account deletion forgets the keys and ids
+too (`verify/persistence.md`).
+
+**Why it is safe.** A Mac admits a link only when all three hold: the
+Worker-stamped `fromUserId` is the Mac's own user (hostd `admitted`), the
+device id is one that user registered (the Worker refuses another user's id
+with `403 not_owner`, and only admits a signaling socket for a device the
+caller registered), and the phone proves the identity key the Mac's person
+approved for that device id, in a list the Mac keeps per signed-in user. A
+second account signing in on the same phone gets its own device ids and keys
+and reaches none of the first account's Macs; it can't use the first
+account's keys, which are never exported and never leave the enclave.
+
+| Threat | What stops it | What's left |
+| --- | --- | --- |
+| Another person signs in on this phone | Admission is per user; the other account has its own ids and keys; the first account's Feed, snapshots and preferences left the screen at sign-out. | The first account's keys stay in this phone's Keychain until "Remove This iPhone from My Macs" or account deletion; they are usable only by a session of the first account. |
+| Stolen sign-in token for the same account, on this phone | Nothing new: a signed-in session already had the keys. | A signed-out phone that the same account signs in to again connects with no prompt. Before, it asked again. |
+| Stolen token on another device | The keys never leave this phone's enclave. | None new. |
+| Lost or handed-on phone | "Remove This iPhone from My Macs" on the phone, or revoking it in Settings > Mobile on the Mac. Require Face ID locks the app. | Sign-out alone no longer cuts the phone off its Macs. Someone who gives a phone away should use the removal action. |
+
+**Recommendation: approve.** The prompt protects the Mac against a key it
+has not seen, not against the same account returning on the same phone with
+the key it already allowed. The removal action keeps a one-tap way to cut a
+phone off.
+
+**Alternative:** sign-out keeps the device ids but replaces the keys (each
+sign-in asks every Mac again, as before).
+
+Evidence: CnxKit tests `AccountSignOutTests` (sign-out never calls the Mac
+removal and keeps the ids and keys), `DeviceIdentityPersistenceTests`,
+`PhoneKeysPersistenceTests`, `RemoveThisPhoneUnpairTests` (a signed `unpair`
+reaches the Mac), `RemoveThisPhoneCoordinatorTests`, `AccountPreferencesTests`;
+live run in `verify/persistence.md`.
+
 ### Decisions
 
 - **iPhone host (#20414):** may the Mac app host iPhone links behind the
@@ -238,3 +284,8 @@ refuses again). Recommendation: approve it together with (a).
   known projects and webRoots) or `share workspace folders (b)` (every
   workspace folder for files, until hostd restarts) or `keep files and new
   agent chats blocked` (chat roots only, none by default).
+- **Sign-out keeps the Mac approval (`feat-cnx-ios-persist`):** may signing
+  out of the phone keep its device ids, enclave keys and Mac approvals, with
+  "Remove This iPhone from My Macs" as the explicit way to end them? Reply
+  `approve: sign-out keeps the approval` or `sign-out replaces the keys`
+  (every sign-in asks each Mac again).

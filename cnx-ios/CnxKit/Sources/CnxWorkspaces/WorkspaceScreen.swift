@@ -63,6 +63,12 @@ public struct WorkspaceScreen: View {
             // where a page has no controls and the keyboard never reaches; in the grid just
             // above its bottom controls.
             .overlay { toast }
+            // The Mac created the tab (+ in the grid or the page menu): open it.
+            .onChange(of: source.openedTab) { _, id in
+                guard id != nil else { return }
+                source.openedTab = nil
+                if showsGrid { showsGrid = false }
+            }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
@@ -93,7 +99,23 @@ public struct WorkspaceScreen: View {
     private var toast: some View {
         let placement = ToastPlacement(screen: showsGrid ? .grid : .page)
         return ZStack(alignment: showsGrid ? .bottom : .top) {
-            if let text = source.toastText {
+            if let title = source.pendingTabTitle {
+                // A tab on its way: the grid keeps its cards until the Mac lists it.
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(Self.openingText(title))
+                }
+                .font(theme.type.meta.weight(.semibold))
+                .foregroundStyle(theme.colors.label.color)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 40)
+                .glassEffect(.regular, in: .capsule)
+                .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.updatesFrequently)
+                .padding(showsGrid ? .bottom : .top, placement.inset)
+                .transition(.opacity)
+            } else if let text = source.toastText {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: "exclamationmark.circle")
                     Text(text).fixedSize(horizontal: false, vertical: true)
@@ -118,7 +140,15 @@ public struct WorkspaceScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: showsGrid ? .bottom : .top)
         .animation(theme.motion.snappy.animation, value: source.toastText)
+        .animation(theme.motion.snappy.animation, value: source.pendingTabTitle)
         .animation(theme.motion.snappy.animation, value: showsGrid)
+    }
+
+    /// "Opening a Claude chat…" for "New Claude Chat".
+    static func openingText(_ optionTitle: String) -> String {
+        var name = optionTitle
+        if name.hasPrefix("New ") { name.removeFirst(4) }
+        return name.hasSuffix(" Chat") ? "Opening a \(name.dropLast(5)) chat…" : "Opening a \(name.lowercased())…"
     }
 
     /// The grid's top row: back to the workspace list, and which workspace

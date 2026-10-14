@@ -132,6 +132,8 @@ pub async fn run(config: HostConfig) -> Result<()> {
             config.services.acpmux.clone(),
         ));
     }
+    // Phones keep their WireGuard sessions when the Mac changes networks.
+    tokio::spawn(crate::netwatch::run());
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);
@@ -196,6 +198,12 @@ async fn connect_once(
         .await
         .context("signaling connect")?;
     tracing::info!(device_id = config.device_id, "signaling connected");
+    // Sessions of the previous socket (WireGuard tunnels outlive it) send
+    // their relay frames and `bye` on this one now.
+    let moved = dial::wireguard::rehome(&signaling);
+    if moved > 0 {
+        tracing::info!(moved, "WireGuard sessions moved to the new signaling socket");
+    }
     control::emit(&Event::Online { device_id: config.device_id.clone(), team_id: config.team_id.clone() });
     let context = AnswerContext {
         owner_user_id: owner,

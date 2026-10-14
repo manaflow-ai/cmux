@@ -16,6 +16,9 @@ public actor DaemonClient {
     public nonisolated let events: AsyncStream<Data>
     private let eventContinuation: AsyncStream<Data>.Continuation
 
+    /// The `LinkError` code of a request whose deadline passed.
+    public static let replyTimeout = "reply_timeout"
+
     public init(channel: any LinkChannel) {
         self.channel = channel
         (events, eventContinuation) = AsyncStream.makeStream()
@@ -64,10 +67,21 @@ public actor DaemonClient {
     /// Sends a `cmux.protocol/2` request (`machine` and `session` default to
     /// `current`, as the Mac app's `ResourceRequestEnvelope`) and returns the
     /// raw response line (`ok`, `result` or `error`).
-    public func resourceRequest(_ operation: String, params: sending [String: Any] = [:], idempotencyKey: String? = nil) async throws -> Data {
+    ///
+    /// With `deadline`, a reply that has not come by then fails with
+    /// `LinkError` `reply_timeout` (a late reply is dropped as an event), so
+    /// a request on a link that went quiet never waits forever.
+    public func resourceRequest(_ operation: String, params: sending [String: Any] = [:], idempotencyKey: String? = nil,
+                                deadline: Duration? = nil, clock: any Clock<Duration> = ContinuousClock()) async throws -> Data {
         start()
         let id = "r\(nextID)"
         nextID += 1
+        if let deadline {
+            Task { [weak self] in
+                try? await clock.sleep(for: deadline)
+                await self?.fail(id: id, error: LinkError(code: Self.replyTimeout, message: "no reply to \(operation) in time"))
+            }
+        }
         var fields = params
         fields["machine"] = fields["machine"] ?? "current"
         fields["session"] = fields["session"] ?? "current"

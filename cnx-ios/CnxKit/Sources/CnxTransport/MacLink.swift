@@ -112,11 +112,24 @@ public protocol MacLinkDialer: Sendable {
     func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)]
     /// Forgets warm sockets and cached servers (sign-out).
     func resetWarmState() async
+    /// The phone's network changed or came back: live links move onto it
+    /// without a redial (WireGuard roams; the signaling socket is checked
+    /// and replaced when dead). Returns the steps as `name=ms` pairs.
+    func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)]
 }
 
 extension MacLinkDialer {
     public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] { [] }
     public func resetWarmState() async {}
+    public func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] { [] }
+}
+
+/// A link that can measure a simulated network change (DEBUG builds).
+public protocol NetworkChangeProbing: MacLink {
+    /// Pings for 1 s, takes the network away (and roams at once when
+    /// `roam`), keeps pinging for `windowMillis`; returns JSON with the
+    /// longest wait for a pong (`stall_ms`) and the roam steps.
+    func networkChangeProbe(roam: Bool, windowMillis: UInt32) async -> String
 }
 
 /// A dialed link that can say how its dial went (`name`, ms since the dial began).
