@@ -804,8 +804,12 @@ struct DemoDriver {
         await post(.feedScrollTop, "top", then: 1.6)
         await post(.answerQuestion(id: "feed-q-release", picks: [["rc"], ["transport", "feed", "diff"], ["yes"]]), "answer inline", then: 5.0)
         await post(.feedOpen(event: "f-finished"), "open event", then: 2.2)
-        await post(.chatSend("Make the transport layer switchable between WebRTC and WireGuard, and add tests"), "chat send", then: 3.0)
         guard let chat = AgentSessionDirectory.shared.existingStore(id: "t-claude") else { return }
+        if chat.pendingQuestion?.id == "q-waiting" {
+            await post(.answerQuestion(id: "q-waiting", picks: [["webrtc"], ["connection"]]), "answer waiting", then: 0.5)
+        }
+        await waitFor(seconds: 30) { !chat.isRunning }
+        await post(.chatSend("Make the transport layer switchable between WebRTC and WireGuard, and add tests"), "chat send", then: 3.0)
         await waitFor(seconds: 30) { chat.pendingPermission != nil }
         await pause(1.4)
         await post(.chatPermission(optionKind: "allow_once"), "allow once", then: 0.5)

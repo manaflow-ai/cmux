@@ -16,6 +16,13 @@ public struct FeedDemoScript {
 
     public init() {}
 
+    /// `-CnxDemoHold <point>`: stop the script there ("chat" after the turn, "diff" in the file).
+    private var hold: String? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-CnxDemoHold"), arguments.indices.contains(index + 1) else { return nil }
+        return arguments[index + 1]
+    }
+
     public func run() async {
         func pause(_ seconds: Double) async { try? await Task.sleep(for: .seconds(seconds)) }
         func post(_ command: DemoDirector.Command, then seconds: Double) async {
@@ -33,8 +40,15 @@ public struct FeedDemoScript {
         await post(.feedScroll(toEvent: "f-pricing"), then: 1.2)
         await post(.feedReply(event: "f-pricing", text: "Also check the annual toggle on iPad"), then: 3.4)
         await post(.feedOpen(event: "f-finished"), then: 1.8)
-        await post(.chatSend("Make the transport layer switchable between WebRTC and WireGuard, and add tests"), then: 3.0)
         guard let chat = AgentSessionDirectory.shared.existingStore(id: "t-claude") else { return }
+        // t-claude opens in its waiting state (a pending question). Answer it and let that
+        // turn finish, so the scripted prompt starts a fresh turn instead of queueing.
+        if chat.pendingQuestion?.id == "q-waiting" {
+            await post(.answerQuestion(id: "q-waiting", picks: [["webrtc"], ["connection"]]), then: 0.5)
+        }
+        await wait(seconds: 30) { !chat.isRunning }
+        await pause(1.0)
+        await post(.chatSend("Make the transport layer switchable between WebRTC and WireGuard, and add tests"), then: 3.0)
         await wait(seconds: 30) { chat.pendingPermission != nil }
         await pause(1.6)
         await post(.chatPermission(optionKind: "allow_once"), then: 0.5)
@@ -43,9 +57,12 @@ public struct FeedDemoScript {
         await post(.answerQuestion(id: "q-transport", picks: [["wireguard"], ["connection", "per-mac"]]), then: 0.5)
         await wait(seconds: 40) { !chat.isRunning }
         await pause(2.0)
+        if hold == "chat" { return }
         await post(.chatScroll(toTop: true), then: 2.6)
         await post(.chatScroll(toTop: false), then: 2.2)
         await post(.chatOpenFirstFile, then: 2.2)
+        // `-CnxDemoHold diff` leaves the diff open for hand-driven captures.
+        if hold == "diff" { return }
         await post(.diffExpandFirst, then: 1.6)
         await post(.diffSetSplit(true), then: 2.4)
         await post(.diffSetSplit(false), then: 1.0)

@@ -457,6 +457,7 @@ private struct DeveloperSection: View {
     let auth: CnxAuthModel
     @AppStorage(DeveloperOptions.mockDataKey) private var mockData = false
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
+    @AppStorage(DeveloperOptions.slowFaceIDKey) private var slowFaceID = false
     @State private var launchedWithMock = DeveloperOptions.mockData
 
     var body: some View {
@@ -467,6 +468,11 @@ private struct DeveloperSection: View {
             }
             .disabled(mock.forced)
             .accessibilityIdentifier("settings.developer.mock")
+            // Mock approvals wait 2 s, so "Waiting for Face ID…" can be seen.
+            Toggle(isOn: $slowFaceID) {
+                SettingsLabel("Slow mock Face ID", symbol: "faceid")
+            }
+            .disabled(!mock.on)
             Picker(selection: $launchDemo) {
                 Text("None").tag("")
                 ForEach(DeveloperOptions.demos, id: \.id) { demo in

@@ -255,7 +255,8 @@ public struct AgentChatScreen: View {
                 }
             } label: {
                 VStack(spacing: 1) {
-                    Text(store.summary.name).font(.headline).lineLimit(1).truncationMode(.middle)
+                    Text(store.displayTitle).font(.headline).lineLimit(1).truncationMode(.tail)
+                        .contentTransition(.opacity)
                     HStack(spacing: 5) {
                         Circle().fill(statusColor).frame(width: 6, height: 6)
                         Text("\(store.summary.agentName) · \(store.summary.workspaceTitle)").font(.footnote).foregroundStyle(.secondary)
@@ -264,7 +265,7 @@ public struct AgentChatScreen: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: 240)
             }
-            .accessibilityLabel(Text("\(store.summary.name), \(store.summary.agentName) in \(store.summary.workspaceTitle)"))
+            .accessibilityLabel(Text("\(store.displayTitle), \(store.summary.agentName) in \(store.summary.workspaceTitle)"))
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
             Menu {
@@ -341,22 +342,7 @@ public struct AgentChatTranscript: View {
         // UIKit owns the safe areas and the keyboard (the controller docks
         // the stack to the keyboard layout guide).
         .ignoresSafeArea()
-        .overlay(alignment: .top) {
-            // Under foreign chrome (a workspace tab) there is no navigation
-            // bar to draw the scroll edge effect, and text ran under the
-            // status bar's clock. Fade it out the way the bar would.
-            if let topInset {
-                LinearGradient(stops: [
-                    .init(color: Color.cnxBackground, location: 0),
-                    .init(color: Color.cnxBackground, location: 0.6),
-                    .init(color: Color.cnxBackground.opacity(0), location: 1),
-                ], startPoint: .top, endPoint: .bottom)
-                .frame(height: topInset + 16)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-        }
+        // The soft top edge under the status bar or bar is the controller's TopFadeView.
         .navigationDestination(item: $surface.diffRoute) { route in
             if let file = route.fileID {
                 DiffFileScreen(changeSet: route.changes, fileID: file)
@@ -500,12 +486,17 @@ public struct AgentChatBottomStack: View {
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
+                // Pinned plan progress while a turn runs (ACP web UI parity).
+                if let progress = store.runningPlan, let entries = store.runningPlanEntries {
+                    PlanProgressBar(progress: progress, entries: entries)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 if !store.queue.isEmpty {
                     QueuedPromptsView(store: store, text: $surface.text)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 if let permission = store.pendingPermission, !surface.permissionBarHidden {
-                    PermissionActionBar(request: permission.request) { option in
+                    PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
                         withAnimation(.cnxSmooth) { store.respond(to: permission.request, option: option) }
                     } replyInstead: {
                         withAnimation(.cnxSmooth) { surface.replyInsteadOfPermission = true }
@@ -736,7 +727,8 @@ struct StreamingMarkdown: View {
     let isStreaming: Bool
 
     var body: some View {
-        MarkdownView(MarkdownDocument(parsing: markdown), isStreaming: isStreaming)
+        // While streaming, an emphasis or code marker that has not closed yet is hidden.
+        MarkdownView(MarkdownDocument(parsing: isStreaming ? MarkdownStreamTail(markdown).displayed : markdown), isStreaming: isStreaming)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
@@ -796,6 +788,7 @@ struct UserBubble: View {
 /// edges line up with the bubble (no remove-badge room).
 struct SentAttachments: View {
     let attachments: [AgentAttachment]
+    @State private var viewing: ImageViewerItem?
 
     var body: some View {
         let images = attachments.filter { $0.kind == .image }
@@ -821,6 +814,7 @@ struct SentAttachments: View {
                 AttachmentThumb(attachment: file).padding(.top, -6).padding(.trailing, -6)
             }
         }
+        .fullScreenCover(item: $viewing) { FullScreenImageViewer(item: $0) }
     }
 
     @ViewBuilder
@@ -834,8 +828,15 @@ struct SentAttachments: View {
         }
         .frame(width: size.width, height: size.height)
         .clipShape(.rect(cornerRadius: 16, style: .continuous))
+        .contentShape(.rect(cornerRadius: 16, style: .continuous))
+        // Tap opens the image full screen.
+        .onTapGesture {
+            if let data = attachment.data { viewing = ImageViewerItem(id: attachment.id, name: attachment.name, data: data) }
+        }
         .accessibilityElement()
         .accessibilityLabel(Text("Image, \(attachment.name)"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens full screen")
     }
 }
 

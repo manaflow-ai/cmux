@@ -24,7 +24,7 @@ shipping=0; [[ "${3:-}" == --shipping ]] && shipping=1
 forbidden=(
   # Launch overrides and the Developer page.
   CNX_MOCK_AUTH CNX_STACK_EMAIL CNX_CLEAR_AUTH "Demo at next launch" -cnx-demo
-  "Mock data signs in as a sample user"
+  "Mock data signs in as a sample user" "Slow mock Face ID"
   # Demo drivers.
   DemoDriver TerminalDemoRoot TerminalDemoDriver FeedDemoScript ParityDemoScript OnboardingDemoScript
   # The mock terminal: its session, its scripted shell, a fake git log line.

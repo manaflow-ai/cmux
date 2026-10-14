@@ -50,6 +50,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     var onUserScroll: ((CGFloat) -> Void)?
 
     private let scrollView = UIScrollView()
+    /// The soft top edge: text fades out under the status bar (a workspace tab, no bar)
+    /// or the navigation bar (pushed), as in the ChatGPT and Claude apps.
+    private let topFade = TopFadeView()
     private let contentHost: UIHostingController<AnyView>
     private let emptyHost: UIHostingController<AnyView>
     private var dockHost: UIHostingController<AnyView>?
@@ -176,6 +179,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.backgroundColor = .clear
         scrollView.delegate = self
         view.addSubview(scrollView)
+        topFade.isUserInteractionEnabled = false
+        topFade.isAccessibilityElement = false
+        view.addSubview(topFade)
 
         for host in [contentHost, emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
             addChild(host)
@@ -326,6 +332,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         }
         let top = topInset ?? view.safeAreaInsets.top
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
+        let fadeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top + TopFadeView.tail)
+        if topFade.frame != fadeFrame { topFade.frame = fadeFrame }
+
         // As in Messages, a transcript drag takes the keyboard once the finger
         // reaches the stack's top edge.
         let padding = max(0, dockGuide.layoutFrame.height + Self.dockGap)
@@ -823,4 +832,39 @@ final class ChatKeyboardTrace {
     }
 }
 #endif
+#endif
+
+#if os(iOS)
+/// A gradient from the screen background to clear: solid over the chrome, fading over
+/// `tail` points below it, so transcript text softens instead of cutting hard.
+@MainActor
+final class TopFadeView: UIView {
+    static let tail: CGFloat = 24
+
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+
+    private var gradient: CAGradientLayer { layer as! CAGradientLayer }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: TopFadeView, _: UITraitCollection) in
+            view.updateColors()
+        }
+        updateColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let solid = max(0, bounds.height - Self.tail * 2) / max(bounds.height, 1)
+        gradient.locations = [0, NSNumber(value: Double(solid)), 1]
+    }
+
+    private func updateColors() {
+        let color = UIColor(Color.cnxBackground).resolvedColor(with: traitCollection)
+        gradient.colors = [color.withAlphaComponent(0.92).cgColor, color.withAlphaComponent(0.85).cgColor, color.withAlphaComponent(0).cgColor]
+    }
+}
 #endif

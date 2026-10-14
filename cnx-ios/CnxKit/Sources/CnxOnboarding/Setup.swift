@@ -398,6 +398,11 @@ private struct TeamStep: View {
 
     private func pickPersonal() {
         theme.haptics.selection()
+        // Picking Personal must leave Personal active: the store selects it
+        // here when it lists it (with no live coordinator, nothing else
+        // would, and the previous team stayed active), and the live
+        // coordinator adds it when it isn't listed yet.
+        store.selectPersonalSpace()
         personal()
         next()
     }
