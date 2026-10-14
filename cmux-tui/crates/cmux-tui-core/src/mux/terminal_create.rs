@@ -314,6 +314,7 @@ impl Mux {
                     pane.active_at = active_at;
                     let index = pane.tabs.len() - 1;
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
+                    state.register_placed_tab_identity(surface.id);
                     let screen = state.workspaces[wi].screens[si].id;
                     let entity = crate::server::tree_entity_json(
                         &state,
@@ -346,6 +347,7 @@ impl Mux {
                     let screen_id = self.next_id();
                     let screen_public_id = ScreenPublicId::random()?;
                     state.insert_pane(pane);
+                    state.register_placed_tab_identity(surface.id);
                     stamp_pane_focus(self, &mut state, pane_id);
                     state.workspaces[wi].screens.push(Screen {
                         id: screen_id,
