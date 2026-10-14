@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
-import CmuxNextPalette
+@testable import CmuxNextPalette
 @testable import CmuxNextSettings
 import Foundation
 import Testing
