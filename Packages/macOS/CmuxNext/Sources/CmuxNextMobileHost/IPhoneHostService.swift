@@ -282,6 +282,9 @@ public final class IPhoneHostService {
             do {
                 let socket = try await dependencies.daemonSocket()
                 let deviceID = try CnxDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
+                // The key phones pin for this Mac (Keychain; created on first use).
+                let identity = try CnxMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
+                                                       stateDirectory: dependencies.stateDirectory).loadOrCreate()
                 let name = await dependencies.computerName()
                 guard !Task.isCancelled, self?.running == key else { return }
                 let launch = CnxHostLaunch(
@@ -292,7 +295,7 @@ public final class IPhoneHostService {
                 await supervisor.start(.init(
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cnx-hostd.log", isDirectory: false),
-                    browserHosts: dependencies.browserHosts))
+                    browserHosts: dependencies.browserHosts, macIdentity: identity))
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))

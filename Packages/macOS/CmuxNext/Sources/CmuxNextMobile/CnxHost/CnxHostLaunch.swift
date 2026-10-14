@@ -109,6 +109,13 @@ public struct CnxHostLaunch: Sendable, Equatable {
         ])
     }
 
+    /// This Mac's identity key for hostd (`mac_identity`, cnx-ios PROTOCOL.md
+    /// "Mac identity"). Carries the private key: stdin only, never logged.
+    public static func macIdentityLine(_ identity: CnxMacIdentity) -> Data {
+        line(["type": "mac_identity", "private_key": CnxMacIdentity.hex(identity.privateKey),
+              "public_key": CnxMacIdentity.hex(identity.publicKey)])
+    }
+
     /// The control line that ends a removed phone's live links.
     public static func dropPhoneLine(_ phoneDeviceID: String) -> Data {
         line(["type": "drop_phone", "phone_device_id": phoneDeviceID])

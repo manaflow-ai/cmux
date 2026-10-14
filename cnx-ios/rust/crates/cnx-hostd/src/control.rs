@@ -13,6 +13,9 @@
 //!   "denied":[{"id","identity_key"}]}`: the phones the user approved, and those whose request
 //!   the user refused (`pairing.rs`). Sent at start and on every change.
 //!
+//! - `{"type":"mac_identity","private_key":"<hex>","public_key":"<hex>"}`: this
+//!   Mac's identity key from the app's Keychain, which `auth` proves to phones
+//!   that pinned it (`pairing.rs`). Sent at start; never logged.
 //! - `{"type":"drop_phone","phone_device_id":"<uuid>"}`: the owner removed this
 //!   phone (Settings > Mobile > Remove): hostd closes its live links now.
 //!
@@ -44,12 +47,29 @@ pub fn enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var("CNX_CONTROL").is_ok_and(|v| v.trim() == "stdio"))
 }
 
+/// A value that never prints (the Mac's private key).
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(pub String);
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
 /// One line from the app.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inbound {
     Token {
         token: String,
+    },
+    /// This Mac's identity key from the app's Keychain (`pairing::MacIdentity`):
+    /// the raw private scalar and the X9.63 public point, hex. Never logged.
+    MacIdentity {
+        private_key: Secret,
+        public_key: String,
     },
     Acpmux {
         url: String,
@@ -145,6 +165,8 @@ pub struct Supplied {
     pub token: watch::Receiver<Option<String>>,
     pub acpmux: watch::Receiver<AcpmuxEndpoint>,
     pub devices: watch::Receiver<Option<crate::pairing::DeviceTrust>>,
+    /// This Mac's identity key (`mac_identity`), once the app sent it.
+    pub identity: watch::Receiver<Option<crate::pairing::MacIdentity>>,
     /// Browser hosts the app starts for the `browser` service.
     pub browser: std::sync::Arc<crate::browser::BrowserBroker>,
 }
@@ -154,6 +176,7 @@ pub fn spawn_stdin_reader() -> Supplied {
     let (token_tx, token) = watch::channel(None);
     let (acpmux_tx, acpmux) = watch::channel(None);
     let (devices_tx, devices) = watch::channel(None);
+    let (identity_tx, identity) = watch::channel(None);
     let browser = std::sync::Arc::new(crate::browser::BrowserBroker::new(std::sync::Arc::new(emit)));
     let broker = std::sync::Arc::clone(&browser);
     tokio::spawn(async move {
@@ -165,6 +188,14 @@ pub fn spawn_stdin_reader() -> Supplied {
                 }
                 Some(Inbound::Acpmux { url, token }) => {
                     acpmux_tx.send_replace(Some((url, token)));
+                }
+                Some(Inbound::MacIdentity { private_key, public_key }) => {
+                    match crate::pairing::MacIdentity::from_raw(&private_key.0, &public_key) {
+                        Some(key) => {
+                            identity_tx.send_replace(Some(key));
+                        }
+                        None => tracing::warn!("ignoring an unusable Mac identity key"),
+                    }
                 }
                 Some(Inbound::Devices(trust)) => {
                     devices_tx.send_replace(Some(trust));
@@ -184,7 +215,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         tracing::info!("control input ended; exiting");
         std::process::exit(0);
     });
-    Supplied { token, acpmux, devices, browser }
+    Supplied { token, acpmux, devices, identity, browser }
 }
 
 /// The wire name of a transport.

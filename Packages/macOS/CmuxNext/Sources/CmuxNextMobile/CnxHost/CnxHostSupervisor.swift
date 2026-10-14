@@ -26,11 +26,14 @@ public actor CnxHostSupervisor {
         /// The app's browser hosts for streamed browser tabs; nil when this
         /// build has none (hostd then refuses `browser` as unavailable).
         public var browserHosts: (any CnxBrowserHosting)?
+        /// This Mac's identity key, proved to phones that pinned it; nil: none.
+        public var macIdentity: CnxMacIdentity?
 
         public init(launch: CnxHostLaunch, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
                     acpmux: @escaping @Sendable () async -> (url: URL, token: String)?, log: URL?,
                     inherited: [String: String] = ProcessInfo.processInfo.environment,
-                    browserHosts: (any CnxBrowserHosting)? = nil) {
+                    browserHosts: (any CnxBrowserHosting)? = nil, macIdentity: CnxMacIdentity? = nil) {
+            self.macIdentity = macIdentity
             self.launch = launch
             self.accessToken = accessToken
             self.acpmux = acpmux
@@ -236,6 +239,7 @@ public actor CnxHostSupervisor {
     /// What hostd needs before its first connect: a token and the acpmux endpoint.
     private func handOver(_ child: CnxHostProcess, inputs: Inputs) async {
         lastToken = nil
+        if let identity = inputs.macIdentity { child.send(CnxHostLaunch.macIdentityLine(identity)) }
         if let devicesLine { child.send(devicesLine) }
         await sendToken(child, inputs: inputs)
         await sendAcpmux(child, inputs: inputs)

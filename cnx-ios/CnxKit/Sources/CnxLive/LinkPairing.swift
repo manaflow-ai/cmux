@@ -12,11 +12,22 @@ public struct LinkPairing: Sendable {
     /// What the Mac's prompt calls this phone.
     public let name: String
 
-    public init(keys: PhoneKeys, phoneID: String, name: String) {
+    /// The Macs this phone pinned (first pairing); a Mac that cannot prove its
+    /// pinned key is refused `mac_identity_changed`.
+    public let pins: MacPins
+
+    public init(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins = .standard) {
         self.keys = keys
         self.phoneID = phoneID
         self.name = name
+        self.pins = pins
     }
+
+    /// What the phone says when a paired Mac's identity changed.
+    public static let identityChanged = String(localized: """
+        This Mac's identity changed, so this iPhone won't connect: it may not be your Mac. \
+        If you reinstalled cmux or replaced the Mac, remove it in Settings → Paired Macs, then let it add itself again.
+        """)
 
     /// Where pairing with the linked Mac stands.
     public enum State: Equatable, Sendable {
@@ -46,6 +57,7 @@ public struct LinkPairing: Sendable {
         case "timeout": "nobody answered the Mac's prompt. Retry, then allow this iPhone on the Mac"
         case "rate_limited": "the Mac asked about this iPhone recently: \(error.message)"
         case "busy": "the Mac is already pairing this iPhone"
+        case "mac_identity_changed": identityChanged
         case "unavailable": "the Mac isn't ready to pair yet. Retry in a moment"
         default: error.message
         }
@@ -65,6 +77,8 @@ public struct LinkPairing: Sendable {
         let channel: any LinkChannel
         let identity: String
         let approval: String
+        /// This phone's nonce for the Mac's identity proof.
+        let macNonce: String
 
         /// Abandons it (the link moved on before the challenge was answered).
         public func close() async { await channel.close(code: "eof", reason: "") }
@@ -76,10 +90,12 @@ public struct LinkPairing: Sendable {
     public func open(link: any MacLink) async -> Result<Opened, LinkError> {
         do {
             let (identity, approval) = try keys.publicKeys()
+            let macNonce = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
             let channel = try await link.openChannel(service: "auth", args: [
                 "identityKey": identity, "approvalKey": approval, "name": String(name.prefix(64)), "action": "pair",
+                "macNonce": macNonce,
             ])
-            return .success(Opened(channel: channel, identity: identity, approval: approval))
+            return .success(Opened(channel: channel, identity: identity, approval: approval, macNonce: macNonce))
         } catch let error as LinkError {
             return .failure(error)
         } catch {
@@ -102,14 +118,23 @@ public struct LinkPairing: Sendable {
         }
         let (channel, identity, approval) = (opened.channel, opened.identity, opened.approval)
         defer { Task { await channel.close(code: "eof", reason: "") } }
+        let pinned = pins.key(for: macID)
+        /// The key this Mac proved in this `auth`, pinned once the Mac lets this phone in.
+        var proven: String?
         do {
             while true {
                 guard let frame = try await channel.receive() else {
                     let closed = channel.closedBy ?? LinkError(code: "closed", message: "The Mac closed pairing")
+                    // A Mac with no `auth` cannot prove a pinned key either.
+                    if closed.code == "unknown_service", pinned != nil { return .refused(Self.changed) }
                     return closed.code == "unknown_service" ? .legacy : .refused(closed)
                 }
                 let value = try JSONDecoder().decode(JSONValue.self, from: frame)
-                if value["ok"] == .bool(true) { return .paired(macDevice: macID) }
+                if value["ok"] == .bool(true) {
+                    if pinned != nil, proven == nil { return .refused(Self.changed) }
+                    if pinned == nil, let proven { pins.pin(proven, for: macID) }
+                    return .paired(macDevice: macID)
+                }
                 if value["pending"] == .bool(true) {
                     await onWaiting()
                     continue
@@ -120,6 +145,12 @@ public struct LinkPairing: Sendable {
                 // The challenge names the Mac this phone dialed, or it signs nothing.
                 guard mac == macID else {
                     return .refused(LinkError(code: "wrong_mac", message: "The Mac answered with another device id"))
+                }
+                // The Mac's identity key: its proof must hold, and match the pin.
+                switch Self.check(value, mac: mac, phone: phoneID, macNonce: opened.macNonce, challenge: nonce, pinned: pinned) {
+                case .proven(let key): proven = key
+                case .unproven: break
+                case .refused(let error): return .refused(error)
                 }
                 let payload = LinkAuthPayload(mac: mac, phone: phoneID, nonce: nonce, identityKey: identity,
                                               approvalKey: approval, action: "pair")
@@ -132,6 +163,31 @@ public struct LinkPairing: Sendable {
         } catch {
             return .refused(LinkError(code: "pairing", message: String(describing: error)))
         }
+    }
+
+    static let changed = LinkError(code: "mac_identity_changed", message: identityChanged)
+
+    /// What a challenge says about the Mac's identity.
+    enum MacProof: Equatable {
+        /// It proved this key.
+        case proven(String)
+        /// An older Mac that sends no key, and none is pinned.
+        case unproven
+        case refused(LinkError)
+    }
+
+    /// Checks the challenge's `macKey` / `macSignature` against this phone's nonce and the pin.
+    static func check(_ value: JSONValue, mac: String, phone: String, macNonce: String, challenge: String,
+                      pinned: String?) -> MacProof {
+        guard let key = value["macKey"]?.stringValue, let signature = value["macSignature"]?.stringValue else {
+            return pinned == nil ? .unproven : .refused(changed)
+        }
+        let message = MacPins.proofMessage(mac: mac, phone: phone, phoneNonce: macNonce, challenge: challenge)
+        guard MacPins.verify(key: key, signature: signature, message: message) else {
+            return .refused(pinned == nil ? LinkError(code: "bad_mac_proof", message: "The Mac's identity proof is invalid") : changed)
+        }
+        if let pinned, pinned != key.lowercased() { return .refused(changed) }
+        return .proven(key.lowercased())
     }
 
     /// Sign-out: asks the Mac to forget this phone (best effort, over a live link).

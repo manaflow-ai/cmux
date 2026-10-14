@@ -122,3 +122,27 @@ import Testing
         #expect(mode == 0o600)
     }
 }
+
+/// The Mac's identity key (cnx-ios PROTOCOL.md "Mac identity"): kept across
+/// launches, and handed to hostd on one stdin line.
+@Suite struct CnxMacIdentityTests {
+    @Test func theKeyPersistsAndItsLineCarriesBothHalves() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = CnxMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, useKeychain: false)
+        let first = try store.loadOrCreate()
+        #expect(first.privateKey.count == 32 && first.publicKey.count == 65 && first.publicKey.first == 4)
+        #expect(try store.loadOrCreate() == first)
+        let mode = try FileManager.default.attributesOfItem(atPath: store.fallbackFile.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+        let line = CnxHostLaunch.macIdentityLine(first)
+        #expect(line.last == 0x0A)
+        let object = try #require(try JSONSerialization.jsonObject(with: line.dropLast()) as? [String: String])
+        #expect(object["type"] == "mac_identity")
+        #expect(object["private_key"]?.count == 64)
+        #expect(object["public_key"]?.hasPrefix("04") == true && object["public_key"]?.count == 130)
+        #expect(CnxMacIdentity.restore(first.privateKey) == first)
+        #expect(CnxMacIdentity.restore(Data([1, 2])) == nil)
+        #expect(first.fingerprint.count == 16)
+    }
+}

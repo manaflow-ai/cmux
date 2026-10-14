@@ -71,7 +71,7 @@ pub async fn serve(
         }
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
-        "chief" => chief(&config, &sender, receiver).await,
+        "chief" => chief(&config, &peer, &sender, receiver).await,
         "acpmux" => acpmux(&config, &sender, receiver).await,
         "file" => file(&config, &args, &sender).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
@@ -237,13 +237,24 @@ async fn daemon(
 /// of the Mac's Chief home), every line both ways through [`ChiefPolicy`].
 async fn chief(
     config: &ServiceConfig,
+    peer: &Peer,
     sender: &ChannelSender,
     receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
     let Some(path) = config.chief_socket.clone() else {
         return Err(Refusal::new("unavailable", "Chief is not set up on this Mac"));
     };
-    splice(&path, "chief", LinePolicy::Chief(ChiefPolicy::new()), sender, receiver).await
+    // Paired: this phone's question answers need its signature (chief_answers.rs).
+    let policy = match &config.pairing {
+        Some(pairing) => ChiefPolicy::signed(crate::chief_answers::AnswerCheck {
+            mac: pairing.mac_device_id.clone(),
+            phone: peer.device_id.clone(),
+            trust: pairing.trust.clone(),
+            spent: std::sync::Arc::clone(&pairing.spent_answers),
+        }),
+        None => ChiefPolicy::new(),
+    };
+    splice(&path, "chief", LinePolicy::Chief(policy), sender, receiver).await
 }
 
 /// Splices one phone channel to a daemon socket. Responses and refusals
