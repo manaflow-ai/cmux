@@ -3667,6 +3667,9 @@ mod app_workspaces;
 #[path = "cli/browser_devices.rs"]
 mod browser_devices;
 #[cfg(unix)]
+#[path = "cli/browser_profiles.rs"]
+mod browser_profiles;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[cfg(unix)]
@@ -3680,8 +3683,14 @@ mod cloud_lease_gate;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]
+#[path = "cli/conversation_thread_objects.rs"]
+mod conversation_thread_objects;
+#[cfg(unix)]
 #[path = "cli/conversation_threads.rs"]
 mod conversation_threads;
+#[cfg(unix)]
+#[path = "cli/conversation_tree.rs"]
+mod conversation_tree;
 #[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;

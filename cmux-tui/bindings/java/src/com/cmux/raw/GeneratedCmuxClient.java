@@ -293,6 +293,11 @@ public abstract class GeneratedCmuxClient {
         return ConversationImportResult.fromWire(result);
     }
 
+    public final ConversationLinkResolveResult conversationLinkResolve(ConversationLinkResolveRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_LINK_RESOLVE, request.toWire());
+        return ConversationLinkResolveResult.fromWire(result);
+    }
+
     public final ConversationListResult conversationList() throws CmuxException {
         Object result = execute(Commands.CONVERSATION_LIST, Map.of());
         return ConversationListResult.fromWire(result);
@@ -973,9 +978,9 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final EmptyResult send(SendRequest request) throws CmuxException {
+    public final SendResult send(SendRequest request) throws CmuxException {
         Object result = execute(Commands.SEND, request.toWire());
-        return EmptyResult.fromWire(result);
+        return SendResult.fromWire(result);
     }
 
     public final EmptyResult sendKey(SendKeyRequest request) throws CmuxException {

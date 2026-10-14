@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955. */
+/* cmux-tui mux protocol 12, IR f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719. */
 
 
 import type * as T from "./types.js";
@@ -13,7 +13,11 @@ export type ActivityChangedEvent = { event: "activity-changed" } & {
 export type AgentChangedEvent = { event: "agent-changed" } & {
   /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
   "agent"?: (string) | null;
+  /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
+  "last_prompt"?: (string) | null;
   "session": (string) | null;
+  /** When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`. */
+  "since_ms"?: bigint;
   "source": T.AgentSource;
   "state": T.AgentState;
   "surface": T.Id;
@@ -507,6 +511,13 @@ export type TerminalClipboardReadCancelledEvent = { event: "terminal-clipboard-r
   "request_id": string;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalInputUnclaimedEvent = { event: "terminal-input-unclaimed" } & {
+  "bytes_base64": T.Base64;
+  "reason": string;
+  "terminal_id": string;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type TerminalReapedEvent = { event: "terminal-reaped" } & {
   "grace_ms": bigint;
@@ -684,6 +695,7 @@ export type KnownCmuxEvent =
   | TabRenamedEvent
   | TerminalClipboardReadEvent
   | TerminalClipboardReadCancelledEvent
+  | TerminalInputUnclaimedEvent
   | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955";
+inline constexpr std::string_view kProtocolIrSha256 = "f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -35,6 +35,7 @@ struct BookmarkImportNode;
 struct BrowserFrame;
 struct BrowserHostProviderResult;
 enum class BrowserProviderAuthentication;
+enum class BrowserProviderHosting;
 struct BrowserProviderSnapshot;
 struct BrowserProviderTarget;
 struct BrowserProviderUnregisterResult;
@@ -60,6 +61,9 @@ struct ConversationSearchHit;
 struct ConversationSummary;
 struct ConversationTabRecord;
 struct ConversationTextRun;
+struct ConversationThreadResolution;
+struct ConversationThreadState;
+enum class ConversationThreadStatus;
 struct ConversationThreadSummary;
 struct CopyResult;
 enum class CursorStyle;
@@ -283,6 +287,8 @@ struct ConversationHistoryRequest;
 struct ConversationHistoryResult;
 struct ConversationImportRequest;
 struct ConversationImportResult;
+struct ConversationLinkResolveRequest;
+struct ConversationLinkResolveResult;
 struct ConversationListRequest;
 struct ConversationListResult;
 struct ConversationOpRequest;
@@ -439,6 +445,7 @@ struct SelectScreenRequest;
 struct SelectTabRequest;
 struct SelectWorkspaceRequest;
 struct SendRequest;
+struct SendResult;
 struct SendKeyRequest;
 struct ServerStatsRequest;
 struct SetCellPixelsRequest;
@@ -567,6 +574,7 @@ struct TabClosedEvent;
 struct TabRenamedEvent;
 struct TerminalClipboardReadEvent;
 struct TerminalClipboardReadCancelledEvent;
+struct TerminalInputUnclaimedEvent;
 struct TerminalReapedEvent;
 struct TerminalRegistryChangedEvent;
 struct TitleChangedEvent;
@@ -678,7 +686,9 @@ enum class AgentState {
 
 struct AgentChangedEvent {
     Field<std::string> agent{};
+    Field<std::string> last_prompt{};
     std::optional<std::string> session{};
+    std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
     AgentState state{};
     Id surface{};
@@ -709,7 +719,10 @@ struct AgentPresenceChangedEvent {
 };
 
 struct AgentRecord {
+    Field<std::string> agent{};
+    Field<std::string> last_prompt{};
     std::optional<std::string> session{};
+    std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
     AgentState state{};
     Id surface{};
@@ -1012,6 +1025,11 @@ enum class BrowserProviderAuthentication {
     bearer,
 };
 
+enum class BrowserProviderHosting {
+    daemon,
+    native,
+};
+
 struct BrowserProviderTarget {
     std::string tab_id{};
     std::string target_id{};
@@ -1023,6 +1041,7 @@ struct BrowserProviderSnapshot {
     bool available{};
     std::optional<std::uint64_t> clients{};
     std::optional<std::string> endpoint{};
+    std::optional<BrowserProviderHosting> hosting{};
     std::optional<std::string> provider_id{};
     std::uint64_t revision{};
     std::vector<BrowserProviderTarget> targets{};
@@ -1759,6 +1778,20 @@ struct ConversationReaction {
     friend bool operator==(const ConversationReaction&, const ConversationReaction&) = default;
 };
 
+struct ConversationThreadResolution {
+    std::string at{};
+    std::string by{};
+    std::uint64_t seq{};
+    friend bool operator==(const ConversationThreadResolution&, const ConversationThreadResolution&) = default;
+};
+
+struct ConversationThreadState {
+    std::optional<std::string> owner{};
+    std::optional<ConversationThreadResolution> resolved{};
+    std::optional<std::string> title{};
+    friend bool operator==(const ConversationThreadState&, const ConversationThreadState&) = default;
+};
+
 struct ConversationMessage {
     std::optional<std::vector<std::string>> answers{};
     std::optional<std::vector<std::string>> answers_pending{};
@@ -1773,6 +1806,7 @@ struct ConversationMessage {
     std::optional<ConversationPartRef> reply_to{};
     std::optional<std::string> retracted_at{};
     std::uint64_t seq{};
+    std::optional<ConversationThreadState> thread{};
     std::optional<std::string> thread_root{};
     friend bool operator==(const ConversationMessage&, const ConversationMessage&) = default;
 };
@@ -1865,12 +1899,22 @@ struct ConversationHistoryRequest {
     friend bool operator==(const ConversationHistoryRequest&, const ConversationHistoryRequest&) = default;
 };
 
+enum class ConversationThreadStatus {
+    open,
+    resolved,
+};
+
 struct ConversationThreadSummary {
     std::vector<std::string> authors{};
     std::optional<std::string> last_reply_at{};
     std::optional<std::uint64_t> last_reply_seq{};
+    std::optional<std::string> owner{};
     std::uint64_t reply_count{};
+    std::optional<std::string> resolved_at{};
+    std::optional<std::string> resolved_by{};
     std::string root{};
+    std::optional<ConversationThreadStatus> status{};
+    std::optional<std::string> title{};
     friend bool operator==(const ConversationThreadSummary&, const ConversationThreadSummary&) = default;
 };
 
@@ -1900,6 +1944,21 @@ struct ConversationImportResult {
     std::vector<std::uint64_t> imported{};
     std::uint64_t skipped{};
     friend bool operator==(const ConversationImportResult&, const ConversationImportResult&) = default;
+};
+
+struct ConversationLinkResolveRequest {
+    std::string url{};
+    friend bool operator==(const ConversationLinkResolveRequest&, const ConversationLinkResolveRequest&) = default;
+};
+
+struct ConversationLinkResolveResult {
+    ConversationSummary conversation{};
+    std::optional<ConversationMessage> message{};
+    std::vector<std::string> path{};
+    std::optional<std::string> thread_root{};
+    std::optional<bool> truncated{};
+    std::string url{};
+    friend bool operator==(const ConversationLinkResolveResult&, const ConversationLinkResolveResult&) = default;
 };
 
 struct ConversationListRequest {
@@ -3766,6 +3825,7 @@ struct RegisterBrowserProviderRequest {
     BrowserProviderAuthentication authentication{};
     Field<std::string> bearer_token{};
     std::string endpoint{};
+    Field<BrowserProviderHosting> hosting{};
     std::string provider_id{};
     std::vector<BrowserProviderTarget> targets{};
     friend bool operator==(const RegisterBrowserProviderRequest&, const RegisterBrowserProviderRequest&) = default;
@@ -4189,9 +4249,15 @@ struct SendKeyRequest {
 struct SendRequest {
     Field<Base64> bytes{};
     std::optional<bool> paste{};
-    Id surface{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
     Field<std::string> text{};
     friend bool operator==(const SendRequest&, const SendRequest&) = default;
+};
+
+struct SendResult {
+    std::optional<bool> queued{};
+    friend bool operator==(const SendResult&, const SendResult&) = default;
 };
 
 struct ServerStatsConnections {
@@ -4891,6 +4957,13 @@ struct TerminalHistoryRequest {
     friend bool operator==(const TerminalHistoryRequest&, const TerminalHistoryRequest&) = default;
 };
 
+struct TerminalInputUnclaimedEvent {
+    Base64 bytes_base64{};
+    std::string reason{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalInputUnclaimedEvent&, const TerminalInputUnclaimedEvent&) = default;
+};
+
 struct TerminalPlacement {
     bool already_exited{};
     std::optional<TerminalExit> exit{};
@@ -5433,6 +5506,12 @@ struct Codec<BrowserProviderAuthentication> {
 };
 
 template <>
+struct Codec<BrowserProviderHosting> {
+    static Result<Json> encode(const BrowserProviderHosting& value);
+    static Result<BrowserProviderHosting> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserProviderSnapshot> {
     static Result<Json> encode(const BrowserProviderSnapshot& value);
     static Result<BrowserProviderSnapshot> decode(const Json& value);
@@ -5580,6 +5659,24 @@ template <>
 struct Codec<ConversationTextRun> {
     static Result<Json> encode(const ConversationTextRun& value);
     static Result<ConversationTextRun> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationThreadResolution> {
+    static Result<Json> encode(const ConversationThreadResolution& value);
+    static Result<ConversationThreadResolution> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationThreadState> {
+    static Result<Json> encode(const ConversationThreadState& value);
+    static Result<ConversationThreadState> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationThreadStatus> {
+    static Result<Json> encode(const ConversationThreadStatus& value);
+    static Result<ConversationThreadStatus> decode(const Json& value);
 };
 
 template <>
@@ -6921,6 +7018,18 @@ struct Codec<ConversationImportResult> {
 };
 
 template <>
+struct Codec<ConversationLinkResolveRequest> {
+    static Result<Json> encode(const ConversationLinkResolveRequest& value);
+    static Result<ConversationLinkResolveRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLinkResolveResult> {
+    static Result<Json> encode(const ConversationLinkResolveResult& value);
+    static Result<ConversationLinkResolveResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationListRequest> {
     static Result<Json> encode(const ConversationListRequest& value);
     static Result<ConversationListRequest> decode(const Json& value);
@@ -7857,6 +7966,12 @@ struct Codec<SendRequest> {
 };
 
 template <>
+struct Codec<SendResult> {
+    static Result<Json> encode(const SendResult& value);
+    static Result<SendResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<SendKeyRequest> {
     static Result<Json> encode(const SendKeyRequest& value);
     static Result<SendKeyRequest> decode(const Json& value);
@@ -8622,6 +8737,12 @@ template <>
 struct Codec<TerminalClipboardReadCancelledEvent> {
     static Result<Json> encode(const TerminalClipboardReadCancelledEvent& value);
     static Result<TerminalClipboardReadCancelledEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalInputUnclaimedEvent> {
+    static Result<Json> encode(const TerminalInputUnclaimedEvent& value);
+    static Result<TerminalInputUnclaimedEvent> decode(const Json& value);
 };
 
 template <>

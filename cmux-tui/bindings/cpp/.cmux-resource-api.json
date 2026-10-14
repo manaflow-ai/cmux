@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "e13c3457fe28da02c711bc89d9a130eee363f6127801d3031936d885f32192b8",
+  "catalog_sha256": "fdaf52f061db52a19ad4c7faef45dc040219cae6e7c6e4d627739344dc14d138",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -68,6 +68,9 @@
       "class": "mutation"
     },
     "browser.tab.emulate.clear": {
+      "class": "mutation"
+    },
+    "browser.tab.set_profile": {
       "class": "mutation"
     },
     "browser.viewer.release": {
@@ -352,6 +355,9 @@
     "project.remove": {
       "class": "mutation"
     },
+    "project.source.update": {
+      "class": "mutation"
+    },
     "project.sync": {
       "class": "mutation"
     },
@@ -537,6 +543,54 @@
     },
     "settings.snapshot": {
       "class": "read"
+    },
+    "sidebar.adopt": {
+      "class": "mutation"
+    },
+    "sidebar.apply": {
+      "class": "mutation"
+    },
+    "sidebar.get": {
+      "class": "read"
+    },
+    "sidebar.group.create": {
+      "class": "mutation"
+    },
+    "sidebar.group.ungroup": {
+      "class": "mutation"
+    },
+    "sidebar.group.update": {
+      "class": "mutation"
+    },
+    "sidebar.item.add": {
+      "class": "mutation"
+    },
+    "sidebar.item.remove": {
+      "class": "mutation"
+    },
+    "sidebar.item.update": {
+      "class": "mutation"
+    },
+    "sidebar.move": {
+      "class": "mutation"
+    },
+    "sidebar.pin": {
+      "class": "mutation"
+    },
+    "sidebar.section.add": {
+      "class": "mutation"
+    },
+    "sidebar.section.move": {
+      "class": "mutation"
+    },
+    "sidebar.section.remove": {
+      "class": "mutation"
+    },
+    "sidebar.section.update": {
+      "class": "mutation"
+    },
+    "sidebar.unpin": {
+      "class": "mutation"
     },
     "sidebar_layout.get": {
       "class": "read"

@@ -195,6 +195,12 @@ extension DaemonConnection {
         try await request(UpdateFrontendBrowserTabRequest(surface: surface, url: url, title: title, faviconURL: faviconURL))
     }
 
+    /// Moves a frontend browser tab to browser profile `profileID` in place (`frontend-browser-tab-profile-v1`).
+    @discardableResult
+    public func setFrontendBrowserTabProfile(_ surface: SurfaceID, profileID: String) async throws -> SetFrontendBrowserTabProfileRequest.Response {
+        try await request(SetFrontendBrowserTabProfileRequest(surface: surface, profileID: profileID))
+    }
+
     public func renameTab(_ surface: SurfaceID, to name: String) async throws { _ = try await request(RenameTabRequest(surface: surface, name: name)) }
     public func renamePane(_ pane: PaneID, to name: String) async throws { _ = try await request(RenamePaneRequest(pane: pane, name: name)) }
     public func renameScreen(_ screen: ScreenID, to name: String) async throws { _ = try await request(RenameScreenRequest(screen: screen, name: name)) }
@@ -232,6 +238,13 @@ extension DaemonConnection {
 
     public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false) async throws {
         _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil))
+    }
+
+    /// Input by host terminal id, also for a terminal still being created
+    /// (`terminal-input-while-creating-v1`). True when the daemon queued it.
+    @discardableResult
+    public func sendTerminalInput(_ terminalID: String, bytes: Data) async throws -> Bool {
+        try await request(SendTerminalInputRequest(terminalID: terminalID, bytes: bytes)).queued == true
     }
 
     public func sendKeys(_ surface: SurfaceID, _ keys: [String]) async throws {

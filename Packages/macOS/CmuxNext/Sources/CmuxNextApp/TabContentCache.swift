@@ -155,7 +155,8 @@ final class TabContentCache {
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
-        let io = DaemonTerminalIO(target: target, visible: render, gate: gate, policyBlocked: daemon.policyBlock.check,
+        let io = DaemonTerminalIO(target: target, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
+                                  policyBlocked: daemon.policyBlock.check,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
@@ -291,6 +292,15 @@ final class TabContentCache {
             browserTabs.track(page, tabID: key)
             onBrowserReady?(key)
         }
+    }
+
+    /// Move Tab to Browser Profile (data-model.md 5): an engine fixes a page's store when it makes it, so `key`'s page is
+    /// re-made in `profile` (its record already names it) and loads `url`; the old page closes now. History and form input
+    /// stay with the old profile. A page made later (deferred, asleep, none yet) takes the profile from the record.
+    func recreatePage(_ key: String, in profile: BrowserProfileID, url: URL) {
+        guard let old = browsers[key]?.tab, !(old is DeferredBrowserTab), !(old is HibernatedBrowserTab) else { return }
+        if old.engineKind == .cef { return reroute(key, to: url) }  // a new browser in the record's request context
+        swapPage(key, with: webKit.makeWebKitTab(id: old.id, profile: profile, initialURL: url, zoom: old.state.zoom))
     }
 
     /// A WebKit page for a Chromium record, with the fallback recorded and

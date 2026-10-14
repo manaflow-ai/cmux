@@ -77,10 +77,17 @@
 .nt-location {
   display: contents;
 }
-/* The location row tints itself with its own corner radius: the card clips it to the card's own
-   corners in every template (its menus and the suggestions open in portals, outside the card). */
-.nt-box {
-  overflow: hidden;
+/* The location row tints itself with the card's bottom corners in every template. The card itself
+   never clips: the model picker opens in the card, above or below its chip (a clipping card cut it
+   to its search field, Lawrence 2026-10-13). */
+.nt-box .acpmux-composer-context {
+  border-radius: 0 0 20px 20px;
+}
+.nt-screen[data-template="console"] .nt-box .acpmux-composer-context {
+  border-radius: 0 0 10px 10px;
+}
+.nt-screen[data-template="composer"] .nt-box .acpmux-composer-context {
+  border-radius: 0 0 24px 24px;
 }
 /* Templates (cx-yabk, plans/cmux-next/new-tab-templates.md): the same screen, other sections and
    type. The theme's own tones only; no accent color. */
@@ -137,6 +144,11 @@
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
 .nt-cards[data-variant="list"] .nt-card-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* Capped only to leave a preview its room: a title alone runs to the time column (Leo 2026-10-13). */
+.nt-cards[data-variant="list"] .nt-card-title:not(:last-child) {
   flex: none;
   max-width: 45%;
 }

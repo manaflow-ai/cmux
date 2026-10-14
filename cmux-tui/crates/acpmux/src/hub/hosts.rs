@@ -132,7 +132,8 @@ impl Hub {
     }
 
     /// Reattach every running agent host. Called once at daemon start,
-    /// before agents may spawn.
+    /// before agents may spawn; a prompt to a kept session may still adopt
+    /// its host first (`readopt`).
     pub async fn adopt_agent_hosts(self: &Arc<Self>) {
         // Pooled sessions of a previous daemon were never taken: end them.
         self.sweep_pool_hosts().await;
@@ -165,6 +166,16 @@ impl Hub {
                 }
                 continue;
             };
+            // This runs after the ready line, so a prompt can reach the host
+            // first (`ensure_child` -> `readopt`, under the spawn lock). One
+            // adoption per host: a second link would replace the first
+            // child, and the requests open on it would be lost.
+            let _spawning = session.spawn_lock.lock().await;
+            if let Some(child) = session.child.lock().await.as_ref()
+                && child.is_alive().await
+            {
+                continue;
+            }
             if let Err(e) = self.adopt_one(&session, record).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
             }
@@ -546,7 +557,19 @@ impl Hub {
         // now for an unsandboxed agent): its permissions are cancelled too,
         // never answered from the log or shown again.
         let floored = Self::web_turn(session) && self.remote_floor_breach(session).is_some();
-        for (id, m, params, _) in work.requests {
+        // Every request that starts its own task is counted before the
+        // answers below are sent, so no group of them is shown while one
+        // still waits for its spawn (`AskInFlight`).
+        let asks: Vec<_> = work
+            .requests
+            .iter()
+            .map(|(id, m, _, _)| {
+                (m == method::SESSION_REQUEST_PERMISSION
+                    && !work.permissions.contains_key(&id.to_string()))
+                .then(|| super::permission_groups::AskInFlight::new(session))
+            })
+            .collect();
+        for ((id, m, params, _), ask) in work.requests.into_iter().zip(asks) {
             if m == method::SESSION_REQUEST_PERMISSION
                 && let Some((permission_id, request, decided)) =
                     work.permissions.get(&id.to_string()).cloned()
@@ -569,9 +592,9 @@ impl Hub {
             let hub = self.clone();
             let s = session.clone();
             let turn_id = turn_id.clone();
-            tokio::spawn(
-                async move { hub.on_agent_request(s, id, m, params, epoch, turn_id).await },
-            );
+            tokio::spawn(async move {
+                hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
+            });
         }
     }
 
@@ -730,7 +753,47 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
-        let record = crate::agent_host::link::spawn(&launcher, &spec).await.map_err(internal)?;
+        let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
+            Ok(child) => return Ok(child),
+            Err(e) => e,
+        };
+        // A host that started but did not answer (a wedged or dead host:
+        // its hello missed `link::connect`'s budget) is ended and one fresh
+        // host takes its place, once. A remote-origin chain is not started
+        // again: its sandbox canary proves only the start it preceded.
+        let Some(failed) = first.started else { return Err(internal(first.error)) };
+        let ended = self.end_unanswered_host(session, &failed, &first.error).await;
+        if !ended || meta.remote_origin {
+            return Err(internal(first.error));
+        }
+        tracing::warn!(session = %session.id, "agent host did not answer ({:#}); starting a fresh host", first.error);
+        match self.start_hosted(session, meta, &launcher, &spec, tap).await {
+            Ok(child) => Ok(child),
+            Err(second) => {
+                if let Some(failed) = &second.started {
+                    let _ = self.end_unanswered_host(session, failed, &second.error).await;
+                }
+                Err(RpcError::internal(format!(
+                    "{:#} (a fresh agent host also failed: {:#})",
+                    first.error, second.error
+                )))
+            }
+        }
+    }
+
+    /// Start one host for `spec` and attach to it. A failure after the host
+    /// started carries its record, so the caller can end it.
+    async fn start_hosted(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        meta: &SessionMeta,
+        launcher: &crate::agent_host::link::HostLauncher,
+        spec: &crate::agent_host::SpawnSpec,
+        tap: crate::agent::Tap,
+    ) -> Result<Arc<ChildAgent>, HostStartFailed> {
+        let record = crate::agent_host::link::spawn(launcher, spec)
+            .await
+            .map_err(|error| HostStartFailed { error, started: None })?;
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.
         self.append(
@@ -741,20 +804,57 @@ impl Hub {
         );
         let attached = ChildAgent::attach_hosted(
             &meta.harness,
-            record,
+            record.clone(),
             0,
             Vec::new(),
             session.inbound_tx.clone(),
             tap,
         )
-        .await
-        .map_err(internal)?;
-        let child = match attached {
-            crate::agent::Attached::Ready(child, _, _) => child,
-            crate::agent::Attached::Incompatible { .. } => {
-                return Err(RpcError::internal("a host of this build refused its controller"));
-            }
-        };
-        Ok(child)
+        .await;
+        match attached {
+            Ok(crate::agent::Attached::Ready(child, _, _)) => Ok(child),
+            Ok(crate::agent::Attached::Incompatible { .. }) => Err(HostStartFailed {
+                error: anyhow::anyhow!("a host of this build refused its controller"),
+                started: None,
+            }),
+            Err(error) => Err(HostStartFailed { error, started: Some(record) }),
+        }
     }
+
+    /// End a host this daemon started but could not attach to, by nonce
+    /// proof, and remove its files, so a fresh host can take the session's
+    /// socket and record. True when it no longer runs.
+    async fn end_unanswered_host(
+        &self,
+        session: &Session,
+        record: &agent_host::HostRecord,
+        error: &anyhow::Error,
+    ) -> bool {
+        let dir = agent_host::hosts_dir();
+        let ended = end_host_blocking(
+            dir.clone(),
+            record.session_id.clone(),
+            Some(record.start_nonce.clone()),
+            Some(record.host_pid),
+        )
+        .await;
+        if ended {
+            agent_host::remove_artifacts(&dir, record);
+        } else {
+            tracing::warn!(session = %session.id, "could not end an agent host that did not answer");
+        }
+        self.append(
+            session,
+            "mux",
+            "host_unanswered",
+            json!({"incarnation": record.incarnation, "hostPid": record.host_pid, "ended": ended, "error": format!("{error:#}")}),
+        );
+        ended
+    }
+}
+
+/// [`Hub::start_hosted`] failed; `started` is the host that runs anyway.
+struct HostStartFailed {
+    error: anyhow::Error,
+    started: Option<agent_host::HostRecord>,
 }

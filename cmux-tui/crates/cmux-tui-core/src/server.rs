@@ -194,6 +194,7 @@ mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
+mod creating_input;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod command_history;
@@ -334,6 +335,10 @@ pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
+/// Advertises `hosting` on `register-browser-provider`: a `"native"` provider
+/// presents its pages itself, so the daemon never overrides their device
+/// metrics and screencasts them only while a frame viewer is attached.
+pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-native-hosting-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
@@ -407,7 +412,9 @@ pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
 /// `update-frontend-browser-tab`, and the `browser_renderer`,
 /// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
 pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
-pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
+pub use frontend_browser_history::{
+    FRONTEND_BROWSER_HISTORY_CAPABILITY, FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
+};
 /// Tab drag outcomes as single atomic commands: `move-tab-to-split`,
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
@@ -740,6 +747,10 @@ enum Command {
         authentication: String,
         #[serde(default)]
         bearer_token: Option<String>,
+        /// `browser-provider-native-hosting-v1`: `"native"` or `"daemon"`
+        /// (the default when absent).
+        #[serde(default)]
+        hosting: Option<String>,
         targets: Vec<BrowserProviderTargetRequest>,
     },
     /// Return the current provider lease for local automation such as
@@ -854,7 +865,13 @@ enum Command {
         rows: Option<u16>,
     },
     Send {
-        surface: SurfaceId,
+        /// The terminal surface; or `terminal_id` (exactly one).
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
+        /// being created (the input is queued for it, `mux::creating_input`).
+        #[serde(default)]
+        terminal_id: Option<String>,
         #[serde(default)]
         text: Option<String>,
         /// Base64-encoded raw bytes, written verbatim to the pty.
@@ -1628,6 +1645,7 @@ enum Command {
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
     ConversationThread(conversations::ThreadParams),
+    ConversationLinkResolve(conversations::LinkResolveParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -2092,7 +2110,6 @@ impl Command {
         match self {
             Self::PasteImage { surface, .. } => Some(*surface),
             Self::SetClientSizing { surface, .. }
-            | Self::Send { surface, .. }
             | Self::ReadScreen { surface }
             | Self::ClearHistory { surface, .. }
             | Self::ReadScrollback { surface, .. }
@@ -2131,6 +2148,7 @@ impl Command {
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::AttachSurface { surface, .. }
+            | Self::Send { surface, .. }
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. }
@@ -3026,15 +3044,19 @@ fn handle_command_with_cancellation(
             endpoint,
             authentication,
             bearer_token,
+            hosting,
             targets,
         } => cmd_browser::register_browser_provider(
             mux,
             client,
-            provider_id,
-            endpoint,
-            authentication,
-            bearer_token,
-            targets,
+            cmd_browser::BrowserProviderRequest {
+                provider_id,
+                endpoint,
+                authentication,
+                bearer_token,
+                hosting,
+                targets,
+            },
         ),
         Command::GetBrowserProvider => cmd_browser::get_browser_provider(mux, client),
         Command::UnregisterBrowserProvider => cmd_browser::unregister_browser_provider(mux, client),
@@ -3106,8 +3128,8 @@ fn handle_command_with_cancellation(
         Command::ApplyLayout { workspace, name, layout, cols, rows } => {
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
-        Command::Send { surface, text, bytes, paste } => {
-            cmd_terminal_io::send(mux, client, surface, text, bytes, paste)
+        Command::Send { surface, terminal_id, text, bytes, paste } => {
+            cmd_terminal_io::send(mux, client, writer, surface, terminal_id, text, bytes, paste)
         }
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
@@ -3489,6 +3511,9 @@ fn handle_command_with_cancellation(
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
         Command::ConversationThread(params) => conversations::thread(mux, client, params),
+        Command::ConversationLinkResolve(params) => {
+            conversations::link_resolve(mux, client, params)
+        }
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),

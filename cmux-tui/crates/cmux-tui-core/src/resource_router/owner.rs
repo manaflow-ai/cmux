@@ -14,6 +14,8 @@ pub(super) enum OperationOwner {
     Git,
     /// The daemon history module (history_ops.rs).
     History,
+    /// `browser.tab.set_profile` (browser_profile_ops.rs).
+    BrowserProfile,
     Credential,
     Connection,
     /// Settings (the settings file): the config owner (resource_router/config.rs).
@@ -149,6 +151,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::HistoryVisitSummaries
         | ResourceOperation::HistoryVisitImport
         | ResourceOperation::HistoryTrailRecord => OperationOwner::History,
+        ResourceOperation::BrowserTabSetProfile => OperationOwner::BrowserProfile,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
@@ -208,12 +211,29 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::SidebarLayoutGet
         | ResourceOperation::SidebarLayoutUpdate
+        | ResourceOperation::SidebarGet
+        | ResourceOperation::SidebarMove
+        | ResourceOperation::SidebarPin
+        | ResourceOperation::SidebarUnpin
+        | ResourceOperation::SidebarItemAdd
+        | ResourceOperation::SidebarItemRemove
+        | ResourceOperation::SidebarItemUpdate
+        | ResourceOperation::SidebarSectionAdd
+        | ResourceOperation::SidebarSectionUpdate
+        | ResourceOperation::SidebarSectionMove
+        | ResourceOperation::SidebarSectionRemove
+        | ResourceOperation::SidebarGroupCreate
+        | ResourceOperation::SidebarGroupUpdate
+        | ResourceOperation::SidebarGroupUngroup
+        | ResourceOperation::SidebarAdopt
+        | ResourceOperation::SidebarApply
         | ResourceOperation::ProjectList
         | ResourceOperation::ProjectObserve
         | ResourceOperation::ProjectAdd
         | ResourceOperation::ProjectUpdate
         | ResourceOperation::ProjectRemove
         | ResourceOperation::ProjectSync
+        | ResourceOperation::ProjectSourceUpdate
         | ResourceOperation::PaletteUsageGet
         | ResourceOperation::PaletteUsageRecord
         | ResourceOperation::PaletteUsageImport

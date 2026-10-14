@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955. */
+/* cmux-tui mux protocol 12, IR f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955" as const;
+export const SDK_IR_SHA256 = "f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -738,6 +738,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local user connections only (an agent-bound connection is refused; the remote relay does not admit it). Appends history from another store once: authors, times and ids are kept, the owner assigns seqs and one rev, skips a message whose author and client_msg_id (or id) it holds, and refuses times that go backward, pass the newest message it holds, or lie in the future. See spec/commands.md."
+    ]
+  },
+  "conversation-link-resolve": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-tree-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. url is <scheme>://conversation/<conv_id>[/message/<msg_id>] (scheme cmux or cmux-<tag>, at most 512 bytes; query and fragment ignored), else bad request. An unknown conversation is unknown_conversation, a message unknown or of another conversation unknown_message. path runs from the thread root to the message along reply_to parents. See spec/commands.md."
     ]
   },
   "conversation-list": {
@@ -2028,13 +2038,19 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 10,
     "capability": "browser-provider-v1",
-    "fields": {},
+    "fields": {
+      "hosting": {
+        "since": null,
+        "capability": "browser-provider-native-hosting-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "The lease is scoped to the trusted local control connection and is released on disconnect.",
       "The endpoint must be an explicit loopback ws URL with no credentials or fragment.",
       "Bearer authentication is optional and sends the token only in the CDP WebSocket upgrade Authorization header.",
-      "Each registration replaces that connection's complete target set; target ids are never journaled."
+      "Each registration replaces that connection's complete target set; target ids are never journaled.",
+      "All provider clients of one live registration must agree on hosting."
     ]
   },
   "release-attached-view-size": {
@@ -2331,10 +2347,16 @@ export const COMMAND_METADATA = {
       "paste": {
         "since": 7,
         "capability": null
+      },
+      "terminal_id": {
+        "since": null,
+        "capability": "terminal-input-while-creating-v1"
       }
     },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "With terminal_id, input for a terminal still being created is queued in one FIFO per id (at most 65536 bytes; over it the request fails with input.overflow and queues nothing) and written before any later input when the terminal is live; the result is {queued:true}. A failed, cancelled or expired (10 s after the first queued byte) creation writes nothing and gives each sending connection its bytes back in a terminal-input-unclaimed control event."
+    ]
   },
   "send-key": {
     "authority": "control",
@@ -3736,6 +3758,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "terminal-input-unclaimed": {
+    "since": 12,
+    "capability": "terminal-input-while-creating-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "terminal-reaped": {
     "since": 12,
     "capability": "terminal-reap-v1",
@@ -3913,12 +3943,42 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "AgentRecord": {
     "additional_properties": false,
     "fields": {
+      "agent": {
+        "description": "Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "last_prompt": {
+        "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "session": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "since_ms": {
+        "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "source": {
@@ -4412,6 +4472,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "bearer"
     ]
   },
+  "BrowserProviderHosting": {
+    "kind": "enum",
+    "values": [
+      "daemon",
+      "native"
+    ]
+  },
   "BrowserProviderSnapshot": {
     "additional_properties": false,
     "constraints": [
@@ -4449,6 +4516,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "hosting": {
+        "capability": "browser-provider-native-hosting-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "BrowserProviderHosting"
         }
       },
       "provider_id": {
@@ -5065,6 +5141,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "thread": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationThreadState"
+        }
+      },
       "thread_root": {
         "nullable": false,
         "presence": "optional",
@@ -5525,6 +5609,73 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ConversationThreadResolution": {
+    "additional_properties": false,
+    "fields": {
+      "at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "by": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationThreadState": {
+    "additional_properties": false,
+    "fields": {
+      "owner": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "resolved": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationThreadResolution"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationThreadStatus": {
+    "kind": "enum",
+    "values": [
+      "open",
+      "resolved"
+    ]
+  },
   "ConversationThreadSummary": {
     "additional_properties": false,
     "fields": {
@@ -5555,6 +5706,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "owner": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "reply_count": {
         "nullable": false,
         "presence": "required",
@@ -5563,9 +5722,41 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "resolved_at": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "resolved_by": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "root": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "status": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationThreadStatus"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -15103,6 +15294,79 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "conversation-link-resolve": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        },
+        "message": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationMessage"
+          }
+        },
+        "path": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "thread_root": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "truncated": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "conversation-list": {
     "request": {
       "additional_properties": false,
@@ -20584,6 +20848,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "hosting": {
+          "capability": "browser-provider-native-hosting-v1",
+          "constraints": [
+            "\"native\": the provider presents each page in its own native view. The daemon never sends a geometry Emulation.setDeviceMetricsOverride, never activates a target to recover stalled frames, and screencasts a target only while a frame viewer is attached. Absent or \"daemon\" keeps the original contract: the daemon sizes and screencasts every attached target."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProviderHosting"
+          }
+        },
         "provider_id": {
           "nullable": false,
           "presence": "required",
@@ -21663,7 +21940,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "constraints": [
-        "When both are present, UTF-8 text bytes precede decoded bytes."
+        "When both are present, UTF-8 text bytes precede decoded bytes.",
+        "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write."
       ],
       "fields": {
         "bytes": {
@@ -21691,11 +21969,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "surface": {
-          "nullable": false,
-          "presence": "required",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "capability": "terminal-input-while-creating-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "text": {
@@ -21711,8 +22000,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "EmptyResult"
+      "additional_properties": false,
+      "fields": {
+        "queued": {
+          "capability": "terminal-input-while-creating-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "send-key": {
@@ -24676,12 +24977,32 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "value": "agent-changed"
         }
       },
+      "last_prompt": {
+        "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "session": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "since_ms": {
+        "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "source": {
@@ -27530,6 +27851,44 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-input-unclaimed": {
+    "additional_properties": false,
+    "fields": {
+      "bytes_base64": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Base64"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-input-unclaimed"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
         "nullable": false,
         "presence": "required",
         "type": {

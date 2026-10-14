@@ -95,6 +95,7 @@ SWIFT_JOB_INPUTS = (
     # check-app-ffi-pin.sh's sources (the pinned CCmuxAppFFI release) and the
     # sidebar layout reducer's cargo test.
     "cmux-tui/crates/cmux-app-ffi/",
+    "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",
     "cmux-tui/crates/cmux-rd-core/",

@@ -204,6 +204,7 @@ mod launch_identity;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
+mod agent_prompts;
 pub use agent_presence::{AgentActivity, AgentPresence};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
@@ -275,6 +276,7 @@ pub(crate) use time::now_ms;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
@@ -608,6 +610,9 @@ pub struct Mux {
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
+    /// Each terminal agent's last prompt (at most 200 characters), memory only: never
+    /// journaled, persisted or logged (`agent_prompts.rs`).
+    agent_prompts: Mutex<HashMap<TerminalPublicId, Arc<str>>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
@@ -644,6 +649,9 @@ pub struct Mux {
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
+    /// Periodic checkpoint, segment sealing and incremental vacuum worker
+    /// (mux/journal_maintenance.rs); `None` for an in-memory session.
+    journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
@@ -722,6 +730,7 @@ pub struct Mux {
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
     terminal_reap_grace_ms: AtomicU64,
+    creating_inputs: creating_input::CreatingInputs,
     /// The running reaper's event receiver, so keep and grace changes can
     /// wake it.
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
@@ -978,6 +987,11 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        if let Some(maintenance) =
+            self.journal_maintenance.get_mut().unwrap_or_else(PoisonError::into_inner).take()
+        {
+            maintenance.stop();
+        }
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();

@@ -246,7 +246,8 @@
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
-              "ui.animationSpeed"
+              "ui.animationSpeed",
+              "ui.paneAnimations"
             ],
             "title" : {
               "key" : "settings.group.densityMotion",
@@ -269,6 +270,7 @@
           {
             "key" : "settings.group.panes",
             "rows" : [
+              "appearance.chromeStyle",
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
@@ -9899,6 +9901,181 @@
     },
     {
       "accepts" : [
+        "default",
+        "card",
+        "card-outlined",
+        "flat",
+        "flat-sidebar-line",
+        "bare",
+        "panes",
+        "two-tone"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.default",
+            "text" : "Default"
+          },
+          "value" : "default"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.card",
+            "text" : "Card"
+          },
+          "value" : "card"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.cardOutlined",
+            "text" : "Card with Outlines"
+          },
+          "value" : "card-outlined"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.flat",
+            "text" : "Flat"
+          },
+          "value" : "flat"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.flatSidebarLine",
+            "text" : "Flat with Sidebar Line"
+          },
+          "value" : "flat-sidebar-line"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.bare",
+            "text" : "Bare"
+          },
+          "value" : "bare"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.panes",
+            "text" : "Panes"
+          },
+          "value" : "panes"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.twoTone",
+            "text" : "Two-Tone"
+          },
+          "value" : "two-tone"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "default",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.chromeStyle.help",
+        "text" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.chromeStyle",
+      "keywords" : [
+        "window",
+        "style",
+        "chrome",
+        "card",
+        "flat",
+        "border",
+        "borders",
+        "lines",
+        "divider",
+        "outline",
+        "seam",
+        "sidebar",
+        "two-tone",
+        "minimal",
+        "bare"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "chromeStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.chromeStyle.summary",
+        "text" : "Card, lines and sidebar background"
+      },
+      "title" : {
+        "key" : "settings.appearance.chromeStyle",
+        "text" : "Window Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.paneAnimations.help",
+        "text" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.paneAnimations",
+      "keywords" : [
+        "motion",
+        "animation",
+        "pane",
+        "split",
+        "zoom",
+        "slide",
+        "spring"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "paneAnimations"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.paneAnimations",
+        "text" : "Animate Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "none",
         "dividers",
         "borders",
@@ -19265,6 +19442,7 @@
     },
     {
       "accepts" : [
+        "transparent",
         "regular",
         "clear",
         "off"
@@ -19272,6 +19450,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.transparent",
+            "text" : "Transparent"
+          },
+          "value" : "transparent"
+        },
         {
           "title" : {
             "key" : "settings.choice.glass",
@@ -19297,7 +19482,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "regular",
+      "default" : "transparent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.addressBar",
@@ -19305,7 +19490,7 @@
       },
       "help" : {
         "key" : "settings.browser.omnibar.glass.help",
-        "text" : "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color."
+        "text" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.omnibar.glass",
@@ -23295,7 +23480,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "64d9a974884e7c1b45b39addb3195c498d94456d60e65de5dd67ec9628c11f81",
+  "schema_hash" : "bbd69c17c7d4fc6e50ec942ba5808c81d70f037c9db0953d96ac637616c9560a",
   "sections" : [
     {
       "id" : "general",
