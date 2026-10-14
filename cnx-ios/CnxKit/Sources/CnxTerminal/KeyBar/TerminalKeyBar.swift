@@ -57,7 +57,14 @@ struct TerminalKeyBar: View {
             HStack(spacing: KeyBarLayout.spacing) {
                 ForEach(KeyBarKey.middle, id: \.self) { key in
                     let hidesCut = !scrolling && cut.contains(key)
-                    KeyCap(key: key, model: model, width: KeyBarLayout.keyWidth)
+                    Group {
+                        if key == .paste {
+                            // The system paste control: no "Allow Paste" prompt (Codex QA F14).
+                            PasteKeyCap(model: model).frame(width: KeyBarLayout.keyWidth, height: 34)
+                        } else {
+                            KeyCap(key: key, model: model, width: KeyBarLayout.keyWidth)
+                        }
+                    }
 
                             .onGeometryChange(for: Bool.self) { proxy in
                                 KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
@@ -194,6 +201,29 @@ struct KeyCapStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.92 : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
             .contentShape(.rect)
+    }
+}
+
+/// The key bar's Paste: a `UIPasteControl` that pastes into the terminal
+/// surface. A tap on it is the explicit paste gesture iOS trusts, so it never
+/// raises the "Allow Paste" prompt (Codex QA F14).
+struct PasteKeyCap: UIViewRepresentable {
+    let model: TerminalModel
+
+    func makeUIView(context: Context) -> UIPasteControl {
+        let configuration = UIPasteControl.Configuration()
+        configuration.displayMode = .iconOnly
+        configuration.cornerStyle = .medium
+        configuration.baseBackgroundColor = UIColor.label.withAlphaComponent(0.08)
+        configuration.baseForegroundColor = .label
+        let control = UIPasteControl(configuration: configuration)
+        control.target = model.controller?.surface
+        control.accessibilityIdentifier = "terminal.key.paste"
+        return control
+    }
+
+    func updateUIView(_ control: UIPasteControl, context: Context) {
+        if control.target == nil { control.target = model.controller?.surface }
     }
 }
 #endif

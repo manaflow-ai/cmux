@@ -5,6 +5,7 @@ import GameController
 import GhosttyNextKit
 import IOSurface
 import UIKit
+import UniformTypeIdentifiers
 
 /// One Ghostty surface in mirror mode (adapted from CmuxiOSTerminal's
 /// GhosttyTerminalView). The phone owns no PTY: session output arrives through
@@ -517,6 +518,30 @@ final class TerminalSurfaceView: UIView {
     override func paste(_ sender: Any?) {
         guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
         perform([.paste(text)])
+    }
+
+    // MARK: Paste control (Codex QA F14)
+
+    /// What the key bar's system paste control may hand this view: text.
+    /// A tap on a `UIPasteControl` is the person's explicit paste, so iOS
+    /// asks nothing ("Allow Paste" appeared for every new clipboard when the
+    /// key read the pasteboard itself).
+    func configurePasteControlTarget() {
+        pasteConfiguration = UIPasteConfiguration(acceptableTypeIdentifiers: [UTType.plainText.identifier, UTType.utf8PlainText.identifier])
+    }
+
+    override func paste(itemProviders: [NSItemProvider]) {
+        for provider in itemProviders where provider.canLoadObject(ofClass: NSString.self) {
+            _ = provider.loadObject(ofClass: NSString.self) { [weak self] object, _ in
+                guard let text = object as? String, !text.isEmpty else { return }
+                DispatchQueue.main.async { self?.perform([.paste(text)]) }
+            }
+            return
+        }
+    }
+
+    override func canPaste(_ itemProviders: [NSItemProvider]) -> Bool {
+        itemProviders.contains { $0.canLoadObject(ofClass: NSString.self) }
     }
 }
 

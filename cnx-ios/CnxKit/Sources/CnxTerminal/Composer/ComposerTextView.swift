@@ -20,6 +20,9 @@ struct ComposerTextView: UIViewRepresentable {
     var shouldInsert: (String) -> Bool = { _ in true }
 
     static let maxLines = 6
+    /// Read so a live text size change updates the view (Codex QA F10): the
+    /// insets follow the new line height and SwiftUI measures it again.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     func makeUIView(context: Context) -> ComposerUITextView {
         let view = ComposerUITextView()
@@ -60,6 +63,15 @@ struct ComposerTextView: UIViewRepresentable {
 
     func updateUIView(_ view: ComposerUITextView, context: Context) {
         context.coordinator.parent = self
+        if context.coordinator.lastTypeSize != dynamicTypeSize {
+            context.coordinator.lastTypeSize = dynamicTypeSize
+            view.font = .preferredFont(forTextStyle: .body)
+            let inset = ComposerMetrics().verticalTextInset(lineHeight: view.font?.lineHeight ?? 20)
+            view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
+            view.refreshPlaceholderFont()
+            view.invalidateIntrinsicContentSize()
+            view.setNeedsLayout()
+        }
         if view.text != text { view.text = text }
         view.placeholder = placeholder
         if focusRequest != context.coordinator.lastFocusRequest {
@@ -84,6 +96,7 @@ struct ComposerTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerTextView
         var lastFocusRequest = 0
+        var lastTypeSize: DynamicTypeSize?
 
         init(parent: ComposerTextView) { self.parent = parent }
 
@@ -141,6 +154,11 @@ final class ComposerUITextView: UITextView {
         super.layoutSubviews()
         let size = placeholderLabel.sizeThatFits(bounds.size)
         placeholderLabel.frame = CGRect(x: textContainerInset.left, y: textContainerInset.top, width: bounds.width, height: size.height)
+    }
+
+    func refreshPlaceholderFont() {
+        placeholderLabel.font = .preferredFont(forTextStyle: .body)
+        setNeedsLayout()
     }
 
     func updatePlaceholder() {
