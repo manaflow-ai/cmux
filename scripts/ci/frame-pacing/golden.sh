@@ -82,3 +82,4 @@ if [ ! -S "$socket" ]; then
 fi
 sleep 5
 python3 "$here/golden.py" drive "$socket" "$out"
+python3 "$here/tab_insertion.py" drive "$socket" "$out/insertion" --record

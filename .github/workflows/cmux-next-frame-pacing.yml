@@ -255,11 +255,13 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/frame-pacing/golden.py judge "$RUNNER_TEMP/frame-pacing/out/golden" >> "$GITHUB_STEP_SUMMARY"
 
-      # bench.sh and golden.sh tear both down on exit; this covers a step killed by its timeout.
-      - name: Remove the virtual display and the app
-        if: always() && steps.gui.outputs.taken == 'true'
+      - name: Judge New Tab insertion geometry
+        if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'golden')
         continue-on-error: true
-        run: scripts/ci/frame-pacing/console-session.sh /usr/bin/pkill -f "$RUNNER_TEMP/frame-pacing" || true
+        run: python3 scripts/ci/frame-pacing/tab_insertion.py judge "$RUNNER_TEMP/frame-pacing/out/golden/insertion" >> "$GITHUB_STEP_SUMMARY"
+
+      # bench.sh and golden.sh own their exact process IDs and tear down on exit.
+      # Never pattern-kill the shared capture host's processes.
 
       - name: Summary
         if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'fling')
