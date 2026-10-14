@@ -54,6 +54,14 @@ and render-server field animation, blurred header and native scrolling.
   spaces share one), and the appkit-native screen-change handler
   (`ChatController.windowDidChangeScreen` sets the shared colour space and
   drops every row bitmap).
+  Known limit (upstream, measured 2026-10-14 on cmux-lawrence-2): after a
+  move to a 1x screen, the visible rows keep their 2x bitmaps for up to
+  0.32 s. `RowCell.configureScoped` (vendored Transcript.swift, about lines
+  744-870) keeps a shown row's bitmap on a scale repaint until the off-main
+  `RowBitmaps.request` delivers the new one, and the cache has no 1x bitmap
+  yet. `scripts/cmux-next/home-scale-change.py` records it and fails when it
+  lasts longer than 0.5 s; the return to 2x keeps the one-frame rule (no
+  old-scale bitmap one frame after the change).
 - `Patches/`: one unified diff per edited vendored file. Every edit is also
   marked `cmux:` in the source.
 - `Sources/MessagesLabHome/Cmux/`: cmux code in the same module (the upstream
