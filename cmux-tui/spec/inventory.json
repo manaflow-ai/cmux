@@ -199,9 +199,11 @@
     "sidebar.group.update",
     "sidebar.item.add",
     "sidebar.item.remove",
+    "sidebar.item.remove_ref",
     "sidebar.item.update",
     "sidebar.move",
     "sidebar.pin",
+    "sidebar.reset",
     "sidebar.section.add",
     "sidebar.section.move",
     "sidebar.section.remove",
@@ -527,6 +529,7 @@
       "conversation-history",
       "conversation-thread",
       "conversation-link-resolve",
+      "conversation-inbox-op",
       "conversation-search",
       "history-search",
       "conversation-op",
@@ -549,6 +552,7 @@
       "cloud-conversation-runs",
       "cloud-conversation-run",
       "cloud-conversation-op",
+      "cloud-inbox-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
@@ -558,6 +562,10 @@
       "cloud-mux-ack",
       "conversation-attachment-upload",
       "conversation-attachment-read",
+      "conversation-attachment-link",
+      "cloud-attachment-upload",
+      "cloud-attachment-read",
+      "cloud-attachment-link",
       "conversation-run-append",
       "conversation-runs",
       "conversation-run",
@@ -677,6 +685,12 @@
     },
     {
       "name": "conversation-draft",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-inbox-changed",
       "streams": [
         "subscribe"
       ]

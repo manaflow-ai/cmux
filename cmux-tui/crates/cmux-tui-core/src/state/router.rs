@@ -95,6 +95,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::SidebarItemAdd
             | Op::SidebarItemRemove
             | Op::SidebarItemUpdate
+            | Op::SidebarItemRemoveRef
             | Op::SidebarSectionAdd
             | Op::SidebarSectionUpdate
             | Op::SidebarSectionMove
@@ -104,6 +105,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::SidebarGroupUngroup
             | Op::SidebarAdopt
             | Op::SidebarApply
+            | Op::SidebarReset
             | Op::ProjectList
             | Op::ProjectObserve
             | Op::ProjectAdd
@@ -671,6 +673,7 @@ pub(crate) fn dispatch(
         | Op::SidebarItemAdd
         | Op::SidebarItemRemove
         | Op::SidebarItemUpdate
+        | Op::SidebarItemRemoveRef
         | Op::SidebarSectionAdd
         | Op::SidebarSectionUpdate
         | Op::SidebarSectionMove
@@ -679,7 +682,8 @@ pub(crate) fn dispatch(
         | Op::SidebarGroupUpdate
         | Op::SidebarGroupUngroup
         | Op::SidebarAdopt
-        | Op::SidebarApply => {
+        | Op::SidebarApply
+        | Op::SidebarReset => {
             ensure_session(mux, selectors)?;
             let commit = mux
                 .state_sidebar_apply(&mutation(&request)?, operation.wire_name(), fields)

@@ -89,7 +89,7 @@ fn running(pid: i32) -> bool {
         const SZOMB: u32 = 5;
         // SAFETY: an all-zero proc_bsdinfo is a valid out-buffer.
         let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-        let size = i32::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).unwrap();
+        let size = i32::try_from(size_of::<libc::proc_bsdinfo>()).unwrap();
         // SAFETY: the out-buffer is valid for `size` bytes.
         let read = unsafe {
             libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
