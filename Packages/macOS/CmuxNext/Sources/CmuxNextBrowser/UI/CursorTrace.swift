@@ -56,7 +56,8 @@ enum CursorTrace {
               + "screen \(point(NSEvent.mouseLocation)) responder \(responder) key-window \(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "-")")
     }
 
-    nonisolated private static func point(_ p: NSPoint) -> String { "(\(Int(p.x)),\(Int(p.y)))" }
+    /// `String(format:)`, not `Int(_:)`: a point of a move may be far out (`Int` traps on a non-finite value).
+    nonisolated private static func point(_ p: NSPoint) -> String { String(format: "(%.0f,%.0f)", p.x, p.y) }
 
     nonisolated private static func write(_ line: String) {
         FileHandle.standardError.write(Data("[cursor-trace \(String(format: "%.3f", ProcessInfo.processInfo.systemUptime))] \(line)\n".utf8))
