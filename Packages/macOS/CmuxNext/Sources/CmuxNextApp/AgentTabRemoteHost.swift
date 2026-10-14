@@ -104,7 +104,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             return try await start(cwd, harness, key)
         } catch let refusal as AgentRemoteStartRefusal where refusal.code == AgentSessionAttachError.needsKeyedStart {
             // Another chat's keyed restart bound a new key meanwhile: never restart again over it.
-            let rebound = AcpmuxRemotePersonKeys.shared.instance(machine: approvals.machineID) != key.instance
+            // (nil: a restart runs or failed; prepare joins it or tries again)
+            let current = AcpmuxRemotePersonKeys.shared.instance(machine: approvals.machineID)
+            let rebound = current != nil && current != key.instance
             if refusal.keyedRestartSafe == true, !rebound { _ = await prepare(.daemonSaidSafe) }
             return try await start(cwd, harness, nil)
         }
