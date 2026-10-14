@@ -214,8 +214,10 @@ pub fn spawn_plan(
 pub struct Translator {
     /// ACP request id -> what we are waiting on from claude.
     pending: Mutex<HashMap<String, Pending>>,
-    /// claude control request_id -> ACP request id we issued to the hub.
-    control_out: Mutex<HashMap<String, Id>>,
+    /// Claude control request_id -> the ACP request and the permission rules
+    /// Claude proposed for an "always allow" answer. Claude only persists a
+    /// suggested rule when it receives it back as `updatedPermissions`.
+    control_out: Mutex<HashMap<String, ControlRequest>>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -278,6 +280,15 @@ struct BackgroundShell {
     command: String,
     task: Option<String>,
     background: bool,
+}
+
+/// State retained while acpmux waits for the person to answer Claude's
+/// `can_use_tool` request. The suggestions must travel with the request id:
+/// the ACP response only carries the selected option and its metadata.
+#[derive(Debug, Clone)]
+struct ControlRequest {
+    acp_id: Id,
+    permission_suggestions: Option<Value>,
 }
 
 #[derive(Debug, Clone)]

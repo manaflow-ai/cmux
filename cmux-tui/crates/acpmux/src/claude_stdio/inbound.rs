@@ -269,7 +269,19 @@ impl Translator {
                         let input = req.get("input").cloned().unwrap_or(Value::Null);
                         let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                         let acp_id = Value::from(1_000_000 + n);
-                        self.control_out.lock().await.insert(rid.clone(), acp_id.clone());
+                        // Claude Code's permission suggestions are opaque
+                        // PermissionUpdate objects. Keep them byte-for-byte
+                        // until the person chooses the matching always option;
+                        // Claude installs them only when they are returned as
+                        // `updatedPermissions` in the control response.
+                        let permission_suggestions = req
+                            .get("permission_suggestions")
+                            .filter(|value| !value.is_null())
+                            .cloned();
+                        self.control_out.lock().await.insert(
+                            rid.clone(),
+                            ControlRequest { acp_id: acp_id.clone(), permission_suggestions },
+                        );
                         let interactive = req
                             .get("requires_user_interaction")
                             .and_then(Value::as_bool)
