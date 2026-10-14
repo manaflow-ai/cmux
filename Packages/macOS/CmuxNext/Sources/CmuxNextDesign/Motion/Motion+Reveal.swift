@@ -1,4 +1,4 @@
-import QuartzCore
+public import QuartzCore
 
 /// Late content settles in, it does not pop (cx-sya4n; plans/cmux-next/motion.md "Late
 /// content"). Motion is small and local (Leo 2026-10-14): a short fade with a few points of
