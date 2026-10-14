@@ -29,9 +29,7 @@ use crate::history_ops::ledger;
 use crate::mux::FrontendTabPlacement;
 use crate::resource::{ContentPublicId, ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
-use crate::workspace_registry::{
-    BrowserProfileInput, FrontendBrowserRecord, PersonalBrowserProfile,
-};
+use crate::workspace_registry::{BrowserProfileInput, FrontendBrowserRecord};
 use crate::{Mux, PaneId, ResourceTarget};
 
 /// Advertised in identify: the daemon answers `browser.tab.set_profile`
@@ -110,24 +108,33 @@ fn set_profile(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
     Ok(json!({"tab_id": tab.as_str(), "profile_id": record.profile_id, "changed": changed}))
 }
 
+/// The fields of a profile record an agent sees. An allow list, so a field
+/// the record gains later stays out until someone adds it here.
+const PUBLIC_FIELDS: [&str; 5] = ["id", "name", "color", "icon", "index"];
+
 /// `browser.profile.list`: each record's id, name, color, icon and index.
 /// The import origin (a browser and its profile directory) stays out: it
 /// names the person's other browsers and their files.
 fn list(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
-    let profiles = mux.personal_state_read(crate::workspace_registry::read_browser_profiles)?;
-    let rows: Vec<Value> = profiles.iter().map(public_profile).collect();
+    let snapshot = mux.personal_snapshot().map_err(|error| {
+        ResourceError::operation_failed("browser.profile.list", error.to_string(), json!({}))
+    })?;
+    let rows =
+        snapshot.browser_profiles.iter().map(public_profile).collect::<Result<Vec<_>, _>>()?;
     Ok(json!({"browser_profiles": rows}))
 }
 
-fn public_profile(profile: &PersonalBrowserProfile) -> Value {
-    json!({
-        "id": profile.id,
-        "name": profile.name,
-        "color": profile.color,
-        "icon": profile.icon,
-        "index": profile.index,
-    })
+fn public_profile(profile: &impl serde::Serialize) -> Result<Value, ResourceError> {
+    let failed =
+        |reason: String| ResourceError::operation_failed("browser.profile", reason, json!({}));
+    let Value::Object(mut fields) =
+        serde_json::to_value(profile).map_err(|error| failed(error.to_string()))?
+    else {
+        return Err(failed("a browser profile record is not an object".into()));
+    };
+    fields.retain(|key, _| PUBLIC_FIELDS.contains(&key.as_str()));
+    Ok(Value::Object(fields))
 }
 
 /// `browser.profile.create`. The new id is derived from the idempotency key,
@@ -159,7 +166,7 @@ fn create(
         .personal_mutation(|registry| registry.create_browser_profile(input))
         // The registry checks the name, color and icon: the caller's input.
         .map_err(|error| ResourceError::validation_invalid(None, error.to_string()))?;
-    Ok(json!({"browser_profile": public_profile(&profile), "changed": changed}))
+    Ok(json!({"browser_profile": public_profile(&profile)?, "changed": changed}))
 }
 
 /// A lowercase version 4 UUID from the operation and the idempotency key.
