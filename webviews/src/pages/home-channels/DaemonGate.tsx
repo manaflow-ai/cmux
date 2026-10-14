@@ -228,7 +228,7 @@ export function DaemonGate({
   // A new store per connection: the key remounts the page on every reconnect.
   if (phase.kind === "ready") return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages, phase.owner)}</Fragment>;
   return (
-    <section className="hc-gate" aria-labelledby="hc-gate-title">
+    <section className="hc-gate" data-build-probe="hqec-fleetweb-probe-7f3a2c" aria-labelledby="hc-gate-title">
       <h1 id="hc-gate-title">{t("connect.title")}</h1>
       {url && <p className="hc-gate-endpoint">{url}</p>}
       {phase.kind === "pairing" && <p className="hc-gate-code">{format("connect.pairingCode", phase.code)}</p>}
