@@ -123,6 +123,21 @@ pub fn mode() -> Mode {
     }
 }
 
+/// `OPTCHAT_ACPMUX_SHARED=1`: this host's acpmux is its Chief home's, which
+/// every Chief of that home uses (hq-6d 2026-10-14; the daemon's Chief brain
+/// supervisor, cmux-tui-core chief_brains.rs, sets it). Such a host starts
+/// the daemon like a local host when none answers, with the Chief home
+/// (`CMUX_CHIEF_HOME`) as the daemon's `ACPMUX_CHIEF_MUX_HOME`, but never
+/// shuts it down: when it stops it ends only its own sessions
+/// (`agents::end_own_sessions`). Without it (the app's default Chief, a
+/// host with its own `ACPMUX_HOME`) nothing changes.
+pub const SHARED_ENV: &str = "OPTCHAT_ACPMUX_SHARED";
+
+/// Whether this host's acpmux is shared ([`SHARED_ENV`]).
+pub fn shared() -> bool {
+    env(SHARED_ENV).as_deref() == Some("1")
+}
+
 /// The rule: `reachable` is the socket now, `seen_up` whether this host ever reached a daemon.
 pub fn decide(mode: Mode, reachable: bool, seen_up: bool) -> Action {
     match (reachable, mode, seen_up) {
