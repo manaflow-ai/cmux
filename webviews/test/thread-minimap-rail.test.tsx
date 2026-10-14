@@ -259,6 +259,25 @@ test("keyboard focus grows its row alone and opens the card at once; Escape clos
   }
 });
 
+test("a clicked row takes focus, as a clicked button does in Codex, so Tab goes on from the rail; the click does not hold the card open", async () => {
+  const view = await mount(12);
+  jest.useFakeTimers();
+  try {
+    await enter(4);
+    await advance(300);
+    expect(card()?.textContent).toContain("Question 4");
+    // WebKit does not focus a clicked button; the rail does, so Tab moves to the next row.
+    await act(async () => tick(4).click());
+    expect(document.activeElement).toBe(tick(4));
+    await leave(4);
+    await advance(200);
+    expect(card()).toBeNull();
+    expect(Math.round(length(4))).toBe(6);
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("dragging on the rail scrubs: each row crossed jumps the transcript to it, and the drag's click does not", async () => {
   const view = await mount(12);
   try {
