@@ -340,9 +340,11 @@ try:
     added = cli("action", "run", "sidebar.item.add", "--item", "https://github.com", "--section", "sec_pinned")
     print("link add:", added[:400], flush=True)
     link = wait(lambda: next((i for i in section_items("sec_pinned") if i.get("ref_kind") == "url"), None), 10)
-    alpha = by_title("Alpha")
-    if link and alpha:
-        drag(center(link["window_frame"]), (alpha["window_frame"]["x"] + 40, alpha["window_frame"]["y"] + 2), "v2-5-link-into-list",
+    # The drop goes above the list's first row (Alpha is a Pinned tile by now: live11 found no Alpha row).
+    titles = list_titles()
+    anchor = by_title(titles[0]) if titles else None
+    if link and anchor:
+        drag(center(link["window_frame"]), (anchor["window_frame"]["x"] + 40, anchor["window_frame"]["y"] + 2), "v2-5-link-into-list",
              indicator="gap")
         row = wait(lambda: next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("item") and r.get("in_list")), None), 5)
         record("link item into the list lists as a row", bool(row) and not any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")),
@@ -367,7 +369,7 @@ try:
                    f"{next((r.get('icon_address') for r in window().get('rows', []) if r.get('key') == key), None)}")
             undo("link item into the list", lambda: any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")))
     else:
-        record("link item into the list", False, f"no url item in Pinned after cmux action run sidebar.item.add ({added[:300]}; link={link})")
+        record("link item into the list", False, f"link={link} list anchor={anchor and anchor.get('title')} after cmux action run sidebar.item.add ({added[:200]})")
 
     # 6. Cross-machine drop: needs a second machine section.
     machines = [r for r in window().get("rows", []) if str(r.get("key", "")).startswith("section")]
