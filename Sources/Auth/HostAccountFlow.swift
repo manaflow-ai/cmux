@@ -181,6 +181,14 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         )
     }
 
+    var lastSignInFailureDetail: String? {
+        browserSignIn.lastFailureDetail
+    }
+
+    func copyFailureDetail(_ detail: String) -> Bool {
+        GhosttyApp.terminalPasteboard.writeString(detail, to: .general)
+    }
+
     func signOut() async {
         await browserSignIn.signOut()
         billingPlanState = .unknown
