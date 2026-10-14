@@ -639,20 +639,8 @@ final class WorkspaceShareExporter {
                         imageDataUrl: nil
                     )
                 }
-                let kind: WorkspaceShareScene.Surface.Kind
-                var docID: String?
-                if let terminal = panel as? TerminalPanel {
-                    if isShareableTextBox(terminal) {
-                        kind = .textbox
-                        docID = terminal.id.uuidString
-                    } else {
-                        kind = .terminal
-                    }
-                } else if panel is BrowserPanel {
-                    kind = .browser
-                } else {
-                    kind = .unsupported
-                }
+                let kind = Self.sceneSurfaceKind(for: panel, isShareableTextBox: isShareableTextBox)
+                let docID = (kind == .textbox) ? surfaceID.uuidString : nil
                 return WorkspaceShareScene.Surface(
                     id: surfaceID.uuidString,
                     title: Self.boundedTitle(
@@ -697,12 +685,39 @@ final class WorkspaceShareExporter {
     ) async -> [UUID: String] {
         var images: [UUID: String] = [:]
         for panelID in topology.panes.compactMap(\.selectedSurfaceID) {
-            guard let browser = workspace.browserPanel(for: panelID),
-                  let image = try? await browser.captureAutomationVisibleViewportSnapshot(),
-                  let dataURL = Self.browserDataURL(image) else { continue }
+            guard let dataURL = await Self.captureBrowserImage(
+                panelID: panelID,
+                workspace: workspace,
+                capture: { browser in
+                    try await browser.captureAutomationVisibleViewportSnapshot()
+                }
+            ) else { continue }
             images[panelID] = dataURL
         }
         return images
+    }
+
+    static func sceneSurfaceKind(
+        for panel: any Panel,
+        isShareableTextBox: (TerminalPanel) -> Bool
+    ) -> WorkspaceShareScene.Surface.Kind {
+        if let terminal = panel as? TerminalPanel {
+            return isShareableTextBox(terminal) ? .textbox : .terminal
+        } else if panel is BrowserPanel {
+            return .browser
+        } else {
+            return .unsupported
+        }
+    }
+
+    static func captureBrowserImage(
+        panelID: UUID,
+        workspace: Workspace,
+        capture: @escaping (BrowserPanel) async throws -> NSImage
+    ) async -> String? {
+        guard let browser = workspace.browserPanel(for: panelID),
+              let image = try? await capture(browser) else { return nil }
+        return browserDataURL(image)
     }
 
     private func renderFrame(

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -278,5 +279,47 @@ struct BrowserPanelSessionRestoreTests {
         #expect(remap.count == 2)
         #expect(restored.panels.values.count == 2)
         #expect(restored.panels.values.allSatisfy { $0 is DeferredBrowserPanel })
+    }
+
+    @Test
+    func workspaceShareIncludesDeferredBrowserAndCapturesVisibleViewerFrame() async throws {
+        let source = Workspace()
+        defer { source.retireFromOwningTabManager() }
+        let sourcePane = try #require(source.bonsplitController.focusedPaneId)
+        let sourceBrowser = try #require(source.newBrowserSurface(
+            inPane: sourcePane,
+            url: URL(string: "about:blank"),
+            focus: false
+        ))
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        defer { restored.retireFromOwningTabManager() }
+        let remap = restored.restoreSessionSnapshot(snapshot, deferBrowserPanels: true)
+        let restoredPanelID = try #require(remap[sourceBrowser.id])
+        let deferred = try #require(restored.panels[restoredPanelID])
+
+        #expect(WorkspaceShareExporter.sceneSurfaceKind(
+            for: deferred,
+            isShareableTextBox: { _ in false }
+        ) == .browser)
+        #expect(!restored.requestDeferredBrowserMaterialization(
+            panelId: restoredPanelID,
+            isVisibleInUI: false
+        ))
+
+        var capturedPanelID: UUID?
+        let dataURL = await WorkspaceShareExporter.captureBrowserImage(
+            panelID: restoredPanelID,
+            workspace: restored
+        ) { browser in
+            capturedPanelID = browser.id
+            let pngData = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+            return try #require(NSImage(data: pngData ?? Data()))
+        }
+
+        #expect(capturedPanelID == restoredPanelID)
+        #expect(dataURL?.hasPrefix("data:image/jpeg;base64,") == true)
+        #expect(restored.panels[restoredPanelID] is BrowserPanel)
     }
 }
