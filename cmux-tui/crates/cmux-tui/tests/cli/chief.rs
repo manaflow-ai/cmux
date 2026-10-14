@@ -12,6 +12,8 @@ mod autostart;
 mod build_homes;
 #[path = "conversation_link_preview.rs"]
 mod link_preview;
+#[path = "chief_registry.rs"]
+mod registry;
 
 /// A JSON-lines client of the daemon; events read while waiting for an
 /// answer are kept in `events`.
