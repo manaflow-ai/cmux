@@ -103,6 +103,12 @@ struct CloudImagePasteRoutingTests {
         )
         #expect(target == panel.surface.resolvedImageTransferTarget(mode: mode, in: workspace))
 
+        // A restored pane's stored PTY binding makes it remote before the
+        // remote reports the session connected.
+        workspace.remotePTYSessionIDsByPanelId[panelID] = "restored-session"
+        #expect(panel.surface.resolvedImageTransferTarget(mode: mode, in: workspace) == .remote(.workspaceRemote))
+        workspace.remotePTYSessionIDsByPanelId.removeValue(forKey: panelID)
+
         workspace.activeRemoteTerminalSurfaceIds.insert(panelID)
         #expect(panel.surface.resolvedImageTransferTarget(mode: mode, in: workspace) == .remote(.workspaceRemote))
     }
