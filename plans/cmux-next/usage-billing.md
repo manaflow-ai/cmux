@@ -475,7 +475,7 @@ CMUX_UITEST, team `team_6774f37212cb1152d2a9`. Catalog `--set=e2e` made the per-
   so the e2e Team plan has the per-seat price only), so one run can cross both included amounts with a
   little real usage (the development daily provider cap is 5 USD). The e2e uses the agent's personal team (Pro, per team) and
   its shared e2e team (sign-in service team e8733fff-8ce2-457b-9d6a-d20223d46a71, team id
-  team_d68c2131970b3ebbd449, cmuxPlan=team on the development sign-in project only; on the development
+  team_34bccc85e7a38258be69, cmuxPlan=team on the development sign-in project only; on the development
   INFERENCE_ALLOWED_TEAMS) set per seat with 2 seats, on one test clock.
 - Order at renewal (S5 follow-up review P2): the sync sends the closed period's final level before it
   adds or moves the usage item for the new period.
@@ -487,3 +487,11 @@ CMUX_UITEST, team `team_6774f37212cb1152d2a9`. Catalog `--set=e2e` made the per-
   started. In live mode a period start is never in the future. The e2e makes the setting before it
   creates the clock.
 - The stop's seats come only from a billable subscription whose period ended at most 35 days ago.
+- e2e finding (2026-10-14, fixed): the sync used the meter event identifier as the idempotency key but
+  dated the event at real time, so after one failed send every retry of the same level was a different
+  request with the same key, and the payment service refused it ("Keys for idempotent requests can only
+  be used with the same parameters") until the level changed. Now the event is dated at the level's last
+  fact, after the period's previous event (`usage_push.event_ts`) and inside the period, so a retry is
+  the same request. Route test "a retried level is the same request".
+- Test clocks: a meter event dated more than a few minutes after the customer's clock time is refused,
+  so the e2e moves its clock up to real time before a sync in the running period.
