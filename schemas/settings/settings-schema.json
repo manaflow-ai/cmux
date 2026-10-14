@@ -239,15 +239,14 @@
             "rows" : [
               "appearance.density",
               "app.uiScale",
-              "appearance.metrics.chromeFontSize",
+              "appearance.interfaceScale",
               "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap",
               "appearance.metrics.titlebarHeight",
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
-              "ui.animationSpeed",
-              "ui.paneAnimations"
+              "ui.animationSpeed"
             ],
             "title" : {
               "key" : "settings.group.densityMotion",
@@ -9406,7 +9405,7 @@
         "chromeFontSize"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "metrics",
@@ -9422,6 +9421,72 @@
       "refuses" : [
         4,
         22,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.interfaceSize.summary",
+        "text" : "Text size of tabs, sidebar and controls"
+      },
+      "title" : {
+        "key" : "settings.appearance.interfaceSize",
+        "text" : "Interface Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.9,
+        1.25,
+        1.075
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.interfaceSize.help",
+        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.interfaceScale",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "zoom",
+        "scale",
+        "bigger",
+        "smaller",
+        "interfaceScale",
+        "labs"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "interfaceScale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.9,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.1,
+        2.25,
         "1"
       ],
       "section" : "appearance",
@@ -9895,56 +9960,6 @@
       "title" : {
         "key" : "settings.ui.animationSpeed",
         "text" : "Animations"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.densityMotion",
-        "text" : "Density and Motion"
-      },
-      "help" : {
-        "key" : "settings.ui.paneAnimations.help",
-        "text" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "ui.paneAnimations",
-      "keywords" : [
-        "motion",
-        "animation",
-        "pane",
-        "split",
-        "zoom",
-        "slide",
-        "spring"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "ui",
-        "paneAnimations"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.ui.paneAnimations",
-        "text" : "Animate Panes"
       },
       "validation" : "portable"
     },
@@ -23354,7 +23369,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "4ddb838791822fc3bb16e63bc97d2bf73d6e479165334690acf80f94046d386d",
+  "schema_hash" : "e31684fa7ae2eb9d6c9a0ca6680cdacd3c1f0e4c88bf5cd580c273e571f05987",
   "sections" : [
     {
       "id" : "general",
