@@ -1,6 +1,7 @@
 import type { AddressDO } from "./address-do.ts"
 import type { ConversationDO } from "./conversation-do.ts"
 import type { MuxDO } from "./mux-do.ts"
+import type { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
@@ -173,6 +174,18 @@ export interface Env {
   readonly CONVERSATION_DO: DurableObjectNamespace<ConversationDO>
   /** One MuxDO per chief: its wake queue. */
   readonly MUX_DO: DurableObjectNamespace<MuxDO>
+  /** One ChiefBrainDO per chief: the Durable Object brain on pi-durable (chief-brain/brain-do.ts). */
+  readonly CHIEF_BRAIN_DO: DurableObjectNamespace<ChiefBrainDO>
+  /** "1": MuxDO forwards committed wakes to the chief's brain (each chief's owner still turns it on). Unset in production. */
+  readonly CHIEF_BRAIN_ENABLED?: string
+  /** The brain's default turn model: "fake" (default) or a Workers AI id `@cf/...` (needs the AI binding). */
+  readonly CHIEF_BRAIN_MODEL?: string
+  /** The brain's default compactor model (default: CHIEF_BRAIN_MODEL). */
+  readonly CHIEF_BRAIN_COMPACTOR_MODEL?: string
+  /** Turns one chief's brains may start per UTC day (default 300): a spend bound for Workers AI. */
+  readonly CHIEF_BRAIN_DAILY_TURNS?: string
+  /** Test only: the OptChat view budget in bytes (0 = the spec's 128,000). */
+  readonly CHIEF_BRAIN_VIEW_BUDGET?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
