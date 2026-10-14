@@ -15,6 +15,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("settings-scroll.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -53,7 +54,10 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
     const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       try {
-        if ((await fetch(`${base}/`)).ok) return;
+        if ((await fetch(`${base}/`)).ok) {
+          await warmDevServer(base, "/");
+          return;
+        }
       } catch {
         // Not listening yet.
       }
