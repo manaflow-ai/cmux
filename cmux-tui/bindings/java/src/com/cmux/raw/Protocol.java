@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e";
+    public static final String IR_SHA256 = "b18c74d45c19743aac182ef9d622608ac8b17ac47c2bc5e18a08fd000fa6b90f";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -59,6 +59,7 @@ public final class Protocol {
             case "pairing-resolved" -> PairingResolvedEvent.fromWire(value);
             case "pane-added" -> PaneAddedEvent.fromWire(value);
             case "pane-closed" -> PaneClosedEvent.fromWire(value);
+            case "participant-avatar-changed" -> ParticipantAvatarChangedEvent.fromWire(value);
             case "personal-changed" -> PersonalChangedEvent.fromWire(value);
             case "program-status-changed" -> ProgramStatusChangedEvent.fromWire(value);
             case "render-delta" -> RenderDeltaEvent.fromWire(value);

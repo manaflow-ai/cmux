@@ -25,12 +25,14 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
     let connection: @MainActor @Sendable () -> DaemonConnection?
     /// Starts this Mac's brain when it does not answer (Home need not be
     /// open); whether a start (or the watch of a starting host) is underway.
-    let startBrain: @MainActor @Sendable () -> Bool
+    /// `asked`: a user's set, not a read, which also starts it after
+    /// `cmux chief shutdown` (`ChiefBrainKeeper.ensure`).
+    let startBrain: @MainActor @Sendable (_ asked: Bool) -> Bool
     public var isLocal: Bool { true }
     public var place: String? { nil }
 
     public init(files: HomeChiefFiles, connection: @escaping @MainActor @Sendable () -> DaemonConnection?,
-                startBrain: @escaping @MainActor @Sendable () -> Bool = { false }) {
+                startBrain: @escaping @MainActor @Sendable (_ asked: Bool) -> Bool = { _ in false }) {
         self.files = files
         self.connection = connection
         self.startBrain = startBrain
@@ -42,7 +44,8 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
         let snapshot = files.snapshot()
         guard let connection = await connection() else { return snapshot }
         guard let report = try? await ChiefControlClient(connection).chiefEngine() else {
-            _ = await startBrain()
+            // A read (the sidebar refreshes on its own) is no ask.
+            _ = await startBrain(false)
             return snapshot
         }
         return snapshot.offering(report)
@@ -53,7 +56,7 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
         do {
             return files.snapshot().offering(try await HomeChiefEngineSet.send(key, value, on: connection))
         } catch .unreachable {
-            throw await startBrain() ? .localStarting : .localUnreachable
+            throw await startBrain(true) ? .localStarting : .localUnreachable
         }
     }
 }

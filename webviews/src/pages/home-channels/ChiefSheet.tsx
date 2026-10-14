@@ -14,6 +14,7 @@ import {
   DEFAULT_CHIEF_TOOLS,
   type HomeChief,
   type HomeChiefGrant,
+  type HomeChiefGrantChange,
   type HomeChiefProfile,
 } from "./types";
 
@@ -36,9 +37,11 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
     personality: chief?.personality ?? "",
     instructions: chief?.instructions ?? "",
   });
+  // What the sheet shows: the record's grant, or the owner's defaults for a new Chief. A record
+  // with no harness named means every harness, so every harness shows checked.
   const startGrant: HomeChiefGrant = {
     tools: chief ? chief.tools : [...DEFAULT_CHIEF_TOOLS],
-    harnesses: chief ? chief.harnesses : [],
+    harnesses: chief && chief.harnesses.length > 0 ? chief.harnesses : [...CHIEF_HARNESSES],
   };
   const [grant, setGrant] = useState<HomeChiefGrant>(startGrant);
   const [image, setImage] = useState<{ mediaType: string; data: string; url: string } | undefined>();
@@ -46,10 +49,17 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
   // A new Chief is made only through the host; an edit saves what the page may change without it.
-  const ready = profile.name.trim() !== "" && !busy && (grants || chief !== undefined);
+  // A Chief needs at least one harness to think: none checked is not a choice.
+  const noHarness = grant.harnesses.length === 0;
+  const ready = profile.name.trim() !== "" && !busy && (grants || chief !== undefined) && !noHarness;
   const locked = !grants;
   const same = (a: readonly string[], b: readonly string[]) => [...a].sort().join() === [...b].sort().join();
-  const grantChanged = !same(grant.tools, startGrant.tools) || !same(grant.harnesses, startGrant.harnesses);
+  // Only the fields the person changed are sent; never an empty harness list.
+  const grantChange: HomeChiefGrantChange = {
+    ...(same(grant.tools, startGrant.tools) ? {} : { tools: grant.tools }),
+    ...(same(grant.harnesses, startGrant.harnesses) ? {} : { harnesses: grant.harnesses }),
+  };
+  const grantChanged = Object.keys(grantChange).length > 0;
   const field = (key: keyof HomeChiefProfile) => (value: string) => setProfile((p) => ({ ...p, [key]: value }));
   const toggle = (key: keyof HomeChiefGrant, name: string) =>
     setGrant((g) => ({
@@ -69,7 +79,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
   const submit = () => {
     if (!ready) return;
     setBusy(true);
-    const changed = grants && grantChanged ? grant : undefined;
+    const changed = grants && grantChanged ? grantChange : undefined;
     const done = chief
       ? sheets.updateChief(chief, profile, changed, image)
       : sheets.createChief(profile, changed, image).then(Boolean);
@@ -217,7 +227,9 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
             </label>
           ))}
         </span>
-        <span className="lg-form-note">{grants ? t("chief.harnesses.none") : t("chief.appOnly")}</span>
+        <span className={noHarness ? "lg-form-error" : "lg-form-note"}>
+          {!grants ? t("chief.appOnly") : noHarness ? t("chief.harnesses.pick") : ""}
+        </span>
       </fieldset>
     </FormDialog>
   );

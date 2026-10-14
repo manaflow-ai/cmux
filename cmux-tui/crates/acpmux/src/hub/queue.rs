@@ -404,6 +404,16 @@ impl Hub {
     /// answers `cancelled` with `_meta.acpmux.withdrawn`. False when the prompt is not waiting
     /// (it started, ended or was already removed).
     pub fn remove_queued(&self, session: &Arc<Session>, prompt_id: &str) -> bool {
+        self.remove_queued_because(session, prompt_id, None)
+    }
+
+    /// `remove_queued`, its `queue_removed` record naming why (`withdrawn`: `withdraw.rs`).
+    pub(super) fn remove_queued_because(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        reason: Option<&str>,
+    ) -> bool {
         let removed = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
@@ -424,12 +434,12 @@ impl Hub {
         {
             outcome.send_replace(Some(Ok(withdrawn_reply(prompt_id, &removed.turn_id))));
         }
-        self.append(
-            session,
-            "mux",
-            "queue_removed",
-            json!({"promptId": prompt_id, "turnId": removed.turn_id, "queued": session.queued()}),
-        );
+        let mut msg =
+            json!({"promptId": prompt_id, "turnId": removed.turn_id, "queued": session.queued()});
+        if let Some(reason) = reason {
+            msg["reason"] = json!(reason);
+        }
+        self.append(session, "mux", "queue_removed", msg);
         // A stored permit: the waiting task sees it even before it polls.
         removed.withdraw.notify_one();
         true
