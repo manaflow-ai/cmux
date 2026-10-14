@@ -176,14 +176,18 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(agentSteers: boolean): Promise<Page> {
+  async function openChat(
+    agentSteers: boolean,
+    viewport = { width: 900, height: 760 },
+    more: Step[] = [],
+  ): Promise<Page> {
     steering = agentSteers;
     seq = 0;
     history = [];
     queue = [];
     socket = undefined;
-    for (const step of opening) send(step);
-    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    for (const step of [...opening, ...more]) send(step);
+    const page = await browser!.newPage({ viewport });
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -210,6 +214,64 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await long.click();
       await expect(long.getAttribute("aria-expanded")).resolves.toBe("true");
       expect(await long.innerText()).toBe(LONG);
+      await page.close();
+    });
+
+    test("the queue takes its own place in the stack: nothing is cut off or drawn over", async () => {
+      // The pane's size in a cmux window (Leo's recording, cosmic-gray).
+      // The next command waits for an answer while the queue holds a long prompt.
+      const asks: Step[] = [
+        [
+          "in",
+          "tool_call",
+          update({
+            sessionUpdate: "tool_call",
+            toolCallId: "t2",
+            title: "gh pr merge",
+            kind: "execute",
+            status: "pending",
+          }),
+        ],
+        [
+          "mux",
+          "permission_request",
+          {
+            permissionId: "perm-1",
+            request: {
+              toolCall: { toolCallId: "t2", title: "gh pr merge", kind: "execute" },
+              options: [
+                { optionId: "allow", name: "Allow once", kind: "allow_once" },
+                { optionId: "deny", name: "Deny", kind: "reject_once" },
+              ],
+            },
+          },
+        ],
+      ];
+      const page = await openChat(true, { width: 900, height: 655 }, asks);
+      await page.locator(".acpmux-pr-dock").waitFor();
+      await page.locator(".acpmux-permission-card").waitFor();
+      await page.locator(".acpmux-queued-text", { hasText: "the pr thing" }).click();
+      await page.waitForTimeout(300);
+      const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
+      const list = await box(".acpmux-composer-queue");
+      const scroller = await box(".acpmux-scroll");
+      const dock = await box(".acpmux-pr-dock");
+      const composer = await box(".acpmux-composer");
+      // Every queued prompt shows whole: the list never hides part of one.
+      for (const row of await page.locator(".acpmux-queued").all()) {
+        const r = (await row.boundingBox())!;
+        expect(r.y).toBeGreaterThanOrEqual(list.y - 1);
+        expect(r.y + r.height).toBeLessThanOrEqual(list.y + list.height + 1);
+      }
+      // The transcript ends above the question, the question above the queue, the queue above
+      // the pull requests and the composer.
+      const card = await box(".acpmux-permission-card");
+      expect(scroller.y + scroller.height).toBeLessThanOrEqual(card.y + 1);
+      expect(card.y + card.height).toBeLessThanOrEqual(list.y + 1);
+      expect(scroller.y + scroller.height).toBeLessThanOrEqual(list.y + 1);
+      // The queue shows its own bottom edge: nothing below tucks it under.
+      expect(list.y + list.height + 4).toBeLessThanOrEqual(dock.y + 1);
+      expect(dock.y + dock.height).toBeLessThanOrEqual(composer.y + 1);
       await page.close();
     });
 
