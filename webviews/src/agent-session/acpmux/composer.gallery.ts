@@ -680,9 +680,19 @@ export default agentPaneEntry({
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
         await ctx.type("/");
-        await ctx.waitFor(() => ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']").length === 3);
-        if (!ctx.document.querySelector(".acpmux-slash-source")) throw new Error("slash picker has no source labels");
+        // cmux's own commands (at least /import) share the menu, so find the fixture rows by name.
+        const row = (name: string) =>
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
+            (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
+          );
+        const label = (name: string) => row(name)?.querySelector(".acpmux-slash-source")?.textContent ?? "";
+        await ctx.waitFor(() => !!row("review") && !!row("$cmux-browser") && !!row("daily-plan"));
+        if (label("$cmux-browser") !== "Skill") throw new Error("the skill row has no Skill label");
+        if (label("daily-plan") !== "Prompt") throw new Error("the prompt row has no Prompt label");
+        if (label("review") !== "") throw new Error("a harness command is labeled");
         await ctx.press("Escape");
+        await ctx.press("Backspace");
+        await ctx.waitFor(() => (ctx.find(prompt).textContent ?? "").trim() === "");
         await ctx.type("first line");
         await ctx.press("Shift+Enter");
         await ctx.type("second line");

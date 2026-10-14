@@ -26,9 +26,10 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
   const commands: SlashCommand[] = [];
   for (const entry of update.availableCommands) {
     // Harness commands, skills and prompts share this update, one picker and one
-    // insertion path. acpmux tags a Claude skill with `_meta.kind`; codex-acp names
-    // a skill `$name` and passes `/$name` through to Codex as a skill mention, so
-    // only a leading `/` is dropped.
+    // insertion path. A skill or prompt may carry `_meta.kind`, ACP's extension slot
+    // (acpmux does not tag Claude skills yet). codex-acp names a skill `$name` and
+    // passes `/$name` through to Codex as a skill mention, so only a leading `/` is
+    // dropped.
     const name = typeof entry?.name === "string" ? entry.name.replace(/^\//, "").trim() : "";
     if (!name) continue;
     const hint = typeof entry.input?.hint === "string" && entry.input.hint.trim() ? entry.input.hint.trim() : undefined;
