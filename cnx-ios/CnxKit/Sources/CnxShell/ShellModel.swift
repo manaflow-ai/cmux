@@ -85,6 +85,11 @@ final class ShellModel {
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }
+        creator.onManageFailure = { [weak self] _, what, message in
+            self?.toast = CnxToast(symbol: "exclamationmark.circle", text: what)
+            theme.haptics.error()
+            shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
+        }
     }
 
     /// Points terminal tabs and new workspaces at `live`, or back at the

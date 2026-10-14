@@ -5,14 +5,20 @@ import SwiftUI
 
 private let theme = CnxTheme.standard
 
-/// SPEC 11.1: the Workspaces tab's content.
+/// SPEC 11.1: the Workspaces tab's content, modeled on ChatGPT's chat
+/// history list.
 ///
-/// The navigation title is the Mac filter ("All Macs ⌄" or one Mac's name),
-/// a title menu as in Mail's mailbox title and the Codex title menu. All
-/// Macs groups rows under sticky per-Mac headers; one Mac shows a flat list.
-/// The choice is remembered per team (`MacFilter`). New Workspace targets
-/// the filtered Mac. Rows push `Workspace` values; the enclosing
-/// NavigationStack maps them to `WorkspaceScreen`.
+/// - A chip row pinned under the title picks the Mac: All, then one chip
+///   per Mac (online first; offline chips dimmed). Remembered per team
+///   (`MacFilter`). All mixes every Mac with no per-Mac headers.
+/// - Rows are one line: the workspace name in `body`, with a small leading
+///   dot only when an agent needs the user or is working. No icons, no
+///   subtitles, no separators. Recency headers (Today, Yesterday, Previous
+///   7 Days, Previous 30 Days, then months) scroll with the rows.
+/// - Pull down for search. Hold a row for Open, Rename and Close Workspace
+///   under a header naming its Mac and branch.
+/// - Offline Macs' workspaces are dimmed; a tap explains why they don't open.
+/// - New Workspace creates at once on the chosen chip's Mac.
 public struct WorkspacesList: View {
     let store: AppStore
     let creator: WorkspaceCreator
@@ -20,7 +26,7 @@ public struct WorkspacesList: View {
     let open: (Workspace) -> Void
     /// The signed-in account, for "sign in as …" in the empty state.
     var accountEmail: String?
-    /// Redials a Mac (live only; the header menu hides it otherwise).
+    /// Redials a Mac (live only; offered on a Mac chip's context menu).
     var reconnect: ((String) -> Void)?
     /// Pull to refresh (live only).
     var refresh: (() async -> Void)?
@@ -28,10 +34,14 @@ public struct WorkspacesList: View {
     var switchTeam: ((String) -> Void)?
     /// Opens Settings → Account (the empty state, when no Mac uses this account).
     var openAccount: (() -> Void)?
-    @AppStorage("cnx.workspaces.sort") private var sort: WorkspaceSort = .recent
-    @AppStorage("cnx.workspaces.showOffline") private var showsOffline = true
     @State private var filter: MacFilter
     @State private var isRetrying = false
+    @State private var query = ""
+    /// The offline workspace whose tap is being explained.
+    @State private var unavailable: Workspace?
+    @State private var renaming: Workspace?
+    @State private var renameText = ""
+    @State private var closing: Workspace?
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, refresh: (() async -> Void)? = nil,
@@ -56,85 +66,58 @@ public struct WorkspacesList: View {
         scope.newWorkspaceMac(available: creator.availableMacs, fallback: creator.targetMac)
     }
 
+    private func mac(_ id: String) -> MacDevice? { macs.first { $0.id == id } }
+
     public var body: some View {
         content
-            .navigationTitle(macs.isEmpty ? "Workspaces" : scope.title(macs: macs))
-            .navigationSubtitle(subtitle)
-            .toolbarTitleMenu { if !macs.isEmpty { titleMenu } }
+            .navigationTitle("Workspaces")
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     NewWorkspaceButton(creator: creator, target: target, showsMacPicker: scope == .all) { start, directory in
                         create(start, directory: directory, on: target?.id)
                     }
-                    moreMenu
                 }
             }
-    }
-
-    /// Under the title: how many Macs are online, or the chosen Mac's presence.
-    private var subtitle: String {
-        guard !macs.isEmpty, store.teamDataState == .loaded else { return "" }
-        if let mac = scopedMac {
-            return RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
-        }
-        let online = macs.count(where: \.isOnline)
-        return online == macs.count ? (macs.count == 1 ? "Online" : "\(online) Macs online") : "\(online) of \(macs.count) Macs online"
-    }
-
-    private var scopeBinding: Binding<MacScope> {
-        Binding(get: { scope }, set: { newValue in
-            guard let team = store.activeTeam else { return }
-            theme.haptics.selection()
-            withAnimation(theme.motion.smooth.animation) { filter.select(newValue, in: team.id) }
-        })
-    }
-
-    /// The title menu: All Macs, then each Mac with its presence. Online Macs
-    /// first, as in the list. Toggles rather than a Picker so each row keeps
-    /// its subtitle ("Online · 2 workspaces", "Last seen 2h ago") and the
-    /// Macs get their own section.
-    @ViewBuilder private var titleMenu: some View {
-        let stamp = RelativeStamp()
-        Section {
-            Toggle(isOn: selects(.all)) {
-                Image(systemName: "square.stack")
-                Text("All Macs")
-                Text(Self.count(store.workspaces.count(where: { ws in macs.contains { $0.id == ws.macID } })))
+            .alert(unavailableTitle, isPresented: isPresented($unavailable), presenting: unavailable) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { ws in
+                Text(unavailableMessage(ws))
             }
-        }
-        Section("Macs") {
-            ForEach(macs.filter(\.isOnline) + macs.filter { !$0.isOnline }) { mac in
-                Toggle(isOn: selects(.mac(mac.id))) {
-                    Image(systemName: mac.isOnline ? "circle.fill" : "circle")
-                    Text(mac.name)
-                    Text(mac.isOnline
-                         ? "Online · \(Self.count(store.workspaces.count(where: { $0.macID == mac.id })))"
-                         : stamp.presence(isOnline: false, lastSeenAt: mac.lastSeenAt))
+            .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
+                TextField("Name", text: $renameText)
+                    .submitLabel(.done)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") { creator.rename(ws, to: renameText) }
+                    .disabled(renameText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .confirmationDialog(closing.map { "Close \u{201C}\($0.title)\u{201D}?" } ?? "", isPresented: isPresented($closing),
+                                titleVisibility: .visible, presenting: closing) { ws in
+                Button("Close Workspace", role: .destructive) {
+                    theme.haptics.impactLight()
+                    withAnimation(theme.motion.smooth.animation) { creator.close(ws) }
                 }
+            } message: { ws in
+                Text("Its tabs close on \(mac(ws.macID)?.name ?? "the Mac").")
             }
-        }
     }
 
-    private func selects(_ value: MacScope) -> Binding<Bool> {
-        Binding(get: { scope == value }, set: { on in if on { scopeBinding.wrappedValue = value } })
+    private func isPresented<T>(_ item: Binding<T?>) -> Binding<Bool> {
+        Binding(get: { item.wrappedValue != nil }, set: { if !$0 { item.wrappedValue = nil } })
     }
 
-    static func count(_ n: Int) -> String { n == 0 ? "No workspaces" : n == 1 ? "1 workspace" : "\(n) workspaces" }
+    private var unavailableTitle: String {
+        unavailable.flatMap { mac($0.macID) }.map { "\($0.name) is offline" } ?? "Mac is offline"
+    }
 
-    private var moreMenu: some View {
-        Menu {
-            Picker("Sort", selection: $sort) {
-                ForEach(WorkspaceSort.allCases) { Text($0.title).tag($0) }
-            }
-            if scope == .all {
-                Toggle("Show Offline Macs", systemImage: "moon.zzz", isOn: $showsOffline)
-            } else if let mac = scopedMac, mac.isOnline, let reconnect {
-                Button("Reconnect", systemImage: "arrow.clockwise") { reconnect(mac.id) }
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-        }
-        .accessibilityLabel("More")
+    private func unavailableMessage(_ ws: Workspace) -> String {
+        let seen = mac(ws.macID).map { RelativeStamp().presence(isOnline: false, lastSeenAt: $0.lastSeenAt) } ?? "Offline"
+        return "\(seen). \u{201C}\(ws.title)\u{201D} opens when the Mac is awake with cmux running."
+    }
+
+    private func select(_ value: MacScope) {
+        guard let team = store.activeTeam, value != scope else { return }
+        theme.haptics.selection()
+        withAnimation(theme.motion.smooth.animation) { filter.select(value, in: team.id) }
     }
 
     /// Creates a workspace and pushes it at once; the row is optimistic
@@ -173,14 +156,123 @@ public struct WorkspacesList: View {
                     openAccount: openAccount
                 )
             } else {
-                loaded
+                list(WorkspaceListLayout(scope: scope, macs: macs, workspaces: store.workspaces, query: query))
             }
         }
     }
 
-    @ViewBuilder private var loaded: some View {
-        let layout = WorkspaceListLayout(scope: scope, macs: macs, workspaces: store.workspaces, sort: sort, showsOffline: showsOffline)
-        if let mac = scopedMac, layout.isEmpty {
+    private func list(_ layout: WorkspaceListLayout) -> some View {
+        List {
+            ForEach(linkLines, id: \.self) { line in
+                Text(line)
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+                    .lineLimit(2)
+                    .listRowInsets(EdgeInsets(top: 4, leading: WorkspaceRow.textInset, bottom: 4, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .contentTransition(.opacity)
+                    .accessibilityIdentifier("mac-link-status")
+            }
+            ForEach(layout.sections) { section in
+                Section {
+                    RecencyHeader(title: section.title)
+                    ForEach(section.workspaces) { ws in
+                        row(ws)
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .environment(\.defaultMinListRowHeight, 0)
+        .overlay { if layout.isEmpty { emptyState } }
+        // An inset, not a `safeAreaBar`: with a bar the search drawer never
+        // comes back on a pull-down once a long list has hidden it.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            MacChipRow(macs: macs, scope: scope, linkStatus: store.macLinkStatus, select: select,
+                       reconnect: reconnect)
+                .background(theme.colors.bg.color)
+        }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .background { PullDownSearch() }
+        .modifier(OptionalRefresh(refresh: refresh))
+        .animation(theme.motion.smooth.animation, value: layout.scope)
+        .animation(theme.motion.smooth.animation, value: store.workspaces.map(\.id))
+        .accessibilityIdentifier("workspaces.list")
+    }
+
+    /// The live link line ("Connected · WireGuard relay · 27 ms") for the
+    /// chosen Mac, or for every Mac the app dials under All.
+    private var linkLines: [String] {
+        if let mac = scopedMac {
+            return store.macLinkStatus[mac.id].map { [$0] } ?? []
+        }
+        return macs.compactMap { mac in store.macLinkStatus[mac.id].map { "\(mac.name): \($0)" } }
+    }
+
+    private func row(_ ws: Workspace) -> some View {
+        let available = mac(ws.macID)?.isOnline ?? false
+        let canManage = creator.canManage(ws)
+        return Button {
+            if available {
+                open(ws)
+            } else {
+                theme.haptics.warning()
+                unavailable = ws
+            }
+        } label: {
+            WorkspaceRow(workspace: ws, isAvailable: available, isPending: store.isPending(ws.id),
+                         macName: mac(ws.macID)?.name)
+        }
+        .buttonStyle(WorkspaceRowButtonStyle())
+        .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        // Trailing only: a rightward swipe from the leading edge belongs to
+        // the team sidebar. The system destructive style, no custom tint.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if canManage {
+                Button("Close", systemImage: "xmark", role: .destructive) { closing = ws }
+                    // The app tints controls with the foreground color
+                    // (white in dark mode), which turned this into a blank
+                    // white pill. Back to the system tint: red for the role.
+                    .tint(nil)
+            }
+        }
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contextMenu {
+            Section(menuHeader(ws)) {
+                Button("Open", systemImage: "arrow.up.forward.app") { open(ws) }
+                    .disabled(!available)
+                Button("Rename", systemImage: "pencil") {
+                    renameText = ws.title
+                    renaming = ws
+                }
+                .disabled(!canManage)
+                Button("Close Workspace", systemImage: "xmark", role: .destructive) { closing = ws }
+                    .disabled(!canManage)
+            }
+        }
+        .accessibilityIdentifier("workspace.row.\(ws.id)")
+    }
+
+    /// "Aziz's Mac Studio · feat-cnx-ios", or the directory without a branch;
+    /// "· Offline" for an offline Mac.
+    private func menuHeader(_ ws: Workspace) -> String {
+        let where_ = ws.branch ?? (ws.directory.isEmpty ? nil : ws.directory)
+        var parts = [mac(ws.macID)?.name ?? "Unknown Mac"]
+        if let where_ { parts.append(where_) }
+        if mac(ws.macID)?.isOnline != true { parts.append("Offline") }
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder private var emptyState: some View {
+        if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+            ContentUnavailableView.search(text: query)
+        } else if let mac = scopedMac {
             if mac.isOnline {
                 let canCreate = target != nil
                 EmptyState(
@@ -188,29 +280,18 @@ public struct WorkspacesList: View {
                     title: "No workspaces on \(mac.name)",
                     message: canCreate ? "New workspaces open right away." : "\(mac.name) can't take new workspaces from this iPhone yet.",
                     primaryTitle: canCreate ? "New Workspace" : nil,
-                    primary: canCreate ? { create(.terminal, directory: nil, on: mac.id) } : nil,
-                    secondaryTitle: "Show All Macs",
-                    secondary: { scopeBinding.wrappedValue = .all }
+                    primary: canCreate ? { create(.terminal, directory: nil, on: mac.id) } : nil
                 )
                 .accessibilityIdentifier("workspaces.empty.mac")
             } else {
                 EmptyState(
                     symbol: "moon.zzz",
                     title: "\(mac.name) is offline",
-                    message: "\(RelativeStamp().presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces.",
-                    secondaryTitle: "Show All Macs",
-                    secondary: { scopeBinding.wrappedValue = .all }
+                    message: "\(RelativeStamp().presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
                 )
                 .accessibilityIdentifier("workspaces.empty.offline")
             }
-        } else if scope == .all && !macs.contains(where: \.isOnline) && !showsOffline {
-            EmptyState(
-                symbol: "moon.zzz",
-                title: "Your Macs are asleep",
-                message: "Wake a Mac or open cmux on it to see its workspaces.",
-                secondaryTitle: "Show offline Macs", secondary: { showsOffline = true }
-            )
-        } else if scope == .all && layout.isEmpty, let target {
+        } else if let target {
             EmptyState(
                 symbol: "macwindow",
                 title: "No workspaces yet",
@@ -220,110 +301,13 @@ public struct WorkspacesList: View {
             )
             .accessibilityIdentifier("workspaces.empty.all")
         } else {
-            list(layout)
+            EmptyState(
+                symbol: "moon.zzz",
+                title: "Your Macs are asleep",
+                message: "Wake a Mac or open cmux on it to see its workspaces."
+            )
+            .accessibilityIdentifier("workspaces.empty.asleep")
         }
-    }
-
-    private func list(_ layout: WorkspaceListLayout) -> some View {
-        let stamp = RelativeStamp()
-        return List {
-            if layout.isGrouped {
-                ForEach(layout.sections) { section in
-                    Section {
-                        if section.workspaces.isEmpty {
-                            emptySectionRow(section.mac)
-                        }
-                        rows(section, stamp: stamp)
-                    } header: {
-                        MacSectionHeader(mac: section.mac,
-                                         presence: stamp.presence(isOnline: section.mac.isOnline, lastSeenAt: section.mac.lastSeenAt),
-                                         count: section.workspaces.count,
-                                         link: store.macLinkStatus[section.mac.id],
-                                         reconnect: reconnect.map { reconnect in { reconnect(section.mac.id) } })
-                    }
-                }
-            } else if let section = layout.sections.first {
-                if let note = scopeNote(section.mac, stamp: stamp) {
-                    Text(note)
-                        .font(theme.type.meta)
-                        .foregroundStyle(theme.colors.label2)
-                        .listRowBackground(theme.colors.bg.color)
-                        .listRowSeparator(.hidden)
-                        .contentTransition(.opacity)
-                        .accessibilityIdentifier("workspaces.scope-note")
-                }
-                rows(section, stamp: stamp)
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .modifier(OptionalRefresh(refresh: refresh))
-        .animation(theme.motion.smooth.animation, value: sort)
-        .animation(theme.motion.smooth.animation, value: showsOffline)
-        .animation(theme.motion.smooth.animation, value: layout.scope)
-        .animation(theme.motion.smooth.animation, value: store.workspaces.map(\.id))
-        .accessibilityIdentifier("workspaces.list")
-    }
-
-    /// One Mac chosen: a line above the rows for what the header would say
-    /// (offline, or the live link line).
-    private func scopeNote(_ mac: MacDevice, stamp: RelativeStamp) -> String? {
-        if !mac.isOnline {
-            return "Offline. Workspaces open when \(mac.name) is back."
-        }
-        return store.macLinkStatus[mac.id]
-    }
-
-    @ViewBuilder private func rows(_ section: MacSection, stamp: RelativeStamp) -> some View {
-        ForEach(section.workspaces) { ws in
-            let row = WorkspaceRow(workspace: ws, stamp: stamp.string(for: ws.lastActivityAt),
-                                   isAvailable: section.mac.isOnline, isPending: store.isPending(ws.id))
-            Group {
-                if section.mac.isOnline {
-                    NavigationLink(value: ws) { row }
-                } else {
-                    row
-                }
-            }
-            .listRowBackground(theme.colors.bg.color)
-            .listRowInsets(EdgeInsets(top: 0, leading: theme.metrics.sideMargin - WorkspaceRow.gutter, bottom: 0, trailing: 16))
-            .alignmentGuide(.listRowSeparatorLeading) { _ in theme.metrics.sideMargin }
-        }
-    }
-
-    /// An online Mac with nothing open, under All Macs.
-    @ViewBuilder private func emptySectionRow(_ mac: MacDevice) -> some View {
-        // Side by side, or stacked at accessibility sizes.
-        ViewThatFits(in: .horizontal) {
-            HStack { emptySectionContent(mac, spacer: true) }
-            VStack(alignment: .leading, spacing: 8) { emptySectionContent(mac, spacer: false) }
-                .padding(.vertical, 8)
-        }
-        .frame(minHeight: 44)
-        .listRowBackground(theme.colors.bg.color)
-        .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets(top: 0, leading: theme.metrics.sideMargin, bottom: 0, trailing: 16))
-    }
-
-    @ViewBuilder private func emptySectionContent(_ mac: MacDevice, spacer: Bool) -> some View {
-            Text(mac.isOnline ? "No workspaces" : "No workspaces seen")
-                .font(theme.type.rowSubtitle)
-                .foregroundStyle(theme.colors.label2)
-                .fixedSize()
-            if spacer { Spacer(minLength: 8) }
-            if mac.isOnline, creator.availableMacs.contains(where: { $0.id == mac.id }) {
-                Button {
-                    create(.terminal, directory: nil, on: mac.id)
-                } label: {
-                    Label("New Workspace", systemImage: "plus")
-                        .labelStyle(TightLabelStyle())
-                        .font(theme.type.rowSubtitle.weight(.medium))
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(theme.colors.label)
-                .accessibilityLabel("New Workspace on \(mac.name)")
-                .fixedSize()
-            }
     }
 
     private func retry() {
@@ -333,6 +317,270 @@ public struct WorkspacesList: View {
             store.teamDataState = .loaded
             isRetrying = false
         }
+    }
+}
+
+/// Starts the list with the search field tucked under the navigation bar,
+/// so it appears on a pull-down (ChatGPT, Mail). `.searchable`'s drawer is
+/// otherwise open at the top on launch; UIKit hides it once the list's
+/// offset passes the field, so the list starts that far down, once.
+private struct PullDownSearch: UIViewRepresentable {
+    func makeUIView(context: Context) -> Probe { Probe() }
+    func updateUIView(_ uiView: Probe, context: Context) {}
+
+    final class Probe: UIView {
+        private var done = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil, !done else { return }
+            DispatchQueue.main.async { [weak self] in self?.tuck() }
+        }
+
+        private func tuck() {
+            guard !done, let controller = owningController(),
+                  let search = controller.navigationItemWithSearch()?.searchController?.searchBar,
+                  let scroll = controller.view.firstSubview(of: UICollectionView.self) else { return }
+            done = true
+            let height = search.frame.height
+            guard height > 0, scroll.contentOffset.y <= -scroll.adjustedContentInset.top + 1 else { return }
+            scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top + height), animated: false)
+            // The collapsed drawer shrinks the top inset; settle on the new top
+            // so the first header sits right under the chips.
+            DispatchQueue.main.async {
+                scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false)
+            }
+        }
+
+        private func owningController() -> UIViewController? {
+            var responder: UIResponder? = self
+            while let next = responder?.next {
+                if let controller = next as? UIViewController { return controller }
+                responder = next
+            }
+            return nil
+        }
+    }
+}
+
+private extension UIViewController {
+    /// This controller's or an ancestor's navigation item that carries the search controller.
+    func navigationItemWithSearch() -> UINavigationItem? {
+        var controller: UIViewController? = self
+        while let current = controller {
+            if current.navigationItem.searchController != nil { return current.navigationItem }
+            controller = current.parent
+        }
+        return nil
+    }
+}
+
+private extension UIView {
+    func firstSubview<T: UIView>(of type: T.Type) -> T? {
+        for subview in subviews {
+            if let match = subview as? T { return match }
+            if let match = subview.firstSubview(of: type) { return match }
+        }
+        return nil
+    }
+}
+
+/// The Mac picker: a horizontally scrolling row of chips pinned under the
+/// title. All, then each Mac, online first. The chosen chip is filled;
+/// offline Macs' chips are dimmed. Holding a Mac chip shows its presence
+/// (and Reconnect in live mode).
+struct MacChipRow: View {
+    let macs: [MacDevice]
+    let scope: MacScope
+    var linkStatus: [String: String] = [:]
+    let select: (MacScope) -> Void
+    var reconnect: ((String) -> Void)?
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    MacChip(title: "All", isSelected: scope == .all, isOnline: true) { select(.all) }
+                        .id(MacScope.all)
+                        .accessibilityIdentifier("workspaces.chip.all")
+                    ForEach(MacScope.chipOrder(macs)) { mac in
+                        chip(mac).id(MacScope.mac(mac.id))
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+            .scrollIndicators(.hidden)
+            .onAppear { proxy.scrollTo(scope, anchor: .center) }
+        }
+    }
+
+    private func chip(_ mac: MacDevice) -> some View {
+        let presence = RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+        return MacChip(title: mac.name, isSelected: scope == .mac(mac.id), isOnline: mac.isOnline) { select(.mac(mac.id)) }
+            .accessibilityValue(presence)
+            .accessibilityIdentifier("workspaces.chip.\(mac.id)")
+            .contextMenu {
+                Section([presence, linkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")) {
+                    Button("Show Workspaces", systemImage: "line.3.horizontal") { select(.mac(mac.id)) }
+                    if mac.isOnline, let reconnect {
+                        Button("Reconnect", systemImage: "arrow.clockwise") { reconnect(mac.id) }
+                    }
+                }
+            }
+    }
+}
+
+/// One chip: a capsule, filled with the foreground color when chosen.
+struct MacChip: View {
+    let title: String
+    let isSelected: Bool
+    let isOnline: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(theme.type.rowSubtitle.weight(.medium))
+                .lineLimit(1)
+                .foregroundStyle(foreground)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 34)
+                .background(background, in: Capsule())
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint(isOnline ? "" : "Offline")
+        .animation(theme.motion.snap.animation, value: isSelected)
+    }
+
+    private var foreground: Color {
+        if isSelected { return theme.colors.onAccent.color.opacity(isOnline ? 1 : 0.7) }
+        return isOnline ? theme.colors.label.color : theme.colors.label3.color
+    }
+
+    private var background: Color {
+        if isSelected { return theme.colors.accent.color.opacity(isOnline ? 1 : 0.55) }
+        return theme.colors.fill.color
+    }
+}
+
+/// "Today", "Yesterday", …: small secondary text above its rows, scrolling
+/// with them (not pinned), as in ChatGPT's history.
+struct RecencyHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(theme.type.meta.weight(.semibold))
+            .foregroundStyle(theme.colors.label2)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 18)
+            .padding(.bottom, 6)
+            .listRowInsets(EdgeInsets(top: 0, leading: WorkspaceRow.textInset, bottom: 0, trailing: 16))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// SPEC 11.1 workspace row, ChatGPT history style: the name on one line in
+/// `body`, and a small dot in a leading gutter only while an agent needs
+/// the user (`warning`) or is working (the foreground color, pulsing).
+struct WorkspaceRow: View {
+    let workspace: Workspace
+    /// The Mac is online; offline rows are dimmed and explain on tap.
+    var isAvailable = true
+    /// Being created on the Mac (optimistic row).
+    var isPending = false
+    var macName: String?
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// Where row text starts from the screen edge (rows, headers, chip text).
+    static let textInset: CGFloat = 30
+    /// The dot's gutter, inside the row's 10 pt inset and 10 pt padding.
+    static let gutter: CGFloat = 14
+
+    var body: some View {
+        HStack(spacing: 0) {
+            indicator
+                .frame(width: Self.gutter, alignment: .leading)
+            Text(workspace.title)
+                .font(theme.type.rowTitle)
+                .foregroundStyle(isAvailable ? theme.colors.label : theme.colors.label3)
+                .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, Self.textInset - 10 - Self.gutter)
+        .padding(.trailing, 10)
+        .padding(.vertical, 11)
+        .frame(minHeight: 46)
+        .contentShape(.rect)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
+        .accessibilityHint(isAvailable ? "" : "\(macName ?? "Its Mac") is offline")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private enum Status { case none, needsYou, working, pending }
+
+    private var status: Status {
+        if isPending { return .pending }
+        guard isAvailable else { return .none }
+        if workspace.needsAttention { return .needsYou }
+        if workspace.isWorking { return .working }
+        return .none
+    }
+
+    @ViewBuilder private var indicator: some View {
+        switch status {
+        case .none: Color.clear.frame(width: 1, height: 1)
+        case .pending: ProgressView().controlSize(.mini).scaleEffect(0.7).frame(width: 7, height: 7)
+        case .needsYou:
+            Circle().fill(theme.colors.warning.color).frame(width: 7, height: 7)
+                .accessibilityIdentifier("workspace.needs-you")
+        case .working:
+            WorkingDot().accessibilityIdentifier("workspace.working")
+        }
+    }
+
+    private var spoken: String {
+        var parts = [workspace.title]
+        switch status {
+        case .needsYou: parts.append("Needs you")
+        case .working: parts.append("Agent working")
+        case .pending: parts.append("Creating")
+        case .none: break
+        }
+        if !isAvailable { parts.append("Unavailable while offline") }
+        return parts.joined(separator: ", ")
+    }
+}
+
+/// The working dot: the foreground color, breathing (static with Reduce Motion).
+private struct WorkingDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Circle()
+            .fill(theme.colors.label.color)
+            .frame(width: 7, height: 7)
+            .phaseAnimator(reduceMotion ? [1.0] : [1.0, 0.3]) { dot, opacity in
+                dot.opacity(opacity)
+            } animation: { _ in .easeInOut(duration: 0.9) }
+    }
+}
+
+/// The row's pressed state: a rounded fill, like ChatGPT's selected chat.
+private struct WorkspaceRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(configuration.isPressed ? theme.colors.fillSelected.color : .clear)
+            )
     }
 }
 
@@ -412,10 +660,10 @@ struct ConnectMacEmptyState: View {
 /// do. Only options the Mac's backend supports are listed.
 struct NewWorkspaceButton: View {
     let creator: WorkspaceCreator
-    /// The Mac a tap creates on: the filtered Mac, else the preferred one.
+    /// The Mac a tap creates on: the chosen chip's Mac, else the preferred one.
     let target: MacDevice?
-    /// The Mac picker is offered only under All Macs; with one Mac chosen,
-    /// the title menu is where the Mac changes.
+    /// The Mac picker is offered only under the All chip; with one Mac
+    /// chosen, the chip row is where the Mac changes.
     let showsMacPicker: Bool
     let create: (NewWorkspaceStart, String?) -> Void
 
@@ -491,248 +739,6 @@ struct NewWorkspaceButton: View {
 
     static func folderName(_ directory: String) -> String {
         directory == "~" ? "Home" : (directory as NSString).lastPathComponent
-    }
-}
-
-/// Sticky section header under All Macs: presence dot, Mac name, workspace
-/// count, "Online" / "Last seen …", trailing More menu, and the live link
-/// line when the app dials this Mac.
-struct MacSectionHeader: View {
-    let mac: MacDevice
-    let presence: String
-    var count: Int = 0
-    /// The live link line for this Mac, when the app dials it.
-    var link: String?
-    /// Redials this Mac; nil hides the menu (nothing else in it works yet).
-    var reconnect: (() -> Void)?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            row
-            if let link {
-                Text(link)
-                    .font(theme.type.meta)
-                    .foregroundStyle(theme.colors.label2)
-                    .lineLimit(2)
-                    .padding(.leading, 15)
-                    .padding(.bottom, 6)
-                    .contentTransition(.opacity)
-                    .accessibilityIdentifier("mac-link-status")
-            }
-        }
-        .textCase(nil)
-        .padding(.leading, theme.metrics.sideMargin)
-        .padding(.trailing, 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Pinned headers sit over scrolled rows; keep them opaque.
-        .background(theme.colors.bg.color)
-        .listRowInsets(EdgeInsets())
-        .animation(theme.motion.snappy.animation, value: link)
-    }
-
-    private var row: some View {
-        HStack(spacing: 8) {
-            StatusDot(mac.isOnline ? .online : .offline, size: 7)
-            Text(mac.name)
-                .font(theme.type.rowSubtitle.weight(.semibold))
-                .foregroundStyle(mac.isOnline ? theme.colors.label : theme.colors.label2)
-                .lineLimit(1)
-            Text(presence)
-                .font(theme.type.meta)
-                .foregroundStyle(theme.colors.label2)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            if count > 0 {
-                Text("\(count)")
-                    .font(theme.type.meta.monospacedDigit())
-                    .foregroundStyle(theme.colors.label2)
-                    .accessibilityLabel(WorkspacesList.count(count))
-            }
-            if let reconnect, mac.isOnline {
-                Menu {
-                    Button("Reconnect", systemImage: "arrow.clockwise", action: reconnect)
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(theme.colors.label2)
-                        .frame(width: 32, height: 32)
-                        .contentShape(.rect)
-                }
-                .accessibilityLabel("\(mac.name) options")
-            }
-        }
-        .textCase(nil)
-        .frame(minHeight: 44)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-    }
-}
-
-/// SPEC 11.1 workspace row, Mail/Messages style: an unread gutter, then
-/// three lines.
-/// 1. Title, relative time.
-/// 2. Branch (or directory) in mono, then the tab kinds as glyphs.
-/// 3. Activity: "Needs you", a live working indicator, or the latest
-///    tab's subtitle.
-struct WorkspaceRow: View {
-    let workspace: Workspace
-    let stamp: String
-    /// The Mac is online; offline rows are greyed and not tappable.
-    var isAvailable = true
-    /// Being created on the Mac (optimistic row).
-    var isPending = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// Leading gutter for the unread dot (Mail, Messages).
-    static let gutter: CGFloat = 16
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Circle()
-                .fill(theme.colors.label.color)
-                .frame(width: 8, height: 8)
-                .opacity(workspace.hasUnread && isAvailable ? 1 : 0)
-                .frame(width: Self.gutter, alignment: .leading)
-                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(workspace.title)
-                        .font(theme.type.rowTitle.weight(.semibold))
-                        .foregroundStyle(isAvailable ? theme.colors.label : theme.colors.label2)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text(stamp)
-                        .font(theme.type.meta.monospacedDigit())
-                        .foregroundStyle(theme.colors.label2)
-                        .fixedSize()
-                }
-                details
-                activity
-            }
-        }
-        .padding(.vertical, 10)
-        .contentShape(.rect)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(spoken)
-        .accessibilityAddTraits(isAvailable ? [] : .isStaticText)
-    }
-
-    private var location: String {
-        if let branch = workspace.branch { return branch }
-        return (workspace.directory as NSString).abbreviatingWithTildeInPath
-    }
-
-    private var details: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Label {
-                Text(location).monospaced()
-            } icon: {
-                Image(systemName: workspace.branch == nil ? "folder" : "arrow.triangle.branch")
-                    .imageScale(.small)
-            }
-            .labelStyle(TightLabelStyle())
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .layoutPriority(-1)
-            ForEach(TabKindSummary(workspace.tabs).entries, id: \.kind) { entry in
-                HStack(spacing: 2) {
-                    Image(systemName: Self.glyph(entry.kind)).imageScale(.small)
-                    if entry.count > 1 { Text("\(entry.count)").monospacedDigit() }
-                }
-                .fixedSize()
-            }
-        }
-        .font(theme.type.meta)
-        .foregroundStyle(theme.colors.label2)
-    }
-
-    static func glyph(_ kind: WorkspaceTab.Kind) -> String {
-        switch kind {
-        case .agent: "sparkle"
-        case .terminal: "apple.terminal"
-        case .browser: "globe"
-        }
-    }
-
-    @ViewBuilder private var activity: some View {
-        Group {
-            if isPending {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text("Creating…")
-                }
-                .foregroundStyle(theme.colors.label2)
-            } else if !isAvailable {
-                Text("Unavailable while offline")
-                    .foregroundStyle(theme.colors.label3)
-            } else {
-                switch WorkspaceActivity(workspace) {
-                case let .needsYou(agent, detail):
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Circle().fill(theme.colors.warning.color).frame(width: 7, height: 7)
-                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3.5 }
-                        Text("\(Text("Needs you").fontWeight(.semibold).foregroundStyle(theme.colors.label.color))\(Text(Self.suffix(agent, detail)).foregroundStyle(theme.colors.label2.color))")
-                    }
-                    .accessibilityIdentifier("workspace.needs-you")
-                case let .working(agent, detail):
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Image(systemName: "ellipsis")
-                            .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeating, isActive: !reduceMotion)
-                            .foregroundStyle(theme.colors.label)
-                        Text("\(Text("\(agent ?? "Agent") is working").foregroundStyle(theme.colors.label.color))\(Text(detail.map { " · \($0)" } ?? "").foregroundStyle(theme.colors.label2.color))")
-                    }
-                    .accessibilityIdentifier("workspace.working")
-                case let .idle(text):
-                    // Skip a subtitle that only repeats line 2 (a new terminal at "~").
-                    if let text, text != location {
-                        Text(text).foregroundStyle(theme.colors.label2)
-                    }
-                }
-            }
-        }
-        .font(theme.type.rowSubtitle)
-        .lineLimit(1)
-    }
-
-    static func suffix(_ agent: String?, _ detail: String?) -> String {
-        switch (agent, detail) {
-        case let (agent?, detail?): " · \(agent): \(detail)"
-        case let (agent?, nil): " · \(agent)"
-        case let (nil, detail?): " · \(detail)"
-        default: ""
-        }
-    }
-
-    private var spoken: String {
-        var parts = [workspace.title]
-        if workspace.hasUnread && isAvailable { parts.append("Unread") }
-        parts.append(location)
-        let tabs = TabKindSummary(workspace.tabs).spoken
-        if !tabs.isEmpty { parts.append(tabs) }
-        if isPending {
-            parts.append("Creating")
-        } else if !isAvailable {
-            parts.append("Unavailable while offline")
-        } else {
-            switch WorkspaceActivity(workspace) {
-            case let .needsYou(agent, detail): parts.append("Needs you" + Self.suffix(agent, detail))
-            case let .working(agent, detail): parts.append("\(agent ?? "Agent") is working" + (detail.map { ", \($0)" } ?? ""))
-            case let .idle(text): if let text, text != location { parts.append(text) }
-            }
-        }
-        parts.append(stamp)
-        return parts.joined(separator: ", ")
-    }
-}
-
-/// Icon and title 3 pt apart (the default Label spacing is too loose for meta).
-private struct TightLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 3) {
-            configuration.icon
-            configuration.title
-        }
     }
 }
 

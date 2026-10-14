@@ -66,6 +66,22 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// the list; return the real workspace (the placeholder itself when the
     /// backend keeps its ids).
     func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace
+    /// Whether this backend can rename and close workspaces on `macID` now.
+    func canManage(on macID: String) -> Bool
+    /// Renames a workspace on its Mac.
+    func rename(_ workspace: Workspace, to title: String) async throws
+    /// Closes a workspace on its Mac.
+    func close(_ workspace: Workspace) async throws
+}
+
+extension WorkspaceCreationBackend {
+    public func canManage(on macID: String) -> Bool { false }
+    public func rename(_ workspace: Workspace, to title: String) async throws {
+        throw WorkspaceCreationError("Renaming isn't available on this Mac")
+    }
+    public func close(_ workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Closing isn't available on this Mac")
+    }
 }
 
 /// Recent working directories per Mac, newest first, persisted.
@@ -111,6 +127,9 @@ public final class WorkspaceCreator {
     public private(set) var preferredMacID: String?
     /// A creation the Mac refused: the removed placeholder and the reason.
     @ObservationIgnored public var onFailure: (@MainActor (Workspace, String) -> Void)?
+    /// A rename or close the Mac refused: the workspace, what failed
+    /// ("Couldn't close cmux") and the reason. The change is already undone.
+    @ObservationIgnored public var onManageFailure: (@MainActor (Workspace, String, String) -> Void)?
     @ObservationIgnored private let store: AppStore
     @ObservationIgnored private let recents: RecentDirectories
     @ObservationIgnored private let defaults: UserDefaults
@@ -194,6 +213,55 @@ public final class WorkspaceCreator {
             await self?.run(request, placeholder: placeholder)
         }
         return placeholder
+    }
+
+    /// Whether a workspace can be renamed or closed from this phone now:
+    /// its Mac is online, the backend supports it, and it is not still
+    /// being created.
+    public func canManage(_ workspace: Workspace) -> Bool {
+        guard !store.isPending(workspace.id),
+              let mac = store.activeTeam?.macs.first(where: { $0.id == workspace.macID }), mac.isOnline else { return false }
+        return backend.canManage(on: mac.id)
+    }
+
+    /// Renames at once; the old title comes back if the Mac refuses.
+    public func rename(_ workspace: Workspace, to title: String) {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title != workspace.title, canManage(workspace),
+              let old = store.renameWorkspace(workspace.id, to: title) else { return }
+        track(workspace.id) { [weak self] in
+            do {
+                try await self?.backend.rename(workspace, to: title)
+            } catch {
+                self?.store.renameWorkspace(workspace.id, to: old)
+                self?.onManageFailure?(workspace, "Couldn't rename \(old)", Self.message(error))
+            }
+        }
+    }
+
+    /// Closes at once; the row comes back if the Mac refuses.
+    public func close(_ workspace: Workspace) {
+        guard canManage(workspace), let removed = store.removeWorkspace(workspace.id) else { return }
+        track(workspace.id) { [weak self] in
+            do {
+                try await self?.backend.close(workspace)
+            } catch {
+                self?.store.restoreWorkspace(removed.workspace, at: removed.index)
+                self?.onManageFailure?(workspace, "Couldn't close \(workspace.title)", Self.message(error))
+            }
+        }
+    }
+
+    private func track(_ id: String, _ work: @escaping @MainActor () async -> Void) {
+        let key = "manage-\(id)-\(UUID().uuidString)"
+        tasks[key] = Task { [weak self] in
+            await work()
+            self?.tasks[key] = nil
+        }
+    }
+
+    private static func message(_ error: any Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
 
     /// Waits for every creation in flight (tests and demos).
@@ -301,12 +369,26 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     }
 
     public func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace {
+        try await settle()
+        return placeholder
+    }
+
+    public func canManage(on macID: String) -> Bool { true }
+
+    public func rename(_ workspace: Workspace, to title: String) async throws {
+        try await settle()
+    }
+
+    public func close(_ workspace: Workspace) async throws {
+        try await settle()
+    }
+
+    private func settle() async throws {
         if latency > .zero { try await clock.sleep(for: latency) }
         if let message = failNext {
             failNext = nil
             throw WorkspaceCreationError(message)
         }
-        return placeholder
     }
 }
 #endif

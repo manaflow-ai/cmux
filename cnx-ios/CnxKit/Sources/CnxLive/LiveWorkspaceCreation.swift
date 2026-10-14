@@ -55,4 +55,36 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError(error.message)
         }
     }
+
+    /// The daemon lane allows `rename-workspace` and `close-workspace` on
+    /// the linked Mac.
+    public func canManage(on macID: String) -> Bool { canCreate(on: macID) }
+
+    public func rename(_ workspace: Workspace, to title: String) async throws {
+        try await send("rename-workspace", workspace, name: title)
+    }
+
+    public func close(_ workspace: Workspace) async throws {
+        try await send("close-workspace", workspace, name: nil)
+    }
+
+    /// Workspaces are addressed by key; a tree without keys gave "w<id>".
+    private func send(_ cmd: String, _ workspace: Workspace, name: String?) async throws {
+        guard canManage(on: workspace.macID), let client = sync.daemon else {
+            throw WorkspaceCreationError("Not connected")
+        }
+        var params: [String: Any] = [:]
+        if let name { params["name"] = name }
+        if workspace.id.hasPrefix("w"), let id = Int(workspace.id.dropFirst()) {
+            params["workspace"] = id
+        } else {
+            params["key"] = workspace.id
+        }
+        do {
+            try WorkspaceSync.check(await client.request(cmd, params: params))
+            _ = try? await sync.listNow()
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
 }
