@@ -330,3 +330,80 @@ import Testing
         #expect(store.workspace(id: "ws-web")?.title == "cmux.com")
     }
 }
+
+/// verify/e2e-matrix.md #2: choosing a Mac in the filter (or opening one of
+/// its workspaces) links it, and the list never says "can't take new
+/// workspaces" while it is still linking that Mac.
+@MainActor @Suite struct MacSelectionLinkTests {
+    let macs = [
+        MacDevice(id: "a", name: "Studio", isOnline: true),
+        MacDevice(id: "b", name: "MacBook Pro", isOnline: true),
+        MacDevice(id: "c", name: "Air", isOnline: false),
+    ]
+
+    @Test func choosingAnOnlineMacLinksIt() throws {
+        let suite = "cnx.tests.maclink.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let team = Team(id: "t1", name: "One", macs: macs)
+        let filter = MacFilter(defaults: defaults)
+        #expect(filter.scope(in: team).macToLink(in: macs) == nil)
+        filter.select(.mac("b"), in: "t1")
+        #expect(filter.scope(in: team).macToLink(in: macs) == "b")
+        // A relaunch with the choice remembered links it again.
+        #expect(MacFilter(defaults: defaults).scope(in: team).macToLink(in: macs) == "b")
+        // Nothing to dial: an offline Mac, a Mac not in the team, All Macs.
+        #expect(MacScope.mac("c").macToLink(in: macs) == nil)
+        #expect(MacScope.mac("gone").macToLink(in: macs) == nil)
+        #expect(MacScope.all.macToLink(in: macs) == nil)
+    }
+
+    @Test func theChosenMacComingOnlineLinksIt() {
+        var team = macs
+        #expect(MacScope.mac("c").macToLink(in: team) == nil)
+        team[2].isOnline = true
+        #expect(MacScope.mac("c").macToLink(in: team) == "c")
+    }
+
+    @Test func openingAWorkspaceLinksItsMac() {
+        let ws = Workspace(id: "w", macID: "b", title: "w", directory: "~", tabs: [], lastActivityAt: Date())
+        #expect(MacScope.macToLink(opening: ws, in: macs) == "b")
+        let asleep = Workspace(id: "x", macID: "c", title: "x", directory: "~", tabs: [], lastActivityAt: Date())
+        #expect(MacScope.macToLink(opening: asleep, in: macs) == nil)
+    }
+
+    @Test func aMacBeingLinkedSaysConnecting() {
+        func state(_ list: WorkspaceInbox.ListState, _ connection: MacConnection?, online: Bool = true,
+                   reach: MacReach = .linkTarget, canCreate: Bool = false, live: Bool = true) -> MacEmptyState {
+            MacEmptyState.resolve(isOnline: online, list: list, connection: connection, tracksLive: live,
+                                  reach: reach, canCreate: canCreate)
+        }
+        // The e2e case: last-known "no rows" for a Mac the link is not on.
+        #expect(state(.cached(updating: false), nil) == .connecting)
+        #expect(state(.cached(updating: true), .connecting) == .connecting)
+        #expect(state(.notConnected, nil) == .connecting)
+        #expect(state(.loading, .connecting) == .connecting)
+        // Linked, but its list has not come over this link yet.
+        #expect(state(.cached(updating: false), .connected) == .connecting)
+        // The Mac answered.
+        #expect(state(.live, .connected, canCreate: true) == .empty(canCreate: true))
+        #expect(state(.live, .connected) == .empty(canCreate: false))
+        // Failures and sleep say so.
+        #expect(state(.failed("timed out"), nil) == .failed("timed out"))
+        #expect(state(.cached(updating: false), .failed("timed out")) == .failed("timed out"))
+        #expect(state(.live, nil, online: false) == .offline)
+        // Review M5: the link is on another Mac (or on none, say the team start failed):
+        // never "Connecting…" with no way out, but Connect.
+        #expect(state(.notConnected, nil, reach: .elsewhere) == .notConnected)
+        #expect(state(.cached(updating: false), nil, reach: .elsewhere) == .notConnected)
+        #expect(state(.loading, nil, reach: .elsewhere) == .notConnected)
+        #expect(state(.cached(updating: false), .connecting, reach: .elsewhere) == .notConnected)
+        // Review m11: a teammate's Mac has no Connect that does nothing.
+        #expect(state(.notConnected, nil, reach: .othersMac) == .othersMac)
+        #expect(state(.live, nil, reach: .othersMac) == .othersMac)
+        // Mock mode (no live link): nothing to move.
+        #expect(state(.notConnected, nil, reach: .none) == .notConnected)
+        // Mock mode: every list is the Mac's own.
+        #expect(state(.live, nil, canCreate: true, live: false) == .empty(canCreate: true))
+    }
+}

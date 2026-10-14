@@ -276,11 +276,43 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   with `unknown_service` speaks link protocol 1 (keepalive pings queued
   behind data, a reader that stalls on one full channel); the phone keeps
   the link and says "Update cmux on this Mac".
+  Added 2026-10-14: `"capabilities": [...]`, what the host does that a
+  phone may rely on. `removal-v1` (the Mac host of manaflow-ai/cmux#20414):
+  after its owner removes it (signaling 4002 `removed`) the host stays off
+  until the person allows iPhone connections again on the Mac, so the
+  phone's removal copy can say so. Absent (older hosts): the Mac may add
+  itself back.
 
 A service that ends normally closes its channel with `{code:"eof"}`; a
 refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or
 `unavailable`. When the link itself drops, local channels see
 `link_closed`.
+
+## Pairing (`auth` service and the Mac app's control lines)
+
+The `auth` handshake is in `verify/phone-approvals.md` ("Pairing on every
+link"). The limits and close codes the phone sees:
+
+| close code | meaning |
+| --- | --- |
+| `busy` | an `auth` is already running on this link (one at a time), or 32 channels already wait behind it |
+| `rate_limited` | the Mac asked about this iPhone recently: 10 minutes after the person refused one of its keys, or after 3 new identity keys from that device id (6 from all phones) in 10 minutes; the reason names the wait |
+| `unavailable` | the Mac app has not sent its approved list within 10 s (hostd never asks before it has it) |
+| `timeout` | nobody answered the Mac's prompt within 120 s; opening `auth` again on the same link asks again |
+| `denied` / `unpaired` | the person refused this key / the signature or pairing failed |
+
+hostd → app, one JSON line on stdout (supervised mode, `control.rs`):
+
+```json
+{"type":"pair_request","phone_device_id":"<uuid>","name":"<phone>",
+ "identity_key":"04…","approval_key":"04…","registered_at_ms":1791961929681}
+```
+
+`registered_at_ms` (integer, epoch milliseconds; added 2026-10-14) is when
+that phone device id first registered with the service (`createdAt` of `GET
+/v1/me/devices`), so the Mac's dialog can show how new the device is. It is
+absent when the lookup failed or took over 3 s; the dialog then says the
+date is unknown.
 
 ## Connection setup (phone)
 

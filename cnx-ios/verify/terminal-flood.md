@@ -190,7 +190,7 @@ so a refused read looked like an empty file and the preview stayed blank.
 
 **Phone change.**
 
-- `LinkChannel.closeError()` returns the peer's close code.
+- The file source reads the peer's close code from `LinkChannel.closedBy`. That property came with the latest `feat-cnx-ios`; this branch first added its own `closeError()` and dropped it in the merge.
 - The file source turns a refusal into a truthful message, shown with a
   **Try Again** button:
   - outside the shared folders: "x.md is outside the folders <Mac> shares

@@ -70,8 +70,8 @@ public struct LinkFileArtifactSource: ArtifactSource {
         // The Mac refuses by closing the channel (outside the shared
         // folders, missing, a folder): without this the refusal read as an
         // empty file and the preview stayed blank.
-        if let refusal = await channel.closeError() {
-            throw Self.unavailable(refusal, path: path, macName: macName)
+        if let closed = channel.closedBy, !closed.code.isEmpty, closed.code != "eof" {
+            throw Self.unavailable(closed, path: path, macName: macName)
         }
         return data
     }

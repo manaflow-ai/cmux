@@ -209,6 +209,12 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public static func connecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Connecting to \(mac)…") }
     /// A dial that keeps failing (for example WebRTC with no TURN path).
     public static func failed(_ text: String) -> Self { Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text) }
+    /// The Mac shows "Allow … to connect?" for this phone (verify/phone-approvals.md).
+    public static func waitingForPairing(on mac: String) -> Self { Self(symbol: "lock.shield", showsSpinner: true, text: "Allow this iPhone on \(mac)") }
+    /// The same after the phone replaced an unreadable stored key.
+    public static func waitingForPairingAfterNewKeys(on mac: String) -> Self {
+        Self(symbol: "lock.shield", showsSpinner: true, text: "This iPhone's keys were reset. Allow it again on \(mac)")
+    }
 }
 
 /// Glass capsule banner, 36 pt tall, `footnote` semibold. Use `.cnxBanner(_:)`

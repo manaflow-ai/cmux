@@ -5,6 +5,7 @@ import CnxAgentChat
 import CnxChief
 import CnxDesign
 import CnxFeed
+import CnxLive
 import CnxModel
 import CnxTerminal
 import CnxWorkspaces
@@ -25,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -52,6 +53,7 @@ struct DemoDriver {
         case "tour-c": await tourSettingsAndSidebar()
         case "onboarding": break  // driven by CnxOnboarding's script until the shell appears
         case "live": await live()
+        case "approve": await approve()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
         case "connect-mac-elsewhere": await connectMacElsewhere()
@@ -377,6 +379,64 @@ struct DemoDriver {
             await pause(0.25)
         }
         return true
+    }
+
+    /// Phone approvals end to end (verify/phone-approvals.md): waits for the link and
+    /// the Mac's pairing, then works through the plan in the `cnx.demo.approve` default
+    /// (comma separated; default `allow,allow,allow`). Each `allow` or `deny` answers the
+    /// next ask that reaches the Feed through the card's own path: Allow (Face ID signs
+    /// it) or the reject option for a permission, the first option (signed) or Decline
+    /// for a question. `signout` signs out as Settings does (the phone asks the Mac to
+    /// forget it).
+    private func approve() async {
+        step("start")
+        shell.tab = .feed
+        guard await until(120, { shell.live?.link.phase.isConnected == true }) else { return step("no link") }
+        guard await until(180, { shell.live?.pairingState == .paired }) else {
+            return step("not paired: \(String(describing: shell.live?.pairingState))")
+        }
+        step("paired")
+        let feed = FeedStore.shared
+        var answered: Set<String> = []
+        let open = { feed.items.first { $0.needsYou && !answered.contains($0.id) } }
+        let plan = (UserDefaults.standard.string(forKey: "cnx.demo.approve") ?? "allow,allow,allow")
+            .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        for action in plan {
+            if action == "signout" {
+                step("sign out")
+                await shell.auth.signOut()
+                step("signed out")
+                continue
+            }
+            guard await until(600, { open() != nil }), let item = open() else { return step("no more asks") }
+            answered.insert(item.id)
+            await pause(1.5)
+            let allow = action != "deny"
+            switch item.kind {
+            case .permission(let request):
+                let option = allow
+                    ? request.options.first(where: { $0.kind == .allowOnce }) ?? request.options.first(where: \.isAllow)
+                    : request.options.first(where: { $0.kind == .rejectOnce }) ?? request.options.first(where: { !$0.isAllow })
+                guard let option else { continue }
+                step("feed \(allow ? "allow" : "deny") \(item.id)")
+                feed.respond(item.id, option: option)
+            case .question(let question):
+                if !allow {
+                    step("feed decline \(item.id)")
+                    feed.decline(item.id)
+                    break
+                }
+                guard let first = question.items.first, let option = first.options.first else { continue }
+                step("feed answer \(item.id)")
+                feed.answer(item.id, answer: AgentQuestionAnswer(selections: [first.id: .init(optionIDs: [option.id])]))
+            default:
+                continue
+            }
+            await until(90) { feed.items.first { $0.id == item.id }.map { !$0.needsYou || $0.error != nil } ?? true }
+            let after = feed.items.first { $0.id == item.id }
+            step("result \(item.id): resolution=\(after?.resolution ?? "-") error=\(after?.error ?? "-")")
+        }
+        step("plan done")
     }
 
     /// Live end to end (real Mac): Mac online and connected, the daemon's

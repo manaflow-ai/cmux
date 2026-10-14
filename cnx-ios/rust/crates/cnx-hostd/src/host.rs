@@ -96,10 +96,32 @@ impl IceSource {
     }
 }
 
-/// Run until the process is stopped: reconnect with backoff.
+/// When a phone first registered (`GET /v1/me/devices` `createdAt`), for the
+/// pairing prompt. Every phone that may dial is the Mac owner's own device.
+fn registration_lookup(base_url: String, tokens: Arc<Tokens>) -> crate::pairing::RegistrationLookup {
+    Arc::new(move |phone: String| {
+        let (base_url, tokens) = (base_url.clone(), Arc::clone(&tokens));
+        Box::pin(async move {
+            let token = tokens.access_token().await.ok()?;
+            let devices = ApiClient::new(&base_url, &token).my_devices().await.ok()?;
+            devices
+                .into_iter()
+                .find(|d| d.device_id.eq_ignore_ascii_case(&phone) && d.kind != "mac")
+                .and_then(|d| d.created_at)
+                .and_then(|at| crate::pairing::epoch_millis(&at))
+        })
+    })
+}
+
+/// Run until the process is stopped, reconnecting with backoff. Returns `Ok` only when
+/// the owner removed this Mac (`removed`): registering again would undo that.
 pub async fn run(config: HostConfig) -> Result<()> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
-    let services = Arc::new(config.services.clone());
+    let mut services = config.services.clone();
+    if let Some(pairing) = services.pairing.as_mut() {
+        pairing.registration = Some(registration_lookup(config.base_url.clone(), Arc::clone(&tokens)));
+    }
+    let services = Arc::new(services);
     // One ICE cache for the life of the process (reconnects keep it).
     let ice = IceSource::api(config.base_url.clone(), Arc::clone(&tokens));
     if crate::notify::enabled() {
@@ -115,6 +137,12 @@ pub async fn run(config: HostConfig) -> Result<()> {
         control::emit(&Event::Connecting);
         let started = std::time::Instant::now();
         let reason = match connect_once(&config, &tokens, &services, &ice).await {
+            Ok(reason) if removed(&reason) => {
+                // Registering again would undo the owner's removal: stop for good.
+                tracing::warn!(reason, "this Mac was removed from the account's devices; stopping");
+                control::emit(&Event::Removed);
+                return Ok(());
+            }
             Ok(reason) => {
                 tracing::warn!(reason, "signaling ended; reconnecting");
                 // A socket that was up for a while and then reset (every Worker
@@ -126,7 +154,11 @@ pub async fn run(config: HostConfig) -> Result<()> {
             }
             Err(error) => {
                 tracing::warn!("connection attempt failed: {error:#}");
-                tokens.invalidate().await;
+                // Only a refusal of the token itself marks it refused; a network error or a
+                // server error keeps it (the supervising app would otherwise refresh on every retry).
+                if unauthorized(&error) {
+                    tokens.invalidate().await;
+                }
                 backoff = (backoff * 2).min(Duration::from_secs(60));
                 format!("{error:#}")
             }
@@ -178,6 +210,33 @@ async fn connect_once(
         task.abort();
     }
     Ok(reason)
+}
+
+/// hostd's exit status after the owner removed this Mac (`removed`): a supervisor must not restart it.
+pub const EXIT_REMOVED: i32 = 78;
+
+/// Whether the signaling socket closed because the owner removed this device
+/// (`DELETE /v1/devices/:id` closes it with 4002 `removed`, PROTOCOL.md).
+pub fn removed(reason: &str) -> bool {
+    reason.starts_with("signaling closed by server: 4002 ")
+}
+
+/// Whether `error` is the backend refusing the access token (HTTP 401 from the API or
+/// the signaling upgrade).
+pub fn unauthorized(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        if let Some(cnx_link::api::ApiError::Status { status, .. }) =
+            cause.downcast_ref::<cnx_link::api::ApiError>()
+        {
+            return *status == 401;
+        }
+        if let Some(cnx_link::signaling::SignalingError::Connect(message)) =
+            cause.downcast_ref::<cnx_link::signaling::SignalingError>()
+        {
+            return message.contains("401");
+        }
+        false
+    })
 }
 
 /// Answer every admitted dial on `signaling` until it closes; returns the
@@ -276,6 +335,23 @@ async fn answer_session(
             });
         }
     });
+    let auth = Arc::new(crate::pairing::LinkAuth::default());
+    // The owner removed this phone (Settings > Mobile > Remove): end its link now.
+    let mut drops = control::drops();
+    let removable = connected.link.clone();
+    let phone = peer.device_id.to_lowercase();
+    let drop_watch = tokio::spawn(async move {
+        loop {
+            match drops.recv().await {
+                Ok(id) if id == phone => {
+                    removable.close("removed");
+                    return;
+                }
+                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(_) => return,
+            }
+        }
+    });
     let mut first = true;
     while let Some(incoming) = connected.link.accept().await {
         if first {
@@ -283,10 +359,55 @@ async fn answer_session(
             timeline.mark("first_channel");
             tracing::info!(session_id, timings = %timeline.summary(), "first channel");
         }
-        tokio::spawn(services::serve(Arc::clone(&context.services), peer.clone(), incoming));
+        // In open order: a channel opened after `auth` waits for it. One
+        // `auth` runs at a time per link.
+        if incoming.service == "auth" && context.services.pairing.is_some() && !auth.try_begin() {
+            tokio::spawn(services::refuse(incoming, "busy", "this iPhone's pairing is already running"));
+            continue;
+        }
+        if incoming.service == "auth" && context.services.pairing.is_none() {
+            auth.begin();
+        }
+        tokio::spawn(services::serve(
+            Arc::clone(&context.services),
+            peer.clone(),
+            Arc::clone(&auth),
+            incoming,
+        ));
     }
     let reason = connected.link.closed().await;
     path_watch.abort();
+    drop_watch.abort();
     tracing::info!(session_id, reason, "link down");
     control::emit(&Event::PhoneDown { session_id, reason });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_4002_close_is_a_removal() {
+        assert!(removed("signaling closed by server: 4002 removed"));
+        assert!(!removed("signaling closed by server: 4000 replaced"));
+        assert!(!removed("signaling closed by server: 4001 moved"));
+        assert!(!removed("signaling read failed: 4002"));
+        assert!(!removed("signaling socket closed"));
+    }
+
+    #[test]
+    fn only_a_401_marks_the_token_refused() {
+        let refused =
+            anyhow::Error::new(cnx_link::api::ApiError::Status { status: 401, body: String::new() })
+                .context("POST /v1/devices");
+        assert!(unauthorized(&refused));
+        let upgrade = anyhow::Error::new(cnx_link::signaling::SignalingError::Connect(
+            "HTTP error: 401 Unauthorized".into(),
+        ));
+        assert!(unauthorized(&upgrade));
+        let server = anyhow::Error::new(cnx_link::api::ApiError::Status { status: 502, body: String::new() });
+        assert!(!unauthorized(&server));
+        assert!(!unauthorized(&anyhow::Error::new(cnx_link::api::ApiError::Http("dns".into()))));
+        assert!(!unauthorized(&anyhow::anyhow!("the app sent no access token")));
+    }
 }

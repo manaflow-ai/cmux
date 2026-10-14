@@ -126,7 +126,7 @@ import Testing
             return index < data.count ? data[index] : nil
         }
         func close(code: String, reason: String) async {}
-        func closeError() async -> LinkError? { refusal }
+        var closedBy: LinkError? { index > data.count ? (refusal ?? LinkError(code: "eof", message: "")) : nil }
     }
 
     final class OneChannelLink: MacLink, @unchecked Sendable {
