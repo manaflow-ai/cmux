@@ -7,8 +7,9 @@ public import Foundation
 /// `appearance.sidebarSurface` separate, the chrome around the card
 /// (sidebar, gutter, titlebar) is shaded a little darker so the curve reads
 /// on the one surface; by default it shares the card's surface
-/// (`SidebarSurface`). On by default to try; these are Debug Settings
-/// tunables until a cmux.json key gets a settings slot.
+/// (`SidebarSurface`). On by default; `appearance.chromeStyle` turns it on
+/// or off with the rest of a style, and these Debug Settings tunables
+/// override it.
 nonisolated extension ChromeTunables {
     public static let mainPaneCurved = Tunable<Bool>.toggle(
         "chrome.mainPane.curved", .sidebar, "Curved main pane",
@@ -38,8 +39,12 @@ nonisolated extension ChromeTunables {
 }
 
 extension Metrics {
-    /// Whether the workspace content is the curved main pane.
-    public static var mainPaneCurved: Bool { ChromeTunables.mainPaneCurved.value }
+    /// Whether the workspace content is the curved main pane: a Debug
+    /// Settings override, else `appearance.chromeStyle`, else the default.
+    public static var mainPaneCurved: Bool {
+        let tunable = ChromeTunables.mainPaneCurved
+        return tunable.override ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
+    }
     /// Inset of the main pane from the sidebar, titlebar and window edges;
     /// 0 when the pane is edge to edge.
     public static var mainPaneGutter: CGFloat { mainPaneCurved ? scale(ChromeTunables.mainPaneGutter.value) : 0 }
@@ -62,9 +67,12 @@ extension Metrics {
     /// is edge to edge.
     public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
         guard mainPaneCurved else { return 0 }
-        let separate = CGFloat(isDark ? ChromeTunables.mainPaneShadeDark.value : ChromeTunables.mainPaneShadeLight.value)
+        let style = DesignSettings.shared.chromeStyle
+        let tunable = isDark ? ChromeTunables.mainPaneShadeDark : ChromeTunables.mainPaneShadeLight
+        let separate = tunable.override.map { CGFloat($0) } ?? style.separateShade(isDark: isDark) ?? CGFloat(tunable.defaultValue)
         // A pane outline or the sidebar's edge line parts them; both are already 0 under borders none.
         let lineSeparates = paneBorder != .none || sidebarBorderWidth > 0
-        return DesignSettings.shared.sidebarSurface.chromeShade(separateShade: separate, lineSeparates: lineSeparates)
+        return DesignSettings.shared.sidebarSurface.chromeShade(separateShade: separate, lineSeparates: lineSeparates,
+                                                                borderlessStep: style.borderlessStep ?? SidebarSurface.borderlessStep)
     }
 }
