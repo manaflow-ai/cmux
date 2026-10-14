@@ -36,9 +36,10 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // team.audit.list and team.members.remove (cx-3bi.4): the audit chain and member removal are a person's session only.
 // agent.message.list/mark/send (#16430): no app access to agent messages until the agent-inbox lane designs a scoped
 // grant. An app that sends to an agent is a prompt-injection path; an app that reads them sees the agent's context.
+// agent.runtime.list (#20149): this user's host processes; never handed to an app or a provider tool.
 // settings.set/reset/reset_all (cx-9ce.10): the settings file is the person's; an app may read settings only.
 // layout.bulk (cx-gzh.5) closes tabs, panes, screens and workspaces, like every .close op.
-const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|send)$)/
+const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|send)$|^agent\.runtime\.list$)/
 
 /** Ops no app may call, whatever their risk (cloud.machine.link_token mints dial tokens). */
 export const NEVER_OPS = new Set(["cloud.machine.link_token"])
