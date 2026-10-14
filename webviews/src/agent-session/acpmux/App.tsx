@@ -237,6 +237,8 @@ import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
+import { OfferChip } from "./offer/OfferChip";
+import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
@@ -705,6 +707,24 @@ const EditedFilesRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
 );
 
+/// An agent's offer of a parallel chat (offer/OfferChip.tsx); the reducer draws it only while
+/// the session-offer experiment is on.
+const SessionOfferRow = memo(
+  function SessionOfferRow({ row }: RowProps) {
+    if (!row.offer) return null;
+    const offerId = row.offer.offerId;
+    return (
+      <OfferChip
+        offer={row.offer}
+        onStart={() => callNative("chat.offer.start", { offerId })}
+        onDismiss={() => callNative("chat.offer.dismiss", { offerId })}
+        onOpen={(sessionId) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined)}
+      />
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
   assistant: MessageRow,
@@ -720,6 +740,7 @@ const defaultRegistry: NativeRegistry = {
   notice: NoticeRow,
   plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
+  sessionOffer: SessionOfferRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
@@ -1035,6 +1056,7 @@ export function VirtualTranscript({
   openAt,
   onAnchor,
   anchorNow,
+  onLoadOlder,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -1056,6 +1078,8 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  /// Pages older history in (canLoadOlder): asked again on each render while the view is near the top.
+  onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
@@ -1579,16 +1603,20 @@ export function VirtualTranscript({
         // text an estimate's error too low, then slid it past its place, at every token.
         const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
         if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized) glide(thread.current, step);
-      } else if (top > 0) {
+      } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
-        // so the row is found again by its id.
-        const anchor = visibleLayoutRange(old, top, 0, 0).first;
-        const id = oldRows[anchor]?.id;
-        const now = rows[anchor]?.id === id ? anchor : rows.findIndex((row) => row.id === id);
-        if (now >= 0) {
+        // so the row is found again by its id; at offset 0 too, when older history arrived above.
+        // A row older history completed (a turn cut at the page's edge) has a new id: the next row
+        // that kept its own anchors instead.
+        const first = visibleLayoutRange(old, top, 0, 0).first;
+        for (let anchor = first; anchor < Math.min(oldRows.length, first + 32); anchor++) {
+          const id = oldRows[anchor].id;
+          const now = rows[anchor]?.id === id ? anchor : rows.findIndex((row) => row.id === id);
+          if (now < 0) continue;
           const delta = layout.tops[now] - old.tops[anchor];
           if (clamped || Math.abs(delta) > 0.5) node.scrollTop = top + delta;
+          break;
         }
       }
     }
@@ -1845,6 +1873,14 @@ export function VirtualTranscript({
     }
   };
   useLayoutEffect(markTurns);
+  // Older history pages in before the reader reaches it: whenever the view is within two viewports
+  // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
+  // reader's row in place as each page lands.
+  useEffect(() => {
+    const node = ref.current;
+    if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) return;
+    if (node.scrollTop < node.clientHeight * 2) onLoadOlder().catch(() => {});
+  });
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
@@ -1861,7 +1897,17 @@ export function VirtualTranscript({
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <>
-      <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
+      <div
+        ref={ref}
+        className="acpmux-scroll"
+        role="feed"
+        aria-label={t("transcript.label")}
+        onScroll={onScroll}
+        // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
+        // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        data-fade-top={renderScroll.top > 0.5 || undefined}
+        data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
+      >
         <ThreadMinimap
           rows={rows}
           sessionId={sessionId}
@@ -2363,7 +2409,7 @@ function AcpmuxPane() {
       family: snapshot.summary?.family || snapshot.summary?.harness,
       prompts: promptCount,
     },
-    snapshot.origin !== "remote",
+    snapshot.origin !== "remote" || snapshot.answersTrust === true,
   );
   trustRefused.current = trustAsk.refused;
   const individualPermission =
@@ -3801,6 +3847,27 @@ function AcpmuxPane() {
             await client.markSide(sessionId, chat);
             await postNative("chat.sideChat", { sessionId });
           },
+          // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
+          "chat.offer.start": async ({ offerId }) => {
+            const chat = client.selectedSession;
+            const offer = client.offer(String(offerId));
+            if (!chat || !offer) throw new Error(translate("offer.failed"));
+            const cwd = offer.worktree ? await offerWorktree(callNative, offer) : offer.cwd;
+            return client.startOffer(chat, offer, cwd);
+          },
+          "chat.offer.dismiss": async ({ offerId }) => {
+            const chat = client.selectedSession;
+            if (!chat) throw new Error(translate("error.notOpen"));
+            await client.dismissOffer(chat, String(offerId));
+          },
+          // Open on a started offer: beside this chat, as a side chat opens; else here.
+          "chat.offer.open": async ({ sessionId }) => {
+            try {
+              await postNative("chat.sideChat", { sessionId: String(sessionId) });
+            } catch {
+              await persistSession(await client.select(String(sessionId)));
+            }
+          },
           // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
           // its own tab and brings this one back to the chat.
           "chat.handoff.prepare": async ({ harness }) => {
@@ -4438,6 +4505,7 @@ function AcpmuxPane() {
                               find={quick ? undefined : find}
                               sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
                               canLoadOlder={!childRows && snapshot.canLoadOlder}
+                              onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
                               openAt={
                                 !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
                                   ? scrollAnchor

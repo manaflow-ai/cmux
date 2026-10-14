@@ -6,12 +6,14 @@
 import { memo, useState, type ReactNode } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 import type { Strings } from "../shared/i18n";
+import { MessageAttachments } from "./AttachmentViews";
 import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
 import { MessageActions } from "./MessageActions";
 import { MAX_THREAD_INDENT, messageText, mentionsMe } from "./model";
-import type { HomeMessage, HomeParticipant, HomePart } from "./types";
+import { MessageRuns } from "./RunCard";
+import type { HomeAttachment, HomeMessage, HomeParticipant, HomePart } from "./types";
 
 export interface MessageRowProps {
   message: HomeMessage;
@@ -111,7 +113,18 @@ export const MessageRow = memo(function MessageRow({
             }}
           />
         ) : (
-          message.parts.map((part, index) => <Part key={index} part={part} strings={strings} />)
+          <>
+            {message.parts.map((part, index) => (
+              <Part key={index} part={part} strings={strings} />
+            ))}
+            {message.parts.some((part) => part.type === "attachment") && (
+              <MessageAttachments
+                conversation={message.conversation}
+                parts={message.parts.filter((part): part is HomeAttachment => part.type === "attachment")}
+                strings={strings}
+              />
+            )}
+          </>
         )}
         {message.editedAt && !message.retracted && !editing && (
           <span className="hc-msg-edited">{t("message.edited")}</span>
@@ -128,6 +141,7 @@ export const MessageRow = memo(function MessageRow({
             </button>
           </p>
         )}
+        {!message.retracted && !editing && pending === undefined && <MessageRuns message={message} />}
         {message.reactions.length > 0 && <Reactions message={message} me={me} people={people} onReact={onReact} />}
         {confirmDelete && onRetract && (
           <div className="hc-confirm" role="alert">
@@ -226,12 +240,8 @@ function Part({ part, strings }: { part: HomePart; strings: Strings }) {
         </div>
       );
     case "attachment":
-      return (
-        <div className="hc-chip attachment">
-          <span className="hc-chip-title">{part.name}</span>
-          <span className="hc-chip-preview">{formatBytes(part.byteCount)}</span>
-        </div>
-      );
+      // Shown together, after the text (MessageAttachments).
+      return null;
     case "other":
       return <p className="hc-msg-other">{part.text}</p>;
   }
@@ -272,15 +282,4 @@ function Reactions({
       ))}
     </div>
   );
-}
-
-function formatBytes(bytes: number): string {
-  const units = ["B", "KB", "MB", "GB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }

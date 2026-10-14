@@ -26,7 +26,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::paths::Paths;
-use crate::prompt::{Tools, system_text};
+use crate::prompt::{Tools, chief_system_text, system_text};
 
 /// What the session directory is made of.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +45,9 @@ pub struct SessionSetup {
     /// a session that loads no user setting source still gets it (the
     /// user's API route, for one), under the session's own env.
     pub user_env: BTreeMap<String, String>,
+    /// The record grants the `profile` tool (chief_profile.rs): the
+    /// launcher section of AGENTS.md names `chief profile`.
+    pub profile_tool: bool,
 }
 
 /// Whether this host copies the user's Claude Code settings env into its
@@ -291,7 +294,8 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     // turns, engine.rs); Claude Code reads only CLAUDE.md, which only the
     // old layout of a Claude harness keeps.
     let chief = paths.bin.join("chief").display().to_string();
-    let agents = system_text(setup.instructions.as_deref(), &Tools::Cli(chief));
+    let agents =
+        chief_system_text(setup.instructions.as_deref(), &Tools::Cli(chief), setup.profile_tool);
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
     match setup.tools {
         Tools::Mcp => {
