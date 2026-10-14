@@ -242,7 +242,7 @@ export function Inspector({
         </div>
         <div>
           <dt>{t("inspector.session")}</dt>
-          <dd title={snapshot.sessionId}>
+          <dd>
             {snapshot.sessionId
               ? `${snapshot.sessionId.slice(0, 8)} · ${snapshot.summary?.status ?? t("inspector.unknown")}`
               : t("inspector.none")}

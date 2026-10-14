@@ -239,9 +239,7 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                         </span>
                       ) : null}
                       {typeof item.label === "string" ? (
-                        <span className="ui-menu-label" title={item.label}>
-                          {item.label}
-                        </span>
+                        <span className="ui-menu-label">{item.label}</span>
                       ) : (
                         item.label
                       )}

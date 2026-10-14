@@ -88,7 +88,6 @@ export function WorktreePill({
         }}
         type="button"
         className="acpmux-header-tool acpmux-header-worktree"
-        title={title}
         aria-haspopup="dialog"
         aria-expanded={open}
         {...trigger}

@@ -74,6 +74,7 @@ export function EmojiPicker({ anchor, emoji, strings, onPick, onClose }: EmojiPi
             key={record.index}
             type="button"
             className="hc-emoji-cell"
+            // tooltip-allow: the emoji's name; the cell shows only the emoji
             title={record.names.en}
             aria-label={record.names.en}
             onClick={() => onPick(record.emoji)}

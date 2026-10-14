@@ -8,11 +8,12 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
+import { TOOLTIP_DELAY, TOOLTIP_WARM } from "./titleTooltips";
 
-/** A page's tooltips show at once, with no hover delay (POLISH), and close at once. */
+/** A page's tooltips show after the native tooltip's hover delay, at once when moving from one to the next, and close at once. */
 export function TooltipProvider({ children }: { children: ReactNode }) {
   return (
-    <BaseTooltip.Provider delay={0} closeDelay={0}>
+    <BaseTooltip.Provider delay={TOOLTIP_DELAY} closeDelay={0} timeout={TOOLTIP_WARM}>
       {children}
     </BaseTooltip.Provider>
   );
