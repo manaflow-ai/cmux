@@ -4,8 +4,8 @@ import Foundation
 /// The brain's engine report (`chief.engine.get`, cmux-tui
 /// resource-api-v2.md "Chief control"): the same fields the Mac's Chief
 /// settings read (`ChiefEngineReport` in CmuxNextDaemon).
-public struct ChiefEngineReport: Decodable, Sendable, Equatable {
-    public struct Engine: Decodable, Sendable, Equatable {
+public struct ChiefEngineReport: Codable, Sendable, Equatable {
+    public struct Engine: Codable, Sendable, Equatable {
         public var harness: String?
         /// The model turns run. On a Mac with #20531 it is resolved: the
         /// chosen model, else what the default resolves to
@@ -29,7 +29,7 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         }
     }
 
-    public struct Turn: Decodable, Sendable, Equatable {
+    public struct Turn: Codable, Sendable, Equatable {
         public var harness: String?
         public var model: String?
         public var status: String?
@@ -44,7 +44,7 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         }
     }
 
-    public struct Model: Decodable, Sendable, Equatable, Hashable {
+    public struct Model: Codable, Sendable, Equatable, Hashable {
         public var id: String
         public var name: String
         /// On acpmux's "default" entry (#20531): the model id it resolves to.
@@ -62,7 +62,7 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         }
     }
 
-    public struct Offered: Decodable, Sendable, Equatable {
+    public struct Offered: Codable, Sendable, Equatable {
         public var models: [Model] = []
         public var efforts: [String] = []
         /// What the default resolves to (#20531), {id, name}; nil when the
@@ -124,6 +124,17 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         avatarSupported = c.contains(.avatar)
         // A non-string avatar (a newer picture object) reads as none.
         avatar = Self.avatarText((try? c.decodeIfPresent(String.self, forKey: .avatar)) ?? nil)
+    }
+
+    /// The Mac's shape, so a report kept on this phone (``ChiefPreferences``)
+    /// decodes back the same: `avatar` only when the Mac sent one.
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(engine, forKey: .engine)
+        try c.encode(choice, forKey: .choice)
+        try c.encode(recent, forKey: .recent)
+        try c.encode(offered, forKey: .offered)
+        if avatarSupported { try c.encode(avatar ?? "", forKey: .avatar) }
     }
 
     /// Avatar text as Chief is drawn: trimmed, at most two characters, and
@@ -196,9 +207,17 @@ public struct ChiefControlError: Error, Sendable, Equatable, CustomStringConvert
 /// brain (the only writer of its engine file).
 public struct ChiefControl: Sendable {
     let client: DaemonClient
+    let clock: any Clock<Duration>
 
-    public init(client: DaemonClient) {
+    /// How long the phone waits for an answer. The Mac's daemon gives
+    /// Chief 10 s (cmux-tui `chief_control.rs` `TIMEOUT`) and then answers
+    /// `unavailable` itself, so a live Mac always answers first; only a link
+    /// that went quiet reaches this, and the page says the Mac didn't answer.
+    public static let replyDeadline: Duration = .seconds(20)
+
+    public init(client: DaemonClient, clock: any Clock<Duration> = ContinuousClock()) {
         self.client = client
+        self.clock = clock
     }
 
     public func engine() async throws -> ChiefEngineReport {
@@ -226,7 +245,8 @@ public struct ChiefControl: Sendable {
     }
 
     private func request<T: Decodable>(_ operation: String, params: sending [String: Any] = [:], mutation: Bool, key: String? = nil) async throws -> T {
-        let line = try await client.resourceRequest(operation, params: params, idempotencyKey: key)
+        let line = try await client.resourceRequest(operation, params: params, idempotencyKey: key,
+                                                    deadline: Self.replyDeadline, clock: clock)
         return try Self.decode(line, mutation: mutation)
     }
 

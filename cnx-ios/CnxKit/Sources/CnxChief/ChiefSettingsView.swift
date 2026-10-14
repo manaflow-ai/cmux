@@ -16,8 +16,8 @@ public struct ChiefSettingsView: View {
     let session: ChiefSession
     @Environment(\.dismiss) private var dismiss
     @State private var report: ChiefEngineReport?
+    /// A change or stop the Mac did not take (a failed read is the session's ``ChiefSession/engineProblem``).
     @State private var engineError: String?
-    @State private var loading = false
     @State private var saving = false
     @State private var stopping = false
     @State private var stopNote: String?
@@ -42,6 +42,9 @@ public struct ChiefSettingsView: View {
                 if hasControl, !(report?.recent.isEmpty ?? true) { recentSection }
                 notificationsSection
                 if hasControl { identitySection }
+                #if DEBUG
+                diagnosticsSection
+                #endif
                 Section {
                 } footer: {
                     Text("Chief's memory and traces open on the Mac.")
@@ -58,8 +61,11 @@ public struct ChiefSettingsView: View {
                         .accessibilityIdentifier("chief.settings.done")
                 }
             }
-            // Loads again once Chief connects with the sheet open.
-            .task(id: hasControl) { await load() }
+            // Reads Chief's engine now, and again with backoff while the
+            // Mac or its model server is down, until the sheet closes; again
+            // once Chief connects with the sheet open.
+            .task(id: hasControl) { await session.watchEngine() }
+            .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
             // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
             .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }
             .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation { receipts = on } } }
@@ -103,6 +109,10 @@ public struct ChiefSettingsView: View {
             if !hasControl {
                 Text("Connect to your Mac to choose Chief's model.")
                     .foregroundStyle(.secondary)
+                if let report, let model = Self.currentModelName(report) {
+                    LabeledContent("Model", value: model)
+                        .accessibilityIdentifier("chief.settings.lastModel")
+                }
             } else if let report {
                 Picker("Harness", selection: binding(\.harness, report.engine.harness ?? "claude")) {
                     ForEach(report.harnesses, id: \.self) { Text(Self.harnessName($0)).tag($0) }
@@ -129,15 +139,37 @@ public struct ChiefSettingsView: View {
                     }
                     .accessibilityIdentifier("chief.settings.effort")
                 }
-            } else if loading {
+            } else if session.engineProblem == nil {
                 HStack { ProgressView(); Text("Asking Chief on the Mac…").foregroundStyle(.secondary) }
+            }
+            // A failed read never replaces the model: it is said under it,
+            // with Try Again (the page also retries on its own).
+            if hasControl, let problem = session.engineProblem {
+                Text(problem.loadText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("chief.settings.problem")
+                Button {
+                    Task { await retry() }
+                } label: {
+                    HStack {
+                        Text("Try Again")
+                        if retrying { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(retrying)
+                .accessibilityIdentifier("chief.settings.retry")
+            }
+            // The model list is Chief's own; its model server shows in the
+            // turns: the newest one failed to reach it.
+            if hasControl, session.engineProblem == nil, let status = session.lastTurnFailure?.modelStatus {
+                Text(status)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("chief.settings.modelStatus")
             }
             if let engineError {
                 Text(engineError).font(.footnote).foregroundStyle(.red)
-                if report == nil, hasControl, !loading {
-                    Button("Try Again") { Task { await load() } }
-                        .accessibilityIdentifier("chief.settings.retry")
-                }
             }
             if hasControl, session.isTyping || stopping {
                 Button(role: .destructive) {
@@ -228,18 +260,12 @@ public struct ChiefSettingsView: View {
 
     // MARK: Actions
 
-    private func load() async {
-        guard let control = session.control else { return }
-        loading = true
-        defer { loading = false }
-        do {
-            let loaded = try await control.engine()
-            report = loaded
-            session.adopt(loaded)
-            engineError = nil
-        } catch {
-            engineError = Self.errorText(error, doing: .load)
-        }
+    @State private var retrying = false
+
+    private func retry() async {
+        retrying = true
+        defer { retrying = false }
+        await session.refreshEngine()
     }
 
     /// A picker bound to one engine field: picking writes it on the Mac and
@@ -293,7 +319,32 @@ public struct ChiefSettingsView: View {
         session.adopt(answer)
     }
 
+    #if DEBUG
+    /// The raw errors behind the plain sentences (DEBUG builds only).
+    private var diagnosticsSection: some View {
+        Section("Diagnostics") {
+            LabeledContent("Engine read", value: session.engineError.map { String(describing: $0) } ?? "OK")
+            LabeledContent("Report", value: session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
+            if let failure = session.lastTurnFailure {
+                LabeledContent("Last failed turn", value: failure.detail)
+            }
+        }
+        .font(.caption)
+        .textSelection(.enabled)
+        .accessibilityIdentifier("chief.settings.diagnostics")
+    }
+    #endif
+
     // MARK: Labels
+
+    /// The model turns run on, by name: the chosen one, else what the
+    /// default resolves to; nil when the report names none.
+    static func currentModelName(_ report: ChiefEngineReport) -> String? {
+        if let chosen = report.choice.model, chosen != "default" { return report.modelName(chosen) ?? chosen }
+        if let name = report.resolvedDefaultName { return name }
+        guard let model = report.engine.model, model != "default" else { return nil }
+        return report.modelName(model) ?? model
+    }
 
     static func defaultLabel(_ current: String?) -> String {
         current.map { String(localized: "Default (\($0))") } ?? String(localized: "Default")
@@ -306,7 +357,7 @@ public struct ChiefSettingsView: View {
         defaultLabel(report.resolvedDefaultName)
     }
 
-    enum Action { case load, change, stop }
+    enum Action { case change, stop }
 
     /// A sentence for the page (F2); the raw error goes to the log only.
     /// Refusals the Mac explains (no Chief, not allowed, a bad avatar) keep
@@ -322,8 +373,13 @@ public struct ChiefSettingsView: View {
             }
         }
         if let backend = error as? ConversationBackendError, backend.code == -1 { return backend.message }
+        // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
+        switch ChiefEngineProblem(error) {
+        case .macUnreachable: return String(localized: "Your Mac didn't answer. Check that it's on and connected, then try again.")
+        case .chiefBusy: return String(localized: "Chief on your Mac is busy and didn't answer in time. Try again.")
+        default: break
+        }
         return switch action {
-        case .load: String(localized: "Chief on your Mac didn't answer. Try again.")
         case .change: String(localized: "Chief on your Mac didn't take the change. Try again.")
         case .stop: String(localized: "Chief on your Mac didn't stop. Try again.")
         }

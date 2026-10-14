@@ -106,6 +106,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     private func open(_ item: FeedItem) {
         store.markRead(item.id)
+        // A terminal agent's event opens its terminal tab (Workspaces), not a chat.
+        if item.opensTerminal, let openTerminal = FeedRouting.shared.openTerminal {
+            openTerminal(item)
+            return
+        }
         path.append(AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID))
     }
 

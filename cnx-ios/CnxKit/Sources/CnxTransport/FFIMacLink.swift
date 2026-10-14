@@ -33,6 +33,11 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     public func resetWarmState() async {
         await CnxFFI.resetWarmState()
     }
+
+    public func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
+        await CnxFFI.networkChanged(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
+            .map { ($0.name, $0.millis) }
+    }
 }
 
 final class FFIMacLink: TimedMacLink, @unchecked Sendable {
@@ -79,6 +84,12 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 
     func close() async {
         handle.close()
+    }
+}
+
+extension FFIMacLink: NetworkChangeProbing {
+    func networkChangeProbe(roam: Bool, windowMillis: UInt32) async -> String {
+        await handle.debugNetworkChangeProbe(roam: roam, windowMs: windowMillis)
     }
 }
 

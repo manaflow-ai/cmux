@@ -15,6 +15,7 @@ pub mod chief_policy;
 pub mod config;
 pub mod control;
 pub mod host;
+pub mod netwatch;
 pub mod notify;
 pub mod pairing;
 pub mod policy;
