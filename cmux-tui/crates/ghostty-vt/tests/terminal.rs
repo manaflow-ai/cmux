@@ -1232,3 +1232,27 @@ fn completed_oversized_kitty_chunk_is_not_can_recoverable() {
     assert!(term.vt_replay_resumes_stream());
     assert!(term.discard_unreplayable_replay().is_none());
 }
+
+#[test]
+fn completed_kitty_overflow_blocks_later_control_string_recovery() {
+    for size in [1024, 1_048_577] {
+        for header in [b"\x1b_Gm=0;".as_slice(), b"\x1b]2;"] {
+            let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+            term.set_kitty_inflight_storage_limit(64);
+            let mut first = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+            first.resize(1024, b'A');
+            first.extend_from_slice(b"\x1b\\");
+            term.vt_write(&first);
+
+            let mut active = header.to_vec();
+            active.resize(size, b'B');
+            term.vt_write(&active);
+
+            assert!(
+                term.discard_unreplayable_replay().is_none(),
+                "CAN cannot recover a lost completed prefix: header={header:?}, size={size}"
+            );
+            assert!(matches!(term.vt_replay_bounded(2 * 1024 * 1024), Err(Error::OutOfSpace)));
+        }
+    }
+}
