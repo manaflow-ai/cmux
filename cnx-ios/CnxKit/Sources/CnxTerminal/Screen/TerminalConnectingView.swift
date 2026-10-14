@@ -18,11 +18,15 @@ public struct TerminalConnectingView: View {
     /// dropped link): shown dimmed instead of the skeleton, under the same
     /// label, so the user sees their terminal at once and that it is not live.
     let lastFrame: UIImage?
+    /// Whether the glass label shows. A workspace tab says "Reattaching…"
+    /// in its title pill instead (SPEC P5), so its page draws no caption.
+    let showsLabel: Bool
 
-    public init(state: TerminalConnectionState, topInset: CGFloat = 0, lastFrame: UIImage? = nil) {
+    public init(state: TerminalConnectionState, topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsLabel: Bool = true) {
         self.state = state
         self.topInset = topInset
         self.lastFrame = lastFrame
+        self.showsLabel = showsLabel
     }
 
     /// Line widths of the skeleton, as fractions of the width: a prompt, some
@@ -62,7 +66,7 @@ public struct TerminalConnectingView: View {
             } else {
                 skeleton
             }
-            if let label = state.label {
+            if showsLabel, let label = state.label {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(verbatim: label)

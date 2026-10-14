@@ -20,3 +20,78 @@ public struct KeyBarClipping: Sendable {
         return key.midX > visible.minX && key.midX < visible.maxX
     }
 }
+
+/// The key bar scroller's edge fades (SPEC B2): 12 pt gradient masks, the
+/// leading one only once the row is scrolled (at rest the first key starts
+/// at a hard edge), the trailing one while more keys wait to the right.
+public struct KeyBarScrollEdges: Equatable, Sendable {
+    public static let fade: CGFloat = 12
+
+    public var offset: CGFloat
+    public var contentWidth: CGFloat
+    public var visibleWidth: CGFloat
+
+    public init(offset: CGFloat = 0, contentWidth: CGFloat = 0, visibleWidth: CGFloat = 0) {
+        self.offset = offset
+        self.contentWidth = contentWidth
+        self.visibleWidth = visibleWidth
+    }
+
+    public var fadesLeading: Bool { offset > 0.5 }
+    public var fadesTrailing: Bool { offset + visibleWidth < contentWidth - 0.5 }
+}
+
+/// One rule for when the key bar shows (SPEC M4), in mock and live alike:
+/// whenever the terminal or its composer has focus, with the soft keyboard
+/// or a hardware keyboard (esc, ctrl, ^C and the arrows matter most on a
+/// hardware keyboard without them); never at rest.
+public struct KeyBarVisibility: Equatable, Sendable {
+    /// The soft keyboard as its notifications last described it.
+    public enum SoftKeyboard: Equatable, Sendable {
+        /// Not on screen (or a hardware keyboard replaced it).
+        case none
+        /// On screen, docked at the bottom.
+        case shown
+        /// Going away (it will-hide; the interactive dismissal ended).
+        case hiding
+    }
+
+    public enum Mode: Equatable, Sendable {
+        /// Folded away: the composer sits alone above the toolbar.
+        case hidden
+        /// 44 pt, clipped to the keyboard's height so it rides the keyboard's
+        /// own animation and interactive dismissal.
+        case followsKeyboard
+        /// 44 pt above the composer's resting line: focus with no soft keyboard.
+        case pinned
+    }
+
+    public var inputFocused = false
+    public var softKeyboard: SoftKeyboard = .none
+
+    public init(inputFocused: Bool = false, softKeyboard: SoftKeyboard = .none) {
+        self.inputFocused = inputFocused
+        self.softKeyboard = softKeyboard
+    }
+
+    public var mode: Mode {
+        guard inputFocused else { return .hidden }
+        return softKeyboard == .none ? .pinned : .followsKeyboard
+    }
+
+    /// A will-show or will-change-frame notification's end frame height (pt
+    /// on screen): a frame under 100 pt is a hardware keyboard's bar or none.
+    public mutating func keyboardWillShow(visibleHeight: CGFloat) {
+        softKeyboard = visibleHeight >= 100 ? .shown : .none
+    }
+
+    public mutating func keyboardWillHide() {
+        if softKeyboard == .shown { softKeyboard = .hiding }
+    }
+
+    /// The keyboard finished hiding; focus that outlives it is typing on a
+    /// hardware keyboard.
+    public mutating func keyboardDidHide() {
+        softKeyboard = .none
+    }
+}

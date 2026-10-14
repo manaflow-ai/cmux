@@ -65,8 +65,14 @@ class Journey:
             hang = {"where": where, "kind": "main thread busy, no accessibility", "cpu": cpu, "sample": os.path.basename(path)}
             self.sim.shot(f"hang-{len(self.hangs)+1}-{where}")
         self.hangs.append(hang)
+        try:
+            self.sim.launch(BUNDLE)
+        except RuntimeError as err:
+            # Not installed yet (a new simulator before fresh_install): nothing hung.
+            self.hangs.pop()
+            self.log(f"    app not launchable before {where} ({str(err)[:80]}); continuing")
+            return None
         self.log(f"    HANG after {where}: {hang}; relaunching the app")
-        self.sim.launch(BUNDLE)
         time.sleep(4)
         return hang
 
@@ -208,22 +214,56 @@ class Journey:
         check(kb, "software keyboard did not appear for direct typing")
         self.sim.dismiss_keyboard_intro()
 
-    PINNED_KEYS = ("Escape", "Control", "Alt")  # fixed at the key bar's leading edge
+    # Fixed at the key bar's leading edge (design/terminal B2): esc, ctrl and ^C.
+    # Alt and the rest (tab, arrows, ^D ^Z ^L, symbols, paste) live in the
+    # "More keys" scroller between them and the joystick / Hide Keyboard.
+    PINNED_KEYS = ("Escape", "Control", "Control C")
+
+    def keybar_scroller(self):
+        """The "More keys" scroller's x range, read from its frame (fallback: the 402 pt layout)."""
+        sc = [e for e in self.sim.find(label="More keys") if e.frame[2] > 40]
+        if sc:
+            x, _, w, _ = sc[0].frame
+            return (x, x + w)
+        return (178, 300)
 
     def keybar_lane(self, label):
-        # The rest scroll between the pinned keys (about x 175) and the joystick.
-        return (13, 175) if label in self.PINNED_KEYS else (178, 300)
+        lo, hi = self.keybar_scroller()
+        return (8, lo) if label in self.PINNED_KEYS else (lo, hi)
+
+    def keybar_pinned(self, label):
+        """A pinned key is always a visible button: no scrolling, find it and tap it."""
+        lo, _ = self.keybar_scroller()
+        hits = [e for e in self.sim.find(label=label, kind="Button") if e.frame[0] + e.frame[2] <= lo + 8]
+        check(hits, f"key bar has no pinned {label!r} (expected left of the More keys scroller at x {lo:.0f})")
+        return hits[0]
 
     def keybar_reveal(self, label):
-        e = self.sim.reveal_h(dict(label=label, kind="Button"), lane=self.keybar_lane(label), tries=30)
+        if label in self.PINNED_KEYS:
+            return self.keybar_pinned(label)
+        lane = self.keybar_lane(label)
+        # Keys scrolled out of the row are hidden from accessibility
+        # (KeyBarClipping), so the rig cannot aim at one it does not see: page
+        # the scroller forward, then back, until the key is listed.
+        sc = [e for e in self.sim.find(label="More keys") if e.frame[2] > 40]
+        y = sc[0].center[1] if sc else None
+        for direction in (1, -1):
+            for _ in range(6):
+                if self.sim.find(label=label, kind="Button") or y is None:
+                    break
+                lo, hi = lane
+                if direction > 0:
+                    self.sim.drag(hi - 8, y, lo + 8, y, duration=0.4, hold=0.2)
+                else:
+                    self.sim.drag(lo + 8, y, hi - 8, y, duration=0.4, hold=0.2)
+                time.sleep(0.4)
+        e = self.sim.reveal_h(dict(label=label, kind="Button"), lane=lane, tries=30)
         check(e, f"key bar has no {label!r}")
         return e
 
     def keybar(self, label):
-        # The key bar scrolls between its left edge and the joystick / hide-keyboard buttons.
-        e = self.sim.reveal_h(dict(label=label, kind="Button"), lane=self.keybar_lane(label), tries=30)
-        check(e, f"key bar has no {label!r}")
-        return self.sim.tap_el(e)
+        # Pinned keys are tapped directly; the rest are scrolled into the lane first.
+        return self.sim.tap_el(self.keybar_reveal(label))
 
     def hide_keyboard(self):
         """Hides the software keyboard (the key bar's button, else a drag down on the page)."""
@@ -315,8 +355,16 @@ class Journey:
         if i is not None and self.sim.find(contains="Connect your Mac"):
             st = self.sim.wait(ident="connect-mac.status", timeout=30)
             notes.append(f"connect step: {st.label if st else 'no status'}")
-            self.sim.tap_q(label="Continue", kind="Button")
-            time.sleep(1.5)
+            # The page is still sliding in when its status shows; a tap then
+            # can be dropped (the rig stalled here on a loaded Mac: Continue
+            # never fired, then back_to_list swiped back to "Choose a space").
+            # Wait for the button to settle, and tap again if the page stays.
+            for attempt in range(3):
+                self.sim.tap_q(label="Continue", kind="Button")
+                time.sleep(1.5)
+                if not self.sim.find(contains="Connect your Mac"):
+                    break
+                notes.append(f"Continue tap {attempt + 1} did not advance")
         if self.sim.find(label="Turn on notifications"):
             self.sim.tap_q(label="Not now", kind="Button"); notes.append("notifications: Not now")
         check(self.sim.wait(label="Workspaces", kind="RadioButton", timeout=20), "never reached the tab bar")
@@ -511,9 +559,9 @@ class Journey:
         term = self.seed["term1"]
         notes, problems = [], []
         self.focus_terminal()
-        # Each key is revealed (the key bar scrolled) BEFORE anything is typed on the line.
-        # ^C interrupts a running command.
-        self.keybar_reveal("Control C")
+        # Each scrolling key is revealed (the key bar scrolled) BEFORE anything is typed
+        # on the line. ^C is pinned (design/terminal B2): one direct tap, no scrolling.
+        self.keybar_pinned("Control C")
         self.sim.softtype("sleep 300\n")
         time.sleep(1.5)
         self.keybar("Control C")
@@ -547,7 +595,7 @@ class Journey:
         after = self.mac_screen(term).get("text", "").rstrip().splitlines()[-1]
         if before != after:
             problems.append(f"scrolling the key bar sent keys: line {before!r} -> {after!r}")
-        self.keybar_reveal("Control C"); self.keybar("Control C")
+        self.keybar("Control C")
         # Joystick: drag left, the cursor moves.
         js = self.sim.find(label="Cursor joystick")
         if js:
@@ -558,7 +606,7 @@ class Journey:
             self.sim.drag(cx, cy, cx - 40, cy, duration=0.6, hold=0.4)
             time.sleep(0.8)
             after = self.mac_screen(term).get("cursor_col")
-            self.keybar_reveal("Control C"); self.keybar("Control C")
+            self.keybar("Control C")
             if not (after is not None and before is not None and after < before):
                 problems.append(f"joystick did not move the cursor ({before} -> {after})")
             else:
@@ -595,9 +643,34 @@ class Journey:
         self.hide_keyboard()
         return f"vim wrote {path}; top ran and quit; shell responsive after (htop not installed)"
 
+    # design/terminal B1: the top content inset (under the status bar) and the
+    # slack allowed for "row 0 at the top": one 16.4 pt row plus OCR box padding.
+    TOP_INSET_PT = 62
+    TOP_ROW_SLACK_PT = 24
+
     def s_scrollback(self):
         self.open_seed_workspace()
         term = self.seed["term1"]
+        self.hide_keyboard()
+        # B1: after `clear` the short session draws from the top inset, with no
+        # blank rows above it to scroll into (a drag down only rubber-bands).
+        marker = f"B1TOP{self.run_id[-4:]}"
+        self.mac_write(term, f"clear; echo {marker}\n")
+        self.mac_wait_text(term, marker, timeout=8, count=1)
+        time.sleep(1.5)
+        top = self.sim.ocr_find(marker, timeout=6)
+        self.sim.shot(f"scroll-b1-top-{self.run_id}")
+        check(top, f"{marker} not on screen after clear")
+        y0 = min(h[1] for h in top)
+        check(y0 <= self.TOP_INSET_PT + self.TOP_ROW_SLACK_PT,
+              f"after clear the first row is at y {y0:.0f} pt, not at the top inset ({self.TOP_INSET_PT} pt): blank rows above (B1)")
+        for _ in range(2):
+            self.sim.drag(201, 250, 201, 650, duration=0.4, hold=0.2)
+        time.sleep(1.2)
+        again = self.sim.ocr_find(marker, timeout=4)
+        check(again and abs(min(h[1] for h in again) - y0) <= 4,
+              f"a short session scrolled after a drag down (y {y0:.0f} -> {[round(h[1]) for h in again]}): a page of blank rows above (B1)")
+        b1 = f"B1: after clear the first row is at y {y0:.0f} pt and a short session does not scroll"
         self.mac_write(term, "clear; seq 1 400\n")
         self.mac_wait_text(term, "400", timeout=8)
         time.sleep(1.5)
@@ -613,7 +686,7 @@ class Journey:
         else:
             for _ in range(5):
                 self.sim.drag(201, 650, 201, 150, duration=0.3, hold=0.1)
-        return "scrolled back through 400 lines" + ("; jump-to-bottom tapped" if jump else "; no jump button found (dragged back)")
+        return b1 + "; scrolled back through 400 lines" + ("; jump-to-bottom tapped" if jump else "; no jump button found (dragged back)")
 
     def s_files_links(self):
         self.open_seed_workspace()
@@ -637,22 +710,58 @@ class Journey:
         link = self.sim.ocr_find("cmux.com")
         try:
             check(rows, f"Files and links did not list {sample}")
+            # The terminal now draws from the top (design/terminal B1), so its
+            # own `ls` line can show above the half sheet: tap the sheet's row.
+            rows = sorted(rows, key=lambda o: -o[1])
             x, y, w, h, _ = rows[0]
             self.sim.tap(201, y + h / 2)
-            prev = self.sim.ocr_find("hello from the Mac", timeout=10)
+            # Valid end states: the file's text, or the refusal view (the Mac shares no
+            # folder with this phone, design/terminal M7). Only a blank page fails.
+            prev, refusal = None, None
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                prev = self.sim.ocr_find("hello from the Mac")
+                if prev:
+                    break
+                refusal = self.preview_refusal()
+                if refusal:
+                    break
+                time.sleep(0.5)
             self.sim.shot(f"files-preview-{self.run_id}")
+            if refusal:
+                notes.append(f"preview refused: {refusal}")
+                return "; ".join([f"listed {os.path.basename(sample)}; preview shows the refusal (not blank)",
+                                  "link listed" if link else "link NOT listed"] + notes)
             if not prev:
                 src = self.sim.find(label="Source", kind="RadioButton")
                 if src:
                     self.sim.press(*src[0].center, hold=0.1)
                     shown = self.sim.ocr_find("hello from the Mac", timeout=6)
                     notes.append("Source view " + ("shows the text" if shown else "is blank too"))
-            check(prev, f"the Preview of {os.path.basename(sample)} stayed blank for 10 s (the Mac file has text)"
+            check(prev, f"the Preview of {os.path.basename(sample)} stayed blank for 10 s (no text, no refusal view)"
                         + ("; " + "; ".join(notes) if notes else ""))
         finally:
             for _ in range(2):
                 self.sim.drag(201, 470, 201, 870, 0.3, 20, 0.1); time.sleep(1)
         return "; ".join([f"listed and previewed {os.path.basename(sample)}", "link listed" if link else "link NOT listed"] + notes)
+
+    # ArtifactPreview's refusal view (CnxArtifacts ArtifactPreview.refusedIdentifier) and its copy.
+    PREVIEW_REFUSED_ID = "artifacts.preview.refused"
+    PREVIEW_REFUSAL_TEXT = ("Can't open this file", "Can’t open this file", "isn't sharing any folders",
+                            "isn’t sharing any folders")
+
+    def preview_refusal(self):
+        """What marks the preview as refused (the AX identifier or its text on screen), else None."""
+        if self.sim.find(ident=self.PREVIEW_REFUSED_ID):
+            return f"accessibility id {self.PREVIEW_REFUSED_ID}"
+        for text in self.PREVIEW_REFUSAL_TEXT:
+            if self.sim.find(contains=text):
+                return f"text {text!r}"
+        # OCR reads either apostrophe; match the words after it.
+        for text in ("open this file", "sharing any folders"):
+            if self.sim.ocr_find(text):
+                return f"text {text!r} (OCR)"
+        return None
 
     def s_image_upload(self):
         self.open_seed_workspace()

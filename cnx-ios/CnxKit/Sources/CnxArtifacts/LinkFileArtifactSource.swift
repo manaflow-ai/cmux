@@ -107,7 +107,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
             return .binary(description: "\(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))\n\(artifact.reference)")
         default:
             if data.isEmpty {
-                return .binary(description: "Empty file\n\(artifact.reference)")
+                return .binary(description: "\(ArtifactContent.emptyFileLine)\n\(artifact.reference)")
             }
             guard let text = String(data: data, encoding: .utf8) else {
                 return .binary(description: "Binary file, \(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))\n\(artifact.reference)")

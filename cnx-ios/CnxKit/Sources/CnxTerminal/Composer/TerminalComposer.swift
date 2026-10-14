@@ -12,6 +12,7 @@ import UniformTypeIdentifiers
 struct TerminalComposer: View {
     @Bindable var model: TerminalModel
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var showCamera = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -28,12 +29,15 @@ struct TerminalComposer: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             HStack(alignment: .bottom, spacing: 6) {
-                if model.uploader != nil { plusMenu }
+                if model.attachmentsAvailable { plusMenu }
                 field
                 sendButton
             }
         }
         .padding(6)
+        // The glass sits on 85 % of the terminal background, so rows that
+        // scroll under the composer are not legible through it (SPEC M3).
+        .background(Color(uiColor: CnxGhosttyApp.background).opacity(0.85), in: .rect(cornerRadius: 24, style: .continuous))
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 8)
         .animation(.smooth(duration: 0.3), value: model.attachments.count)
@@ -44,6 +48,14 @@ struct TerminalComposer: View {
             photoItems = []
             Task { await loadPhotos(items) }
         }
+        .fullScreenCover(isPresented: $showCamera) {
+            TerminalCameraPicker { image in
+                guard let data = image.jpegData(compressionQuality: 0.85) else { return }
+                model.addAttachment(ComposerAttachment(kind: .image, name: "Camera \(Self.stamp()).jpg",
+                                                       thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+            }
+            .ignoresSafeArea()
+        }
         .fileImporter(isPresented: $model.showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
             Task { await loadFiles(urls) }
@@ -51,13 +63,28 @@ struct TerminalComposer: View {
     }
 
     private var plusMenu: some View {
-        Menu {
+        // ChatGPT's order: Camera, Photos, Files. Paste leads only when the
+        // pasteboard holds an image or a file (SPEC P9).
+        let pasteFirst = UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs
+        return Menu {
+            if pasteFirst {
+                Section { pasteButton }
+            }
             Section {
+                if TerminalCameraPicker.isAvailable {
+                    Button("Camera", systemImage: "camera") { showCamera = true }
+                } else {
+                    Button {} label: {
+                        Label("Camera", systemImage: "camera")
+                        Text("No camera on this device")
+                    }
+                    .disabled(true)
+                }
                 Button("Photos", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
                 Button("Files", systemImage: "folder") { model.showFileImporter = true }
             }
-            Section {
-                Button("Paste", systemImage: "doc.on.clipboard") { pasteFromClipboard() }
+            if !pasteFirst {
+                Section { pasteButton }
             }
         } label: {
             Image(systemName: "plus")
@@ -68,6 +95,10 @@ struct TerminalComposer: View {
         }
         .tint(.primary)
         .accessibilityLabel("Add attachment")
+    }
+
+    private var pasteButton: some View {
+        Button("Paste", systemImage: "doc.on.clipboard") { pasteFromClipboard() }
     }
 
     private var field: some View {
@@ -86,8 +117,10 @@ struct TerminalComposer: View {
                     model.composerFocused = isFocused
                     if isFocused { model.composerFocusOnAppear = false }
                     if isFocused { model.directTyping = false }
+                    model.controller?.inputFocusChanged()
                 },
-                onReturn: { model.send() }
+                onReturn: { model.send() },
+                shouldInsert: { model.composerShouldInsert($0) }
             )
         }
         .padding(.leading, 4)
@@ -101,16 +134,17 @@ struct TerminalComposer: View {
         } label: {
             ZStack {
                 if model.isUploading {
-                    ProgressView().tint(Color(uiColor: .systemBackground))
+                    ProgressView().tint(.white)
                 } else {
                     Image(systemName: empty ? "return" : "arrow.up")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(empty ? Color.primary : Color(uiColor: .systemBackground))
+                        .foregroundStyle(empty ? Color.primary : Color.white)
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
             .frame(width: 36, height: 36)
-            .background(empty ? AnyShapeStyle(Color.primary.opacity(0.08)) : AnyShapeStyle(Color.primary), in: .circle)
+            // ↑ (send) is the primary action: accent fill, like the agent composer (SPEC P11).
+            .background(empty ? AnyShapeStyle(Color.primary.opacity(0.08)) : AnyShapeStyle(Color(uiColor: .systemBlue)), in: .circle)
         }
         .buttonStyle(.plain)
         .disabled(model.isUploading)
@@ -283,6 +317,39 @@ struct AttachmentStrip: View {
             .frame(height: 56)
             .background(Color.primary.opacity(0.08), in: .rect(cornerRadius: 12, style: .continuous))
         }
+    }
+}
+#endif
+
+#if os(iOS)
+/// UIImagePickerController's camera for the composer's Camera item (SwiftUI has no camera picker).
+struct TerminalCameraPicker: UIViewControllerRepresentable {
+    static var isAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+
+    let onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: TerminalCameraPicker
+        init(_ parent: TerminalCameraPicker) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage { parent.onImage(image) }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
 #endif

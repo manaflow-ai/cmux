@@ -136,10 +136,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 features: [.history, .pageMenu]
             )
         case .terminal:
+            let directory = tab.subtitle ?? workspace.directory
+            // "Reattaching…" replaces the directory in the pill only after a slow reattach (P5).
+            let status = terminal.statusSubtitle(for: tab)
             return TabsKitTab(
-                id: tab.id, kind: .terminal, title: tab.title, subtitle: tab.subtitle ?? workspace.directory,
+                id: tab.id, kind: .terminal, title: tab.title, subtitle: directory,
                 systemImage: "apple.terminal",
-                address: .title(tab.title, subtitle: tab.subtitle ?? workspace.directory, monospaced: true),
+                address: .title(tab.title, subtitle: status ?? directory, monospaced: status == nil),
                 navigation: TabsKitNavigationState(canGoBack: true),
                 features: [.history, .pageMenu],
                 statusBarStyle: .lightContent
@@ -367,7 +370,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
                                 isDestructive: action.isDestructive) { action.perform() }
             }
             let copy = TabsKitMenuItem(title: "Copy Directory", systemImage: "doc.on.doc") { UIPasteboard.general.string = tab.subtitle ?? workspace.directory }
-            return [own, [copy, leave], [close]].filter { !$0.isEmpty }
+            // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
+            // "All Workspaces" (Back leaves the workspace; design/terminal P1).
+            return [own, [copy], [close]].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             return [
