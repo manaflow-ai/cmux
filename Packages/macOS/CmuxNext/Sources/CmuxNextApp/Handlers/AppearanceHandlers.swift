@@ -150,12 +150,13 @@ enum AppearanceHandlers {
         context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)
     }
 
-    /// `ui.animations.<kind>`: flipped at once, then written (off, the default, removes the key).
+    /// `ui.animations.<kind>`: flipped at once, then written (its default removes the key).
     private static func toggleAnimation(_ kind: MotionKind, _ context: AppActionContext) throws {
         try requireUnmanaged(AnimationKindsSetting.path(kind), context)
         let on = !context.design.enabledAnimations.contains(kind)
         if on { context.design.enabledAnimations.insert(kind) } else { context.design.enabledAnimations.remove(kind) }
-        context.writeSetting("toggle \(kind.rawValue) animations", AnimationKindsSetting.path(kind), on ? .bool(true) : nil, reloadOnFailure: true)
+        let value: JSONValue? = on == AnimationKindsSetting.defaultEnabled.contains(kind) ? nil : .bool(on)
+        context.writeSetting("toggle \(kind.rawValue) animations", AnimationKindsSetting.path(kind), value, reloadOnFailure: true)
     }
 
     /// Body size in points: the override, else the density default.

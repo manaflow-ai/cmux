@@ -2186,6 +2186,15 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "The panes a zoom leaves fading out; Motion.exit(nearness:) lengthens it up to 25% for nearer panes, so the farthest (the 2x2 opposite corner) is gone first"
+   },
+   "tabOpen": {
+    "value": {
+     "response": 0.1,
+     "dampingFraction": 1
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A new tab growing in at its final slot and the tabs right of it making room, on one spring (ui.animations.newTab, on by default; Lawrence 2026-10-14: the tab-open motion of 10-11, about 7 frames / 115 ms). Visible end 118 ms."
    }
   },
   "springModel": {
@@ -2206,7 +2215,8 @@
    "value": [
     "move",
     "appear",
-    "disappear"
+    "disappear",
+    "tabOpen"
    ],
    "source": "cmux-tui/crates/cmux-motion (MotionSpring::is_structural); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionKinds.swift (MotionSpring.isStructural)",
    "use": "Springs that take or give up room. They follow motion.bounce; release, scroll and overlay springs keep their own damping."
@@ -2223,11 +2233,11 @@
   "kinds": {
    "value": {
     "paneAnimations": false,
-    "newTab": false,
+    "newTab": true,
     "newWorkspace": false
    },
    "source": "ui.paneAnimations / ui.animations.newTab / ui.animations.newWorkspace (cmux.json); cmux-tui/crates/cmux-motion (AnimationSwitches, MotionKind::config_path)",
-   "use": "Per-kind switches under ui.animationSpeed, all off by default (Lawrence 2026-10-14: no big animations by default): the change applies in one frame (no crossfade); true opts into its spring. paneAnimations: split grow-in, close, move, swap, zoom and unzoom, column reveal, screen switch, divider release. newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
+   "use": "Per-kind switches under ui.animationSpeed, paneAnimations and newWorkspace off by default (Lawrence 2026-10-14: no big animations by default), newTab on (Lawrence 2026-10-14: keep the tab-open motion); off applies the change in one frame (no crossfade). paneAnimations: split grow-in, close, move, swap, zoom and unzoom, column reveal, screen switch, divider release. newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
   },
   "fades": {
    "hover": {

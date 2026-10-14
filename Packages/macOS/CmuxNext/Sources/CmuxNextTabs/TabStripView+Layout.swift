@@ -71,6 +71,10 @@ extension TabStripView {
                     m = TabMotion(x: slot.x, width: grows ? 0 : slot.width, alpha: grows ? 0 : 1)
                 }
             }
+            // A tab growing in and the tabs right of it making room move on one spring (`tabOpen`),
+            // so the strip never overlaps; later moves go back to `move`.
+            if grows, !added.contains(slot.id) { (m.x.token, m.width.token) = (.tabOpen, .tabOpen) }
+            else if !grows, m.x.token == .tabOpen, m.x.isSettled { (m.x.token, m.width.token) = (.move, .move) }
             if drag?.id != slot.id { m.x.target = groupDragX(for: slot) ?? slot.x }
             if groups.isDragged(slot.id) { m.x.snap() }
             m.width.target = slot.width

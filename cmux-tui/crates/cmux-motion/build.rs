@@ -16,7 +16,7 @@ use std::path::PathBuf;
 const TOKENS: &str = "../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json";
 
 /// `motion.springs` keys in `MotionSpring` declaration order.
-const SPRINGS: [&str; 12] = [
+const SPRINGS: [&str; 13] = [
     "move",
     "appear",
     "disappear",
@@ -29,6 +29,7 @@ const SPRINGS: [&str; 12] = [
     "pinDrag",
     "zoom",
     "exit",
+    "tabOpen",
 ];
 /// `motion.fades` keys in `MotionFade` declaration order.
 const FADES: [&str; 12] = [

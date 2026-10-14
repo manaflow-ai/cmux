@@ -41,9 +41,12 @@ would do it, spring curves", "proper physics". Design:
 - Bounce: structural tokens (`move`, `appear`, `disappear`) are critically
   damped by default (never past the target); `ui.animations.bounce`
   "subtle" gives them bounce `motion.spring.subtleBounce` (0.15).
-- Per kind, under `ui.animationSpeed`, all off by default (Lawrence
-  2026-10-14: no big animations by default): `ui.paneAnimations` (pane
-  layout, rule 9), `ui.animations.newTab`, `ui.animations.newWorkspace`.
+- Per kind, under `ui.animationSpeed`: `ui.paneAnimations` (pane layout,
+  rule 9) and `ui.animations.newWorkspace` off by default (Lawrence
+  2026-10-14: no big animations by default), `ui.animations.newTab` on
+  (Lawrence 2026-10-14 after the instant build: keep the tab-open motion; a
+  new tab grows in at its slot on the `tabOpen` spring, response 0.1 s,
+  critically damped, visible end ~118 ms, the tabs right of it on the same spring).
   Off applies that change in one step; true opts into its spring. cmux-motion
   `MotionKind` / `AnimationSwitches` carry exactly these three keys
   (`MotionKind::config_path`). Palette: Toggle New Tab / New Workspace

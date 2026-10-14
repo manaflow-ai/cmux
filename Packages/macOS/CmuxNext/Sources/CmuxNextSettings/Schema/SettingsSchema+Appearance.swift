@@ -236,7 +236,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.ui.animations.newTab", "Animate New Tabs"),
                 help: SettingsText.keyed("settings.ui.animations.newTab.help",
                                         "A new tab grows into its place in the tab bar. Off shows it there at once."),
-                kind: .toggle, default: .bool(false), keywords: ["motion", "animation", "tab"]
+                kind: .toggle, default: .bool(AnimationKindsSetting.defaultEnabled.contains(.newTab)), keywords: ["motion", "animation", "tab"]
             ),
             SettingDescriptor(
                 AnimationKindsSetting.path(.newWorkspace), section: .appearance, group: look,

@@ -91,10 +91,13 @@ pub enum MotionSpring {
     /// (macOS `Motion.exit(nearness:)` lengthens it up to 25% for the
     /// panes nearer the zoomed one, so the farthest is gone first).
     Exit,
+    /// A new tab growing in at its final slot while the tabs right of it
+    /// make room, on one spring (`ui.animations.newTab`). Structural.
+    TabOpen,
 }
 
 impl MotionSpring {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Move,
         Self::Appear,
         Self::Disappear,
@@ -107,6 +110,7 @@ impl MotionSpring {
         Self::PinDrag,
         Self::Zoom,
         Self::Exit,
+        Self::TabOpen,
     ];
 
     /// The token's tuning at speed `fast` (design-tokens.json

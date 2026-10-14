@@ -9,9 +9,9 @@ public nonisolated enum MotionBounce: String, Sendable, CaseIterable, Codable {
     case subtle
 }
 
-/// The structural changes a user can turn animation on for one by one
-/// (`ui.animations.newTab`, `ui.animations.newWorkspace`; off by default:
-/// they apply in one frame), under `ui.animationSpeed`. Pane layout
+/// The structural changes a user can turn animation on or off one by one
+/// (`ui.animations.newTab`, on by default; `ui.animations.newWorkspace`, off
+/// by default: it applies in one frame), under `ui.animationSpeed`. Pane layout
 /// (splits, closes, zoom, divider release) is `ui.paneAnimations`
 /// (`Motion.animatesPaneLayout`).
 public nonisolated enum MotionKind: String, Sendable, CaseIterable, Codable {
@@ -26,7 +26,7 @@ nonisolated extension MotionSpring {
     /// setting; release, scroll and overlay springs keep their own damping.
     public var isStructural: Bool {
         switch self {
-        case .move, .appear, .disappear: true
+        case .move, .appear, .disappear, .tabOpen: true
         default: false
         }
     }

@@ -63,6 +63,9 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// The panes a zoom leaves fade out, faster than anything arrives
     /// (`Motion.exit(nearness:)`: the farthest first).
     case exit
+    /// A new tab growing in at its final slot while the tabs right of it make room, on one
+    /// spring (`ui.animations.newTab`, on by default). Structural.
+    case tabOpen
 
     /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
     /// or its Debug Settings override in DEV and NIGHTLY builds.

@@ -12,7 +12,7 @@ struct TabMotion {
 
     init(x: CGFloat, width: CGFloat, alpha: CGFloat) {
         self.x = Spring(value: x, token: .move, kind: .position)
-        self.width = Spring(value: width, token: width == 0 ? .appear : .move)
+        self.width = Spring(value: width, token: width == 0 ? .tabOpen : .move)
         self.alpha = Spring(value: alpha, token: .appear, epsilon: 0.004)
     }
 
