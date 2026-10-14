@@ -36,18 +36,12 @@ nonisolated struct RoutedAppCall: Sendable, Equatable {
     /// bare object answer resolved every Mac-side op to `undefined` (the
     /// CodeRouter page stayed on "Loading…").
     func answer(with capabilities: AppHostCapabilities) async -> (ok: Bool, body: AppJSON) {
-        // One tuple return after the do/catch: Swift 6.3 and 6.4 at -O drop the first element of
-        // a tuple returned from both an awaiting `do` and its `catch` (swiftlang/swift#92698,
-        // cx-21wc5); inlined into its Task, a successful call could answer `ok == false`.
-        let ok: Bool
-        let body: AppJSON
+        let ok: Bool, body: AppJSON // one return: swiftlang/swift#92698 drops `ok` at -O (cx-21wc5)
         do throws(AppHostCapabilityError) {
             let value = try await capabilities.handle(AppHostCapabilityRequest(app: app, op: op, params: params, origin: origin))
-            ok = true
-            body = .object(["value": value])
+            (ok, body) = (true, .object(["value": value]))
         } catch {
-            ok = false
-            body = Self.errorBody(code: error.code, message: error.message, retryable: error.retryable, details: error.details)
+            (ok, body) = (false, Self.errorBody(code: error.code, message: error.message, retryable: error.retryable, details: error.details))
         }
         return (ok, body)
     }
