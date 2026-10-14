@@ -139,7 +139,7 @@ impl Client {
     }
 
     /// A `session/new` sent from inside an acpmux session (its agent runs `acpmux new`,
-    /// `acpmux run`): tags the new session with that one (`hub::SPAWNED_BY_TAG`), so the chat
+    /// `acpmux run`): tags the new session with that one (`hub::views::SPAWNED_BY_TAG`), so the chat
     /// lists fold it under its parent. The session exists either way; a failed tag only lists
     /// it on its own.
     async fn tag_spawned_by(&self, reply: &Value) {
@@ -148,7 +148,7 @@ impl Client {
             return;
         };
         let Some(id) = reply.get("sessionId").and_then(Value::as_str) else { return };
-        let set = json!({ crate::hub::SPAWNED_BY_TAG: parent });
+        let set = json!({ crate::hub::views::SPAWNED_BY_TAG: parent });
         let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
     }
 
