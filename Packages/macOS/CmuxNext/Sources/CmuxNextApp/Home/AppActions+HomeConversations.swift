@@ -7,13 +7,15 @@ import Foundation
 /// The Home page's conversation actions (HomeActionCatalog): one path for
 /// the page's "+" menu, the File menu, the palette, `cmux action run` and
 /// the CLI verbs. Without arguments New Message, Invite and New Chief open
-/// their sheet on the Home page; with arguments they run headless and the
+/// their sheet on the Home page (the docked Home: a route of its page,
+/// AppActions+HomeDockRoutes); with arguments they run headless and the
 /// caller waits for the owner's answer (`ActionRegistry.track`).
 extension AppActions {
     static func bindHomeConversations(_ services: AppServices) {
         let registry = services.registry
         registry.bind("home.newMessage", invoke: { invocation in
             guard let to = invocation["to"]?.stringValue?.trimmingCharacters(in: .whitespaces), !to.isEmpty else {
+                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newMessage, services) }
                 homePage(services)?.presentNewMessage()
                 return
             }
@@ -24,6 +26,7 @@ extension AppActions {
         })
         registry.bind("home.invite", invoke: { invocation in
             guard let text = invocation["email"]?.stringValue, !text.isEmpty else {
+                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newInvite, services) }
                 homePage(services)?.presentInvite(prefill: "")
                 return
             }
@@ -35,6 +38,7 @@ extension AppActions {
         })
         registry.bind("home.newChief", invoke: { invocation in
             guard let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newChief, services) }
                 homePage(services)?.presentNewChief()
                 return
             }
@@ -64,6 +68,8 @@ extension AppActions {
                 registry.refuse(RefusalStrings.homeNotReady)
                 return
             }
+            // The docked Home: the page opens the conversation (its hash route) and the dock has the keyboard.
+            guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.conversation(id), services) }
             guard let page = homePage(services) else { return }
             page.show(ConversationID(id))
         })

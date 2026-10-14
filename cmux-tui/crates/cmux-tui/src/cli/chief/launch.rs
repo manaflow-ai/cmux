@@ -35,6 +35,8 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
     let socket = home.socket().map_err(|e| e.to_string())?;
     let session = home.session();
     std::fs::create_dir_all(home.state_dir()).map_err(|e| e.to_string())?;
+    // Asked for the Chief again: the app may restart its brain again.
+    let _ = std::fs::remove_file(home.shutdown_marker());
     let spec = OwnerSpec {
         session: session.clone(),
         socket: socket.clone(),
