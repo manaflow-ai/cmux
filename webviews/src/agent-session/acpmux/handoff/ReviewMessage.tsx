@@ -152,7 +152,11 @@ export function HandoffReviewMessage({
               <p>
                 {i === 0 ? s.source : s.target}: {agentDisplayName(session.harness)}
               </p>
-              <p title={session.enforcement.detail ?? s.unverifiedDetail}>
+              <p
+                /* tooltip-allow: the policy's enforcement detail, shown nowhere else */ title={
+                  session.enforcement.detail ?? s.unverifiedDetail
+                }
+              >
                 {s.nativePolicy}: {session.enforcement.policy}
               </p>
               <ul>

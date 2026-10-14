@@ -132,7 +132,13 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
             </output>
           )}
           {open && channel && (
-            <span className="hc-members" title={format("header.members", String(open.participants.length))}>
+            <span
+              className="hc-members"
+              /* tooltip-allow: faces and a count; the tooltip says what it counts */ title={format(
+                "header.members",
+                String(open.participants.length),
+              )}
+            >
               <span className="hc-members-faces" aria-hidden="true">
                 {open.participants.slice(0, 3).map((p) => (
                   <Avatar key={p.id} participant={p} size={22} />

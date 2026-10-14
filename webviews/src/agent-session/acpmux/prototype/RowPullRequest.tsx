@@ -7,7 +7,7 @@ export function RowPullRequest({ pullRequest }: { pullRequest: SessionPullReques
   const tone = pullRequest.state === "open" ? (pullRequest.checks ?? "none") : pullRequest.state;
   const checks = pullRequest.checks ? `, checks ${pullRequest.checks}` : "";
   return (
-    <span className="proto-row-pr" data-tone={tone} title={pullRequest.title}>
+    <span className="proto-row-pr" data-tone={tone}>
       <PullRequestIcon />
       <span aria-hidden="true">{pullRequest.number}</span>
       <span className="acpmux-hidden-label">{`Pull request ${pullRequest.number}, ${pullRequest.state}${checks}`}</span>

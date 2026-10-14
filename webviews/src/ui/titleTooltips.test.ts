@@ -4,7 +4,7 @@
 // Tooltips also carry a shortcut hint in the secondary ink, like the native one.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { installTooltips, tooltipWidth } from "./titleTooltips";
+import { installTooltips, TOOLTIP_DELAY, tooltipWidth } from "./titleTooltips";
 
 test("a tooltip for truncated text wraps up to its source's width, never narrower than the line", () => {
   // Untruncated: the standard tooltip width.
@@ -26,10 +26,14 @@ afterEach(() => {
   dom = undefined;
 });
 
-/** Hovers `element` and waits a frame: the tooltip shows on the next one. */
-async function hover(element: Element) {
+const frame = () => new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Hovers `element`, waits out the hover delay `wait` ms and a frame: the tooltip shows on the next one. */
+async function hover(element: Element, wait = TOOLTIP_DELAY) {
   element.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true }));
-  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  if (wait) await pause(wait);
+  await frame();
 }
 
 function page(body: string) {
@@ -101,15 +105,23 @@ test("an untruncated control's tooltip keeps the standard width and shows its sh
   expect(tip.querySelector(".ui-tooltip-hint")?.textContent).toBe("⌘T");
 });
 
-test("the first tooltip shows on the next frame after the first hover, with no delay", async () => {
-  // POLISH (Instant): tooltips open on the first frame, no hover delay on the first show.
-  const doc = page(`<button id="close" title="Close Tab"></button>`);
-  const button = doc.getElementById("close")!;
-  button.getBoundingClientRect = () => ({ left: 10, top: 10, width: 24, height: 24 }) as DOMRect;
-  await hover(button);
+test("the first tooltip waits the native hover delay; moving straight on, the next one shows at once", async () => {
+  // Leo, 2026-10-13: the native delay, not at once.
+  const doc = page(`<button id="close" title="Close Tab"></button><button id="new" title="New Tab"></button>`);
+  const [close, next] = [doc.getElementById("close")!, doc.getElementById("new")!];
+  for (const button of [close, next])
+    button.getBoundingClientRect = () => ({ left: 10, top: 10, width: 24, height: 24 }) as DOMRect;
   const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  await hover(close, TOOLTIP_DELAY / 2);
+  expect(tip.hidden).toBe(true);
+  await pause(TOOLTIP_DELAY / 2);
+  await frame();
   expect(tip.hidden).toBe(false);
   expect(tip.querySelector(".ui-tooltip-text")?.textContent).toBe("Close Tab");
+  close.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: next }));
+  await hover(next, 0);
+  expect(tip.hidden).toBe(false);
+  expect(tip.querySelector(".ui-tooltip-text")?.textContent).toBe("New Tab");
 });
 
 test("rows passing under a scroll do not flash their tooltips; the row under the pointer shows once it stops", async () => {
@@ -123,7 +135,7 @@ test("rows passing under a scroll do not flash their tooltips; the row under the
   expect(tip().hidden).toBe(false);
   doc.dispatchEvent(new dom!.window.Event("scroll"));
   a.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: b }));
-  await hover(b);
+  await hover(b, 0);
   expect(tip().hidden).toBe(true);
   await new Promise((resolve) => setTimeout(resolve, 400));
   expect(tip().hidden).toBe(false);

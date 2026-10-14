@@ -31,7 +31,10 @@ function Transfers({ transfers, strings }: { transfers: readonly FileTransfer[];
             <span className="cloud-item-detail">
               {transfer.state === "done" && transfer.bytes != null ? formatBytes(transfer.bytes, strings) : ""}
             </span>
-            <span className={`cloud-transfer-state state-${transfer.state}`} title={transfer.error}>
+            <span
+              className={`cloud-transfer-state state-${transfer.state}`}
+              /* tooltip-allow: the failure's detail, shown nowhere else */ title={transfer.error}
+            >
               {t(TRANSFER_LABEL[transfer.state])}
             </span>
           </li>

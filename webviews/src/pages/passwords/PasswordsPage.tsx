@@ -146,6 +146,7 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
             type="button"
             className="pw-button pw-export"
             disabled={!snap.sections.export || snap.sections.exportOff === true || disconnected}
+            // tooltip-allow: why the button is disabled
             title={
               !snap.sections.export
                 ? t("passwords.page.availableAfterUpdate")

@@ -95,7 +95,11 @@ export function SettingRow({
             </div>
           )}
           {error && (
-            <div className="row-error" role="alert" title={error.detail}>
+            <div
+              className="row-error"
+              role="alert"
+              /* tooltip-allow: the failure's detail, shown nowhere else */ title={error.detail}
+            >
               {row.key === "agents.chats.roots" && error.detail ? error.detail : error.message}
             </div>
           )}

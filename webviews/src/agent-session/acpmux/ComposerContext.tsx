@@ -409,7 +409,7 @@ function FolderMenu({
                   {folders.map((folder) => (
                     <MenuRadioItem key={folder.id} value={folder.id} className="acpmux-menu-item">
                       <ProjectBadge project={{ cwd: folder.id, label: folder.label }} />
-                      <span className="acpmux-menu-text" title={folder.id}>
+                      <span className="acpmux-menu-text">
                         <span className="acpmux-menu-label">{folder.label}</span>
                         <span className="acpmux-menu-description">{folder.detail ?? folder.id}</span>
                       </span>
@@ -567,7 +567,7 @@ function LocationPicker({
   const suggestions = shown.map((option) => option.id);
   if (typedPath && !suggestions.includes(typedPath)) suggestions.push(typedPath);
   return (
-    <span ref={control} className="acpmux-location-picker" title={selected}>
+    <span ref={control} className="acpmux-location-picker">
       <button
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"

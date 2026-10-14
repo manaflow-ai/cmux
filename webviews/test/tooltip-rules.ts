@@ -28,7 +28,7 @@ function pageFiles(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) return entry.name === "generated" || TOOLS.has(entry.name) ? [] : pageFiles(full);
-    return /\.tsx$/.test(entry.name) && !/\.(test|gallery)\.tsx$/.test(entry.name) ? [full] : [];
+    return entry.name.endsWith(".tsx") && !/\.(test|gallery)\.tsx$/.test(entry.name) ? [full] : [];
   });
 }
 
