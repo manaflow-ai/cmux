@@ -86,16 +86,18 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
             <Copy size={14} />
           </button>
           {/* The prompt's bookmark, the same mark as the thread minimap's dot and card. */}
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact cv-user__bookmark"
-            aria-pressed={mark.marked}
-            aria-label={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-            title={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-            onClick={mark.toggle}
-          >
-            <BookmarkIcon filled={mark.marked} size={14} />
-          </button>
+          {mark.can && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact cv-user__bookmark"
+              aria-pressed={mark.marked}
+              aria-label={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+              title={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+              onClick={mark.toggle}
+            >
+              <BookmarkIcon filled={mark.marked} size={14} />
+            </button>
+          )}
           {through !== undefined && (
             <button
               type="button"

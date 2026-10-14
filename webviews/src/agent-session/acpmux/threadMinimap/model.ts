@@ -8,8 +8,9 @@ export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
   index: number;
   id: string;
-  /// The bookmark key: session id, row id and a hash of the prompt, since every session numbers
-  /// its rows `user-<seq>` and a row's `at` is not stable across snapshots.
+  /// The turn's stable key: session id, row id and a hash of the prompt, since every session
+  /// numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots. Bookmarks use
+  /// the row id's seq instead (bookmarks.ts), which acpmux checks against its log.
   key: string;
   /// The prompt on one line.
   prompt: string;
@@ -86,11 +87,6 @@ export function jumpDuration(distance: number): number {
   return Math.round(200 + 200 * share);
 }
 
-/// A turn's stable key: session id, row id and a hash of the prompt, since every session numbers
-/// its rows `user-<seq>` and a row's `at` is not stable across snapshots. The transcript's own
-/// bookmark button (UserBubble) keys a prompt the same way.
-export const turnKey = (sessionId: string, rowId: string, text: string) => `${sessionId}#${rowId}#${hash(text)}`;
-
 /// Each prompt's turn and the reply it previews, by row object: rows are immutable, so a long
 /// chat's snapshot hashes and previews only the turns that changed.
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
@@ -121,7 +117,7 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previou
       const turn: MinimapTurn = {
         index: userIndex,
         id: user.id,
-        key: turnKey(sessionId, user.id, user.text ?? ""),
+        key: `${sessionId}#${user.id}#${hash(user.text ?? "")}`,
         prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
         reply: reply?.text ? replyPreview(reply.text) : [],
       };

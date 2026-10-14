@@ -1,6 +1,21 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { setBookmarkTransport } from "./bookmarks";
+
+// The gallery has no acpmux: the chat's marks live in this page, answered as acpmux answers them.
+const galleryMarks = new Map<string, Set<number>>();
+const marksOf = (sessionId: string) => galleryMarks.get(sessionId) ?? new Set<number>();
+setBookmarkTransport({
+  get: async (sessionId) => ({ sessionId, bookmarks: [...marksOf(sessionId)] }),
+  set: async (sessionId, seq, bookmarked) => {
+    const marks = marksOf(sessionId);
+    if (bookmarked) marks.add(seq);
+    else marks.delete(seq);
+    galleryMarks.set(sessionId, marks);
+    return { sessionId, bookmarks: [...marks] };
+  },
+});
 
 const turns: Array<[string, string]> = [
   [
@@ -29,7 +44,7 @@ const turns: Array<[string, string]> = [
   ],
   [
     "Let me mark turns I want to revisit",
-    "Each preview has a bookmark button. Marks use the stable turn key and persist in the pane's local storage, so a reload keeps the overview useful.",
+    "Each preview has a bookmark button. Marks are saved with the chat in acpmux, so a reload, a restart or another pane keeps the overview useful.",
   ],
   [
     "Check the long-chat recording against the implementation",

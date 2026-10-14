@@ -70,8 +70,20 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
+// acpmux's bookmarks for the chat, answering at once (thread-bookmarks.test.tsx covers its replies).
+const acpmuxMarks = new Set<number>();
+setBookmarkTransport({
+  get: async (sessionId) => ({ sessionId, bookmarks: [...acpmuxMarks] }),
+  set: async (sessionId, seq, bookmarked) => {
+    if (bookmarked) acpmuxMarks.add(seq);
+    else acpmuxMarks.delete(seq);
+    return { sessionId, bookmarks: [...acpmuxMarks] };
+  },
+});
 
 afterAll(() => {
+  setBookmarkTransport(undefined);
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -87,7 +99,8 @@ const document = dom.window.document;
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
 const chat = (count: number) =>
   Array.from({ length: count }, (_, index) => [
-    row(`t${index}-user`, "user", `Question ${index}`),
+    // Prompt rows are `user-<seq>`, the seq acpmux logs them at (a bookmark names it).
+    row(`user-${index + 1}`, "user", `Question ${index}`),
     row(`t${index}-answer`, "assistant", `Answer ${index}.\n\nWith a second paragraph so the turn has height.`),
     { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
   ]).flat();
@@ -141,7 +154,7 @@ const rowTop = (id: string) =>
 /// top (the thread pads its rows 16 px down).
 const landing = (index: number) => {
   const total = parseFloat(document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
-  return Math.max(0, Math.min(16 + rowTop(`t${index}-user`) - 35, total - VIEWPORT));
+  return Math.max(0, Math.min(16 + rowTop(`user-${index + 1}`) - 35, total - VIEWPORT));
 };
 
 test("the rail shows from four prompts, and only with 48 px of room left of the column", async () => {
@@ -273,7 +286,7 @@ test("dragging on the rail scrubs: each row crossed jumps the transcript to it, 
 test("a bookmark shows as the tick's dot and in the prompt's row; the dot, the card and the row toggle it", async () => {
   const view = await mount(8);
   const rowButton = (index: number) =>
-    document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="t${index}-user"] .cv-user__bookmark`)!;
+    document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="user-${index + 1}"] .cv-user__bookmark`)!;
   try {
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
     expect(rowButton(2).getAttribute("aria-pressed")).toBe("false");

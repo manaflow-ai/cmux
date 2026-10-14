@@ -1,30 +1,45 @@
-// Bookmarked prompts as the rail, its card and the transcript's own prompt rows see them. The
-// marks live in bookmarks.ts (its store and persistence); this is the one place that reads its API,
-// so a change in how a mark is keyed stays here.
+// Bookmarked prompts as the rail, its card and the transcript's own prompt rows see them. acpmux
+// keeps the marks with the session (bookmarks.ts, `_acpmux/bookmark_set`): a mark is the seq of the
+// prompt's `user_message` record, which is its row id (`user-<seq>`). This is the one place that
+// reads that API, so the rail and the rows never key a mark on their own.
 import { createContext, useContext } from "react";
-import { useBookmarks } from "./bookmarks";
-import { turnKey } from "./model";
+import { promptSeq, useBookmarks } from "./bookmarks";
 
-/// A prompt as a mark names it: its row id and its key (model.ts turnKey).
-export type MarkedPrompt = { id: string; key: string };
+/// A prompt as a mark names it: its row id.
+export type MarkedPrompt = { id: string };
 
-/// The transcript's session, for prompt rows that key their own marks (VirtualTranscript provides it).
-export const PromptMarksSession = createContext<string>("");
+/// The transcript's session, for prompt rows that mark themselves (VirtualTranscript provides it).
+export const PromptMarksSession = createContext<string | undefined>(undefined);
 
-export function usePromptMarks(): {
+/// The session acpmux keeps marks for: none for a subagent's view (`<session>:subagent:<id>`), whose
+/// prompts are not the chat's.
+const markedSession = (sessionId: string | undefined) =>
+  sessionId && !sessionId.includes(":subagent:") ? sessionId : undefined;
+
+export function usePromptMarks(sessionId: string | undefined): {
   has: (prompt: MarkedPrompt) => boolean;
+  /// Whether a prompt can carry a mark: acpmux has logged it.
+  can: (prompt: MarkedPrompt) => boolean;
   toggle: (prompt: MarkedPrompt) => void;
-  /// Changes with every mark, for memoized consumers.
-  version: unknown;
 } {
-  const { marks, toggle } = useBookmarks();
-  return { has: (prompt) => marks.has(prompt.key), toggle: (prompt) => toggle(prompt.key), version: marks };
+  const session = markedSession(sessionId);
+  const { marks, toggle } = useBookmarks(session);
+  const can = (prompt: MarkedPrompt) => session !== undefined && promptSeq(prompt.id) !== undefined;
+  return {
+    has: (prompt) => {
+      const seq = promptSeq(prompt.id);
+      return seq !== undefined && marks.has(seq);
+    },
+    can,
+    toggle: (prompt) => {
+      const seq = promptSeq(prompt.id);
+      if (seq !== undefined) toggle(seq);
+    },
+  };
 }
 
 /// The mark of a transcript prompt row in the session being shown.
-export function usePromptRowMark(row: { id: string; text?: string }): { marked: boolean; toggle: () => void } {
-  const sessionId = useContext(PromptMarksSession);
-  const marks = usePromptMarks();
-  const prompt = { id: row.id, key: turnKey(sessionId, row.id, row.text ?? "") };
-  return { marked: marks.has(prompt), toggle: () => marks.toggle(prompt) };
+export function usePromptRowMark(row: { id: string }): { can: boolean; marked: boolean; toggle: () => void } {
+  const marks = usePromptMarks(useContext(PromptMarksSession));
+  return { can: marks.can(row), marked: marks.has(row), toggle: () => marks.toggle(row) };
 }

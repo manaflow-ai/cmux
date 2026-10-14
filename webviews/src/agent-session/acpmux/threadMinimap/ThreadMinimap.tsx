@@ -72,7 +72,7 @@ export function ThreadMinimap({
   width: number;
 }) {
   const t = useT();
-  const marks = usePromptMarks();
+  const marks = usePromptMarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   const turns = useMemo(() => {
     const next = minimapTurns(rows, sessionId, lastTurns.current);
@@ -239,7 +239,7 @@ export function ThreadMinimap({
         const turn = live.current.turns[index];
         if (!turn) return;
         // The bookmark dot's spot past the tick (the row's right end) toggles the mark.
-        if (target instanceof Element && target.closest("[data-dot-hit]")) {
+        if (target instanceof Element && target.closest("[data-dot-hit]") && live.current.marks.can(turn)) {
           live.current.marks.toggle(turn);
           return;
         }
@@ -358,16 +358,18 @@ export function ThreadMinimap({
         >
           <div className="acpmux-minimap__title">
             <span className="acpmux-minimap__prompt">{cardTurn.prompt}</span>
-            <button
-              type="button"
-              className="acpmux-minimap__bookmark"
-              aria-pressed={cardMarked}
-              aria-label={t(cardMarked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-              title={t(cardMarked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-              onClick={() => marks.toggle(cardTurn)}
-            >
-              <BookmarkIcon filled={cardMarked} />
-            </button>
+            {marks.can(cardTurn) && (
+              <button
+                type="button"
+                className="acpmux-minimap__bookmark"
+                aria-pressed={cardMarked}
+                aria-label={t(cardMarked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+                title={t(cardMarked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+                onClick={() => marks.toggle(cardTurn)}
+              >
+                <BookmarkIcon filled={cardMarked} />
+              </button>
+            )}
           </div>
           {cardTurn.reply.length > 0 && (
             <div className="acpmux-minimap__reply">
