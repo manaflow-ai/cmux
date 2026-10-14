@@ -3460,8 +3460,11 @@ jobs:
               python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
                 --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
             else
-              ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next
-              python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" \
+              # No prior published SHA means there is no safe span to summarize.
+              # Keep this first/same-head item maintenance-only rather than
+              # walking the whole repository history.
+              ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$NOTES_HEAD"
+              python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$NOTES_HEAD" \
                 --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
             fi
           fi
