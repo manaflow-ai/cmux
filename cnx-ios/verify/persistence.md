@@ -48,8 +48,19 @@ and the remembered Mac per team was lost.
   the app's usual Cancel/Remove alert): the linked Mac forgets the phone (signed
   `unpair`), this account's keys are deleted, and the link redials, so the Mac
   asks again. The device ids stay. Code: `LiveCoordinator.removeThisPhoneFromMacs`.
-- **Account deletion** forgets this account's keys, device ids, preferences
-  record and Feed read marks.
+- **Account deletion** forgets this account's keys, device ids, Mac pins,
+  preferences record and Feed read marks.
+- **Upgrading from an older build.** Older builds kept one unkeyed set (device
+  ids, keys, Mac pins, live preferences) and deleted it on every sign-out, so
+  a set that exists belonged to whoever was signed in. The first launch of this
+  build adopts it for that account when it is signed in. When it launches
+  signed out (that session ended without a sign-out here), it drops the set
+  (`AccountSignOut.settleLaunchSignedOut`), so the next account never inherits
+  it. Preferences written after a sign-out (a view saving as it fades out)
+  belong to nobody and are dropped at the next sign-in.
+- **Keychain read errors** (before the first unlock, say) never replace a
+  stored device id or key: the run uses a temporary id, and writes update in
+  place (`SecItemUpdate`, else add).
 
 ## Every item
 
@@ -60,7 +71,7 @@ and the remembered Mac per team was lost.
 | Identity key (Secure Enclave blob) | Keychain, `AfterFirstUnlockThisDeviceOnly`; the key needs no prompt | secret, device-bound | yes | **kept** | deleted |
 | Approval key (Secure Enclave blob) | Keychain item `AfterFirstUnlockThisDeviceOnly`; the key itself is `WhenUnlocked` + user presence | secret, device-bound | yes | **kept** | deleted |
 | The Mac's approval of this phone | Mac: `paired-devices.json` (0600, per Mac user) | trust | Mac user | **kept** | revoked (`unpair`) |
-| Pinned Mac identity keys | App Support `mac-pins.json`, complete file protection | public keys | no: keyed by Mac device id, which belongs to one owner | kept | kept |
+| Pinned Mac identity keys | App Support `mac-pins-<user>.json`, complete file protection | public keys | **yes** | kept | one shared `mac-pins.json` |
 | Push registration | Worker | identifier | n/a | unregistered | same |
 | Signed-in user cache, has-tokens flag | UserDefaults `cnx.auth.cachedUser`, `cnx.auth.hasTokens` (auth runtime) | low | n/a | cleared | same |
 | Selected team | UserDefaults `cnx.auth.selectedTeam` (auth runtime) | low | n/a | cleared; the service returns it at sign-in | same |
@@ -91,7 +102,7 @@ CnxKit, Swift Testing:
   `DeviceIdentityPersistenceTests`, `PhoneKeysPersistenceTests`,
   `RemoveThisPhoneUnpairTests`, `AccountSignOutTests`, `AccountPreferencesTests`,
   plus `MacPinTests`, `FeedReadMarksTests`, `DiscoveryTests`,
-  `LastOpenRestoreTests`: 43 tests, all pass.
+  `LastOpenRestoreTests`: 47 tests, all pass (after the review fixes).
 - iOS 26 simulator (`xcodebuild test -scheme CnxKit-Package`, `ARCHS=arm64
   ONLY_ACTIVE_ARCH=YES`, on `mini-cmuxs-mac-mini-3` because mini-2's disk was
   full): the same suites plus `RemoveThisPhoneCoordinatorTests`,

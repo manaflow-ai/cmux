@@ -36,6 +36,33 @@ import Testing
         #expect(DeviceIdentity.load(userID: "user-b", store: store, service: service).link != adopted.link)
     }
 
+    /// A Keychain read that fails (say before the first unlock) never replaces the stored id.
+    @Test func anUnreadableIdIsNeverReplaced() throws {
+        final class Locked: DeviceSecretStore, @unchecked Sendable {
+            let inner = MemorySecretStore()
+            var locked = false
+            func read(service: String, account: String) throws -> Data? {
+                if locked { throw KeychainSecretStore.Failure(status: -25308) }
+                return try inner.read(service: service, account: account)
+            }
+            func write(_ data: Data, service: String, account: String) throws { try inner.write(data, service: service, account: account) }
+            func delete(service: String, account: String) { inner.delete(service: service, account: account) }
+        }
+        let store = Locked()
+        let first = DeviceIdentity.load(userID: "user-a", store: store, service: service)
+        store.locked = true
+        #expect(DeviceIdentity.load(userID: "user-a", store: store, service: service).link != first.link)
+        store.locked = false
+        #expect(DeviceIdentity.load(userID: "user-a", store: store, service: service) == first)
+    }
+
+    @Test func aSignedOutLaunchDiscardsAnOlderBuildsIds() throws {
+        let store = MemorySecretStore()
+        try store.write(Data("11111111-1111-1111-1111-111111111111".utf8), service: service, account: "link")
+        DeviceIdentity.discardLegacy(store: store, service: service)
+        #expect(DeviceIdentity.load(userID: "user-b", store: store, service: service).link != "11111111-1111-1111-1111-111111111111")
+    }
+
     @Test func accountDeletionForgetsOnlyThatAccountsIds() {
         let store = MemorySecretStore()
         let a = DeviceIdentity.load(userID: "user-a", store: store, service: service)

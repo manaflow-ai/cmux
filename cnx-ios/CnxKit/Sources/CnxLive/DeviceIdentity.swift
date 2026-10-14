@@ -43,11 +43,26 @@ public struct DeviceIdentity: Sendable, Equatable {
 
     static func account(_ kind: String, _ userID: String) -> String { "\(kind).\(userID)" }
 
+    /// A launch while signed out, before this build ever recorded an account:
+    /// the unkeyed ids of an older build belonged to a session that has ended
+    /// (older builds deleted them on sign-out), so nobody adopts them.
+    public static func discardLegacy(store: any DeviceSecretStore = KeychainSecretStore(),
+                                     service: String = defaultService) {
+        for kind in ["link", "presence"] { store.delete(service: service, account: kind) }
+    }
+
     static func id(userID: String, kind: String, store: any DeviceSecretStore, service: String) -> String {
         let account = account(kind, userID)
         store.adopt(service: service, from: kind, to: account)
-        if let data = try? store.read(service: service, account: account),
-           let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil {
+        let stored: Data?
+        do {
+            stored = try store.read(service: service, account: account)
+        } catch {
+            // Unreadable now (say before the first unlock): never replace the stored
+            // id, which the Mac approved; this run uses a temporary one.
+            return UUID().uuidString.lowercased()
+        }
+        if let stored, let value = String(data: stored, encoding: .utf8), UUID(uuidString: value) != nil {
             return value
         }
         let value = UUID().uuidString.lowercased()

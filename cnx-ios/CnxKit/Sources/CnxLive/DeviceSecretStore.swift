@@ -16,9 +16,14 @@ extension DeviceSecretStore {
     /// migration). Returns whether anything moved.
     @discardableResult
     func adopt(service: String, from legacy: String, to account: String) -> Bool {
-        guard (try? read(service: service, account: account)) == .some(nil),
-              let data = try? read(service: service, account: legacy) else { return false }
-        guard (try? write(data, service: service, account: account)) != nil else { return false }
+        // Only when the target is known to be missing (a read error is not "missing").
+        do {
+            guard try read(service: service, account: account) == nil,
+                  let data = try read(service: service, account: legacy) else { return false }
+            try write(data, service: service, account: account)
+        } catch {
+            return false
+        }
         delete(service: service, account: legacy)
         return true
     }
@@ -49,11 +54,15 @@ public struct KeychainSecretStore: DeviceSecretStore {
     }
 
     public func write(_ data: Data, service: String, account: String) throws {
-        SecItemDelete(query(service, account) as CFDictionary)
-        var q = query(service, account)
-        q[kSecValueData as String] = data
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(q as CFDictionary, nil)
+        // Update in place, so a failed write never loses the item it replaces.
+        let attributes: [String: Any] = [kSecValueData as String: data,
+                                         kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+        var status = SecItemUpdate(query(service, account) as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var q = query(service, account)
+            q.merge(attributes) { $1 }
+            status = SecItemAdd(q as CFDictionary, nil)
+        }
         guard status == errSecSuccess else { throw Failure(status: status) }
     }
 

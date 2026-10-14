@@ -147,6 +147,7 @@ public final class LiveCoordinator {
         snapshots: LiveSnapshotStore = .standard,
         secrets: any DeviceSecretStore = KeychainSecretStore(),
         readMarks: FeedReadMarks? = nil,
+        pins: MacPins? = nil,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.secrets = secrets
@@ -157,7 +158,7 @@ public final class LiveCoordinator {
         self.identity = identity
         self.userID = userID
         self.deviceName = deviceName
-        pairing = keys.map { LinkPairing(keys: $0, phoneID: identity.link, name: deviceName) }
+        pairing = keys.map { LinkPairing(keys: $0, phoneID: identity.link, name: deviceName, pins: pins ?? .forAccount(userID)) }
         self.clock = clock
         workspaces = WorkspaceSync(deviceID: identity.link, deviceName: deviceName)
         let apiForLink = api
@@ -923,11 +924,12 @@ public final class LiveCoordinator {
         if let link = currentLink, let macID = self.link.target?.macID {
             await pairing.unpair(link: link, macID: macID)
         }
-        pairing.keys.reset()
-        removedFromMacsCount += 1
-        // Drop the link that the Mac approved with the old keys, and dial again.
+        // Drop the link the Mac approved with the old keys before they go, so
+        // nothing on it loads (and so makes) new keys mid-removal; then dial again.
         let target = self.link.target
         self.link.send(.target(nil))
+        pairing.keys.reset()
+        removedFromMacsCount += 1
         if target != nil { retarget() }
     }
 
@@ -936,6 +938,7 @@ public final class LiveCoordinator {
     public func forgetThisPhone() {
         accountDeleted = true
         pairing?.keys.reset()
+        pairing?.pins.removeAll()
         DeviceIdentity.forget(userID: userID, store: secrets)
     }
 

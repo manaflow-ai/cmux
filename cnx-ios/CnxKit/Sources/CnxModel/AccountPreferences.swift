@@ -36,32 +36,41 @@ public final class AccountPreferences: @unchecked Sendable { // crash-allow: Use
     }
 
     /// The user whose preferences are live, if any.
-    public var currentUserID: String? { defaults.string(forKey: Self.currentKey) }
+    public var currentUserID: String? {
+        guard let value = defaults.string(forKey: Self.currentKey), !value.isEmpty else { return nil }
+        return value
+    }
+
+    /// Whether this build has ever recorded an account here (signed in or out).
+    /// False only on the first launch after an older build, or a fresh install.
+    public var hasRecord: Bool { defaults.string(forKey: Self.currentKey) != nil }
 
     /// Sign-in (and every launch while signed in): makes `userID`'s preferences live.
     ///
     /// - Another account's live preferences (a sign-out that never finished)
     ///   are put away under that account first.
-    /// - With no account recorded (a build before this, or a fresh install),
-    ///   the live preferences already belong to the signed-in account: earlier
+    /// - After a sign-out, whatever was written to the live keys since (a view
+    ///   saving while it faded out) belongs to nobody and is dropped.
+    /// - With no record at all (the first launch after an older build), the
+    ///   live preferences already belong to the signed-in account: earlier
     ///   builds deleted them on every sign-out. They are kept as `userID`'s.
     public func activate(userID: String) {
-        let current = currentUserID
-        if current == userID { return }
-        if let current { stash(userID: current) }
+        let marker = defaults.string(forKey: Self.currentKey)
+        if marker == userID { return }
+        if let current = currentUserID { stash(userID: current) }
+        if marker != nil {
+            for key in liveKeys { defaults.removeObject(forKey: key) }
+        }
         if let record = defaults.dictionary(forKey: Self.recordKey(userID)) {
             for key in liveKeys { defaults.removeObject(forKey: key) }
             for (key, value) in record where Self.moves(key) { defaults.set(value, forKey: key) }
             defaults.removeObject(forKey: Self.recordKey(userID))
-        } else if current != nil {
-            // Another account's preferences were put away: this one starts clean.
-            for key in liveKeys { defaults.removeObject(forKey: key) }
         }
         defaults.set(userID, forKey: Self.currentKey)
     }
 
     /// Sign-out: puts the live preferences away under `userID` (the account
-    /// signing out) and clears the live keys.
+    /// signing out), clears the live keys, and marks that nobody owns them.
     public func stash(userID: String) {
         var record: [String: Any] = [:]
         for key in liveKeys {
@@ -73,7 +82,28 @@ public final class AccountPreferences: @unchecked Sendable { // crash-allow: Use
         } else {
             defaults.set(record, forKey: Self.recordKey(userID))
         }
-        if currentUserID == userID { defaults.removeObject(forKey: Self.currentKey) }
+        defaults.set("", forKey: Self.currentKey)
+    }
+
+    /// A launch while signed out. With no record (the first launch after an
+    /// older build whose session has since ended without a sign-out), the live
+    /// preferences belong to no one who can be told apart: they are dropped,
+    /// so the next account never inherits them. Returns whether that happened
+    /// (the caller then discards the older build's device secrets too).
+    @discardableResult
+    public func settleSignedOut() -> Bool {
+        guard !hasRecord else { return false }
+        for key in liveKeys { defaults.removeObject(forKey: key) }
+        defaults.set("", forKey: Self.currentKey)
+        return true
+    }
+
+    /// `key`'s value for `userID` without making anything live: the live value
+    /// when the account is live (or no account was ever recorded), else its record.
+    public func value(_ key: String, userID: String) -> Any? {
+        let marker = defaults.string(forKey: Self.currentKey)
+        if marker == userID || marker == nil { return defaults.object(forKey: key) }
+        return defaults.dictionary(forKey: Self.recordKey(userID))?[key]
     }
 
     /// Account deletion: the account's record goes (live keys are cleared by sign-out).

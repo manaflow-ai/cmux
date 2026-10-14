@@ -132,6 +132,13 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
         }
     }
 
+    /// A launch while signed out, before this build ever recorded an account:
+    /// the unkeyed keys of an older build belonged to a session that has ended.
+    public static func discardLegacy(service: String = PhoneKeys.defaultService,
+                                     store: any DeviceSecretStore = KeychainSecretStore()) {
+        for kind in ["identity", "approval"] { store.delete(service: service, account: kind) }
+    }
+
     /// Whether this account has keys on this phone (no key is made).
     public var hasStoredKeys: Bool {
         (try? store.read(service: service, account: account("identity"))) != nil

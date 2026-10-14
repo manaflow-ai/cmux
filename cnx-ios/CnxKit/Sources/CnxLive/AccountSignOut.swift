@@ -20,8 +20,8 @@ extension LiveCoordinator: SignOutSession {}
 
 /// Sign-out on this phone (verify/persistence.md).
 ///
-/// It keeps the phone's identity: its device ids, its Secure Enclave keys and
-/// the Macs it pinned, all kept per account. The Mac admits only a dial whose
+/// It keeps the phone's identity for the account: its device ids, its Secure
+/// Enclave keys and the Macs it pinned, each kept per account. The Mac admits only a dial whose
 /// backend-stamped `fromUserId` is its own user, from a device id that user
 /// registered, proving keys that user approved; so another account signing in
 /// here reaches none of those Macs, and the same account signing in again is
@@ -58,6 +58,17 @@ public struct AccountSignOut {
     public func willSignOut(unregisterPush: @escaping @MainActor @Sendable () async -> Void)
         -> @MainActor @Sendable () async -> Void {
         { await unregisterPush() }
+    }
+
+    /// A launch while signed out: on the first launch after an older build
+    /// (no account recorded), its unkeyed device ids, keys, Mac pins and live
+    /// preferences belonged to a session that ended without a sign-out here,
+    /// so they are dropped instead of going to the next account.
+    public func settleLaunchSignedOut(secrets: any DeviceSecretStore = KeychainSecretStore()) {
+        guard preferences.settleSignedOut() else { return }
+        DeviceIdentity.discardLegacy(store: secrets)
+        PhoneKeys.discardLegacy(store: secrets)
+        try? FileManager.default.removeItem(at: MacPins.standardURL)
     }
 
     /// After the session ended. `userID` is the account that signed out.

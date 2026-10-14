@@ -12,6 +12,32 @@ public final class MacPins: @unchecked Sendable {
     public static let standard = MacPins(file: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
         .first!.appendingPathComponent("mac-pins.json"))
 
+    /// One account's pins (Application Support `mac-pins-<user>.json`). The
+    /// first call adopts the shared `mac-pins.json` of builds before per-account
+    /// pins (it belonged to the account signed in then).
+    public static func forAccount(_ userID: String) -> MacPins {
+        let legacy = standardURL
+        let safe = userID.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" ? String($0) : "_" }.joined()
+        let url = legacy.deletingLastPathComponent().appendingPathComponent("mac-pins-\(safe).json")
+        let files = FileManager.default
+        if !files.fileExists(atPath: url.path), files.fileExists(atPath: legacy.path) {
+            try? files.moveItem(at: legacy, to: url)
+        }
+        return MacPins(file: url)
+    }
+
+    static var standardURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("mac-pins.json")
+    }
+
+    /// Account deletion: this account's pins go.
+    public func removeAll() {
+        lock.withLock {
+            pins = [:]
+            if let file { try? FileManager.default.removeItem(at: file) }
+        }
+    }
+
     private let file: URL?
     private let lock = NSLock()
     private var pins: [String: String]

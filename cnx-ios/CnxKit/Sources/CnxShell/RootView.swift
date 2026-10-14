@@ -95,7 +95,15 @@ public struct RootView: View {
 
     private var destination: Destination {
         guard auth.isSignedIn else { return .welcome }
-        return setupComplete && !options.forceSetup ? .shell : .setup
+        return accountSetupComplete && !options.forceSetup ? .shell : .setup
+    }
+
+    /// Setup done for the signed-in account. Right after sign-in, before its
+    /// preferences are live, it reads the account's record, so the same
+    /// account signing in again never sees setup flash in.
+    private var accountSetupComplete: Bool {
+        guard !auth.isMock, let id = auth.user?.id, accountUserID != id else { return setupComplete }
+        return AccountPreferences.standard.value("cnx.setupComplete", userID: id) as? Bool ?? false
     }
 
     public var body: some View {
@@ -146,6 +154,7 @@ public struct RootView: View {
         .cnxAppLock(enabled: settings.requireFaceID)
         .task(id: auth.isResolved) {
             guard auth.isResolved, !launchFinished else { return }
+            if !auth.isSignedIn, !auth.isMock { AccountSignOut().settleLaunchSignedOut() }
             syncTeams()
             if destination == .welcome {
                 // Welcome draws the launch mark itself on its first frame and
