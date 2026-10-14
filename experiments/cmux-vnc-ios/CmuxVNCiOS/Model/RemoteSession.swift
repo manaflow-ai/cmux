@@ -59,7 +59,13 @@ final class RemoteSession {
     /// Stream displays (sizes) and the one streaming.
     @ObservationIgnored var onStreamDisplays: (([CGSize], Int) -> Void)?
     private(set) var streamPath = "WebRTC"
+    /// The stream dropped and is coming back on its own.
+    private(set) var isReconnecting = false
+    @ObservationIgnored private var reconnectAttempts = 0
+    @ObservationIgnored private var reconnectTask: Task<Void, Never>?
     var isStream: Bool { pairing?.isStream == true }
+    /// The saved host this session opened, so its menu choices are kept.
+    @ObservationIgnored var hostID: UUID?
     /// The remote pointer in framebuffer pixels.
     @ObservationIgnored private(set) var pointer = CGPoint(x: 100, y: 100)
 
@@ -170,20 +176,70 @@ final class RemoteSession {
             }
         }
         viewer.onPath = { [weak self] path in Task { @MainActor in self?.streamPath = path } }
-        viewer.onState = { [weak self] message in
-            Task { @MainActor in if let message { self?.phase = .failed(message: message, needsSignIn: false) } }
+        viewer.onState = { [weak self, weak viewer] message in
+            Task { @MainActor in
+                guard let self, let message, self.stream === viewer else { return }
+                self.streamDropped(message)
+            }
         }
         tasks.append(Task { [weak self] in
             do {
                 try await viewer.connect()
                 guard let self else { return }
+                reconnectAttempts = 0
+                isReconnecting = false
+                viewer.setQuality(preferences.quality)
                 phase = .connected(VNCServerInfo(width: 0, height: 0, name: pairing.name, nativeFormat: .bgrx,
                                                  protocolMinor: 8, securityType: 0))
                 await pollStreamStats(viewer)
             } catch {
-                self?.phase = .failed(message: "Could not reach the Mac: \(error)", needsSignIn: false)
+                guard let self, stream === viewer else { return }
+                if isReconnecting {
+                    streamDropped("Could not reach the Mac: \(error)")
+                } else {
+                    phase = .failed(message: "Could not reach the Mac: \(error)", needsSignIn: false)
+                }
             }
         })
+    }
+
+    /// The stream ended without the user closing it: reconnect a few times
+    /// (backing off) before showing the error.
+    private func streamDropped(_ message: String) {
+        guard reconnectAttempts < 5 else {
+            isReconnecting = false
+            phase = .failed(message: message, needsSignIn: false)
+            return
+        }
+        reconnectAttempts += 1
+        isReconnecting = true
+        phase = .connecting
+        let delay = reconnectAttempts == 1 ? 0 : min(pow(2, Double(reconnectAttempts - 2)), 8)
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay)) // reconnect backoff
+            guard !Task.isCancelled, let self, isReconnecting else { return }
+            connect()
+        }
+    }
+
+    /// The app came back to the foreground: a stream that dropped while it
+    /// was suspended reconnects right away.
+    func resumeIfNeeded() {
+        guard isStream else { return }
+        switch phase {
+        case .failed(_, false), .ended:
+            reconnectAttempts = 0
+            isReconnecting = true
+            connect()
+        default:
+            break
+        }
+    }
+
+    /// Applies `preferences.quality` to the running stream.
+    func applyQuality() {
+        stream?.setQuality(preferences.quality)
     }
 
     /// WebRTC's own numbers, once a second, for the stats line.
@@ -221,6 +277,10 @@ final class RemoteSession {
     }
 
     func disconnect(silently: Bool = false) {
+        if !silently {
+            reconnectTask?.cancel()
+            isReconnecting = false
+        }
         for task in tasks { task.cancel() }
         tasks.removeAll()
         if let client { Task { await client.disconnect() } }

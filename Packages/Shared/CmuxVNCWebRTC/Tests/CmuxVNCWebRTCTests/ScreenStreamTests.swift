@@ -60,6 +60,80 @@ struct ScreenStreamTests {
         try await Task.sleep(for: .seconds(1))
         #expect(await server.typedText() == "hi")
     }
+
+    /// A room connection dropping (either side's) must not end a running
+    /// stream: video keeps arriving and the viewer reports no end.
+    /// A second socket for a role replaces the first, as a reconnect does.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_VNC_WEBRTC_LIVE"] == "1"), .timeLimit(.minutes(2)))
+    func streamSurvivesRoomConnectionDrops() async throws {
+        let server = VNCDemoServer(configuration: .init(width: 1280, height: 800, password: "hunter2"))
+        let port = try await server.start()
+        defer { server.stop() }
+        let pairing = VNCPairing.generate(name: "stream-drop-test", kind: "stream")
+        let host = ScreenStreamHost(pairing: pairing, target: VNCEndpoint(host: "127.0.0.1", port: port),
+                                    credentials: VNCCredentials(password: "hunter2")) { print("host: \($0)") }
+        let hostTask = Task { await host.run() }
+        defer { hostTask.cancel() }
+        try await Task.sleep(for: .seconds(2)) // the host creates the room
+
+        let counter = FrameCounter()
+        let ended = DisplayBox()
+        let viewer = ScreenStreamViewer(pairing: pairing)
+        viewer.onVideo = { $0.track.add(counter) }
+        viewer.onState = { message in
+            print("viewer state: \(message ?? "-")")
+            ended.set(ScreenHostMessage(t: "ended"))
+        }
+        try await viewer.connect()
+        defer { viewer.close() }
+        for _ in 0 ..< 100 where counter.snapshot.0 == 0 { try await Task.sleep(for: .milliseconds(100)) }
+
+        for role in ["host", "viewer"] {
+            let intruder = SignalSocket(pairing: pairing, role: role)
+            let reader = Task { for try await _ in intruder.messages() {} }
+            try await Task.sleep(for: .seconds(1)) // the room replaces the \(role)'s socket
+            intruder.close()
+            reader.cancel()
+            let before = counter.snapshot.0
+            try await Task.sleep(for: .seconds(4)) // frames keep arriving (the loopback source sends 5-12 fps)
+            let after = counter.snapshot.0
+            print("drop \(role): frames \(before) → \(after)")
+            #expect(after - before > 8, "video stopped after the \(role)'s room connection dropped")
+            #expect(ended.value == nil, "the viewer ended after the \(role)'s room connection dropped")
+        }
+    }
+
+    /// The viewer's quality choice reaches the Mac's encoder: Fixed Low
+    /// sends 720p, and Auto goes back to the display's full size.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_VNC_WEBRTC_LIVE"] == "1"), .timeLimit(.minutes(2)))
+    func qualityChoiceChangesTheVideo() async throws {
+        let server = VNCDemoServer(configuration: .init(width: 1920, height: 1080, password: "hunter2"))
+        let port = try await server.start()
+        defer { server.stop() }
+        let pairing = VNCPairing.generate(name: "stream-quality-test", kind: "stream")
+        let host = ScreenStreamHost(pairing: pairing, target: VNCEndpoint(host: "127.0.0.1", port: port),
+                                    credentials: VNCCredentials(password: "hunter2")) { print("host: \($0)") }
+        let hostTask = Task { await host.run() }
+        defer { hostTask.cancel() }
+        try await Task.sleep(for: .seconds(2)) // the host creates the room
+
+        let counter = FrameCounter()
+        let viewer = ScreenStreamViewer(pairing: pairing)
+        viewer.onVideo = { $0.track.add(counter) }
+        try await viewer.connect()
+        defer { viewer.close() }
+        func height(after seconds: Int) async throws -> Int {
+            try await Task.sleep(for: .seconds(seconds)) // the encoder picks up new parameters on the next frames
+            return Int(counter.snapshot.1.height)
+        }
+        #expect(try await height(after: 3) == 1080)
+        viewer.setQuality(.low)
+        let low = try await height(after: 3)
+        print("quality low: \(low)p")
+        #expect(low == 720)
+        viewer.setQuality(.auto)
+        #expect(try await height(after: 3) == 1080)
+    }
 }
 
 final class DisplayBox: @unchecked Sendable {

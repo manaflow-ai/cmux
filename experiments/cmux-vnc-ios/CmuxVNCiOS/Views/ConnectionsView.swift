@@ -67,7 +67,10 @@ struct ConnectionsView: View {
                 HostEditorView(host: host)
             }
             .fullScreenCover(item: $session) { session in
-                RemoteSessionView(session: session) { self.session = nil }
+                RemoteSessionView(session: session) {
+                    if let id = session.hostID { store.setOptions(session.preferences, for: id) }
+                    self.session = nil
+                }
             }
             .task {
                 let autopilot = Autopilot()
@@ -91,8 +94,10 @@ struct ConnectionsView: View {
     private func connect(_ host: SavedHost) {
         if let pairing = host.pairing {
             let password = store.password(for: host)
-            open(RemoteSession(title: host.name, pairing: pairing,
-                               credentials: VNCCredentials(username: host.username, password: password), preferences: host.options))
+            let session = RemoteSession(title: host.name, pairing: pairing,
+                                        credentials: VNCCredentials(username: host.username, password: password), preferences: host.options)
+            session.hostID = host.id
+            open(session)
             return
         }
         guard let parsed = VNCEndpoint.parse(host.address) else { return }

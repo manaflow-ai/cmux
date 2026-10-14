@@ -4,6 +4,7 @@ import CoreVideo
 import Foundation
 import Network
 import VideoToolbox
+import WebRTC
 
 /// Viewer → host input and control on the `input` data channel. Pointer
 /// coordinates are normalized (0...1) within the display being streamed.
@@ -28,6 +29,46 @@ public struct ScreenInput: Codable, Sendable {
                 k: UInt32? = nil, d: Bool? = nil, s: String? = nil, i: Int? = nil, m: [UInt32]? = nil) {
         self.t = t; self.x = x; self.y = y; self.b = b; self.dx = dx; self.dy = dy
         self.k = k; self.d = d; self.s = s; self.i = i; self.m = m
+    }
+}
+
+/// The viewer's choice of stream quality. `auto` leaves the trade-offs to
+/// WebRTC (sharp text first); the fixed presets hold a resolution, frame
+/// rate and bitrate even when the network cannot carry them, which shows
+/// as lag and stalls instead of blur.
+public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable {
+    case auto, smooth, low, medium, high
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .auto: "Auto"
+        case .smooth: "Smooth Motion"
+        case .low: "Fixed Low (720p)"
+        case .medium: "Fixed Medium (1080p)"
+        case .high: "Fixed High (Full)"
+        }
+    }
+
+    struct Settings: Equatable {
+        var degradation: RTCDegradationPreference
+        var maxBitrate: Int
+        var minBitrate: Int?
+        var maxFramerate: Int
+        var scaleDown: Double
+    }
+
+    /// The sender's encoding for a display `sourceHeight` pixels tall (0: unknown).
+    func settings(sourceHeight: Int) -> Settings {
+        func scale(to height: Int) -> Double { sourceHeight > height ? Double(sourceHeight) / Double(height) : 1 }
+        switch self {
+        case .auto: return Settings(degradation: .maintainResolution, maxBitrate: 12_000_000, maxFramerate: 60, scaleDown: 1)
+        case .smooth: return Settings(degradation: .maintainFramerate, maxBitrate: 12_000_000, maxFramerate: 60, scaleDown: 1)
+        case .low: return Settings(degradation: .disabled, maxBitrate: 1_500_000, minBitrate: 1_500_000, maxFramerate: 30, scaleDown: scale(to: 720))
+        case .medium: return Settings(degradation: .disabled, maxBitrate: 4_000_000, minBitrate: 4_000_000, maxFramerate: 30, scaleDown: scale(to: 1080))
+        case .high: return Settings(degradation: .disabled, maxBitrate: 10_000_000, minBitrate: 10_000_000, maxFramerate: 60, scaleDown: 1)
+        }
     }
 }
 
@@ -74,6 +115,9 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var lastPush = DispatchTime.now()
         var displays: [CGSize] = []
         var current = 0
+        var quality = ScreenQuality.auto
+        /// The data channel opened: from here on only WebRTC ends the session.
+        var opened = false
         init(link: VNCPeerLink, backend: any ScreenBackend) {
             self.link = link
             self.backend = backend
@@ -124,8 +168,15 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 try await accept(offer: sdp, socket: socket)
             case "candidate": await lock.withLock({ session?.link })?.add(candidate: message)
             case "peer-left":
-                log("viewer left")
-                endSession()
+                // The viewer's room connection dropped. A connected session
+                // lives on (WebRTC reports its own end); a half-open one ends.
+                let current = lock.withLock { session }
+                if let current, current.lock.withLock({ current.opened }) {
+                    log("viewer's room connection dropped; the stream continues")
+                } else {
+                    log("viewer left")
+                    endSession()
+                }
             default: break
             }
         }
@@ -155,6 +206,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
     }
 
     private func start(_ session: Session) {
+        session.lock.withLock { session.opened = true }
         log("channel open; starting \(type(of: session.backend))")
         session.tasks.append(Task { [weak self] in
             do {
@@ -166,6 +218,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
                         session.current = current
                     }
                     self?.sendDisplays(session)
+                    self?.applyQuality(session)
                 })
             } catch {
                 self?.log("screen source failed: \(error)")
@@ -215,7 +268,21 @@ public final class ScreenStreamHost: @unchecked Sendable {
             session.backend.select(display: index)
             return
         }
+        if input.t == "quality", let quality = input.s.flatMap(ScreenQuality.init(rawValue:)) {
+            session.lock.withLock { session.quality = quality }
+            log("quality: \(quality.rawValue)")
+            applyQuality(session)
+            return
+        }
         session.backend.handle(input)
+    }
+
+    private func applyQuality(_ session: Session) {
+        let (quality, height) = session.lock.withLock { () -> (ScreenQuality, Int) in
+            let size = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
+            return (session.quality, Int(size.height))
+        }
+        session.link.applyVideo(quality, sourceHeight: height)
     }
 
     private func endSession(ifCurrent expected: Session? = nil) {
@@ -371,26 +438,29 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// libwebrtc removes a track's renderers when its wrapper is released: keep it.
     private var track: VideoTrackBox?
     private var lastButtons: UInt8 = 0
+    private var offered = false
+    private var isOpen = false
 
     public init(pairing: VNCPairing) {
         self.pairing = pairing
     }
 
     /// Connects; returns when the input channel is open (video follows).
+    /// Once open, only WebRTC ends the session (`onState`): a dropped room
+    /// connection is reopened quietly, and the Mac's room going away and
+    /// coming back does not touch the running stream.
     public func connect() async throws {
         let ice = try await SignalSocket.iceServers(pairing)
-        let socket = SignalSocket(pairing: pairing, role: "viewer")
         let link = try VNCPeerLink(iceServers: ice, preferStreamRelays: false)
-        lock.withLock {
-            self.link = link
-            self.socket = socket
-        }
+        lock.withLock { self.link = link }
         let opened = OpenSignal()
         let peerTask = Task { [weak self] in
             for await event in link.events {
                 switch event {
-                case let .candidate(message): try? await socket.send(message)
-                case .open: opened.fire(nil)
+                case let .candidate(message): try? await self?.lock.withLock({ self?.socket })?.send(message)
+                case .open:
+                    self?.lock.withLock { self?.isOpen = true }
+                    opened.fire(nil)
                 case let .video(track):
                     self?.lock.withLock { self?.track = track }
                     self?.onVideo?(track)
@@ -403,30 +473,57 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                 }
             }
         }
-        let signalTask = Task {
-            do {
-                for try await message in socket.messages() {
-                    switch message.type {
-                    case "hello" where message.peer == true, "peer-joined":
-                        let sdp = try await link.offer(label: "input", receiveVideo: true, unorderedLabel: "pointer")
-                        try await socket.send(SignalMessage(type: "offer", sdp: sdp))
-                    case "answer":
-                        if let sdp = message.sdp { try await link.accept(answer: sdp) }
-                    case "candidate":
-                        await link.add(candidate: message)
-                    case "peer-left":
-                        opened.fire(RFBError.transport("the Mac's host left"))
-                        link.close()
-                    default:
-                        break
+        let signalTask = Task { [weak self] in
+            var delay = 1.0
+            while !Task.isCancelled, let self {
+                let socket = SignalSocket(pairing: pairing, role: "viewer")
+                lock.withLock { self.socket = socket }
+                do {
+                    for try await message in socket.messages() {
+                        delay = 1
+                        try await handleSignal(message, link: link, opened: opened)
+                    }
+                } catch {
+                    guard lock.withLock({ isOpen }) else {
+                        opened.fire(RFBError.transport("signaling: \(error.localizedDescription)"))
+                        return
                     }
                 }
-            } catch {
-                opened.fire(RFBError.transport("signaling: \(error.localizedDescription)"))
+                socket.close()
+                try? await Task.sleep(for: .seconds(delay)) // room reconnect backoff
+                delay = min(delay * 2, 15)
             }
         }
         lock.withLock { tasks = [peerTask, signalTask] }
         try await opened.wait(timeout: 30)
+    }
+
+    private func handleSignal(_ message: SignalMessage, link: VNCPeerLink, opened: OpenSignal) async throws {
+        switch message.type {
+        case "hello" where message.peer == true, "peer-joined":
+            // One offer per session; the host's room reconnecting is not a new viewer.
+            guard lock.withLock({ () -> Bool in
+                defer { offered = true }
+                return !offered
+            }) else { return }
+            let sdp = try await link.offer(label: "input", receiveVideo: true, unorderedLabel: "pointer")
+            try await lock.withLock({ socket })?.send(SignalMessage(type: "offer", sdp: sdp))
+        case "answer":
+            if let sdp = message.sdp { try await link.accept(answer: sdp) }
+        case "candidate":
+            await link.add(candidate: message)
+        case "peer-left":
+            guard !lock.withLock({ isOpen }) else { return }
+            opened.fire(RFBError.transport("the Mac's host left"))
+            link.close()
+        default:
+            break
+        }
+    }
+
+    /// Asks the Mac for `quality` (sent again by the app after a reconnect).
+    public func setQuality(_ quality: ScreenQuality) {
+        send(ScreenInput(t: "quality", s: quality.rawValue))
     }
 
     /// Sends input: pointer moves with no button change on the unordered

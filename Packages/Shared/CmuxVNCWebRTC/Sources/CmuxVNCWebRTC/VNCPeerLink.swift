@@ -40,6 +40,8 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     private var drained: [CheckedContinuation<Void, Never>] = []
     private var ended = false
     private var videoTransceiver: RTCRtpTransceiver?
+    /// The host's screen sender (its encoding parameters carry the quality).
+    private var videoSender: RTCRtpSender?
     /// Secondary channels by label (the unordered `pointer` channel).
     private var extras: [String: RTCDataChannel] = [:]
 
@@ -122,18 +124,28 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         if let video {
             let track = Self.factory.videoTrack(with: video.source, trackId: "screen")
             guard let sender = connection.add(track, streamIds: ["screen"]) else { throw VNCWebRTCError.peer("could not add the screen track") }
-            // Sharp text over smooth motion: drop frames before resolution; a generous ceiling.
-            let parameters = sender.parameters
-            parameters.degradationPreference = NSNumber(value: RTCDegradationPreference.maintainResolution.rawValue)
-            for encoding in parameters.encodings {
-                encoding.maxBitrateBps = NSNumber(value: video.maxBitrate)
-                encoding.maxFramerate = NSNumber(value: video.maxFramerate)
-            }
-            sender.parameters = parameters
+            lock.withLock { videoSender = sender }
+            applyVideo(.auto, sourceHeight: 0)
         }
         let answer = try await describe { self.connection.answer(for: Self.constraints, completionHandler: $0) }
         try await apply { self.connection.setLocalDescription(RTCSessionDescription(type: .answer, sdp: answer), completionHandler: $0) }
         return answer
+    }
+
+    /// Host: the screen sender's encoding for `quality`. These are WebRTC's
+    /// own sender parameters; its congestion control keeps running.
+    func applyVideo(_ quality: ScreenQuality, sourceHeight: Int) {
+        guard let sender = lock.withLock({ videoSender }) else { return }
+        let settings = quality.settings(sourceHeight: sourceHeight)
+        let parameters = sender.parameters
+        parameters.degradationPreference = NSNumber(value: settings.degradation.rawValue)
+        for encoding in parameters.encodings {
+            encoding.maxBitrateBps = NSNumber(value: settings.maxBitrate)
+            encoding.minBitrateBps = settings.minBitrate.map { NSNumber(value: $0) }
+            encoding.maxFramerate = NSNumber(value: settings.maxFramerate)
+            encoding.scaleResolutionDownBy = NSNumber(value: settings.scaleDown)
+        }
+        sender.parameters = parameters
     }
 
     /// Viewer: applies the host's answer.
@@ -355,14 +367,10 @@ public final class ScreenVideoSource: @unchecked Sendable {
     // @unchecked: libwebrtc's source and capturer are thread-safe.
     let source: RTCVideoSource
     private let capturer: RTCVideoCapturer
-    let maxBitrate: Int
-    let maxFramerate: Int
 
-    init(maxBitrate: Int = 12_000_000, maxFramerate: Int = 60) {
+    init() {
         source = VNCPeerLink.makeScreenSource()
         capturer = RTCVideoCapturer(delegate: source)
-        self.maxBitrate = maxBitrate
-        self.maxFramerate = maxFramerate
     }
 
     /// Sends `crop` of `pixelBuffer` (32BGRA or NV12) as the next frame.

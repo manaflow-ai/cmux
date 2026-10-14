@@ -41,7 +41,18 @@ final class SignalSocket: @unchecked Sendable {
                     continuation.finish(throwing: error)
                 }
             }
-            continuation.onTermination = { _ in reader.cancel() }
+            // Keepalive: an idle WebSocket can be dropped by a NAT or proxy
+            // without either end hearing about it; a failed ping surfaces it.
+            let pinger = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(20)) // keepalive period
+                    task.sendPing { error in if error != nil { task.cancel(with: .goingAway, reason: nil) } }
+                }
+            }
+            continuation.onTermination = { _ in
+                reader.cancel()
+                pinger.cancel()
+            }
         }
     }
 

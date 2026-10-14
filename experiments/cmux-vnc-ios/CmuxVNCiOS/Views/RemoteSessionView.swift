@@ -1,4 +1,5 @@
 import CmuxVNC
+import CmuxVNCWebRTC
 import SwiftUI
 
 /// A full-screen session: the remote screen plus light chrome that stays
@@ -11,6 +12,7 @@ struct RemoteSessionView: View {
     @State private var signInUser = ""
     @State private var signInPassword = ""
     @State private var orientation = OrientationLock.saved
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -35,6 +37,10 @@ struct RemoteSessionView: View {
             OrientationLock.saved = orientation
             AppDelegate.lock(orientation.mask)
         }
+        .onChange(of: scenePhase) {
+            if scenePhase == .active { session.resumeIfNeeded() }
+        }
+        .onChange(of: session.preferences.quality) { session.applyQuality() }
         .onDisappear {
             AppDelegate.lock(.all)
             session.close()
@@ -59,6 +65,12 @@ struct RemoteSessionView: View {
                     ForEach(OrientationLock.allCases) { lock in Label(lock.title, systemImage: lock.symbol).tag(lock) }
                 }
                 .pickerStyle(.menu)
+                if session.isStream {
+                    Picker("Quality", systemImage: "dial.medium", selection: $session.preferences.quality) {
+                        ForEach(ScreenQuality.allCases) { quality in Text(quality.title).tag(quality) }
+                    }
+                    .pickerStyle(.menu)
+                }
                 Toggle("Stream stats", isOn: $session.preferences.showStats)
                 Section("Send") {
                     Button("Control-Option-Delete", systemImage: "command") { session.tap(.deleteForward, modifiers: [.control, .option]) }
@@ -100,7 +112,7 @@ struct RemoteSessionView: View {
         case .connecting:
             card {
                 ProgressView()
-                Text("Connecting to \(session.title)…").font(.headline)
+                Text(session.isReconnecting ? "Reconnecting to \(session.title)…" : "Connecting to \(session.title)…").font(.headline)
             }
         case let .failed(message, needsSignIn):
             card {

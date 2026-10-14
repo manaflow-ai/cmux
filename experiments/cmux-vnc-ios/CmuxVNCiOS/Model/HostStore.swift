@@ -29,6 +29,8 @@ struct SessionPreferences: Codable, Hashable {
     /// Pinned to one display: zoom out stops at that display's fit and
     /// panning stays inside it; swipes at fit change display.
     var fitToDisplay = true
+    /// Screen stream quality (Auto lets WebRTC choose).
+    var quality = ScreenQuality.auto
 
     init() {}
 
@@ -37,6 +39,7 @@ struct SessionPreferences: Codable, Hashable {
         localCursor = try container.decodeIfPresent(Bool.self, forKey: .localCursor) ?? true
         showStats = try container.decodeIfPresent(Bool.self, forKey: .showStats) ?? true
         fitToDisplay = try container.decodeIfPresent(Bool.self, forKey: .fitToDisplay) ?? true
+        quality = (try? container.decodeIfPresent(ScreenQuality.self, forKey: .quality)) ?? .auto
     }
 }
 
@@ -104,6 +107,13 @@ final class HostStore {
         if !username.isEmpty { host.username = username }
         upsert(host, password: password)
         return host
+    }
+
+    /// Keeps a session's menu choices (quality, fit) for the next one.
+    func setOptions(_ options: SessionPreferences, for id: UUID) {
+        guard let index = hosts.firstIndex(where: { $0.id == id }), hosts[index].options != options else { return }
+        hosts[index].options = options
+        persist()
     }
 
     func remove(_ host: SavedHost) {
