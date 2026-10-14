@@ -61,7 +61,8 @@ extension SidebarGroupLine {
                 let band = CGRect(x: head.minX, y: head.minY + Metrics.space1 / 2, width: head.width, height: tail.maxY - head.minY - Metrics.space1)
                 return SidebarGroupLine(group: id, frame: band, color: color, look: .zen)
             case .elbow:
-                let top = head.midY, rows = members[id] ?? []
+                // The spine starts under the header row, so nothing draws over its bar.
+                let top = head.maxY, rows = members[id] ?? []
                 let bottom = tail.midY + SidebarStyle.groupElbowWidth / 2
                 guard bottom > top else { return nil }
                 let x = head.minX + SidebarStyle.groupBarX + width / 2 - SidebarStyle.groupElbowWidth / 2
