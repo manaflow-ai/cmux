@@ -183,6 +183,13 @@ class Bench:
             sim.tap(200, 520)
             taps.append(t)
             time.sleep(1.3)
+        # --swipes: scroll the streamed page by touch (up, then back down), in the video.
+        for i in range(self.a.swipes):
+            if i % 2 == 0:
+                sim.swipe(200, 620, 200, 320, duration=0.35)
+            else:
+                sim.swipe(200, 320, 200, 620, duration=0.35)
+            time.sleep(1.2)
         time.sleep(1.5)
         sim.record_stop()
         shot = sim.shot(f"{name}-end")
@@ -269,6 +276,8 @@ def main():
     ap.add_argument("--configs", default="track,channel,track-relay,channel-relay,track-loss30")
     ap.add_argument("--seconds", type=float, default=12)
     ap.add_argument("--taps", type=int, default=10)
+    ap.add_argument("--swipes", type=int, default=0, help="touch scrolls after the taps (end-to-end video)")
+    ap.add_argument("--page-scroll", type=int, default=6, help="the bench page's own scroll, css px per frame (0: still)")
     ap.add_argument("--sim-name", default="cnx-rbvideo-bench")
     ap.add_argument("--no-build", action="store_true")
     ap.add_argument("--keep", action="store_true")
@@ -358,7 +367,7 @@ def main():
             return
         j.seed_mac()
         ws = mac.cmux("workspace", "create", "--name", "bench", json_out=True)["value"]
-        url = f"http://127.0.0.1:{PORT}/bench.html?scroll=6"
+        url = f"http://127.0.0.1:{PORT}/bench.html?scroll={a.page_scroll}"
         tab = mac.cmux("tab", "create", "browser", "--workspace", ws["workspace_id"], "--url", url, json_out=True)
         log(f"bench workspace {ws['workspace_id']}, browser tab {tab}")
         if tab and isinstance(tab, dict) and tab.get("value", {}).get("tab_id"):
