@@ -123,6 +123,25 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
   /// Opens the chat with the host keeping `anchor` as where it last rested.
   async function reopen(anchor: { rowId: string; offset: number } | null): Promise<Page> {
     const tab = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    // Every frame: the first question drawn while the transcript shows, and whether Jump to latest
+    // showed while it did not.
+    await tab.addInitScript(() => {
+      const frames: { shown: string | null; jump: boolean }[] = [];
+      (window as any).openFrames = frames;
+      const look = () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        const bubble = scroller?.querySelector(".cv-user__bubble");
+        if (scroller && bubble) {
+          const hidden = scroller.hasAttribute("data-seeking");
+          frames.push({
+            shown: hidden ? null : bubble.textContent,
+            jump: hidden && document.querySelector(".acpmux-jump-latest[data-shown]") !== null,
+          });
+        }
+        requestAnimationFrame(look);
+      };
+      requestAnimationFrame(look);
+    });
     await tab.addInitScript((kept) => {
       const saved: unknown[] = [];
       (window as any).savedAnchors = saved;
@@ -170,6 +189,12 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
     expect(top).toBeDefined();
     expect(Math.abs(top! - (await rowPad(tab)))).toBeLessThan(40);
     expect(await bubbleTop(tab, `Question ${TURNS}`)).toBeUndefined();
+    // The first frame the transcript showed was already the reader's place, never the latest
+    // turns, and Jump to latest never showed over the hidden transcript.
+    const frames = await tab.evaluate(() => (window as any).openFrames as { shown: string | null; jump: boolean }[]);
+    const firstShown = frames.find((frame) => frame.shown !== null)?.shown;
+    expect(Number(firstShown?.replace("Question ", ""))).toBeLessThanOrEqual(100);
+    expect(frames.filter((frame) => frame.jump)).toEqual([]);
     // Paging back never saved another place over the kept one.
     const saved = await tab.evaluate(() => (window as any).savedAnchors as { rowId: string | null }[]);
     expect(saved.filter((anchor) => anchor.rowId !== `user-${questionSeq.get(100)}`)).toEqual([]);
