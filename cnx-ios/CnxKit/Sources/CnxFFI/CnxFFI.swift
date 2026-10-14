@@ -1961,7 +1961,8 @@ public struct BrowserStats: Equatable, Hashable {
     public var clockOffsetUs: Int64?
     public var clockRttUs: UInt32?
     /**
-     * The last frame came on the link's WebRTC video track (not the channel).
+     * The last frame came on the link's media lane (a WebRTC video track or
+     * RTP inside the WireGuard tunnel), not the channel.
      */
     public var videoTrack: Bool
     /**
@@ -1978,7 +1979,8 @@ public struct BrowserStats: Equatable, Hashable {
          * `host = viewer + offset`, and the best probe's round trip.
          */clockOffsetUs: Int64?, clockRttUs: UInt32?, 
         /**
-         * The last frame came on the link's WebRTC video track (not the channel).
+         * The last frame came on the link's media lane (a WebRTC video track or
+         * RTP inside the WireGuard tunnel), not the channel.
          */videoTrack: Bool, 
         /**
          * Track frames: skipped to a keyframe after an unrecoverable loss, and
@@ -2066,7 +2068,7 @@ public struct ConnectOptions: Equatable, Hashable {
     public var relayOnly: Bool
     /**
      * Debug: do not offer the media lane, so browser video rides its
-     * reliable channel even on WebRTC (the comparison baseline).
+     * reliable channel on either transport (the comparison baseline).
      */
     public var noVideoLane: Bool
 
@@ -2081,7 +2083,7 @@ public struct ConnectOptions: Equatable, Hashable {
          */relayOnly: Bool = false, 
         /**
          * Debug: do not offer the media lane, so browser video rides its
-         * reliable channel even on WebRTC (the comparison baseline).
+         * reliable channel on either transport (the comparison baseline).
          */noVideoLane: Bool = false) {
         self.relayOnly = relayOnly
         self.noVideoLane = noVideoLane
