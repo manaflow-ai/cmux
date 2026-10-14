@@ -57,12 +57,23 @@ export function slotFolder(env: NodeJS.ProcessEnv = process.env): string | undef
 /// `readOnlyGit` checks their form too.
 const READ_SUBCOMMANDS = new Set(["status", "diff", "rev-parse", "merge-base", "ls-files", "symbolic-ref", "config"]);
 
+/// Long options that write a file or run a program. git takes any unambiguous prefix of a long
+/// option, so a prefix of one of these is refused too.
+const DENIED_OPTIONS = ["output", "ext-diff", "textconv", "exec", "upload-pack", "open-files-in-pager"];
+
 /** Whether `args` is a git run on the read list (never a write). */
 export function isReadOnlyGit(args: readonly string[]): boolean {
-  const [subcommand, ...rest] = args;
+  const [subcommand, ...all] = args;
   if (!subcommand || !READ_SUBCOMMANDS.has(subcommand)) return false;
-  // An option that writes a file or runs a program.
-  if (rest.some((arg) => /^--(output|ext-diff|textconv|exec|upload-pack)(=|$)/.test(arg))) return false;
+  // Past `--` every token is a path.
+  const end = all.indexOf("--");
+  const rest = end < 0 ? all : all.slice(0, end);
+  const denied = (arg: string) => {
+    if (!arg.startsWith("--")) return false;
+    const name = arg.slice(2).split("=")[0]!;
+    return name.length > 0 && DENIED_OPTIONS.some((option) => option.startsWith(name));
+  };
+  if (rest.some(denied)) return false;
   if (subcommand === "symbolic-ref")
     return (
       rest.filter((arg) => !arg.startsWith("-")).length === 1 && !rest.some((arg) => /^(-d|--delete|-m)$/.test(arg))
@@ -73,20 +84,30 @@ export function isReadOnlyGit(args: readonly string[]): boolean {
 
 type GitRun = { stdout: string; code: number };
 
-/** Runs a read-only git command in `cwd`; refuses anything off the read list. */
-export function readOnlyGit(cwd: string, args: readonly string[]): Promise<GitRun> {
-  if (!isReadOnlyGit(args)) return Promise.reject(new Error(`refused git ${args[0] ?? ""}: not a read`));
+/// The environment git runs with, as cmux-git's run.rs: none of the dev's GIT_* variables (a
+/// GIT_DIR would redirect the read), no prompt, no optional index write, literal pathspecs.
+function gitEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(process.env)) if (!name.startsWith("GIT_")) env[name] = value;
+  return {
+    ...env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_PAGER: "cat",
+    GIT_LITERAL_PATHSPECS: "1",
+    LC_ALL: "C",
+  };
+}
+
+/// Settings every run passes, as run.rs: the repository's fsmonitor command never runs.
+const BASE_SETTINGS = ["core.fsmonitor=false", "core.quotePath=false", "log.showSignature=false"];
+
+function runGit(cwd: string, args: readonly string[]): Promise<GitRun> {
   return new Promise((resolve, reject) => {
     execFile(
       "git",
       ["--no-optional-locks", "-C", cwd, ...args],
-      {
-        encoding: "utf8",
-        maxBuffer: MAX_GIT_OUTPUT,
-        timeout: 15_000,
-        // No index refresh write, no credential or pager prompt.
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" },
-      },
+      { encoding: "utf8", maxBuffer: MAX_GIT_OUTPUT, timeout: 15_000, env: gitEnvironment() },
       (error, stdout, stderr) => {
         if (!error) return resolve({ stdout, code: 0 });
         const code = (error as { code?: unknown }).code;
@@ -95,6 +116,42 @@ export function readOnlyGit(cwd: string, args: readonly string[]): Promise<GitRu
       },
     );
   });
+}
+
+/// A filter driver runs a program on file contents, and reading the working tree would run it.
+/// Every driver the repository's config names is blanked (cmux-git repository.rs
+/// filter_overrides): an empty command is no filter, and none is required.
+export async function filterOverrides(cwd: string): Promise<string[]> {
+  const pattern = String.raw`^filter\..*\.(clean|smudge|process|required)$`;
+  const listed = await runGit(cwd, [
+    ...BASE_SETTINGS.flatMap((setting) => ["-c", setting]),
+    "config",
+    "--null",
+    "--name-only",
+    "--get-regexp",
+    pattern,
+  ]);
+  // `--get-regexp` exits 1 when nothing matches.
+  if (listed.code === 1 && !listed.stdout) return [];
+  if (listed.code !== 0) throw new AgentReadError("operation.failed", "could not read the repository's filter drivers");
+  const drivers = new Set<string>();
+  for (const key of listed.stdout.split("\0")) {
+    const match = key.match(/^filter\.(.*)\.[^.]+$/s);
+    if (match) drivers.add(match[1]!);
+  }
+  return [...drivers].flatMap((driver) => [
+    `filter.${driver}.clean=`,
+    `filter.${driver}.smudge=`,
+    `filter.${driver}.process=`,
+    `filter.${driver}.required=false`,
+  ]);
+}
+
+/** Runs a read-only git command in `cwd`; refuses anything off the read list. */
+export async function readOnlyGit(cwd: string, args: readonly string[]): Promise<GitRun> {
+  if (!isReadOnlyGit(args)) throw new Error(`refused git ${args[0] ?? ""}: not a read`);
+  const settings = [...BASE_SETTINGS, ...(await filterOverrides(cwd))];
+  return runGit(cwd, [...settings.flatMap((setting) => ["-c", setting]), ...args]);
 }
 
 async function gitText(cwd: string, args: string[]): Promise<string | undefined> {
@@ -392,14 +449,14 @@ function pathspecs(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((entry) => {
     const raw = String(entry);
-    if (!raw || path.isAbsolute(raw) || raw.split(/[\\/]/).some((part) => part === ".."))
+    if (!raw || raw.startsWith("-") || path.isAbsolute(raw) || raw.split(/[\\/]/).some((part) => part === ".."))
       throw new AgentReadError(
         "validation.invalid",
         `${JSON.stringify(raw)} must be relative to the repository root and stay inside it`,
         { field: "paths" },
       );
-    // A literal path: never a magic pathspec.
-    return `:(literal)${raw}`;
+    // Literal (GIT_LITERAL_PATHSPECS): never pathspec magic; and never read as an option.
+    return raw;
   });
 }
 
@@ -441,9 +498,7 @@ async function report(root: string, compared: Comparison, params: Record<string,
     const named =
       totalFiles === files.length
         ? paths
-        : withPatch
-            .flatMap((file) => [file.path, ...(file.previous_path ? [file.previous_path] : [])])
-            .map((name) => `:(literal)${name}`);
+        : withPatch.flatMap((file) => [file.path, ...(file.previous_path ? [file.previous_path] : [])]);
     const patches = splitPatches(await gitOutput(root, diffArgs(compared, ["--patch", `--unified=${context}`], named)));
     let budget = MAX_REPLY_PATCH_BYTES;
     for (const file of withPatch) {
