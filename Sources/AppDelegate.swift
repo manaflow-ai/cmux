@@ -20468,6 +20468,7 @@ private extension NSWindow {
         }
 
         if let firstResponderWebView,
+           !cmuxIsLikelyWebInspectorResponder(self.firstResponder),
            AppDelegate.shared?.isBrowserFocusModeActive(for: firstResponderWebView) == true {
             let handled = firstResponderWebView.performKeyEquivalent(with: event)
 #if DEBUG
