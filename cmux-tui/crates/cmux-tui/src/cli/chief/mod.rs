@@ -10,6 +10,7 @@
 //! chat (`tui`).
 
 mod adapter;
+mod avatar;
 mod chat;
 mod control;
 mod editor;
@@ -19,6 +20,7 @@ mod launch;
 mod link;
 mod messages;
 mod pipe;
+pub(in crate::cli) mod registry;
 mod render;
 mod shutdown;
 #[cfg(test)]
@@ -74,6 +76,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     (scope == "chief").then(|| run(global, rest))
 }
 
+/// `cmux avatar set|get` (participant-avatars-v1): a person's or a Chief's picture.
+pub(super) fn run_avatar_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command_args) = super::parse_globals(args).ok()?;
+    let (scope, rest) = command_args.split_first()?;
+    (scope == "avatar").then(|| avatar::run(&global, rest))
+}
+
 pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut parsed =
         Args { history: 20, timeout_secs: Some(DEFAULT_TIMEOUT_SECS), ..Args::default() };
@@ -101,7 +110,13 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             {
                 parsed.control = Some(control::Control::Stop(Some(name.to_owned())));
             }
-            "--harness" | "--model" | "--effort" | "--speed" | "--compactor-speed" => {
+            "--harness"
+            | "--model"
+            | "--effort"
+            | "--speed"
+            | "--compactor-speed"
+            | "--compactor-harness"
+            | "--compactor-model" => {
                 let key = flag.trim_start_matches("--").replace('-', "_");
                 let value = value()?;
                 match &mut parsed.control {
@@ -140,6 +155,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         return 130;
     }
     let m = messages();
+    if args.first().is_some_and(|word| registry::WORDS.contains(&word.as_str())) {
+        return registry::run(&global, args);
+    }
     let args = match parse_args(args) {
         Ok(args) => args,
         Err(error) => {
@@ -150,6 +168,17 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     if args.help {
         println!("{}", m.usage);
         return 0;
+    }
+    let word = match &args.control {
+        _ if args.shutdown => Some("shutdown"),
+        Some(control::Control::Engine(changes)) if !changes.is_empty() => Some("engine"),
+        Some(control::Control::Stop(_)) => Some("stop"),
+        _ => None,
+    };
+    if let Some(refusal) =
+        word.and_then(|word| registry::agent_control_refusal(&format!("cmux chief {word}"), word))
+    {
+        return super::wire::print_operation_error(&refusal, global.output);
     }
     if args.shutdown {
         return shutdown::run(&global, args.chief_home.as_deref());

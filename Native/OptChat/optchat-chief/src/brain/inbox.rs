@@ -191,8 +191,7 @@ impl Brain {
         });
         if (!text.trim().is_empty() || has_images)
             && chief_wakes(
-                &self.settings.membership.participant,
-                self.settings.membership.group_wake,
+                &self.settings.membership.rule(false),
                 summary,
                 &message,
                 |id| self.mux_messages.contains(id),

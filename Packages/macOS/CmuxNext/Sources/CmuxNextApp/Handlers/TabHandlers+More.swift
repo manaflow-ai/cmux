@@ -23,7 +23,7 @@ extension TabHandlers {
             default: .right
             }
             let reveal = revealer(ctx, tab: tab, outcome: .newSplit(paneID: pane.id, edge: .right), workspaceID: nil)
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: ctx.services) { ok in
+            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: ctx.services, keepFocus: invocation["keep_focus"]?.boolValue == true) { ok in
                 if !ok { ctx.services.restoreDetachedTab(tab.id) }
                 reveal(ok)
             }

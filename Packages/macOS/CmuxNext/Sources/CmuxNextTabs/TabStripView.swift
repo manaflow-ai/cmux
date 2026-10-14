@@ -163,6 +163,7 @@ public final class TabStripView: NSView {
         }
         reveal.install()
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
+        groupEditor.onMore = { [weak self] id in self?.showGroupMenu(for: id) }
 
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)

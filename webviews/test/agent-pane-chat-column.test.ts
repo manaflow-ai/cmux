@@ -171,7 +171,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// What a painted frame shows: how far the view sits above the transcript's end, where it is
   /// scrolled to, and how far the last line of text sits above the view's bottom; or, given
   /// `text`, the top of the row that holds it.
-  type Frame = { fromEnd: number; scrollTop: number; lastLine: number; top: number | null };
+  type Frame = { fromEnd: number; scrollTop: number; lastLine: number; top: number | null; glides: number };
   /// Reads every painted frame until `stop`.
   const watch = (page: Page, text?: string) =>
     page.evaluate((text) => {
@@ -189,6 +189,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           scrollTop: Math.round(scroller.scrollTop),
           lastLine: Math.round(view.bottom - (lines.at(-1)?.getBoundingClientRect().bottom ?? view.bottom)),
           top: row ? Math.round(row.getBoundingClientRect().top) : null,
+          glides: document.querySelector(".acpmux-thread")?.getAnimations().length ?? 0,
         };
       };
       const frames: unknown[] = [];
@@ -396,6 +397,29 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     }).toMatchObject({
       settled: true,
     });
+    await page.close();
+  });
+
+  test("a pane resized at every frame keeps its last line at the bottom: the text never glides", async () => {
+    // A window edge dragged (cx-sqj3h): the column rewraps at every frame, and rows settle to
+    // their drawn heights at the new width before it paints. That is the resize, not growth, so
+    // nothing slides: the last line sits where it rests in every painted frame.
+    const chat = newChat();
+    const page = await open(chat, 760);
+    const atRest = await restingLastLine(page);
+    await watch(page);
+    for (const widths of [
+      Array.from({ length: 40 }, (_, step) => 754 - step * 7),
+      Array.from({ length: 40 }, (_, step) => 481 + step * 7),
+    ])
+      for (const width of widths) {
+        await page.setViewportSize({ width, height: 700 });
+        await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0))));
+      }
+    const frames = await stop(page);
+    expect(frames.length).toBeGreaterThan(40);
+    expect(frames.filter((frame) => frame.glides > 0).length).toBe(0);
+    expect(frames.filter((frame) => Math.abs(frame.lastLine - atRest) > REST_SLACK)).toEqual([]);
     await page.close();
   });
 

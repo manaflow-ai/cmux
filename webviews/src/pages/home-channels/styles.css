@@ -93,46 +93,6 @@ body,
   color: var(--page-text-2);
   background: var(--hc-fill-strong);
 }
-.hc-add-channel.ui-popover {
-  width: 300px;
-  padding: 14px;
-}
-.hc-add-channel form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.hc-add-title {
-  margin: 0;
-  font-size: var(--text-title);
-  font-weight: 700;
-}
-.hc-add-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 0;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  font-weight: 600;
-}
-.hc-add-members {
-  max-height: 220px;
-  overflow-y: auto;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.hc-add-members .hc-pick-row input {
-  margin: 0;
-}
-.hc-add-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
-}
-
 /* ---------- Avatar ---------- */
 .hc-avatar {
   font-size: var(--text-caption);
@@ -153,6 +113,17 @@ body,
 }
 .hc-avatar.chief {
   box-shadow: inset 0 0 0 1.5px var(--hc-accent);
+}
+/* A picture fills the tile's shape (circle for people, rounded square for agents). */
+.hc-avatar.picture {
+  background: none;
+}
+.hc-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  display: block;
 }
 .hc-error {
   display: flex;
@@ -387,7 +358,7 @@ body,
   border: 1px solid var(--page-separator);
   border-radius: 8px;
   background: var(--surface-popup);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+  box-shadow: var(--elevation-2);
 }
 .hc-tool.ui-toolbar-button,
 .hc-tool {
