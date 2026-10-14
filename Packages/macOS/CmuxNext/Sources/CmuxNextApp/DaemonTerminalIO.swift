@@ -256,3 +256,5 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         ))
     }
 }
+
+extension DaemonTerminalIO: ResizeTarget {}
