@@ -125,6 +125,12 @@ final class WorkspaceRowView: SidebarRowView {
         disclosure == nil ? nil : (disclosureButton.icon.rawValue, disclosureButton.frame, !disclosureButton.isHidden)
     }
 
+    /// Draws the last configuration again (a sidebar tunable changed).
+    func redrawLastConfiguration() {
+        guard let last = lastConfiguration else { return }
+        configure(last.0, row: last.1, badgeStyle: last.2)
+    }
+
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         isSecondarySelected = false
