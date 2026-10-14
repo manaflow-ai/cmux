@@ -88,6 +88,10 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
             recovery_passes < MAX_CHECKPOINT_CAPTURE_ATTEMPTS,
             "terminal replay recovery did not settle during checkpoint capture"
         );
+        #[cfg(test)]
+        if let Some(hook) = tests::AFTER_RECOVERY_HOOK.with_borrow_mut(Option::take) {
+            hook();
+        }
         // Recovery appends synthetic CAN to the terminal output stream. Move
         // the consistency cut past that intentional journal record, then
         // recapture every terminal so no blob predates the new cut.
@@ -849,6 +853,11 @@ mod tests {
     use std::io::Read;
     use std::sync::Arc;
 
+    thread_local! {
+        pub(super) static AFTER_RECOVERY_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+            std::cell::RefCell::new(None);
+    }
+
     fn terminal_replay_checkpoint() -> JournalCheckpoint {
         JournalCheckpoint {
             checkpoint_id: "checkpoint_terminal_replay".into(),
@@ -1535,12 +1544,56 @@ mod tests {
             upload.clone(),
         );
 
+        AFTER_RECOVERY_HOOK.with_borrow_mut(|slot| {
+            let mux = mux.clone();
+            *slot = Some(Box::new(move || {
+                mux.seed_running_terminal_for_test(
+                    "00000000000040008000000000000073",
+                    "10000000000040008000000000000073",
+                    &workspace.key,
+                )
+                .unwrap();
+                mux.put_journal_producer(
+                    &JournalProducerManifest {
+                        producer_id: "recovery_race".into(),
+                        namespace: "plugin.recovery_race".into(),
+                        manifest_version: 1,
+                        max_sensitivity: JournalSensitivity::Metadata,
+                        permissions: vec!["journal.append.plugin.recovery_race".into()],
+                        events: vec![JournalEventSchema {
+                            kind: "plugin.recovery_race.event".into(),
+                            schema_version: 1,
+                            class: JournalClass::Observation,
+                            replay: JournalReplayPolicy::Advisory,
+                            sensitivity: JournalSensitivity::Metadata,
+                            payload_schema: json!({"type":"object"}),
+                        }],
+                    },
+                    "client_test",
+                    "recovery_race_producer",
+                )
+                .unwrap();
+            }));
+        });
+
         let captured =
             capture(&mux).expect("checkpoint capture should recover the terminal parser");
-        assert_eq!(captured.blobs.len(), 1);
+        assert_eq!(captured.state["session_snapshot"]["terminals"].as_array().unwrap().len(), 2);
+        assert_eq!(captured.blobs.len(), 2, "recovery must refresh the captured terminal list");
+        assert!(
+            captured.state["journal_extensions"]["producers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|producer| producer["producer_id"] == "recovery_race"),
+            "recovery must refresh extension manifests with the consistency cut"
+        );
 
         let mut decoded = Vec::new();
-        GzDecoder::new(captured.blobs[0].compressed.as_slice()).read_to_end(&mut decoded).unwrap();
+        let blob = captured.blobs.iter().find(|blob| {
+            blob.reference.terminal_id == public_id.as_str()
+        }).unwrap();
+        GzDecoder::new(blob.compressed.as_slice()).read_to_end(&mut decoded).unwrap();
         let replay: Value = serde_json::from_slice(&decoded).unwrap();
         let replay_bytes = base64::engine::general_purpose::STANDARD
             .decode(replay["bytes_base64"].as_str().unwrap())

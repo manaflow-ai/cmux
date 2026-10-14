@@ -7658,6 +7658,32 @@ mod tests {
         assert_eq!(surface.terminal_screen_snapshot().unwrap().osc_progress, "4;2;");
     }
 
+    #[test]
+    fn checkpoint_recovery_waits_for_pending_journal_output() {
+        let mux = Mux::new_for_test("checkpoint-ingress-recovery", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        surface
+            .try_with_terminal(|terminal| terminal.set_kitty_inflight_storage_limit(64))
+            .unwrap();
+        let mut pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
+        assert!(pending_output.activate());
+        let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+        upload.resize(1024, b'A');
+        surface.apply_local_pty_output_for_test(&upload).unwrap();
+
+        // The local reader has parsed the frame but has not enqueued it yet.
+        let error = surface.discard_unreplayable_replay_with(|_| ()).unwrap_err();
+        assert!(error.to_string().contains("terminal journal ingress is unsettled"));
+        assert_eq!(attach.stream.try_recv().unwrap(), AttachFrame::Output(upload));
+        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
+
+        drop(pending_output);
+        assert!(surface.discard_unreplayable_replay_with(|_| ()).unwrap().is_some());
+        assert_eq!(attach.stream.try_recv().unwrap(), AttachFrame::Output(vec![0x18]));
+    }
+
     #[cfg(unix)]
     #[test]
     fn local_surface_reaper_timeout_retains_production_handle() {
