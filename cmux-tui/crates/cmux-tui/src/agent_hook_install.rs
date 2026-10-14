@@ -3124,6 +3124,50 @@ mod tests {
     }
 
     #[test]
+    fn codex_reinstall_keeps_a_later_producers_hook_and_trust_in_place() {
+        // The cmux app writes its own Codex hooks into the same hooks.json
+        // after ours, trusting them at their positions. Reinstalling must not
+        // move our group behind theirs: that shifts their hook to a key with
+        // no trust and overwrites their key with our hash, so Codex asks the
+        // user to review one cmux hook per event.
+        let tmp = tempfile::tempdir().unwrap();
+        let context = context(tmp.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let app_command = "/Users/me/.cmux/hooks/cmux-codex-hook-persistent-stop-0123.sh";
+        let mut hooks: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        hooks["hooks"]["Stop"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"hooks": [{"type": "command", "command": app_command, "timeout": 10}]}));
+        atomic_write(&hooks_path, &serde_json::to_vec_pretty(&hooks).unwrap(), Some(0o600))
+            .unwrap();
+        let app_key = format!("{}:stop:1:0", hooks_path.display());
+        let app_hash = codex_trust_hash("stop", app_command, 10);
+        let config_path = context.home.join(".codex/config.toml");
+        let mut config = fs::read_to_string(&config_path).unwrap();
+        config.push_str(&format!("\n[hooks.state.\"{app_key}\"]\ntrusted_hash = \"{app_hash}\"\n"));
+        fs::write(&config_path, config).unwrap();
+
+        assert!(!run_with_context(&install, &context).failed);
+
+        let hooks: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        assert_eq!(hooks["hooks"]["Stop"][1]["hooks"][0]["command"], app_command, "{hooks}");
+        assert_eq!(codex_owned_hook_position(hooks.as_object().unwrap(), "Stop"), Some((0, 0)));
+        let state = codex_state_table(&context);
+        let trusted = |key: &str| {
+            state.get(key).and_then(|entry| entry.get("trusted_hash")).and_then(toml::Value::as_str)
+        };
+        assert_eq!(trusted(&app_key), Some(app_hash.as_str()), "{state:?}");
+        assert_eq!(
+            trusted(&format!("{}:stop:0:0", hooks_path.display())),
+            Some(codex_trust_hash("stop", &hook_command("codex", "Stop"), 5).as_str()),
+            "{state:?}"
+        );
+    }
+
+    #[test]
     fn codex_status_detects_a_user_edited_hook_entry() {
         let root = tempfile::tempdir().unwrap();
         let context = context(root.path());
