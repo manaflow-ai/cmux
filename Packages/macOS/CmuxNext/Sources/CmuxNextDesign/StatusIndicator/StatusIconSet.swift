@@ -9,8 +9,8 @@ public import Foundation
 /// marks working, blocked (with the OSC 7501 kind: permission, question,
 /// auth), done and error; idle draws nothing. Loading (busy, paused) and
 /// known progress keep the loading style's marks. Colors are theme roles
-/// only. The default is `symbols` (Lawrence, 2026-10-09); `current` keeps the
-/// original drawing.
+/// only. The default is `codex` (Leo 2026-10-14, a team decision; was
+/// `symbols`, Lawrence 2026-10-09); `current` keeps the original drawing.
 public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableChoice {
     /// Today's marks: working dots, a still attention dot, a danger dot, a check.
     case current
@@ -44,8 +44,8 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     /// The Debug Settings switch (the Debug menu writes the same value).
     public static let tunable = Tunable<StatusIconSet>.choice(
         "status.iconSet", .status, "Status icons",
-        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Symbols is the default; Dots is the original drawing.",
-        default: .symbols, code: "StatusIconSet.tunable")
+        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Codex-like is the default; Dots is the original drawing.",
+        default: .codex, code: "StatusIconSet.tunable")
 
     public var tunableTitle: String {
         switch self {
