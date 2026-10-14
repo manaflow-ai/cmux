@@ -953,9 +953,11 @@ fn append_resource_journal_record_at(
     // Migrated legacy revisions keep their stored changes: today's state
     // tables do not describe the session at those revisions.
     let mut decorated = changes.clone();
+    let mut placement_shift = None;
     if with_current_state {
         crate::state::values::decorate_changes(transaction, &mut decorated)?;
-        crate::state::closed_history_store::drain_pending_changes(transaction, &mut decorated)?;
+        placement_shift =
+            crate::state::closed_history_store::drain_pending_changes(transaction, &mut decorated)?;
     }
     let changes = &decorated;
     let kind = semantic_journal_kind(operation);
@@ -973,11 +975,14 @@ fn append_resource_journal_record_at(
     expand_topology_subjects(transaction, &mut subjects)?;
     let subjects = subjects.into_iter().collect::<Vec<_>>();
     let producer = JournalProducer { kind: "resource_operation".into(), id: origin.into() };
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "idempotency_key": idempotency_key,
         "result": result,
         "changes": changes,
     });
+    if let Some(shift) = placement_shift {
+        payload[crate::state::placement_shift::PAYLOAD_KEY] = shift.to_value();
+    }
     let event_id = format!("event_resource_{revision:020}");
     let actor = resource_record_actor(transaction, origin, idempotency_key, with_current_state)?;
     append_journal_record(
@@ -1865,11 +1870,11 @@ fn collect_patch_subjects(patch: &ResourcePatch, subjects: &mut BTreeSet<Journal
             ResourceChange::TombstoneWorkspace { workspace_id } => {
                 insert_subject(subjects, "workspace", workspace_id.as_str());
             }
-            ResourceChange::SetWorkspaceOrder { workspace_ids } => {
-                for workspace in workspace_ids {
-                    insert_subject(subjects, "workspace", workspace.as_str());
-                }
-            }
+            // The order is the session's: the workspaces a commit adds,
+            // moves or selects are subjects through their own changes and
+            // the result, not every workspace the order lists (2000 index
+            // rows per create at 2000 workspaces).
+            ResourceChange::SetWorkspaceOrder { .. } => {}
             ResourceChange::SetActiveWorkspace { workspace_id } => {
                 if let Some(workspace) = workspace_id {
                     insert_subject(subjects, "workspace", workspace.as_str());

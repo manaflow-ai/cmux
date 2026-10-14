@@ -311,7 +311,7 @@
   border: 1px solid var(--page-separator);
   /* The solid popup surface: the grid's icons never show through the pill's labels. */
   background: var(--surface-popup);
-  box-shadow: 0 4px 18px color-mix(in srgb, black 16%, transparent);
+  box-shadow: var(--elevation-2);
   pointer-events: auto;
 }
 

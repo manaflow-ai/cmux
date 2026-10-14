@@ -26,6 +26,7 @@ endAgents, the tag's `acpmux daemon shutdown`, and the virtual display's own pro
 Usage: home-scale-change.py --tag <tag> --ml <MessagesLab source dir with tools/interactions/vdisplay.m> [--out DIR]
 """
 import argparse, json, os, socket, subprocess, sys, time
+import re
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from home_pixels import check_crisp, check_rows  # noqa: E402
@@ -262,7 +263,7 @@ finally:
         rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
     rpc("action.run", {"id": "endAgents"}, timeout=5)
     poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
-    acp = f"{home}/.acpmux/tags/{opts.tag}"
+    acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
     if vd is not None:

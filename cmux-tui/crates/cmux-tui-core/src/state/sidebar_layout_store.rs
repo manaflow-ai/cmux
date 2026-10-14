@@ -80,6 +80,8 @@ pub(crate) fn snapshot(connection: &Connection) -> anyhow::Result<Value> {
         // Its migration failed at open: the stored tiles, as before.
         return snapshot_value(&document(connection)?);
     }
-    let doc = super::sidebar_doc_store::read_doc(connection)?;
-    snapshot_value(&super::sidebar_doc_legacy::project_layout(&document(connection)?, &doc))
+    let stored = document(connection)?;
+    super::sidebar_doc_store::with_doc(connection, |doc| {
+        snapshot_value(&super::sidebar_doc_legacy::project_layout(&stored, doc))
+    })
 }

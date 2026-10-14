@@ -50,9 +50,11 @@ public nonisolated enum DropResolver {
     }
 
     /// - Parameter reordersTabRows: a tab drag, whose drop on a tab row's edge goes before that tab.
+    /// - Parameter wholeRows: a workspace row takes the tab over its whole height (no slot at its edges).
     public static func resolveTabDrop(y: CGFloat, base: SidebarLayout, sections: [SidebarSection], sourceMachine: MachineID?,
-                                      reordersTabRows: Bool = false) -> SidebarTabDrop? {
-        let request = RustTabRequest(y: Double(y), rows: RustRow.resolvable(base.rows), sections: sections.map(RustSection.init), sourceMachine: sourceMachine?.rawValue, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction), reordersTabRows: reordersTabRows)
+                                      reordersTabRows: Bool = false, wholeRows: Bool = false) -> SidebarTabDrop? {
+        var request = RustTabRequest(y: Double(y), rows: RustRow.resolvable(base.rows), sections: sections.map(RustSection.init), sourceMachine: sourceMachine?.rawValue, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction), reordersTabRows: reordersTabRows)
+        if wholeRows { (request.tabIntoStart, request.tabIntoEnd) = (0, 1) }
         return RustSidebarClient.call("tab_drop", request, as: RustTabDrop.self)?.swiftValue
     }
 

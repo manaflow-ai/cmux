@@ -48,6 +48,27 @@ const DEFAULT_NEW_TOOLS: [&str; 3] = ["spawn", "tell", "workspaces"];
 pub(crate) const SELF_EDITABLE: [&str; 5] =
     ["avatar", "display_name", "instructions", "personality", "role"];
 const AVATAR_TYPES: [&str; 4] = ["image/gif", "image/jpeg", "image/png", "image/webp"];
+/// The fields a page changes only on the person's gesture
+/// (`chief-profile-ws-v1`): the person's grant (tools, harnesses, the engine's
+/// harness, model and effort, self_edit), and what the Chief is told to do
+/// (instructions, personality). Chief messages render in that page, so
+/// injected content must not plant behavior a Chief then acts on.
+pub(crate) const GESTURE_FIELDS: [&str; 8] = [
+    "effort",
+    "harness",
+    "harnesses",
+    "instructions",
+    "model",
+    "personality",
+    "self_edit",
+    "tools",
+];
+
+/// Whether request fields name a field a page changes only on the person's
+/// gesture ([`GESTURE_FIELDS`]).
+pub(crate) fn names_gesture_field(fields: &Map<String, Value>) -> bool {
+    GESTURE_FIELDS.iter().any(|field| fields.contains_key(*field))
+}
 
 /// A refusal; the resource layer maps it to `operation.failed` with
 /// `details.reason` [`Refusal::reason`] (or `validation.invalid` for a field).
@@ -129,6 +150,8 @@ pub(crate) enum AvatarChange {
 #[derive(Default)]
 pub(crate) struct ChiefHost {
     pub(crate) store: Mutex<Option<ChiefStore>>,
+    /// The brain supervisor's inbox (chief_brains.rs), when it runs.
+    pub(crate) brains: crate::chief_brains::Slot,
 }
 
 pub(crate) struct ChiefStore {
@@ -253,6 +276,13 @@ impl ChiefStore {
             |row| row.get(0),
         )?;
         Ok(Ok(Some((avatar, data))))
+    }
+
+    /// The ledger's actors, oldest first (tests: who a write is recorded as).
+    #[cfg(test)]
+    pub(crate) fn ledger_actors(&self) -> rusqlite::Result<Vec<String>> {
+        let mut statement = self.connection.prepare("SELECT actor FROM op_ledger ORDER BY seq")?;
+        statement.query_map([], |row| row.get(0))?.collect()
     }
 
     /// Runs `write` once per (`actor`, `key`): a replay with the same

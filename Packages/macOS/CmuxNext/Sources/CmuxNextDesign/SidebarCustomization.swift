@@ -83,7 +83,7 @@ public nonisolated struct SidebarRowDecoration: Hashable, Sendable {
 /// hide or restyle the same fields without fetching anything (cx-swovq.1).
 public nonisolated struct SidebarCardFacts: Hashable, Sendable {
     public struct Fact: Hashable, Sendable {
-        /// `needsInput`, `notification`, `agent`, `task`, `lastReply`, `presence`, `command`, `folder`, `branch`,
+        /// `needsInput`, `notification`, `unread`, `agent`, `task`, `lastReply`, `presence`, `command`, `folder`, `branch`,
         /// `pullRequest`, `machine`, `status` (a reported status entry) or `more`.
         public var kind: String
         public var text: String

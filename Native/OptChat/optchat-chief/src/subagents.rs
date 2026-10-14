@@ -151,9 +151,10 @@ pub struct Spawner {
     /// a restarted host reports them as not started).
     waiting: Mutex<BTreeMap<String, Waiting>>,
     log: crate::brain::Log,
-    /// The harnesses the person lets this Chief's subagents use (its
-    /// record's `harnesses`, chief_profile.rs); empty: every harness.
-    harnesses: std::collections::BTreeSet<String>,
+    /// This Chief's grant (chief_profile.rs): the harnesses the person lets
+    /// its subagents use (its record's `harnesses`; empty: every harness),
+    /// read at each spawn (a default Chief's record can arrive late).
+    grant: Option<std::sync::Arc<crate::chief_profile::ChiefTools>>,
     /// Queued ids of a spawn the grant refused, with the refusal: the queue
     /// starter fails them with it when the brain dequeues them.
     refused: Mutex<BTreeMap<String, String>>,
@@ -178,14 +179,17 @@ impl Spawner {
             pinned: false,
             waiting: Mutex::new(BTreeMap::new()),
             log,
-            harnesses: std::collections::BTreeSet::new(),
+            grant: None,
             refused: Mutex::new(BTreeMap::new()),
         }
     }
 
     /// The person's harness grant (empty: every harness).
-    pub fn with_harness_grant(mut self, harnesses: std::collections::BTreeSet<String>) -> Spawner {
-        self.harnesses = harnesses;
+    pub fn with_harness_grant(
+        mut self,
+        grant: std::sync::Arc<crate::chief_profile::ChiefTools>,
+    ) -> Spawner {
+        self.grant = Some(grant);
         self
     }
 
@@ -693,18 +697,14 @@ impl Orchestrator for Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())??;
         let run = self.engine_settings(plan.engine.as_ref());
         // The person's grant: a harness outside it starts nothing.
-        let refused =
-            (!self.harnesses.is_empty() && !self.harnesses.contains(&run.harness)).then(|| {
-                format!(
-                    "the person has not given this Chief's subagents the {} harness; it may use {}",
-                    run.harness,
-                    self.harnesses
-                        .iter()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            });
+        let grant = self.grant.as_ref().map(|g| g.grant());
+        let refused = grant.filter(|g| !g.allows_harness(&run.harness)).map(|g| {
+            format!(
+                "the person has not given this Chief's subagents the {} harness; it may use {}",
+                run.harness,
+                g.harnesses.iter().cloned().collect::<Vec<_>>().join(", ")
+            )
+        });
         self.trace.emit(
             "spawn",
             json!({

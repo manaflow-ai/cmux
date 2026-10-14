@@ -27,7 +27,7 @@ coordinate.
 
 Drag a tab chip to reorder it within the same pane. Drag it to another pane's tab bar to move the tab across panes. The dragged tab is dimmed, and the target insertion point is shown with a `▌` marker.
 
-In the workspaces view, drag a workspace entry to reorder workspaces. The drop position is shown with a horizontal `─` marker.
+In the workspaces view, drag a workspace entry to reorder workspaces. The drop position is shown with a horizontal `─` marker. With a daemon that has the sidebar document (`sidebar-doc-v1`), the drop is one `sidebar.move` next to the drawn neighbor, so a drop among the pinned workspaces pins it; the workspace context menu also offers Pin workspace or Unpin workspace.
 
 ## Scrollbars
 

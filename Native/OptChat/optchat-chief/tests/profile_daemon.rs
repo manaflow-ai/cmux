@@ -14,6 +14,12 @@
 //! - changes its own role and picture through `profile` on its own bound
 //!   connection, and is refused a field the person did not allow.
 //!
+//! - (the default Chief, hq-6d decision 2026-10-14) a real host that starts
+//!   while the daemon is away serves zoom and date only, and gets its
+//!   record's grant when the daemon comes up and the link connects;
+//! - (S5 gap 3) a Chief with a self-edit grant reads of `chief profile` in
+//!   its launcher prompt (AGENTS.md).
+//!
 //! Run: `CMUX_TUI_BIN=<cmux-tui target>/debug/cmux-tui cargo test --test
 //! profile_daemon -- --ignored`.
 
@@ -133,6 +139,11 @@ impl Daemon {
             .tempdir_in("/tmp")
             .unwrap();
         let socket = dir.path().join("d.sock");
+        Daemon::start_at(dir, socket)
+    }
+
+    /// A daemon in `dir` listening on `socket` (a path a host already uses).
+    fn start_at(dir: tempfile::TempDir, socket: PathBuf) -> Daemon {
         let status = cli(dir.path())
             .arg("--socket")
             .arg(&socket)
@@ -408,4 +419,330 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
         json!({"avatar_path": text_file.display().to_string()}),
     );
     assert!(err && bad.contains("PNG, JPEG, GIF or WebP"), "{bad}");
+}
+
+/// Waits (bounded) until `done`; the host and the daemon are other processes.
+fn wait_until(host_log: &Path, what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    while !done() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{what} did not happen in 60 s; host log:\n{}",
+            std::fs::read_to_string(host_log).unwrap_or_default()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// The real host process; SIGTERM and wait on drop.
+struct Host(std::process::Child);
+
+impl Drop for Host {
+    fn drop(&mut self) {
+        // SAFETY: the pid is this test's own child.
+        unsafe { libc::kill(self.0.id() as i32, libc::SIGTERM) };
+        let _ = self.0.wait();
+    }
+}
+
+/// The real host for `participant` on `socket`, its MUX_HOME `dir/mux`,
+/// its log `dir/host.log`. The native engine with the API compactor needs
+/// no acpmux (person_profile.rs).
+fn start_host(dir: &Path, socket: &Path, token: &Path, participant: Option<&str>) -> Host {
+    start_host_with(dir, socket, token, participant, &[])
+}
+
+/// [`start_host`] with `env` added to the host's environment.
+fn start_host_with(
+    dir: &Path,
+    socket: &Path,
+    token: &Path,
+    participant: Option<&str>,
+    env: &[(&str, &str)],
+) -> Host {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_optchat-chief"));
+    command
+        .args(["host", "--daemon-socket"])
+        .arg(socket)
+        .arg("--mux-home")
+        .arg(dir.join("mux"))
+        .env("HOME", dir)
+        .env("MUX_AGENT_TOKEN_FILE", token)
+        .env("OPTCHAT_CHIEF_ENGINE", "native")
+        .env("OPTCHAT_COMPACTOR", "api")
+        .env("ACPMUX_BIN", "/usr/bin/false")
+        .env("ACPMUX_HOME", dir.join("acpmux"))
+        .env("OPTCHAT_INSPECTOR", "0")
+        .env_remove("OPTCHAT_ACPMUX_SUPERVISED")
+        .env_remove("OPTCHAT_CHIEF_PARTICIPANT")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(std::fs::File::create(dir.join("host.log")).unwrap());
+    if let Some(participant) = participant {
+        command.env("OPTCHAT_CHIEF_PARTICIPANT", participant);
+    }
+    command.envs(env.iter().copied());
+    Host(command.spawn().unwrap())
+}
+
+/// hq-6d decision (2026-10-14): the default Chief no longer fails open. A
+/// host that cannot read its record at start (the daemon is away) serves
+/// zoom and date only; when the daemon comes up and the link connects, it
+/// reads the record and serves the record's grant. A Chief whose record is
+/// absent (registry present) keeps every tool (the S5 test above).
+#[test]
+#[ignore = "needs CMUX_TUI_BIN"]
+fn the_default_chief_serves_only_zoom_and_date_until_it_reads_its_record() {
+    let dir = tempfile::Builder::new()
+        .prefix("ocd")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let socket = dir.path().join("d.sock");
+    let token = dir.path().join("agent-token");
+    // A token from an earlier daemon: the host needs one to start; this
+    // daemon will not know it.
+    std::fs::write(&token, "from-an-earlier-daemon\n").unwrap();
+    let host_log = dir.path().join("host.log");
+    let host = start_host(dir.path(), &socket, &token, None);
+    let tools_socket = dir.path().join("mux").join("optchat").join("tools.sock");
+    wait_until(&host_log, "the host serving its tools socket", || {
+        UnixStream::connect(&tools_socket).is_ok()
+    });
+    let mcp_args = vec![
+        "mcp".to_owned(),
+        "--socket".to_owned(),
+        tools_socket.display().to_string(),
+    ];
+    let mut mcp = Mcp::start(&mcp_args);
+    assert_eq!(
+        mcp.names(),
+        ["zoom", "date"],
+        "the daemon is away: the default Chief's grant is not known, so it gets zoom and date only"
+    );
+    let (refused, why) = mcp.call("tell", json!({"id": "a1", "message": "x"}));
+    assert!(
+        refused && why.contains("not given"),
+        "tell is refused while the grant is not known: {why}"
+    );
+
+    // The daemon comes up; the person narrows the default Chief's tools; the
+    // brain's token is there; the link connects and the brain reads its record.
+    let daemon_dir = tempfile::Builder::new()
+        .prefix("ocdd")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let daemon = Daemon::start_at(daemon_dir, socket.clone());
+    let mut me = Conn::open(&daemon.socket);
+    let record = me.v2("chief.profile.get", json!({"chief": "agent_mux"}), None);
+    let updated = me.v2(
+        "chief.profile.update",
+        json!({"chief": "agent_mux", "expected_rev": record["rev"], "tools": ["tell"]}),
+        Some("narrow-default"),
+    );
+    let record = &updated["value"];
+    assert_eq!(record["tools"], json!(["tell"]), "{updated}");
+    let mut expected = vec!["zoom", "date", "tell"];
+    if record["self_edit"]
+        .as_array()
+        .is_some_and(|a| !a.is_empty())
+    {
+        expected.push("profile");
+    }
+    let minted = me.token_file(dir.path(), "agent_mux");
+    std::fs::rename(&minted, &token).unwrap();
+    wait_until(
+        &host_log,
+        "the host reading the default Chief's record",
+        || mcp.names() == expected,
+    );
+    let (refused, why) = mcp.call("spawn", json!({"tasks": ["build it"]}));
+    assert!(
+        refused && why.contains("not given"),
+        "the record's grant holds: {why}"
+    );
+    drop(mcp);
+    drop(host);
+}
+
+/// S5 gap 3: a Chief whose record grants `profile` (any self_edit) learns of
+/// `chief profile` in the launcher section of its harness-without-MCP
+/// prompt (the session directory's AGENTS.md, what a codex turn reads).
+#[test]
+#[ignore = "needs CMUX_TUI_BIN"]
+fn a_chief_with_self_edit_reads_of_chief_profile_in_its_launcher_prompt() {
+    let daemon = Daemon::start();
+    let mut me = Conn::open(&daemon.socket);
+    let made = me.v2(
+        "chief.profile.create",
+        json!({"display_name": "Scout", "tools": ["tell"], "self_edit": ["avatar", "role"]}),
+        Some("make-scout"),
+    );
+    let scout = made["value"]["id"].as_str().unwrap().to_owned();
+    let dir = tempfile::Builder::new()
+        .prefix("ocs")
+        .tempdir_in("/tmp")
+        .unwrap();
+    me.req(json!({"cmd": "conversation-create", "idempotency_key": "dm-scout",
+                  "actor": "user_local", "title": "Scout", "participants": [
+                      {"id": "user_local", "kind": "human", "display_name": "Ada"},
+                      {"id": scout, "kind": "agent", "display_name": "Scout", "agent_class": "mux"}]}));
+    let token = me.token_file(dir.path(), &scout);
+    let host_log = dir.path().join("host.log");
+    let _host = start_host(dir.path(), &daemon.socket, &token, Some(&scout));
+    let agents_md = dir.path().join("mux/optchat/session/AGENTS.md");
+    let chief = dir
+        .path()
+        .join("mux/optchat/bin/chief")
+        .display()
+        .to_string();
+    let line = format!("- Your profile: `{chief} profile` prints your record");
+    wait_until(
+        &host_log,
+        "the launcher prompt naming chief profile",
+        || std::fs::read_to_string(&agents_md).is_ok_and(|text| text.contains(&line)),
+    );
+}
+
+/// S5 gap 4: the person's `harnesses` grant reaches the spawn path. A Chief
+/// whose record allows spawn but only the codex harness asks for a claude
+/// subagent: the spawn is refused with the allowed list and starts no
+/// session. The record is the real daemon's; the brain and spawner are the
+/// host's; acpmux is the in-repo fake, only to show that nothing started.
+#[test]
+#[ignore = "needs CMUX_TUI_BIN"]
+fn a_spawn_on_a_harness_outside_the_grant_starts_nothing() {
+    use optchat_chief::subagents::{Spawner, SubagentSettings};
+    use optchat_chief::tools::Orchestrator;
+    let daemon = Daemon::start();
+    let mut me = Conn::open(&daemon.socket);
+    let made = me.v2(
+        "chief.profile.create",
+        json!({"display_name": "Builder", "tools": ["spawn", "tell"], "harnesses": ["codex"]}),
+        Some("make-builder"),
+    );
+    let builder = made["value"]["id"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    me.req(json!({"cmd": "conversation-create", "idempotency_key": "dm-builder",
+                  "actor": "user_local", "title": "Builder", "participants": [
+                      {"id": "user_local", "kind": "human", "display_name": "Ada"},
+                      {"id": builder, "kind": "agent", "display_name": "Builder", "agent_class": "mux"}]}));
+    let token = me.token_file(dir.path(), &builder);
+    let tools = Arc::new(
+        ChiefTools::start(
+            Some(ProfileClient::new(
+                daemon.socket.clone(),
+                Some(token),
+                builder.clone(),
+            )),
+            false,
+            &|_| {},
+        )
+        .expect("the brain reads its record"),
+    );
+
+    let mut h = common::Harness::new(Box::new(|_, _| Vec::new()));
+    h.connect();
+    let spawner = Arc::new(
+        Spawner::new(
+            h.chat.clone(),
+            h.agents.clone(),
+            SubagentSettings {
+                harness: "claude".into(),
+                policy: "approve-all".into(),
+                model: None,
+                effort: None,
+                preset: None,
+                cwd: h.dir.path().join("subagent"),
+                prefix: "optchat-sub-h0me".into(),
+                parent: optchat_chief::brain::PARENT.into(),
+                claude_md: None,
+            },
+            h.tx.clone(),
+            Arc::new(|_: &str| {}),
+        )
+        .with_harness_grant(tools),
+    );
+    let worker = {
+        let spawner = spawner.clone();
+        std::thread::spawn(move || spawner.spawn(vec!["build it".into()], None))
+    };
+    while !worker.is_finished() {
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    let answer = worker.join().unwrap();
+    let text = match &answer {
+        Ok(text) | Err(text) => text.clone(),
+    };
+    assert!(
+        text.contains("has not given this Chief's subagents the claude harness; it may use codex"),
+        "{answer:?}"
+    );
+    let started = h.agents.inner.lock().unwrap().specs.len();
+    assert_eq!(started, 0, "a refused spawn starts no session");
+}
+
+/// One cmux MCP server per Chief turn (hq-6d 2026-10-14): acpmux gives every
+/// agent chat, the Chief's turns and subagents included, its own `cmux mcp
+/// serve` (cx-wx93i, acpmux agent_tools.rs). A host started with
+/// `CMUX_MCP_COMMAND` (the app passes it when its own env has it) adds no
+/// second `cmux` server: the turn's and the subagent's `.mcp.json` hold only
+/// `optchat`, and their project settings enable only `optchat`.
+#[test]
+#[ignore = "needs CMUX_TUI_BIN"]
+fn a_chief_turn_gets_no_second_cmux_mcp_server() {
+    let daemon = Daemon::start();
+    let mut me = Conn::open(&daemon.socket);
+    let made = me.v2(
+        "chief.profile.create",
+        json!({"display_name": "Scout", "tools": ["tell"]}),
+        Some("make-scout-mcp"),
+    );
+    let scout = made["value"]["id"].as_str().unwrap().to_owned();
+    let dir = tempfile::Builder::new()
+        .prefix("ocm")
+        .tempdir_in("/tmp")
+        .unwrap();
+    me.req(json!({"cmd": "conversation-create", "idempotency_key": "dm-scout-mcp",
+                  "actor": "user_local", "title": "Scout", "participants": [
+                      {"id": "user_local", "kind": "human", "display_name": "Ada"},
+                      {"id": scout, "kind": "agent", "display_name": "Scout", "agent_class": "mux"}]}));
+    let token = me.token_file(dir.path(), &scout);
+    let host_log = dir.path().join("host.log");
+    let _host = start_host_with(
+        dir.path(),
+        &daemon.socket,
+        &token,
+        Some(&scout),
+        &[("CMUX_MCP_COMMAND", "/tmp/no-such-cmux-mcp")],
+    );
+    let root = dir.path().join("mux/optchat");
+    let read = |path: &Path| -> Option<Value> {
+        serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+    };
+    for place in ["session", "subagent"] {
+        let mcp = root.join(place).join(".mcp.json");
+        let settings = root.join(place).join(".claude/settings.json");
+        wait_until(&host_log, &format!("the {place} directory"), || {
+            read(&mcp).is_some() && read(&settings).is_some()
+        });
+        let servers: Vec<String> = read(&mcp).unwrap()["mcpServers"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(servers, vec!["optchat".to_owned()], "{place}: {mcp:?}");
+        let settings = read(&settings).unwrap();
+        let enabled = &settings["enabledMcpjsonServers"];
+        assert_eq!(enabled, &json!(["optchat"]), "{place}");
+        // Nor is the variable passed to the turn's tools.
+        assert!(
+            settings["env"].get("CMUX_MCP_COMMAND").is_none(),
+            "{place}: {settings}"
+        );
+    }
+    let launcher = std::fs::read_to_string(root.join("bin/chief")).unwrap();
+    assert!(!launcher.contains("CMUX_MCP_COMMAND"), "{launcher}");
 }

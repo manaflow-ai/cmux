@@ -225,20 +225,44 @@ impl Grant {
 }
 
 /// This Chief's record, grant and profile client, as the host serves them.
+/// The record and grant can arrive after host start (a default Chief whose
+/// daemon was away), so they sit behind a lock; the prompt keeps what it
+/// rendered at start (byte-stable for the host's life).
 #[derive(Debug)]
 pub struct ChiefTools {
-    pub profile: Option<Profile>,
-    pub grant: Grant,
+    state: std::sync::RwLock<Loaded>,
     client: Option<ProfileClient>,
+}
+
+#[derive(Clone, Debug)]
+struct Loaded {
+    profile: Option<Profile>,
+    grant: Grant,
+    /// The record is not read yet: zoom and date only until it is.
+    pending: bool,
 }
 
 impl ChiefTools {
     /// No record: every tool as before, no profile tool.
     pub fn none() -> ChiefTools {
         ChiefTools {
-            profile: None,
-            grant: Grant::all(),
+            state: std::sync::RwLock::new(Loaded {
+                profile: None,
+                grant: Grant::all(),
+                pending: false,
+            }),
             client: None,
+        }
+    }
+
+    fn loaded(profile: Profile, client: ProfileClient) -> ChiefTools {
+        ChiefTools {
+            state: std::sync::RwLock::new(Loaded {
+                grant: Grant::from_profile(&profile),
+                profile: Some(profile),
+                pending: false,
+            }),
+            client: Some(client),
         }
     }
 
@@ -249,17 +273,127 @@ impl ChiefTools {
             return Ok(ChiefTools::none());
         };
         let profile = client.get()?;
-        Ok(ChiefTools {
-            grant: Grant::from_profile(&profile),
-            profile: Some(profile),
-            client: Some(client),
-        })
+        Ok(ChiefTools::loaded(profile, client))
+    }
+
+    /// The host's start: the record when the daemon answers; every tool when
+    /// the registry has no record for this Chief or the daemon has no
+    /// registry (as before records). Any other failure (the daemon away, a
+    /// refused bind): a Chief that is not the default one does not start (its
+    /// supervisor starts it again), so its grant never opens up; the default
+    /// Chief starts with zoom and date only and reads the record when the
+    /// daemon link comes up (`read_when_up`).
+    pub fn start(
+        client: Option<ProfileClient>,
+        is_default: bool,
+        log: &dyn Fn(String),
+    ) -> Result<ChiefTools, String> {
+        let Some(client) = client else {
+            return Ok(ChiefTools::none());
+        };
+        match client.get() {
+            Ok(profile) => {
+                let tools = ChiefTools::loaded(profile, client);
+                tools.log_record(log);
+                Ok(tools)
+            }
+            Err(e @ (LoadError::NoRecord(_) | LoadError::NoRegistry(_))) => {
+                log(format!("chief record: {e}; every tool, no profile"));
+                Ok(ChiefTools::none())
+            }
+            Err(e) if is_default => {
+                log(format!(
+                    "chief record: not read ({e}); zoom and date only until the daemon answers"
+                ));
+                Ok(ChiefTools {
+                    state: std::sync::RwLock::new(Loaded {
+                        profile: None,
+                        grant: Grant {
+                            tools: Some(BTreeSet::new()),
+                            harnesses: BTreeSet::new(),
+                        },
+                        pending: true,
+                    }),
+                    client: Some(client),
+                })
+            }
+            Err(e) => Err(format!("reading this Chief's record: {e}")),
+        }
+    }
+
+    fn log_record(&self, log: &dyn Fn(String)) {
+        let state = self.read();
+        if let Some(p) = &state.profile {
+            log(format!(
+                "chief record: {} {:?} rev {}, tools {:?}, harnesses {:?}, self_edit {:?}",
+                p.id, p.display_name, p.rev, state.grant.tools, p.harnesses, p.self_edit
+            ));
+        }
+    }
+
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, Loaded> {
+        self.state
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Whether the record is still to be read (a default Chief whose daemon
+    /// was away at host start).
+    pub fn pending(&self) -> bool {
+        self.read().pending
+    }
+
+    /// The daemon link is up (or a conversation changed): a pending record
+    /// is read now. A record that is still not readable stays pending until
+    /// the next link event.
+    pub fn read_when_up(&self, log: &dyn Fn(String)) {
+        if !self.pending() {
+            return;
+        }
+        let Some(client) = &self.client else { return };
+        let next = match client.get() {
+            Ok(profile) => Loaded {
+                grant: Grant::from_profile(&profile),
+                profile: Some(profile),
+                pending: false,
+            },
+            Err(e @ (LoadError::NoRecord(_) | LoadError::NoRegistry(_))) => {
+                log(format!("chief record: {e}; every tool, no profile"));
+                Loaded {
+                    profile: None,
+                    grant: Grant::all(),
+                    pending: false,
+                }
+            }
+            Err(e) => {
+                log(format!(
+                    "chief record: still not read ({e}); zoom and date only"
+                ));
+                return;
+            }
+        };
+        *self
+            .state
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = next;
+        self.log_record(log);
+        log("chief record: the profile text reaches the prompt at the brain's next start".into());
+    }
+
+    /// The record as read (None: no record, or not read yet).
+    pub fn profile(&self) -> Option<Profile> {
+        self.read().profile.clone()
+    }
+
+    /// What this Chief may use now.
+    pub fn grant(&self) -> Grant {
+        self.read().grant.clone()
     }
 
     /// The host's instructions (the person's profile and files, the
     /// channels paragraph) followed by this Chief's profile sections.
     pub fn instructions(&self, base: Option<String>) -> Option<String> {
-        let mine = self.profile.as_ref().and_then(Profile::render);
+        let mine = self.profile().as_ref().and_then(Profile::render);
         match (base.filter(|b| !b.trim().is_empty()), mine) {
             (Some(base), Some(mine)) => Some(format!("{base}\n\n{mine}")),
             (base, mine) => base.or(mine),
@@ -269,14 +403,14 @@ impl ChiefTools {
     /// The model tools the `mcp` server lists (its `grant` question to the
     /// tools socket), comma separated, `none` for none.
     pub fn mcp_value(&self) -> String {
-        self.grant
+        self.grant()
             .mcp_value()
             .unwrap_or_else(|| "spawn,tell".to_owned())
     }
 
     /// The `profile` tool: read the record, or change the fields in `args`.
     pub fn profile_call(&self, args: &Value) -> Result<String, String> {
-        if !self.grant.allows("profile") {
+        if !self.grant().allows("profile") {
             return Err(Grant::refusal("profile"));
         }
         let client = self
@@ -285,6 +419,27 @@ impl ChiefTools {
             .ok_or("this Chief has no record here")?;
         client.apply(args)
     }
+}
+
+/// The daemon link's event sink, wrapped so a pending record is read each
+/// time the link comes up (connected and bound) and on each conversation
+/// change while it is still pending (a person's message reaches the brain
+/// only after the read), before the brain hears the event.
+pub fn read_record_on_up(
+    tools: std::sync::Arc<ChiefTools>,
+    sink: std::sync::Arc<dyn Fn(crate::daemon::DaemonEvent) + Send + Sync>,
+    log: std::sync::Arc<dyn Fn(&str) + Send + Sync>,
+) -> std::sync::Arc<dyn Fn(crate::daemon::DaemonEvent) + Send + Sync> {
+    std::sync::Arc::new(move |event| {
+        let link_event = matches!(
+            event,
+            crate::daemon::DaemonEvent::Up { .. } | crate::daemon::DaemonEvent::Changed { .. }
+        );
+        if link_event && tools.pending() {
+            tools.read_when_up(&|line: String| log(&line));
+        }
+        sink(event)
+    })
 }
 
 /// Why the record could not be read.

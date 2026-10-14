@@ -35,9 +35,11 @@ mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub(crate) use route_switch::route_error;
+mod offers;
 mod secrets;
 mod seen;
 mod session;
+pub(crate) mod session_pages;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
@@ -47,6 +49,7 @@ mod start_defaults;
 pub(crate) mod start_mode;
 mod steer_end;
 mod stream;
+mod tags;
 mod tap;
 pub use lifecycle::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -172,6 +175,8 @@ pub struct PromptOptions {
     /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
     /// running turn and run this next" instead of waiting behind the queue.
     pub interrupt: bool,
+    /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
+    pub provenance: Option<Value>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -226,6 +231,8 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// Startup has read the login environment: the catalog sees its PATH.
+    pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
@@ -279,6 +286,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// Chats agents offered the person, still open (`offers.rs`).
+    pub(super) offers: offers::Offers,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -307,6 +316,7 @@ impl Hub {
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
@@ -334,6 +344,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            offers: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
@@ -430,6 +441,7 @@ impl Hub {
     pub fn begin_startup(&self, login_env: bool) {
         self.login_env_requested.store(login_env, Ordering::SeqCst);
         self.startup_ready.send_replace(false);
+        self.catalog_ready.send_replace(false);
     }
 
     /// Background startup: import the login environment (when requested),
@@ -466,6 +478,7 @@ impl Hub {
                 });
             }
         }
+        self.catalog_ready.send_replace(true);
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
         tracing::info!("startup complete; agents may spawn");
@@ -483,16 +496,11 @@ impl Hub {
     }
 
     /// The login environment changed: `CLAUDE_CONFIG_DIR` / `CODEX_HOME`
-    /// and harnesses on the login PATH may come from it only.
+    /// and harnesses on the login PATH may come from it only. Watchers hear
+    /// the new catalog, so a client that listed the old one catches up.
     async fn after_login_env(self: &Arc<Self>) -> bool {
         self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
-        match self.reload_catalog().await {
-            Ok(_) => true,
-            Err(e) => {
-                tracing::warn!("catalog reload after login env: {e}");
-                false
-            }
-        }
+        self.reload_and_announce().await
     }
 
     pub fn startup_complete(&self) -> bool {
@@ -596,6 +604,7 @@ impl Hub {
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
+            input_since: AtomicU64::new(0),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
@@ -753,34 +762,6 @@ impl Hub {
         (record, stored)
     }
 
-    /// Orchestrator tags with optional expiry.
-    pub fn set_tags(
-        &self,
-        session: &Session,
-        set: Option<&serde_json::Map<String, Value>>,
-        remove: &[String],
-        ttl_seconds: Option<u64>,
-    ) {
-        {
-            let mut m = session.meta.lock().unwrap();
-            let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
-            if let Some(set) = set {
-                for (k, v) in set {
-                    let value = match v {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    };
-                    m.tags.insert(k.clone(), crate::store::Tag { value, expires_at });
-                }
-            }
-            for k in remove {
-                m.tags.remove(k);
-            }
-        }
-        self.save_meta(session);
-        self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));
-    }
-
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
         self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
         self.save_meta(session);
@@ -936,7 +917,7 @@ impl Hub {
             }
             if let Some((seq, turn_id)) = open {
                 let error = "the daemon restarted before this turn settled";
-                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+                self.append_unknown_outcome(&session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
                 self.save_meta(&session);
             }
         }
@@ -958,6 +939,7 @@ impl Hub {
             changed
         };
         if changed {
+            session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
         }

@@ -490,6 +490,16 @@
               "key" : "settings.group.computerUse",
               "text" : "Computer Use"
             }
+          },
+          {
+            "key" : "settings.group.freeModel",
+            "rows" : [
+              "freeModel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.freeModel",
+              "text" : "AI Models"
+            }
           }
         ],
         "id" : "agents",
@@ -14143,6 +14153,7 @@
     {
       "accepts" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "agent_refusal" : null,
@@ -14154,6 +14165,13 @@
             "text" : "Compact"
           },
           "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.comfortable",
+            "text" : "Comfortable"
+          },
+          "value" : "comfortable"
         },
         {
           "title" : {
@@ -14174,7 +14192,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -14183,9 +14201,11 @@
         "density",
         "expanded",
         "compact",
+        "comfortable",
         "rows",
         "preview",
         "two lines",
+        "taller",
         "t3",
         "codex"
       ],
@@ -23532,7 +23552,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "79e569d3cdd546084d1ee8033b78707b55524c03716992d0a53c7b6a4b473314",
+  "schema_hash" : "9ff5d40a2ccf65edc5d7a6882883672ab897ec6b9a4de0e4f34156e20931da60",
   "sections" : [
     {
       "id" : "general",
