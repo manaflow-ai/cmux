@@ -46,10 +46,15 @@ nonisolated enum AcpmuxVersionHandoff {
     /// share `~/.acpmux`) runs a file that still exists.
     static func replaced(pid: Int32) -> Bool {
         guard kill(pid, 0) == 0 else { return false }
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return true }
-        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        guard let path = executablePath(pid: pid) else { return true }
         return !FileManager.default.fileExists(atPath: path)
+    }
+
+    /// The executable path of process `pid` (`proc_pidpath`), nil when unknown.
+    static func executablePath(pid: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     #if DEBUG
@@ -62,12 +67,6 @@ nonisolated enum AcpmuxVersionHandoff {
         return URL(fileURLWithPath: runningPath).resolvingSymlinksInPath().path != executable.resolvingSymlinksInPath().path
     }
 
-    /// The executable path of process `pid` (`proc_pidpath`), nil when unknown.
-    static func executablePath(pid: Int32) -> String? {
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-    }
     #endif
 
     /// The bundled acpmux's build (`<executable> --version`).
