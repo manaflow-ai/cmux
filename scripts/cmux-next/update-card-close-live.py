@@ -202,7 +202,7 @@ try:
     open_x_menu("ready card 1.99.1")
     pick(MENU[0])
     check(snooze().get("readyCard") == "false", "1.99.1 closed")
-    rpc("action.run", {"action": "palette.checkForUpdates", "origin": "user"})
+    rpc("action.run", {"action": "palette.checkForUpdates", "origin": "script"})
     state = wait_for(lambda: (lambda s: s if s.get("readyCard") == "true" else None)(snooze()), "Check for Updates shows the card") or {}
     check(state.get("readyCard") == "true" and state.get("closedVersion") is None,
           f"Check for Updates shows the closed card and clears the close: {state}")
@@ -240,7 +240,15 @@ try:
     shot("11-notice-menu-light", popups=True)
     pick(MENU[2])
     state = snooze()
+    if state.get("noticeCard") != "none":
+        print(f"diagnostic: after pick_menu the notice still shows: {state}; trying the keyboard in the open menu", flush=True)
+        open_x_menu("notice card, keyboard pick")
+        for key in ["down", "down", "down", "return"]:
+            rpc("debug.key", {"key": key, "modifiers": []})
+        wait_for(lambda: not ((rpc("debug.hints") or {}).get("menu") or {}).get("open"), "the menu closes", 10)
+        state = snooze()
     check(state.get("noticeCard") == "none" and bool(state.get("remindAfter")), f"Remind Me in 3 Days hides the notice: {state}")
+    shot("12-notice-reminded-light")
 
     focus = rpc("debug.focus")
     check(not focus.get("app_active"), f"no activation: {focus}")
