@@ -219,6 +219,37 @@ the Mac.
   `agent_tabs_refuse_other_sources_and_hosts` (policy), and the
   `new-conversation-tab` rewrite in `tests/host.rs`.
 
+## `acpmux`: agent chats in the person's workspaces (proposed, `feat-cnx-ios-agentcwd`)
+
+Not decided: a trust-policy change for #13742, listed under "Decisions for the
+person". A phone's New Claude Chat in a workspace failed with "cwd is refused:
+a remote WebSocket connection may use only a known project or a configured
+webRoots folder". acpmux's remote guard (`acpmux/src/server/remote_guard.rs`,
+`web_roots`) lets a `Web` connection start a session only below `webRoots`
+(config.json) or a known project, which is the folder of a session acpmux
+already has. A new workspace folder is neither.
+
+The change: the Mac app also hands acpmux, on its person connection, the
+folders of the tabs its daemon lists now (`_acpmux/workspace_roots_set`, kept in
+memory only, the same connection and person proof as the phone approvers). It
+sends none while iPhone connections are off or nobody is signed in, and an
+empty list when they turn off. acpmux adds them to the Web roots under the
+existing guards: `/`, the home folder and every folder above it are dropped,
+and paths are canonicalized (symlinks, `..`) before the check. This is the
+same set of folders as `file`'s tab-folder rule (`feat-cnx-ios-fileroots`).
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | The phone could already prompt agents in known projects. This lets it start one in a folder where the person already has a tab open. The agent still runs under the Web rules: asking policy only, no MCP servers from the phone, an asking mode, each tool approval answered by the person (on the Mac, or with the phone's Face ID signature). |
+| Mutates or destroys objects the session does not own? | No new methods. Only the folder a session may start in widens, to folders the person has open in their own daemon. |
+| Reads local state the remote should not see? | An agent in that folder reads what its approved tools read there, as today in known projects. Folders with no open tab, `/` and `~` (and above) stay refused, and so does a folder that is only reachable through a symlink. The folder list itself never reaches the phone. |
+| Whose objects? | The Mac owner's own daemon session (the app's), set only by a connection that proved the app's person key; neither an agent, a page nor the phone can set it (`person_required`). |
+
+- **Tests:** acpmux `tests/workspace_roots.rs` (refused before; only the
+  person sets the list; `/` and home dropped; the folder and a folder below it
+  pass; elsewhere, a symlink out and `..` out are refused; cleared refuses
+  again). acpmux `person_allow`, `remote_guard` and the lib tests still pass.
+
 ## `acpmux`: messages larger than one link frame
 
 The link splits a write above 256 KiB into several data frames. hostd now
@@ -286,6 +317,10 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   from that device id, and nothing is asked before the app's list arrives).
 
 ## Decisions for the person
+
+- Agent chats from the phone in the person's workspaces: whether acpmux may let
+  a phone start a session in the folder of a workspace the Mac's daemon lists
+  (`feat-cnx-ios-agentcwd`; the same folders as `file`'s tab-folder rule).
 
 - Phone pairing and Face ID signed approvals (`verify/phone-approvals.md`),
   a trust-policy change recommended on issue #13742.

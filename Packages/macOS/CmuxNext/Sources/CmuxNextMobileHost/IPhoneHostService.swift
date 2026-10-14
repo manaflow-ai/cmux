@@ -49,6 +49,9 @@ public final class IPhoneHostService {
         var acpmux: @Sendable () async -> (url: URL, token: String)?
         /// Folders the phone may preview files from (the chat roots).
         var fileRoots: @MainActor () -> [String]
+        /// The folders of the tabs this Mac's daemon lists now (absolute, deduplicated):
+        /// a phone may start agent chats there (``CnxApproverSync/updateWorkspaceRoots(_:)``).
+        var workspaceFolders: @MainActor @Sendable () -> [String] = { [] }
         /// This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
         var agentTabHost: @MainActor () -> String? = { nil }
         var computerName: @Sendable () async -> String
@@ -90,6 +93,7 @@ public final class IPhoneHostService {
     /// Observers that show a waiting prompt once a cmux window is on screen.
     @ObservationIgnored var pairWindowWatch: [any NSObjectProtocol] = []
     @ObservationIgnored var approverSync: CnxApproverSync?
+    @ObservationIgnored private var followingFolders: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// The one reconcile in flight; each waits for the previous one.
     @ObservationIgnored private var applying: Task<Void, Never>?
@@ -196,6 +200,25 @@ public final class IPhoneHostService {
         }
     }
 
+    /// Hands acpmux the folders of this Mac's workspaces while iPhone connections are allowed
+    /// for a signed-in account (none otherwise), so a phone's agent chat starts there.
+    func followWorkspaceFolders() {
+        followingFolders?.cancel()
+        // task-owner: lives as long as the app; re-reads the folders on each daemon tree change
+        followingFolders = Task { [weak self] in
+            for await folders in ObservationStream({ [weak self] in
+                guard let self, allowed, account != nil else { return [String]() }
+                return dependencies?.workspaceFolders() ?? []
+            }) {
+                guard let self else { return }
+                if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
+                    approverSync = CnxApproverSync(environment: environment)
+                }
+                approverSync?.updateWorkspaceRoots(folders)
+            }
+        }
+    }
+
     /// Follows the signed-in account (sign-in, sign-out, a user or team switch).
     func followAccount(_ read: @escaping @MainActor @Sendable () -> Account?) {
         followingAccount?.cancel()
@@ -250,6 +273,7 @@ public final class IPhoneHostService {
         followingAccount?.cancel()
         applying?.cancel()
         pairingWatch?.cancel()
+        followingFolders?.cancel()
         approverSync?.stop()
         quietAttention()
         let supervisor = supervisor
