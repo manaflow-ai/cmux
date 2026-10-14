@@ -18,20 +18,16 @@ def main() -> int:
         print("SKIP: node not found")
         return 0
     fixture = json.loads((ROOT / "tests/fixtures/opencode-v2-multi-tui.json").read_text())
+    if not (ROOT / "node_modules/solid-js/package.json").is_file():
+        print("FAIL: run bun install --frozen-lockfile before the OpenCode bridge test")
+        return 1
     source = r'''
 const { fixture, packageDir } = JSON.parse(process.env.CMUX_OPENCODE_V2_HARNESS);
 const fs = await import("node:fs/promises");
 const net = await import("node:net");
 const path = await import("node:path");
 const source = await fs.readFile(path.join(packageDir, "tui.js"), "utf8");
-await fs.mkdir(path.join(packageDir, "node_modules", "solid-js"), { recursive: true });
-await fs.writeFile(path.join(packageDir, "node_modules", "solid-js", "package.json"), '{"type":"module"}');
-await fs.writeFile(path.join(packageDir, "node_modules", "solid-js", "index.js"), `
-const effects = [];
-export function createRoot(run) { return run(() => {}); }
-export function createEffect(run) { effects.push(run); run(); }
-globalThis.__runSolidEffects = () => { for (const run of effects) run(); };
-`);
+const { batch, createSignal } = await import("solid-js");
 const mod = await import(path.join(packageDir, "tui.js"));
 const serverMod = await import(path.join(packageDir, "index.js"));
 if (typeof serverMod.default?.server !== "function") throw new Error("missing inert V2 server entrypoint");
@@ -123,7 +119,12 @@ const repliesB = { permission: deferred() };
 const makeLive = (name, environment, replies) => {
   const live = makeContext(name);
   live.location = { directory: `/tmp/${name}` };
-  live.ui.router.onChange = (refresh) => { live.refresh = refresh; return () => {}; };
+  const [route, setRoute] = createSignal(live.ui.router.current());
+  const [tabs, setTabs] = createSignal(live.ui.tabs.list());
+  live.ui.router.current = route;
+  live.ui.tabs.list = tabs;
+  live.setRoute = setRoute;
+  live.setTabs = setTabs;
   live.data.listen = (callback) => { live.emit = callback; return () => {}; };
   live.client = {
     permission: { reply: async (value) => { replies.permission?.resolve(value); } },
@@ -156,29 +157,43 @@ const cleanupB = await mod.createCMUXTUIBridge(liveB, { environment: liveB.envir
 // OpenCode can publish the restored session before the TUI has committed its
 // route/tab state. The session-start event must survive that startup race so
 // cmux can record the binding used by the next workspace restore.
-const routeA = liveA.ui.router.current;
-const tabsA = liveA.ui.tabs.list;
-liveA.ui.router.current = () => ({ type: "home" });
-liveA.ui.tabs.list = () => [];
-liveA.emit({ details: { type: "session.created", data: { sessionID: "child-a", location: { directory: "/tmp/a" } }, location: { directory: "/tmp/a" } } });
-liveA.ui.router.current = routeA;
-liveA.ui.tabs.list = tabsA;
-globalThis.__runSolidEffects();
-// An owned event must not cancel a queued session-start before the route
-// becomes ready at the next event boundary.
-liveA.emit({ details: { type: "session.status", data: { sessionID: "child-a", status: { type: "busy" } } } });
+const routeA = liveA.ui.router.current();
+const tabsA = liveA.ui.tabs.list();
+liveA.setRoute({ type: "home" });
+liveA.setTabs([]);
+liveA.emit({ details: { type: "session.created", data: { sessionID: "child-a", location: { directory: "/tmp/a" } } } });
+// No subsequent service event or invented route callback: only a real Solid
+// signal publishes readiness for an otherwise idle restored session.
+liveA.setRoute(routeA);
 await Promise.race([
-  waitForObserved((event) => event.hook_event_name === "SessionStart" && event.cwd === "/tmp/a"),
-  new Promise((_, reject) => setTimeout(() => reject(new Error("restored OpenCode session-start was dropped before TUI route became visible")), 2000)),
+  waitForObserved((event) => event.hook_event_name === "SessionStart" && event.session_id === "opencode-child-a"),
+  new Promise((_, reject) => setTimeout(() => reject(new Error("idle restored session-start was dropped at route readiness")), 2000)),
 ]);
-liveA.ui.router.current = () => ({ type: "home" });
-liveA.ui.tabs.list = () => [];
-liveA.emit({ details: { type: "session.created", data: { sessionID: "child-stale", location: { directory: "/tmp/a" } } } });
-liveA.ui.router.current = routeA;
-liveA.ui.tabs.list = tabsA;
-liveA.emit({ details: { type: "session.deleted", data: { sessionID: "child-stale" } } });
-await new Promise((resolve) => setImmediate(resolve));
-if (observed.some((event) => event.session_id === "child-stale" && event.hook_event_name === "SessionStart")) throw new Error("ended queued session-start was replayed");
+liveA.setTabs(tabsA);
+
+// A non-start service event can arrive inside the same batch as the route
+// commit, before Solid runs its observer. It must preserve the queued start.
+liveA.setRoute({ type: "home" });
+liveA.setTabs([]);
+liveA.emit({ details: { type: "session.created", data: { sessionID: "child-status" } } });
+batch(() => {
+  liveA.setRoute({ type: "session", sessionID: "child-status" });
+  liveA.emit({ details: { type: "session.status", data: { sessionID: "child-status", status: { type: "busy" } } } });
+});
+await waitForObserved((event) => event.hook_event_name === "SessionStart" && event.session_id === "opencode-child-status");
+
+// Ending the queued session in that batch must cancel it before the observer
+// gets a chance to flush it. Assert the normalized ID sent to the actual socket.
+liveA.setRoute({ type: "home" });
+liveA.emit({ details: { type: "session.created", data: { sessionID: "child-stale" } } });
+batch(() => {
+  liveA.setRoute({ type: "session", sessionID: "child-stale" });
+  liveA.emit({ details: { type: "session.deleted", data: { sessionID: "child-stale" } } });
+});
+await waitForObserved((event) => event.hook_event_name === "SessionEnd" && event.session_id === "opencode-child-stale");
+if (observed.some((event) => event.session_id === "opencode-child-stale" && event.hook_event_name === "SessionStart")) throw new Error("ended queued session-start was replayed");
+liveA.setRoute(routeA);
+liveA.setTabs(tabsA);
 liveB.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "child-b" } } });
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-a", action: "edit", resources: ["/tmp/a/file"] } } });
 liveB.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-wrong", action: "edit" } } });
@@ -224,7 +239,7 @@ liveA.emit({ details: { type: "session.text.ended", data: { sessionID: "child-a"
 holdNextResponse = true;
 liveA.emit({ details: { type: "form.created", data: { form: { sessionID: "child-a", id: "form-route", fields: [{ key: "choice", type: "string", options: [{ value: "yes-value", label: "yes" }] }] } } } });
 await waitForObserved((event) => event._opencode_request_id === "form-route");
-liveA.ui.router.current = () => fixture.starterClosed.route;
+liveA.setRoute(fixture.starterClosed.route);
 delayedResponses.get("form-route")?.();
 const routeForm = await Promise.race([repliesA.routeForm.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("route-change form reply timed out")), 2000))]);
 if (routeForm.value.formID !== "form-route" || routeForm.value.answer.choice !== "yes-value") throw new Error("resolved TUI reply was dropped after route change");
@@ -245,14 +260,27 @@ if (sessionStart?.cwd !== "/tmp/a") throw new Error("V2 session location was dro
 if (stop?.surface_id !== "surface-b" || stop?.workspace_id !== "workspace-b") throw new Error("second TUI Feed event was routed to the first surface");
 const prompt = observed.find((event) => event.hook_event_name === "UserPromptSubmit");
 if (prompt?.tool_input?.prompt !== "hello from v2" || prompt?.context?.lastUserMessage !== "hello from v2") throw new Error("V2 inbox prompt was dropped from Feed context");
-const sessionEnd = observed.find((event) => event.hook_event_name === "SessionEnd");
+const sessionEnd = observed.find((event) => event.hook_event_name === "SessionEnd" && event.session_id === "opencode-child-b");
 if (!sessionEnd) {
-  await waitForObserved((event) => event.hook_event_name === "SessionEnd");
+  await waitForObserved((event) => event.hook_event_name === "SessionEnd" && event.session_id === "opencode-child-b");
 }
-if (observed.find((event) => event.hook_event_name === "SessionEnd")?.surface_id !== "surface-b") throw new Error("archived session was not ended on its owning TUI");
+if (observed.find((event) => event.hook_event_name === "SessionEnd" && event.session_id === "opencode-child-b")?.surface_id !== "surface-b") throw new Error("archived session was not ended on its owning TUI");
 if (observed.some((event) => event._opencode_request_id === "perm-wrong")) throw new Error("TUI B accepted a session owned by TUI A");
 
+// A bridge that never owns a queued session must release its expiry timer on
+// disposal, rather than retaining the entire TUI context until the TTL elapses.
+const expiryTimers = new Set();
+const nativeSetTimeout = globalThis.setTimeout;
+const nativeClearTimeout = globalThis.clearTimeout;
+globalThis.setTimeout = (...args) => { const timer = nativeSetTimeout(...args); expiryTimers.add(timer); return timer; };
+globalThis.clearTimeout = (timer) => { expiryTimers.delete(timer); nativeClearTimeout(timer); };
+liveA.emit({ details: { type: "session.created", data: { sessionID: "never-owned" } } });
 cleanupA();
+const leakedTimers = expiryTimers.size;
+for (const timer of expiryTimers) nativeClearTimeout(timer);
+globalThis.setTimeout = nativeSetTimeout;
+globalThis.clearTimeout = nativeClearTimeout;
+if (leakedTimers) throw new Error("disposed TUI retained pending session-start timers");
 cleanupB();
 server.closeAllConnections?.();
 await new Promise((resolve) => server.close(resolve));
@@ -262,9 +290,11 @@ console.log("PASS");
         package_dir = Path(package)
         (package_dir / "index.js").write_text((ROOT / "Resources/opencode-plugin.js").read_text())
         (package_dir / "tui.js").write_text((ROOT / "Resources/opencode-tui-plugin.js").read_text())
+        (package_dir / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
+        (package_dir / "harness.mjs").write_text(source)
         env = os.environ.copy()
         env["CMUX_OPENCODE_V2_HARNESS"] = json.dumps({"packageDir": str(package_dir), "fixture": fixture})
-        result = subprocess.run([node, "--input-type=module", "-e", source], cwd=ROOT, env=env, text=True, capture_output=True, check=False, timeout=20)
+        result = subprocess.run([node, "--conditions=browser", str(package_dir / "harness.mjs")], cwd=ROOT, env=env, text=True, capture_output=True, check=False, timeout=20)
     if result.returncode:
         print("FAIL: OpenCode V2 TUI bridge harness")
         print(result.stdout)
