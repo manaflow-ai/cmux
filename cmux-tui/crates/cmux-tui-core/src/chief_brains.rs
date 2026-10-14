@@ -345,13 +345,16 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         brains: BTreeMap::new(),
         sender: sender.clone(),
     };
-    let old = (supervisor.config.home.clone(), supervisor.config.app.acpmux_bin.clone());
-    let _ = std::thread::Builder::new()
-        .name("chief-old-acpmux".into())
-        .spawn(move || remove_old_acpmux_homes(&old.0, old.1.as_deref()));
     let thread = std::thread::Builder::new()
         .name("chief-brains".into())
-        .spawn(move || supervisor.run(&inbox))
+        .spawn(move || {
+            // Before any brain starts: its lock probe cannot race a start.
+            remove_old_acpmux_homes(
+                &supervisor.config.home,
+                supervisor.config.app.acpmux_bin.as_deref(),
+            );
+            supervisor.run(&inbox)
+        })
         .ok()?;
     Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
 }
@@ -921,11 +924,12 @@ fn stop_lock_holder(lock: &Path) {
 /// then the folder. Only inside this build's Chief home `home`, never in
 /// the person's shared `~/.cmux/chief/default` (NIGHTLY's), and not while
 /// a brain an earlier owner left holds that Chief's lock (it still uses
-/// its acpmux; a later start removes it).
+/// its acpmux; a later start removes it). Runs on the supervisor thread
+/// before the first brain starts.
 fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
-    let shared_default = std::env::var_os("HOME")
-        .map(|user| PathBuf::from(user).join(".cmux/chief/default"))
-        .and_then(|p| std::fs::canonicalize(p).ok());
+    // Without HOME the person's default home cannot be ruled out: keep all.
+    let Some(user) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else { return };
+    let shared_default = std::fs::canonicalize(PathBuf::from(user).join(".cmux/chief/default")).ok();
     let Ok(canonical) = std::fs::canonicalize(home) else { return };
     if shared_default.as_deref() == Some(canonical.as_path()) {
         return;
@@ -957,9 +961,9 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
         }
         // On this thread only: `daemon shutdown` ends that daemon's agents
         // first (acpmux bounds its own grace), then the folder goes.
-        if let Ok(mut child) = command.spawn() {
-            let _ = child.wait();
-        }
+        // No acpmux to ask: its daemon may still run there; keep the folder.
+        let Ok(mut child) = command.spawn() else { continue };
+        let _ = child.wait();
         if let Err(error) = std::fs::remove_dir_all(&old) {
             eprintln!("cmux-tui: removing {}: {error}", old.display());
         }

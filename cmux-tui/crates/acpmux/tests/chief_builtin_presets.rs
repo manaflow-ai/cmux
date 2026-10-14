@@ -260,6 +260,18 @@ async fn each_chief_of_the_chief_home_gets_its_own_codex_homes() {
             root.join("optchat/turn-codex").display().to_string(),
             "{turn}: {env}"
         );
+        // Its turns and subagents act as that Chief, whoever started the daemon.
+        assert_eq!(env["MUX_HOME"], home.display().to_string(), "{turn}: {env}");
+        let sub = format!("optchat-sub-{id}");
+        let r = chief
+            .call("_acpmux/presets", json!({"name": sub, "set": {"harness": "fclaude"}}))
+            .await;
+        assert!(r.get("error").is_none(), "{r}");
+        assert_eq!(
+            stored_env(&mut chief, &sub).await["MUX_HOME"],
+            home.display().to_string(),
+            "{sub}"
+        );
         let slot = format!("optchat-compact-{id}-slot-1");
         let r = chief
             .call("_acpmux/presets", json!({"name": slot, "set": {"harness": "fcodex"}}))

@@ -61,6 +61,8 @@ def serve(conn):
 if sys.argv[1:2] == ["run"]:
     s = socket.socket(socket.AF_UNIX); s.bind(os.environ["ACPMUX_SOCKET"]); s.listen(16)
     open(home + "/chief-mux-home", "w").write(os.environ.get("ACPMUX_CHIEF_MUX_HOME", ""))
+    keys = ["MUX_HOME", "MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT", "MUX_CHIEF_TITLE", "OPTCHAT_ACPMUX_SHARED", "CMUX_CHIEF_HOME"]
+    json.dump({k: os.environ[k] for k in keys if k in os.environ}, open(home + "/identity.json", "w"))
     open(home + "/run.pid", "w").write(str(os.getpid()))
     while True:
         conn = s.accept()[0]
@@ -225,6 +227,9 @@ fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&P
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    command
+        .env("OPTCHAT_CHIEF_PARTICIPANT", "agent_test")
+        .env("MUX_CHIEF_TITLE", "Test Chief");
     if let Some(chief_home) = shared {
         command.env("OPTCHAT_ACPMUX_SHARED", "1").env("CMUX_CHIEF_HOME", chief_home);
     }
@@ -264,6 +269,19 @@ fn a_shared_host_leaves_the_chief_homes_acpmux_running_and_ends_only_its_session
         std::fs::read_to_string(acpmux_home.join("chief-mux-home")).unwrap(),
         chief_home.display().to_string(),
         "the shared daemon's Chief home is the Chief home, not one Chief's"
+    );
+    // None of the starting Chief's identity reaches the daemon (its
+    // sessions would act as that Chief): it looks as if the default Chief's
+    // host had started it.
+    let identity: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(acpmux_home.join("identity.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        identity,
+        json!({"MUX_HOME": chief_home.display().to_string(),
+               "CMUX_CHIEF_HOME": chief_home.display().to_string()}),
+        "the shared daemon carries one Chief's identity"
     );
     let mut got = calls(&acpmux_home);
     got.sort();

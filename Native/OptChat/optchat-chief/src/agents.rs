@@ -70,18 +70,27 @@ pub fn owned_by(s: &SessionSummary, home: &std::path::Path) -> bool {
 /// running. Returns the names it stopped.
 pub fn end_own_sessions(home: &std::path::Path) -> Result<Vec<String>, String> {
     let (client, _) = connect()?;
+    // All kills at once, bounded together: a host stops within the
+    // supervisor's grace (5 s before SIGKILL), whatever one session does.
+    let started: Vec<_> = sessions(&client)?
+        .into_iter()
+        .filter(|s| owned_by(s, home) && s.status != cmux_chief::acp::SessionStatus::Closed)
+        .map(|s| {
+            let answer = client.start(
+                "_acpmux/kill",
+                json!({"sessionId": s.session_id, "purge": false}),
+            );
+            (s.name, answer)
+        })
+        .collect();
+    let deadline = std::time::Instant::now() + END_SESSIONS_LIMIT;
     let mut ended = Vec::new();
     let mut failed = Vec::new();
-    for s in sessions(&client)? {
-        if !owned_by(&s, home) || s.status == cmux_chief::acp::SessionStatus::Closed {
-            continue;
-        }
-        match client.request(
-            "_acpmux/kill",
-            json!({"sessionId": s.session_id, "purge": false}),
-        ) {
-            Ok(_) => ended.push(s.name),
-            Err(e) => failed.push(format!("{}: {e}", s.name)),
+    for (name, answer) in started {
+        match answer.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(Ok(_)) => ended.push(name),
+            Ok(Err(e)) => failed.push(format!("{name}: {e}")),
+            Err(_) => failed.push(format!("{name}: no answer")),
         }
     }
     client.close();
@@ -91,6 +100,9 @@ pub fn end_own_sessions(home: &std::path::Path) -> Result<Vec<String>, String> {
         Err(format!("stopping {}", failed.join("; ")))
     }
 }
+
+/// How long [`end_own_sessions`] waits for all its kills.
+const END_SESSIONS_LIMIT: Duration = Duration::from_secs(3);
 
 /// Which session `spawn --name` uses: a child of this Chief with that name
 /// (left by a failed earlier start) is reused; a session of that name that

@@ -184,6 +184,14 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
     let codex = family == "codex";
     let key = |role: &str| format!("optchat-{}-{role}", b.home_id);
     let mut env = BTreeMap::new();
+    // A turn or subagent of a Chief on the Chief home's shared acpmux gets
+    // its own Chief's MUX_HOME (`chief agents`, the `chief` tools), never
+    // that of whoever started this daemon.
+    if matches!(b.role, Role::Turn | Role::Sub)
+        && let Some(home) = ctx.home_of(&b.home_id)
+    {
+        env.insert("MUX_HOME".into(), home.display().to_string());
+    }
     match b.role {
         Role::Turn => {
             flags(&mut env, &["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
