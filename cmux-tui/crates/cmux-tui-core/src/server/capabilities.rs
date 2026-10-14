@@ -170,6 +170,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_TREE_CAPABILITY,
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
+        conversations::CONVERSATION_PERSON_CREDENTIALS_CAPABILITY,
         conversations::WS_CONVERSATIONS_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,

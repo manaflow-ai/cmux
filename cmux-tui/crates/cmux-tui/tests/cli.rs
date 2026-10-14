@@ -3683,6 +3683,9 @@ mod cloud_lease_gate;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]
+#[path = "cli/conversation_person_credentials.rs"]
+mod conversation_person_credentials;
+#[cfg(unix)]
 #[path = "cli/conversation_thread_objects.rs"]
 mod conversation_thread_objects;
 #[cfg(unix)]

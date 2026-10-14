@@ -40,6 +40,15 @@ pub(crate) const MAX_PAGE_MESSAGES: u32 = 500;
 /// The participant id of the Mac's own user in local conversations.
 pub(crate) const LOCAL_USER: &str = "user_local";
 
+/// Whether `participant` may hold a minted credential (`conversation-bind`):
+/// an agent, or a person other than the server's own user. A device
+/// (`remote_`) comes only from pairing, and `user_local` is every unbound
+/// trusted connection already.
+pub(crate) fn credentialed(participant: &str) -> bool {
+    participant.starts_with("agent_")
+        || (participant.starts_with("user_") && participant != LOCAL_USER)
+}
+
 /// An op the conversation reducer refused. The control socket reports it
 /// with `error_code` [`ConversationRejected::CODE`] and the reason code as
 /// the error text.
@@ -218,13 +227,14 @@ impl ConversationStore {
         Ok(Self { connection, attachments })
     }
 
-    /// Mints the credential of agent `participant`: a random token whose SHA-256
-    /// is stored (a new token replaces the old one). A connection becomes that
-    /// participant only by presenting the token (`conversation-bind`).
+    /// Mints the credential of `participant` (an agent, or a person other than
+    /// `user_local`): a random token whose SHA-256 is stored (a new token
+    /// replaces the old one). A connection becomes that participant only by
+    /// presenting the token (`conversation-bind`).
     pub(crate) fn mint_agent_token(&mut self, participant: &str) -> anyhow::Result<String> {
         anyhow::ensure!(
-            valid_participant_id(participant) && participant.starts_with("agent_"),
-            "bad request: participant must be an agent id"
+            valid_participant_id(participant) && credentialed(participant),
+            "bad request: participant must be an agent or another person"
         );
         let mut random = [0_u8; 32];
         getrandom::fill(&mut random).map_err(|_| anyhow::anyhow!("agent token randomness"))?;
