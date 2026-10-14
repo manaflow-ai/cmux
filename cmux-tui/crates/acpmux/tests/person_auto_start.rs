@@ -161,6 +161,8 @@ struct Daemon {
 impl Daemon {
     /// The real daemon with the app's key on `--person-key-fd 3`. The fake
     /// harness asks in `normal` and `strict`; any other mode does not ask.
+    /// `wide` also offers `full-access`, the start mode of a new chat
+    /// (`hub/start_mode.rs`, `defaultPermissionMode` set for a hermetic run).
     fn start(tag: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("aas-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -172,10 +174,12 @@ impl Daemon {
                 "harnesses": {
                     "fake": {"argv": ["python3", FAKE]},
                     "mirror": {"argv": ["python3", FAKE], "family": "mirror"},
+                    "wide": {"argv": ["python3", FAKE], "family": "wide", "env": {"FAKE_FULL_ACCESS": "1"}},
                 },
                 "defaultHarness": "fake",
                 "permissionPolicy": "ask",
-                "webAskingModes": {"fake": ["normal", "strict"], "mirror": ["normal", "strict"]},
+                "defaultPermissionMode": "fullAccess",
+                "webAskingModes": {"fake": ["normal", "strict"], "mirror": ["normal", "strict"], "wide": ["normal", "strict"]},
             })
             .to_string(),
         )
@@ -510,4 +514,30 @@ async fn auto_start_a_refused_start_mode_names_the_host_and_the_preset_to_approv
         .await;
     assert_eq!(reason(&r), REASON, "{r}");
     assert!(message(&r).contains(&format!("cmux NEXT on {host}")), "{r}");
+}
+
+/// Session `id`'s mode now.
+async fn mode(c: &mut Rpc, id: Value) -> String {
+    let info = c.ok("_acpmux/info", json!({"sessionId": id})).await;
+    info["modes"]["currentModeId"].as_str().unwrap_or_default().to_owned()
+}
+
+/// The start mode of a new chat (`hub/start_mode.rs`: full access by
+/// default) never widens a caller session: a session in a mode that asks
+/// starts its chats in the harness's own mode; one in full access starts
+/// them in full access, as the person's chats start.
+#[tokio::test]
+async fn auto_start_the_default_full_access_never_widens_a_caller_session_that_asks() {
+    let d = Daemon::start("default");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let own = app.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;
+    assert_eq!(mode(&mut app, own["sessionId"].clone()).await, "full-access", "{own}");
+    let (asking, token) = parent_in(&mut app, &d, "wide", "strict").await;
+    let mut agent = Rpc::in_session(&d.socket, &asking, &token).await;
+    let child = agent.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;
+    assert_eq!(mode(&mut agent, child["sessionId"].clone()).await, "normal", "{child}");
+    let (wide, token) = parent_in(&mut app, &d, "wide", "full-access").await;
+    let mut agent = Rpc::in_session(&d.socket, &wide, &token).await;
+    let child = agent.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;
+    assert_eq!(mode(&mut agent, child["sessionId"].clone()).await, "full-access", "{child}");
 }
