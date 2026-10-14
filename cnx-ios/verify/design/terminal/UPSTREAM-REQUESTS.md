@@ -186,3 +186,15 @@ covers every card except the active one. For the active card, the host-side
 fix is B1 itself: once the terminal draws row 0 at the top, the live page and
 its scaled card are both top-anchored. U4 is still wanted so the card can show
 the top of the session while the page is scrolled to its end.
+
+## U5. Title pill flashes light gray on first appearance over a dark page
+
+**Seen:** on relaunch into a terminal tab, the page's title pill shows light gray for about 0.3 s, then settles
+to the dark glass style. The host's own overlay (saved last frame, then live terminal) is already dark from the
+first frame, so the flash is the pill's glass adapting to the page underneath on first appearance.
+Evidence: terminal round 3 recordings (`/tmp/cnx-term-impl-tools/r3/`, relaunch strip), review REVIEW-round2.md R2-5.
+
+**Ask:** let the host declare the page's initial appearance (e.g. `TabsPage.initialChromeStyle: .dark`), or have
+the pill start from the page's declared `colorScheme`, so it never renders light over a dark terminal.
+
+**Default:** unchanged (today's adaptive behavior) when the host declares nothing.
