@@ -209,13 +209,22 @@ impl ShellSession {
         )
         .unwrap();
         fs::set_permissions(bin.join("codex"), fs::Permissions::from_mode(0o700)).unwrap();
+        // The startup files prepend ~/bin, and a prompt hook prepends it
+        // again at every prompt, as tool managers do.
         fs::write(home.join(".zshenv"), "setopt NO_GLOBAL_RCS\n").unwrap();
         let rc = "export PATH=\"$HOME/bin:$PATH\"\nPS1='ready> '\n";
-        fs::write(home.join(".zshrc"), rc).unwrap();
-        fs::write(home.join(".bashrc"), rc).unwrap();
+        fs::write(
+            home.join(".zshrc"),
+            format!(
+                "{rc}_reprepend() {{ path=($HOME/bin $path) }}\nprecmd_functions+=(_reprepend)\n"
+            ),
+        )
+        .unwrap();
+        fs::write(home.join(".bashrc"), format!("{rc}PROMPT_COMMAND='PATH=\"$HOME/bin:$PATH\"'\n"))
+            .unwrap();
         fs::write(
             home.join(".config/fish/config.fish"),
-            "set -gx PATH $HOME/bin $PATH\nfunction fish_prompt; echo -n 'ready> '; end\n",
+            "set -gx PATH $HOME/bin $PATH\nfunction fish_prompt; echo -n 'ready> '; end\nfunction _reprepend --on-event fish_prompt; set -gx PATH $HOME/bin $PATH; end\n",
         )
         .unwrap();
         let socket = root.path().join("mux.sock");

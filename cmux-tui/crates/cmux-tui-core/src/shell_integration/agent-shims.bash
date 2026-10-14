@@ -21,15 +21,18 @@ _cmux_tui_agent_shims_first() {
 }
 if [[ -n "${CMUX_TUI_AGENT_SHIMS-}" ]]; then
   _cmux_tui_agent_shims_first || builtin true
+  # Not a bash-preexec preexec hook: a non-zero return there (the previous
+  # command's status, kept for the prompt) skips the command under extdebug.
+  # A nested shell can inherit PROMPT_COMMAND without the function, hence
+  # the redirection, as Ghostty does for its own hook.
   if [[ -n "${bash_preexec_imported-}${__bp_imported-}" ]]; then
     precmd_functions+=(_cmux_tui_agent_shims_first)
-    preexec_functions+=(_cmux_tui_agent_shims_first)
   elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a "* ]]; then
-    PROMPT_COMMAND+=("_cmux_tui_agent_shims_first")
+    PROMPT_COMMAND+=("_cmux_tui_agent_shims_first 2>/dev/null")
   elif [[ -z "${PROMPT_COMMAND-}" ]]; then
-    PROMPT_COMMAND="_cmux_tui_agent_shims_first"
+    PROMPT_COMMAND="_cmux_tui_agent_shims_first 2>/dev/null"
   else
     [[ "${PROMPT_COMMAND}" =~ (\;[[:space:]]*|$'\n')$ ]] || PROMPT_COMMAND+=";"
-    PROMPT_COMMAND+="_cmux_tui_agent_shims_first"
+    PROMPT_COMMAND+="_cmux_tui_agent_shims_first 2>/dev/null"
   fi
 fi
