@@ -274,14 +274,20 @@ extension AgentTabStore {
                 return (.failed, nil)
             }
             let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected)
+            // One tuple return after the do/catch: Swift 6.3 and 6.4 at -O drop the first element of
+            // a tuple returned from both an awaiting `do` and its `catch` (swiftlang/swift#92698, cx-21wc5).
+            let outcome: AgentSessionBindOutcome
+            var sequence: UInt64?
             do {
                 _ = try await connection.request(request)
-                return (.taken, await connection.eventSequence())
+                outcome = .taken
+                sequence = await connection.eventSequence()
             } catch {
                 let text = String(describing: error)
                 services.daemon.logger.error("bind-conversation-tab-session: \(text, privacy: .public)")
-                return (text.contains(BindConversationTabSessionRequest.conflictPrefix) ? .conflict : .failed, nil)
+                outcome = text.contains(BindConversationTabSessionRequest.conflictPrefix) ? .conflict : .failed
             }
+            return (outcome, sequence)
         }
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
