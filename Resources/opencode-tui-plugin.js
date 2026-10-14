@@ -60,7 +60,18 @@ function failureMessage(event) {
   const raw = data.error || data.failure || data.reason;
   if (typeof raw === "string") return raw.slice(0, 500);
   if (raw && typeof raw === "object") {
-    const nested = firstString(raw.message, raw.error, raw.reason, raw.description, raw.name);
+    const nestedData = raw.data && typeof raw.data === "object" ? raw.data : {};
+    const nested = firstString(
+      raw.message,
+      raw.error,
+      raw.reason,
+      raw.description,
+      nestedData.message,
+      nestedData.error,
+      nestedData.reason,
+      nestedData.description,
+      raw.name
+    );
     if (nested) return nested.slice(0, 500);
   }
   return firstString(data.message, data.description)?.slice(0, 500) || null;

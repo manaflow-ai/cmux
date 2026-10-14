@@ -260,6 +260,15 @@ await v1Hooks.event({
 });
 await v1Hooks.event({
   event: {
+    type: "session.error",
+    properties: {
+      sessionID: "opencode-session-test",
+      error: { name: "UnknownError", data: { message: "provider failed" } }
+    }
+  }
+});
+await v1Hooks.event({
+  event: {
     type: "session.status",
     properties: { sessionID: "opencode-session-test", status: { type: "idle" } }
   }
@@ -268,15 +277,6 @@ await v1Hooks.event({
   event: {
     type: "session.idle",
     properties: { sessionID: "opencode-session-test" }
-  }
-});
-await v1Hooks.event({
-  event: {
-    type: "session.error",
-    properties: {
-      sessionID: "opencode-session-test",
-      error: { name: "ProviderAuthError", message: "provider failed" }
-    }
   }
 });
 """
@@ -305,11 +305,14 @@ await v1Hooks.event({
         if args_log.count("hooks enqueue opencode session-start") != 1:
             print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
             return 1
-        if args_log.count("hooks enqueue opencode stop") != 2:
-            print(f"FAIL: plugin did not dispatch one completion and one failure hook, got {args_log!r}")
+        if args_log.count("hooks enqueue opencode stop") != 1:
+            print(f"FAIL: plugin did not coalesce the failure-first stop hook, got {args_log!r}")
             return 1
-        if stdin_log.count('"hook_event_name":"Stop"') != 1 or stdin_log.count('"hook_event_name":"StopFailure"') != 1:
-            print(f"FAIL: plugin did not preserve completion/error hook identity, got {stdin_log!r}")
+        if stdin_log.count('"hook_event_name":"Stop"') != 0 or stdin_log.count('"hook_event_name":"StopFailure"') != 1:
+            print(f"FAIL: plugin did not coalesce the failure-first lifecycle, got {stdin_log!r}")
+            return 1
+        if '"hook_event_name":"StopFailure"' not in stdin_log or '"error":"provider failed"' not in stdin_log:
+            print(f"FAIL: plugin did not preserve the OpenCode nested error message, got {stdin_log!r}")
             return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:
             print(f"FAIL: plugin did not pass expected session payload, got {stdin_log!r}")

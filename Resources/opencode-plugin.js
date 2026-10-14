@@ -95,7 +95,18 @@ const createCMUXFeed = async (ctx, options = {}) => {
     const raw = props.error || props.failure || props.reason;
     if (typeof raw === "string") return normalizeText(raw, 500);
     if (isObject(raw)) {
-      const nested = firstString(raw.message, raw.error, raw.reason, raw.description, raw.name);
+      const nestedData = isObject(raw.data) ? raw.data : {};
+      const nested = firstString(
+        raw.message,
+        raw.error,
+        raw.reason,
+        raw.description,
+        nestedData.message,
+        nestedData.error,
+        nestedData.reason,
+        nestedData.description,
+        raw.name
+      );
       if (nested) return normalizeText(nested, 500);
     }
     return normalizeText(firstString(props.message, props.description), 500);

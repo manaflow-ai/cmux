@@ -34,6 +34,52 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(OpenCodePaths(environment: environment).databaseURL.path, "/tmp/home/.local/share/opencode/opencode.db")
     }
 
+    func testOpenCodeInstallHooksUsesXDGConfigHome() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-opencode-xdg-install-\(UUID().uuidString)", isDirectory: true
+        )
+        let xdgConfigHome = root.appendingPathComponent("xdg-config", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "OPENCODE_CONFIG_DIR")
+        environment["HOME"] = root.appendingPathComponent("home", isDirectory: true).path
+        environment["XDG_CONFIG_HOME"] = xdgConfigHome.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "opencode", "install", "--yes"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let configDir = xdgConfigHome.appendingPathComponent("opencode", isDirectory: true)
+        XCTAssertTrue(
+            fileManager.fileExists(atPath: configDir.appendingPathComponent("plugins/cmux-session.js").path),
+            "OpenCode's lifecycle plugin must follow XDG_CONFIG_HOME"
+        )
+        XCTAssertTrue(
+            fileManager.fileExists(atPath: configDir.appendingPathComponent("plugins/cmux-feed.js").path),
+            "OpenCode's Feed bridge must follow XDG_CONFIG_HOME"
+        )
+        XCTAssertFalse(
+            fileManager.fileExists(atPath: root.appendingPathComponent("home/.config/opencode/plugins/cmux-session.js").path),
+            "OpenCode hooks must not be split across legacy and XDG config directories"
+        )
+    }
+
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
@@ -330,5 +376,44 @@ const fs = require("node:fs");
             stderr: String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
             timedOut: timedOut
         )
+    }
+}
+
+extension CLINotifyProcessIntegrationRegressionTests {
+    func testOpenCodeStopFailureFeedEventRetainsErrorState() throws {
+        let context = try makeClaudeHookContext(name: "opencode-stop-failure-feed")
+        defer {
+            Darwin.close(context.listenerFD)
+            unlink(context.socketPath)
+            try? FileManager.default.removeItem(at: context.root)
+        }
+        startAgentHookMockServerAccepting(context: context)
+
+        let result = runAgentHook(
+            context: context,
+            agent: "opencode",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"opencode-error-feed","cwd":"/tmp/opencode","hook_event_name":"StopFailure","error":{"name":"UnknownError","data":{"message":"Model not found: unknown/foo"}}}"#
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let deadline = Date().addingTimeInterval(5)
+        var feedEvent: [String: Any]?
+        while Date() < deadline, feedEvent == nil {
+            feedEvent = context.state.snapshot().compactMap { command -> [String: Any]? in
+                guard let payload = jsonObject(command),
+                      payload["method"] as? String == "feed.push",
+                      let params = payload["params"] as? [String: Any] else { return nil }
+                return params["event"] as? [String: Any]
+            }.first
+            if feedEvent == nil {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            }
+        }
+
+        XCTAssertEqual(feedEvent?["hook_event_name"] as? String, "Stop")
+        XCTAssertEqual(feedEvent?["is_error"] as? Bool, true)
+        XCTAssertEqual(feedEvent?["error"] as? String, "Model not found: unknown/foo")
     }
 }

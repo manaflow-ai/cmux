@@ -36471,7 +36471,18 @@ function failureMessage(event) {
   const raw = props.error || props.failure || props.reason;
   if (typeof raw === "string") return normalizeText(raw, 500);
   if (raw && typeof raw === "object") {
-    const nested = firstString(raw.message, raw.error, raw.reason, raw.description, raw.name);
+    const nestedData = raw.data && typeof raw.data === "object" ? raw.data : {};
+    const nested = firstString(
+      raw.message,
+      raw.error,
+      raw.reason,
+      raw.description,
+      nestedData.message,
+      nestedData.error,
+      nestedData.reason,
+      nestedData.description,
+      raw.name
+    );
     if (nested) return normalizeText(nested, 500);
   }
   return normalizeText(firstString(props.message, props.description), 500);
@@ -40429,7 +40440,14 @@ export default {
                 let message = firstString(
                     in: rawObject,
                     keys: ["error", "message", "reason", "description"]
-                ) ?? ""
+                )
+                if message == nil, let error = rawObject["error"] as? [String: Any] {
+                    message = firstString(in: error, keys: ["message", "reason", "description"])
+                        ?? (error["data"] as? [String: Any]).flatMap {
+                            firstString(in: $0, keys: ["message", "error", "reason", "description"])
+                        }
+                        ?? firstString(in: error, keys: ["name"])
+                }
                 return classifyAgentHookNotification(
                     def: def,
                     signal: event,
@@ -41723,9 +41741,17 @@ export default {
     ) {
         let fallbackHookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         let reportedEvent = reportedHookEventName(from: parsedInput)
+        let isOpenCodeStopFailure = source == "opencode"
+            && reportedEvent.map { normalizedOpenCodeHookEventName($0) == "stopfailure" } == true
         let hookEventName: String
-        if let reportedEvent,
-           (source == "claude" || source == "codex") {
+        if isOpenCodeStopFailure {
+            // OpenCode uses the Claude-compatible StopFailure discriminator in
+            // its lifecycle bridge, but Feed's wire schema represents a
+            // failed turn as Stop + is_error. Preserve the failure bit while
+            // avoiding a successful completion event in the app reducer.
+            hookEventName = "Stop"
+        } else if let reportedEvent,
+                  (source == "claude" || source == "codex") {
             // Preserve an explicit lifecycle discriminator when a command
             // entrypoint was selected by stale/duplicated settings. The
             // classifier keeps approval semantics (including Codex's native
@@ -41809,6 +41835,15 @@ export default {
             if !failureDetails.isEmpty {
                 event["failure"] = failureDetails
                 failureDetailsForFeed = failureDetails
+            }
+        }
+        if isOpenCodeStopFailure {
+            event["is_error"] = true
+            if let message = openCodeFailureMessage(from: fallbackObject) {
+                event["error"] = message
+                var failureDetails = event["failure"] as? [String: Any] ?? [:]
+                failureDetails["message"] = message
+                event["failure"] = failureDetails
             }
         }
         if let toolInput = parsedInput.object?["tool_input"] {
@@ -42064,6 +42099,28 @@ export default {
 
     /// Feed reading must retain the completion, not the notification preview.
     /// Both native Feed hooks and wrapper hooks call this with the raw payload.
+    private func normalizedOpenCodeHookEventName(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+    }
+
+    private func openCodeFailureMessage(from object: [String: Any]) -> String? {
+        if let message = firstString(in: object, keys: ["error", "message", "reason", "description"]) {
+            return truncate(normalizedSingleLine(message), maxLength: 500)
+        }
+        guard let error = object["error"] as? [String: Any] else { return nil }
+        let nestedData = error["data"] as? [String: Any]
+        let message = firstString(in: error, keys: ["message", "reason", "description"])
+            ?? nestedData.flatMap {
+                firstString(in: $0, keys: ["message", "error", "reason", "description"])
+            }
+            ?? firstString(in: error, keys: ["name"])
+        return message.map { truncate(normalizedSingleLine($0), maxLength: 500) }
+    }
+
     private func enrichStopFeedEvent(
         _ event: inout [String: Any],
         hookEventName: String,

@@ -148,9 +148,11 @@ const cleanupB = await mod.createCMUXTUIBridge(liveB, { environment: liveB.envir
 liveA.emit({ details: { type: "session.created", data: { sessionID: "child-a", location: { directory: "/tmp/a" } }, location: { directory: "/tmp/a" } } });
 await new Promise((resolve) => setImmediate(resolve));
 liveA.emit({ details: { type: "session.updated", data: { sessionID: "child-a", info: { id: "child-a", time: { archived: false } } } } });
+// OpenCode 1.19 reports a failure before the idle status and idle marker.
+// The failure must win the lifecycle race; the later idle forms are duplicates.
+liveA.emit({ details: { type: "session.error", data: { sessionID: "child-a", error: { name: "UnknownError", data: { message: "provider failed" } } } } });
 liveA.emit({ details: { type: "session.status", data: { sessionID: "child-a", status: "idle" } } });
 liveA.emit({ details: { type: "session.idle", data: { sessionID: "child-a" } } });
-liveA.emit({ details: { type: "session.error", data: { sessionID: "child-a", error: { message: "provider failed" } } } });
 liveB.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "child-b" } } });
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-a", action: "edit", resources: ["/tmp/a/file"] } } });
 liveB.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-wrong", action: "edit" } } });
@@ -215,7 +217,7 @@ const stop = observed.find((event) => event.hook_event_name === "Stop" && event.
 const childALifecycle = observed.filter((event) => event.session_id === "opencode-child-a"
   && ["SessionStart", "Stop"].includes(event.hook_event_name));
 if (childALifecycle.filter((event) => event.hook_event_name === "SessionStart").length !== 1) throw new Error("session.updated reopened the OpenCode session");
-if (childALifecycle.filter((event) => event.hook_event_name === "Stop").length !== 2) throw new Error("OpenCode completion/error lifecycle events were lost or duplicated");
+if (childALifecycle.filter((event) => event.hook_event_name === "Stop").length !== 1) throw new Error("OpenCode failure-first lifecycle event was lost or duplicated");
 if (!childALifecycle.some((event) => event.hook_event_name === "Stop" && event.is_error === true && event.error === "provider failed")) throw new Error("OpenCode session.error did not preserve an error completion");
 if (sessionStart?.surface_id !== "surface-a" || sessionStart?.workspace_id !== "workspace-a") throw new Error("Feed event was routed to the wrong surface");
 if (sessionStart?.cwd !== "/tmp/a") throw new Error("V2 session location was dropped from Feed telemetry");
