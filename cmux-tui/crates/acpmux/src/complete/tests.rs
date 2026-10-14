@@ -2,7 +2,7 @@
 //! the small-model choice, the request limits, and the child's deadline and
 //! output cap with plain shell commands.
 
-use super::model_pick::{self, newest_haiku, pick};
+use super::model_pick::{self, ClaudeInputs, claude_model, newest_haiku, pick};
 use super::recipes::{self, Invocation, Recipe, invocation, recipe_for};
 use super::run::{self, RunDir, RunError};
 use super::*;
@@ -292,17 +292,37 @@ fn pi_runs_the_pi_cli_not_its_acp_adapter() {
 // ---------------------------------------------------------- model pick
 
 #[test]
-fn claude_picks_the_newest_haiku() {
-    let list = ids(&[
+fn claude_prefers_the_haiku_alias() {
+    // The alias lets the user's own provider mapping (Bedrock, Vertex,
+    // CodeRouter) pick the concrete model.
+    let live = ids(&["default", "opus", "sonnet", "haiku", "claude-haiku-5-5"]);
+    let with_live = ClaudeInputs { live: Some(&live), ..Default::default() };
+    assert_eq!(claude_model(&with_live), "haiku");
+    // No live list yet: the alias, never a catalog id.
+    assert_eq!(claude_model(&ClaudeInputs::default()), model_pick::CLAUDE_FALLBACK);
+}
+
+#[test]
+fn claude_uses_a_concrete_haiku_only_when_the_alias_is_unavailable() {
+    let live = ids(&[
         "default",
         "claude-opus-5-5",
         "claude-haiku-4-5-20251001",
         "claude-haiku-5-5",
         "claude-haiku-5-1",
-        "haiku",
-        "claude-sonnet-5",
     ]);
-    assert_eq!(pick(Recipe::Claude, &list, None).as_deref(), Some("claude-haiku-5-5"));
+    let no_alias = ClaudeInputs { live: Some(&live), ..Default::default() };
+    assert_eq!(claude_model(&no_alias), "claude-haiku-5-5");
+    // The alias listed but refused by the backend.
+    let mut with_alias = live.clone();
+    with_alias.push("haiku".to_owned());
+    let refused = ids(&["haiku"]);
+    let alias_refused =
+        ClaudeInputs { live: Some(&with_alias), refused: &refused, ..Default::default() };
+    assert_eq!(claude_model(&alias_refused), "claude-haiku-5-5");
+    // No concrete Haiku to fall back to: still the alias.
+    let bare = ids(&["default", "opus"]);
+    assert_eq!(claude_model(&ClaudeInputs { live: Some(&bare), ..Default::default() }), "haiku");
     assert_eq!(
         newest_haiku(&ids(&["claude-haiku-4-5-20250101", "claude-haiku-4-5-20251001"])).as_deref(),
         Some("claude-haiku-4-5-20251001")
@@ -310,32 +330,34 @@ fn claude_picks_the_newest_haiku() {
 }
 
 #[test]
-fn claude_without_a_haiku_uses_the_alias() {
-    let list = ids(&["default", "claude-opus-5-5", "sonnet"]);
-    assert_eq!(pick(Recipe::Claude, &list, None).as_deref(), Some(model_pick::CLAUDE_FALLBACK));
-    assert_eq!(pick(Recipe::Claude, &[], None).as_deref(), Some("haiku"));
-}
-
-#[test]
-fn claude_honors_anthropic_small_fast_model() {
-    let list = ids(&["claude-haiku-5-5"]);
-    assert_eq!(
-        pick(Recipe::Claude, &list, Some(" us.anthropic.claude-haiku-4-5-v1:0 ")).as_deref(),
-        Some("us.anthropic.claude-haiku-4-5-v1:0")
-    );
-    // An empty override is no override.
-    assert_eq!(pick(Recipe::Claude, &list, Some("  ")).as_deref(), Some("claude-haiku-5-5"));
+fn claude_honors_small_fast_then_default_haiku() {
+    let live = ids(&["claude-haiku-5-5"]);
+    let small = ClaudeInputs {
+        small_fast: Some(" us.anthropic.claude-haiku-4-5-v1:0 "),
+        default_haiku: Some("us.anthropic.claude-haiku-4-5-v2:0"),
+        live: Some(&live),
+        ..Default::default()
+    };
+    assert_eq!(claude_model(&small), "us.anthropic.claude-haiku-4-5-v1:0");
+    // ANTHROPIC_DEFAULT_HAIKU_MODEL: the alias, which Claude Code maps.
+    let mapped = ClaudeInputs {
+        small_fast: Some("  "),
+        default_haiku: Some("us.anthropic.claude-haiku-4-5-v2:0"),
+        live: Some(&live),
+        ..Default::default()
+    };
+    assert_eq!(claude_model(&mapped), "haiku");
 }
 
 #[test]
 fn codex_prefers_luna_then_mini_then_nano() {
     let all = ids(&["gpt-6", "gpt-6-nano", "gpt-6-mini", "gpt-6-luna", "gpt-6-codex"]);
-    assert_eq!(pick(Recipe::Codex, &all, None).as_deref(), Some("gpt-6-luna"));
+    assert_eq!(pick(Recipe::Codex, &all).as_deref(), Some("gpt-6-luna"));
     let no_luna = ids(&["gpt-6", "gpt-6-nano", "gpt-6-mini"]);
-    assert_eq!(pick(Recipe::Codex, &no_luna, None).as_deref(), Some("gpt-6-mini"));
+    assert_eq!(pick(Recipe::Codex, &no_luna).as_deref(), Some("gpt-6-mini"));
     let nano = ids(&["gpt-6", "gpt-6-nano"]);
-    assert_eq!(pick(Recipe::Codex, &nano, None).as_deref(), Some("gpt-6-nano"));
-    assert_eq!(pick(Recipe::Codex, &ids(&["gpt-6"]), None), None);
+    assert_eq!(pick(Recipe::Codex, &nano).as_deref(), Some("gpt-6-nano"));
+    assert_eq!(pick(Recipe::Codex, &ids(&["gpt-6"])), None);
 }
 
 #[test]
@@ -346,14 +368,14 @@ fn others_pick_the_cheapest_tier_and_gemini_is_not_mini() {
         "google/gemini-3-flash-lite",
         "anthropic/claude-haiku-5-5",
     ]);
-    assert_eq!(pick(Recipe::OpenCode, &list, None).as_deref(), Some("google/gemini-3-flash-lite"));
+    assert_eq!(pick(Recipe::OpenCode, &list).as_deref(), Some("google/gemini-3-flash-lite"));
     let no_lite =
         ids(&["google/gemini-3-pro", "anthropic/claude-haiku-5-5", "google/gemini-3-flash"]);
-    assert_eq!(pick(Recipe::Pi, &no_lite, None).as_deref(), Some("google/gemini-3-flash"));
+    assert_eq!(pick(Recipe::Pi, &no_lite).as_deref(), Some("google/gemini-3-flash"));
     // `gemini` holds `mini` mid-word: never a match.
-    assert_eq!(pick(Recipe::Omp, &ids(&["google/gemini-3-pro"]), None), None);
+    assert_eq!(pick(Recipe::Omp, &ids(&["google/gemini-3-pro"])), None);
     assert_eq!(
-        pick(Recipe::Grok, &ids(&["grok-5", "grok-5-mini"]), None).as_deref(),
+        pick(Recipe::Grok, &ids(&["grok-5", "grok-5-mini"])).as_deref(),
         Some("grok-5-mini")
     );
 }
@@ -400,6 +422,15 @@ fn request_defaults_and_limits() {
     ] {
         assert_eq!(Request::parse(&bad).unwrap_err().reason(), "complete.invalid_params", "{bad}");
     }
+    // A model is an id: never a flag, whitespace or a control character.
+    for bad in
+        ["-x", "--dangerously-skip-permissions", "claude haiku", " haiku", "haiku\n", "a\u{7}b"]
+    {
+        let err = Request::parse(&json!({"prompt": "x", "model": bad})).unwrap_err();
+        assert_eq!(err.reason(), "complete.invalid_params", "{bad:?}");
+    }
+    // `default` is no model: the small model is picked and reported.
+    assert_eq!(Request::parse(&json!({"prompt": "x", "model": "default"})).unwrap().model, None);
     let full = Request::parse(
         &json!({"prompt": "x", "harness": "codex", "model": "gpt-6-luna", "maxTokens": 256, "timeoutMs": 60_000}),
     )

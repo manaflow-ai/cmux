@@ -113,7 +113,7 @@ impl Hub {
             Some(model) => Some(model.clone()),
             None => {
                 let models = self.models_catalog().await;
-                model_pick::pick(recipe, &offered_ids(&models, name), small_fast(&env).as_deref())
+                model_pick::pick(recipe, &offered_ids(&models, name))
             }
         };
         // The CLIs need the login environment (PATH, API keys).

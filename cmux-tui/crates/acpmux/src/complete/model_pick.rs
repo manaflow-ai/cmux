@@ -21,23 +21,36 @@ pub const SMALL_FAST_ENV: &str = "ANTHROPIC_SMALL_FAST_MODEL";
 const CODEX_ORDER: &[&str] = &["luna", "mini", "nano"];
 const OTHER_ORDER: &[&str] = &["flash-lite", "flash", "haiku", "luna", "mini"];
 
-/// The model for `recipe` from the ids the harness offers. `small_fast`:
-/// the `ANTHROPIC_SMALL_FAST_MODEL` value, when set. None: the CLI's default.
-pub fn pick(recipe: Recipe, ids: &[String], small_fast: Option<&str>) -> Option<String> {
+/// The model for `recipe` from the ids the harness offers. None: the CLI's
+/// default. Claude Code's is [`claude_model`]; here it is the alias.
+pub fn pick(recipe: Recipe, ids: &[String]) -> Option<String> {
     match recipe {
-        Recipe::Claude => Some(
-            small_fast
-                .map(str::trim)
-                .filter(|m| !m.is_empty())
-                .map(str::to_owned)
-                .or_else(|| newest_haiku(ids))
-                .unwrap_or_else(|| CLAUDE_FALLBACK.to_owned()),
-        ),
+        Recipe::Claude => Some(CLAUDE_FALLBACK.to_owned()),
         Recipe::Codex => first_word_match(ids, CODEX_ORDER),
         Recipe::OpenCode | Recipe::Pi | Recipe::Omp | Recipe::Grok => {
             first_word_match(ids, OTHER_ORDER)
         }
     }
+}
+
+/// What Claude Code's small model is chosen from.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ClaudeInputs<'a> {
+    /// `ANTHROPIC_SMALL_FAST_MODEL`, when set.
+    pub small_fast: Option<&'a str>,
+    /// `ANTHROPIC_DEFAULT_HAIKU_MODEL`, when set: the user maps the alias.
+    pub default_haiku: Option<&'a str>,
+    /// Claude Code's own live model list, when one arrived (never the catalog).
+    pub live: Option<&'a [String]>,
+    /// Ids the backend refused (`model_availability.rs`).
+    pub refused: &'a [String],
+}
+
+/// Claude Code's small model.
+pub fn claude_model(inputs: &ClaudeInputs<'_>) -> String {
+    // hq#1957: not implemented yet (the failing tests come first).
+    let _ = inputs;
+    String::new()
 }
 
 /// The first id holding `order[0]`, else `order[1]`, ...
