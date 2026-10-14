@@ -31,6 +31,7 @@ use tokio_tungstenite::tungstenite::{self, Message, WebSocket};
 const KEY_HEX: &str = "5c2e3d4f60718293a4b5c6d7e8f9011223344556677889900aabbccddeeff011";
 const INSTALL: &str = "inst_ws_cloud";
 const CONV: &str = "conv_0123456789ABCDEFGHJKMNPQRS";
+const CHIEF: &str = "agent_01M4X1B5362SM3QJVJ155DA0GB";
 
 struct Fixture {
     dir: PathBuf,
@@ -264,7 +265,17 @@ impl FakeCloud {
                 } else {
                     Value::Null
                 };
-                let reply = if body["op"] == "inbox.list" {
+                let reply = if path.starts_with(&format!("/v1/chiefs/{CHIEF}/runs/run_7?")) {
+                    json!({"ok":true,"value":{"run":{"id":"run_7","conversation":CONV,"author":CHIEF,
+                        "status":"done","started_at":1,"ended_at":2,"step_count":1},
+                        "steps":[{"id":"tool:t1","seq":1,"at":1,"kind":"tool","status":"done",
+                            "tool":{"name":"web_search","input":{"q":"release"},"output":"3 hits"}}],
+                        "has_more":false}})
+                } else if path.starts_with(&format!("/v1/chiefs/{CHIEF}/runs?")) {
+                    json!({"ok":true,"value":{"runs":[{"id":"run_7","conversation":CONV,"author":CHIEF,
+                        "status":"done","turn":"turn:cloud:1","started_at":1,"ended_at":2,"step_count":1}],
+                        "has_more":false}})
+                } else if body["op"] == "inbox.list" {
                     json!({"ok":true,"value":{"entries":[{"conversation":CONV,"rev":4,"kind":"group",
                         "title":"Cloud team","last_seq":3,"last_at":"2026-10-13T00:00:00Z","preview":"hi",
                         "removed":false,"unread":1,"mentions":0,"counts_rev":1,"pinned":false,"muted":false,
@@ -398,6 +409,30 @@ fn the_persons_page_gets_cloud_conversations_through_the_daemon() {
     assert_eq!(requests[1].2["params"]["parts"][0]["text"], "hello cloud from the page");
     // The token went only to the cloud, as the bearer.
     assert!(requests.iter().all(|(_, bearer, _)| *bearer == format!("Bearer {token}")));
+
+    // A Cloud Chief's runs, read from its brain through the daemon (cloud-conversation-runs-v1).
+    assert!(capabilities.iter().any(|v| v == "cloud-conversation-runs-v1"), "{identity}");
+    let runs = page.rpc(json!({"cmd":"cloud-conversation-runs","conversation":CONV,"agent":CHIEF,"limit":20}));
+    assert_eq!(runs["ok"], true, "{runs}");
+    assert_eq!(runs["data"]["runs"][0]["id"], "run_7", "{runs}");
+    assert_eq!(runs["data"]["runs"][0]["turn"], "turn:cloud:1", "{runs}");
+    let run = page.rpc(json!({"cmd":"cloud-conversation-run","conversation":CONV,"agent":CHIEF,
+                              "run":"run_7","after_seq":0}));
+    assert_eq!(run["ok"], true, "{run}");
+    assert_eq!(run["data"]["steps"][0]["tool"]["name"], "web_search", "{run}");
+    let paths: Vec<String> = cloud.requests().into_iter().map(|(path, ..)| path).collect();
+    assert!(
+        paths.contains(&format!("/v1/chiefs/{CHIEF}/runs?conversation={CONV}&limit=20")),
+        "{paths:?}"
+    );
+    assert!(
+        paths.contains(&format!("/v1/chiefs/{CHIEF}/runs/run_7?conversation={CONV}&after_seq=0")),
+        "{paths:?}"
+    );
+    // An id that is not a Chief's never reaches the cloud.
+    let bad = page.rpc(json!({"cmd":"cloud-conversation-runs","conversation":CONV,"agent":"user_x"}));
+    assert_eq!(bad["ok"], false, "{bad}");
+    assert!(cloud.requests().iter().all(|(path, ..)| !path.contains("user_x")));
 
     // The lease's cloud events reach the page's stream (the inbox socket's state).
     assert_eq!(page.rpc(json!({"cmd":"cloud-inbox-subscribe"}))["ok"], true);
