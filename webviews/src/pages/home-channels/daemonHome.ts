@@ -874,7 +874,9 @@ export class DaemonHomeClient implements PageClient {
       const fromCloud = socket === this.daemon;
       const fromLocal = socket === this.local;
       const cloud =
-        fromCloud && typeof event.event === "string" && event.event.startsWith("cloud-") ? this.cloud.event(event) : null;
+        fromCloud && typeof event.event === "string" && event.event.startsWith("cloud-")
+          ? this.cloud.event(event)
+          : null;
       if (cloud) {
         deliver((batch) => {
           if (cloud.message) (batch.messages ??= []).push(message(cloud.message));
