@@ -120,6 +120,9 @@ try:
         rpc("action.run", {"action": "bookmark.addPage", "focus": True})
         shown = quiet_wait(lambda: bubbles(), 5) or []
         check(len(shown) == 1, f"{what}: one bookmark bubble shows ({len(shown)})")
+        if len(shown) != 1:  # what the window list holds for the bubble
+            print("   bubble windows", [{k: w.get(k) for k in ("id", "visible", "alpha", "key", "parent", "frame")}
+                                      for w in windows() if w.get("kind") == "bookmarks.edit"], flush=True)
         return shown[0] if shown else None
 
     def saved():
@@ -165,7 +168,9 @@ try:
     # 3. A click on the page outside closes it.
     bubble = open_bubble("reopen")
     if bubble and main:
-        rpc("debug.mouse", {"window": WINDOW, "action": "click", "x": 60, "y": main["frame"]["height"] - 60})
+        # A click on the page under the toolbar (a click in the sidebar would move to another tab).
+        bar = ((omnibar().get("pointer") or {}).get("frames") or {}).get("bar") or [300, 30, 300, 24]
+        rpc("debug.mouse", {"window": WINDOW, "action": "click", "x": bar[0] + bar[2] / 2, "y": bar[1] + bar[3] + 150})
         check(bool(quiet_wait(lambda: not bubbles(), 5)), "a click outside the bubble closes it")
         check(saved() == first, f"a click outside keeps the bookmark and its name: {saved()}")
     # 4. Shown without the keys (the app is never active here) it still shows.
