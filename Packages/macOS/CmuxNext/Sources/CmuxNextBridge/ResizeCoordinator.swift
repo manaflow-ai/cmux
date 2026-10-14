@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextWakeups
 
