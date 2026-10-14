@@ -30,6 +30,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The template (`tabs.newTabTemplate`: "default", "composer", "threads", "console",
     /// "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
+    /// The style switch's look (Debug Settings `newTab.styleSwitch`); nil is the page's default.
+    public var styleSwitch: String?
     /// The agent last picked.
     public var lastAgent: String?
     /// The harness and model picked last, anywhere and per folder; nil when none was.
@@ -66,6 +68,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.projects = projects
         self.layout = layout
         self.template = template
+        self.styleSwitch = AgentPaneTunables.newTabStyleSwitch.override?.rawValue
         self.lastAgent = lastAgent
         self.lastPicks = lastPicks
         self.home = home

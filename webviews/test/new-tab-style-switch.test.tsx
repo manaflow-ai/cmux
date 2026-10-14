@@ -21,7 +21,14 @@ import {
 } from "../src/agent-session/acpmux/newtab/templates";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "HTMLInputElement",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let window: JSDOM["window"];
 
@@ -32,11 +39,15 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    HTMLInputElement: window.HTMLInputElement,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
 
 afterAll(() => {
+  // Focus moves queue jsdom selectionchange events; closing the window drops them before the
+  // globals they reach go.
+  window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -69,8 +80,14 @@ async function withClock(run: (tick: () => Promise<void>, wait: () => Promise<vo
   window.setTimeout = ((callback: () => void) => timers.push(callback)) as typeof window.setTimeout;
   try {
     await run(
-      () => act(async () => void frames.splice(0).forEach((callback) => callback(window.performance.now()))),
-      () => act(async () => void timers.splice(0).forEach((callback) => callback())),
+      () =>
+        act(async () => {
+          for (const callback of frames.splice(0)) callback(window.performance.now());
+        }),
+      () =>
+        act(async () => {
+          for (const callback of timers.splice(0)) callback();
+        }),
     );
   } finally {
     window.requestAnimationFrame = nextFrame;
@@ -98,7 +115,11 @@ for (const look of STYLE_SWITCHES) {
       "Classic",
     ]);
     expect(new Set(radios().map((radio) => radio.name)).size).toBe(1);
-    expect(radios().filter((radio) => radio.checked).map((radio) => radio.value)).toEqual(["default"]);
+    expect(
+      radios()
+        .filter((radio) => radio.checked)
+        .map((radio) => radio.value),
+    ).toEqual(["default"]);
     if (look === "names") {
       expect(host.textContent).toContain("Composer");
     } else {
@@ -127,7 +148,7 @@ for (const look of STYLE_SWITCHES) {
       expect(fieldAsked).toBe(0);
       await tick();
       expect(fieldAsked).toBe(1);
-      // The dots that name a pick show its name under them for a moment.
+      // The dots that name a pick show its name over them for a moment.
       const flash = () => host.querySelector(".nt-style-flash")?.textContent ?? "";
       expect(flash()).toBe(look === "hint" ? "Threads" : "");
       await wait();
