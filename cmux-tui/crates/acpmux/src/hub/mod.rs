@@ -174,6 +174,8 @@ pub struct PromptOptions {
     /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
     /// running turn and run this next" instead of waiting behind the queue.
     pub interrupt: bool,
+    /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
+    pub provenance: Option<Value>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
