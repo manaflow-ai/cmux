@@ -67,6 +67,8 @@ final class ShellModel {
     @ObservationIgnored private var pendingRestore: LastOpenLocation?
     /// One launch restore per model.
     @ObservationIgnored private var restoreAttempted = false
+    /// A restored workspace whose Mac was not online yet: linked once it is (R1-0).
+    @ObservationIgnored private var restoreLinkMac: String?
 
     struct ShareItem: Identifiable {
         let id = UUID()
@@ -122,6 +124,8 @@ final class ShellModel {
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
         if let live {
             terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
+            terminalTabs.hasLiveSession = { [weak live] id in live?.workspaces.tree?.surfaces[id] != nil }
+            terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
             terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
             terminalTabs.uploaderProvider = { [weak live] tab in live?.terminalUploader(tabID: tab.id) }
             creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link, acpmux: live.acpmux)
@@ -129,6 +133,7 @@ final class ShellModel {
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             terminalTabs.sessionProvider = nil
+            terminalTabs.hasLiveSession = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
             creator.backend = offlineCreation
@@ -203,6 +208,11 @@ final class ShellModel {
 
     /// The workspaces (or a Mac's data phase) changed while a restore waits.
     func continueRestore() {
+        if let macID = restoreLinkMac, let live,
+           store.teams.flatMap(\.macs).contains(where: { $0.id == macID && $0.isOnline }) {
+            restoreLinkMac = nil
+            live.select(macID: macID)
+        }
         guard let saved = pendingRestore else { return }
         let decision = LastOpenRestore.decide(saved: saved, workspaces: store.activeWorkspaces) { [store] in store.macDataPhase($0) }
         switch decision {
@@ -224,6 +234,9 @@ final class ShellModel {
             // Its tabs come from its Mac: link it, as a tap on the row does.
             if let live, store.teams.flatMap(\.macs).contains(where: { $0.id == workspace.macID && $0.isOnline }) {
                 live.select(macID: workspace.macID)
+            } else {
+                // Not online yet at launch: link it as soon as it is.
+                restoreLinkMac = workspace.macID
             }
             shellLog.info("restored workspace \(workspaceID, privacy: .public) tab \(tabID ?? "-", privacy: .public)")
         }
@@ -237,6 +250,8 @@ final class ShellModel {
             if location == LastOpenLocation(rootTab: LastOpenLocation.workspacesTab) { return }
             pendingRestore = nil
         }
+        // The user left the restored workspace: no late link for it.
+        if let macID = restoreLinkMac, location.macID != macID { restoreLinkMac = nil }
         lastOpen.save(location)
     }
 

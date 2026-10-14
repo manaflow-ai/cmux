@@ -448,7 +448,13 @@ struct ShellView: View {
         .onChange(of: shell.store.macData) { _, _ in
             shell.continueRestore()
         }
+        .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
+            shell.terminalTabs.liveDataChanged()
+        }
         .onChange(of: shell.store.workspaces) { _, _ in
+            // A terminal page shown before the tree arrived (a launch
+            // restore) attaches now (design/terminal R1-0).
+            shell.terminalTabs.liveDataChanged()
             guard let route = NotificationRouter.shared.pending else { return }
             // One retry after the tree arrives; then the Feed is where it is.
             shell.open(route)
