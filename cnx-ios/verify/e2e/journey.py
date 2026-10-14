@@ -769,6 +769,51 @@ class Journey:
             self.hide_keyboard()
         return "; ".join(notes)
 
+    BRACKETED_FAKE = r"""
+import os, sys, tty, termios
+log = open(sys.argv[1], "w")
+fd = 0
+old = termios.tcgetattr(fd)
+tty.setraw(fd)
+os.write(1, b"\x1b[?2004hREADY\r\n")
+seen = []
+try:
+    while True:
+        chunk = os.read(fd, 4096)
+        seen.append(chunk)
+        log.write(repr(chunk) + "\n"); log.flush()
+        if b"\r" in chunk:
+            break
+finally:
+    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    os.write(1, b"\x1b[?2004l")
+data = b"".join(seen)
+pasted = data.startswith(b"\x1b[200~") and b"\x1b[201~" in data
+alone = seen[-1] == b"\r"
+print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRACKETED"), len(seen), "reads")
+"""
+
+    def s_composer_submit(self):
+        """Codex QA F1: the composer's Send reaches a program that reads in bursts
+        (Codex) as one bracketed paste, then Return in a read of its own, so it
+        submits instead of staying a draft. A fake program logs each read."""
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        script = f"/tmp/cnx-e2e-{self.run_id}-bp.py"
+        log = f"/tmp/cnx-e2e-{self.run_id}-bp.log"
+        open(script, "w").write(self.BRACKETED_FAKE)
+        self.mac_write(term, f"clear; python3 {script} {log}\n")
+        self.mac_wait_text(term, "READY", timeout=10)
+        self.sim.tap_q(ident="terminal.composer.field"); time.sleep(0.8)
+        self.sim.softtype("say hi in two words")
+        self.sim.tap_q(ident="terminal.composer.send")
+        text = self.mac_wait_text(term, "SUBMIT-", timeout=10)
+        reads = open(log).read().strip().splitlines()
+        self.hide_keyboard()
+        check("SUBMIT-OK" in text, f"Send did not arrive as a paste followed by a separate Return: {text[-80:]!r}; reads {reads}")
+        return f"one bracketed paste, then Return in its own read ({len(reads)} reads: {reads[-1]})"
+
     def s_keybar_swipe_no_back(self):
         """design/terminal R4-1: with the keyboard up, a rightward swipe that starts
         on the key bar (pinned ^C, the scroller, the joystick) stays on the
@@ -1351,6 +1396,7 @@ class Journey:
             ("term_composer", "Terminal: composer", "termlive", self.s_term_composer),
             ("scrollback_history", "Terminal: the phone reaches the Mac's first line of history", "termlive", self.s_scrollback_history),
             ("composer_bottom_pin", "Terminal: the last row rests above the composer", "termlive", self.s_composer_bottom_pin),
+            ("composer_submit", "Terminal: Send submits (paste, then Return)", "termlive", self.s_composer_submit),
             ("keybar_swipe_no_back", "Terminal: a swipe on the key bar never swipes back", "termlive", self.s_keybar_swipe_no_back),
             ("shell_pull_keyboard_up", "Terminal: pull-down with the keyboard up reaches history", "termlive", self.s_shell_pull_keyboard_up),
             ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),

@@ -451,12 +451,24 @@ final class TerminalSurfaceView: UIView {
         input.tapSticky(modifier, at: ProcessInfo.processInfo.systemUptime)
     }
 
-    /// Text as typed (single line) or as a paste (several lines), then Return when asked.
+    /// The composer's draft as one paste (bracketed when the program asked
+    /// for it), then Return as its own keystroke a moment later
+    /// (`ComposerSubmit`, Codex QA F1).
     func sendText(_ text: String, pressReturn: Bool) {
-        if !text.isEmpty {
-            perform(text.contains("\n") ? [.paste(text)] : [.text(text)])
+        let submit = ComposerSubmit(text: text, pressReturn: pressReturn)
+        for step in submit.steps {
+            switch step {
+            case .paste(let draft):
+                perform([.paste(draft)])
+            case .enter where submit.delaysEnter:
+                Task { @MainActor [weak self] in
+                    try? await ContinuousClock().sleep(for: ComposerSubmit.enterDelay)
+                    self?.sendKey(usage: TerminalHIDUsage.enter)
+                }
+            case .enter:
+                sendKey(usage: TerminalHIDUsage.enter)
+            }
         }
-        if pressReturn { sendKey(usage: TerminalHIDUsage.enter) }
     }
 
     // MARK: Responder
