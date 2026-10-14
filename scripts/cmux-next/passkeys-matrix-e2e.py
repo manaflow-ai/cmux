@@ -125,7 +125,10 @@ def scenario(engine, tab, name, spec):
         authenticator = added.get("authenticatorId")
         # The socket gives async methods ~2 s; a DevTools call past that still runs (`not_run`
         # false), so a timed-out add can still have attached the authenticator.
-        if not authenticator and "not_run': False" not in str(added):
+        # CEF's in-process DevTools loses this reply (timedOut after its own 5 s) while the
+        # call runs; the 6 s socket deadline (2026-10-14) now reports that instead of not_run.
+        lost = "not_run': False" in str(added) or ("timedOut" in str(added) and "addVirtualAuthenticator" in str(added))
+        if not authenticator and not lost:
             return "FAIL", f"no virtual authenticator: {added}"
         note = "" if authenticator else "authenticator add timed out (sent); "
     started = js(tab, "(() => { window.__pk = null; runPasskeyScenario(" + json.dumps(name) + ")"
