@@ -59,7 +59,8 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     );
   }
 
-  const fill = (page: Page) => page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).backgroundImage);
+  const fill = (page: Page) =>
+    page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).backgroundImage);
   const lift = (page: Page) =>
     page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim());
 
@@ -100,14 +101,16 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     expect(rest).not.toBe("none");
     const box = (await page.locator(".nt-box").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height - 6);
-    await page.waitForFunction(() =>
-      getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim() === "100%");
+    await page.waitForFunction(
+      () => getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim() === "100%",
+    );
     const hovered = await fill(page);
     console.log("new-tab-omnibar-pointer fill rest/hover:", rest, "|", hovered);
     expect(hovered).not.toBe(rest);
     await page.locator(".nt-field").focus();
-    await page.waitForFunction(() =>
-      getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim() === "0%");
+    await page.waitForFunction(
+      () => getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim() === "0%",
+    );
     expect(await fill(page)).toBe(rest);
     await page.close();
   });
