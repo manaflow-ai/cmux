@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
-import { ParticipantId } from "./ops-home-schemas.ts"
+import { ConversationId, ParticipantId } from "./ops-home-schemas.ts"
 
 /**
  * Participant avatars (capability participant-avatars-v1 on the local owner; the same ops on the
@@ -45,13 +45,16 @@ export const ParticipantAvatarGet = def({
   risk: "read",
   target: "participant",
   principals: ["session", "install"],
-  params: Schema.Struct({ participant_id: ParticipantId }),
+  params: Schema.Struct({
+    participant_id: ParticipantId,
+    conversation: Schema.optionalKey(ConversationId.annotate({ description: "A conversation the caller and the participant are both in; needed unless the caller is the participant or the Chief's owner." }))
+  }),
   result: Schema.Struct({
     participant_id: ParticipantId,
     avatar: Schema.NullOr(Schema.Struct({ ...AvatarRef.fields, data: Schema.String.annotate({ description: "The image, base64." }) }))
   }),
-  errors: ["auth.forbidden", "validation.invalid", "unknown_participant"],
-  docs: "A participant's avatar with its bytes, or null. Any signed-in caller may read it (like a display name).",
+  errors: ["auth.forbidden", "validation.invalid", "selector.not_found"],
+  docs: "A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant.",
   cli: { path: "avatar get", visible: true },
   mcp: { expose: "never", group: "home" }
 })

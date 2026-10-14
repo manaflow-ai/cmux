@@ -30,7 +30,7 @@ struct Text {
 static ENGLISH: Text = Text {
     usage: "usage: cmux avatar set PARTICIPANT FILE\n       cmux avatar set PARTICIPANT --clear\n       cmux avatar get PARTICIPANT [--out FILE]\n\n  PARTICIPANT is me (the person who runs this cmux, user_local), a person (user_...)\n  or a Chief (agent_...). A person bound with a person credential names its own id.\n  FILE is a PNG, JPEG, GIF or WebP picture, at most 1 MiB.\n  A person sets only their own picture; the person sets their Chiefs' pictures.",
     agent_refused: "an agent cannot {what} a picture ({marker} is set); ask the person",
-    unsupported: "this daemon has no participant avatars; update cmux",
+    unsupported: "this needs a newer cmux daemon (the participant.avatar operations); stop it and run the command again",
     no_picture: "{participant} has no picture",
     set: "set the picture of {participant} ({media_type}, {bytes} bytes)",
     cleared: "cleared the picture of {participant}",
@@ -39,7 +39,7 @@ static ENGLISH: Text = Text {
 static JAPANESE: Text = Text {
     usage: "使い方: cmux avatar set PARTICIPANT FILE\n        cmux avatar set PARTICIPANT --clear\n        cmux avatar get PARTICIPANT [--out FILE]\n\n  PARTICIPANT は me (この cmux を使う本人、user_local)、人 (user_...)、または Chief (agent_...) です。\n  人の資格情報で接続した人は自分の ID を指定します。\n  FILE は 1 MiB 以下の PNG、JPEG、GIF、WebP の画像です。\n  人は自分の画像だけを設定でき、Chief の画像はその人が設定します。",
     agent_refused: "エージェントは画像を {what} できません ({marker} が設定されています)。本人に依頼してください",
-    unsupported: "このデーモンは参加者のアバターに対応していません。cmux を更新してください",
+    unsupported: "これには新しい cmux デーモン (participant.avatar 操作) が必要です。デーモンを停止してから、もう一度実行してください",
     no_picture: "{participant} には画像がありません",
     set: "{participant} の画像を設定しました ({media_type}, {bytes} バイト)",
     cleared: "{participant} の画像を消しました",
