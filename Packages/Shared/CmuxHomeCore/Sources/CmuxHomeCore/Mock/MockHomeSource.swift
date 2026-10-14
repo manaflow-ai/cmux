@@ -15,13 +15,17 @@ public actor MockHomeSource: HomeSource {
         /// Delay before a Chief starts typing and before it answers.
         public var replyDelay: Duration
         public var startsOnline: Bool
+        /// The Chief's generated history holds one thread: a Chief message with two replies near
+        /// the newest end (`MockHomeSeed.chiefThread`), for the transcript's thread views.
+        public var chiefThread: Bool
 
         public init(chiefHistory: Int = 2_000, latency: Duration = .milliseconds(120),
-                    replyDelay: Duration = .milliseconds(900), startsOnline: Bool = true) {
+                    replyDelay: Duration = .milliseconds(900), startsOnline: Bool = true, chiefThread: Bool = false) {
             self.chiefHistory = chiefHistory
             self.latency = latency
             self.replyDelay = replyDelay
             self.startsOnline = startsOnline
+            self.chiefThread = chiefThread
         }
 
         /// No delays: for tests.
@@ -469,7 +473,7 @@ public actor MockHomeSource: HomeSource {
                     throw HomeRejection.invalid("attachment_mismatch")
                 }
             }
-            if let threadRoot, stored[conversation]?.contains(where: { $0.id == threadRoot }) != true {
+            if let threadRoot, !holds(threadRoot, in: conversation) {
                 throw HomeRejection.invalid("unknown_reply_target")
             }
             let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key, threadRoot: threadRoot)
@@ -677,6 +681,14 @@ public actor MockHomeSource: HomeSource {
                                parts: [.text(MockHomeSeed.reply(index: count))], key: .make())
     }
 
+    /// A message of the conversation, stored or generated (a reply may go to a generated root).
+    private func holds(_ id: MessageID, in conversation: ConversationID) -> Bool {
+        if stored[conversation]?.contains(where: { $0.id == id }) == true { return true }
+        let generatedUpTo = generated[conversation] ?? 0
+        guard generatedUpTo > 0, let seq = Seq(id.rawValue.dropFirst("msg_gen_".count)), id.rawValue.hasPrefix("msg_gen_") else { return false }
+        return seq >= 1 && seq <= generatedUpTo && MockHomeSeed.generatedID(seq) == id
+    }
+
     private func messages(in conversation: ConversationID, from first: Seq, through last: Seq) -> [Message] {
         guard first <= last, let summary = conversations[conversation] else { return [] }
         let generatedUpTo = generated[conversation] ?? 0
@@ -684,7 +696,8 @@ public actor MockHomeSource: HomeSource {
         result.reserveCapacity(Int(last - first + 1))
         if first <= generatedUpTo {
             for seq in first...min(last, generatedUpTo) {
-                result.append(MockHomeSeed.generatedMessage(seq: seq, total: generatedUpTo, in: summary, epoch: epoch))
+                result.append(MockHomeSeed.generatedMessage(seq: seq, total: generatedUpTo, in: summary, epoch: epoch,
+                                                            threaded: options.chiefThread))
             }
         }
         if last > generatedUpTo {

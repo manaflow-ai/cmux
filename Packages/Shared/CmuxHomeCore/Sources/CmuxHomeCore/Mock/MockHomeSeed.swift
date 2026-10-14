@@ -128,18 +128,50 @@ enum MockHomeSeed {
         "Ship the nightly after the checks pass.",
     ]
 
-    static func generatedMessage(seq: Seq, total: Seq, in summary: ConversationSummary, epoch: Date) -> Message {
+    /// A generated message's id (`generatedMessage`).
+    static func generatedID(_ seq: Seq) -> MessageID { MessageID("msg_gen_\(seq)") }
+
+    /// The thread in the Chief's generated history (`MockHomeSource.Options.chiefThread`): a Chief
+    /// message and two replies to it (mine, then the Chief's), near the newest end so the first
+    /// page holds the root, its "2 Replies" row and the replies. Nil for a history under 12.
+    static func chiefThread(total: Seq) -> (root: Seq, replies: [Seq])? {
+        guard total >= 12 else { return nil }
+        return (total - 9, [total - 7, total - 5])
+    }
+
+    private static let threadRootLine = "Three PRs are ready for review: transport, Home backend and the iOS shell."
+    private static let threadReplyLines: [(mine: Bool, text: String)] = [
+        (true, "Start with the transport one."),
+        (false, "Requested review on the transport PR. The other two wait for it."),
+    ]
+
+    /// `threaded`: the seqs of `chiefThread` are its root and replies (`threadRoot`, `replyTo`).
+    static func generatedMessage(seq: Seq, total: Seq, in summary: ConversationSummary, epoch: Date,
+                                 threaded: Bool = false) -> Message {
         let me = summary.participants[0]
         let chief = summary.participants[1]
         // Mostly Chief messages, with my messages every few seqs.
-        let mine = seq % 4 == 1
+        var mine = seq % 4 == 1
         let lines = mine ? myLines : chiefLines
-        let text = lines[Int(seq % Seq(lines.count))]
+        var text = lines[Int(seq % Seq(lines.count))]
+        var root: MessageID?
+        if threaded, let thread = chiefThread(total: total) {
+            if seq == thread.root {
+                mine = false
+                text = threadRootLine
+            } else if let i = thread.replies.firstIndex(of: seq), threadReplyLines.indices.contains(i) {
+                let line = threadReplyLines[i]
+                mine = line.mine
+                text = line.text
+                root = generatedID(thread.root)
+            }
+        }
         let age = Double(total - seq) * 47 + 60
         return Message(
-            id: MessageID("msg_gen_\(seq)"), conversation: summary.id, seq: seq,
+            id: generatedID(seq), conversation: summary.id, seq: seq,
             clientMessageID: IdempotencyKey("gen_\(seq)"), author: mine ? me.id : chief.id,
-            parts: [.text(text)], createdAt: epoch.addingTimeInterval(-age)
+            parts: [.text(text)], createdAt: epoch.addingTimeInterval(-age),
+            replyTo: root.map { PartRef(message: $0) }, threadRoot: root
         )
     }
 

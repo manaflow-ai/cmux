@@ -91,6 +91,29 @@ import CmuxHomeCoreTestSupport
         let seqs = store.transcript(for: id).compactMap(\.seq)
         #expect(seqs == Array(1...500))
     }
+
+    /// `chiefThread`: the first page of the Chief holds a root and its two replies, and a reply
+    /// to that generated root is taken (the transcript's thread views need both).
+    @Test func chiefThreadSeedsAThreadThatTakesReplies() async throws {
+        let (store, _) = await started(MockHomeSource.Options(chiefHistory: 300, latency: .zero, replyDelay: .zero, chiefThread: true))
+        let id = ConversationID("conv_chief")
+        await store.open(id)
+        let root = MessageID("msg_gen_291")
+        let items = store.transcript(for: id)
+        #expect(items.contains { $0.messageID == root && $0.threadRoot == nil })
+        #expect(items.filter { $0.threadRoot == root }.compactMap(\.seq) == [293, 295])
+        #expect(items.filter { $0.threadRoot == root }.allSatisfy { $0.replyTo == PartRef(message: root) })
+        _ = try await store.perform(.sendMessage(conversation: id, parts: [.text("And the iOS shell?")], threadRoot: root))
+        await waitUntil { store.transcript(for: id).last?.delivery == .committed }
+        #expect(store.transcript(for: id).last?.threadRoot == root)
+    }
+
+    @Test func theChiefHistoryHasNoThreadByDefault() async {
+        let (store, _) = await started()
+        let id = ConversationID("conv_chief")
+        await store.open(id)
+        #expect(store.transcript(for: id).allSatisfy { $0.threadRoot == nil })
+    }
 }
 
 @MainActor

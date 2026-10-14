@@ -12,8 +12,9 @@ public final class HomeNativeFixture {
     /// The fixture tab's title.
     public static var title: String { HomeStrings.conversations }
     /// No latency; the Chief types for 1.5 s before it answers (the typing
-    /// indicator shows, as in MessagesLab's script).
-    private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500)))
+    /// indicator shows, as in MessagesLab's script). The Chief's history holds
+    /// one thread (`chiefThread`), so the thread views can be opened.
+    private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500), chiefThread: true))
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
     // task-owner: kept and cancelled in `close()`
