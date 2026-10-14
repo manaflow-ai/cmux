@@ -19,6 +19,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("diff-virtualization.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -79,7 +80,8 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/test/browser/diff-virtualization.html");
+  }, 240_000);
 
   afterAll(() => {
     server?.kill();
@@ -196,6 +198,24 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
       );
       if (point != null) {
         await page.waitForTimeout(POINTER_SETTLE_MS);
+        // The virtualized tree can lay out again while the pointer settles (a loaded WebKit on
+        // CI): click only if the row is still under the point, else find it again.
+        const still = await page.evaluate(
+          ([name, x, y]) => {
+            let hit = document.elementFromPoint(Number(x), Number(y));
+            while (hit?.shadowRoot != null) {
+              const inner = hit.shadowRoot.elementFromPoint(Number(x), Number(y));
+              if (inner == null || inner === hit) break;
+              hit = inner;
+            }
+            return hit?.closest("[data-type='item']")?.getAttribute("data-item-path")?.endsWith(`/${name}`) === true;
+          },
+          [name, point.x, point.y] as const,
+        );
+        if (!still) {
+          await page.waitForTimeout(100);
+          continue;
+        }
         await page.mouse.click(point.x, point.y);
         await page.waitForTimeout(900);
         return;
