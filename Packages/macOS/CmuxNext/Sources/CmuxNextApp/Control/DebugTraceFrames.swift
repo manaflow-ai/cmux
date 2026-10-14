@@ -1,6 +1,5 @@
 #if DEBUG
 import AppKit
-import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextWakeups
