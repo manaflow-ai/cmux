@@ -11,6 +11,7 @@ import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
 import { MessageActions } from "./MessageActions";
 import { MAX_THREAD_INDENT, messageText, mentionsMe } from "./model";
+import { MessageRuns } from "./RunCard";
 import type { HomeMessage, HomeParticipant, HomePart } from "./types";
 
 export interface MessageRowProps {
@@ -128,6 +129,7 @@ export const MessageRow = memo(function MessageRow({
             </button>
           </p>
         )}
+        {!message.retracted && !editing && pending === undefined && <MessageRuns message={message} />}
         {message.reactions.length > 0 && <Reactions message={message} me={me} people={people} onReact={onReact} />}
         {confirmDelete && onRetract && (
           <div className="hc-confirm" role="alert">

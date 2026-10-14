@@ -1,4 +1,5 @@
 import type { Env } from "../env.ts"
+import { bedrockBody, eventStreamToSse } from "./bedrock-stream.ts"
 
 /**
  * Sign-in for the metered Claude route (`/api/claude-david/v1/messages` on the Chatmux service,
@@ -102,16 +103,19 @@ export const holderAuth = async (env: Env, sql: SqlStorage, now = Date.now()): P
 
 /**
  * A fetch for the Anthropic client that signs requests for the metered route: the placeholder API
- * key is removed and `X-Stack-Auth` set. `auth` throws ClaudeAuthError on failure.
+ * key is removed and `X-Stack-Auth` set; the body and the answer are converted for Bedrock
+ * (bedrock-stream.ts). `auth` throws ClaudeAuthError on failure.
  */
 export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<void>): typeof fetch =>
   (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers)
-    headers.delete("x-api-key")
-    headers.delete("authorization")
+    for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version", "content-length"]) headers.delete(h)
     headers.set("X-Stack-Auth", await auth())
     headers.set("x-coderouter-client", "cmux-cloud-chief")
-    const res = await fetch(input, { ...init, headers })
+    const body = typeof init?.body === "string" ? bedrockBody(init.body) : init?.body
+    const res = await fetch(input, { ...init, headers, ...(body === undefined ? {} : { body }) })
     if (res.status === 401) await refused().catch(() => undefined)
-    return res
+    // The route answers Bedrock's event stream; the Anthropic client reads Messages events.
+    if (!res.ok || !res.body || !(res.headers.get("content-type") ?? "").includes("amazon.eventstream")) return res
+    return new Response(eventStreamToSse(res.body), { status: res.status, headers: { "content-type": "text/event-stream" } })
   }) as typeof fetch
