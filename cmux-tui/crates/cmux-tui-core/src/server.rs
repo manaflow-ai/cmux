@@ -2586,12 +2586,12 @@ use resource_connection::{
 };
 
 mod connection_frame;
+#[cfg(test)]
+use connection_frame::write_vt_state_command_json;
 use connection_frame::{
     auth_token, constant_time_eq, handle_connection_frame, handle_request,
     handle_request_with_cancellation, pairing_request, zeroize_string,
 };
-#[cfg(test)]
-use connection_frame::write_vt_state_command_json;
 
 fn node_json(node: &Node, active_pane: PaneId) -> Value {
     match node {
