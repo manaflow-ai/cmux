@@ -139,3 +139,26 @@ import Testing
         #expect(rule.mode == .pinned)
     }
 }
+
+@Suite struct JoystickAndComposerGeometryTests {
+    @Test func theThumbFollowsTheFingerPastTheCircleUpToACap() {
+        let geometry = JoystickGeometry()
+        #expect(JoystickGeometry.travel == 48)
+        // Inside the cap the thumb is under... beside the finger: no scaling.
+        #expect(geometry.thumbOffset(for: CGSize(width: 30, height: 0)) == CGSize(width: 30, height: 0))
+        // Beyond it, capped along the same direction.
+        let capped = geometry.thumbOffset(for: CGSize(width: 60, height: 80))
+        #expect(abs(hypot(capped.width, capped.height) - 48) < 0.001)
+        #expect(abs(capped.width / capped.height - 0.75) < 0.001)
+    }
+
+    @Test func oneLineIsAsTallAsTheCircles() {
+        let metrics = ComposerMetrics()
+        // SF body at the default size: 20.3 pt lines -> 7 pt insets, 34.3 + 1.7 rounding.
+        let inset = metrics.verticalTextInset(lineHeight: 20.29)
+        #expect(inset == 7)
+        #expect(20.29 + 2 * inset <= ComposerMetrics.circle)
+        // Large type never squeezes the text.
+        #expect(metrics.verticalTextInset(lineHeight: 40) == 4)
+    }
+}

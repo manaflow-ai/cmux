@@ -231,6 +231,31 @@ final class TerminalSurfaceView: UIView {
         return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
     }
 
+    /// The lowest row with text in `top...bottom` (absolute rows), reading one
+    /// row at a time from the bottom: rows below the cursor that an inline
+    /// TUI draws (hints, status). Nil when all are blank.
+    func lastNonBlankRow(from top: Int, through bottom: Int) -> Int? {
+        guard surface != nil, top <= bottom else { return nil }
+        for row in stride(from: bottom, through: top, by: -1) {
+            guard let surface else { return nil }
+            let columns = max(1, grid.columns)
+            let selection = ghostty_selection_s(
+                top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row)),
+                bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
+                                              x: UInt32(columns - 1), y: UInt32(row)),
+                rectangle: false
+            )
+            var text = ghostty_text_s()
+            guard ghostty_surface_read_text(surface, selection, &text) else { continue }
+            defer { ghostty_surface_free_text(surface, &text) }
+            if let pointer = text.text, text.text_len > 0 {
+                let bytes = UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len))
+                if bytes.contains(where: { $0 != 0x20 && $0 != 0x0A && $0 != 0x0D && $0 != 0x09 }) { return row }
+            }
+        }
+        return nil
+    }
+
     /// Columns and rows of the local grid.
     var grid: (columns: Int, rows: Int) {
         guard let surface else { return (0, 0) }

@@ -212,6 +212,23 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         edge.edge = .bottom
         bottomStack.addInteraction(edge)
 
+        // The joystick's thumb while dragged, above the key bar's clip.
+        let thumb = UIHostingController(rootView: JoystickThumbOverlay(engine: model.joystickEngine))
+        thumb.safeAreaRegions = []
+        thumb.view.backgroundColor = .clear
+        thumb.view.isUserInteractionEnabled = false
+        thumb.view.translatesAutoresizingMaskIntoConstraints = false
+        thumb.overrideUserInterfaceStyle = .dark
+        addChild(thumb)
+        view.addSubview(thumb.view)
+        thumb.didMove(toParent: self)
+        NSLayoutConstraint.activate([
+            thumb.view.topAnchor.constraint(equalTo: view.topAnchor),
+            thumb.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            thumb.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            thumb.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+
         scrollToBottomButton.configuration?.image = UIImage(systemName: "arrow.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
         scrollToBottomButton.configuration?.cornerStyle = .capsule
         scrollToBottomButton.tintColor = .label
@@ -816,7 +833,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let last = min(scrollbar.total - 1, cursor ?? (scrollbar.total - 1))
             blank = surface.leadingBlankRows(through: max(0, last)) ?? blank
         }
-        let next = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank)
+        // Rows an inline TUI draws below the cursor (Codex CLI's hints).
+        var lastContent: Int?
+        if let cursor, cursor + 1 <= scrollbar.total - 1 {
+            lastContent = surface.lastNonBlankRow(from: cursor + 1, through: scrollbar.total - 1)
+        }
+        let next = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank,
+                                               lastContentRow: lastContent)
         guard next != document else { return }
         let shift = CGFloat(next.originRow - originRow) * cell.height
         let hadDocument = document != nil

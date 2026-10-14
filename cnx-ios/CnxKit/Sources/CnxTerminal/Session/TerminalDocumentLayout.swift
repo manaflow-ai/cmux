@@ -15,8 +15,9 @@ import CoreGraphics
 public struct TerminalDocumentLayout: Equatable, Sendable {
     /// First absolute row of the document.
     public var originRow: Int
-    /// One past the last absolute row of the document (the cursor's row + 1,
-    /// or the scrollback total when the cursor is unknown).
+    /// One past the last absolute row of the document: the cursor's row or
+    /// the last row with text below it, whichever is lower (+ 1), or the
+    /// scrollback total when the cursor is unknown.
     public var endRow: Int
 
     public init(originRow: Int, endRow: Int) {
@@ -30,9 +31,15 @@ public struct TerminalDocumentLayout: Equatable, Sendable {
     /// The document for Ghostty's scrollback `total`, the cursor's absolute
     /// row (nil: unknown) and the blank rows at the top of the screen (nil:
     /// not read; 0 for a local session with no mirror offset).
-    public static func make(totalRows: Int, cursorRow: Int?, leadingBlankRows: Int?) -> TerminalDocumentLayout {
+    public static func make(totalRows: Int, cursorRow: Int?, leadingBlankRows: Int?,
+                            lastContentRow: Int? = nil) -> TerminalDocumentLayout {
         let total = max(1, totalRows)
-        let end = cursorRow.map { min(total, $0 + 1) } ?? total
+        // An inline TUI (Codex CLI) keeps the cursor in its input box and
+        // draws rows below it (hints, status): they are part of the document,
+        // or the last of them would rest under the composer (user report,
+        // 2026-10-14).
+        let lastRow = max(cursorRow ?? -1, lastContentRow ?? -1)
+        let end = lastRow >= 0 ? min(total, lastRow + 1) : total
         var origin = leadingBlankRows ?? 0
         // Never start below the cursor: the prompt row is always in the document.
         if let cursorRow { origin = min(origin, cursorRow) }

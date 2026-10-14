@@ -705,6 +705,70 @@ class Journey:
         return (f"first of 300 lines ({first}) reached after a fresh attach in {flicks_a} flick(s); "
                 f"Codex-style region history ({cx} + 150 lines) reached in {flicks_b} flick(s)")
 
+    def composer_card_top(self):
+        """Top of the composer card: the highest of its field, its + button and
+        its attachment chips, less the card's 6 pt padding."""
+        els = self.sim.tree()
+        tops = [e.frame[1] for e in els if e.ident == "terminal.composer.field" or e.label == "Add attachment"
+                or (e.kind == "Image" and re.search(r"\.(jpe?g|png|heic|mov)$", e.label or "", re.I))]
+        return (min(tops) - 6) if tops else None
+
+    def check_last_row(self, marker, state):
+        hits = self.sim.ocr_find(marker, timeout=4)
+        top = self.composer_card_top()
+        self.sim.shot(f"composer-pin-{state.replace(' ', '-')}-{self.run_id}")
+        check(hits, f"{state}: the last row ({marker}) is not visible (under the composer?)")
+        check(top is not None, f"{state}: no composer")
+        bottom = max(h[1] + h[3] for h in hits)
+        check(bottom <= top - 4, f"{state}: the last row ends at y {bottom:.0f} pt, the composer starts at {top:.0f} pt (user report)")
+        return f"{state}: row ends {bottom:.0f}, composer {top:.0f}"
+
+    def s_composer_bottom_pin(self):
+        """User report 2026-10-14: the last terminal row rests above the composer
+        (8 pt), never under it: keyboard down, keyboard up, a 3-line draft, an
+        attachment strip; also with rows an inline TUI draws below the cursor."""
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        marker = f"LAST{random.randint(10000, 99999)}"
+        # The cursor stays on the prompt row with a hint row drawn below it (Codex CLI-like).
+        self.mac_write(term, f"clear; seq 1 60; printf '> \\n{marker}\\033[1A\\r> '; sleep 300\n")
+        self.mac_wait_text(term, marker, timeout=10)
+        time.sleep(1.5)
+        notes = [self.check_last_row(marker, "keyboard down")]
+        self.sim.tap_q(ident="terminal.composer.field"); time.sleep(1.2)
+        notes.append(self.check_last_row(marker, "keyboard up"))
+        self.sim.softtype("one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen")
+        time.sleep(1.2)
+        notes.append(self.check_last_row(marker, "3-line draft"))
+        # Attachment strip (the photo picker, as in image_upload).
+        try:
+            add = self.sim.find(label="Add attachment")
+            if add:
+                self.hide_keyboard()
+                self.sim.press(*add[0].center, hold=0.1); time.sleep(1.2)
+                photos = self.sim.find(label="Photos", kind="Button")
+                files = self.sim.find(label="Files", kind="Button")
+                if photos or files:
+                    x, y = photos[0].center if photos else (files[0].center[0], files[0].center[1] + 63)
+                    self.sim.press(x, y, hold=0.1); time.sleep(3)
+                    self.sim.tap(200, 412); time.sleep(1)
+                    self.sim.tap(363, 144); time.sleep(2.5)
+                chip = [e for e in self.sim.find(kind="Image") if re.search(r"\.(jpe?g|png|heic)$", e.label or "", re.I)]
+                if chip:
+                    notes.append(self.check_last_row(marker, "attachment strip"))
+                else:
+                    notes.append("attachment strip: not reached (picker)")
+        finally:
+            for e in self.sim.find(kind="Button"):
+                if (e.label or "").startswith("Remove "):
+                    self.sim.tap_el(e); time.sleep(0.5)
+            self.sim.tap_q(ident="terminal.composer.field"); time.sleep(0.8)
+            self.keybar("Control C"); time.sleep(0.5)
+            self.sim.tap_q(ident="terminal.composer.send"); time.sleep(1)
+            self.hide_keyboard()
+        return "; ".join(notes)
+
     def s_keybar_swipe_no_back(self):
         """design/terminal R4-1: with the keyboard up, a rightward swipe that starts
         on the key bar (pinned ^C, the scroller, the joystick) stays on the
@@ -1286,6 +1350,7 @@ class Journey:
             ("term_direct", "Terminal: direct typing (soft keyboard)", "termlive", self.s_term_direct),
             ("term_composer", "Terminal: composer", "termlive", self.s_term_composer),
             ("scrollback_history", "Terminal: the phone reaches the Mac's first line of history", "termlive", self.s_scrollback_history),
+            ("composer_bottom_pin", "Terminal: the last row rests above the composer", "termlive", self.s_composer_bottom_pin),
             ("keybar_swipe_no_back", "Terminal: a swipe on the key bar never swipes back", "termlive", self.s_keybar_swipe_no_back),
             ("shell_pull_keyboard_up", "Terminal: pull-down with the keyboard up reaches history", "termlive", self.s_shell_pull_keyboard_up),
             ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),
