@@ -142,10 +142,16 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // A refused send is never ok: a test cannot pass on a dropped send (cx-ebm.55).
             if let refusal = view.sendDraft() { return .object(["ok": .bool(false), "refused": .string(refusal)]) }
             ok = true
-        case "thread", "escape":
-            // "thread": a click on the newest "N Replies" or thread preview; "escape": Esc in the field.
-            // Both answer with the open thread's root (null: no thread is open).
-            let root = params["action"]?.stringValue == "thread" ? view.debugOpenNewestThread() : { view.debugEscape(); return view.debugOpenThread }()
+        case "thread", "click_replies", "escape":
+            // "thread": a click on the newest "N Replies" or thread preview (ChatController.clicked);
+            // "click_replies": the same point through the real mouse path (mouseDown and mouseUp);
+            // "escape": Esc in the field. All answer with the open thread's root (null: none is open).
+            let root: String?
+            switch params["action"]?.stringValue {
+            case "thread": root = view.debugOpenNewestThread()
+            case "click_replies": root = view.debugClickNewestReplies()
+            default: view.debugEscape(); root = view.debugOpenThread
+            }
             return .object(["ok": .bool(true), "open_thread": root.map { .string($0) } ?? .null])
         case "reply", "post_escape", "key_escape", "thread_state":
             // "reply": Reply… in the newest text bubble's menu; "post_escape": a real Esc key press
@@ -168,7 +174,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, key_escape, click or thread_state")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, key_escape, click, click_replies or thread_state")])
         }
         return .object(["ok": .bool(ok)])
     }

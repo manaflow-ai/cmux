@@ -110,6 +110,8 @@ extension HomeNativeTranscriptView {
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
     /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
     public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
+    /// The same click through the real mouse path (mouseDown and mouseUp); the open thread's root.
+    public func debugClickNewestReplies() -> String? { transcript.debugClickNewestReplies() }
     /// The open thread's root (the transcript's id), nil when none is open.
     public var debugOpenThread: String? { transcript.debugOpenThread }
     /// Esc through the field's path.

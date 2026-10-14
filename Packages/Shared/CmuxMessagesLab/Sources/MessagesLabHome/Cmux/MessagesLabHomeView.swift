@@ -402,18 +402,38 @@ public final class MessagesLabHomeView: NSView {
     /// thread preview through the click's path (`ChatController.clicked`). The
     /// open thread's root (its transcript id) after the click, nil when none opened.
     public func debugOpenNewestThread() -> String? {
+        guard let p = debugNewestRepliesPoint() else { return nil }
+        controller.clicked(p)
+        return debugOpenThread
+    }
+
+    /// Automation (DEBUG socket): the same click, through the real mouse path (`debugClick`: the
+    /// transcript's mouseDown and mouseUp, then `ChatController.mouseUp` -> `clicked`).
+    public func debugClickNewestReplies() -> String? {
+        guard let p = debugNewestRepliesPoint() else { return nil }
+        _ = debugClick(atWindow: controller.host.convert(p, to: nil))
+        return debugOpenThread
+    }
+
+    /// A point (transcript coordinates) on the newest "N Replies" row or thread preview, read from
+    /// the row itself (the part of a preview `MessagesWindowView.repliesHit` takes), checked once
+    /// with repliesHit. Nil when no such row is visible or a thread is open.
+    func debugNewestRepliesPoint() -> CGPoint? {
         guard let demo = controller.demo else { return nil }
         let cells = demo.collection.visibleCells.compactMap { $0 as? RowCell }
-            .map { $0.convert($0.bounds, to: demo) }.sorted { $0.maxY > $1.maxY }
-        for r in cells {
-            for y in stride(from: r.maxY, to: r.minY, by: -3) {
-                for x in stride(from: r.minX, to: r.maxX, by: 3) {
-                    let p = CGPoint(x: x, y: y)
-                    guard demo.repliesHit(p) != nil else { continue }
-                    controller.clicked(p)
-                    return debugOpenThread
-                }
+            .sorted { $0.convert($0.bounds, to: demo).maxY > $1.convert($1.bounds, to: demo).maxY }
+        for cell in cells {
+            guard let spec = cell.spec else { continue }
+            let r = cell.convert(cell.bounds, to: demo)
+            let p: CGPoint
+            switch spec.kind {
+            case .replies: p = CGPoint(x: r.midX, y: r.midY)
+            case let .threadPreview(pv):
+                let x = pv.outgoing ? r.minX + spec.metrics.rightEdge - 10 : r.minX + Fixture.leftEdge + 10
+                p = CGPoint(x: x, y: r.midY)
+            default: continue
             }
+            if demo.repliesHit(p) != nil { return p }
         }
         return nil
     }
@@ -455,7 +475,10 @@ public final class MessagesLabHomeView: NSView {
     /// the socket's "rows") through the real mouse path: the view AppKit's hit test finds there gets the
     /// mouse down and up (TranscriptDocumentView -> ChatController.mouseDown/mouseUp), as a key
     /// window sends them. Only the window's first-click rule is skipped (a window that is not key
-    /// swallows the first click into the transcript, as MessagesLab's). `count` 2 is a double
+    /// swallows the first click into the transcript, as MessagesLab's). Not through
+    /// `NSWindow.sendEvent`: for a mouse down in a window that is not key, AppKit makes the window
+    /// key first (a focus steal the rig forbids) and then drops the click (no acceptsFirstMouse),
+    /// so this evidence is not a real-input proof of the window's own dispatch. `count` 2 is a double
     /// click (two presses, click counts 1 and 2). False when no view takes the point.
     public func debugClick(atWindow wp: CGPoint, count: Int = 1) -> Bool {
         let host = controller.host
