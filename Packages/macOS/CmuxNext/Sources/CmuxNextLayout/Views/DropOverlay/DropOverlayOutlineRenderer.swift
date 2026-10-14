@@ -1,10 +1,10 @@
 import AppKit
 import CmuxNextDesign
 
-/// `outline` (the default, tab-dnd): the shared `DropOutlineRing` exactly
-/// around the rect the drop creates (the split half, the pane, the column
-/// gap, the dock band, a strip's insert slot), no fill, moved by the
-/// compositor. A refused target draws the ring in the danger color with
+/// `outline` (the default): the shared `DropOutlineRing` exactly around
+/// the rect the drop creates (the split half, the pane, the column gap, the
+/// dock band, a strip's insert slot), as classic cmux draws it: the accent
+/// at 0.25 inside a 2 pt accent border, radius 8, moved by the compositor. A refused target draws the ring in the danger color with
 /// the reason in a small chip.
 final class OutlineRenderer: DropOverlayRenderer {
     let style = DropOverlayStyle.outline
@@ -32,7 +32,8 @@ final class OutlineRenderer: DropOverlayRenderer {
     func update(_ frame: DropOverlayFrame) {
         let refusedChanged = ring.isRefused != frame.refused
         ring.show(frame.finalTarget, cornerRadius: frame.cornerRadius, refused: frame.refused, animated: frame.animated,
-                  spring: DropOverlayTunables.spring.value, appearInset: CGFloat(DropOverlayTunables.appearInset.value))
+                  spring: DropOverlayTunables.spring.value, appearInset: CGFloat(DropOverlayTunables.appearInset.value),
+                  fillOpacity: frame.fills ? DropOutlineTunables.fillOpacity.value : 0)
         if refusedChanged { applyTheme() }
         placeChip(in: frame.finalTarget, frame: frame)
     }

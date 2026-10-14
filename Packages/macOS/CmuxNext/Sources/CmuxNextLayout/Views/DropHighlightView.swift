@@ -68,6 +68,8 @@ final class DropHighlightView: NSView {
     }
     /// The target rect as drawn now (this view's coordinates).
     var targetRect: CGRect { targetSpring.rect }
+    /// The shown target takes the classic fill (`DropOverlayFrame.fills`).
+    private var fills = true
     /// The outline style's renderer, when that style draws (tests, debug).
     var outline: OutlineRenderer? { renderer as? OutlineRenderer }
 
@@ -78,8 +80,9 @@ final class DropHighlightView: NSView {
     /// if an animation frame is needed. Tokens and tunables are re-read on
     /// every call, so a change applies to the next pointer move.
     func show(_ rect: CGRect, region: CGRect, zone: DropOverlayZone, text: String, inset: CGFloat, cornerRadius: CGFloat,
-              pointer: CGPoint, animated: Bool) -> Bool {
+              pointer: CGPoint, animated: Bool, fills: Bool = true) -> Bool {
         refreshStyle()
+        self.fills = fills
         let animated = animated && DropOverlayTunables.animated.value
         let target = rect.insetBy(dx: inset, dy: inset)
         self.zone = zone
@@ -168,7 +171,7 @@ final class DropHighlightView: NSView {
             renderer.update(DropOverlayFrame(target: targetSpring.rect, finalTarget: targetSpring.targetRect, region: regionSpring.rect,
                                              zone: zone, bounds: bounds,
                                              cornerRadius: cornerRadius, label: label, showsLabel: DropOverlayTunables.showLabel.value,
-                                             refused: refused, animated: animated))
+                                             refused: refused, animated: animated, fills: fills))
         }
         alphaValue = targetSpring.alpha.value * CGFloat(DropOverlayTunables.opacity.value)
         if !isShowing && targetSpring.alpha.value <= 0.001 { isHidden = true }
