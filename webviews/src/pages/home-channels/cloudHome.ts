@@ -86,7 +86,11 @@ export class CloudHome {
     if (id === LOCAL_USER) return undefined;
     for (const [conversation, head] of this.heads) {
       const people = head.participants;
-      if (Array.isArray(people) && people.some((person) => (person as Json | null)?.id === id && (person as Json).left_at === undefined)) return conversation;
+      if (
+        Array.isArray(people) &&
+        people.some((person) => (person as Json | null)?.id === id && (person as Json).left_at === undefined)
+      )
+        return conversation;
     }
     for (const [conversation, entry] of this.entries) if (entry.dm_peer === id) return conversation;
     return undefined;
