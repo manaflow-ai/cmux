@@ -176,6 +176,7 @@ pub mod op_names {
     pub const TEAM_VM_SSH_CERT_REVOKE: &str = "team_vm.ssh_cert.revoke";
     pub const TEAM_VM_STATUS: &str = "team_vm.status";
     pub const TEAM_VM_TAINT_ACCEPT: &str = "team_vm.taint.accept";
+    pub const THREAD_UPDATE: &str = "thread.update";
     pub const TITLE_SET: &str = "title.set";
     pub const TUNNEL_ATTACH: &str = "tunnel.attach";
     pub const TUNNEL_DETACH: &str = "tunnel.detach";
@@ -363,6 +364,7 @@ pub mod op_names {
         TEAM_VM_SSH_CERT_REVOKE,
         TEAM_VM_STATUS,
         TEAM_VM_TAINT_ACCEPT,
+        THREAD_UPDATE,
         TITLE_SET,
         TUNNEL_ATTACH,
         TUNNEL_DETACH,
@@ -553,6 +555,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "team_vm.ssh_cert.revoke" => visitor.visit::<TeamVmSshCertRevokeOp>(),
         "team_vm.status" => visitor.visit::<TeamVmStatusOp>(),
         "team_vm.taint.accept" => visitor.visit::<TeamVmTaintAcceptOp>(),
+        "thread.update" => visitor.visit::<ThreadUpdateOp>(),
         "title.set" => visitor.visit::<TitleSetOp>(),
         "tunnel.attach" => visitor.visit::<TunnelAttachOp>(),
         "tunnel.detach" => visitor.visit::<TunnelDetachOp>(),

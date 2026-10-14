@@ -19,6 +19,15 @@ extension TabStripView {
             tabs.insert(contentsOf: members, at: min(max(groupDrag.currentTabIndex, 0), tabs.count))
         }
         var items = TabGroupOrdering.layoutItems(tabs, groups: groups.byID, selectedID: model.selectedID, chipWidths: groups.chipWidths())
+        if model.style == .chrome {
+            let titles = Dictionary(tabs.map { ($0.id, $0.title.isEmpty ? Strings.untitled : $0.title) }, uniquingKeysWith: { first, _ in first })
+            let font = Typography.body
+            for index in items.indices where !items[index].isPinned && !items[index].isGroupChip && items[index].fixedWidth == nil {
+                guard let title = titles[items[index].id] else { continue }
+                let width = ceil((title as NSString).size(withAttributes: [.font: font]).width)
+                items[index].naturalWidth = metrics.naturalTabWidth(titleWidth: width)
+            }
+        }
         if let index = dropPlaceholderIndex {
             let pinnedCount = tabs.count(where: \.isPinned)
             let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: dropPlaceholderGroup, fixedWidth: groups.phantomWidth)
@@ -77,7 +86,6 @@ extension TabStripView {
             scroll.snap()
             for id in dying { removeTab(id) }
         }
-        updateSeparators()
         startAnimating()
         applyFrames()
     }
@@ -93,26 +101,6 @@ extension TabStripView {
         )
         if !animated || reduceMotion { scroll.snap() }
         startAnimating()
-    }
-
-    /// Chrome's separator rule (`TabSeparatorVisibility`) over the tabs in the
-    /// row: the selected, hovered and dragged tabs hide the separators on
-    /// both sides, and the last tab's separator is the line before +. A drop
-    /// gap counts as the dragged tab. Members collapsed into a group chip are
-    /// out of the row and draw none; a chip is a neutral neighbor.
-    func updateSeparators() {
-        let row = result.slots.filter { !$0.isCollapsed }
-        func index(of id: TabID?) -> Int? { id.flatMap { id in row.firstIndex { $0.id == id } } }
-        let visible = TabSeparatorVisibility.visibleSeparators(
-            tabCount: row.count,
-            selected: index(of: model.selectedID),
-            hovered: index(of: hoveredID),
-            dragged: index(of: drag?.id) ?? index(of: Self.placeholderID)
-        )
-        let shown = Set(visible.map { row[$0].id })
-        for slot in result.slots {
-            cells[slot.id]?.showsSeparator = shown.contains(slot.id)
-        }
     }
 
     func applyFrames() {
