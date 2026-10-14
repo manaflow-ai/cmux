@@ -998,17 +998,21 @@ mkdir -p "$fake_gh_dir"
 cat > "$fake_gh_dir/gh" <<'GH'
 #!/usr/bin/env bash
 case "$*" in
-  *"-X DELETE"*) echo "DELETE $*" >> "$FAKE_GH_LOG"; exit 0 ;;
+  *"-X DELETE"*)
+    [ "${FAKE_GH_DELETE:-ok}" = error ] && { echo "HTTP 503" >&2; exit 1; }
+    echo "DELETE $*" >> "$FAKE_GH_LOG"; exit 0 ;;
   *pending-bundle*)
     case "$FAKE_GH_BUNDLES" in error) echo "HTTP 502: Bad Gateway" >&2; exit 1 ;; *) echo "$FAKE_GH_BUNDLES"; exit 0 ;; esac ;;
-  *pending-meta*) echo 4242; exit 0 ;;
+  *pending-meta*)
+    [ "${FAKE_GH_META:-ok}" = error ] && { echo "HTTP 403: rate limit exceeded" >&2; exit 1; }
+    echo 4242; exit 0 ;;
 esac
 exit 1
 GH
 chmod +x "$fake_gh_dir/gh"
-orphan() {  # <bundles: error|0|1> -> prints the script's verdict
+orphan() {  # <bundles: error|0|1> [meta: ok|error] [delete: ok|error] -> prints the script's verdict
   : > "$legacy_dir/gh.log"
-  PATH="$fake_gh_dir:$PATH" FAKE_GH_LOG="$legacy_dir/gh.log" FAKE_GH_BUNDLES="$1" \
+  PATH="$fake_gh_dir:$PATH" FAKE_GH_LOG="$legacy_dir/gh.log" FAKE_GH_BUNDLES="$1" FAKE_GH_META="${2:-ok}" FAKE_GH_DELETE="${3:-ok}" \
     bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-orphan-meta.sh" manaflow-ai/cmux 38566549515
 }
 if [ "$(orphan error | cut -c1-5)" != kept: ] || [ -s "$legacy_dir/gh.log" ]; then
@@ -1017,6 +1021,14 @@ if [ "$(orphan error | cut -c1-5)" != kept: ] || [ -s "$legacy_dir/gh.log" ]; th
 fi
 if [ "$(orphan 1 | cut -c1-5)" != kept: ] || [ -s "$legacy_dir/gh.log" ]; then
   echo "FAIL: a pending metadata artifact whose bundle exists must be kept"
+  exit 1
+fi
+if [ "$(orphan 0 error | cut -c1-5)" != kept: ] || [ -s "$legacy_dir/gh.log" ]; then
+  echo "FAIL: an API error while listing the pending metadata must keep it"
+  exit 1
+fi
+if [ "$(orphan 0 ok error | cut -c1-5)" != kept: ]; then
+  echo "FAIL: a failed delete of the pending metadata must report it as kept"
   exit 1
 fi
 if [ "$(orphan 0)" != retired ] || ! grep -q 'artifacts/4242' "$legacy_dir/gh.log"; then
