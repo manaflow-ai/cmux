@@ -270,20 +270,24 @@ struct AttachmentStrip: View {
                             Button {
                                 model.removeAttachment(attachment.id)
                             } label: {
+                                // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(Color(uiColor: .systemBackground))
-                                    .frame(width: 20, height: 20)
-                                    .background(Color.primary, in: .circle)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 22, height: 22)
+                                    .background(Color(white: 0.18), in: .circle)
+                                    .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1.5))
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(.rect)
                             }
                             .buttonStyle(.plain)
-                            .offset(x: 5, y: -5)
+                            .offset(x: 16, y: -16)
                             .accessibilityLabel("Remove \(attachment.name)")
                         }
                 }
             }
-            .padding(.top, 6)
-            .padding(.horizontal, 6)
+            .padding(.top, 8)
+            .padding(.horizontal, 8)
         }
         .scrollIndicators(.hidden)
     }

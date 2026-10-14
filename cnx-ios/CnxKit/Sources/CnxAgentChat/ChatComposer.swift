@@ -545,14 +545,18 @@ struct AttachmentThumb: View {
             .clipShape(.rect(cornerRadius: 12, style: .continuous))
             if let remove {
                 Button(action: remove) {
+                    // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color.cnxOnAccent)
-                        .frame(width: 20, height: 20)
-                        .background(Color.cnxAccent, in: .circle)
+                        .foregroundStyle(.white)
+                        .frame(width: 22, height: 22)
+                        .background(Color(white: 0.18), in: .circle)
+                        .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1.5))
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .offset(x: 6, y: -6)
+                .offset(x: 17, y: -17)
                 .accessibilityLabel("Remove attachment")
             }
         }
