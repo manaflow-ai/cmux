@@ -126,6 +126,12 @@
       "title" : "Global Hot Key",
       "type" : "boolean"
     },
+    "app.hideDockIconWithoutWindows" : {
+      "default" : true,
+      "description" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens.",
+      "title" : "Hide Dock Icon When No Windows Are Open",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -2085,10 +2091,9 @@
     },
     "sidebar.density" : {
       "default" : "compact",
-      "description" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+      "description" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
       "enum" : [
         "compact",
-        "comfortable",
         "expanded"
       ],
       "title" : "Sidebar Density",
@@ -2524,7 +2529,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.notification" : {
-      "default" : false,
+      "default" : true,
       "description" : "The text of the workspace's newest unread notification.",
       "title" : "Latest Notification",
       "type" : "boolean"
