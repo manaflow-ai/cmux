@@ -40,6 +40,11 @@ public struct AgentNotificationReconciler: Sendable {
         var attentionIdentities: Set<String> = []
         var attentionRequestIDs: [String: String] = [:]
         var completionIdentity: String?
+        /// The settled turn reopened (a continuation without a new prompt)
+        /// after its completion notified. Its next Stop reuses that completion
+        /// identity and is deduplicated, so its idle reminder is the only signal
+        /// left and must not be treated as repeating the already-read completion.
+        var reopenedSinceCompletion = false
         var starts: Set<String> = []
         var resolvedRequests: Set<String> = []
         var completionTurns: [String: String] = [:]
@@ -49,6 +54,7 @@ public struct AgentNotificationReconciler: Sendable {
             rootStopped = false
             pendingCompletion = nil
             phase = .running
+            if completionIdentity != nil { reopenedSinceCompletion = true }
         }
 
         /// Retires one pending blocking request, returning its producer dismissal handle.
@@ -197,7 +203,8 @@ public struct AgentNotificationReconciler: Sendable {
                 identity: decision.identity,
                 invalidatedCorrelationKeys: boundaryInvalidations + decision.invalidatedCorrelationKeys,
                 notificationEvent: decision.notificationEvent,
-                projectsLifecycle: decision.projectsLifecycle
+                projectsLifecycle: decision.projectsLifecycle,
+                remindedCompletion: decision.remindedCompletion
             )
         }
         let context = draft.attention
@@ -290,7 +297,7 @@ public struct AgentNotificationReconciler: Sendable {
                 let decision = apply(released)
                 return .init(decision.disposition, identity: decision.identity,
                     invalidatedCorrelationKeys: requestInvalidations + decision.invalidatedCorrelationKeys,
-                    notificationEvent: released)
+                    notificationEvent: released, remindedCompletion: decision.remindedCompletion)
             }
             return .init(.observation, invalidatedCorrelationKeys: requestInvalidations)
         }
@@ -346,6 +353,7 @@ public struct AgentNotificationReconciler: Sendable {
             session.turn = incomingTurn
             session.nativeTurn = incomingTurn
             session.completionIdentity = nil
+            session.reopenedSinceCompletion = false
         }
         if draft.kind == .idleObserved {
             guard !draft.pendingWork, session.attentionIdentities.isEmpty, session.children.isEmpty,
@@ -386,6 +394,15 @@ public struct AgentNotificationReconciler: Sendable {
                 // observations and journal replay compatibility.
                 identity = Self.key([sessionKey, Self.key([identityKind, context?.turnIdentity ?? session.turn])])
             }
+            // The reminder repeats this turn's completion. Only the app knows
+            // whether the user already read or dismissed it.
+            let remindedCompletion = identityKind == "idle-reminder" && !session.reopenedSinceCompletion
+                ? session.completionIdentity.flatMap { completion in
+                    session.delivered[completion].map {
+                        AgentNotificationDecision.RemindedCompletion(identity: completion, correlationKey: $0)
+                    }
+                }
+                : nil
             session.delivered[identity] = context?.notification?.correlationKey ?? identity
             session.deliveredSurfaceIDs[identity] = draft.surfaceId
             if identityKind == "completion" {
@@ -396,7 +413,8 @@ public struct AgentNotificationReconciler: Sendable {
                 .accepted,
                 identity: identity,
                 invalidatedCorrelationKeys: boundaryInvalidations,
-                projectsLifecycle: context?.notification?.category != "idle-reminder"
+                projectsLifecycle: context?.notification?.category != "idle-reminder",
+                remindedCompletion: remindedCompletion
             )
         }
         if draft.kind == .turnStarted, let incomingTurn, incomingTurn == session.turn,
@@ -429,6 +447,7 @@ public struct AgentNotificationReconciler: Sendable {
             session.resolvedRequests.formUnion(session.attentionRequestIDs.values)
             session.attentionRequestIDs.removeAll()
             session.completionIdentity = nil
+            session.reopenedSinceCompletion = false
             session.pendingCompletion = nil
         }
         let previousPhase = session.phase
@@ -498,6 +517,7 @@ public struct AgentNotificationReconciler: Sendable {
                 }
                 session.rootStopped = false
                 session.pendingCompletion = nil
+                if session.completionIdentity != nil { session.reopenedSinceCompletion = true }
             }
             if let phase = draft.declaredPhase {
                 session.phase = phase == .running && !session.attentionIdentities.isEmpty ? .needsInput : phase
@@ -537,7 +557,12 @@ public struct AgentNotificationReconciler: Sendable {
             session.attentionIdentities.insert(identity)
             if let request = context?.requestIdentity { session.attentionRequestIDs[identity] = request }
         }
-        if draft.kind == .turnCompleted { session.completionIdentity = identity }
+        if draft.kind == .turnCompleted {
+            // Re-asserting the same identity after a reopen keeps the flag: that
+            // Stop's notification is deduplicated against the read completion.
+            if session.completionIdentity != identity { session.reopenedSinceCompletion = false }
+            session.completionIdentity = identity
+        }
         storeSession(session, for: sessionKey, indexKey: boundaryKey)
         return .init(.accepted, identity: identity, invalidatedCorrelationKeys: invalidated)
     }
