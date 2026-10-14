@@ -1,4 +1,5 @@
 import AppKit
+import CmuxProductAnalytics
 import SwiftUI
 
 // MARK: - State (visibility toggle)
@@ -9,7 +10,10 @@ final class FileExplorerState: ObservableObject {
     private let defaults: UserDefaults
 
     @Published var isVisible: Bool {
-        didSet { persistVisibility() }
+        didSet {
+            persistVisibility()
+            if isVisible, !oldValue { ProductAnalytics.app.featureUsed(storedMode.productFeature) }
+        }
     }
     /// Hidden because the window was too narrow (SidePanelWidthFit), not by the
     /// person. Persisted as visible, so a narrow window neither changes the
@@ -140,6 +144,7 @@ final class FileExplorerState: ObservableObject {
         }
         storedMode = nextMode
         defaults.set(nextMode.rawValue, forKey: Self.modeKey)
+        if isVisible { ProductAnalytics.app.featureUsed(nextMode.productFeature) }
     }
 
     private static func availableMode(

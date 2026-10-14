@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxCloudResizeCore
+import CmuxProductAnalytics
 import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
@@ -673,6 +674,7 @@ final class NewMachineModel {
             return
         }
         if supportsAgentUpdates { defaults.set(keepsAgentsUpdated, forKey: Self.keepsAgentsUpdatedDefaultsKey) }
+        ProductAnalytics.app.track(.cloudMachineCreateStarted(memoryGB: memoryMb / 1_024))
         finish(.submitted)
     }
 

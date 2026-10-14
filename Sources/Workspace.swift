@@ -26,6 +26,7 @@ import CmuxPanes
 import CmuxSidebar
 import CmuxNotifications
 import Combine
+import CmuxProductAnalytics
 import CryptoKit
 import Darwin
 import Network
@@ -9209,7 +9210,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         allowTextBoxFocusDefault: Bool = true,
         inheritStartupWork: Bool = true
     ) -> TerminalPanel? {
-        return newTerminalSplitOutcome(
+        let panel = newTerminalSplitOutcome(
             from: panelId,
             orientation: orientation,
             insertFirst: insertFirst,
@@ -9224,6 +9225,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             inheritStartupWork: inheritStartupWork
         ).panel
+        if panel != nil {
+            ProductAnalytics.app.featureUsed(.split)
+        }
+        return panel
     }
 
     /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:initialInput:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``
@@ -10248,6 +10253,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
         applyCloudBrowserCreationPlan(cloudBrowserPlan, to: browserPanel)
+        if creationPolicy == .userInitiated {
+            ProductAnalytics.app.featureUsed(.browserPane)
+        }
 
         return browserPanel
     }
@@ -10382,6 +10390,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
         applyCloudBrowserCreationPlan(cloudBrowserPlan, to: browserPanel)
+        if creationPolicy == .userInitiated {
+            ProductAnalytics.app.featureUsed(.browserPane)
+        }
 
         return browserPanel
     }
