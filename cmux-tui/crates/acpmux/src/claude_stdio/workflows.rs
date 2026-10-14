@@ -43,6 +43,9 @@ impl Translator {
                 "state": "failed",
             }));
         }
+        if let Some(task) = text("taskId") {
+            self.subagent_tasks.lock().await.insert(task.to_owned(), tool.to_owned());
+        }
         if let Some(dir) = text("transcriptDir") {
             self.workflows.lock().await.insert(tool.to_owned(), Some(PathBuf::from(dir)));
         }
@@ -94,6 +97,40 @@ impl Translator {
         }
         Some(update)
     }
+
+    /// `_acpmux/subagent_stop`: Claude's `stop_task` for the subagent's
+    /// task. Claude's answer (`stop_reply`) answers the request; the task's
+    /// `task_notification` then ends the subagent as stopped.
+    pub(super) async fn subagent_stop(&self, id: &Id, p: &Value) -> Outbound {
+        let child = p.get("subagentSessionId").and_then(Value::as_str).unwrap_or("");
+        let subagents = self.subagents.lock().await;
+        let tool =
+            subagents.iter().find(|(_, c)| c.as_str() == child).map(|(tool, _)| tool.clone());
+        drop(subagents);
+        let tasks = self.subagent_tasks.lock().await;
+        let task = tool.and_then(|tool| {
+            tasks.iter().find(|(_, t)| t.as_str() == tool).map(|(k, _)| k.clone())
+        });
+        drop(tasks);
+        match task {
+            Some(task) => Outbound::Lines(vec![json!({"type": "control_request",
+                "request_id": format!("stop-{id}"), "request": {"subtype": "stop_task", "task_id": task}})]),
+            None => Outbound::Reply(Message::err(
+                id.clone(),
+                RpcError::invalid_params(format!("no running background subagent {child}")),
+            )),
+        }
+    }
+}
+
+/// Claude's answer to a `stop-<id>` control request as the reply to request `<id>`.
+pub(super) fn stop_reply(acp: &str, ok: bool, resp: &Value) -> Message {
+    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+    if ok {
+        return Message::ok(id, json!({}));
+    }
+    let why = resp.get("error").and_then(Value::as_str).unwrap_or("Claude did not stop the task");
+    Message::err(id, RpcError::internal(why))
 }
 
 /// How many of a workflow run's agents returned and how many started, from

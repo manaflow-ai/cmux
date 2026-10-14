@@ -380,6 +380,8 @@ impl Translator {
                             ),
                         ));
                     }
+                } else if let Some(acp) = rid.strip_prefix("stop-") {
+                    out.push(super::workflows::stop_reply(acp, ok, &resp));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
             }
