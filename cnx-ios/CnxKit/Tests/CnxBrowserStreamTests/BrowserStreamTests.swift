@@ -81,7 +81,7 @@ final class SinkBox: @unchecked Sendable {
             return stream
         }
         model.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
-        await settle()
+        for _ in 0..<200 where box.last == nil { try? await Task.sleep(for: .milliseconds(5)) }
         let sink = try #require(box.last)
         #expect(model.phase == .connecting)
         sink.browserMessage(Data(#"{"t":"welcome","caps":["input.service"]}"#.utf8))
@@ -112,7 +112,7 @@ final class SinkBox: @unchecked Sendable {
     @Test func aRefusedOpenSaysWhy() async {
         let model = StreamedBrowserModel(tab: "s4", url: nil) { _ in throw LinkError(code: "unavailable", message: "no browser host on this Mac") }
         model.layout(points: CGSize(width: 300, height: 600), screenScale: 2)
-        await settle()
+        for _ in 0..<200 where model.phase == .connecting { try? await Task.sleep(for: .milliseconds(5)) }
         #expect(model.phase == .waiting("no browser host on this Mac"))
     }
 }
