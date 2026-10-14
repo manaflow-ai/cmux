@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -38,7 +38,11 @@ export function SummaryCard({
     views: Record<string, AcpmuxRow[]> | undefined;
     /// The subagent this pane shows, if any.
     current: string | undefined;
+    /// The tool calls the chat's open asks are about (SubagentStatusList.tsx `pendingToolCalls`).
+    asks: ReadonlySet<string>;
     onOpen: (id: string) => void;
+    /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
+    autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
 }) {
   const t = useT();
@@ -47,7 +51,9 @@ export function SummaryCard({
   const open = shown && !card.collapsed;
   const views = subagents.views;
   const agents = useMemo(() => (shown ? [...subagentsIn(rows, views).values()] : []), [shown, rows, views]);
-  const waiting = useMemo(() => (shown ? waitingSubagents(rows, views) : new Set<string>()), [shown, rows, views]);
+  const asks = subagents.asks;
+  const waiting = useMemo(() => (shown ? waitingSubagents(asks, views) : new Set<string>()), [shown, asks, views]);
+  const galleryRow = useRef<HTMLElement | null>(null);
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   if (!shown) return null;
@@ -68,7 +74,6 @@ export function SummaryCard({
             type="button"
             className="acpmux-summary-card__fold"
             aria-expanded={!card.collapsed}
-            aria-label={foldLabel}
             title={foldLabel}
             onClick={() => card.fold(!card.collapsed)}
           >
@@ -81,7 +86,12 @@ export function SummaryCard({
             className="acpmux-summary-card__close"
             aria-label={t("summary.close")}
             title={t("summary.close")}
-            onClick={card.close}
+            onClick={(event) => {
+              // The button goes with the card: focus moves to the header's summary button.
+              const pane = event.currentTarget.closest(".acpmux-stage");
+              card.close();
+              pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
+            }}
           >
             <Icon name="action.close" size={12} />
           </button>
@@ -91,7 +101,10 @@ export function SummaryCard({
             <SummaryBody
               summary={summary}
               galleryCount={galleryCount}
-              onOpenGallery={() => setGallery(true)}
+              onOpenGallery={() => {
+                galleryRow.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                setGallery(true);
+              }}
               changes={changes}
               onOpenChanges={onOpenChanges}
               subagents={
@@ -101,6 +114,7 @@ export function SummaryCard({
                     waiting={waiting}
                     current={subagents.current}
                     onOpen={subagents.onOpen}
+                    autoOpen={subagents.autoOpen}
                   />
                 ) : undefined
               }
@@ -113,7 +127,11 @@ export function SummaryCard({
       {gallery && (
         <GalleryDialog
           rows={rows}
-          onClose={() => setGallery(false)}
+          onClose={() => {
+            setGallery(false);
+            // Back to the Outputs row that opened it (not when the image viewer takes its place).
+            queueMicrotask(() => galleryRow.current?.focus());
+          }}
           onOpenImage={
             onOpenImage &&
             ((src, alt) => {

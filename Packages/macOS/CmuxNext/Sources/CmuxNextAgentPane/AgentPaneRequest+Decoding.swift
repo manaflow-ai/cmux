@@ -194,6 +194,10 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "chat.sideChat":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
+        case "chat.subagentPane":
+            if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
+            } else { self = .unsupported(method) }
         case "chat.openTab":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id) } else { self = .unsupported(method) }
         case "chat.upload":

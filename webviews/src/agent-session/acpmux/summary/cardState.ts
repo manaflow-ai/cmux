@@ -5,7 +5,7 @@
 // A chat the user has not touched yet shows the card, open, once it has subagents: they are what
 // the card follows while a turn runs. Any choice the user makes (show, hide, fold) is stored and
 // wins from then on.
-import { useSyncExternalStore } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 
 export type SummaryCardState = { shown: boolean; collapsed: boolean };
 
@@ -63,20 +63,22 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
-/// The card of chat `sessionId`. `hasSubagents` shows it for a chat with no stored choice.
+/// The card of chat `sessionId`. `hasSubagents` shows it for a chat with no stored choice. A pane
+/// with no session id yet keeps its choice in memory until it has one.
 export function useSummaryCard(sessionId: string | undefined, hasSubagents: boolean) {
   const stored = useSyncExternalStore(subscribe, () => (sessionId ? load().get(sessionId) : undefined));
-  const state: SummaryCardState = stored ?? { shown: hasSubagents, collapsed: false };
-  const set = (next: SummaryCardState) => {
-    if (sessionId) save(sessionId, next);
-  };
-  return {
-    ...state,
-    toggle: () => set({ shown: !state.shown, collapsed: state.shown ? state.collapsed : false }),
-    show: () => set({ shown: true, collapsed: false }),
-    close: () => set({ ...state, shown: false }),
-    fold: (collapsed: boolean) => set({ shown: true, collapsed }),
-  };
+  const [local, setLocal] = useState<SummaryCardState>();
+  const state: SummaryCardState = (sessionId ? stored : local) ?? { shown: hasSubagents, collapsed: false };
+  const { shown, collapsed } = state;
+  const set = useCallback(
+    (next: SummaryCardState) => (sessionId ? save(sessionId, next) : setLocal(next)),
+    [sessionId],
+  );
+  const toggle = useCallback(() => set({ shown: !shown, collapsed: shown ? collapsed : false }), [set, shown, collapsed]);
+  const show = useCallback(() => set({ shown: true, collapsed: false }), [set]);
+  const close = useCallback(() => set({ shown: false, collapsed }), [set, collapsed]);
+  const fold = useCallback((next: boolean) => set({ shown: true, collapsed: next }), [set]);
+  return { shown, collapsed, toggle, show, close, fold };
 }
 
 export type SummaryCardControl = ReturnType<typeof useSummaryCard>;

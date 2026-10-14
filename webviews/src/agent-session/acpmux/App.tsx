@@ -100,7 +100,9 @@ import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
+import { pendingToolCalls } from "./summary/SubagentStatusList";
 import { useSummaryCard } from "./summary/cardState";
+import { openSubagentPane, revealedSubagent, useAutoOpenSubagents, useOpenNewSubagents } from "./subagents/subagentPanes";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
@@ -201,6 +203,7 @@ import {
   SubagentListRow,
   SubagentNavContext,
   SubagentOfRow,
+  SubagentPaneContext,
 } from "./subagents/SubagentGroup";
 import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
@@ -2186,6 +2189,18 @@ function AcpmuxPane() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /// The subagent whose own view the transcript shows (its line in a group opens it), or none.
   const [subagentView, setSubagentView] = useState<string>();
+  /// The subagent this pane was opened on (a `subagent:` reveal, subagents/subagentPanes.ts), shown
+  /// once its chat is; such a pane shows the chat's other subagents in place, never in more panes.
+  const [requestedSubagent, setRequestedSubagent] = useState<string>();
+  const subagentPane = useRef(false);
+  const reveal = (value: string) => {
+    const agent = revealedSubagent(value);
+    if (agent === undefined) return void revealTurnWhenShown(value);
+    subagentPane.current = true;
+    setRequestedSubagent(agent);
+  };
+  const revealRef = useRef(reveal);
+  revealRef.current = reveal;
   // Footer actions show only while acpmux is reachable. The client reports failures in the
   // transcript; a bridge that cannot route an action has nothing to add.
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
@@ -2388,20 +2403,22 @@ function AcpmuxPane() {
       return withMoveRows(withShellRows(subagents.rows, chatShellRuns), sessionMoves);
     });
   }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, sessionMoves]);
-  /// The summary card's subagents: the shown one, and a row's click shows its view.
-  const cardSubagents = useMemo(
-    () => ({
-      views: snapshot.subagentViews,
-      current: childRows ? subagentView : undefined,
-      onOpen: setSubagentView,
-    }),
-    [snapshot.subagentViews, childRows, subagentView],
-  );
-  const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
-  const summaryCard = useSummaryCard(snapshot.sessionId, hasSubagents);
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
+  const summaryCard = useSummaryCard(shownSessionId, hasSubagents);
+  const askedToolCalls = useMemo(
+    () => pendingToolCalls(snapshot),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the asks' inputs, not the whole snapshot
+    [snapshot.rows, snapshot.permission, snapshot.permissionGroups],
+  );
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
+  // After the reset above: a pane opened on a subagent shows it once its chat is shown.
+  useEffect(() => {
+    if (!requestedSubagent || !shownSessionId) return;
+    setSubagentView(requestedSubagent);
+    setRequestedSubagent(undefined);
+  }, [requestedSubagent, shownSessionId]);
   // Find in Chat over the transcript (ChatFindScope, below the pane); the page actions read it
   // through `findRef`.
   const findRef = useRef<ChatFind | undefined>(undefined);
@@ -2819,6 +2836,36 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
+  /// this pane when this is a subagent's pane or the host opens none.
+  const showSubagent = useCallback(
+    (id: string, focus = true) => {
+      if (subagentPane.current) return setSubagentView(id);
+      void openSubagentPane(callNative, id, focus).then((opened) => {
+        if (!opened && focus) setSubagentView(id);
+      });
+    },
+    [],
+  );
+  const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
+  useOpenNewSubagents(
+    quick || subagentPane.current ? undefined : shownSessionId,
+    snapshot.rows,
+    snapshot.subagentViews,
+    autoOpenSubagents,
+    (id) => showSubagent(id, false),
+  );
+  /// The summary card's subagents: the shown one, and a row's click shows its view.
+  const cardSubagents = useMemo(
+    () => ({
+      views: snapshot.subagentViews,
+      current: childRows ? subagentView : undefined,
+      asks: askedToolCalls,
+      onOpen: showSubagent,
+      autoOpen: quick ? undefined : { on: autoOpenSubagents, set: setAutoOpenSubagents },
+    }),
+    [snapshot.subagentViews, childRows, subagentView, askedToolCalls, showSubagent, quick, autoOpenSubagents, setAutoOpenSubagents],
+  );
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
   // `/btw` (cx-ef2m), behind its experiment; the Quick Composer never shows a side question.
@@ -3153,7 +3200,7 @@ function AcpmuxPane() {
         setRecentlyClosed(items);
       },
       revealTurn(turnId) {
-        void revealTurnWhenShown(turnId);
+        revealRef.current(turnId);
       },
       applyCustomization(customization) {
         if ("themeCSS" in customization) {
@@ -3812,7 +3859,7 @@ function AcpmuxPane() {
         // A resumed chat is the tab's session from the start, so restoring the tab reopens it.
         if (client.adopted) void persistSession(client.adopted);
         // A `#turn-<turnId>` link that opened this tab: scroll once the turn's row renders.
-        if (typeof host.revealTurn === "string") void revealTurnWhenShown(host.revealTurn);
+        if (typeof host.revealTurn === "string") revealRef.current(host.revealTurn);
         // Onboarding's first task runs without a Send press, once. If the chat cannot start,
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;
@@ -4290,6 +4337,7 @@ function AcpmuxPane() {
               <SessionEditsContext.Provider value={editRows}>
                 <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                   <SubagentNavContext.Provider value={setSubagentView}>
+                    <SubagentPaneContext.Provider value={showSubagent}>
                     <SubagentHarnessContext.Provider
                       value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                     >
@@ -4330,6 +4378,7 @@ function AcpmuxPane() {
                         )}
                       </ChatFindScope>
                     </SubagentHarnessContext.Provider>
+                    </SubagentPaneContext.Provider>
                   </SubagentNavContext.Provider>
                 </SessionCwdContext.Provider>
               </SessionEditsContext.Provider>

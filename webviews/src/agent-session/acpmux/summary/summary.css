@@ -5,7 +5,7 @@
 .acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-summary-card{position:absolute;z-index:3;top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);font-size:var(--text-control);line-height:18px}
-.acpmux-reviewing>.acpmux-summary-card{visibility:hidden}
+.acpmux-reviewing>.acpmux-summary-card,.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
 .acpmux-summary-card__head{flex:none;display:flex;align-items:center;gap:2px;padding:4px 4px 4px 6px}
 .acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:26px;padding:0 6px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .acpmux-summary-card__fold>svg{flex:none;color:var(--agent-muted)}
@@ -21,6 +21,8 @@
 .acpmux-summary-agent__name{font-weight:inherit}
 .acpmux-summary-agent__kind{margin-left:6px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-summary-agent__state{min-width:52px;text-align:right}
+.acpmux-summary-autoopen{color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-summary-autoopen>input{flex:none;margin:0;accent-color:var(--agent-text)}
 .acpmux-summary-agent[data-status=waiting] .acpmux-summary-agent__state{color:var(--acpmux-warning)}
 .acpmux-summary-agent[data-status=failed] .acpmux-summary-agent__state{color:var(--agent-danger)}
 .acpmux-summary-section+.acpmux-summary-section{margin-top:4px;padding-top:4px;border-top:.5px solid var(--agent-border)}

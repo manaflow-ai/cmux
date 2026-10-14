@@ -14,6 +14,9 @@ public struct AgentPaneHeaderHooks {
     /// Opens acpmux session `id` in a new tab beside the chat's (a fork, a started Continue in…), so
     /// the chat keeps its own tab and session; false when no tab opened.
     public var openTab: @MainActor (String) -> Bool
+    /// Shows subagent `agent` of session `session` in an agent pane right of the chat
+    /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
+    public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
     /// [+] New tab / Hide tabs: opens, hides or shows the panes beside the chat; whether they show
     /// after it, nil when it could not run.
     public var sideTabs: @MainActor () -> Bool?
@@ -33,6 +36,7 @@ public struct AgentPaneHeaderHooks {
                 tabState: @escaping @MainActor () -> AgentPaneHeaderState,
                 openSide: @escaping @MainActor (String) -> Void = { _ in },
                 openTab: @escaping @MainActor (String) -> Bool = { _ in false },
+                openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
                 saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil,
@@ -43,6 +47,7 @@ public struct AgentPaneHeaderHooks {
         self.tabState = tabState
         self.openSide = openSide
         self.openTab = openTab
+        self.openSubagent = openSubagent
         self.sideTabs = sideTabs
         self.preview = preview
         self.saveQuickActions = saveQuickActions ?? { _ in false }
@@ -119,6 +124,13 @@ extension AgentPaneModel {
             return AgentPaneReply.success(header.state(refresh: refresh).reply)
         case .sideChat(let fork):
             return await openSideChat(fork)
+        case .subagentPane(let agent, let focus):
+            // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
+            // answers `opened: false`, and the page shows the subagent in this pane instead.
+            guard let sessionId, newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
+            }
+            return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
         case .chatTab(let chat):
             // Only a chat this pane made (its fork's or handoff start's reply put it in the pane's
             // scope), never the chat itself, and not from a New Tab page. A refusal (another

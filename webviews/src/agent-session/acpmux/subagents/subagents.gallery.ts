@@ -12,6 +12,9 @@ import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 
+/** A call the pane made to the host, as the gallery logs it. */
+type PaneCall = { method: string; params?: { subagent?: string; focus?: boolean } };
+
 const prompt = "Audit the fetch helper: retries, errors, timeouts and tests";
 
 /** A subagent started `minutes` ago, ended `ran` minutes later when it is no longer running. */
@@ -150,22 +153,17 @@ const CLAUDE_KINDS = chat(
 /** A Codex turn whose running subagent asks for a permission: the card says it waits on the user. */
 const WAITING = {
   ...CODEX,
-  rows: [
-    ...CODEX.rows,
-    row("permission", 1.2, {
-      permission: {
-        permissionId: "perm-read-b",
-        toolCallId: CODEX.subagentViews[CODEX_B.id]![0]!.items![0]!.tool!.id,
-        title: "Read file 'b.txt'",
-        kind: "read",
-        pending: true,
-        options: [
-          { id: "allow", name: "Allow", allow: true },
-          { id: "reject", name: "Reject", allow: false },
-        ],
-      },
-    }),
-  ],
+  permission: {
+    permissionId: "perm-read-b",
+    toolCallId: CODEX.subagentViews[CODEX_B.id]![0]!.items![0]!.tool!.id,
+    title: "Read file 'b.txt'",
+    kind: "read",
+    pending: true,
+    options: [
+      { id: "allow", name: "Allow", allow: true },
+      { id: "reject", name: "Reject", allow: false },
+    ],
+  },
 };
 
 /** The summary card, which shows itself for a chat with subagents; waits for its Subagents list. */
@@ -344,7 +342,7 @@ export default agentPaneEntry({
       },
     },
     summary: {
-      note: "The summary card at the top right: every subagent with its state and time, running ones first.",
+      note: "The summary card at the top right: every subagent with its state and time, newest first.",
       snapshot: MIXED,
       play: openSummary,
     },
@@ -415,14 +413,46 @@ export default agentPaneEntry({
       snapshot: CLAUDE_KINDS,
       play: openSummary,
     },
+    "pane-open": {
+      note: "With a host that opens subagent panes: a group line asks the app for the subagent's pane right of the chat, focused; this pane keeps the chat.",
+      snapshot: CODEX,
+      native: { "chat.subagentPane": { opened: true } },
+      play: async (ctx) => {
+        await openGroup(2)(ctx);
+        await ctx.click({ role: "button", name: "Open Read b" });
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] })
+          .cmuxGalleryLog;
+        await ctx.waitFor(() =>
+          log.some((call) => call.method === "chat.subagentPane" && call.params?.subagent === CODEX_B.id),
+        );
+        const call = log.find((entry) => entry.method === "chat.subagentPane");
+        if (call?.params?.focus !== true) throw new Error("a click must focus the subagent's pane");
+        if (ctx.document.querySelector(".cv-subagent-of")) throw new Error("the chat pane switched to the subagent");
+      },
+    },
+    "card-open-pane": {
+      note: "A card row with a host that opens subagent panes: the app shows that subagent's pane; the card stays.",
+      snapshot: CODEX,
+      native: { "chat.subagentPane": { opened: true } },
+      play: async (ctx) => {
+        await openSummary(ctx);
+        await ctx.click({ selector: '.acpmux-summary-agent[title="Read a"]' });
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] })
+          .cmuxGalleryLog;
+        await ctx.waitFor(() =>
+          log.some((call) => call.method === "chat.subagentPane" && call.params?.subagent === CODEX_A.id),
+        );
+        if (!ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"))
+          throw new Error("the card closed");
+      },
+    },
     "card-open-child": {
       note: "A card row shows that subagent: its own view, its row marked current; nested ones indented.",
       height: 640,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openSummary(ctx);
-        // The group is closed: the card's row is the only "Open Test coverage" button.
-        await ctx.click({ role: "button", name: "Open Test coverage" });
+        await ctx.click({ selector: '.acpmux-summary-agent[title="Test coverage"]' });
         await ctx.waitFor(
           () =>
             ctx.document.querySelector(".cv-subagent-of") && cardRow(ctx, "Test coverage")?.ariaCurrent === "true",

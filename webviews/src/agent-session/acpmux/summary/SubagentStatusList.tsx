@@ -1,7 +1,7 @@
 // The summary card's Subagents section (SummaryCard.tsx): every subagent of the chat, nested ones
 // indented under the agent that spawned them, with its live state (running, waiting on the user,
 // done, failed) and its time. A row shows that subagent (`onOpen`): its pane when it has one.
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -27,19 +27,24 @@ export function subagentStatus(agent: Subagent, waiting: ReadonlySet<string>): S
   return agent.state === "completed" ? "done" : "failed";
 }
 
-/// The subagents that wait on the user: a pending permission row whose tool call is one of
-/// theirs (their own view's tool calls).
-export function waitingSubagents(
-  rows: readonly AcpmuxRow[],
-  views: Record<string, AcpmuxRow[]> | undefined,
-): Set<string> {
-  const calls = new Set(
-    rows.flatMap((row) =>
-      row.kind === "permission" && row.permission?.pending && row.permission.toolCallId
-        ? [row.permission.toolCallId]
-        : [],
-    ),
-  );
+/// The tool calls the chat's open asks are about: the pending permission (`snapshot.permission`),
+/// the pending items of permission groups, and permission rows still pending.
+export function pendingToolCalls(snapshot: Pick<AcpmuxSnapshot, "rows" | "permission" | "permissionGroups">): Set<string> {
+  const calls = new Set<string>();
+  const add = (value: unknown) => {
+    if (typeof value === "string" && value) calls.add(value);
+  };
+  if (snapshot.permission?.pending) add(snapshot.permission.toolCallId);
+  for (const group of snapshot.permissionGroups?.groups ?? [])
+    for (const item of group.items)
+      if (item.state === "pending") add((item.request.toolCall as { toolCallId?: unknown } | undefined)?.toolCallId);
+  for (const row of snapshot.rows) if (row.kind === "permission" && row.permission?.pending) add(row.permission.toolCallId);
+  return calls;
+}
+
+/// The subagents that wait on the user: an open ask about one of their own tool calls (their
+/// view's tool calls).
+export function waitingSubagents(calls: ReadonlySet<string>, views: Record<string, AcpmuxRow[]> | undefined): Set<string> {
   const waiting = new Set<string>();
   if (calls.size === 0 || !views) return waiting;
   for (const [id, own] of Object.entries(views))
@@ -68,12 +73,15 @@ export function SubagentStatusList({
   waiting,
   current,
   onOpen,
+  autoOpen,
 }: {
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
   /// The subagent this pane shows, if any.
   current?: string;
   onOpen?: (id: string) => void;
+  /// The switch for opening new subagents in panes of their own (subagents/subagentPanes.ts).
+  autoOpen?: { on: boolean; set: (on: boolean) => void };
 }) {
   const t = useT();
   const now = useNow(agents.some(running));
@@ -96,7 +104,6 @@ export function SubagentStatusList({
                 style={depth > 0 ? { paddingLeft: 8 + depth * 14 } : undefined}
                 data-status={status}
                 aria-current={agent.id === current ? "true" : undefined}
-                aria-label={t("subagents.open", { name: agent.name })}
                 title={agent.task ?? agent.name}
                 disabled={!onOpen}
                 onClick={() => onOpen?.(agent.id)}
@@ -117,6 +124,12 @@ export function SubagentStatusList({
           );
         })}
       </ul>
+      {autoOpen && (
+        <label className="acpmux-summary-row acpmux-summary-autoopen">
+          <input type="checkbox" checked={autoOpen.on} onChange={(event) => autoOpen.set(event.currentTarget.checked)} />
+          <span className="acpmux-summary-text">{t("summary.subagents.openPanes")}</span>
+        </label>
+      )}
     </section>
   );
 }
