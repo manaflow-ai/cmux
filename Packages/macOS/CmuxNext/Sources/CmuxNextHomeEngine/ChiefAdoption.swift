@@ -9,10 +9,13 @@ public import Foundation
 /// `{by, at, backup}`. Idempotent: a home with `adopted.json` is adopted.
 ///
 /// It runs while the app holds the home's host lock (`state/host.lock`), so no
-/// brain writes the memory during the clone; a brain of another build that
-/// holds the lock defers the adoption to a later launch. The conversation
-/// owner may be running (it answered before the prepare step); its journal
-/// files are cloned as they are at that instant.
+/// brain writes the memory (`optchat/`) during the clone; a brain of another
+/// build that holds the lock defers the adoption to a later launch. It runs
+/// before this app starts the conversation owner, but an owner of an earlier
+/// launch usually still runs (it outlives the app) and writes `tui/`: every
+/// SQLite database is copied with SQLite's online backup (consistent while a
+/// writer runs, one self-contained file) and its `-wal`/`-shm`/`-journal`
+/// files are not copied (hq-6d, 2026-10-14).
 public nonisolated struct ChiefAdoption: Sendable {
     public enum Outcome: Sendable, Equatable {
         /// Cloned to this folder (nil: the home was empty, nothing to keep).
@@ -83,13 +86,17 @@ public nonisolated struct ChiefAdoption: Sendable {
         // Writable while its children are made; the source's mode at the end.
         guard mkdir(target.path, 0o700) == 0 else { throw Self.posixError() }
         defer { chmod(target.path, info.st_mode & 0o7777) }
-        for name in try FileManager.default.contentsOfDirectory(atPath: source.path) {
+        let names = try FileManager.default.contentsOfDirectory(atPath: source.path)
+        let databases = Set(names.filter { Self.isSQLite(source.appendingPathComponent($0)) })
+        for name in names where !Self.isSidecar(name, of: databases) {
             let from = source.appendingPathComponent(name), to = target.appendingPathComponent(name)
             var entry = stat()
             guard lstat(from.path, &entry) == 0 else { continue }
             switch entry.st_mode & S_IFMT {
             case S_IFDIR:
                 try cloneTree(from: from, to: to, top: false)
+            case S_IFREG where databases.contains(name):
+                try Self.backUpDatabase(from: from, to: to)
             case S_IFREG:
                 if clonefile(from.path, to.path, UInt32(CLONE_NOFOLLOW)) != 0 {
                     try FileManager.default.copyItem(at: from, to: to)
