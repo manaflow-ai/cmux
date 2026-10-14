@@ -143,7 +143,8 @@ extension IPhoneHostService {
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeMainNotification, NSApplication.didBecomeActiveNotification] {
             pairWindowWatch.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.showPairDialog() }
+                // task-owner: one hop to the main actor per window or app activation; ends at once
+                Task { @MainActor [weak self] in self?.showPairDialog() }
             })
         }
     }
