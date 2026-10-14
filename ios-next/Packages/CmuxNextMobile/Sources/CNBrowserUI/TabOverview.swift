@@ -258,7 +258,7 @@ struct TabOverview: View {
                             .opacity(swipes.opacity(tab.id))
                             // Lifted about the card's centre while dragged.
                             .scaleEffect(swipes.scale(tab.id), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
-                            .zIndex(swipes.scale(tab.id) > 1 ? 1 : 0)
+                            .zIndex(swipes.isRaised(tab.id) ? 1 : 0)
                             .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
                             .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
                     }
