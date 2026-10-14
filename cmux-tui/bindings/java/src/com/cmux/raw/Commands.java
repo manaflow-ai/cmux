@@ -45,6 +45,8 @@ public final class Commands {
     public static final CommandMetadata CLOSE_WORKSPACE = new CommandMetadata("close-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L), Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1"), Map.entry("if_empty", "close-workspace-if-empty-v1"), Map.entry("key", "workspace-registry-v1"), Map.entry("reason", "close-reason-v1")));
     public static final CommandMetadata CLOUD_CONVERSATION_HISTORY = new CommandMetadata("cloud-conversation-history", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_OP = new CommandMetadata("cloud-conversation-op", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_CONVERSATION_RUN = new CommandMetadata("cloud-conversation-run", Authority.LOCAL_ADMIN, 12, "cloud-conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_CONVERSATION_RUNS = new CommandMetadata("cloud-conversation-runs", Authority.LOCAL_ADMIN, 12, "cloud-conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_SNAPSHOT = new CommandMetadata("cloud-conversation-snapshot", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_SUBSCRIBE = new CommandMetadata("cloud-conversation-subscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_THREAD = new CommandMetadata("cloud-conversation-thread", Authority.LOCAL_ADMIN, 12, "conversation-thread-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -59,6 +61,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_AGENT_TOKEN = new CommandMetadata("conversation-agent-token", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_ATTACHMENT_LINK = new CommandMetadata("conversation-attachment-link", Authority.LOCAL_ADMIN, 12, "ws-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_ATTACHMENT_READ = new CommandMetadata("conversation-attachment-read", Authority.LOCAL_ADMIN, 12, "local-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_ATTACHMENT_UPLOAD = new CommandMetadata("conversation-attachment-upload", Authority.LOCAL_ADMIN, 12, "local-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_BIND = new CommandMetadata("conversation-bind", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -69,6 +72,9 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_LINK_RESOLVE = new CommandMetadata("conversation-link-resolve", Authority.LOCAL_ADMIN, 12, "conversation-tree-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_LIST = new CommandMetadata("conversation-list", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_OP = new CommandMetadata("conversation-op", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_RUN = new CommandMetadata("conversation-run", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_RUN_APPEND = new CommandMetadata("conversation-run-append", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_RUNS = new CommandMetadata("conversation-runs", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_SEARCH = new CommandMetadata("conversation-search", Authority.LOCAL_ADMIN, 12, "conversation-search-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_SNAPSHOT = new CommandMetadata("conversation-snapshot", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_THREAD = new CommandMetadata("conversation-thread", Authority.LOCAL_ADMIN, 12, "conversation-thread-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -143,9 +149,9 @@ public final class Commands {
     public static final CommandMetadata MOVE_TAB_GROUP_TO_COLUMN = new CommandMetadata("move-tab-group-to-column", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TAB_GROUP_TO_NEW_WORKSPACE = new CommandMetadata("move-tab-group-to-new-workspace", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TAB_GROUP_TO_SPLIT = new CommandMetadata("move-tab-group-to-split", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata MOVE_TAB_TO_COLUMN = new CommandMetadata("move-tab-to-column", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.ofEntries(Map.entry("dock", 12L), Map.entry("respawn", 12L)), Map.ofEntries(Map.entry("dock", "dock-columns-v1"), Map.entry("respawn", "tab-column-respawn-v1")));
+    public static final CommandMetadata MOVE_TAB_TO_COLUMN = new CommandMetadata("move-tab-to-column", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.ofEntries(Map.entry("dock", 12L), Map.entry("keep_focus", 12L), Map.entry("respawn", 12L)), Map.ofEntries(Map.entry("dock", "dock-columns-v1"), Map.entry("keep_focus", "tab-split-keep-focus-v1"), Map.entry("respawn", "tab-column-respawn-v1")));
     public static final CommandMetadata MOVE_TAB_TO_NEW_WORKSPACE = new CommandMetadata("move-tab-to-new-workspace", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("name", "tab-workspace-name-v1")));
-    public static final CommandMetadata MOVE_TAB_TO_SPLIT = new CommandMetadata("move-tab-to-split", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.ofEntries(Map.entry("respawn", 12L)), Map.ofEntries(Map.entry("respawn", "tab-split-respawn-v1")));
+    public static final CommandMetadata MOVE_TAB_TO_SPLIT = new CommandMetadata("move-tab-to-split", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.ofEntries(Map.entry("keep_focus", 12L), Map.entry("respawn", 12L)), Map.ofEntries(Map.entry("keep_focus", "tab-split-keep-focus-v1"), Map.entry("respawn", "tab-split-respawn-v1")));
     public static final CommandMetadata MOVE_TAB_TO_WORKSPACE = new CommandMetadata("move-tab-to-workspace", Authority.CONTROL, 12, "tab-workspace-move-v1", StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 12L)), Map.ofEntries(Map.entry("transaction", "tab-drag-v1")));
     public static final CommandMetadata MOVE_TERMINAL = new CommandMetadata("move-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_WORKSPACE = new CommandMetadata("move-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("key", "workspace-registry-v1")));
@@ -306,6 +312,8 @@ public final class Commands {
         values.put("close-workspace", CLOSE_WORKSPACE);
         values.put("cloud-conversation-history", CLOUD_CONVERSATION_HISTORY);
         values.put("cloud-conversation-op", CLOUD_CONVERSATION_OP);
+        values.put("cloud-conversation-run", CLOUD_CONVERSATION_RUN);
+        values.put("cloud-conversation-runs", CLOUD_CONVERSATION_RUNS);
         values.put("cloud-conversation-snapshot", CLOUD_CONVERSATION_SNAPSHOT);
         values.put("cloud-conversation-subscribe", CLOUD_CONVERSATION_SUBSCRIBE);
         values.put("cloud-conversation-thread", CLOUD_CONVERSATION_THREAD);
@@ -320,6 +328,7 @@ public final class Commands {
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);
         values.put("conversation-agent-token", CONVERSATION_AGENT_TOKEN);
+        values.put("conversation-attachment-link", CONVERSATION_ATTACHMENT_LINK);
         values.put("conversation-attachment-read", CONVERSATION_ATTACHMENT_READ);
         values.put("conversation-attachment-upload", CONVERSATION_ATTACHMENT_UPLOAD);
         values.put("conversation-bind", CONVERSATION_BIND);
@@ -330,6 +339,9 @@ public final class Commands {
         values.put("conversation-link-resolve", CONVERSATION_LINK_RESOLVE);
         values.put("conversation-list", CONVERSATION_LIST);
         values.put("conversation-op", CONVERSATION_OP);
+        values.put("conversation-run", CONVERSATION_RUN);
+        values.put("conversation-run-append", CONVERSATION_RUN_APPEND);
+        values.put("conversation-runs", CONVERSATION_RUNS);
         values.put("conversation-search", CONVERSATION_SEARCH);
         values.put("conversation-snapshot", CONVERSATION_SNAPSHOT);
         values.put("conversation-thread", CONVERSATION_THREAD);

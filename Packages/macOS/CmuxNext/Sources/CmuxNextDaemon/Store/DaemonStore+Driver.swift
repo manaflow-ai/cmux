@@ -61,6 +61,9 @@ final class EventInbox: Sendable {
             // of one surface, so a collapsed inbox keeps only the newest one per surface.
             state.events.removeAll { if case .agentChanged(let held) = $0.event { held.surface == status.surface } else { false } }
             state.events.append(envelope)
+        case .notification:
+            // Its text is not in the snapshot either (`outlivesSnapshot`).
+            state.events.append(envelope)
         case .agentPresenceChanged(let presence):
             state.events.removeAll {
                 if case .agentPresenceChanged(let held) = $0.event { held.surface == presence.surface } else { false }
