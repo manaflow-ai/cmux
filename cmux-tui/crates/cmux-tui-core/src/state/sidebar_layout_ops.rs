@@ -1,17 +1,22 @@
 //! `sidebar_layout.update`: one reducer op on the state commit path (row,
 //! replay record and one `session.events` batch with a `state_upsert` of
 //! resource `sidebar_layout`, id `user`), plus `personal-changed` for raw
-//! clients.
+//! clients. The `sec_pinned` tiles are the sidebar document's Pinned items
+//! (sidebar-doc-v1): an op reduces on that projection, and a tile it adds,
+//! removes or reorders is a Pinned op on the document in the same commit.
 
 use serde_json::json;
 
 use crate::mux::*;
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
+use crate::state::sidebar_doc_legacy::{mint_item_id, pinned_ops, project_layout};
+use crate::state::sidebar_doc_store as doc_store;
 use crate::state::sidebar_layout::{self, Op};
 use crate::state::sidebar_layout_store::{self as store, ID, RESOURCE};
 use crate::state::store::{StateChanges, StateCommit, state_upsert};
 use crate::workspace_registry::personal_store::commit_personal;
+use cmux_layout_reducer::sidebar_doc::reduce;
 
 /// The largest op a client may send (a section with its items).
 const MAX_OP_BYTES: usize = 64 * 1024;
@@ -43,14 +48,38 @@ impl Mux {
             None,
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
-                let current = store::document(transaction)?;
-                let next = sidebar_layout::reduce(&current, &parsed)
+                // The client reduced on the projection (its sec_pinned tiles
+                // are the sidebar document's Pinned items, sidebar-doc-v1).
+                let stored = store::document(transaction)?;
+                let doc = doc_store::read_doc(transaction)?;
+                let current = project_layout(&stored, &doc);
+                let reduced = sidebar_layout::reduce(&current, &parsed)
                     .map_err(|reject| anyhow::anyhow!("bad request: {}", reject.as_str()))?;
-                let value = store::snapshot_value(&next)?;
-                if next.revision == current.revision {
-                    return Ok(StateChanges::new(value, Vec::new()));
+                if reduced.revision == current.revision {
+                    return Ok(StateChanges::new(store::snapshot_value(&current)?, Vec::new()));
                 }
+                let ops = pinned_ops(&current, &reduced, &doc);
+                let mut events = Vec::new();
+                let mut next_doc = doc.clone();
+                if !ops.is_empty() {
+                    let mut mint = mint_item_id;
+                    let outcome = reduce::apply(&doc, &ops, &mut mint)
+                        .map_err(|refusal| anyhow::anyhow!("bad request: {}", refusal.as_str()))?;
+                    if !outcome.changes.is_empty() {
+                        events = doc_store::write_changes(
+                            transaction,
+                            doc.revision,
+                            outcome.doc.revision,
+                            &outcome.changes,
+                            Some(&mutation.id),
+                        )?;
+                    }
+                    next_doc = outcome.doc;
+                }
+                let mut next = reduced;
+                next.revision = stored.revision + 1;
                 store::write_document(transaction, &next)?;
+                let value = store::snapshot_value(&project_layout(&next, &next_doc))?;
                 // Raw-protocol clients (the Mac app) follow personal state
                 // through `personal-changed`; bump `personal_revision` so they
                 // refetch the layout (v2 clients read the state_upsert).
@@ -60,7 +89,8 @@ impl Mux {
                     Vec::new(),
                     &json!({"revision": next.revision}),
                 )?;
-                Ok(StateChanges::new(value.clone(), vec![state_upsert(RESOURCE, ID, value)]))
+                events.push(state_upsert(RESOURCE, ID, value.clone()));
+                Ok(StateChanges::new(value, events))
             },
         )
     }

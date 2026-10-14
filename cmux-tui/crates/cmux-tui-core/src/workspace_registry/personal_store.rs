@@ -712,6 +712,8 @@ pub(crate) fn commit_personal(
         object.insert("personal_revision".into(), json!(revision));
     }
     append_presentation_record(transaction, kind, subjects, &payload)?;
+    // sidebar-doc-v1: the sidebar document follows the old personal write.
+    crate::state::sidebar_doc_legacy::sync_from_legacy(transaction)?;
     Ok(revision)
 }
 
