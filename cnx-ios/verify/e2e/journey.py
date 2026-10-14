@@ -848,6 +848,166 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
                 pass
         return "; ".join(notes)
 
+    def top_number(self):
+        """The smallest y (and its number) of a bare number row on screen (Codex's reply)."""
+        best = None
+        for o in self.sim.ocr():
+            t = o[4].strip().lstrip("•").strip()
+            if t.isdigit() and 60 < o[1] < 700 and (best is None or o[1] < best[0]):
+                best = (round(o[1]), int(t))
+        return best
+
+    def s_codex_scroll_hold(self):
+        """Codex QA F2 with the real Codex CLI (model calls: only with
+        CNX_E2E_REAL_CODEX=1): scrolled up while a long reply streams, the rows
+        under the finger stay put until the person scrolls back or types."""
+        if os.environ.get("CNX_E2E_REAL_CODEX") != "1":
+            raise Blocked("needs CNX_E2E_REAL_CODEX=1 (the real Codex CLI makes model calls)")
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        proj = os.path.expanduser("~/cnx-ios-e2e/codexqa-proj")
+        os.makedirs(proj, exist_ok=True)
+        self.mac_write(term, f"clear; cd {proj} && codex\n")
+        deadline = time.time() + 40
+        while time.time() < deadline:
+            text = self.mac_screen(term).get("text", "")
+            if "trust" in text.lower() and "1." in text:
+                self.mac_write(term, "\r"); time.sleep(2)
+            if "›" in text and "trust" not in text.lower():
+                break
+            time.sleep(1)
+        self.sim.tap_q(ident="terminal.composer.field"); time.sleep(0.8)
+        self.sim.softtype("write a 150 line story about a terminal, each line numbered like 1. text")
+        self.sim.tap_q(ident="terminal.composer.send")
+        self.hide_keyboard()
+        # Wait for the numbers to stream.
+        deadline = time.time() + 60
+        while time.time() < deadline and "10. " not in self.mac_screen(term).get("text", ""):
+            time.sleep(0.5)
+        self.sim.drag(201, 250, 201, 550, duration=0.5, hold=0.3)
+        time.sleep(1.0)
+        # The terminal band must not change while the reply streams below it.
+        shots = []
+        for i in range(12):
+            shots.append(self.sim.shot(f"codex-scroll-hold-{self.run_id}-{i:02d}"))
+            time.sleep(0.6)
+        live = self.mac_screen(term).get("text", "")
+        from PIL import Image, ImageChops
+        def band(path):
+            # The terminal band, without the scroll indicator at the right edge.
+            return Image.open(path).convert("L").crop((0, 200, 1140, 1900))
+        first = band(shots[0])
+        moved = [i for i, path in enumerate(shots[1:], 1) if ImageChops.difference(first, band(path)).getbbox()]
+        self.mac_write(term, "\x03"); time.sleep(0.5); self.mac_write(term, "\x03")
+        check(not moved, f"the view moved by itself while scrolled up (F2): frames {moved} of 12 differ from the first")
+        return "held for 7 s while Codex streamed (12 frames, identical terminal band)"
+
+    def s_joystick_paste_close(self):
+        """Codex QA F5: a joystick flick sends exactly one arrow and a 1.2 s hold
+        about ten; F14: the key bar's Paste is the system paste control; F9:
+        closing a tab that runs a program asks first, and Cancel keeps it."""
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        self.sim.tap_q(ident="terminal.composer.field"); time.sleep(0.8)
+        self.focus_terminal()
+        self.sim.softtype("echo abcdefghijklmnopqrstuvwxyz0123456789")
+        time.sleep(1)
+        js = self.sim.find(label="Cursor joystick")
+        check(js, "no joystick")
+        cx, cy = js[0].center
+        before = self.mac_screen(term).get("cursor_col")
+        self.sim.drag(cx, cy, cx - 22, cy, duration=0.12, hold=0.0)
+        time.sleep(0.8)
+        flick = self.mac_screen(term).get("cursor_col")
+        self.sim.drag(cx, cy, cx - 30, cy, duration=0.2, hold=1.0)
+        time.sleep(0.8)
+        held = self.mac_screen(term).get("cursor_col")
+        self.keybar("Control C"); time.sleep(0.5)
+        check(None not in (before, flick, held), f"no cursor column from the Mac ({before}, {flick}, {held})")
+        check(before - flick == 1, f"a flick moved the cursor {before - flick} columns, not 1 (F5)")
+        moved = flick - held
+        check(3 <= moved <= 14, f"a ~1.2 s hold moved the cursor {moved} columns (F5: about 10 expected)")
+        notes = [f"flick: 1 column; 1.2 s hold: {moved} columns"]
+        paste = self.sim.find(ident="terminal.key.paste")
+        if not paste:
+            self.keybar_reveal("Paste")
+            paste = self.sim.find(ident="terminal.key.paste")
+        notes.append("key bar Paste is the system paste control" if paste else "key bar Paste control not found in the tree")
+        self.hide_keyboard()
+        # F9: a program running in the tab: close asks first.
+        self.mac_write(term, "clear; vim /tmp/cnx-e2e-close-check.txt\n")
+        time.sleep(2.5)
+        self.sim.tap_q(label="Tabs", kind="Button"); time.sleep(1.2)
+        close = [e for e in self.sim.find(kind="Button") if (e.label or "").startswith("Close ") and "e2e-t1" in (e.label or "")]
+        alert = None
+        if close:
+            self.sim.tap_el(close[0]); time.sleep(1.2)
+            alert = self.sim.find(label="Close Tab", kind="Button")
+            cancel = self.sim.find(label="Cancel", kind="Button")
+            if cancel:
+                self.sim.tap_el(cancel[0]); time.sleep(1)
+        kept = self.sim.find(prefix="e2e-t1", kind="Button")
+        self.tab_grid_pick("e2e-t1")
+        self.mac_write(term, "\x1b:q!\r")
+        time.sleep(1)
+        notes.append("close of a tab running vim: " + ("asked, Cancel kept it" if alert and kept else
+                     "no confirmation (the tab title may not name the program on this Mac build)"))
+        return "; ".join(notes)
+
+    def band_changes(self, video, top=0.08, bottom=0.45, threshold=2.0):
+        """Real changes of the terminal's upper band between consecutive 30 fps
+        frames of `video`, and frames where that band is black."""
+        import shutil, subprocess, glob
+        from PIL import Image, ImageChops, ImageStat
+        d = video + ".frames"
+        shutil.rmtree(d, ignore_errors=True); os.makedirs(d)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-i", video, "-vf", "fps=30,scale=402:-1", f"{d}/%04d.png"], check=True)
+        prev, changes, black = None, [], []
+        for i, f in enumerate(sorted(glob.glob(f"{d}/*.png"))):
+            im = Image.open(f).convert("L"); w, h = im.size
+            band = im.crop((0, int(h * top), w - 12, int(h * bottom)))
+            if max(band.getdata()) < 60:
+                black.append(i)
+            if prev is not None and ImageStat.Stat(ImageChops.difference(prev, band)).mean[0] > threshold:
+                changes.append(i)
+            prev = band
+        shutil.rmtree(d, ignore_errors=True)
+        return changes, black
+
+    def s_reattach_no_jumps(self):
+        """User report 2026-10-14 ("blinking and oscillating"): after a reattach
+        with a long history (the Mac replays it after a reset), the page shows
+        its last frame, then the live bottom once: no passes through old
+        history, no black frames."""
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        # About 2 MB of styled history, like a long Codex transcript: the Mac's
+        # replay is fed over many display frames.
+        self.mac_write(term, "clear; python3 -c \"[print(f'\\x1b[3{i%7}mline {i} '+'x'*60+'\\x1b[0m') for i in range(1,24001)]\"; echo ENDMARK\n")
+        self.mac_wait_text(term, "ENDMARK", timeout=60)
+        time.sleep(2)
+        self.sim.home()
+        time.sleep(45)  # long enough for the link to drop: the tab reattaches and the Mac replays
+        video = os.path.join(self.out, f"reattach-{self.run_id}.mp4")
+        self.sim.record_start(video)
+        time.sleep(0.5)
+        self.sim.launch(BUNDLE, terminate=False)
+        time.sleep(7)
+        self.sim.record_stop()
+        changes, black = self.band_changes(video)
+        self.sim.shot(f"reattach-after-{self.run_id}")
+        # From 1.5 s after the launch (the app's opening animation is over):
+        # at most one swap (held frame -> live bottom), no black frames.
+        settled = int(2.0 * 30)
+        late_changes = [i for i in changes if i >= settled]
+        late_black = [i for i in black if i >= settled]
+        check(not late_black, f"black terminal frames after the reattach: {late_black}")
+        check(len(late_changes) <= 2, f"the page passed through {len(late_changes)} positions after the reattach: frames {late_changes}")
+        return f"reattach with 24000 styled rows of history: {len(late_changes)} band change(s) after the opening, no black frames"
+
     def s_keybar_swipe_no_back(self):
         """design/terminal R4-1: with the keyboard up, a rightward swipe that starts
         on the key bar (pinned ^C, the scroller, the joystick) stays on the
@@ -1432,6 +1592,9 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
             ("composer_bottom_pin", "Terminal: the last row rests above the composer", "termlive", self.s_composer_bottom_pin),
             ("composer_submit", "Terminal: Send submits (paste, then Return)", "termlive", self.s_composer_submit),
             ("tab_switch_last_row", "Terminal: the last row after a tab switch", "termlive", self.s_tab_switch_last_row),
+            ("codex_scroll_hold", "Terminal: scrolled up during a Codex stream holds (real Codex)", "termlive", self.s_codex_scroll_hold),
+            ("joystick_paste_close", "Terminal: joystick flick and hold, paste control, close confirmation", "termlive", self.s_joystick_paste_close),
+            ("reattach_no_jumps", "Terminal: a reattach with long history does not pass through old rows", "termlive", self.s_reattach_no_jumps),
             ("keybar_swipe_no_back", "Terminal: a swipe on the key bar never swipes back", "termlive", self.s_keybar_swipe_no_back),
             ("shell_pull_keyboard_up", "Terminal: pull-down with the keyboard up reaches history", "termlive", self.s_shell_pull_keyboard_up),
             ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),

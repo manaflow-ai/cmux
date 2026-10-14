@@ -52,6 +52,29 @@ import Testing
         #expect(TerminalDocumentLayout.make(totalRows: 400, cursorRow: 396, leadingBlankRows: 0, lastContentRow: 390).endRow == 397)
     }
 
+    /// Codex QA F2: streaming while the reader is scrolled up. Codex clears
+    /// its live area below the cursor as it commits lines, so the measured
+    /// end moves up for a moment; the reader's document keeps its end, the
+    /// view stays inside it, and following does not resume.
+    @Test func aScrolledUpReaderKeepsTheEndWhileATUIRedraws() {
+        let before = TerminalDocumentLayout(originRow: 0, endRow: 300)
+        let redrawing = TerminalDocumentLayout.make(totalRows: 310, cursorRow: 270, leadingBlankRows: 0, lastContentRow: 270)
+        #expect(redrawing.endRow == 271)
+        let kept = redrawing.keepingEnd(of: before, following: false, totalRows: 310, previousTotal: 305)
+        #expect(kept.endRow == 300)
+        // The reader is inside the kept document: nothing resumes following.
+        var follow = TerminalFollowPolicy(following: false)
+        let maxOffset = TerminalDocumentLayout.bottomOffset(contentHeight: kept.contentHeight(cellHeight: 16), viewportHeight: 874,
+                                                            topInset: 62, bottomInset: 140)
+        let readerOffset: CGFloat = 46 * 16
+        #expect(follow.documentResized(offsetY: readerOffset, maxOffsetY: maxOffset, userIsScrolling: false) == nil)
+        #expect(!follow.following)
+        // Following, the end follows the program.
+        #expect(redrawing.keepingEnd(of: before, following: true, totalRows: 310, previousTotal: 305).endRow == 271)
+        // A cleared scrollback shortens it.
+        #expect(redrawing.keepingEnd(of: before, following: false, totalRows: 40, previousTotal: 305).endRow == 271)
+    }
+
     @Test func unknownCursorUsesTheTotal() {
         let layout = TerminalDocumentLayout.make(totalRows: 50, cursorRow: nil, leadingBlankRows: 10)
         #expect(layout.originRow == 10)
