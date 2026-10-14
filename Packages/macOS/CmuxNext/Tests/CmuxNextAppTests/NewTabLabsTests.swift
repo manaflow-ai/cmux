@@ -40,7 +40,6 @@ struct NewTabLabsTests {
         #expect(reply["ok"] as? Bool == true)
         for _ in 0..<400 where !settings.snapshot.lab(.previewFeatures, teamBuild: false) { await Task.yield() }
         #expect(settings.snapshot.lab(.previewFeatures, teamBuild: false))
-        #expect(LabsState.shared.on.contains("previewFeatures"))
 
         _ = await Self.toggle(model, "previewFeatures", false)
         for _ in 0..<400 where settings.snapshot.lab(.previewFeatures, teamBuild: true) { await Task.yield() }

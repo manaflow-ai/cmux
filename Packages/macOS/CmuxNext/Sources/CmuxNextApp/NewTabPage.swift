@@ -262,9 +262,9 @@ enum NewTabPage {
     /// The page's change, through the schema as the Settings window writes it. Terminal and unknown styles
     /// are ignored (New Tab never opens a terminal by itself), and so is a name that is no Labs flag.
     static func save(_ change: AgentPaneNewTabSetting, settings: SettingsController) async {
-        let write: (path: [String], value: JSONValue)? = switch change {
-        case .template(let raw): NewTabTemplate(rawValue: raw).flatMap { $0 == .terminal ? nil : (NewTabTemplate.configPath, .string($0.rawValue)) }
-        case .lab(let name, let on): LabsFlag(rawValue: name).map { ($0.path, .bool(on)) }
+        let write: (path: [String], value: CmuxNextSettings.JSONValue)? = switch change {
+        case .template(let raw): NewTabTemplate(rawValue: raw).flatMap { $0 == .terminal ? nil : (path: NewTabTemplate.configPath, value: .string($0.rawValue)) }
+        case .lab(let name, let on): LabsFlag(rawValue: name).map { (path: $0.path, value: .bool(on)) }
         }
         guard let write, let descriptor = SettingsSchema.descriptor(for: write.path) else { return }
         do { try await settings.setSetting(descriptor, to: write.value, by: .caller("page")) } catch {
