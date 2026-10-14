@@ -60,6 +60,9 @@ const MAX_PAGE = 200;
 const RUNS_CAPABILITY = "conversation-runs-v1";
 /** A Cloud Chief's runs through the daemon (`cloud-conversation-run*`). */
 const CLOUD_RUNS_CAPABILITY = "cloud-conversation-runs-v1";
+/** Participants' pictures (`participant.avatar.get`, `cloud-participant-avatar-get`, the
+ * `participant-avatar-changed` event for a page that asks). */
+const AVATARS_CAPABILITY = "participant-avatars-v1";
 
 const time = (value: unknown): number => (typeof value === "string" ? Date.parse(value) || 0 : 0);
 const num = (value: unknown): number => (typeof value === "number" ? value : 0);
@@ -416,7 +419,7 @@ export class DaemonHomeClient implements PageClient {
       started = (async () => {
         await socket.request("set-client-info", {
           name: "cmux page: home-channels",
-          capabilities: ["conversation-draft-events-v1", RUNS_CAPABILITY],
+          capabilities: ["conversation-draft-events-v1", RUNS_CAPABILITY, AVATARS_CAPABILITY],
         });
         await socket.request("subscribe");
       })().catch((error) => {
@@ -686,6 +689,24 @@ export class DaemonHomeClient implements PageClient {
         return {
           runs: ((found.runs as Json[] | undefined) ?? []).map(run),
           hasMore: found.has_more === true,
+        };
+      }
+      case HomeOps.avatar: {
+        const id = str(params, "participant", 80);
+        const cloud = this.cloud.hasParticipant(id);
+        if (!(await this.capable(AVATARS_CAPABILITY, cloud ? this.daemon : this.local))) return { avatar: null };
+        const found = cloud
+          ? await this.cloud.read("cloud-participant-avatar-get", { participant_id: id })
+          : await this.local.operation<Json>("participant.avatar.get", {
+              machine: "current",
+              session: "current",
+              participant_id: id,
+            });
+        const avatar = (found?.avatar ?? null) as Json | null;
+        return {
+          avatar: avatar
+            ? { sha256: String(avatar.sha256), mediaType: String(avatar.media_type), data: String(avatar.data) }
+            : null,
         };
       }
       case HomeOps.run: {
@@ -1021,6 +1042,9 @@ export class DaemonHomeClient implements PageClient {
             done: item.done === true,
           }),
         );
+      } else if (event.event === "participant-avatar-changed" && typeof event.participant === "string") {
+        const participant = event.participant;
+        deliver((batch) => (batch.avatars ??= []).push(participant));
       } else if (event.event === "conversation-run-changed" && event.run) {
         deliver((batch) =>
           (batch.runs ??= []).push({

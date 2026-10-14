@@ -14,6 +14,8 @@ final class SidebarIconView: NSView {
     private let swatch = CALayer()
     private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
+    /// What the last `configure` drew from (the glyphs scale with the title font).
+    private var configured: (icon: WorkspaceIcon?, fallback: IconName?, brand: String?, pointSize: CGFloat)?
     /// One ink for every symbol, tinted or not (the solid group header's
     /// glyph ink, cx-qno.22: a red icon must not vanish on a red bar); nil
     /// keeps a symbol's tint and draws an uncolored one in the secondary text color.
@@ -48,6 +50,12 @@ final class SidebarIconView: NSView {
     }
 
     func configure(icon: WorkspaceIcon?, fallback: IconName? = nil, brand: String? = nil) {
+        // A row's status tick configures the row again with the same icon: keep the image. A new
+        // NSImage redraws (pack icons run their drawing handler) and relays out at the next display.
+        let pointSize = SidebarStyle.titleFont.pointSize
+        if let configured, configured.icon == icon, configured.fallback == fallback, configured.brand == brand,
+           configured.pointSize == pointSize { return }
+        configured = (icon, fallback, brand, pointSize)
         self.icon = icon
         isHidden = !Self.showsIcon(icon, fallback: fallback)
         emoji.isHidden = true

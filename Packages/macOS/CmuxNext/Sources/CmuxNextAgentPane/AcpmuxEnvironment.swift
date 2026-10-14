@@ -48,7 +48,33 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         launchEnvironment: [String: String] = [:]
     ) -> AcpmuxEnvironment? {
-        guard let executable = executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
+        // DEBUG only: `CMUX_NEXT_ACPMUX_BIN` wins (AcpmuxEnvironment+DebugOverride.swift).
+        // Release passes nil, so it compiles no read of it.
+        #if DEBUG
+        let executableOverride = debugExecutableOverride
+        #else
+        let executableOverride: URL? = nil
+        #endif
+        return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
+                       uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
+                       executableOverride: executableOverride)
+    }
+
+    /// ``resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)`` with
+    /// the executable override given: tests pass nil, so a developer's exported
+    /// `CMUX_NEXT_ACPMUX_BIN` cannot change what they resolve.
+    static func resolve(
+        build: BuildIdentity?,
+        bundledBinDirectory: URL?,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+        uid: UInt32 = getuid(),
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+        launchEnvironment: [String: String] = [:],
+        executableOverride: URL?
+    ) -> AcpmuxEnvironment? {
+        guard let executable = executableOverride
+            ?? executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
             .first(where: { isExecutable($0.path) }) else { return nil }
         let root = testRoot(environment) ?? userHome.appendingPathComponent(".acpmux", isDirectory: true)
         let ownHome = build?.acpmuxHome(root: root) ?? root

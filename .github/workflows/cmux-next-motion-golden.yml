@@ -45,7 +45,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-motion-golden-${{ github.event.pull_request.number }}
+  # Adding another label starts a run that skips; its own group keeps it from cancelling the real one.
+  group: cmux-next-motion-golden-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && github.event.label.name != 'motion-golden' && github.run_id || 'run' }}
   cancel-in-progress: true
 
 jobs:
