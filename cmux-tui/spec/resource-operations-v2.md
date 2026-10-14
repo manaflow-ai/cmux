@@ -13,7 +13,7 @@ broker protocol.
 | Class | Count | Semantics |
 | --- | ---: | --- |
 | `read` | 85 | Reads state and forbids an idempotency key |
-| `mutation` | 185 | Requires an idempotency key and returns a mutation result |
+| `mutation` | 187 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -50,7 +50,7 @@ correlation, and idempotency metadata.
 | `screen` | 11 | `column.update`, `screen.close`, `screen.create`, `screen.focus`, `screen.get`, `screen.layout.export`, `screen.layout.undo`, `screen.list`, `screen.move`, `screen.rename`, `screen.update` |
 | `screen_group` | 7 | `screen_group.add_screens`, `screen_group.create`, `screen_group.get`, `screen_group.list`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update` |
 | `session` | 25 | `layout.bulk`, `session.creation.resolve`, `session.events`, `session.get`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.hook.put`, `session.journal.producer.list`, `session.journal.producer.put`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.journal.segment.seal`, `session.journal.subscribe`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `workspace_status.list` |
-| `sidebar_layout` | 18 | `sidebar.adopt`, `sidebar.apply`, `sidebar.get`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.get`, `sidebar_layout.update` |
+| `sidebar_layout` | 20 | `sidebar.adopt`, `sidebar.apply`, `sidebar.get`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.remove_ref`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.reset`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.get`, `sidebar_layout.update` |
 | `project` | 6 | `project.add`, `project.list`, `project.observe`, `project.remove`, `project.sync`, `project.update` |
 | `setting` | 7 | `settings.get`, `settings.list`, `settings.reset`, `settings.reset_all`, `settings.schema`, `settings.set`, `settings.snapshot` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |

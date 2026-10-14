@@ -779,3 +779,47 @@ async fn a_guarded_move_never_replaces_a_moved_away_copy_outside_the_roots() {
     assert_eq!(back["sessionId"], id.as_str(), "{back}");
     assert_ne!(back["status"], "closed", "{back}");
 }
+
+/// A moved-in chat cannot say an agent here sent its prompts: a guarded move drops the
+/// provenance (`_meta.provenance`, cx-55d27) from the queue and the transcript it brings, as
+/// only this daemon's unix socket may set it.
+#[tokio::test]
+async fn a_guarded_move_drops_the_bundles_prompt_provenance() {
+    let root = Scratch::home("provenance");
+    let (_a, mut src) = daemon(config("approve-all", json!({})), None).await;
+    let (_b, mut dst) = daemon(config("approve-all", json!({})), None).await;
+    let from = json!({"kind": "agent_message", "from": "acp:sender-1", "to": "acp:receiver-1",
+        "msgId": "m-1", "threadId": "t-1"});
+    let sent = |id: &str, prompt_id: &str, text: &str| {
+        let mut p = ask(id, prompt_id, text);
+        p["_meta"]["acpmux"]["provenance"] = from.clone();
+        p
+    };
+    let new = json!({"cwd": root.path(), "mcpServers": [], "_meta": {"acpmux": {}}});
+    let s = src.request(method::SESSION_NEW, new).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    src.request(method::SESSION_PROMPT, sent(&id, "p-hi", "hi")).await.unwrap();
+    src.send(method::SESSION_PROMPT, ask(&id, "p-slow", "slow")).await;
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "tick0 ").await;
+    src.send(method::SESSION_PROMPT, ask(&id, "p-f", "fail-streamed: boom")).await;
+    src.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-f" && p["queued"] == true)
+        .await;
+    src.send(method::SESSION_PROMPT, sent(&id, "p-a", "a")).await;
+    src.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-a" && p["queued"] == true)
+        .await;
+    wait_record(&mut src, &id, "queue_paused", |m| {
+        m["held"].as_array().is_some_and(|h| h.len() == 1)
+    })
+    .await;
+    let carried = |r: &Value| r.pointer("/_meta/provenance").is_some();
+    assert!(records(&mut src, &id, "queued").await.iter().any(carried), "the source queue has it");
+
+    move_chat(&mut src, &mut dst, &id, Some(guard("web", &[root.path()])), json!({}))
+        .await
+        .unwrap();
+    for kind in ["queued", "user_message"] {
+        let recs = records(&mut dst, &id, kind).await;
+        assert!(!recs.is_empty(), "no {kind} record came over");
+        assert!(!recs.iter().any(carried), "a moved {kind} record kept its provenance: {recs:?}");
+    }
+}

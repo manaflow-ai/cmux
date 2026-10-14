@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """scripts/cmux-next/media/reel.py, run as the CLI: pull requests come from the notes once
 each, clips are picked from the pr-media listing, a build joins title cards and clips into
-one reel with a page listing every pull request, and bad notes are refused."""
+one reel with a page listing every pull request, `--publish` uploads them to the build's
+pr-media folder, and bad notes are refused."""
 
 from __future__ import annotations
 
 import base64
 import html
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -136,6 +138,59 @@ class BuildTests(unittest.TestCase):
         self.assertIn("refused URL", refused[44])
         self.assertIn("refused URL", refused[55])
         self.assertNotIn('href="file:', page)
+
+
+# gh: every read is a 404 (nothing published yet); every contents PUT is logged
+# with its body and succeeds. Nothing reaches GitHub.
+FAKE_GH = r'''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+if "PUT" in args:
+    with open(os.environ["FAKE_GH_LOG"], "a") as log:
+        log.write(json.dumps({"route": args[-3], "body": json.loads(sys.stdin.read())}) + "\n")
+    print("{}")
+else:
+    sys.stderr.write("gh: Not Found (HTTP 404)\n")
+    sys.exit(1)
+'''
+
+
+class PublishTests(unittest.TestCase):
+    @unittest.skipUnless(HAS_FFMPEG, "needs ffmpeg, ffprobe and fontconfig")
+    def test_publish_uploads_the_reel_page_and_report_to_the_build_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                            "testsrc=size=320x200:rate=10:duration=1", "-pix_fmt", "yuv420p",
+                            str(tmp / "a.mp4")], check=True)
+            gh = tmp / "bin/gh"
+            gh.parent.mkdir()
+            gh.write_text(FAKE_GH, encoding="utf-8")
+            gh.chmod(0o755)
+            log = tmp / "gh.jsonl"
+            notes = {"build": "100", "items": [{"title": "Tabs keep their order", "author": "Ada", "pr": 11}]}
+            out = tmp / "out"
+            env = dict(os.environ, PATH=f"{gh.parent}{os.pathsep}{os.environ.get('PATH', '')}", FAKE_GH_LOG=str(log))
+            done = subprocess.run([sys.executable, str(SCRIPT), "--build", "100",
+                                   "--notes", str(write(tmp / "notes.json", notes)), "--allow-unsigned",
+                                   "--clips", str(write(tmp / "clips.json", {"11": str(tmp / "a.mp4")})),
+                                   "--out", str(out), "--publish"],
+                                  capture_output=True, text=True, timeout=240, env=env)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            puts = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+            uploaded = {put["route"]: put["body"] for put in puts}
+            for name in ("index.html", "reel.json", "reel.mp4"):
+                body = uploaded[f"repos/manaflow-ai/cmux/contents/nightly-next/100/{name}"]
+                self.assertEqual(body["branch"], "pr-media")
+                self.assertEqual(base64.b64decode(body["content"]), (out / name).read_bytes())
+                self.assertIn(f"{RAW}nightly-next/100/{name}", done.stdout)
+            # The page goes up last, so it never links a reel that failed to upload.
+            self.assertEqual([put["route"].rsplit("/", 1)[1] for put in puts], ["reel.mp4", "reel.json", "index.html"])
+
+    def test_publish_is_refused_with_a_dry_run(self):
+        done = reel("--build", "100", "--out", "/nonexistent", "--dry-run", "--publish")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("--publish", done.stderr)
 
 
 def keypair(directory: Path) -> tuple[Path, str]:

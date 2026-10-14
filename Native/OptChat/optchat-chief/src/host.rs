@@ -26,13 +26,12 @@ use crate::session_dir::{self, SessionSetup};
 use crate::state::StateFile;
 
 /// Env passed through to the turn's tools, as mux/host passes it.
-const PASSTHROUGH: [&str; 6] = [
+const PASSTHROUGH: [&str; 5] = [
     "CMUX_SOCKET_PATH",
     crate::cmux_env::APP_DAEMON_KEY,
     "ACPMUX_SOCKET",
     "ACPMUX_HOME",
     "ACPMUX_BIN",
-    "CMUX_MCP_COMMAND",
 ];
 
 /// A turn longer than this is stopped (minutes; `OPTCHAT_CHIEF_TURN_LIMIT_MIN`,
@@ -78,6 +77,33 @@ pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> St
     } else {
         claude.to_owned()
     }
+}
+
+/// The compactor's harness at host start, from acpmux's start-up `answer`:
+/// the set one (`OPTCHAT_COMPACTOR_HARNESS`, else engine.json's
+/// `compactor_harness`), else the turns' Claude harness (engine.json's
+/// `harness`, else the host's `turn`), else `default_harness`. On a
+/// machine whose only Claude login is the subrouter, a Chief set to
+/// `claude-sr` compacts there too, not on a `claude` that is not signed in
+/// (cosmic-gray 2026-10-14).
+pub fn compactor_harness_for(
+    answer: &serde_json::Value,
+    set: Option<&str>,
+    turn: &str,
+    engine: &crate::engine::EngineChoice,
+) -> String {
+    if let Some(set) = set {
+        return set.to_owned();
+    }
+    // engine.json's harness when it is Claude, else the host's `turn` when
+    // it is (a codex engine on a claude-sr host still compacts on claude-sr).
+    let turn = engine
+        .harness
+        .as_deref()
+        .filter(|h| crate::harness_gate::plan(answer, h).family == Family::Claude)
+        .unwrap_or(turn);
+    let family = crate::harness_gate::plan(answer, turn).family;
+    default_compactor_harness(turn, family, default_harness(answer))
 }
 
 /// `ACPMUX_PROBE_HARNESSES` of the acpmux daemon this host starts: the
@@ -683,13 +709,15 @@ fn start(
                 sub_harness = harness.clone();
             }
         }
-        // The compactor runs on a Claude route unless set otherwise, whatever
-        // the turns run on (engine.json may swap them to codex per turn).
-        if compactor_set.is_none() {
-            let turn_family = crate::harness_gate::plan(&answer, &harness).family;
-            compactor_harness =
-                default_compactor_harness(&harness, turn_family, default_harness(&answer));
-        }
+        // The compactor runs on a Claude route unless set otherwise: the
+        // turns' engine harness when it is one, else the default route
+        // (engine.json may swap the turns to codex per turn).
+        compactor_harness = compactor_harness_for(
+            &answer,
+            compactor_set.as_deref(),
+            &harness,
+            &engine_choice_file,
+        );
         let (turn, compactor, sub) = (
             plan(&harness, "turn"),
             plan(&compactor_harness, "compactor"),
@@ -728,8 +756,8 @@ fn start(
     };
     let claude = family == Family::Claude;
     // A Claude Code harness reads the optchat MCP server from the session
-    // directory; acpmux gives any other harness no MCP server, so its memory
-    // tools are the launcher's commands.
+    // directory; acpmux gives no other harness the optchat server (only its
+    // own agent tools), so its memory tools are the launcher's commands.
     let tools = if claude {
         crate::prompt::Tools::Mcp
     } else {
@@ -737,7 +765,6 @@ fn start(
     };
     let setup = SessionSetup {
         exe: exe.display().to_string(),
-        cmux_mcp: env("CMUX_MCP_COMMAND"),
         env: session_env,
         instructions: instructions.clone(),
         tools,
