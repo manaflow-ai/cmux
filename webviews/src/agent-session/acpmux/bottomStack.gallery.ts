@@ -36,7 +36,7 @@ const prQueue = chat([
     output: "https://github.com/acme/atlas-web/pull/128\n",
     exitCode: 0,
   })], 0),
-], { isWorking: true, queue });
+], { isWorking: true, queue, sessionId: "pr-queue-session" });
 const grouped = {
   ...individual,
   permissionGroups: {
