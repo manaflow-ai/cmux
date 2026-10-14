@@ -51,6 +51,12 @@ export interface HomeConversation {
   muted: boolean;
   pinned: boolean;
   lastText?: string;
+  /** When the last message was posted (the list's order and time; a read moves `updatedAt`). */
+  lastAt?: number;
+  /** The last message's author (the list's preview names it in a room). */
+  lastAuthor?: string;
+  /** The status of the last message's work part, when it has one (a Chief's live state). */
+  lastWork?: "running" | "waiting" | "done" | "failed";
 }
 
 export interface HomeMention {

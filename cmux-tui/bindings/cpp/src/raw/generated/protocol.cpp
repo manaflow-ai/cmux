@@ -140,6 +140,11 @@ Result<Json> Codec<AgentRecord>::encode(const AgentRecord& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("agent", std::move(encoded).value());
     }
+    if (!value.last_prompt.is_absent()) {
+        auto encoded = encode_value(value.last_prompt);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("last_prompt", std::move(encoded).value());
+    }
     if (value.session) {
         auto encoded = encode_value(*value.session);
         if (!encoded) return std::move(encoded).error();
@@ -179,6 +184,16 @@ Result<AgentRecord> Codec<AgentRecord>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_agent);
             if (!decoded) return std::move(decoded).error();
             result.agent = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_last_prompt = value.find("last_prompt");
+    if (field_last_prompt) {
+        if (field_last_prompt->is_null()) {
+            result.last_prompt = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_last_prompt);
+            if (!decoded) return std::move(decoded).error();
+            result.last_prompt = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_session = value.find("session");
@@ -957,6 +972,20 @@ Result<BrowserProviderAuthentication> Codec<BrowserProviderAuthentication>::deco
     return make_error(ErrorCode::decode, "unknown BrowserProviderAuthentication value");
 }
 
+Result<Json> Codec<BrowserProviderHosting>::encode(const BrowserProviderHosting& value) {
+    switch (value) {
+        case BrowserProviderHosting::daemon: return Json(std::string("daemon"));
+        case BrowserProviderHosting::native: return Json(std::string("native"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<BrowserProviderHosting> Codec<BrowserProviderHosting>::decode(const Json& value) {
+    if (value == Json(std::string("daemon"))) return BrowserProviderHosting::daemon;
+    if (value == Json(std::string("native"))) return BrowserProviderHosting::native;
+    return make_error(ErrorCode::decode, "unknown BrowserProviderHosting value");
+}
+
 Result<Json> Codec<BrowserProviderSnapshot>::encode(const BrowserProviderSnapshot& value) {
     (void)value;
     Json::Object object;
@@ -977,6 +1006,11 @@ Result<Json> Codec<BrowserProviderSnapshot>::encode(const BrowserProviderSnapsho
         auto encoded = encode_value(*value.endpoint);
         if (!encoded) return std::move(encoded).error();
         object.emplace("endpoint", std::move(encoded).value());
+    }
+    if (value.hosting) {
+        auto encoded = encode_value(*value.hosting);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("hosting", std::move(encoded).value());
     }
     if (value.provider_id) {
         auto encoded = encode_value(*value.provider_id);
@@ -1022,6 +1056,12 @@ Result<BrowserProviderSnapshot> Codec<BrowserProviderSnapshot>::decode(const Jso
         auto decoded = decode_value<std::string>(*field_endpoint);
         if (!decoded) return std::move(decoded).error();
         result.endpoint = std::move(decoded).value();
+    }
+    const Json* field_hosting = value.find("hosting");
+    if (field_hosting) {
+        auto decoded = decode_value<BrowserProviderHosting>(*field_hosting);
+        if (!decoded) return std::move(decoded).error();
+        result.hosting = std::move(decoded).value();
     }
     const Json* field_provider_id = value.find("provider_id");
     if (field_provider_id) {
@@ -24614,6 +24654,11 @@ Result<Json> Codec<RegisterBrowserProviderRequest>::encode(const RegisterBrowser
     auto encoded_endpoint = encode_value(value.endpoint);
     if (!encoded_endpoint) return std::move(encoded_endpoint).error();
     object.emplace("endpoint", std::move(encoded_endpoint).value());
+    if (!value.hosting.is_absent()) {
+        auto encoded = encode_value(value.hosting);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("hosting", std::move(encoded).value());
+    }
     auto encoded_provider_id = encode_value(value.provider_id);
     if (!encoded_provider_id) return std::move(encoded_provider_id).error();
     object.emplace("provider_id", std::move(encoded_provider_id).value());
@@ -24654,6 +24699,16 @@ Result<RegisterBrowserProviderRequest> Codec<RegisterBrowserProviderRequest>::de
         auto decoded = decode_value<std::string>(*field_endpoint);
         if (!decoded) return std::move(decoded).error();
         result.endpoint = std::move(decoded).value();
+    }
+    const Json* field_hosting = value.find("hosting");
+    if (field_hosting) {
+        if (field_hosting->is_null()) {
+            result.hosting = Field<BrowserProviderHosting>::null();
+        } else {
+            auto decoded = decode_value<BrowserProviderHosting>(*field_hosting);
+            if (!decoded) return std::move(decoded).error();
+            result.hosting = Field<BrowserProviderHosting>(std::move(decoded).value());
+        }
     }
     const Json* field_provider_id = value.find("provider_id");
     if (!field_provider_id) {
@@ -30087,6 +30142,11 @@ Result<Json> Codec<AgentChangedEvent>::encode(const AgentChangedEvent& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("agent", std::move(encoded).value());
     }
+    if (!value.last_prompt.is_absent()) {
+        auto encoded = encode_value(value.last_prompt);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("last_prompt", std::move(encoded).value());
+    }
     if (value.session) {
         auto encoded = encode_value(*value.session);
         if (!encoded) return std::move(encoded).error();
@@ -30126,6 +30186,16 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_agent);
             if (!decoded) return std::move(decoded).error();
             result.agent = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_last_prompt = value.find("last_prompt");
+    if (field_last_prompt) {
+        if (field_last_prompt->is_null()) {
+            result.last_prompt = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_last_prompt);
+            if (!decoded) return std::move(decoded).error();
+            result.last_prompt = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_session = value.find("session");
@@ -37512,6 +37582,9 @@ constexpr std::array<CommandFieldRequirement, 4> kCommand149FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand152FieldRequirements{{
     {"source", 12U, "notification-source-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand166FieldRequirements{{
+    {"hosting", 0U, "browser-provider-native-hosting-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand167FieldRequirements{{
     {"view", 12U, "shared-sizing-v1"},
 }};
@@ -37761,7 +37834,7 @@ constexpr std::array<CommandMetadata, 257> kCommands{{
     {"read-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"read-scrollback", "control", 7U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"reattach-view", "control", 12U, "sizing-view-detach-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"register-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"register-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand166FieldRequirements)},
     {"release-attached-view-size", "frontend", 10U, "view-attachment-lease-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand167FieldRequirements)},
     {"release-surface-size", "control", 7U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"reload-config", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
