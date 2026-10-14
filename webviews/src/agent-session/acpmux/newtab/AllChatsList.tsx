@@ -13,12 +13,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { subscribeDeviceChats } from "./deviceChats";
 import { ContextMenu } from "../../../ui/ContextMenu";
-import { Select } from "../../../ui/Select";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
 import { AgentMark, ageLabel } from "../NewTabPage";
 import { useNt } from "./strings";
 import { useMinuteClock } from "../clock";
+import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
@@ -49,8 +49,6 @@ export type LoadChatsPage = (params: {
 
 /// The header's Filter: All shows the list as it always was. Only live chats carry a state, so
 /// Working and Needs input show live chats alone, and Done adds the indexed chats after them.
-export type ChatStatusFilter = "all" | "working" | "input" | "done";
-const FILTERS = ["all", "working", "input", "done"] as const satisfies readonly ChatStatusFilter[];
 /// A failed or broken turn waits on the user as much as a question does.
 const FILTER_STATES: Record<Exclude<ChatStatusFilter, "all">, ReadonlySet<ActiveChat["state"]>> = {
   working: new Set(["running"]),
@@ -488,15 +486,11 @@ export function AllChatsList({
             {nt(choice)}
           </button>
         ))}
-        <Select
-          className="nt-chats-filter"
-          {...(filter === "all" ? {} : { buttonClassName: "is-selected" })}
-          label={nt("filter.label")}
-          value={filter}
-          options={FILTERS.map((value) => ({ value, label: nt(`filter.${value}`) }))}
-          onChange={(value) => {
+        <ChatFilterMenu
+          filter={filter}
+          onFilter={(next) => {
             selection.clear();
-            setFilter(value as ChatStatusFilter);
+            setFilter(next);
           }}
         />
         <label className="nt-all-search">
