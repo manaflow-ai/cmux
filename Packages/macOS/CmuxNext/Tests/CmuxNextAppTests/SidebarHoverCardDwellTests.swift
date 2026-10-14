@@ -56,6 +56,14 @@ import Testing
             }
         }
 
+        /// Waits (bounded) until a timer is asleep on the clock. A timer reads
+        /// `now` for its deadline when its task starts, off the main actor:
+        /// advancing before then would push its deadline back by the advance.
+        func waitForSleeper() async throws {
+            for _ in 0..<20 where lock.withLock({ sleepers.isEmpty }) { await Task.yield() }
+            for _ in 0..<500 where lock.withLock({ sleepers.isEmpty }) { try await Task.sleep(for: .milliseconds(5)) }
+        }
+
         /// Moves the clock on and wakes every sleeper whose deadline it reached.
         func advance(by duration: Duration) {
             let due: [Sleeper] = lock.withLock {
@@ -127,6 +135,7 @@ import Testing
         while y < end {
             Self.move(list, to: y)
             if let id = coordinator.machine.shownTarget?.id, shown.last != id { shown.append(id) }
+            if case .pending = coordinator.machine.phase { try await clock.waitForSleeper() }
             clock.advance(by: .milliseconds(2))
             await Task.yield()
             y += 1
@@ -146,6 +155,7 @@ import Testing
         try #require(rows.count == 5)
         let row = rows[2]
         Self.move(list, to: row.y + row.height / 2)
+        try await clock.waitForSleeper()
         // Not yet: the card waits for the dwell.
         clock.advance(by: .milliseconds(300))
         try await Self.settle()
