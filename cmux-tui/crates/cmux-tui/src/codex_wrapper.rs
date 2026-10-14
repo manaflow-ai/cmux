@@ -71,7 +71,7 @@ pub(crate) fn pane_path() -> Option<String> {
     path_with_shim_first(&std::env::var_os("PATH").unwrap_or_default(), &dir)?.into_string().ok()
 }
 
-fn shim_directory() -> Option<PathBuf> {
+pub(crate) fn shim_directory() -> Option<PathBuf> {
     agent_hook_install::runtime_cmux_tui_data_home().map(|home| home.join("shims"))
 }
 
