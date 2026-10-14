@@ -26,7 +26,7 @@ import os
 ///   a visible view claims on each settled resize and, after another client
 ///   sized the terminal, on its next key press or focus.
 /// - Grid reports go through `ResizeCoordinator` and reach the daemon only
-///   after the view stops resizing.
+///   after the view stops resizing, or the next frame in a live resize.
 /// - A dropped stream or failed attach leaves the view disconnected (last
 ///   screen and a status label). A visible view re-attaches by itself after
 ///   a capped backoff (500 ms doubling to 30 s, about a minute in all,

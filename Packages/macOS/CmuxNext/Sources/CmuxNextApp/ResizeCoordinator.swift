@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextWakeups
 
 /// A view whose settled grid goes to the PTY owner (`DaemonTerminalIO`).
@@ -10,9 +11,10 @@ import CmuxNextWakeups
 
 /// Sends terminal grid changes to the daemon only once a view's size has
 /// settled (architecture.md 4: resize at animation end). Layout springs,
-/// sidebar width animations, divider drags, and live window resizes all
-/// change pane sizes every frame; each daemon resize rebuilds the surface
-/// from a replay, so reports are held until two frames pass unchanged.
+/// sidebar width animations and divider drags change pane sizes every frame,
+/// so reports are held until three frames pass unchanged. A live window
+/// resize is the exception: the person's pointer is on the edge and the
+/// text must follow it, so each new grid goes the next frame (cx-sqj3h).
 final class ResizeCoordinator {
     static let shared = ResizeCoordinator()
     static let settleFrames = 3
@@ -43,6 +45,7 @@ final class ResizeCoordinator {
 
     /// One frame; false once every size settled.
     func tick() -> Bool {
+        settle.stableFrames = Motion.isLiveResizing ? 1 : Self.settleFrames
         for (key, size) in settle.tick() {
             targets.removeValue(forKey: key)?.applySettled(size)
         }
