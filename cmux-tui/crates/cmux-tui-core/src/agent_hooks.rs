@@ -47,10 +47,18 @@ pub fn agent_hook_journal_ingress(
     validate_agent_source(source)?;
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
+    // Read the structured reason before redaction replaces free-form strings.
+    let resumable_interruption = is_resumable_opencode_interruption(source, native_event, &native);
     let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
-    let kind = semantic_kind(source, native_event, &normalized);
+    let kind = if resumable_interruption {
+        // OpenCode keeps a shutdown-interrupted execution and resumes it, so
+        // the turn is still running rather than completed.
+        "agent.state.changed"
+    } else {
+        semantic_kind(source, native_event, &normalized)
+    };
     let mut subjects = Vec::with_capacity(4);
     if let Some(terminal_id) = terminal_id {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
@@ -333,6 +341,17 @@ fn semantic_kind(
         }
         _ => "agent.state.changed",
     }
+}
+
+fn is_resumable_opencode_interruption(source: &str, native_event: &str, native: &Value) -> bool {
+    if source != "opencode" || semantic_key(native_event) != "sessionexecutioninterrupted" {
+        return false;
+    }
+    let event = native.get("event").unwrap_or(native);
+    ["data", "properties"]
+        .iter()
+        .filter_map(|key| event.get(key))
+        .any(|properties| properties.get("reason").and_then(Value::as_str) == Some("shutdown"))
 }
 
 fn is_child_spawn(event: &str) -> bool {
@@ -979,6 +998,18 @@ mod tests {
             .unwrap();
             assert_eq!(ingress.kind, "agent.error.reported", "{event}");
         }
+    }
+
+    #[test]
+    fn opencode_shutdown_interruption_keeps_the_turn_running() {
+        let interrupted = "session.execution.interrupted";
+        let kind = |field: &str, reason: &str| {
+            let native = json!({"event":{"type":interrupted,field:{"reason":reason}}});
+            agent_hook_journal_ingress("opencode", interrupted, None, native).unwrap().kind
+        };
+        assert_eq!(kind("data", "shutdown"), "agent.state.changed");
+        assert_eq!(kind("properties", "shutdown"), "agent.state.changed");
+        assert_eq!(kind("data", "user"), "agent.turn.completed");
     }
 
     #[test]
