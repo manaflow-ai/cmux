@@ -941,3 +941,27 @@ reflow) jumps or crossfades into its new slot instead of moving. The same
 gesture on `1d9368ebdf17`, before those commits, moves it smoothly
 (`prev-close.mp4` vs `pm-close.mp4`, `pm-close2.mp4`). I've handed this to
 the grid/perf owner.
+
+## Round 17: the lone-tab grid
+
+Measured with a gradient edge profile at 3x:
+
+| | Device Pro Max (`tab-reverse-device.mp4`, settled at 1.40 s) | Simulator Pro (Safari, 1 tab) | Ours |
+|---|---|---|---|
+| Card | x 72.7–367.3 (294.7 wide), top 124, bottom 540.7 (aspect 1.414) | x 66.7–334.7 (268), top 122, bottom 500 (aspect 1.410) | ⅔ of the screen width, rounded (268 on Pro, 293 on Pro Max), centred, at the grid's usual top, normal card aspect |
+| Close button | Centre (352, 139) = 22 pt at a 4 pt inset | Same | Same |
+| Title | Centred under the card | Same | Same (title row as wide as the card) |
+| Bottom bar | **"1 Tab"**. The "Start Page" seen in `swipe-close-device.mp4` at 10.797 s is the toolbar during the zoom that opens the last tab, not the grid | "1 Tab" | "1 Tab" (unchanged) |
+| Corner | Not fitted | Not fitted | Scaled with the width (13.7 × w / 177 → 20.7 pt on Pro) |
+
+Going in and out of the lone layout is the grid reflow: on 2 → 1 the
+remaining card grows into the centred slot (reflow spring), and adding a tab
+reflows back to two columns. The zoom lands on the lone card because it uses
+the same layout.
+
+**Remaining artifact in the app.** On 2 → 1 with the mock, the remaining card
+first jumps about 46 pt right (≈ half the size change), then grows into place.
+In the kit demo, which has no baked bitmaps, it grows smoothly. This suggests
+the grid's static card bitmaps (`CardBitmaps`, re-baked at the new size),
+which the perf owner is working on. I've handed it over with
+`lone-trans.mp4` versus `kit-lone.mp4`.
