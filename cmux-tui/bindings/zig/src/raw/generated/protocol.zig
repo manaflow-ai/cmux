@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0bb8289fc1c18eb4288faabad69305a6da9ee31aae6a33896200da80306f4658";
+pub const ir_sha256 = "b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -54,11 +54,19 @@ pub const AgentPresenceActivity = enum {
 };
 
 pub const AgentRecord = struct {
+    /// Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports.
+    agent: wire.Field([]const u8) = .absent,
     session: wire.Nullable([]const u8),
+    /// When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.
+    since_ms: ?u64 = null,
     source: AgentSource,
     state: AgentState,
     surface: Id,
     updated_at_ms: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "since_ms",
+    };
 };
 
 pub const AgentReportSource = enum {
@@ -8946,10 +8954,16 @@ pub const AgentChangedEvent = struct {
     agent: wire.Field([]const u8) = .absent,
     event: []const u8,
     session: wire.Nullable([]const u8),
+    /// When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.
+    since_ms: ?u64 = null,
     source: AgentSource,
     state: AgentState,
     surface: Id,
     updated_at_ms: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "since_ms",
+    };
 };
 
 pub const AgentPresenceChangedEvent = struct {

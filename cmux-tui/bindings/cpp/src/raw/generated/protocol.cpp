@@ -135,12 +135,22 @@ Result<AgentPresenceActivity> Codec<AgentPresenceActivity>::decode(const Json& v
 Result<Json> Codec<AgentRecord>::encode(const AgentRecord& value) {
     (void)value;
     Json::Object object;
+    if (!value.agent.is_absent()) {
+        auto encoded = encode_value(value.agent);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("agent", std::move(encoded).value());
+    }
     if (value.session) {
         auto encoded = encode_value(*value.session);
         if (!encoded) return std::move(encoded).error();
         object.emplace("session", std::move(encoded).value());
     } else {
         object.emplace("session", Json(nullptr));
+    }
+    if (value.since_ms) {
+        auto encoded = encode_value(*value.since_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("since_ms", std::move(encoded).value());
     }
     auto encoded_source = encode_value(value.source);
     if (!encoded_source) return std::move(encoded_source).error();
@@ -161,6 +171,16 @@ Result<AgentRecord> Codec<AgentRecord>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     AgentRecord result{};
+    const Json* field_agent = value.find("agent");
+    if (field_agent) {
+        if (field_agent->is_null()) {
+            result.agent = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_agent);
+            if (!decoded) return std::move(decoded).error();
+            result.agent = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_session = value.find("session");
     if (!field_session) {
         return make_error(ErrorCode::decode, "missing required field 'session'");
@@ -173,6 +193,12 @@ Result<AgentRecord> Codec<AgentRecord>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.session = std::move(decoded).value();
         }
+    }
+    const Json* field_since_ms = value.find("since_ms");
+    if (field_since_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_since_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.since_ms = std::move(decoded).value();
     }
     const Json* field_source = value.find("source");
     if (!field_source) {
@@ -29893,6 +29919,11 @@ Result<Json> Codec<AgentChangedEvent>::encode(const AgentChangedEvent& value) {
     } else {
         object.emplace("session", Json(nullptr));
     }
+    if (value.since_ms) {
+        auto encoded = encode_value(*value.since_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("since_ms", std::move(encoded).value());
+    }
     auto encoded_source = encode_value(value.source);
     if (!encoded_source) return std::move(encoded_source).error();
     object.emplace("source", std::move(encoded_source).value());
@@ -29934,6 +29965,12 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.session = std::move(decoded).value();
         }
+    }
+    const Json* field_since_ms = value.find("since_ms");
+    if (field_since_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_since_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.since_ms = std::move(decoded).value();
     }
     const Json* field_source = value.find("source");
     if (!field_source) {

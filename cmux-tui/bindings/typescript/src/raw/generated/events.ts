@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0bb8289fc1c18eb4288faabad69305a6da9ee31aae6a33896200da80306f4658. */
+/* cmux-tui mux protocol 12, IR b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409. */
 
 
 import type * as T from "./types.js";
@@ -14,6 +14,8 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
   "agent"?: (string) | null;
   "session": (string) | null;
+  /** When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`. */
+  "since_ms"?: bigint;
   "source": T.AgentSource;
   "state": T.AgentState;
   "surface": T.Id;
