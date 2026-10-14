@@ -16,6 +16,8 @@ struct SplitPaneGridFitTests {
     @Test func splitPanesAndASecondTabRenderTheGridTheirViewsFit() async throws {
         try await Self.withApp { services in
             let controller = try #require(services.windows.active)
+            // The journey's window: wide enough for A | B and C | D (a pane is at least ~200 points wide).
+            try #require(controller.window).setFrame(NSRect(x: 0, y: 0, width: 1100, height: 760), display: true)
             let id = try await services.windows.createWorkspace(WorkspaceSpawn(), into: controller.state.id)
             try await Self.until({ Self.shown(controller, workspace: id).count == 1 && Self.allLive(controller) },
                                  report: { Self.describe(controller) })
