@@ -18,14 +18,15 @@ use std::sync::Arc;
 
 pub use cmux_codex_acp::Translator;
 
-/// Whether `program args...` runs `codex app-server`: a program named
-/// `codex` (or `codex-<something>`, a renamed build; any extension) whose
-/// first argument that is not a global option is `app-server`, with no
-/// app-server subcommand after it. Global options before the subcommand
-/// (`-c key=value`, `--enable x`, `-p profile`) take one value each.
+/// Whether `program args...` runs `codex app-server`: a program named `codex`,
+/// `codex-<x>` or `<x>-codex` (a renamed build such as `cmux-codex`; any
+/// extension) and whose first argument that is not a global
+/// option is `app-server`, with no app-server subcommand after it. Global
+/// options before the subcommand (`-c key=value`, `--enable x`, `-p profile`)
+/// take one value each.
 pub fn is_launch(program: &str, args: &[String]) -> bool {
     let name = Path::new(program).file_stem().and_then(|n| n.to_str()).unwrap_or("");
-    if !(name == "codex" || name.starts_with("codex-")) {
+    if !(name == "codex" || name.starts_with("codex-") || name.ends_with("-codex")) {
         return false;
     }
     let mut i = 0;

@@ -8,9 +8,15 @@ public struct AgentRoster: Sendable {
     public private(set) var bySurface: [SurfaceID: AgentStatus] = [:]
     public private(set) var lastPromptBySurface: [SurfaceID: UInt64] = [:]
 
-    mutating func apply(_ status: AgentStatus) {
+    /// Applies one `agent-changed`; false (and nothing changes) when it is older than the status
+    /// held: an event held across a resync can arrive after the connect seed (cx-ag5.6.8).
+    @discardableResult
+    mutating func apply(_ status: AgentStatus) -> Bool {
+        if let held = bySurface[status.surface], held.updatedAtMs > 0, status.updatedAtMs > 0,
+           status.updatedAtMs < held.updatedAtMs { return false }
         notePrompt(from: bySurface[status.surface], to: status)
         bySurface[status.surface] = status
+        return true
     }
 
     /// Replaces every status with `list` (after connect).

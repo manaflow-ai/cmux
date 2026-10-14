@@ -8,6 +8,7 @@ import type {
   AcpmuxRow,
   AcpmuxSnapshot,
   QueueEdit,
+  StartSource,
 } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -2548,6 +2549,22 @@ function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown):
   return ids.map((id) => ({ id, ...(harnesses[id] as any) }));
 }
 
+/// `_acpmux/harnesses` `start` ({model?, effort?, modelSource?, effortSource?}), with only its
+/// known fields.
+function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"] {
+  if (!value || typeof value !== "object") return undefined;
+  const { model, effort, modelSource, effortSource } = value as Record<string, unknown>;
+  const source = (raw: unknown) =>
+    raw === "saved" || raw === "profile" || raw === "catalog" ? (raw as StartSource) : undefined;
+  const start = {
+    ...(typeof model === "string" && model ? { model } : {}),
+    ...(typeof effort === "string" && effort ? { effort } : {}),
+    ...(source(modelSource) ? { modelSource: source(modelSource) } : {}),
+    ...(source(effortSource) ? { effortSource: source(effortSource) } : {}),
+  };
+  return start.model || start.effort ? start : undefined;
+}
+
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
   const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
@@ -2564,6 +2581,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
       : {}),
