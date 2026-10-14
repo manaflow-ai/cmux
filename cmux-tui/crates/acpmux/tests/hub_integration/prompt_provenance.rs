@@ -267,9 +267,14 @@ async fn a_steer_records_its_provenance() {
     let mut params = prompt(&session, "p-steer", "a message mid-turn", Some(&p));
     params["_meta"]["acpmux"]["steer"] = json!(true);
     let steer = c.send("session/prompt", params).await;
-    for id in [turn, steer] {
-        let value = c.reply_to(id).await;
+    // Both prompts are answered, in either order.
+    let mut answered = Vec::new();
+    while answered.len() < 2 {
+        let value = c
+            .until(|v| v.get("id") == Some(&json!(turn)) || v.get("id") == Some(&json!(steer)))
+            .await;
         assert!(value.get("error").is_none(), "{value}");
+        answered.push(value);
     }
 
     let steered = c.user_message(&session, "p-steer").await;
