@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample agent names, actions, commands and output), not shipped UI.
-// PROTOTYPE: three layouts of the right-pane Background tasks panel (BackgroundTasksPanel.tsx) on the
+// PROTOTYPE: three layouts (and C2, a refinement of C) of the right-pane Background tasks panel (BackgroundTasksPanel.tsx) on the
 // same tasks: a workflow at 3/7 agents, an Explore agent, two background shells (one printing, one
 // silent), and three finished tasks under a collapsed "Finished 3".
 import { minutesAgo } from "../../../gallery/clock";
@@ -123,8 +123,17 @@ export default componentEntry<BackgroundTasksPanelProps>({
       note: "C: 28px rows grouped by kind, workflow progress under its row, shell output inline.",
       props: props("grouped"),
     },
+    "c2-grouped": {
+      note: "C2: C refined. Agents and workflows on two lines (title, then action · spend), shells on one line, filled stop square, quiet group labels only when kinds mix.",
+      props: props("grouped2"),
+    },
     "a-list-finished": { note: "A with Finished opened.", props: props("list"), play: openFinished },
     "b-cards-finished": { note: "B with Finished opened.", props: props("cards"), play: openFinished },
     "c-grouped-finished": { note: "C with Finished opened.", props: props("grouped"), play: openFinished },
+    "c2-grouped-finished": {
+      note: "C2 with Finished opened: 28px lines (title · state · time), View transcript on hover.",
+      props: props("grouped2"),
+      play: openFinished,
+    },
   },
 });

@@ -7,6 +7,8 @@
 //            shell row in the same shape
 //   cards    one card per task, Claude desktop style: action, spend, View transcript, live output
 //   grouped  28px rows grouped by kind (Workflows, Agents, Shells), shell output inline under its row
+//   grouped2 C refined: agents and workflows on two lines (title, then action · spend), shells on
+//            one 28px line, quiet group labels only when kinds mix, a filled stop square
 // Stop, Remove from list and Clear all act at once on the panel's own copy (optimistic); every row
 // has a right-click menu.
 import { useContext, useState, type ReactNode } from "react";
@@ -39,7 +41,7 @@ export type BackgroundShell = {
   output: string[];
 };
 
-export type BackgroundTasksLayout = "list" | "cards" | "grouped";
+export type BackgroundTasksLayout = "list" | "cards" | "grouped" | "grouped2";
 
 export type BackgroundTasksPanelProps = {
   layout: BackgroundTasksLayout;
@@ -215,9 +217,21 @@ const LAYOUTS: Record<BackgroundTasksLayout, (props: LayoutProps & { tasks: Task
   list: DenseList,
   cards: Cards,
   grouped: Grouped,
+  grouped2: GroupedTwoLine,
 };
 
-function StopButton({ name, onStop, className }: { name: string; onStop: () => void; className: string }) {
+function StopButton({
+  name,
+  onStop,
+  className,
+  solid = false,
+}: {
+  name: string;
+  onStop: () => void;
+  className: string;
+  /// The composer's filled stop square (C2) instead of the outlined one.
+  solid?: boolean;
+}) {
   const t = useT();
   return (
     <button
@@ -227,7 +241,7 @@ function StopButton({ name, onStop, className }: { name: string; onStop: () => v
       title={t("subagents.stop", { name })}
       onClick={onStop}
     >
-      <Icon name="action.stop" size={12} />
+      <Icon name="action.stop" selected={solid} size={solid ? 14 : 12} />
     </button>
   );
 }
@@ -443,11 +457,13 @@ function CompactRow({
   now,
   onOpen,
   onStop,
+  solidStop = false,
 }: {
   task: Task;
   now: number;
   onOpen?: (id: string) => void;
   onStop?: (id: string) => void;
+  solidStop?: boolean;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -502,7 +518,174 @@ function CompactRow({
   return (
     <div className="bgtasks-row-stoppable">
       {line}
-      <StopButton className="bgtasks__icon-button bgtasks-row__stop" name={name} onStop={() => onStop(id)} />
+      <StopButton
+        className={
+          solidStop ? "bgtasks__icon-button bgtasks-row__stop bgtasks-stop" : "bgtasks__icon-button bgtasks-row__stop"
+        }
+        name={name}
+        solid={solidStop}
+        onStop={() => onStop(id)}
+      />
     </div>
+  );
+}
+
+/* ---------- (C2) Grouped, two-line agent rows ---------- */
+
+function GroupedTwoLine({ tasks, now, onOpen, onStop, menu }: LayoutProps & { tasks: Task[] }) {
+  const t = useT();
+  if (tasks.length === 0) return null;
+  if (!tasks.some(isRunning)) return <FinishedRows tasks={tasks} now={now} onOpen={onOpen} menu={menu} />;
+  const groups = GROUPS.map((group) => ({ ...group, members: tasks.filter(group.match) })).filter(
+    (group) => group.members.length > 0,
+  );
+  // One kind needs no label: the rows' icons already say what they are.
+  const labelled = groups.length > 1;
+  return (
+    <div className="bgtasks__groups bgtasks-c2">
+      {groups.map(({ key, members }) => (
+        <section key={key} className="bgtasks-group" aria-label={t(key)}>
+          {labelled && (
+            <h3 className="bgtasks-c2__label">
+              {t(key)}
+              <span>{members.length}</span>
+            </h3>
+          )}
+          <ul className="bgtasks__rows">
+            {members.map((task) => (
+              <li key={taskId(task)}>
+                <ContextMenu items={menu(task)}>
+                  {task.type === "agent" ? (
+                    <AgentTwoLineRow agent={task.agent} now={now} onOpen={onOpen} onStop={onStop} />
+                  ) : (
+                    <>
+                      <CompactRow task={task} now={now} onOpen={onOpen} onStop={onStop} solidStop />
+                      {isRunning(task) && <ShellOutput shell={task.shell} inline />}
+                    </>
+                  )}
+                </ContextMenu>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/// About 40px: icon, title, kind, time and stop over a muted line of what it does now and its spend.
+function AgentTwoLineRow({
+  agent,
+  now,
+  onOpen,
+  onStop,
+}: {
+  agent: Subagent;
+  now: number;
+  onOpen?: (id: string) => void;
+  onStop?: (id: string) => void;
+}) {
+  const t = useT();
+  const language = usePaneLanguage();
+  const live = agent.state === "running";
+  const task: Task = { type: "agent", agent };
+  const action = live ? agent.action : agentStateLabel(t, agent);
+  const spend = subagentProgress(t, language, agent).join(" · ");
+  // A workflow's icon and agent count already say what it is: no kind chip, so the title keeps room.
+  const kind = isWorkflow(agent) ? undefined : agent.kind;
+  const workflow = live && agent.agents && agent.agents.started > 0 ? agent.agents : undefined;
+  const content = (
+    <>
+      <span className="bgtasks-c2__line">
+        <span className="bgtasks-row__icon" data-state={agent.state}>
+          <TaskIcon task={task} />
+        </span>
+        <span className="bgtasks-c2__title">{agent.name}</span>
+        {kind && <span className="bgtasks-card__kind bgtasks-c2__kind">{kind}</span>}
+        <span className="bgtasks__spacer" />
+        <span className="bgtasks__time">{formatDuration(elapsed(agent, now))}</span>
+      </span>
+      {(action || spend) && (
+        <span className="bgtasks-c2__sub">
+          {action && <span className="bgtasks-c2__action">{action}</span>}
+          {action && spend && <span className="bgtasks-c2__sep">·</span>}
+          {spend && <span className="bgtasks-c2__spend">{spend}</span>}
+        </span>
+      )}
+      {workflow && (
+        <span className="bgtasks__progress bgtasks__progress--row" aria-hidden="true">
+          <span style={{ width: `${(100 * workflow.done) / workflow.started}%` }} />
+        </span>
+      )}
+    </>
+  );
+  const row = onOpen ? (
+    <button
+      type="button"
+      className="bgtasks-row bgtasks-c2__row"
+      title={agent.task ?? agent.name}
+      aria-label={t("subagents.open", { name: agent.name })}
+      onClick={() => onOpen(agent.id)}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className="bgtasks-row bgtasks-c2__row" title={agent.task ?? agent.name}>
+      {content}
+    </div>
+  );
+  if (!live || !onStop) return row;
+  return (
+    <div className="bgtasks-row-stoppable">
+      {row}
+      <StopButton
+        className="bgtasks__icon-button bgtasks-stop bgtasks-c2__stop"
+        name={agent.name}
+        solid
+        onStop={() => onStop(agent.id)}
+      />
+    </div>
+  );
+}
+
+/// Finished under C2: one 28px line each (title · state · time), View transcript on hover.
+function FinishedRows({ tasks, now, onOpen, menu }: Omit<LayoutProps, "onStop"> & { tasks: Task[] }) {
+  const t = useT();
+  return (
+    <ul className="bgtasks__rows">
+      {tasks.map((task) => {
+        const id = taskId(task);
+        const state = task.type === "agent" ? agentStateLabel(t, task.agent) : t(SHELL_STATE[task.shell.state]);
+        return (
+          <li key={id}>
+            <ContextMenu items={menu(task)}>
+              <div className="bgtasks-row bgtasks-c2__done">
+                <span
+                  className="bgtasks-row__icon"
+                  data-state={task.type === "agent" ? task.agent.state : task.shell.state}
+                >
+                  <TaskIcon task={task} />
+                </span>
+                <span className="bgtasks-c2__done-text">
+                  <span
+                    className={task.type === "shell" ? "bgtasks-c2__done-name bgtasks__mono" : "bgtasks-c2__done-name"}
+                  >
+                    {task.type === "agent" ? task.agent.name : task.shell.command}
+                  </span>
+                  <span className="bgtasks-c2__done-meta">
+                    {` · ${state} · ${formatDuration(taskElapsed(task, now))}`}
+                  </span>
+                </span>
+                {task.type === "agent" && onOpen && (
+                  <button type="button" className="bgtasks__link bgtasks-c2__view" onClick={() => onOpen(id)}>
+                    {t("bgTasks.viewTranscript")}
+                  </button>
+                )}
+              </div>
+            </ContextMenu>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

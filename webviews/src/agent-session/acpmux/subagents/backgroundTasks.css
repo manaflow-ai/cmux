@@ -333,3 +333,128 @@ button.bgtasks-row:hover {
   margin: 0 6px 4px 28px;
   padding: 4px 8px;
 }
+
+/* (C2) grouped, two-line agent rows. */
+.bgtasks-c2 {
+  gap: 4px;
+}
+/* Group labels sit under the rows: caption size, muted, no weight. */
+.bgtasks-c2__label {
+  height: 20px;
+  margin: 0;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  font-weight: 400;
+}
+.bgtasks-c2__row {
+  height: 40px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+}
+.bgtasks-c2__line {
+  height: 20px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The title keeps its room; time and stop never shrink. */
+.bgtasks-c2__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.bgtasks-c2__kind {
+  flex: none;
+}
+/* Line 2 runs under the stop too; the action gives way, the spend stays whole while it fits. */
+.bgtasks-c2__sub {
+  height: var(--text-caption--line-height);
+  margin-right: -26px;
+  padding-left: 22px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.bgtasks-c2__action {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bgtasks-c2__sep {
+  flex: none;
+}
+.bgtasks-c2__spend {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The stop square: filled, muted until hover, on the title line. */
+.bgtasks-stop {
+  color: var(--cv-text-muted);
+  opacity: 0.7;
+}
+.bgtasks-stop:hover,
+.bgtasks-stop:focus-visible {
+  opacity: 1;
+  color: var(--cv-text);
+}
+.bgtasks-row-stoppable > .bgtasks-c2__row {
+  padding-right: 32px;
+}
+.bgtasks-c2__stop {
+  position: absolute;
+  top: 1px;
+  right: 4px;
+}
+/* Finished: one line, title · state · time, View transcript only on hover. */
+.bgtasks-c2__done {
+  padding-right: 4px;
+}
+.bgtasks-c2__done:hover {
+  background: var(--agent-control-hover);
+}
+.bgtasks-c2__done-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.bgtasks-c2__done-name {
+  font-weight: 500;
+}
+.bgtasks-c2__done-meta {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
+.bgtasks-c2__view {
+  height: 22px;
+  opacity: 0;
+}
+.bgtasks-c2__done:hover > .bgtasks-c2__view,
+.bgtasks-c2__view:focus-visible {
+  opacity: 1;
+}
+/* Finished lines up with the group labels and row icons. */
+.bgtasks[data-layout="grouped2"] .bgtasks__finished {
+  padding: 0 6px;
+}
