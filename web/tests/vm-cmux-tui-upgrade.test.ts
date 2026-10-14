@@ -59,21 +59,24 @@ canary_crash_loop
     mkdirSync(run);
     try {
       const gateStart = script.indexOf("# A crash-looping daemon is between restarts");
-      const gateEnd = script.indexOf("tr '\\0' ' ' < /proc/$D/cmdline", gateStart);
+      const gateEnd = script.indexOf('if [ "$(exe_sha "$D")"', gateStart);
       expect(gateStart).toBeGreaterThanOrEqual(0);
       expect(gateEnd).toBeGreaterThan(gateStart);
       const fixture = `flock() { return 0; }
 ${functions}
-daemon_pid() { :; }
-sleep() { :; }
-pgrep() { ${mode === "absent" ? "return 1" : "return 0"}; }
-grep() { ${mode === "trusted" ? "return 0" : "return 1"}; }
-canary_crash_loop() { finish "OK fixture-canary"; }
+      daemon_pid() { ${mode === "absent" ? ":" : "echo 77"}; }
+      sleep() { :; }
+      pgrep() { ${mode === "absent" ? "return 1" : "return 0"}; }
+      daemon_has_trusted_carrier() { ${mode === "trusted" ? ":" : "return 1"}; }
+      canary_crash_loop() { finish "OK fixture-canary"; }
 ${script.slice(gateStart, gateEnd)}
+[ "${mode}" = trusted ] && canary_crash_loop
 `;
       const result = await runChild("/bin/sh", ["-c", fixture, "fixture", "target-sha", "target-commit", run], { timeout: 5000 });
       expect(result.status).toBe(0);
-      expect(readFileSync(path.join(run, "result"), "utf8").trim()).toBe("SKIP no-daemon");
+      expect(readFileSync(path.join(run, "result"), "utf8").trim()).toBe(
+        mode === "absent" ? "SKIP no-daemon" : mode === "untrusted" ? "SKIP no-trusted-carrier" : "OK fixture-canary",
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

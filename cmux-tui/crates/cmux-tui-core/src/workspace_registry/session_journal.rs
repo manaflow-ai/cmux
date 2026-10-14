@@ -1484,6 +1484,7 @@ fn archived_non_output_after(
     archive_end: u64,
     limit: usize,
 ) -> anyhow::Result<Option<(Vec<SessionJournalRecord>, u64)>> {
+    backfill_legacy_journal_segment_kinds(connection)?;
     // This helper only owns the sealed prefix. Let the active indexed query
     // handle an entirely-active range or a cursor at the archive boundary.
     if sequence >= archive_end {
@@ -1552,6 +1553,59 @@ fn archived_non_output_after(
         reached = reached.max(end);
     }
     Ok(Some((records, reached.max(through.min(reached)))))
+}
+
+/// Populate the seal-time kind index for segments written before the index was
+/// introduced. The marker makes this an open-time migration: subsequent reads
+/// use only the indexed metadata and retain the validating fallback for a
+/// segment that is concurrently discovered without an index row.
+fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Result<()> {
+    let complete: Option<String> = connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if complete.as_deref() == Some("1") {
+        return Ok(());
+    }
+    connection.execute(
+        "INSERT OR IGNORE INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')",
+        [],
+    )?;
+    let ids = {
+        let mut statement = connection.prepare(
+            "SELECT segment_id FROM journal_segments
+             WHERE NOT EXISTS (
+               SELECT 1 FROM journal_segment_kinds
+               WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
+             )
+             ORDER BY start_sequence ASC",
+        )?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for segment_id in ids {
+        let segment = load_journal_segment(connection, &segment_id)?;
+        let kinds = decode_journal_segment(segment)?
+            .records
+            .into_iter()
+            .map(|record| record.kind)
+            .collect::<std::collections::BTreeSet<_>>();
+        for kind in kinds {
+            connection.execute(
+                "INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                params![segment_id, kind],
+            )?;
+        }
+    }
+    connection.execute(
+        "UPDATE meta SET value = '1' WHERE key = 'journal_segment_kinds_backfill'",
+        [],
+    )?;
+    Ok(())
 }
 
 fn load_journal_segment(

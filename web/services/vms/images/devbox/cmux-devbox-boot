@@ -330,14 +330,11 @@ stop_daemon() {
   i=0
   while kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
   kill -9 "$daemon_pid" 2>/dev/null
-  # A process stuck in uninterruptible sleep can make a foreground wait
-  # unbounded. Reap it through a bounded observer so the supervisor can reach
-  # start_daemon even when the old child cannot be collected yet.
-  wait "$daemon_pid" 2>/dev/null &
-  waiter=$!
-  timeout --signal=TERM --kill-after=1s 2s tail --pid="$waiter" -f /dev/null >/dev/null 2>&1 || true
-  kill "$waiter" 2>/dev/null || true
-  wait "$waiter" 2>/dev/null || true
+  # Observe the post-KILL exit separately, then reap the child in this shell.
+  # Keeping the wait here prevents a replacement daemon from starting while
+  # the old child is still a zombie owned by the supervisor.
+  timeout --signal=TERM --kill-after=1s 2s tail --pid="$daemon_pid" -f /dev/null >/dev/null 2>&1 || true
+  wait "$daemon_pid" 2>/dev/null || true
   daemon_pid=""
   daemon_health_ticks=0
   daemon_health_failures=0
