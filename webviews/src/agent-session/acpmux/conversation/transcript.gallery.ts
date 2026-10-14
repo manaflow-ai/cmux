@@ -560,7 +560,8 @@ export default agentPaneEntry({
         await ctx.waitFor(() => text()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
         // Hovering the thought used to pop its full text as a tooltip.
         await ctx.hover({ selector: ".cv-thought__text" });
-        if (text()!.closest("[title]") || text()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
+        if (text()!.closest("[title]") || text()!.querySelector("[title]"))
+          throw new Error("a thought shows no tooltip");
       },
     },
     "thought-find": {
