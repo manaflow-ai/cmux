@@ -42,6 +42,15 @@ struct AcpmuxHomeIsolationTests {
         #expect(pair.socketPath == "/s.sock")
     }
 
+    @Test func aDaemonOfAnotherHomeIsNotThisAppsDaemon() throws {
+        let home = URL(fileURLWithPath: "/Users/me/.acpmux/tags/cgstrip", isDirectory: true)
+        #expect(!AcpmuxStatus(["home": "/Users/me/.acpmux/tags/cmux-next", "build": "x"]).serves(home: home))
+        #expect(AcpmuxStatus(["home": "/Users/me/.acpmux/tags/cgstrip/"]).serves(home: home))
+        #expect(AcpmuxStatus(["home": "/Users/me/.acpmux/tags/../tags/cgstrip"]).serves(home: home))
+        // A daemon that does not report its home is taken at its socket's word.
+        #expect(AcpmuxStatus([:]).serves(home: home))
+    }
+
     /// The shared `resolve` cases (cmux-agent-pane-policy tests/cases/environment.json), which
     /// the Rust policy runs too.
     @Test func resolveMatchesTheSharedCases() throws {
@@ -110,5 +119,47 @@ struct AcpmuxOtherHomeDaemonTests {
         let pid = try #require(started)
         #expect(after?.pid == pid, "B stopped A's daemon (now \(String(describing: after?.pid)))")
         #expect(!bUsedIt, "B took a daemon of another home as its own")
+    }
+
+    /// Every handoff and Quit Everything stop a daemon through `shutdown`, which checks its home.
+    @Test func aShutdownNeverStopsAnotherHomesDaemon() async throws {
+        let binary = try #require(SameTreeAcpmuxBinary.url)
+        let root = URL(fileURLWithPath: "/tmp/aoh-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let other = root.appendingPathComponent("other", isDirectory: true)
+        let socket = home.appendingPathComponent("s.sock").path
+        for directory in [bin, home, other] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.copyItem(at: binary, to: bin.appendingPathComponent("acpmux"))
+        let environment = try #require(AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
+                                                                 environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]))
+        var refused: (any Error)?
+        var started: Int32?
+        do {
+            try await AcpmuxHost(environment: environment).prewarm()
+            started = try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid
+            do {
+                try await AcpmuxStatusClient.shutdown(socketPath: socket, home: other, deadline: .seconds(10))
+            } catch {
+                refused = error
+            }
+        } catch {
+            Issue.record("the daemon did not start: \(error)")
+        }
+        let after = try? await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15))
+        // Its own home stops it.
+        try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, deadline: .seconds(10))
+        let pid = try #require(started)
+        #expect(after?.pid == pid, "a shutdown for another home stopped the daemon")
+        guard case AcpmuxStatusClient.Failure.otherHome(_)? = refused as? AcpmuxStatusClient.Failure else {
+            Issue.record("expected .otherHome, got \(String(describing: refused))")
+            return
+        }
+        let exitDeadline = ContinuousClock.now + .seconds(10)
+        while kill(pid, 0) == 0, ContinuousClock.now < exitDeadline { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(kill(pid, 0) != 0, "its own home's shutdown did not stop it")
     }
 }
