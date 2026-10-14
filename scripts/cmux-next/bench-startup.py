@@ -249,7 +249,7 @@ def state_directories(tag):
     snapshot, agent sessions (acpmux), Home's memory."""
     home = os.path.expanduser("~")
     return [os.path.join(home, "Library/Application Support/cmux/tags", tag),
-            os.path.join(home, ".acpmux/tags", tag), os.path.join(home, ".cmux/mux/tags", tag)]
+            os.path.join(home, ".acpmux/builds", f"com.cmuxterm.app.debug.{tag}"), os.path.join(home, ".cmux/mux/tags", tag)]
 
 
 def reset_state(tag):

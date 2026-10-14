@@ -263,7 +263,7 @@ finally:
     print("app exited" if exited else "app STILL RUNNING", flush=True)
     if not exited:
         process.terminate()
-    acp = f"{home}/.acpmux/tags/{opts.tag}"
+    acp = f"{home}/.acpmux/builds/com.cmuxterm.app.debug.{opts.tag}"
     if os.path.isdir(acp):
         subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
                        env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))

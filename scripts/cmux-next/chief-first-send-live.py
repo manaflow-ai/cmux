@@ -44,8 +44,8 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 MUX_HOME = os.path.expanduser(f"~/.cmux/chief/isolated/{TAG}")
 OPTCHAT = os.path.join(MUX_HOME, "optchat")
 ACPMUX_HOME = os.path.join(MUX_HOME, "acpmux")
-# The app's own acpmux for its tag (AcpmuxEnvironment: ~/.acpmux/tags/<slug>).
-TAG_ACPMUX_HOME = os.path.expanduser(f"~/.acpmux/tags/{TAG}")
+# The app's own acpmux for its build (AcpmuxEnvironment: ~/.acpmux/builds/<build key>).
+TAG_ACPMUX_HOME = os.path.expanduser(f"~/.acpmux/builds/com.cmuxterm.app.debug.{TAG}")
 SCRATCH = tempfile.mkdtemp(prefix=f"chief-first-send-{TAG}-")
 os.makedirs(opts.out, exist_ok=True)
 

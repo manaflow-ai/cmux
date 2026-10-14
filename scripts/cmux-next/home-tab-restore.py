@@ -158,7 +158,7 @@ try:
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "launch-3-fixture.png")})
 finally:
     quit_app(pid)
-    acp = f"{home}/.acpmux/tags/{opts.tag}"
+    acp = f"{home}/.acpmux/builds/com.cmuxterm.app.debug.{opts.tag}"
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 

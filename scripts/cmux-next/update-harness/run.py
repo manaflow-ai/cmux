@@ -446,7 +446,7 @@ def main():
     server = app = None
     result = {"tag": a.tag, "app": name}
     slug = "-".join(filter(None, "".join(c if c.isalnum() else " " for c in a.tag.lower()).split()))
-    acp_home = os.path.join(os.environ["HOME"], ".acpmux/tags", slug)
+    acp_home = os.path.join(os.environ["HOME"], ".acpmux/builds", f"com.cmuxterm.app.debug.{slug}")
     terminal = agent = None
     try:
         public_key = run(["swift", os.path.join(HERE, "keys.swift"), "generate", keys])

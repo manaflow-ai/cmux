@@ -162,9 +162,9 @@ def cleanup():
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
     # Both acpmux daemons of the tag: the Chief's (its home) and the app's
-    # agent daemon (~/.acpmux/tags/<slug>, AcpmuxEnvironment.tagSlug); a
+    # agent daemon (~/.acpmux/builds/<build key>, AcpmuxEnvironment); a
     # daemon left running keeps its agent harnesses (and their PTYs) alive.
-    for home in (os.path.join(MUX_HOME, "acpmux"), os.path.expanduser(f"~/.acpmux/tags/{tag_slug(TAG)}")):
+    for home in (os.path.join(MUX_HOME, "acpmux"), os.path.expanduser(f"~/.acpmux/builds/com.cmuxterm.app.debug.{tag_slug(TAG)}")):
         done = subprocess.run([ACPMUX, "daemon", "shutdown"], env={**os.environ, "ACPMUX_HOME": home},
                               capture_output=True, text=True, timeout=60)
         with open(os.path.join(opts.out, "cleanup.log"), "a") as log:

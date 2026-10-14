@@ -13,12 +13,23 @@ use serde_json::Value;
 use std::path::Path;
 
 /// The variables that could point the CLI at a home other than its build's.
-const FOREIGN: [&str; 6] =
-    ["ACPMUX_HOME", "ACPMUX_SOCKET", "CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "CMUX_TUI_SOCKET"];
+const FOREIGN: [&str; 6] = [
+    "ACPMUX_HOME",
+    "ACPMUX_SOCKET",
+    "CMUX_SOCKET_PATH",
+    "CMUX_BUNDLE_ID",
+    "CMUX_TAG",
+    "CMUX_TUI_SOCKET",
+];
 
 /// `cmux acp <args>` as the CLI inside the build `bundle_id` (shipping
 /// `bundled_tag`), for a person whose home directory is `user_home`.
-fn acp_as(bundle_id: Option<&str>, bundled_tag: Option<&str>, user_home: &Path, args: &[&str]) -> Output {
+fn acp_as(
+    bundle_id: Option<&str>,
+    bundled_tag: Option<&str>,
+    user_home: &Path,
+    args: &[&str],
+) -> Output {
     let mut command = Command::new(bin());
     command.arg("acp").args(args).env("LC_ALL", "C").env("HOME", user_home);
     for key in FOREIGN {
@@ -41,7 +52,8 @@ fn json_of(output: &Output) -> Value {
 }
 
 fn vectors() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../schemas/build-identity/vectors.json");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../schemas/build-identity/vectors.json");
     serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap()
 }
 
@@ -93,8 +105,10 @@ fn stopping_one_builds_acpmux_leaves_nightlys_running() {
     let pid = |status: &Value| status["pid"].as_u64().unwrap_or(0) as i32;
     // SAFETY: kill with signal 0 only checks that the process exists.
     let running = |pid: i32| pid > 0 && unsafe { libc::kill(pid, 0) } == 0;
-    let homes = (nightly["home"].as_str().map(PathBuf::from), dev["home"].as_str().map(PathBuf::from));
-    let sockets = (nightly["socket"].as_str().map(str::to_owned), dev["socket"].as_str().map(str::to_owned));
+    let homes =
+        (nightly["home"].as_str().map(PathBuf::from), dev["home"].as_str().map(PathBuf::from));
+    let sockets =
+        (nightly["socket"].as_str().map(str::to_owned), dev["socket"].as_str().map(str::to_owned));
     let stop_dev = shutdown(DEV);
     let nightly_after = running(pid(&nightly));
     let _ = shutdown(NIGHTLY);
