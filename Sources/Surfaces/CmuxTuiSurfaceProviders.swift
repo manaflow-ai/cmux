@@ -449,8 +449,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // scan runs a guest command and took most of a second on a machine
             // that had just resumed, which held New Machine's first terminal
             // back for nothing (it only feeds port-preview rows).
-            let desktopPort = summary.desktopPort
-            portScan = Task { [weak self] in
+            portScan = Task { [weak self, desktopPort = summary.desktopPort] in
                 await self?.ports(link: link, socketPath: connected.socketPath, force: force, lifecycle: lifecycle, privateAddress: privateAddress, displayPortsOwned: hasDesktop, desktopPort: desktopPort)
             }
             async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
