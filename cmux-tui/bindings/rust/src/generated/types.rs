@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409.
+// cmux-tui mux protocol 12, IR 442dff11d53dfe645fc5ba440d155e195aa7731c5bcae322ad5f01627e4f886e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -409,6 +409,8 @@ pub struct ConversationMessage {
     pub retracted_at: Option<String>,
     pub seq: u64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub thread: Option<ConversationThreadState>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub thread_root: Option<String>,
 }
 
@@ -543,12 +545,50 @@ pub struct ConversationTextRun {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationThreadResolution {
+    pub at: String,
+    pub by: String,
+    pub seq: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationThreadState {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<ConversationThreadResolution>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConversationThreadStatus {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "resolved")]
+    Resolved,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationThreadSummary {
     pub authors: Vec<String>,
     pub last_reply_at: Nullable<String>,
     pub last_reply_seq: Nullable<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
     pub reply_count: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub resolved_at: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub resolved_by: Option<String>,
     pub root: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub status: Option<ConversationThreadStatus>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[rustfmt::skip]
