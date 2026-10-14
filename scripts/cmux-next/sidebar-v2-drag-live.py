@@ -211,15 +211,16 @@ def late_undo(label, undone, redone):
     undo); Shift-Cmd-Z redoes it, so the step's result stays for the next step."""
     gone = wait(lambda: not undo_toasts() or None, 20)  # the toast hides after its own time (6 s)
     time.sleep(10.0)  # test harness: Cmd-Z comes 10 s after the toast hid, not inside its time
-    rpc("debug.key", {"key": "z", "modifiers": ["cmd"]})
+    key = rpc("debug.key", {"key": "z", "modifiers": ["cmd"]}) or {}
     ok = wait(lambda: bool(undone()) or None, 5)
     record(f"{label}: Cmd-Z 10 s after the toast hid restores", bool(gone) and bool(ok),
-           f"toast hidden={bool(gone)} list={list_titles()} pinned={[i.get('ref') for i in section_items('sec_pinned')]}")
-    rpc("debug.key", {"key": "z", "modifiers": ["cmd", "shift"]})
-    again = wait(lambda: bool(redone()) or None, 5)
+           f"toast hidden={bool(gone)} key={json.dumps(key)[:300]} list={list_titles()} "
+           f"pinned={[i.get('ref') for i in section_items('sec_pinned')]}")
+    key = rpc("debug.key", {"key": "z", "modifiers": ["cmd", "shift"]}) or {}
+    again = wait(lambda: (bool(redone()) and not bool(undone())) or None, 5) if ok else None
     if not again and undo_toasts():
         toast(undo=True)  # keep the next steps' state; the redo check above stays FAIL
-    record(f"{label}: Shift-Cmd-Z redoes the late undo", bool(again), f"list={list_titles()}")
+    record(f"{label}: Shift-Cmd-Z redoes the late undo", bool(again), f"key={json.dumps(key)[:300]} list={list_titles()}")
 
 
 def launch():

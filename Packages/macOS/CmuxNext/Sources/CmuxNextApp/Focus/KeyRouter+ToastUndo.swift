@@ -14,4 +14,25 @@ extension KeyRouter {
               let window, undoToasts.takesUndoKey(in: window) else { return false }
         return undoToasts.runUndo(in: window)
     }
+
+    /// Cmd-Z or Shift-Cmd-Z in a window whose undo stack has a pin or
+    /// sidebar step on top (`PinUndoStep`, after its toast hid): undoes or
+    /// redoes it, as Edit > Undo would, also when the window is not key
+    /// (Edit > Undo then has no target). Other undo stays the responders'.
+    func runsUndoStep(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        guard event.charactersIgnoringModifiers?.lowercased() == "z", let window,
+              let manager = window.firstResponder?.undoManager ?? window.undoManager else { return false }
+        switch event.modifierFlags.intersection([.command, .control, .option, .shift]) {
+        case .command:
+            guard PinUndoStep.newest?.isTop(of: manager) == true else { return false }
+            manager.undo()
+            return true
+        case [.command, .shift]:
+            guard PinUndoStep.newestRedo?.isRedoTop(of: manager) == true else { return false }
+            manager.redo()
+            return true
+        default:
+            return false
+        }
+    }
 }
