@@ -25,10 +25,14 @@ public final class SidebarMirror {
     }
 
     #if CMUX_SIDEBAR_MIRROR_FFI
-    private let handle: OpaquePointer
+    /// The mirror handle. Used on the main actor only; the deinit frees it once nothing else can.
+    // crash-allow: the handle is never shared; only the owning mirror (main actor) and its deinit touch it.
+    private nonisolated struct Handle: @unchecked Sendable { let pointer: OpaquePointer }
+    private let owned: Handle
+    private var handle: OpaquePointer { owned.pointer }
 
     private init(handle: OpaquePointer) {
-        self.handle = handle
+        owned = Handle(pointer: handle)
     }
 
     public static func make() -> SidebarMirror? {
@@ -37,7 +41,7 @@ public final class SidebarMirror {
     }
 
     deinit {
-        cmux_sidebar_mirror_free(handle)
+        cmux_sidebar_mirror_free(owned.pointer)
     }
 
     private typealias Entry = (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?
