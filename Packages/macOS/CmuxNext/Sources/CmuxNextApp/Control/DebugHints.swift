@@ -32,13 +32,14 @@ enum DebugHints {
     }
 
     static func report(_ hints: WindowHintController, params: [String: JSONValue]) -> JSONValue {
-        let menu: JSONValue = tracked.map { menu in
-            ["open": true, "items": .array(menu.items.map { .string($0.isSeparatorItem ? "-" : $0.title) })]
-        } ?? ["open": false, "items": []]
         if let title = params["pick_menu"]?.stringValue, let open = tracked, let index = open.items.firstIndex(where: { $0.title == title }) {
             open.cancelTracking()
             open.performActionForItem(at: index)
+            tracked = nil
         }
+        let menu: JSONValue = tracked.map { menu in
+            ["open": true, "items": .array(menu.items.map { .string($0.isSeparatorItem ? "-" : $0.title) })]
+        } ?? ["open": false, "items": []]
         if params["dismiss_menu"]?.boolValue == true { tracked?.cancelTracking() }
         guard let shown = hints.shown else { return ["active": false, "typed": "", "hints": [], "menu": menu] }
         return [

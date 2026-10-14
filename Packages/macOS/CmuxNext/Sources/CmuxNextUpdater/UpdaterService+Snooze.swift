@@ -21,20 +21,29 @@ extension UpdaterService {
     }
 
     /// An x menu item: hide the shown update's version until a newer one, or every update card
-    /// until the chosen time (persisted; a relaunch keeps it).
+    /// until the chosen time (persisted; a relaunch keeps it). With no update shown any more (it
+    /// began installing while the menu was open), Hide Until a Newer Version does nothing: a
+    /// recorded "" would hide every later update that names no version.
     public func closeUpdateCard(_ option: UpdateCardCloseOption) {
         var snooze = updateSnooze
         if let length = option.remindLength {
             snooze.remindAfter = now().addingTimeInterval(length)
         } else {
-            snooze.closedVersion = shownUpdateVersion ?? ""
+            switch flow.phase {
+            case .ready(let version), .available(let version):
+                snooze.closedVersion = version ?? ""
+            case .hidden, .checking, .downloading, .installing, .note:
+                log.append("update card close ignored: no update shown")
+                return
+            }
         }
         log.append("update card closed: \(option.rawValue) version=\(shownUpdateVersion ?? "none")")
         storeUpdateSnooze(snooze)
         followCardExpiry()
     }
 
-    /// The person asked to check or install: a closed or snoozed card shows again.
+    /// The person asked to check or install, or an update the organization requires is shown
+    /// again (`recheckRequiredUpdate()`, managed MinimumVersion): a closed or snoozed card shows again.
     public func clearUpdateSnooze() {
         storeUpdateSnooze(UpdateSnooze())
     }

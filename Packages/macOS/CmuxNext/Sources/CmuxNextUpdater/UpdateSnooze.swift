@@ -12,7 +12,8 @@ public import Foundation
 ///   for any version (a nightly ships about once a day, so a version-bound reminder would come
 ///   back the next morning).
 ///
-/// A check the user asks for clears both (``UpdaterService/clearUpdateSnooze()``).
+/// A check or install the user asks for clears both, and so does the recheck of an update the
+/// organization requires (managed MinimumVersion) (``UpdaterService/clearUpdateSnooze()``).
 nonisolated public struct UpdateSnooze: Equatable, Sendable {
     /// The update version whose card the person closed ("" when the update named no version).
     public var closedVersion: String?

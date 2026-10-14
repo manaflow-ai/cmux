@@ -30,6 +30,10 @@ final class SidebarIconButton: NSButton {
         didSet { refusesFirstResponder = !takesKeyFocus }
     }
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+    /// Mouse events never move the keyboard focus here: a click on a card's x would otherwise
+    /// leave the focus on a button that the card then hides, and typing would go nowhere.
+    private static let mouseEvents: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+                                                               .otherMouseDown, .otherMouseUp]
     private lazy var keyRepaint = KeyWindowRepaint(self)
     /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
@@ -45,6 +49,8 @@ final class SidebarIconButton: NSButton {
         super.init(frame: .zero)
         renderIcon()
         imagePosition = .imageOnly
+        // An image-only button: no "Button" title for VoiceOver and hint mode (they read the label).
+        title = ""
         isBordered = false
         setAccessibilityLabel(label)
         themedToolTip = label
@@ -94,7 +100,10 @@ final class SidebarIconButton: NSButton {
 
     override var wantsUpdateLayer: Bool { true }
 
-    override var acceptsFirstResponder: Bool { takesKeyFocus ? NSApp.isFullKeyboardAccessEnabled && isEnabled : super.acceptsFirstResponder }
+    override var acceptsFirstResponder: Bool {
+        guard takesKeyFocus else { return super.acceptsFirstResponder }
+        return NSApp.isFullKeyboardAccessEnabled && isEnabled && !(NSApp.currentEvent.map { Self.mouseEvents.contains($0.type) } ?? false)
+    }
     override var canBecomeKeyView: Bool { takesKeyFocus ? acceptsFirstResponder && !isHiddenOrHasHiddenAncestor : super.canBecomeKeyView }
 
     override func becomeFirstResponder() -> Bool {
@@ -118,10 +127,10 @@ final class SidebarIconButton: NSButton {
         layer?.cornerRadius = Metrics.itemCornerRadius
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
-            let ring = takesKeyFocus && KeyWindowRepaint.showsFocus(self, focused: isKeyFocused)
-            layer?.borderColor = Palette.focusRing.cgColor
-            layer?.borderWidth = ring ? Metrics.lineWidth(1.5) : 0
         }
+        // The theme's focus ring through the shared chrome (ChromeHover), only in the key window.
+        let ring = takesKeyFocus && KeyWindowRepaint.showsFocus(self, focused: isKeyFocused)
+        if hover.state.focused != ring { hover.state.focused = ring }
         hover.refresh(animated: false)
     }
 
