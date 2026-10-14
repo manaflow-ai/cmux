@@ -116,7 +116,10 @@ export async function thumbnail(image: { mimeType: string; data: string }, heigh
   try {
     const bytes = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0));
     const bitmap = await createImageBitmap(new Blob([bytes], { type: image.mimeType }));
-    if (!bitmap.width || !bitmap.height) return undefined;
+    if (!bitmap.width || !bitmap.height) {
+      bitmap.close();
+      return undefined;
+    }
     const ratio = Math.min(2, Math.max(0.7, bitmap.width / bitmap.height));
     const [sourceWidth, sourceHeight] =
       bitmap.width / bitmap.height > ratio
@@ -124,7 +127,10 @@ export async function thumbnail(image: { mimeType: string; data: string }, heigh
         : [bitmap.width, bitmap.width / ratio];
     const canvas = new OffscreenCanvas(Math.round(height * ratio), height);
     const context = canvas.getContext("2d");
-    if (!context) return undefined;
+    if (!context) {
+      bitmap.close();
+      return undefined;
+    }
     context.drawImage(
       bitmap,
       (bitmap.width - sourceWidth) / 2,

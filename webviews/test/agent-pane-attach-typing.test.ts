@@ -129,7 +129,7 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
         await page.screenshot({ clip: { x: box.x - 4, y: box.y - 4, width: box.width + 8, height: box.height + 8 } }),
       );
       const { width, height } = png;
-      // Along the middle third of each side: the thumbnail's outermost pixel, the composer 2 px
+      // Along the middle third of each side: the thumbnail's outermost pixel, the composer 3 px
       // outside it, and the image's own middle.
       const edge: [number, number][] = [];
       const outside: [number, number][] = [];
