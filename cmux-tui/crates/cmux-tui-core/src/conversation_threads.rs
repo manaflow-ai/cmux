@@ -4,9 +4,11 @@
 //! from an expression index over `message.thread_root`, as the cloud owner
 //! does over its rows, so no reducer or corpus change is needed. A retracted
 //! reply stays in the thread read (shown as "message deleted") but does not
-//! count in the stats (cx-59n8.9).
+//! count in the stats (cx-59n8.9). The thread object (title, owner, status;
+//! conversation-thread-objects-v1) comes from the root's `thread`; the status
+//! is derived: a live reply after the resolution reopens the thread.
 
-use cmux_conversation::{Message, Reject};
+use cmux_conversation::{Message, Reject, ThreadStatus};
 use rusqlite::{Connection, params};
 use serde::Serialize;
 
@@ -30,6 +32,17 @@ pub(crate) struct ThreadSummary {
     pub last_reply_at: Option<String>,
     /// The first distinct reply authors, ascending by seq.
     pub authors: Vec<String>,
+    /// `resolved` while the root's resolution is newer than every live reply.
+    pub status: ThreadStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    /// Who resolved it and when; only while `status` is `resolved`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_at: Option<String>,
 }
 
 /// `conversation-thread` data.
@@ -75,12 +88,12 @@ impl ConversationStore {
         let has_more = replies.len() > limit as usize;
         replies.truncate(limit as usize);
         drop(statement);
-        let thread = summary(&transaction, conversation, &root.id)?;
+        let thread = summary(&transaction, conversation, &root)?;
         Ok(ThreadPage { root, replies, has_more, thread })
     }
 
-    /// The summaries of the roots in `messages` that have replies, in page
-    /// order.
+    /// The summaries of the roots in `messages` that have replies or a
+    /// thread object, in page order.
     pub(crate) fn thread_summaries(
         &mut self,
         conversation: &str,
@@ -89,8 +102,8 @@ impl ConversationStore {
         let transaction = self.connection.transaction()?;
         let mut summaries = Vec::new();
         for message in messages.iter().filter(|message| message.thread_root.is_none()) {
-            let summary = summary(&transaction, conversation, &message.id)?;
-            if summary.reply_count > 0 {
+            let summary = summary(&transaction, conversation, message)?;
+            if summary.reply_count > 0 || message.thread.is_some() {
                 summaries.push(summary);
             }
         }
@@ -100,12 +113,26 @@ impl ConversationStore {
 
 /// The stats of root `root` over its replies that are not retracted: count,
 /// last reply, and the first distinct authors, read through
-/// `message_by_thread`.
+/// `message_by_thread`, with the root's thread object.
 fn summary(
     connection: &Connection,
     conversation: &str,
-    root: &str,
+    root_message: &Message,
 ) -> anyhow::Result<ThreadSummary> {
+    let mut summary = stats(connection, conversation, &root_message.id)?;
+    if let Some(thread) = &root_message.thread {
+        summary.status = thread.status(summary.last_reply_seq);
+        summary.title = thread.title.clone();
+        summary.owner = thread.owner.clone();
+        if summary.status == ThreadStatus::Resolved {
+            summary.resolved_by = thread.resolved.as_ref().map(|resolved| resolved.by.clone());
+            summary.resolved_at = thread.resolved.as_ref().map(|resolved| resolved.at.clone());
+        }
+    }
+    Ok(summary)
+}
+
+fn stats(connection: &Connection, conversation: &str, root: &str) -> anyhow::Result<ThreadSummary> {
     let (count, last_seq): (i64, Option<i64>) = connection.query_row(
         "SELECT count(*), max(seq) FROM message
          WHERE conversation = ?1 AND json_extract(message_json, '$.thread_root') = ?2
@@ -119,6 +146,11 @@ fn summary(
         last_reply_seq: None,
         last_reply_at: None,
         authors: Vec::new(),
+        status: ThreadStatus::Open,
+        title: None,
+        owner: None,
+        resolved_by: None,
+        resolved_at: None,
     };
     let Some(last_seq) = last_seq else { return Ok(summary) };
     let last_json: String = connection.query_row(

@@ -16,6 +16,7 @@ export const HomeOps = {
   retract: "cmux.home.retract",
   createGroup: "cmux.home.createGroup",
   resolveLink: "cmux.home.resolveLink",
+  updateThread: "cmux.home.updateThread",
   events: "cmux.home.events",
 } as const;
 
@@ -90,6 +91,31 @@ export interface HomeMessage {
   threadRoot?: string;
   /** The author's idempotency key: an agent's reply carries its turn's key, so its draft ends. */
   clientMessageId?: string;
+  /** A thread root's object (title, owner, resolution); owners with conversation-thread-objects-v1. */
+  thread?: HomeThreadObject;
+}
+
+export type HomeThreadStatus = "open" | "resolved";
+
+/** The owner's thread object on a root. A resolution reads as resolved only while no live reply has
+ * a seq above `resolved.seq`: a new reply reopens the thread (threadStatus in model.ts). */
+export interface HomeThreadObject {
+  /** Absent: show the root's first line (threadTitle in model.ts). */
+  title?: string;
+  /** A participant id: a person or a Chief. */
+  owner?: string;
+  resolved?: { by: string; at: number; seq: number };
+}
+
+/** `cmux.home.updateThread`: any participant sets a thread's title, status or owner. An empty
+ * title or owner clears it; at least one field. The owner sends `thread.update`. */
+export interface HomeThreadUpdate {
+  conversation: string;
+  root: string;
+  title?: string;
+  status?: HomeThreadStatus;
+  owner?: string;
+  idempotencyKey?: string;
 }
 
 /** One item of an agent's running reply (`conversation-draft`, ephemeral, never stored). A `fresh`
@@ -123,6 +149,13 @@ export interface HomeThreadStats {
   lastReplyAt?: number;
   /** The first three distinct reply authors. */
   authors: string[];
+  /** The owner's derived status (absent before conversation-thread-objects-v1: open). */
+  status?: HomeThreadStatus;
+  title?: string;
+  owner?: string;
+  /** Only while resolved. */
+  resolvedBy?: string;
+  resolvedAt?: number;
 }
 
 export interface HomePage {

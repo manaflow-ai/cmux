@@ -59,8 +59,16 @@ const meterId = async (event: string): Promise<string> => {
   if (!m) throw new Error(`no test meter ${event} (run stripe-usage-catalog.ts --set=e2e)`)
   return m.id
 }
+/** The first active monthly licensed (plan) price whose lookup key starts with `prefix` (the search API has no prefix match on lookup keys). */
 const planPrice = async (prefix: string) => {
-  const found = (await stripe("GET", `/v1/prices/search?query=${encodeURIComponent(`active:'true' AND lookup_key~'${prefix}'`)}&limit=10`)).data.filter((p: any) => p.recurring?.interval === "month" && p.recurring?.usage_type !== "metered")
+  const found: any[] = []
+  let after: string | undefined
+  for (let page = 0; page < 10 && found.length === 0; page++) {
+    const list = await stripe("GET", `/v1/prices?active=true&type=recurring&limit=100${after ? `&starting_after=${after}` : ""}`)
+    found.push(...list.data.filter((p: any) => typeof p.lookup_key === "string" && p.lookup_key.startsWith(prefix) && p.recurring?.interval === "month" && p.recurring?.usage_type !== "metered"))
+    if (!list.has_more) break
+    after = list.data.at(-1).id
+  }
   if (!found[0]) throw new Error(`no monthly test plan price with lookup key ${prefix}*`)
   return found[0]
 }
