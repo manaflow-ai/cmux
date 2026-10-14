@@ -8553,18 +8553,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         placementOverride: WorkspacePlacement? = nil,
         debugSource: String = "newWorkspace",
-        skipConfiguredAction: Bool = false
+        skipConfiguredAction: Bool = false,
+        localOnly: Bool = false
     ) -> Bool {
         // This is the context-following path used by the ordinary New Workspace
         // controls. On an active remote-tmux mirror it follows the routing toggle;
         // `performNewLocalWorkspaceAction` is the explicit local escape hatch.
+        //
+        // `localOnly` is Cmd+N and the controls that share it: they never start
+        // a device or Cloud workspace from the selection, but a custom
+        // `ui.newWorkspace.action` is still what they create. `skipConfiguredAction`
+        // is the built-in action picked by name, which must not run the
+        // configured one in its place.
+        let staysLocal = skipConfiguredAction || localOnly
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
         let manager = context?.tabManager ?? preferredTabManager
-        if !skipConfiguredAction, let manager, let machine = manager.selectedWorkspace?.deviceMachineForNewWorkspace {
+        if !staysLocal, let manager, let machine = manager.selectedWorkspace?.deviceMachineForNewWorkspace {
             return deviceWorkspaceCreationCoordinator?.start(on: machine, in: manager) ?? false
         }
-        if !skipConfiguredAction, let manager,
+        if !staysLocal, let manager,
            let vmID = manager.selectedWorkspace?.cloudVMID,
            !vmID.isEmpty {
             // Once this intent targets a VM, an unavailable or pending cloud
@@ -8577,8 +8585,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             placementOverride: placementOverride,
             debugSource: debugSource,
-            skipConfiguredAction: skipConfiguredAction,
-            inheritWorkingDirectoryOverride: skipConfiguredAction
+            skipConfiguredAction: staysLocal,
+            runsCustomConfiguredAction: localOnly && !skipConfiguredAction,
+            forceLocal: localOnly,
+            inheritWorkingDirectoryOverride: staysLocal
                 ? manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
                 : nil
         )
@@ -8853,9 +8863,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
         skipConfiguredAction: Bool = false,
+        runsCustomConfiguredAction: Bool = false,
         forceLocal: Bool = false,
         inheritWorkingDirectoryOverride: Bool? = nil
     ) -> Bool {
+        // `runsCustomConfiguredAction` narrows `skipConfiguredAction`: the
+        // caller keeps its own plain workspace when the configured action is
+        // the built-in default, and yields only to a custom one.
+        let runsConfiguredAction: (MainWindowContext?) -> Bool = { context in
+            guard skipConfiguredAction else { return true }
+            guard runsCustomConfiguredAction,
+                  let action = context?.cmuxConfigStore?.resolvedNewWorkspaceAction() else { return false }
+            if case .builtIn(.newWorkspace) = action.action { return false }
+            return true
+        }
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
             guard let preferredContext else { return nil }
@@ -8881,7 +8902,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let initialWorkspace = context.tabManager.selectedWorkspace
                 switch initialSurface {
                 case .terminal:
-                    if !skipConfiguredAction {
+                    if runsConfiguredAction(context) {
                         _ = executeConfiguredNewWorkspaceActionIfAvailable(
                             in: context,
                             debugSource: debugSource,
@@ -8930,7 +8951,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // workspace layout) keeps its existing meaning on a selected mirror.
         // The built-in `.newWorkspace` action is the default and deliberately
         // continues through the remote route below.
-        let configuredNewWorkspaceAction = initialSurface == .terminal && !skipConfiguredAction
+        let configuredNewWorkspaceAction = initialSurface == .terminal && runsConfiguredAction(context)
             ? context?.cmuxConfigStore?.resolvedNewWorkspaceAction()
             : nil
         let hasCustomConfiguredNewWorkspaceAction: Bool = {
@@ -15712,7 +15733,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             performNewWorkspaceAction(
                 event: event,
                 debugSource: "shortcut.cmdN",
-                skipConfiguredAction: true
+                localOnly: true
             )
             return true
         }
