@@ -39,6 +39,14 @@ class Handler : public CefDownloadHandler {
   // The host decides the path; Chromium's dialog never shows.
   bool OnBeforeDownload(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDownloadItem> item, const CefString& suggested_name,
                         CefRefPtr<CefBeforeDownloadCallback> callback) override {
+    // A Web Store install ("Add to Chrome") downloads its CRX into a path
+    // Chromium forces (<user data>/Webstore Downloads) and hands that file to
+    // the CRX installer when the download completes. The host would place it
+    // as a temporary sibling in Downloads and move it on completion, so the
+    // installer's copy found no file (FAILED_TO_COPY_EXTENSION_FILE_TO_TEMP_
+    // DIRECTORY). Not handled here: CEF passes it to Chrome's delegate, which
+    // keeps the forced path, and it is not a download the person sees.
+    if (IsWebStoreCrxURL(item->GetOriginalUrl().ToString())) return false;
     const int token = downloads().Begin(ContextOf(browser), item->GetId(), callback);
     Emit(CMUX_SHIM_DOWNLOAD_STARTED, browser ? browser->GetIdentifier() : 0, token, item->GetTotalBytes(), 0,
          item->GetOriginalUrl().ToString(), suggested_name.ToString());
