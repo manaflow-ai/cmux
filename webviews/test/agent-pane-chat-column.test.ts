@@ -157,11 +157,13 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function open(chat: Chat, width: number, height = 700): Promise<Page> {
+  async function open(chat: Chat, width: number, height = 700, hash = ""): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${chat.id}`);
+    await page.goto(
+      `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${chat.id}${hash}`,
+    );
     await page.getByText("Paragraph 24.", { exact: false }).waitFor({ timeout: 25_000 });
     // Rows place by their drawn heights a frame after they mount.
     await page.waitForTimeout(300);
@@ -421,6 +423,147 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     expect(frames.filter((frame) => frame.glides > 0).length).toBe(0);
     expect(frames.filter((frame) => Math.abs(frame.lastLine - atRest) > REST_SLACK)).toEqual([]);
     await page.close();
+  });
+
+  /// How the end of the transcript sits over the composer, with the view where the page leaves it
+  /// (or, `toEnd`, scrolled to its end by the reader): how far the
+  /// last turn's action row (its time, Copy and Fork) or, while a reply streams, its last line,
+  /// clears the top of the composer, and whether the view stops where the composer starts. Read
+  /// once nothing moves.
+  const endClearance = async (page: Page, what: "actions" | "line", toEnd = false) => {
+    await restingLastLine(page);
+    if (toEnd) {
+      await page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroller.scrollTop = scroller.scrollHeight;
+      });
+      await restingLastLine(page);
+    }
+    return page.evaluate((what) => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const composer = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-composer")!;
+      const end =
+        what === "actions"
+          ? [...scroller.querySelectorAll<HTMLElement>(".cv-turn-actions")].at(-1)
+          : [...scroller.querySelectorAll<HTMLElement>("p")].at(-1);
+      const top = Math.min(
+        ...[composer, ...composer.querySelectorAll<HTMLElement>("*")]
+          .filter((node) => node.getBoundingClientRect().height > 0)
+          .map((node) => node.getBoundingClientRect().top),
+      );
+      return {
+        clears: end ? Math.round(top - end.getBoundingClientRect().bottom) : null,
+        viewEnds: Math.round(top - scroller.getBoundingClientRect().bottom),
+      };
+    }, what);
+  };
+  /// The room the last row keeps over the composer: the composer never covers it, and it never
+  /// sits on the composer's edge.
+  const BREATHING = 16;
+  const ends = (clearance: { clears: number | null; viewEnds: number }) => ({
+    covered: clearance.clears === null || clearance.clears < BREATHING || clearance.viewEnds < 0,
+    ...clearance,
+  });
+
+  test("the last turn's time, Copy and Fork are never under the composer", async () => {
+    // Leo 2026-10-14 (#20610): the composer covered the last message's action row. With the view
+    // at its end the row clears the composer by BREATHING: after the turn ends, after its Worked
+    // for fold opens and closes, while the next reply streams and with a draft of several lines.
+    const chat = newChat();
+    const page = await open(chat, 900);
+    push(chat, "mux", "turn_result", { status: "completed" });
+    await page.locator(".cv-turn-actions").last().waitFor();
+    const ended = ends(await endClearance(page, "actions"));
+    const fold = page.locator(".cv-worked.is-toggle").last();
+    // An opened fold keeps its header in place and the view stops following past it: the reader
+    // scrolls to the end.
+    await fold.click();
+    const opened = ends(await endClearance(page, "actions", true));
+    await fold.click();
+    const closed = ends(await endClearance(page, "actions", true));
+    const draft = page.locator('.acpmux-composer-prompt [contenteditable="true"]').first();
+    await draft.click();
+    for (let line = 1; line <= 6; line++) {
+      await page.keyboard.type(`Draft line ${line}`);
+      if (line < 6) await page.keyboard.press("Shift+Enter");
+    }
+    const drafted = ends(await endClearance(page, "actions"));
+    push(chat, "mux", "user_message", { text: "And the timeout?", promptId: "p-2" });
+    push(chat, "mux", "turn_started", {});
+    for (let index = 30; index <= 36; index++) push(chat, "in", "agent_message_chunk", chunk(paragraph(index)));
+    await page.getByText("Paragraph 36.", { exact: false }).waitFor();
+    const streaming = ends(await endClearance(page, "line"));
+    expect({ ended, opened, closed, drafted, streaming }).toMatchObject({
+      ended: { covered: false },
+      opened: { covered: false },
+      closed: { covered: false },
+      drafted: { covered: false },
+      streaming: { covered: false },
+    });
+    await page.close();
+  });
+
+  test("each fold motion moves every row the fold moves: a slide, a short fade, or none", async () => {
+    // Leo 2026-10-14 (#20610): a motion option that shows nothing is no option. When the reader
+    // opens or closes a Worked for fold, every row that changes place slides there (slide) or fades
+    // in there over 120-180 ms (fade, sliding none); none animates nothing.
+    type Toggle = { moved: string[]; motions: { id: string; property: string; duration: number }[] };
+    const toggles: Record<string, Toggle[]> = {};
+    for (const mode of ["slide", "fade", "none"]) {
+      const chat = newChat();
+      const page = await open(chat, 900, 700, `&foldMotion=${mode}`);
+      push(chat, "mux", "turn_result", { status: "completed" });
+      await page.locator(".cv-turn-actions").last().waitFor();
+      await restingLastLine(page);
+      await page.evaluate(() => {
+        const animate = Element.prototype.animate;
+        Element.prototype.animate = function (keyframes, options) {
+          const id = (this as HTMLElement).dataset?.rowId;
+          if (id && Array.isArray(keyframes))
+            (window as any).__motions?.push({
+              id,
+              property: Object.keys(keyframes[0] ?? {}).find((key) => key !== "offset") ?? "?",
+              duration: Number(typeof options === "number" ? options : options?.duration),
+            });
+          return animate.call(this, keyframes, options);
+        };
+      });
+      const tops = () =>
+        page.evaluate(() =>
+          Object.fromEntries(
+            [...document.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row[data-row-id]")].map((row) => [
+              row.dataset.rowId!,
+              row.offsetTop + new DOMMatrix(getComputedStyle(row).transform).m42,
+            ]),
+          ),
+        );
+      toggles[mode] = [];
+      for (let toggle = 0; toggle < 2; toggle++) {
+        const before = await tops();
+        await page.evaluate(() => ((window as any).__motions = []));
+        await page.locator(".cv-worked.is-toggle").last().click();
+        await page.waitForTimeout(400);
+        const after = await tops();
+        toggles[mode]!.push({
+          moved: Object.keys(after).filter((id) => id in before && Math.abs(after[id]! - before[id]!) > 0.5),
+          motions: await page.evaluate(() => (window as any).__motions),
+        });
+      }
+      await page.close();
+    }
+    const unmoved = (mode: string, property: string) =>
+      toggles[mode]!.flatMap(({ moved, motions }) =>
+        moved.filter((id) => !motions.some((motion) => motion.id === id && motion.property === property)),
+      );
+    const all = (mode: string) => toggles[mode]!.flatMap(({ motions }) => motions);
+    expect({
+      moves: toggles.slide!.map(({ moved }) => moved.length > 0),
+      slideStill: unmoved("slide", "translate"),
+      fadeStill: unmoved("fade", "opacity"),
+      fadeSlides: all("fade").filter((motion) => motion.property === "translate").length,
+      fadeLong: all("fade").filter((motion) => motion.duration < 120 || motion.duration > 180),
+      none: all("none").length,
+    }).toEqual({ moves: [true, true], slideStill: [], fadeStill: [], fadeSlides: 0, fadeLong: [], none: 0 });
   });
 
   test("a prompt is a solid bubble with its text inset evenly, at the column's right edge", async () => {
