@@ -30,6 +30,8 @@ enum AgentPaneHandshakeReply {
             // The surface holds after the chat has a session (a reload
             // of the quick panel stays compact).
             handshake.surface = model.seed?.surface
+            // A chat opened for its workspace gets its context until it has a session (cx-ihyx2).
+            if model.sessionId == nil, model.seed?.workspaceContext == true { handshake.workspaceContext = true }
             // A new tab page is a new chat on every host, the mock included: the page
             // never falls back to the most recent session behind it. Its chat starts in
             // the page's folder unless a seed named one.
