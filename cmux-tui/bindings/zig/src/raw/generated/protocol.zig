@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "442dff11d53dfe645fc5ba440d155e195aa7731c5bcae322ad5f01627e4f886e";
+pub const ir_sha256 = "a7c2333b3e697db29aec05d498eaef13b9c41d138991ba08fef02691f77ad20c";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -262,11 +262,30 @@ pub const BrowserProviderAuthentication = enum {
     }
 };
 
+pub const BrowserProviderHosting = enum {
+    daemon,
+    native,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "daemon")) return .daemon;
+        if (std.mem.eql(u8, value, "native")) return .native;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .daemon => "daemon",
+            .native => "native",
+        };
+    }
+};
+
 pub const BrowserProviderSnapshot = struct {
     authentication: ?BrowserProviderAuthentication = null,
     available: bool,
     clients: ?u64 = null,
     endpoint: ?[]const u8 = null,
+    hosting: ?BrowserProviderHosting = null,
     provider_id: ?[]const u8 = null,
     revision: u64,
     targets: []const BrowserProviderTarget,
@@ -275,6 +294,7 @@ pub const BrowserProviderSnapshot = struct {
         "authentication",
         "clients",
         "endpoint",
+        "hosting",
         "provider_id",
     };
 };
@@ -6924,6 +6944,7 @@ pub const RegisterBrowserProviderRequest = struct {
     authentication: BrowserProviderAuthentication,
     bearer_token: wire.Field([]const u8) = .absent,
     endpoint: []const u8,
+    hosting: wire.Field(BrowserProviderHosting) = .absent,
     provider_id: []const u8,
     targets: []const BrowserProviderTarget,
 };
@@ -6938,6 +6959,9 @@ pub fn registerBrowserProvider(client: anytype, request: RegisterBrowserProvider
             .authority = "local-admin",
             .since = 10,
             .capability = "browser-provider-v1",
+            .fields = &.{
+                .{ .name = "hosting", .since = null, .capability = "browser-provider-native-hosting-v1" },
+            },
         },
         request,
     );
