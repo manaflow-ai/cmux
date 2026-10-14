@@ -1043,3 +1043,36 @@ tab at once), D2, D3, D4, D5 (a created tab grows from the centre), D6
 D12. D13 and D14 are app-specific (host events, the app's accessibility
 tree). In the demo the fling removes its tab about 150 ms after release (the
 demo's web views keep the main thread busy), and the reflow follows.
+
+## Round 20: the re-audit's rejections (tabs-parity-reaudit.md)
+
+Mock host on a mini-cmux15 iPhone 17 Pro simulator with the hardware
+keyboard disconnected (the re-audit's setup; the slot used before kept the
+software keyboard hidden, which is why the blocker was missed). 3 runs
+each unless noted; Safari numbers from the audit and the re-audit.
+
+| Item | Safari | Before (161a722) | After |
+|---|---|---|---|
+| 1 Grid menus raise the keyboard | Never | 7 of 7: the keyboard covered (+) and More, the menu closed after about 450 ms | `scripts/grid-menu-keyboard.sh`: red on c0afab8, 7 of 7 green (both menus open after 1.2 s, no keyboard keys in the tree). Cause: the page surface stayed first responder under the grid. Real host: menu open, no keyboard, New Tab 12 → 13 tabs |
+| 2 Slow 100 pt / 1 s drag | Springs back | Closed 4 of 9 | Springs back 3 of 3 (and in every other drag this round): 72% or a 225 pt/s fling only |
+| 3 Fling | Moves at once, about 1170 pt/s, gone about 295 ms after x0 ≈ 102; count about 99 ms | Held 55–85 ms, 1640 pt/s, froze 3–4 frames mid-exit, count about 205–240 ms | Moves on the second frame after the drag ends, 1280–1360 pt/s, one dropped frame at the removal, count at 95–115 ms (it swaps in one frame) |
+| 4 Tap during the zoom-out | Queued, opens after | Dropped 4 of 8 | 4 of 4 opened the tapped card after the zoom-out |
+| 5 ✕ reflow | 0.432 / 0.890; t10/50/90/99 50/133/250/350 | 0.40–0.41 / 0.93–0.94 | Traced: `.spring(response: 0.43, dampingFraction: 0.89)` was in effect, and SwiftUI rendered it as 0.40 / 0.93. As a plain damped oscillator: fit 0.430–0.432 / 0.885–0.890 (rms 0.33–0.41 pt); 50/117/233/350 ms; largest delta 7.1 pt (was 10–16), the rest is Safari's later onset |
+| 6 Zoom-in onset | First frame 7–11 pt, then about 21 | 31.3 pt | +7.3 pt, then +12 to +17 pt (from rest) |
+| 7 Count on close | Instant swap | Crossfade | One-frame swap (✕ and fling) |
+| 8 Last tab | 0.84 → 1, sharp, rest about 275 ms | Blur, no scale | Sharp, grows from 0.84, full screen about 225 ms after its first frame |
+| 9 Swipe onset | Catches up the slop over about 80 ms, lift × 1.093 over 80 ms | Still for about 450 ms, then a 32–45 pt jump and a one-frame lift | Moves from the first frame and glides over the slop; lift over about 80 ms. Cause: the system context menu's press held the pan; the long press is now our own recogniser and menu |
+| 11 Long-press lift | × 1.06, others dim | × 1.09 | × 1.06 (176.7 → 187.3 pt over about 150 ms), the others dim, menu under the card |
+| 12 Swipe up (270 pt / 0.2 s) | t50 49–104, t99 391–442 ms | t50 156–174, t99 429–494 | t50 30–33, t99 392–427 ms. Not the recogniser (it begins after 12 pt); the mapping was linear |
+| 13 GitHub card in the AX tree | — | Often missing | Present in 12 of 12 checks (fresh grids, after a drag, with 2 tabs, opened from the GitHub tab). Not reproduced; likely the keyboard of item 1 |
+
+The slow-drag spring back (3g) measured from the turnaround includes an
+80 ms hold before the spring that is the AXe drag's own pause; from the
+first moving frame the spring reaches 50% in about 120 ms (Safari 149).
+
+CmuxTabsKit (f085ad3509d4): the same fixes, plus kit item 10. New Tab
+grew from the top-left because the active card's reflow animation also
+animated the new tab's zoom offset; it now grows from the centre and shows
+the tab's card until the zoom ends (the demo draws its start page card
+natively), so there is no blank page. Closing the active card no longer
+shows its successor twice.
