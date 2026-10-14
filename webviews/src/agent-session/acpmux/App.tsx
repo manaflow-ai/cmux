@@ -717,13 +717,12 @@ type ReportDrawn = (id: string, version: number, height: number) => void;
 
 type TranscriptRange = { anchorId: string; focusId: string };
 
-/// Assistant and summary rows already expose the turn's copy action in TurnFooter, and a prompt
-/// has Copy under its bubble. Keep the floating action, for keyboard focus and a selected range,
-/// on tool rows where no adjacent copy control exists. The child view's "Subagent of" pill is
-/// navigation, with nothing to copy.
+/// Assistant and summary rows already expose the turn's copy action in TurnFooter. Keep the
+/// floating action for prompts and tool rows; it shows only for keyboard focus and a selected
+/// range (a prompt's hover shows the Copy under its bubble). The child view's "Subagent of" pill
+/// is navigation, with nothing to copy.
 const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== "assistant" &&
-  row.kind !== "user" &&
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
   transcriptCopyText(row).length > 0;
