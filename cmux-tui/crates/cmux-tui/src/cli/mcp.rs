@@ -192,13 +192,27 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
 }
 
+/// The env acpmux gives the cmux MCP server of an agent chat
+/// (`CMUX_AGENT_SESSION`, acpmux `agent_tools.rs`).
+const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
+
 /// Why `serve` must not run with the settings file at `path`, or `None`
-/// when cmux.json turns the server on.
+/// when cmux.json turns the server on. An agent chat that cmux started
+/// (`CMUX_AGENT_SESSION` set) has it on unless the file says `false`
+/// (cx-wx93i, Lawrence 2026-10-14: every agent chat gets the cmux MCP tools
+/// by default); any other client needs `"mcp": {"enabled": true}`. The env
+/// is no security boundary: the same process can run the cmux CLI.
 pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
+    let agent_chat = std::env::var_os(AGENT_SESSION_ENV).is_some_and(|v| !v.is_empty());
+    refusal_for(path, agent_chat)
+}
+
+fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
     let messages = messages::messages();
-    match config::enabled(path) {
-        Ok(true) => None,
-        Ok(false) => Some(messages.disabled.replace("{path}", &path.display().to_string())),
+    match config::setting(path) {
+        Ok(Some(true)) => None,
+        Ok(None) if agent_chat => None,
+        Ok(_) => Some(messages.disabled.replace("{path}", &path.display().to_string())),
         Err(error) => Some(messages.config_invalid.replace("{error}", &error)),
     }
 }
