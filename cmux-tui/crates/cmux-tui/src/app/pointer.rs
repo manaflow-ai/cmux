@@ -60,8 +60,8 @@ pub(super) enum Drag {
     Tab { surface: SurfaceId, target: Option<(PaneId, usize)> },
     /// Workspace reorder gesture armed after the entry activated on press.
     WorkspaceArm { workspace: WorkspaceId, at: (u16, u16) },
-    /// Workspace drag with the current insertion index.
-    Workspace { workspace: WorkspaceId, target: Option<usize> },
+    /// Workspace drag with the current drop slot.
+    Workspace { workspace: WorkspaceId, target: Option<crate::app::WorkspaceDropSlot> },
     /// Text selection inside a pane's content rect.
     Select { content: Rect, source_x: u16, auto_scroll: Option<i8>, col: u16 },
     /// Text selection inside the final-row status message.

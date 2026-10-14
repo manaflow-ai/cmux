@@ -590,7 +590,7 @@ impl Mux {
                             mux,
                             state,
                             members[0],
-                            TabDragDestination::Split { pane, edge, ratio },
+                            TabDragDestination::Split { pane, edge, ratio, keep_focus: false },
                             &ids,
                             false,
                         )?;
@@ -608,7 +608,13 @@ impl Mux {
                             mux,
                             state,
                             members[0],
-                            TabDragDestination::Column { pane, after_column, width, dock: None },
+                            TabDragDestination::Column {
+                                pane,
+                                after_column,
+                                width,
+                                dock: None,
+                                keep_focus: false,
+                            },
                             &ids,
                             false,
                         )?;

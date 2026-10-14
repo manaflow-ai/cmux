@@ -893,6 +893,7 @@ mark {
 }
 
 .backdrop-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -911,6 +912,19 @@ mark {
   border: 2px solid transparent;
   border-radius: 6px;
   object-fit: cover;
+}
+
+/* A moving wallpaper (cx-14vdf): a play mark over its first frame. */
+.backdrop-badge {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: var(--text-caption);
+  pointer-events: none;
 }
 
 .backdrop-tile[aria-pressed="true"] .backdrop-thumb {

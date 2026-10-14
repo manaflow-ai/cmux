@@ -196,6 +196,24 @@ pub(crate) fn queue_change(transaction: &Transaction<'_>, change: &Value) -> any
     Ok(())
 }
 
+/// Queue many changes as one row (a JSON array; [`drain_pending_changes`]
+/// flattens it), so a commit that restates every placement is not one
+/// insert per change. Only inside a commit that journals (drains) them in
+/// the same transaction: an older binary drains one change per row.
+pub(crate) fn queue_changes(
+    transaction: &Transaction<'_>,
+    changes: &[Value],
+) -> anyhow::Result<()> {
+    if changes.is_empty() {
+        return Ok(());
+    }
+    transaction.execute(
+        "INSERT INTO state_pending_changes(change_json) VALUES(?1)",
+        [serde_json::to_string(changes)?],
+    )?;
+    Ok(())
+}
+
 /// Move queued state changes into `changes` (a journal batch array).
 pub(crate) fn drain_pending_changes(
     transaction: &Transaction<'_>,
@@ -215,9 +233,15 @@ pub(crate) fn drain_pending_changes(
     transaction.execute("DELETE FROM state_pending_changes", [])?;
     if let Some(array) = changes.as_array_mut() {
         for change in queued {
-            let mut change: Value = serde_json::from_str(&change)?;
-            change["sequence"] = json!(array.len());
-            array.push(change);
+            let queued: Value = serde_json::from_str(&change)?;
+            let batch = match queued {
+                Value::Array(batch) => batch,
+                change => vec![change],
+            };
+            for mut change in batch {
+                change["sequence"] = json!(array.len());
+                array.push(change);
+            }
         }
     }
     Ok(())
