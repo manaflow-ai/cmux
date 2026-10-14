@@ -132,6 +132,12 @@ export function narrowProblems(document: Document): string[] {
   // Effort has no other control (the model picker has no effort row): it may shrink, never go.
   for (const effort of document.querySelectorAll(".acpmux-effort"))
     if (!visible(effort)) problems.push("the Effort chip is hidden");
+  // A wide pane collapses nothing: Effort/Fast and the model show in full (a size container that
+  // measured a wide composer as narrow would hide them, Lawrence 2026-10-14 "lost effort").
+  if (view.innerWidth >= 600)
+    for (const value of document.querySelectorAll(".acpmux-effort .acpmux-picker-button > span, .acpmux-model-name"))
+      if (!visible(value) || value.scrollWidth > value.clientWidth + 1)
+        problems.push(`“${value.textContent?.trim()}” is not shown in full in a wide pane`);
   // The turn's own controls never shrink: a squeezed Send is the first thing a narrow pane breaks.
   for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-steer", ".acpmux-mic"])
     for (const control of document.querySelectorAll(selector)) {

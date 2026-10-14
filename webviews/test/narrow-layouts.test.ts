@@ -17,6 +17,9 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
     { width: 480, scale: 1 },
     { width: 360, scale: 1.25 },
     { width: 480, scale: 0.8 },
+    // Wide panes show every chip in full (no tier applies).
+    { width: 760, scale: 1 },
+    { width: 1200, scale: 1 },
   ];
 
   setDefaultTimeout(180_000);
