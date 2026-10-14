@@ -46,6 +46,8 @@ export type VmAlertStateStore = {
   readonly claim: (input: AlertInput, now: Date) => Promise<string | null>;
   readonly acknowledge: (key: string, leaseId: string, now: Date) => Promise<void>;
   readonly clear: (key: string, now: Date) => Promise<void>;
+  /** Drop a delivery lease that did not send, keeping the alert active, so the next run can retry. */
+  readonly release?: (key: string, leaseId: string, now: Date) => Promise<void>;
 };
 
 type SendAlert = (input: AlertInput) => Promise<AlertResult>;
@@ -512,6 +514,15 @@ export function durableVmAlertStateStore(db: ReturnType<typeof cloudDb>): VmAler
           deliveryLeaseUntil: null,
           updatedAt: now,
         })
+        .where(and(
+          eq(cloudVmAlertStates.alertKey, key),
+          eq(cloudVmAlertStates.deliveryLeaseId, leaseId),
+        ));
+    },
+    release: async (key, leaseId, now) => {
+      await db
+        .update(cloudVmAlertStates)
+        .set({ deliveryLeaseId: null, deliveryLeaseUntil: null, updatedAt: now })
         .where(and(
           eq(cloudVmAlertStates.alertKey, key),
           eq(cloudVmAlertStates.deliveryLeaseId, leaseId),
