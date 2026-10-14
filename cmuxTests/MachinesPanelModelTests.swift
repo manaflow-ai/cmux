@@ -1524,6 +1524,29 @@ final class MachinesPanelVMStreamTests: XCTestCase {
         XCTAssertEqual(summary.createdBy, VMCreator(userId: "user-2"))
     }
 
+    /// A REST read that started before a stream change lands after it: the
+    /// newer change must survive the older page instead of being undone.
+    func testStreamChangesDuringARestReadSurviveItsResult() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        model.beginRestReadStreamCapture()
+        model.applyVMChanges(upserts: [], deletions: ["b"], authoritative: false)
+        model.applyVMChanges(upserts: [streamSummary("a", status: "paused", createdAt: 1_000, label: "renamed")], deletions: [], authoritative: false)
+
+        let stalePage = VMListPage(vms: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)])
+        model.applyRefreshResult(.success(stalePage), generation: model.refreshGeneration, scope: nil)
+
+        XCTAssertEqual(model.machines.map(\.id), ["c", "a"], "a delete newer than the read stays deleted")
+        XCTAssertEqual(model.machines[1].label, "renamed", "an update newer than the read stays applied")
+
+        // Outside a read, the REST page is the authority again.
+        model.applyRefreshResult(.success(stalePage), generation: model.refreshGeneration, scope: nil)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+    }
+
     func testRoutinePollIntervalFollowsTheStream() {
         let clock = CloudReadManualClock()
         let model = makeStreamingModel(pollingClock: clock)

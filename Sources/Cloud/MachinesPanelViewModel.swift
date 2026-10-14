@@ -508,6 +508,9 @@ final class MachinesPanelViewModel: ObservableObject {
     var refreshRequestedWhileLoading = false
     /// A queued automatic refresh promotes the current request to recovery presentation and keeps that intent for the follow-up read.
     var refreshRequestedWhileLoadingIsRecovery = false
+    /// Stream changes that arrived while a REST read was in flight, replayed on
+    /// top of that read's page; nil while no read is in flight.
+    var streamChangesDuringRestRead: [(upserts: [VMSummary], deletions: Set<String>, authoritative: Bool)]?
     /// Invalidates refresh completions when the Cloud gate closes. A cancelled URLSession task may
     /// still resume on the main actor, so cancellation alone is not enough to prevent stale rows or follow-up work.
     var refreshGeneration: UInt64 = 0
@@ -754,6 +757,11 @@ final class MachinesPanelViewModel: ObservableObject {
         vmSync?.stop()
     }
 
+    /// Starts recording stream changes for the REST read about to begin.
+    func beginRestReadStreamCapture() {
+        streamChangesDuringRestRead = []
+    }
+
     private func vmSyncDidEmit(_ event: CloudVMSyncSubscriber.Event) {
         guard vmSyncGeneration == refreshGeneration, vmSyncScope == machinePinStore?.scopeIdentifier,
               isCloudEnabled() else { return }
@@ -836,6 +844,7 @@ final class MachinesPanelViewModel: ObservableObject {
 
     func applyVMChanges(upserts: [VMSummary], deletions: Set<String>, authoritative: Bool) {
         guard isCloudEnabled() else { return }
+        streamChangesDuringRestRead?.append((upserts, deletions, authoritative))
         let previous = resourceStats?.snapshot ?? [:]
         var rows = machines
         var index = machineIndexByID
