@@ -126,16 +126,17 @@ final class WorkspaceRowView: SidebarRowView {
         disclosure == nil ? nil : (disclosureButton.icon.rawValue, disclosureButton.frame, !disclosureButton.isHidden)
     }
 
-    /// Reads the agent mark and presence dot settings and redraws the row once when one changes (no polling).
+    /// Reads the agent mark and presence dot settings; one shared observation
+    /// (`SidebarTunablesWatch`) redraws the live rows when one changes, not one
+    /// new registration per configure.
     private func observedTunables() -> (agentMark: SidebarAgentMarkVariant, presenceDots: Bool) {
-        withObservationTracking {
-            (SidebarTunables.agentMark.value, SidebarTunables.presenceDots.value)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, let last = self.lastConfiguration else { return }
-                self.configure(last.0, row: last.1)
-            }
-        }
+        SidebarTunablesWatch.shared.values(for: self)
+    }
+
+    /// Draws the last configuration again (a sidebar tunable changed).
+    func redrawLastConfiguration() {
+        guard let last = lastConfiguration else { return }
+        configure(last.0, row: last.1)
     }
 
     override func prepareForReuse(key: SidebarRowKey) {

@@ -74,6 +74,11 @@ public final class SidebarView: NSView {
     private var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     private var lastState: RenderState?
+    /// The sections the list showed at the last render (for the space slide and the provisional check).
+    private var lastSections: [SidebarSection] = []
+    /// The bands' inputs changed since `updateBands` last ran (it runs in `layout`, only then).
+    var bandsDirty = true
+    private var bandsWidth: CGFloat = -1
     /// App section contributions the bands showed at the last update (`releaseAppSections`).
     var shownAppContributions: Set<String> = []
     /// The `sidebar.*` settings this sidebar draws from (tests give their own).
@@ -136,10 +141,11 @@ public final class SidebarView: NSView {
     /// injects one per window. Without it, app sections draw nothing.
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
-            appSections?.onContentChange = { [weak self] in self?.needsLayout = true }
+            appSections?.onContentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
             for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
+            bandsDirty = true
             needsLayout = true
         }
     }
@@ -263,7 +269,10 @@ public final class SidebarView: NSView {
         // Amendment 3: at the bottom the dots share the footer band's row
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
-        updateBands()
+        if bandsDirty || bandsWidth != b.width {
+            (bandsDirty, bandsWidth) = (false, b.width)
+            updateBands()
+        }
         let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards(), updateHeight = cardSlot.height
         // From the bottom up (R112/R114): the pinned footer section (the
@@ -309,7 +318,9 @@ public final class SidebarView: NSView {
     /// Everything the list renders. Emitting a value type lets the list
     /// skip reloads when an unrelated model property changes.
     private struct RenderState: Hashable, Sendable {
-        var sections: [SidebarSection]
+        /// `SidebarModel.sectionsRevision`: a structural change, compared
+        /// instead of every row (a row content change patches its row).
+        var sectionsRevision: UInt64
         var selection: Set<WorkspaceID>
         var selected: SidebarItem?
         var profiles: [SidebarProfile]
@@ -336,7 +347,7 @@ public final class SidebarView: NSView {
         observation = Task { [weak self] in
             for await state in ObservationStream({
                 RenderState(
-                    sections: model.sections,
+                    sectionsRevision: model.observedSectionsRevision,
                     selection: model.selection,
                     selected: model.selectedItem,
                     profiles: model.profiles,
@@ -371,10 +382,10 @@ public final class SidebarView: NSView {
             || lastState?.transientTopItems != state.transientTopItems
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
-        let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
+        let listChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.selection != state.selection
             || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences)
-        let previous = lastState?.sections
+        let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
@@ -384,11 +395,12 @@ public final class SidebarView: NSView {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
             } else {
-                list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
+                list.reload(animated: Self.animatesReload(from: previous, to: model.sections))
             }
+            lastSections = model.sections
         }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
-        if chromeChanged || profilesChanged { needsLayout = true }
+        if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state
     }
 
