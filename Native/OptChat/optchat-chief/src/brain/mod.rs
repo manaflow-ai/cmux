@@ -83,6 +83,8 @@ pub enum Input {
     },
     /// A draft of the running turn's reply (`draft.rs`).
     Draft(Box<crate::draft::Draft>),
+    /// A change of the running turn's run record (`run.rs`).
+    Run(Box<crate::run::RunUpdate>),
     /// A steer's outcome (`steer.rs`): Ok once the harness read it.
     Steered {
         id: u64,
@@ -425,6 +427,8 @@ pub struct Brain {
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
+    /// A run append failed once: later failures are not logged.
+    run_failed: bool,
     /// The owner said once that it takes no typing indicator (cloud).
     typing_unsupported: bool,
     after_turn: Option<TurnHook>,
@@ -552,6 +556,7 @@ impl Brain {
             steering: Vec::new(),
             steer_seq: 0,
             draft_failed: false,
+            run_failed: false,
             typing_unsupported: false,
             marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -731,6 +736,7 @@ impl Brain {
                 let _ = reply.send(blocks);
             }
             Input::Draft(draft) => self.turn_draft(&draft),
+            Input::Run(update) => self.turn_run(*update),
             Input::Steered { id, result } => self.steered(id, result),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),

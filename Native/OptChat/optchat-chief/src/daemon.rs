@@ -12,6 +12,7 @@ use cmux::raw::{
     Client, ClientConfig, ConversationAttachmentReadRequest, ConversationAttachmentUploadRequest,
     ConversationAttachmentUploadResult, ConversationBindRequest, ConversationCreateRequest,
     ConversationDraftRequest, ConversationHistoryRequest, ConversationListRequest,
+    ConversationRunAppendRequest,
     ConversationOpRequest, ConversationSnapshotRequest, ConversationTypingRequest,
     Error as SdkError, Event, Nullable, Optional, SubscribeRequest, SubscribeRequestTreeEvents,
 };
@@ -64,6 +65,17 @@ pub trait ConversationPort: Send {
     /// never stored). No default: a silent no-op once hid that the local
     /// port never sent one; a port without drafts says so with an error.
     fn draft(&mut self, conversation: &str, draft: &crate::draft::Draft) -> Result<(), OpError>;
+    /// Appends to the running turn's run record (`conversation-run-append`,
+    /// `conversation-runs-v1`). Display only, like drafts: a port without
+    /// runs says so with an error and the turn goes on.
+    fn run_append(
+        &mut self,
+        _conversation: &str,
+        _run: Value,
+        _steps: Vec<Value>,
+    ) -> Result<(), OpError> {
+        Err(OpError::Rejected("runs_unsupported".into()))
+    }
     /// One attachment variant (`original`, `preview`, `poster`) of `hash`,
     /// base64, in a single owner read of `bytes` (at most 4 MiB): an error
     /// when the owner has not sent all of it (`local-attachments-v1`).
@@ -505,6 +517,22 @@ impl ConversationPort for SdkConversations {
             config: self.config.clone(),
             client: None,
         }))
+    }
+
+    /// `conversation-run-append` (capability `conversation-runs-v1`): this
+    /// bound connection's principal is the Chief that writes its run.
+    fn run_append(&mut self, conversation: &str, run: Value, steps: Vec<Value>) -> Result<(), OpError> {
+        if !self.supports("conversation-runs-v1") {
+            return Err(OpError::Rejected("runs_unsupported".into()));
+        }
+        self.client
+            .conversation_run_append(ConversationRunAppendRequest {
+                conversation: conversation.into(),
+                run: Nullable::value(run),
+                steps: Some(steps),
+            })
+            .map(|_| ())
+            .map_err(sdk_error)
     }
 
     /// `conversation-draft` (capability `conversation-draft-v1`): the v1
