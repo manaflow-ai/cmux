@@ -280,14 +280,9 @@ impl ChiefStore {
 
     /// The ledger's actors, oldest first (tests: who a write is recorded as).
     #[cfg(test)]
-    pub(crate) fn ledger_actors(&self) -> Vec<String> {
-        let mut statement =
-            self.connection.prepare("SELECT actor FROM op_ledger ORDER BY seq").expect("ledger");
-        statement
-            .query_map([], |row| row.get(0))
-            .expect("ledger rows")
-            .collect::<Result<_, _>>()
-            .expect("ledger actors")
+    pub(crate) fn ledger_actors(&self) -> rusqlite::Result<Vec<String>> {
+        let mut statement = self.connection.prepare("SELECT actor FROM op_ledger ORDER BY seq")?;
+        statement.query_map([], |row| row.get(0))?.collect()
     }
 
     /// Runs `write` once per (`actor`, `key`): a replay with the same

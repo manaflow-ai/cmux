@@ -365,7 +365,7 @@ fn the_host_page_relay_creates_teaches_widens_and_deletes_only_with_the_persons_
 /// Who the ledger records for each write (`chief.profile.*` op ledger).
 fn ledger_actors(mux: &Arc<Mux>) -> Vec<String> {
     let store = mux.chiefs().store.lock().unwrap();
-    store.as_ref().map(crate::chief_registry::ChiefStore::ledger_actors).unwrap_or_default()
+    store.as_ref().map(|store| store.ledger_actors().unwrap()).unwrap_or_default()
 }
 
 #[test]
