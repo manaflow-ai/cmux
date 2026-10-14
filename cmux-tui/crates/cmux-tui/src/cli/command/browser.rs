@@ -39,6 +39,13 @@ pub(super) fn parse_browser(
         }
         ["profile", "open", ..] => parse_browser_profile_open(words, flags),
         ["profile", action] => parse_browser_profile(action, flags),
+        // browser-profile-agent-v1: move a tab to another browser profile in
+        // place (the app re-makes the page in that profile's store).
+        ["tab", selector, "set-profile"] => {
+            selectors.insert("tab", "tab", selector)?;
+            let params = map_with("profile", Value::String(flags.required("profile")?));
+            request(ResourceOperation::BrowserTabSetProfile, selectors, flags, params)
+        }
         ["open"] | ["open", _] => parse_browser_open(words, selectors, flags),
         [selector, "show"] => {
             selectors.insert("browser", "browser", selector)?;
