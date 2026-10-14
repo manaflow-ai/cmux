@@ -15315,7 +15315,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -23480,7 +23480,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bbd69c17c7d4fc6e50ec942ba5808c81d70f037c9db0953d96ac637616c9560a",
+  "schema_hash" : "ca531744813254075d3181b77587ad7cf936d5914c56963255442fb300aadccc",
   "sections" : [
     {
       "id" : "general",
