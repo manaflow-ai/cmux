@@ -25,21 +25,48 @@ nonisolated enum ContextMenuEssentials {
                          .action("duplicateTab")],
                    group: [.action("tabGroup.create"), .action("tabGroup.addTab"), .action("tabGroup.removeTab")],
                    close: ["closeTab"]),
-        .pane: Rows(top: [.action("splitRight"), .action("splitDown"), .action("toggleSplitZoom"), .action("renamePane")],
+        // Split Left and Split Up sit in Split beside Split Right and Split Down (menu audit S1).
+        .pane: Rows(top: [.action("splitRight"), .action("splitDown"), .folder(.split, []), .action("toggleSplitZoom"), .action("renamePane")],
                     close: ["closePane"]),
     ]
 
     /// `entries` (a whole generated menu) as its essential rows, its group section, More, and
-    /// its close rows. A listed row the menu does not place is left out.
+    /// its close rows. A listed row the menu does not place is left out; a listed folder is
+    /// the menu's generated folder of that kind (left out when the menu has none).
     static func apply(_ rows: Rows, to entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
         let placed = Set(ContextMenuCatalog.referencedIDs(entries))
         let keep = { (entry: ContextMenuEntry) in ContextMenuCatalog.referencedIDs([entry]).allSatisfy(placed.contains) }
-        let top = rows.top.filter(keep), group = rows.group.filter(keep)
+        let top = rows.top.compactMap { generated($0, in: entries) }.filter(keep), group = rows.group.filter(keep)
         let close = rows.close.filter(placed.contains)
         // referencedIDs counts a choices row's trailer, so More drops New Group with Move to Group.
-        let rest = ContextMenuCatalog.removing(Set(ContextMenuCatalog.referencedIDs(top + group) + close), from: entries)
-        let more: [ContextMenuEntry] = rest.contains { if case .separator = $0 { false } else { true } } ? [.folder(.more, rest)] : []
+        // A section whose rows all went to the top leaves no empty section behind in More.
+        let rest = collapsingSeparators(ContextMenuCatalog.removing(Set(ContextMenuCatalog.referencedIDs(top + group) + close), from: entries))
+        let more: [ContextMenuEntry] = rest.isEmpty ? [] : [.folder(.more, rest)]
         let groupSection: [ContextMenuEntry] = group.isEmpty ? [] : [.separator] + group + [.separator]
         return top + groupSection + more + [.separator] + close.map(ContextMenuEntry.action)
+    }
+
+    /// A listed folder as the menu's own folder of that kind, with its rows; other rows as listed.
+    private static func generated(_ entry: ContextMenuEntry, in entries: [ContextMenuEntry]) -> ContextMenuEntry? {
+        guard case .folder(let folder, _) = entry else { return entry }
+        for case .folder(folder, let children) in entries { return .folder(folder, children) }
+        return nil
+    }
+
+    /// `entries` with one separator between sections, none at the ends, inside folders too.
+    private static func collapsingSeparators(_ entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
+        var result: [ContextMenuEntry] = []
+        for entry in entries {
+            switch entry {
+            case .separator:
+                if let last = result.last, last != ContextMenuEntry.separator { result.append(entry) }
+            case .folder(let folder, let children):
+                result.append(.folder(folder, collapsingSeparators(children)))
+            default:
+                result.append(entry)
+            }
+        }
+        while case .separator? = result.last { result.removeLast() }
+        return result
     }
 }
