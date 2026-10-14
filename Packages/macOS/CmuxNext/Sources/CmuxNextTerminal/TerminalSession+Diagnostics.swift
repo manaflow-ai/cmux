@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import GhosttyNextKit
 
 /// A point-in-time view of one terminal surface's on-screen state, for the
 /// App's `debug.surfaces` report and its blank-pane invariant.
@@ -16,6 +17,8 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var pause: SurfacePause?
     /// Grid the surface renders now.
     public var grid: TerminalGridSize?
+    /// Grid the view's size fits: `grid` lags it until the owner announces the view's report.
+    public var fitGrid: TerminalGridSize? = nil
     /// The live surface view is installed in the session's host view.
     public var surfaceInHost: Bool
     /// The surface view is in a window.
@@ -55,6 +58,10 @@ extension TerminalSession {
             drawing: surface.lastOcclusionVisible,
             pause: surface.pause,
             grid: surface.currentGrid,
+            fitGrid: surface.surface.map { surface in
+                let size = ghostty_surface_size(surface)
+                return TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
+            },
             surfaceInHost: surface.superview === view,
             inWindow: surface.window != nil,
             hidden: surface.isHiddenOrHasHiddenAncestor,

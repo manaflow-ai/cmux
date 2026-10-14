@@ -19,15 +19,30 @@ final class DebugFrameProbe {
     private var last: CFTimeInterval = 0
     private var intervals: [Double] = []
     private var expected: Double = 0
+    #if DEBUG
+    private var resizeTrace: DebugResizeTrace?
+    #endif
     static let capacity = 100_000
 
-    func handle(_ params: [String: JSONValue]) -> JSONValue {
+    func handle(_ params: [String: JSONValue], services: AppServices?) -> JSONValue {
         switch params["action"]?.stringValue ?? "read" {
         case "start":
             start()
+            #if DEBUG
+            // `resize_trace: true` also samples every surface's size each frame (DebugResizeTrace).
+            resizeTrace = params["resize_trace"]?.boolValue == true ? services.map(DebugResizeTrace.init) : nil
+            resizeTrace?.begin()
+            #endif
         case "stop":
-            let stats = self.stats
+            var stats = self.stats
             stop()
+            #if DEBUG
+            if let trace = resizeTrace?.end(), case .object(var fields) = stats {
+                fields["resize_trace"] = trace
+                stats = .object(fields)
+            }
+            resizeTrace = nil
+            #endif
             return stats
         case "reset":
             intervals.removeAll(keepingCapacity: true)
