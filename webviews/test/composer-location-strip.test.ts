@@ -145,9 +145,15 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   });
 
   test("effort and access: no placeholder while they load, and the controls hold their places", async () => {
-    // What this harness's chats last showed (chipMemory.ts), as an earlier chat left it.
-    const remember = () =>
-      localStorage.setItem("cmux.acpmux.lastChips", JSON.stringify({ claude: { effort: "Medium", mode: "Auto" } }));
+    // The effort this harness's chats last showed (chipMemory.ts) and the start mode acpmux last
+    // answered for it (startMode.ts), as an earlier chat left them.
+    const remember = () => {
+      localStorage.setItem("cmux.acpmux.lastChips", JSON.stringify({ claude: { effort: "Medium" } }));
+      localStorage.setItem(
+        "cmux.acpmux.startModes.v1",
+        JSON.stringify({ "claude\u0000/home/dev/earlier": { modeId: "auto", name: "Auto" } }),
+      );
+    };
     const controls = async (variant: string) => {
       const page = await open("agent-pane.composer-strip", variant, 720, remember);
       await page.locator(".acpmux-composer-bar .acpmux-model").waitFor();

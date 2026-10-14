@@ -11,7 +11,9 @@ export type AskStartMode = (harness: string, cwd?: string) => Promise<StartMode 
 
 /// acpmux's last answers, per harness and folder, kept per viewer: a pending chat draws the last
 /// answer on its first frame (cx-uq9xi), then the one it asks for replaces it. Never the mode a
-/// chat ran: only what acpmux answered.
+/// chat ran: only what acpmux answered. `null`: acpmux answered that it sets none there. A folder
+/// acpmux has not answered for yet draws the harness's latest answer anywhere, so the access chip
+/// still holds its place on the first frame; the answer for that folder then replaces it.
 const STORAGE_KEY = "cmux.acpmux.startModes.v1";
 
 let ask: AskStartMode | undefined;
@@ -22,7 +24,7 @@ let generation = 0;
 let version = 0;
 /// The kept answers, read from storage once per page (each pane asks acpmux itself; storage only
 /// gives a new page its first frame).
-let memory: Record<string, StartMode> | undefined;
+let memory: Record<string, StartMode | null> | undefined;
 const listeners = new Set<() => void>();
 /// Told only when an answer may have changed (they ask again).
 const askers = new Set<() => void>();
@@ -38,12 +40,12 @@ function subscribe(listener: () => void): () => void {
 
 const keyOf = (harness: string, cwd?: string) => `${harness}\u0000${cwd ?? ""}`;
 
-function load(): Record<string, StartMode> {
+function load(): Record<string, StartMode | null> {
   if (!memory) {
     memory = {};
     try {
       const value: unknown = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "{}");
-      if (value && typeof value === "object") memory = { ...(value as Record<string, StartMode>) };
+      if (value && typeof value === "object") memory = { ...(value as Record<string, StartMode | null>) };
     } catch {
       // Unreadable: no kept answers.
     }
@@ -51,7 +53,7 @@ function load(): Record<string, StartMode> {
   return memory;
 }
 
-function save(all: Record<string, StartMode>): void {
+function save(all: Record<string, StartMode | null>): void {
   memory = all;
   version += 1;
   try {
@@ -72,21 +74,37 @@ function valid(mode: unknown): mode is StartMode {
   );
 }
 
-/// acpmux's last answer for a new chat on `harness` in `cwd`, as this viewer saw it.
+/// acpmux's last answer for a new chat on `harness` in `cwd`, as this viewer saw it; for a folder
+/// it has not answered yet, its latest answer for `harness` in any folder.
 export function cachedStartMode(harness: string | undefined, cwd?: string): StartMode | undefined {
   if (!harness) return undefined;
-  const mode = load()[keyOf(harness, cwd)];
+  const all = load();
+  const key = keyOf(harness, cwd);
+  if (key in all) {
+    const mode = all[key];
+    return valid(mode) ? mode : undefined;
+  }
+  // Answers are kept latest last (`rememberStartMode`).
+  const latest = Object.keys(all)
+    .filter((other) => other.startsWith(`${harness}\u0000`))
+    .at(-1);
+  const mode = latest === undefined ? undefined : all[latest];
   return valid(mode) ? mode : undefined;
 }
 
-/// Keeps `mode` as acpmux's answer for `harness` in `cwd` (none: forgets it).
+/// Keeps `mode` as acpmux's answer for `harness` in `cwd` (none: acpmux sets none there).
 export function rememberStartMode(harness: string, cwd: string | undefined, mode: StartMode | undefined): void {
   const all = { ...load() };
   const key = keyOf(harness, cwd);
   const before = all[key];
-  if (mode ? before?.modeId === mode.modeId && before?.name === mode.name : before === undefined) return;
-  if (mode) all[key] = mode;
-  else delete all[key];
+  const same = mode
+    ? valid(before) && before.modeId === mode.modeId && before.name === mode.name
+    : key in all && before === null;
+  const ofHarness = (other: string) => other.startsWith(`${harness}\u0000`);
+  if (same && Object.keys(all).filter(ofHarness).at(-1) === key) return;
+  // Latest last: a folder with no answer of its own draws this one.
+  delete all[key];
+  all[key] = mode ?? null;
   save(all);
 }
 
