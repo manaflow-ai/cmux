@@ -159,9 +159,10 @@ const trustThenPermission: Play = async (ctx) => {
   ctx.find({ role: "button", name: allowAlways });
   ctx.find({ role: "button", name: allowOnce });
   geometry(ctx);
-  await ctx.click({ selector: '[data-menu="permission-status"]' });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
-  await ctx.click({ role: "menuitem", name: "Undo" });
+  // These chats offer no modes: Access still mounts for the folder grant, so trust stays revocable.
+  await ctx.click({ selector: ".acpmux-access-trigger" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-access-grant-remove") !== null);
+  await ctx.click({ selector: ".acpmux-access-grant-remove" });
   await checkTrust(ctx);
 };
 const trusted: Play = async (ctx) => {

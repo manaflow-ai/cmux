@@ -189,7 +189,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
             : undefined,
     rule:
       suggestions.length > 0
-        ? `Always allow ${suggestions.join(", ")}`
+        ? translate("permission.claude.alwaysAllowRule", { rules: suggestions.join(", ") })
         : typeof raw.toolCall?.rule === "string"
           ? raw.toolCall.rule
           : typeof raw.rule === "string"

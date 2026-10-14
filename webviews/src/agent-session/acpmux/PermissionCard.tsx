@@ -8,34 +8,49 @@ import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 type PermissionOption = AcpmuxPermission["options"][number];
 type KnownPermissionKind = "allow_once" | "allow_always" | "allow_chat" | "deny";
 
-/** Maps the ACP names we know to the pane's one permission vocabulary. Unknown options retain
- * their agent-provided name and id, since those may be a question rather than a tool decision. */
+/** Maps the ACP names we know to the pane's one permission vocabulary. An ACP kind decides by
+ * itself: only a `reject_*` kind denies, and a custom kind keeps the agent's name and no shortcut.
+ * Options without a kind (older fixtures and agents) fall back to their id and name. Unknown
+ * options retain their agent-provided name and id, since those may be a question rather than a
+ * tool decision. */
 export function permissionOptionKind(option: PermissionOption): KnownPermissionKind | undefined {
-  const value = `${option.kind ?? ""} ${option.id} ${option.name}`.toLowerCase();
-  if (/deny|reject|\bno\b/.test(value) || option.allow === false) return "deny";
+  const kind = option.kind?.toLowerCase();
+  if (kind === "allow_once") return "allow_once";
+  if (kind === "allow_always") return "allow_always";
+  if (kind?.startsWith("reject")) return "deny";
+  if (kind && !kind.startsWith("allow")) return undefined;
+  const value = `${kind ?? ""} ${option.id} ${option.name}`.toLowerCase();
+  if (!kind && /deny|reject/.test(value)) return "deny";
   if (/allow[_ -]?(always|forever|permanent)|always/.test(value)) return "allow_always";
   if (/allow[_ -]?(chat|session)/.test(value)) return "allow_chat";
   if (/allow[_ -]?(once|one)|single|approve/.test(value)) return "allow_once";
   return undefined;
 }
 
-export function permissionOptionLabel(option: PermissionOption, t: Translate, harness?: string): string {
+/** Claude Code's own words for its three permission answers. Codex keeps codex-acp's names: they
+ * already match the Codex TUI, and Codex can offer several options of one kind (decline and
+ * cancel, a session grant and a command-prefix rule) that one shared label would blur. A label is
+ * replaced only when the ask has exactly one option of that kind. */
+export function permissionOptionLabel(
+  option: PermissionOption,
+  t: Translate,
+  harness?: string,
+  options: readonly PermissionOption[] = [option],
+): string {
   const claude = harness === "claude" || harness?.startsWith("claude-");
-  const codex = harness === "codex" || harness?.startsWith("codex-");
   const kind = permissionOptionKind(option);
+  const sole = kind !== undefined && options.filter((other) => permissionOptionKind(other) === kind).length === 1;
   if (kind === "allow_once") {
-    if (claude || codex) return "Yes";
+    if (claude && sole) return t("permission.claude.yes");
     if (/^allow once$/i.test(option.name.trim())) return t("permission.allowOnce");
     return option.name;
   }
   if (kind === "allow_always" || kind === "allow_chat") {
-    if (claude) return "Yes, and don't ask again";
-    if (codex) return "Yes, and don't ask again for this command this session";
+    if (claude && sole) return t("permission.claude.dontAskAgain");
     return option.name;
   }
   if (kind === "deny") {
-    if (claude) return "No, tell Claude what to do differently";
-    if (codex) return "No, tell Codex what to do differently";
+    if (claude && sole) return t("permission.claude.tellDifferently");
     return option.name;
   }
   return option.name;
@@ -225,7 +240,7 @@ export function PermissionCard({
           return (
             <PermissionActionButton
               key={option.id}
-              label={permissionOptionLabel(option, t, harness)}
+              label={permissionOptionLabel(option, t, harness, permission.options)}
               description={permissionOptionDescription(permission, option, kind)}
               shortcut={shortcut}
               className={
