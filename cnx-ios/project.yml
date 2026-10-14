@@ -1,0 +1,142 @@
+# cnx-ios app project. Generate with `xcodegen generate` in cnx-ios/.
+# The project file is generated and not checked in.
+name: CnxApp
+configs:
+  Debug: debug
+  Release: release
+  # Demo: optimized like Release, with the DEBUG developer surface
+  # (dev sign-in, Settings → Developer, scripted demos). Built by
+  # scripts/demo-build.sh for hand-installed demo builds; never uploaded.
+  Demo: release
+  # Production: a real production build for verification. Release
+  # optimization (-O), no DEBUG (no dev sign-in, no Settings → Developer, no
+  # mock data or demo drivers compiled in), the production Stack project, its
+  # own bundle id (dev.cmux.cnx.prod) and keychain group so it installs beside
+  # the Demo build. Built by scripts/demo-build.sh --config Production.
+  Production: release
+  # TestFlight: the shipping build for App Store Connect app "cmux INTERNAL"
+  # (bundle dev.cmux.app.internal, ASC app id 6791408425). Everything
+  # Production has (no DEBUG, production Stack project) plus the production
+  # Worker, App Store distribution signing, push (production APNs) and Sign in
+  # with Apple. Built only by scripts/testflight-build.sh. See
+  # verify/testflight-readiness.md.
+  TestFlight: release
+options:
+  bundleIdPrefix: dev.cmux.cnx
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    CNX_TAG: ""
+    CNX_DISPLAY_NAME: cmux
+    # The cnx-ios-api base URL baked into Info.plist (CNXAPIBase). DEBUG
+    # builds fall back to the dev Worker when it is empty; a non-DEBUG build
+    # with no value has no live data, so every shipping config sets it.
+    CNX_API_BASE: ""
+    # The production Worker (backend/wrangler.jsonc env "prod"). Shipping
+    # configs (Release, TestFlight) use it. scripts/testflight-build.sh checks
+    # its /v1/health before archiving; override with CNX_PROD_API_BASE=... when
+    # the Worker moves to a custom domain.
+    CNX_PROD_API_BASE: https:/$()/cnx-ios-api-prod.debussy.workers.dev
+    # User-facing version. Must stay at or above the highest version ever
+    # uploaded to cmux INTERNAL (TestFlight orders builds by it first);
+    # testflight-build.sh checks this against App Store Connect. The build
+    # number (CURRENT_PROJECT_VERSION) is stamped per upload by that script.
+    MARKETING_VERSION: 1.1.0
+    CURRENT_PROJECT_VERSION: "1"
+  configs:
+    Demo:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CNX_DEMO
+      SWIFT_OPTIMIZATION_LEVEL: -O
+    Production:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: CNX_PRODUCTION
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      CNX_TAG: .prod
+      CNX_DISPLAY_NAME: cmux cnx
+      # The dev Worker accepts production Stack users (backend/README.md).
+      # Production is a verification build, never shipped; shipping configs
+      # use $(CNX_PROD_API_BASE).
+      CNX_API_BASE: https:/$()/cnx-ios-api-dev.debussy.workers.dev
+    Release:
+      # A non-DEBUG build with no service address signs in to an empty app.
+      CNX_API_BASE: $(CNX_PROD_API_BASE)
+    TestFlight:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: CNX_PRODUCTION CNX_TESTFLIGHT
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      CNX_TAG: ""
+      # The App Store Connect record's name.
+      CNX_DISPLAY_NAME: cmux INTERNAL
+      CNX_API_BASE: $(CNX_PROD_API_BASE)
+packages:
+  CnxKit:
+    path: CnxKit
+targets:
+  CnxApp:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - path: ../AppIcon.icon
+        buildPhase: resources
+    dependencies:
+      - package: CnxKit
+        product: CnxShell
+      - package: CnxKit
+        product: CnxAuth
+      - package: CnxKit
+        product: CnxModel
+      - package: CnxKit
+        product: CnxTerminal
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.cnx$(CNX_TAG)
+        PRODUCT_NAME: CnxApp
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        DEVELOPMENT_TEAM: 7WLXT3NR37
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+      configs:
+        Production:
+          # Its own keychain access group ($(AppIdentifierPrefix)dev.cmux.cnx.prod):
+          # Stack tokens never mix with the Demo or Debug installs. No app group:
+          # the app shares no container with anything.
+          CODE_SIGN_ENTITLEMENTS: App/CnxApp-Production.entitlements
+        TestFlight:
+          PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.app.internal
+          # Push (production APNs), Sign in with Apple, and its own keychain
+          # group. The "cmux Internal Distribution" App Store profile
+          # authorizes each key; testflight-build.sh signs manually with it.
+          CODE_SIGN_ENTITLEMENTS: App/CnxApp-TestFlight.entitlements
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: cmux Internal Distribution
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: $(CNX_DISPLAY_NAME)
+        CNXTag: $(CNX_TAG)
+        CNXAPIBase: $(CNX_API_BASE)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # WireGuard (boringtun), WebRTC (DTLS-SRTP) and rustls use encryption
+        # outside the OS: standard algorithms, mass-market exempt (EAR
+        # 740.17(b)(1)), no documents. See verify/testflight-readiness.md.
+        ITSAppUsesNonExemptEncryption: true
+        # The Mac link dials the Mac's LAN address directly (WireGuard UDP,
+        # WebRTC host candidates) before falling back to the relay.
+        NSLocalNetworkUsageDescription: Connect directly to your Mac on this network for a faster, private link.
+        NSCameraUsageDescription: Take a photo to attach to a message for your agent.
+        NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
+        NSPhotoLibraryUsageDescription: Attach photos to messages for Chief and your agents.
+        NSMicrophoneUsageDescription: Record audio messages for Chief and your agents.
+        CADisableMinimumFrameDurationOnPhone: true
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          UIImageName: LaunchMark
+          UIImageRespectsSafeAreaInsets: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false

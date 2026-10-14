@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Checks that a built cnx-ios app carries none of the DEBUG-only surface:
+# launch overrides, the Developer page, demo drivers, and mock content (the
+# mock terminal script, mock agent/Feed/Chief scripts, sample data). Mock code
+# is compiled out with `#if DEBUG`; this proves it on the binary.
+#
+# usage: cnx-ios/scripts/check-production-binary.sh <CnxApp.app> [expected bundle id] [--shipping]
+#
+# --shipping (TestFlight and App Store builds): the service address must be a
+# production one, never the dev Worker or a local server.
+#
+# Scans every Mach-O in the bundle (SwiftPM products can be dynamic; Debug
+# builds keep their code in CnxApp.debug.dylib). Exits 1 and names each string it found.
+set -euo pipefail
+
+app=${1:?usage: check-production-binary.sh <CnxApp.app> [expected bundle id]}
+expected_bundle=${2:-}
+shipping=0; [[ "${3:-}" == --shipping ]] && shipping=1
+[[ -d "$app" ]] || { echo "error: $app is not an app bundle" >&2; exit 2; }
+
+# Each string exists only in DEBUG code. Literals are longer than 15 bytes
+# (shorter Swift literals are stored inline, not as C strings) or are type
+# names (kept in the reflection metadata).
+forbidden=(
+  # Launch overrides and the Developer page.
+  CNX_MOCK_AUTH CNX_STACK_EMAIL CNX_CLEAR_AUTH "Demo at next launch" -cnx-demo
+  "Mock data signs in as a sample user"
+  # Demo drivers.
+  DemoDriver TerminalDemoRoot TerminalDemoDriver FeedDemoScript ParityDemoScript OnboardingDemoScript
+  # The mock terminal: its session, its scripted shell, a fake git log line.
+  MockTerminalSession MockOutput "cnx-ios: design specification" "hostd: splice daemon channel with allowlist"
+  # Mock agent chat, Feed, Chief, artifacts and workspaces.
+  MockAgentSession "Every link frame is a fixed 9-byte header"
+  "Which channel should this build go to first?"
+  ChiefMockBackend "Overnight: Codex finished the pricing page fix"
+  MockArtifactSource MockWorkspaceCreationBackend
+)
+
+# Every Mach-O in the bundle: the executable, Frameworks/, and the
+# `<name>.debug.dylib` Xcode splits a Debug build's code into.
+binaries=()
+while IFS= read -r -d '' f; do
+  file -b "$f" | grep -q Mach-O && binaries+=("$f")
+done < <(find "$app" -type f -print0)
+[[ ${#binaries[@]} -gt 0 ]] || { echo "error: no Mach-O binaries in $app" >&2; exit 2; }
+
+bad=()
+if [[ -n "$expected_bundle" ]]; then
+  [[ "$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")" == "$expected_bundle" ]] || bad+=("bundle id")
+  [[ "$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null)" == https://* ]] || bad+=("CNXAPIBase")
+fi
+if [[ $shipping == 1 ]]; then
+  api=$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null || true)
+  [[ "$api" == https://* && ! "$api" =~ (-dev[.-]|localhost|127\.0\.0\.1|\.local) ]] \
+    || bad+=("CNXAPIBase '$api' is not a production service address")
+fi
+dump=$(mktemp)
+trap 'rm -f "$dump"' EXIT
+for b in "${binaries[@]}"; do strings -a "$b"; done > "$dump"
+for s in "${forbidden[@]}"; do
+  if grep -qF -- "$s" "$dump"; then bad+=("DEBUG string '$s'"); fi
+done
+
+if [[ ${#bad[@]} -gt 0 ]]; then
+  echo "error: $app is not a clean Production build:" >&2
+  printf '  - %s\n' "${bad[@]}" >&2
+  exit 1
+fi
+echo "ok: $app has no DEBUG-only strings (${#binaries[@]} binaries, ${#forbidden[@]} strings checked)"
