@@ -1,0 +1,79 @@
+import AppKit
+import CmuxNextActions
+import CmuxNextNowPlaying
+import UniformTypeIdentifiers
+
+/// cmux's own music player (cx-imt2i): Play Music… picks songs or folders and plays them on the
+/// Now Playing card and the media keys; Stop Music ends it. A preview feature: without
+/// `labs.previewFeatures` both are unavailable everywhere.
+enum MusicHandlers {
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services
+        let preview: @MainActor () -> String? = { [weak services] in
+            services?.settings?.snapshot.previewFeatures == true ? nil : MusicStrings.preview
+        }
+        registry.bind("music.open", unavailable: preview, invoke: { [weak services, weak registry] _ in
+            guard let services, let registry else { return }
+            let anchor = services.windows.active?.window
+            registry.track(Task { @MainActor in
+                guard let urls = await choose(anchor: anchor) else { return nil }
+                let tracks = await Task.detached { MusicPlayer.tracks(from: urls) }.value
+                guard !tracks.isEmpty else {
+                    registry.refuse(MusicStrings.noSongs)
+                    return ActionWorkFailure(MusicStrings.noSongs)
+                }
+                services.cache.pageRequests.music.play(tracks)
+                return nil
+            })
+        })
+        registry.bind("music.stop", unavailable: preview, invoke: { [weak services, weak registry] _ in
+            guard let music = services?.cache.pageRequests.music, music.nowPlaying != nil else {
+                registry?.refuse(MusicStrings.nothingPlaying)
+                return
+            }
+            music.stop()
+        })
+    }
+
+    /// The songs and folders the person picks, nil on cancel.
+    private static func choose(anchor: NSWindow?) async -> [URL]? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.audio]
+        panel.message = MusicStrings.chooseMessage
+        panel.prompt = MusicStrings.choosePrompt
+        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+            if let anchor {
+                panel.beginSheetModal(for: anchor) { continuation.resume(returning: $0) }
+            } else {
+                panel.begin { continuation.resume(returning: $0) }
+            }
+        }
+        return response == .OK && !panel.urls.isEmpty ? panel.urls : nil
+    }
+}
+
+enum MusicStrings {
+    static var preview: String {
+        String(localized: "music.refusal.preview", defaultValue: "The music player is a preview feature: turn on labs.previewFeatures in cmux.json.",
+               table: "Music", bundle: .module)
+    }
+
+    static var noSongs: String {
+        String(localized: "music.refusal.noSongs", defaultValue: "No songs there to play.", table: "Music", bundle: .module)
+    }
+
+    static var nothingPlaying: String {
+        String(localized: "music.refusal.nothingPlaying", defaultValue: "No music is playing.", table: "Music", bundle: .module)
+    }
+
+    static var chooseMessage: String {
+        String(localized: "music.choose.message", defaultValue: "Choose songs or folders to play.", table: "Music", bundle: .module)
+    }
+
+    static var choosePrompt: String {
+        String(localized: "music.choose.prompt", defaultValue: "Play", table: "Music", bundle: .module)
+    }
+}
