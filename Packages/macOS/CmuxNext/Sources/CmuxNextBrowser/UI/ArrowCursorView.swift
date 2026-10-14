@@ -99,7 +99,7 @@ public class ArrowCursorView: NSView {
 extension ArrowCursorView {
     // MARK: A still pointer, while a child window has the key
 
-    nonisolated(unsafe) private static var cursorKeeper: CFRunLoopObserver?
+    private static var cursorKeeper: CFRunLoopObserver?
 
     /// One main run loop observer, after every other observer of the pass
     /// (AppKit's display cycle runs in Core Animation's commit, before it).
