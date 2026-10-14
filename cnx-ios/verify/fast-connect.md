@@ -214,3 +214,69 @@ cnx-dial --base-url https://cnx-ios-api-dev.debussy.workers.dev --token-file <to
 # app: launch, then read the steps
 xcrun simctl spawn <udid> log stream --predicate 'subsystem == "dev.cmux.cnx" AND category == "timing"'
 ```
+
+## Worker 0.8.0 (2026-10-14, later): profiled and cut
+
+`Server-Timing` is now on every response (PROTOCOL.md). With it, the dev
+Worker was profiled. It runs in colo SJC, its hub in SJC, and PlanetScale in
+us-east-1 behind Hyperdrive. These were the costs:
+
+| Cost | Before | Fix |
+| --- | --- | --- |
+| A fresh isolate fetching Stack's JWKS before checking a token. Most signal upgrades landed on one. | `auth` 116 to 151 ms | JWKS shared across isolates through the Cache API (10 min) |
+| Signal upgrade device lookup | `db` about 80 ms (us-east-1 round trip) | Team hubs keep their registered devices; the database is only a fallback |
+| `/me/macs` asking Stack for the caller's teams on every request | a Stack round trip | cached 60 s, one fetch in flight |
+| `/v1/ice` calling Cloudflare TURN on every request | `turn` about 50 ms | TURN answer cached for a tenth of its TTL |
+| Phone launch: 2 registrations, `/macs`, `/me/macs` | 3 to 4 requests | `POST /v1/me/bootstrap`: one round trip |
+| Database queries for `/macs` and `POST /devices` | `db` 80 to 170 ms | **not fixed.** The database is in us-east-1 and the Worker in SJC. Smart Placement would move the Worker away from the hub and the clients. Hyperdrive caching was turned off on purpose (stale `/macs`). |
+
+Route timings from this Mac, 10 samples each. "Client" is curl time after
+TLS; "Worker" is the Server-Timing `total`.
+
+| Route | Before: client median / p90 | After: client median / p90 | After: Worker median |
+| --- | --- | --- | --- |
+| WebSocket `signal` upgrade | 397 / 452 ms | **130 / 274 ms** | 29 ms |
+| `GET /v1/ice` | 85 / 105 ms | 63 / 132 ms | 12 ms |
+| `GET /v1/teams/:id/macs` | 162 / 177 ms | 155 / 173 ms | 86 ms (database) |
+| `GET /v1/me/macs` | 169 / 203 ms | 173 / 208 ms | 109 ms (database) |
+| `POST /v1/devices` | 214 / 278 ms | 259 / 423 ms | 176 ms (2 queries) |
+
+### Live, 20 samples each
+
+The phone app is this branch on `cnx-fc-ios26`. The Mac is the real
+`cmux DEV cnxfc2` cmux-next build on the mini. The ACCEPTANCE.md targets
+are in brackets.
+
+| Metric | Before (Worker 0.7.0, 3 runs) | After (Worker 0.8.0, 20 runs) |
+| --- | --- | --- |
+| Cold launch to workspaces live [≤ 1.5 s median / ≤ 2.5 s p95] | 3.3 to 4.1 s (median 3.4 s) | **median 2.45 s, p95 3.1 s** (one outlier at 9.7 s, the first launch after the deploy) |
+| Warm relaunch to workspaces live | median 4.9 s | **median 1.39 s, p95 2.1 s**; cached rows at 0.82 s |
+| Warm reconnect, foreground with the link still up [≤ 1.0 s / ≤ 1.5 s] | 16 to 22 ms | **median 15 ms, p95 19 ms** |
+| `offer_sent` to `answer_received` | 0.24 to 6.9 s | 58 to 111 ms |
+
+**What is left on the launch path (warm):**
+- A Stack access-token refresh: 380 to 450 ms after `dial_start`. This is
+  Stack, not the Worker.
+- The signaling socket: 170 to 260 ms.
+
+**What is left on the launch path (cold):**
+- Stack sign-in state, the Stack team list, and the bootstrap call: 1.4 to
+  2.3 s to `dial_start`.
+
+**What is still missing:**
+- Cold launch misses its target by about 1 s.
+- Both remaining gaps are the Stack calls made before the first dial. The
+  next step would be to dial with a cached, still-valid access token, and
+  to fetch the team list after the dial.
+- Foreground with a dead link (an iPhone suspended long enough for the
+  link to drop) was not measured. The simulator keeps links alive in the
+  background.
+
+**Deploys:**
+- `cnx-ios-api-dev`, `cnx-ios-api-prod` (`cnx-ios-api.cmux.dev`), and the
+  renamed `cmux-next-ios-api-dev` and `cmux-next-ios-api`
+  (`cmux-next-ios-api.cmux.dev`) all report 0.8.0.
+- The renamed ones were deployed from this config with the names and route
+  swapped, because the renaming branch has not been pushed.
+- All changes are backward compatible: old phones and Macs keep working,
+  and the app falls back to the separate calls on a 404.
