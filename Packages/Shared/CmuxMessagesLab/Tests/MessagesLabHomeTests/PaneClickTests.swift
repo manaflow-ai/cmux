@@ -118,19 +118,33 @@ import Testing
                          context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!
     }
 
-    @Test(arguments: [("a", UInt16(0), NSEvent.ModifierFlags()), ("\r", 36, []), ("v", 9, [.command]), ("\u{7f}", 51, [])])
-    func aKeyAfterABubbleClickGoesToTheField(_ chars: String, _ code: UInt16, _ mods: NSEvent.ModifierFlags) throws {
+    /// A key press for the routing tests (Sendable for Swift Testing's arguments).
+    struct Press: Sendable, CustomStringConvertible {
+        var chars: String
+        var code: UInt16
+        var mods: UInt = 0
+        var description: String { "key \(code) mods \(mods)" }
+    }
+
+    static let toField = [Press(chars: "a", code: 0), Press(chars: "\r", code: 36),
+                          Press(chars: "v", code: 9, mods: NSEvent.ModifierFlags.command.rawValue), Press(chars: "\u{7f}", code: 51)]
+    static let staying = [Press(chars: "c", code: 8, mods: NSEvent.ModifierFlags.command.rawValue),
+                          Press(chars: "\u{F701}", code: 125, mods: NSEvent.ModifierFlags([.function, .numericPad]).rawValue),
+                          Press(chars: "\t", code: 48)]
+
+    @Test(arguments: toField)
+    func aKeyAfterABubbleClickGoesToTheField(_ press: Press) throws {
         let (controller, window, _) = try Self.focusedPane()
-        let e = Self.key(window, chars, code: code, mods: mods)
+        let e = Self.key(window, press.chars, code: press.code, mods: NSEvent.ModifierFlags(rawValue: press.mods))
         // The same event goes on (AppKit dispatches it to the new first responder, the field).
         #expect(controller.routeTranscriptKey(e) === e)
         #expect(window.firstResponder === controller.demo?.compose.textView.view)
     }
 
-    @Test(arguments: [("c", UInt16(8), NSEvent.ModifierFlags.command), ("\u{F701}", 125, [.function, .numericPad]), ("\t", 48, [])])
-    func copyArrowsAndTabStayWithTheTranscript(_ chars: String, _ code: UInt16, _ mods: NSEvent.ModifierFlags) throws {
+    @Test(arguments: staying)
+    func copyArrowsAndTabStayWithTheTranscript(_ press: Press) throws {
         let (controller, window, doc) = try Self.focusedPane()
-        let e = Self.key(window, chars, code: code, mods: mods)
+        let e = Self.key(window, press.chars, code: press.code, mods: NSEvent.ModifierFlags(rawValue: press.mods))
         #expect(controller.routeTranscriptKey(e) === e)
         #expect(window.firstResponder === doc)
     }
