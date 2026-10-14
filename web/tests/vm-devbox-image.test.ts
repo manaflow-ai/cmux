@@ -312,19 +312,29 @@ describe("devbox image template", () => {
     expect(verify).toContain("test ! -e /opt/mise");
   });
 
-  test("history ghost text: gray suggestion, accepted on Right, never executed on Enter", async () => {
-    // Drives a real interactive Bash through a PTY. Bash 5 is the guest shell;
-    // an older host Bash (macOS /bin/bash) loads no ghost text at all.
-    const version = await runChild("bash", ["-c", "echo ${BASH_VERSINFO[0]}"]);
-    const python = await runChild("bash", ["-c", "command -v python3"]);
-    if (Number(version.stdout.trim()) < 5 || python.status !== 0) return;
-    const directory = mkdtempSync(path.join(tmpdir(), "cmux-ghost-"));
-    try {
-      writeFileSync(path.join(directory, "history"), "echo older-entry\necho accepted-ghost\nclaude --dangerously-skip-permissions\n");
-      // PS1 is set after ghost.bash loads, as a user's ~/.bashrc does after
-      // /etc/cmux/bashrc: the suggestion must follow the prompt in effect.
-      writeFileSync(path.join(directory, "rc"), `HISTFILE='${directory}/history'\n. '${path.join(templateDir, "cmux-ghost.bash")}'\nPS1='$ '\n`);
-      const driver = String.raw`
+  const ghostBashVersion = Bun.spawnSync(["bash", "-c", "echo $((BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1]))"]).stdout.toString().trim();
+  const ghostPython = Bun.spawnSync(["bash", "-c", "command -v python3"]).exitCode === 0;
+  // Drives a real interactive Bash through a PTY. Bash 5.1+ is the guest
+  // shell; an older host Bash (macOS /bin/bash) loads no ghost text at all.
+  test.skipIf(Number(ghostBashVersion) < 501 || !ghostPython)(
+    "history ghost text: gray suggestion, display only, readline commands intact",
+    async () => {
+      const directory = mkdtempSync(path.join(tmpdir(), "cmux-ghost-"));
+      try {
+        mkdirSync(path.join(directory, "files"));
+        writeFileSync(path.join(directory, "files", "alpha-one"), "");
+        writeFileSync(path.join(directory, "files", "alpha-two"), "");
+        writeFileSync(
+          path.join(directory, "history"),
+          `echo older-entry\necho accepted-ghost\nclaude --dangerously-skip-permissions\necho ${"x".repeat(70_000)}\n`,
+        );
+        // PS1 is set after ghost.bash loads, as a user's ~/.bashrc does after
+        // /etc/cmux/bashrc, and carries \[ \] color spans like the cmux prompt.
+        writeFileSync(
+          path.join(directory, "rc"),
+          `HISTFILE='${directory}/history'\nHISTSIZE=1000\n. '${path.join(templateDir, "cmux-ghost.bash")}'\nPS1='\\[\\e[32m\\]$ \\[\\e[0m\\]'\ncd '${directory}/files'\n`,
+        );
+        const driver = String.raw`
 import os, pty, re, select, sys, time
 directory = sys.argv[1]
 pid, fd = pty.fork()
@@ -332,6 +342,7 @@ if pid == 0:
     os.environ.update(TERM="xterm-256color", HOME=directory, COLUMNS="100", LINES="30")
     os.execvp("bash", ["bash", "--noprofile", "--rcfile", directory + "/rc", "-i"])
 gray = rb"\x1b\[38;5;245m"
+prompt = rb"\$ \x1b\[0m$"
 def expect(pattern, timeout=10):
     out, deadline = b"", time.monotonic() + timeout
     while not re.search(pattern, out):
@@ -340,25 +351,50 @@ def expect(pattern, timeout=10):
             sys.exit("timed out waiting for %r; got %r" % (pattern, out[-300:]))
         out += os.read(fd, 65536)
     return out
-expect(rb"\$ $")
+def run(keys, output):
+    os.write(fd, keys); expect(output + rb"[\s\S]*" + prompt)
+expect(prompt)
+# The suggestion appears after each key and is display only.
 os.write(fd, b"c"); expect(gray + rb"laude --dangerously-skip-permissions")
 os.write(fd, b"l"); expect(gray + rb"aude --dangerously-skip-permissions")
-os.write(fd, b"\r"); expect(rb"cl: command not found[\s\S]*\$ $")
+run(b"\r", rb"cl: command not found")
+# Right accepts; Enter runs the accepted line.
 os.write(fd, b"echo acc"); expect(gray + rb"epted-ghost")
-os.write(fd, b"\x1b[C\r"); expect(rb"[\r\n]accepted-ghost\r\n[\s\S]*\$ $")
-os.write(fd, b"echo o"); expect(gray + rb"lder-entry")
-os.write(fd, b"\x7f"); expect(gray + rb"accepted-ghost")
-os.write(fd, b"\x03"); expect(rb"\x1b\[A\x1b\[\d+G\x1b\[K[\s\S]*\$ $")
-os.write(fd, b"12"); out = expect(rb"12")
-if b"\x1b[38;5;245m" in out: sys.exit("numeric input must not be read as a history number")
+run(b"\x1b[C\r", rb"[\r\n]accepted-ghost\r\n")
+# A pasted edit is not replaced by the suggestion it outdated.
+os.write(fd, b"echo acc"); expect(gray + rb"epted-ghost")
+os.write(fd, b"\x1b[200~PASTED\x1b[201~"); expect(rb"PASTED")
+run(b"\x1b[F\r", rb"[\r\n]accPASTED\r\n")
+# Ctrl-R twice steps to an older match.
+os.write(fd, b"\x12echo "); expect(rb"accPASTED")
+os.write(fd, b"\x12"); expect(rb"epted-ghost")  # readline redraws only the changed tail
+run(b"\r", rb"[\r\n]accepted-ghost\r\n")
+# Tab Tab lists ambiguous completions.
+os.write(fd, b"ls alpha-"); os.write(fd, b"\t\t"); expect(rb"alpha-one[\s\S]*alpha-two")
+os.write(fd, b"\x15\r"); expect(prompt)
+# Ctrl-Y then Alt-Y rotates the kill ring; Ctrl-W kills accumulate.
+os.write(fd, b"echo one\x15"); os.write(fd, b"echo two\x15")
+run(b"\x19\x1by\r", rb"[\r\n]one\r\n")
+os.write(fd, b"echo a b\x17\x17")
+run(b"\x19\r", rb"[\r\n]a b\r\n")
+# A history entry larger than a pipe buffer does not stall typing.
+os.write(fd, b"echo xx"); expect(gray + rb"x{20}")
+os.write(fd, b"\x15"); run(b"echo alive\r", rb"[\r\n]alive\r\n")
+# Ctrl-C erases the suggestion after the ^C.
+os.write(fd, b"echo ol"); expect(gray + rb"der-entry")
+os.write(fd, b"\x03"); expect(rb"\x1b\[A\x1b\[\d+G\x1b\[K[\s\S]*" + prompt)
+# set -e survives the accept keys at column 0.
+run(b"set -e\r", rb"set -e")
+os.write(fd, b"\x1b[C\x1bf"); run(b"echo still-here\r", rb"[\r\n]still-here\r\n")
 print("ghost-ok")
 `;
-      const result = await runChild("python3", ["-c", driver, directory], { timeout: 30_000 });
-      expect({ status: result.status, stdout: result.stdout.trim(), stderr: result.stderr }).toEqual({ status: 0, stdout: "ghost-ok", stderr: "" });
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
+        const result = await runChild("python3", ["-c", driver, directory], { timeout: 60_000 });
+        expect({ status: result.status, stdout: result.stdout.trim(), stderr: result.stderr }).toEqual({ status: 0, stdout: "ghost-ok", stderr: "" });
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   test("dotted python -m completion lists one package's submodules without importing others", async () => {
     // Ubuntu's stock helper walks (imports) every installed package once the

@@ -10,14 +10,17 @@
 # shell, cost 15-30 ms per key with stalls of hundreds of milliseconds on
 # Cloud VMs.
 #
-# The suggestion is never part of the line buffer: Enter, Tab, Ctrl-C and
+# The suggestion is never part of the line buffer: Enter, Tab, Ctrl-R and
 # every other readline command see exactly what was typed. Readline redraws
 # the input line after each `bind -x` command, so the suggestion is painted
 # first, at the column where the typed text will end, and readline's redraw
-# writes the prompt and input in front of it.
+# writes the prompt and input in front of it. Readline's own commands stay
+# bound to their functions (Tab Tab, yank-pop, kill accumulation, incremental
+# search and numeric arguments depend on that); only Enter and history
+# movement first drop the suggestion.
 case $- in *i*) ;; *) return 0 ;; esac
-[[ ${BASH_VERSINFO[0]} -ge 5 && -z ${__cmux_ghost_loaded-} && -t 1 ]] || return 0
-[[ $TERM != dumb ]] || return 0
+((BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1))) || return 0
+[[ -z ${__cmux_ghost_loaded-} && -t 2 && $TERM != dumb ]] || return 0
 __cmux_ghost_loaded=1
 
 __cmux_ghost_color=${CMUX_GHOST_COLOR-$'\e[38;5;245m'}
@@ -28,42 +31,59 @@ __cmux_ghost_prompt_key= # prompt identity __cmux_ghost_prompt_width belongs to
 __cmux_ghost_prompt_width=0
 __cmux_ghost_column=0    # screen column where the painted suggestion starts
 __cmux_ghost_echoctl=2   # width of readline's ^C echo, 0 when it is off
-# `fc` prints its answer; a pipe this shell holds open for reading and
-# writing carries it back without a command substitution's fork.
-exec {__cmux_ghost_fd}<> <(:) || return 0
+__cmux_ghost_file=       # private file `fc` writes its answer to
 
-# The most recent history entry that starts with $1, or empty. A numeric
-# argument names an entry number in `fc`, and a multi-line entry cannot be
-# completed on one line, so both yield no suggestion.
+# `fc` prints its answer. A file in a private directory carries it back
+# without a command substitution's fork, and unlike a pipe it cannot fill up
+# on a long history entry.
+__cmux_ghost_answer_file() {
+  [[ $__cmux_ghost_file && -f $__cmux_ghost_file && -O $__cmux_ghost_file ]] && return 0
+  local directory
+  directory=$(mktemp -d "${TMPDIR:-/tmp}/cmux-ghost.XXXXXX" 2>/dev/null) || return 1
+  __cmux_ghost_file=$directory/answer
+  : > "$__cmux_ghost_file" 2>/dev/null
+}
+
+# The most recent history entry that starts with $1, or empty. `fc` reads an
+# argument that starts with a digit as an entry number, and a multi-line entry
+# cannot be completed on one line, so both yield no suggestion.
 __cmux_ghost_lookup() {
   __cmux_ghost_match=
-  [[ $1 =~ ^-?[0-9]+$ ]] && return 0
+  [[ $1 == [0-9]* || $1 == -[0-9]* ]] && return 0
+  __cmux_ghost_answer_file || return 0
+  fc -ln -- "$1" "$1" > "$__cmux_ghost_file" 2>/dev/null || return 0
   local line count=0
-  { fc -ln -- "$1" "$1" 2>/dev/null; printf '\036\n'; } >&"$__cmux_ghost_fd"
-  while IFS= read -r -u "$__cmux_ghost_fd" line && [[ $line != $'\036' ]]; do
-    ((count++)) || __cmux_ghost_match=$line
-  done
-  ((count == 1)) || { __cmux_ghost_match=; return 0; }
+  while IFS= read -r line; do
+    count=$((count + 1))
+    if ((count == 1)); then __cmux_ghost_match=$line; fi
+  done < "$__cmux_ghost_file"
+  if ((count != 1)); then
+    __cmux_ghost_match=
+    return 0
+  fi
   __cmux_ghost_match=${__cmux_ghost_match#$'\t'}
   __cmux_ghost_match=${__cmux_ghost_match# }
   [[ $__cmux_ghost_match == "$1"* ]] || __cmux_ghost_match=
+  return 0
 }
 
-# The width of the prompt's last line, cached per prompt. ${PS1@P} expands the
-# prompt the way readline does; \[ \] spans become \001 \002 and are dropped.
+# The width of the prompt's last line, measured once per prompt. ${PS1@P}
+# expands the prompt the way readline does; \[ \] spans become \001 \002 and
+# are dropped.
 __cmux_ghost_measure_prompt() {
-  local key="$HISTCMD:$PS1:$PWD:$COLUMNS"
+  local key="$PS1:$PWD:$COLUMNS"
   [[ $key == "$__cmux_ghost_prompt_key" ]] && return 0
   local prompt=${PS1@P} visible=
   prompt=${prompt##*$'\n'}
   while [[ $prompt == *$'\001'* ]]; do
     visible+=${prompt%%$'\001'*}
     prompt=${prompt#*$'\001'}
-    [[ $prompt == *$'\002'* ]] && prompt=${prompt#*$'\002'} || prompt=
+    if [[ $prompt == *$'\002'* ]]; then prompt=${prompt#*$'\002'}; else prompt=; fi
   done
   visible+=$prompt
   __cmux_ghost_prompt_width=${#visible}
   __cmux_ghost_prompt_key=$key
+  return 0
 }
 
 # Choose the suggestion for the current input and paint it.
@@ -92,50 +112,45 @@ __cmux_ghost_suggest() {
   ghost=${ghost:0:room}
   __cmux_ghost_shown=$ghost
   __cmux_ghost_column=$column
-  # Readline has cleared the input line and left the cursor where the
-  # prompt's last line starts. Newlines (not cursor-down) reach a row past
-  # the bottom of the screen by scrolling, exactly as readline's redraw will.
-  local down=
-  ((row > 0)) && printf -v down '%*s' "$row" '' && down=${down// /$'\n'}
-  local right=
-  ((column > 0)) && printf -v right '\e[%dC' "$column"
-  printf '\r%s%s%s%s\e[0m\r' "$down" "$right" "$__cmux_ghost_color" "$ghost"
-  ((row > 0)) && printf '\e[%dA' "$row"
+  # Readline draws on stderr. It has cleared the input line and left the
+  # cursor where the prompt's last line starts. Newlines (not cursor-down)
+  # reach a row past the bottom of the screen by scrolling, exactly as
+  # readline's redraw will.
+  local down= right=
+  if ((row > 0)); then
+    printf -v down '%*s' "$row" ''
+    down=${down// /$'\n'}
+  fi
+  if ((column > 0)); then printf -v right '\e[%dC' "$column"; fi
+  printf '\r%s%s%s%s\e[0m\r' "$down" "$right" "$__cmux_ghost_color" "$ghost" >&2
+  if ((row > 0)); then printf '\e[%dA' "$row" >&2; fi
   return 0
 }
 
 # Printable keys: insert the character at the cursor, then suggest.
 __cmux_ghost_insert() {
   READLINE_LINE=${READLINE_LINE:0:READLINE_POINT}$1${READLINE_LINE:READLINE_POINT}
-  ((READLINE_POINT += ${#1}))
+  READLINE_POINT=$((READLINE_POINT + ${#1}))
   __cmux_ghost_suggest
 }
 
-# Backspace shortens the line, and readline's redraw then clears to the end
-# of the line, erasing a suggestion painted before it. The key is therefore a
-# macro of two commands: delete, then repaint over an unchanged line.
-__cmux_ghost_backspace() {
-  if ((READLINE_POINT > 0)); then
-    READLINE_LINE=${READLINE_LINE:0:READLINE_POINT-1}${READLINE_LINE:READLINE_POINT}
-    ((READLINE_POINT--))
-  fi
-  __cmux_ghost_prefix=
-  __cmux_ghost_shown=
-}
-
-__cmux_ghost_repaint() {
-  __cmux_ghost_suggest
+# True when the painted suggestion still belongs to the line as it is now.
+# Edits made outside these bindings (paste, Tab, yank, non-ASCII input) leave
+# the cache describing an older line.
+__cmux_ghost_current() {
+  [[ $__cmux_ghost_shown && $READLINE_LINE == "$__cmux_ghost_prefix" \
+    && $__cmux_ghost_match == "$READLINE_LINE"* ]] && ((READLINE_POINT == ${#READLINE_LINE}))
 }
 
 # Right, End, Ctrl-E, Ctrl-F: accept the suggestion, else move as usual.
 __cmux_ghost_accept() {
-  if [[ $__cmux_ghost_shown ]] && ((READLINE_POINT == ${#READLINE_LINE})); then
+  if __cmux_ghost_current; then
     READLINE_LINE=$__cmux_ghost_match
     READLINE_POINT=${#READLINE_LINE}
   elif [[ $1 == end ]]; then
     READLINE_POINT=${#READLINE_LINE}
   elif ((READLINE_POINT < ${#READLINE_LINE})); then
-    ((READLINE_POINT++))
+    READLINE_POINT=$((READLINE_POINT + 1))
   fi
   __cmux_ghost_suggest
 }
@@ -143,24 +158,24 @@ __cmux_ghost_accept() {
 # Alt-F, Alt-Right: accept the next word of the suggestion, else move one
 # word forward the way readline's forward-word does.
 __cmux_ghost_accept_word() {
-  local rest
-  if [[ $__cmux_ghost_shown ]] && ((READLINE_POINT == ${#READLINE_LINE})); then
-    rest=$__cmux_ghost_shown
+  local rest accepting=
+  if __cmux_ghost_current; then
+    accepting=1
+    rest=${__cmux_ghost_match:${#READLINE_LINE}}
   else
     rest=${READLINE_LINE:READLINE_POINT}
   fi
   [[ $rest =~ ^[^[:alnum:]]*[[:alnum:]]* ]]
   rest=${BASH_REMATCH[0]}
-  if [[ $__cmux_ghost_shown ]] && ((READLINE_POINT == ${#READLINE_LINE})); then
-    READLINE_LINE+=$rest
-  fi
-  ((READLINE_POINT += ${#rest}))
+  if [[ $accepting ]]; then READLINE_LINE+=$rest; fi
+  READLINE_POINT=$((READLINE_POINT + ${#rest}))
   __cmux_ghost_suggest
 }
 
-# Before Enter: the command is about to join the history, so forget the
-# cached answer.
-__cmux_ghost_commit() {
+# Before Enter and history movement: drop the painted suggestion (the
+# `bind -x` redraw erases it) and forget the cached answer, since the history
+# is about to change or the line is about to be replaced.
+__cmux_ghost_clear() {
   __cmux_ghost_shown=
   __cmux_ghost_prefix=
   __cmux_ghost_match=
@@ -173,77 +188,60 @@ __cmux_ghost_commit() {
 __cmux_ghost_prompt() {
   local status=$?
   if [[ $__cmux_ghost_shown ]] && ((status == 130)); then
-    printf '\e[A\e[%dG\e[K\e[B\r' "$((__cmux_ghost_column + __cmux_ghost_echoctl + 1))"
+    printf '\e[A\e[%dG\e[K\e[B\r' "$((__cmux_ghost_column + __cmux_ghost_echoctl + 1))" >&2
   fi
-  __cmux_ghost_shown=
-  __cmux_ghost_prefix=
-  __cmux_ghost_match=
+  __cmux_ghost_clear
+  __cmux_ghost_prompt_key=
   return "$status"
 }
 
-# Before any other editing command: drop the painted suggestion (the
-# `bind -x` redraw erases it).
-__cmux_ghost_clear() {
-  __cmux_ghost_shown=
-}
-
 __cmux_ghost_bind() {
-  local code octal char key
+  local binding key function code octal char seq index=9110
+  local -A self_insert=() routed=() privates=()
+  # Printable keys a user's inputrc bound to something else (magic-space,
+  # for example) keep that binding.
+  while IFS= read -r binding; do
+    [[ $binding == \"*\":\ * ]] || continue
+    key=${binding%\": *}
+    key=${key#\"}
+    function=${binding##*\": }
+    case $function in
+      self-insert) self_insert[$key]=1 ;;
+      accept-line | operate-and-get-next | previous-history | next-history | \
+        beginning-of-history | end-of-history) routed[$key]=$function ;;
+    esac
+  done < <(bind -m emacs -p 2>/dev/null)
+
   for ((code = 32; code < 127; code++)); do
     printf -v octal %03o "$code"
     printf -v char "\\$octal"
     key=$char
     [[ $char == [\"\\] ]] && key=\\$char
+    [[ ${self_insert[$key]-} ]] || continue
     printf -v char %q "$char"
     bind -m emacs -x "\"$key\": __cmux_ghost_insert $char"
   done
-  local seq
-  bind -m emacs -x '"\e[9103~": __cmux_ghost_backspace'
-  bind -m emacs -x '"\e[9104~": __cmux_ghost_repaint'
-  for seq in '\C-?' '\C-h'; do bind -m emacs "\"$seq\": \"\e[9103~\e[9104~\""; done
   for seq in '\e[C' '\eOC' '\C-f'; do bind -m emacs -x "\"$seq\": __cmux_ghost_accept char"; done
-  for seq in '\e[F' '\eOF' '\e[4~' '\C-e'; do bind -m emacs -x "\"$seq\": __cmux_ghost_accept end"; done
+  for seq in '\e[F' '\eOF' '\e[4~' '\e[8~' '\C-e'; do bind -m emacs -x "\"$seq\": __cmux_ghost_accept end"; done
   for seq in '\ef' '\e[1;3C' '\e[1;9C'; do bind -m emacs -x "\"$seq\": __cmux_ghost_accept_word"; done
 
-  # Commands readline runs itself are routed through a private key that
-  # clears the suggestion first. Private keys are CSI sequences no terminal
-  # sends, one per readline function.
-  bind -m emacs -x '"\e[9101~": __cmux_ghost_commit'
-  bind -m emacs -x '"\e[9102~": __cmux_ghost_clear'
-  local binding function index=9110 private
-  local -A routed=()
-  while IFS= read -r binding; do
-    [[ $binding == \"*\":\ * ]] || continue
-    key=${binding%\": *}\"
-    function=${binding##*\": }
-    case $function in
-      accept-line | operate-and-get-next) private='\e[9101~' ;;
-      backward-char | backward-word | beginning-of-line | unix-line-discard | unix-word-rubout | \
-        backward-kill-word | backward-kill-line | kill-line | kill-word | kill-whole-line | yank | yank-pop | \
-        previous-history | next-history | beginning-of-history | end-of-history | \
-        history-search-backward | history-search-forward | reverse-search-history | forward-search-history | \
-        complete | menu-complete | menu-complete-backward | possible-completions | insert-completions | \
-        transpose-chars | transpose-words | capitalize-word | downcase-word | upcase-word | undo | revert-line | \
-        shell-expand-line | history-expand-line | glob-expand-word | glob-list-expansions | edit-and-execute-command) private='\e[9102~' ;;
-      *) continue ;;
-    esac
-    case $key in
-      '"\e[91'*) continue ;;
-    esac
-    if [[ -z ${routed[$function]-} ]]; then
-      routed[$function]="\\e[$index~"
+  # Enter and history movement run their readline function behind a private
+  # key that drops the suggestion first. Private keys are CSI sequences no
+  # terminal sends, one per readline function.
+  bind -m emacs -x '"\e[9101~": __cmux_ghost_clear'
+  for key in "${!routed[@]}"; do
+    function=${routed[$key]}
+    if [[ -z ${privates[$function]-} ]]; then
+      privates[$function]="\\e[$index~"
       bind -m emacs "\"\\e[$index~\": $function"
-      ((index++))
+      index=$((index + 1))
     fi
-    bind -m emacs "$key: \"$private${routed[$function]}\""
-  done < <(bind -m emacs -p 2>/dev/null)
+    bind -m emacs "\"$key\": \"\\e[9101~${privates[$function]}\""
+  done
   [[ $(bind -v 2>/dev/null) == *'set echo-control-characters off'* ]] && __cmux_ghost_echoctl=0
 
-  if ((BASH_VERSINFO[0] > 5 || BASH_VERSINFO[1] >= 1)); then
-    PROMPT_COMMAND=(__cmux_ghost_prompt "${PROMPT_COMMAND[@]}")
-  else
-    PROMPT_COMMAND="__cmux_ghost_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
-  fi
+  PROMPT_COMMAND=(__cmux_ghost_prompt "${PROMPT_COMMAND[@]}")
+  return 0
 }
 
 __cmux_ghost_bind
