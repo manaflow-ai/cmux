@@ -17,6 +17,11 @@ struct ZoomSpring: Equatable, Sendable {
     /// 0.385–0.40 / 0.98–0.99, but Safari covers 1850–2700 pt/s in the
     /// first 2–3 frames, so it starts with about 8.5 progress/s.
     static let toPage = ZoomSpring(response: 0.39, damping: 0.99, launch: 8.5)
+    /// (+) New Tab: the new tab grows faster than an existing tab opens.
+    /// Safari (its new-tab start page, real frame times) moves 50% / 85% /
+    /// 99% of the way 66 / 157 / 300 ms after its first frame of motion;
+    /// `toPage` takes 69 / 167 / 360 ms. This spring takes 67 / 156 / 301 ms.
+    static let newTab = ZoomSpring(response: 0.41, damping: 0.92, launch: 8.5)
     /// After a reversal Safari follows the destination's spring from about
     /// rest (toward the page 0.308–0.331 / 1.03–1.04, toward the grid
     /// 0.346–0.369 / 0.84–0.875).
@@ -106,16 +111,12 @@ struct TabZoomState: Equatable, Sendable {
         }
     }
 
-    /// Starts a transition from an explicit progress (a new tab grows from
-    /// its slot: start at 1, go to the page).
-    mutating func start(from progress: Double, toOverview: Bool) {
-        self.progress = progress
-        velocity = 0
-        offset = .zero
-        offsetVelocity = .zero
-        let spring: ZoomSpring = toOverview ? .toOverview : .toPage
-        animate(to: toOverview ? 1 : 0, spring: spring, keepVelocity: 0)
-        velocity = toOverview ? spring.launch : -spring.launch
+    /// A just-created tab opens from its grid slot on the `newTab` spring.
+    /// Anywhere else this is an ordinary `go(toOverview: false)`.
+    mutating func openNewTab() {
+        guard phase == .overview else { go(toOverview: false); return }
+        animate(to: 0, spring: .newTab, keepVelocity: 0)
+        velocity = -ZoomSpring.newTab.launch
     }
 
     mutating func animate(to target: Double, spring: ZoomSpring, keepVelocity: Double) {
