@@ -135,7 +135,9 @@ extension TabStripView {
 
     /// Layout items of the displayed tabs, without drags or gaps.
     func baseLayoutItems() -> [TabLayoutItem] {
-        TabGroupOrdering.layoutItems(displayed, groups: groups.byID, selectedID: model.selectedID, chipWidths: groups.chipWidths())
+        var items = TabGroupOrdering.layoutItems(displayed, groups: groups.byID, selectedID: model.selectedID, chipWidths: groups.chipWidths())
+        TabTitleWidths.apply(to: &items, tabs: displayed, style: model.style, metrics: metrics)
+        return items
     }
 
     /// Index (in `displayed`) and group for a gap at `point`. Tabs resolve
