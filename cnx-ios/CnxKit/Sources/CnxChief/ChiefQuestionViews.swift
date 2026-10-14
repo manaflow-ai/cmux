@@ -31,36 +31,61 @@ struct ChiefQuestionBar: View {
         if let question = session.openQuestion {
             let flow = session.answers[question.id] ?? ChiefAnswerFlow()
             Button { open(question) } label: {
-                HStack(spacing: 10) {
-                    if flow.isBusy {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "questionmark.bubble.fill").font(.body)
-                    }
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Chief is asking").font(.footnote.weight(.semibold))
-                        Text(flow.statusText ?? question.items.first?.prompt ?? "")
-                            .font(.footnote)
-                            .foregroundStyle(isFailed(flow) ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
-                            .lineLimit(2)
-                    }
-                    Spacer(minLength: 4)
-                    if !flow.isBusy {
-                        Text("Answer").font(.footnote.weight(.semibold))
-                    }
-                }
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(.rect)
-                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20, style: .continuous))
+                label(question, flow: flow)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(.rect)
+                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20, style: .continuous))
             }
+            // A bar over the transcript: it may grow with the text, but not
+            // past the point where it hides the conversation.
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .buttonStyle(.plain)
             .padding(.horizontal, 16)
             .accessibilityIdentifier("chief.question.bar")
             .accessibilityHint("Opens Chief's question")
             .transition(.opacity.combined(with: .offset(y: -8)))
+        }
+    }
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    @ViewBuilder private func label(_ question: AgentQuestion, flow: ChiefAnswerFlow) -> some View {
+        let icon = Group {
+            if flow.isBusy {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "questionmark.bubble.fill").font(.body)
+            }
+        }
+        let detail = Text(flow.statusText ?? question.items.first?.prompt ?? "")
+            .font(.footnote)
+            .foregroundStyle(isFailed(flow) ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+            .lineLimit(2)
+        if typeSize.isAccessibilitySize {
+            // Stacked, as Home's rows are at these sizes.
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    icon
+                    Text("Chief is asking").font(.footnote.weight(.semibold)).lineLimit(1)
+                }
+                detail
+                if !flow.isBusy { Text("Answer").font(.footnote.weight(.semibold)) }
+            }
+        } else {
+            HStack(spacing: 10) {
+                icon
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Chief is asking").font(.footnote.weight(.semibold))
+                    detail
+                }
+                Spacer(minLength: 4)
+                if !flow.isBusy {
+                    Text("Answer").font(.footnote.weight(.semibold))
+                }
+            }
         }
     }
 

@@ -162,6 +162,10 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         host.modalPresentationStyle = .pageSheet
         host.sheetPresentationController?.detents = [.medium(), .large()]
         host.sheetPresentationController?.prefersGrabberVisible = true
+        // At accessibility sizes the card does not fit half a screen.
+        if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
+            host.sheetPresentationController?.selectedDetentIdentifier = .large
+        }
         present(host, animated: true)
     }
 

@@ -243,13 +243,15 @@ public struct ConnectionBanner: View {
             if let detail = state.detail {
                 // Two lines: what to do, then where (the Mac's notification).
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(state.text).lineLimit(2)
+                    Text(state.text).lineLimit(3)
                     Text(detail)
                         .font(theme.type.meta)
                         .foregroundStyle(theme.colors.label2)
-                        .lineLimit(2)
+                        .lineLimit(3)
                 }
                 .fixedSize(horizontal: false, vertical: true)
+                // A banner over the list: readable, never a wall of text.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             } else {
                 Text(state.text)
             }
