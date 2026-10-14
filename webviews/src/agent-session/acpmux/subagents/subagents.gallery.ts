@@ -13,7 +13,7 @@ import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 
 /** A call the pane made to the host, as the gallery logs it. */
-type PaneCall = { method: string; params?: { subagent?: string; focus?: boolean } };
+type PaneCall = { method: string; params?: { subagent?: string; focus?: boolean; tile?: boolean; title?: string } };
 
 const prompt = "Audit the fetch helper: retries, errors, timeouts and tests";
 
@@ -414,7 +414,7 @@ export default agentPaneEntry({
       play: openSummary,
     },
     "pane-open": {
-      note: "With a host that opens subagent panes: a group line asks the app for the subagent's pane right of the chat, focused; this pane keeps the chat.",
+      note: "With a host that opens subagent panes: a group line asks the app for the subagent's tab beside the chat, named for its task; this pane keeps the chat.",
       snapshot: CODEX,
       native: { "chat.subagentPane": { opened: true } },
       play: async (ctx) => {
@@ -426,6 +426,8 @@ export default agentPaneEntry({
         );
         const call = log.find((entry) => entry.method === "chat.subagentPane");
         if (call?.params?.focus !== true) throw new Error("a click must focus the subagent's pane");
+        if (call.params.tile || call.params.title !== "Read b")
+          throw new Error("a click opens a tab named for its task");
         if (ctx.document.querySelector(".cv-subagent-of")) throw new Error("the chat pane switched to the subagent");
       },
     },
@@ -442,6 +444,25 @@ export default agentPaneEntry({
         );
         if (!ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"))
           throw new Error("the card closed");
+      },
+    },
+    "card-tile": {
+      note: "Tile on the card's Subagents title: the app tiles each running subagent in a pane of its own, named for its task; the ended ones stay put.",
+      snapshot: MANY,
+      native: { "chat.subagentPane": { opened: true } },
+      play: async (ctx) => {
+        await openSummary(ctx);
+        await ctx.click({ selector: ".acpmux-summary-card .acpmux-summary-tile" });
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
+        const running = PACKAGES.slice(3).map((name) => `Package ${name}`);
+        await ctx.waitFor(() => log.filter((call) => call.method === "chat.subagentPane").length === running.length);
+        const calls = log.filter((call) => call.method === "chat.subagentPane");
+        if (calls.some((call) => call.params?.tile !== true || call.params.focus !== false))
+          throw new Error("Tile opens each running subagent tiled, unfocused");
+        if (calls.map((call) => call.params?.title).join() !== running.join())
+          throw new Error(
+            `Tile names each pane for its task, oldest first: ${calls.map((call) => call.params?.title).join()}`,
+          );
       },
     },
     "card-open-child": {
