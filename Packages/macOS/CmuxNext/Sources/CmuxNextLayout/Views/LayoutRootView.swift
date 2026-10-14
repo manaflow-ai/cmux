@@ -82,6 +82,10 @@ public final class LayoutRootView: NSView {
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         context.overlayNeedsSync = { [weak self] in self?.syncOverlay() }
+        context.stripClipsDidChange = { [weak self] in
+            guard let self else { return }
+            planeHost?.paneShapesDidChange(overlayPlane)
+        }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
