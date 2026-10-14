@@ -17,6 +17,16 @@ export const HomeOps = {
   createGroup: "cmux.home.createGroup",
   resolveLink: "cmux.home.resolveLink",
   updateThread: "cmux.home.updateThread",
+  pin: "cmux.home.pin",
+  markUnread: "cmux.home.markUnread",
+  /** What this host can do with attachments ({local, cloud}); absent op: nothing. */
+  attachmentSupport: "cmux.home.attachmentSupport",
+  /** One step of an attachment upload (begin, chunk, commit, cancel), the owner's chunked upload. */
+  attachmentUpload: "cmux.home.attachmentUpload",
+  /** Bytes of one attachment variant, base64 (images: shown as data URLs, any page CSP). */
+  attachmentRead: "cmux.home.attachmentRead",
+  /** A short-lived URL of one attachment variant (video playback with seeking, downloads). */
+  attachmentUrl: "cmux.home.attachmentUrl",
   runs: "cmux.home.runs",
   run: "cmux.home.run",
   events: "cmux.home.events",
@@ -51,7 +61,12 @@ export interface HomeConversation {
   /** Mentions of me after my read cursor (the owner's count; 0 where the owner keeps none). */
   mentions: number;
   muted: boolean;
+  /** Pinned by me (my own list state; the owner keeps it per person). */
   pinned: boolean;
+  /** My pin order: lower first (owners with conversation-inbox-state-v1; the pin time in ms). */
+  pinPosition?: number;
+  /** I marked it unread (the read cursor stays); opening it clears the mark. */
+  markedUnread?: boolean;
   lastText?: string;
   /** When the last message was posted (the list's order and time; a read moves `updatedAt`). */
   lastAt?: number;
@@ -71,8 +86,35 @@ export interface HomeMention {
 export type HomePart =
   | { type: "text"; text: string; mentions: HomeMention[] }
   | { type: "work"; title: string; status: "running" | "waiting" | "done" | "failed"; preview?: string }
-  | { type: "attachment"; name: string; mimeType: string; byteCount: number; hash: string }
+  | HomeAttachment
   | { type: "other"; text: string };
+
+/** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP. */
+export interface HomeDerivedImage {
+  hash: string;
+  mimeType: string;
+  byteCount: number;
+}
+
+/** An `attachment` part (home-messaging.md section 2): a file the owner stores by SHA-256. */
+export interface HomeAttachment {
+  type: "attachment";
+  hash: string;
+  name: string;
+  mimeType: string;
+  byteCount: number;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+  poster?: HomeDerivedImage;
+  preview?: HomeDerivedImage;
+}
+
+/** `cmux.home.attachmentSupport`: which owners take attachments through this host. */
+export interface HomeAttachmentSupport {
+  local: boolean;
+  cloud: boolean;
+}
 
 export interface HomeReaction {
   author: string;
@@ -145,6 +187,31 @@ export interface HomeInbox {
   me: HomeParticipant;
   conversations: HomeConversation[];
   rev: number;
+  /** The owner keeps my pins and marks (conversation-inbox-state-v1): the page offers Pin and
+   * Mark as Unread only then. */
+  inboxState?: boolean;
+}
+
+/** `cmux.home.pin`: pin or unpin a conversation in my list (pinned last, by pin time). */
+export interface HomePinRequest {
+  conversation: string;
+  pinned: boolean;
+  idempotencyKey?: string;
+}
+
+/** `cmux.home.markUnread`: flag a conversation unread, or clear the flag. */
+export interface HomeMarkUnreadRequest {
+  conversation: string;
+  unread: boolean;
+  idempotencyKey?: string;
+}
+
+/** One change of my own list state of a conversation (a pin, a mark). */
+export interface HomeInboxChange {
+  conversation: string;
+  pinned: boolean;
+  pinPosition?: number;
+  markedUnread: boolean;
 }
 
 /** The owner's stats of one thread root, counted over every reply (not only the loaded window).
@@ -200,6 +267,8 @@ export interface HomeEventBatch {
   typing?: { conversation: string; participant: string; on: boolean }[];
   /** Running replies, in order (applied before this batch's messages). */
   drafts?: HomeDraftItem[];
+  /** My own list state changes (pins, marks), in order. */
+  inbox?: HomeInboxChange[];
   /** Agent runs that changed: each run after the change and the steps it wrote. */
   runs?: HomeRunChange[];
 }
