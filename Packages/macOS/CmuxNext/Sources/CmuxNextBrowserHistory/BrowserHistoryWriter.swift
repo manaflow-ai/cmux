@@ -121,7 +121,7 @@ public final class BrowserHistoryWriter {
             // A form post (its body can name uploaded files) also keeps the page out for good: a
             // later load of the same address clears the entry's flag but not the engine's body.
             if session.entries.contains(where: \.formPost) { showedPrivateField = true }
-            var probed = false  // A probe that fails to run saves no state this time.
+            var probed = false  // A probe that fails to run takes no new state (the last stays).
             if !showedPrivateField {
                 switch try? await page.evaluate(Self.hasPrivateField, world: .isolated) {
                 case .bool(true)?: showedPrivateField = true
@@ -137,6 +137,9 @@ public final class BrowserHistoryWriter {
                let shown = page.state.url, shown == session.entries[session.current].url,
                Self.keepsFileAccess(list + session.entries.map(\.url), shown: shown) {
                 history = history.with(engineState: Self.engineState(of: page))
+            } else if !probed, !showedPrivateField, let kept = recorded?.engineState,
+                      recorded?.with(engineState: nil) == history {
+                history = history.with(engineState: kept)
             }
         }
         savedEngineState = history.engineState != nil
