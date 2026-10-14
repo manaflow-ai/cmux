@@ -3,6 +3,7 @@
 
     reel.py --build B [--notes-url URL | --notes FILE] --out DIR [--dry-run]
             [--repo manaflow-ai/cmux] [--clips FILE] [--tree FILE] [--heads FILE]
+            [--allow-unsigned] [--allow-truncated]
 
 The pull requests come from the build's signed release notes (release-notes.py
 `build`: each item is {title, author, pr}), in notes order, once each. Their
@@ -17,7 +18,13 @@ video profile, then all of them are joined into DIR/reel.mp4. DIR/reel.json and
 a self-contained DIR/index.html list every pull request in the build, with its
 clip or "no clip". `--dry-run` prints the plan and writes only reel.json.
 
-`--clips FILE` (a JSON map of pr to a local path or URL) skips discovery;
+Notes must verify against the content-signing key (a local --notes file needs
+FILE.sig unless --allow-unsigned), and a truncated listing stops the build
+unless --allow-truncated. Downloads are limited to files-next.cmux.com (notes)
+and the repo's pr-media branch on raw.githubusercontent.com (clips), with no
+redirects.
+
+`--clips FILE` (a JSON map of pr to a local path or pr-media URL) skips discovery;
 `--tree FILE` and `--heads FILE` (a saved trees response, a map of pr to head
 sha) stand in for the GitHub calls.
 """
@@ -35,14 +42,17 @@ import subprocess
 import sys
 import tempfile
 from typing import Any
+import urllib.error
 import urllib.parse
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[3]
-NOTES_BASE = "https://files-next.cmux.com/nightly-next/next/notes"
+NOTES_HOST = "https://files-next.cmux.com/"
+NOTES_BASE = f"{NOTES_HOST}nightly-next/next/notes"
 # The content-signing public key the nightly verifies notes with (.github/workflows/nightly.yml).
 CONTENT_PUBLIC_KEY = "AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4="
 CARD_SECONDS = 1.5
+CLIP_SECONDS = 60
 TITLE_MAX = 60
 # capture_paths.py's TOUR_FILES order: the first tour a pull request has is its clip.
 TOUR_ORDER = ("new-tab", "agent-pane", "core")
@@ -71,12 +81,25 @@ release_notes = load_script("cmux_next_release_notes", ROOT / "scripts/cmux-next
 # Notes
 
 
-def fetch(url: str, into: Path, limit: int = 30 * 1024 * 1024) -> Path:
-    """Download url to into, refusing anything over limit bytes."""
-    if urllib.parse.urlparse(url).scheme != "https":
-        raise ValueError(f"not an https URL: {url}")
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect could leave the allowed host, so none is followed."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, f"refused redirect to {newurl}", headers, fp)
+
+
+def clip_prefix(repo: str) -> str:
+    return f"https://raw.githubusercontent.com/{repo}/pr-media/"
+
+
+def fetch(url: str, into: Path, prefix: str, limit: int = 30 * 1024 * 1024) -> Path:
+    """Download url to into: only under prefix, no redirects, at most limit bytes."""
+    parts = urllib.parse.urlparse(url)
+    if not url.startswith(prefix) or parts.params or parts.query or parts.fragment \
+            or ".." in urllib.parse.unquote(parts.path).split("/"):
+        raise ValueError(f"refused URL (only {prefix}...): {url}")
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=60) as response:
         data = response.read(limit + 1)
     if len(data) > limit:
         raise ValueError(f"{url} is over {limit} bytes")
@@ -85,26 +108,29 @@ def fetch(url: str, into: Path, limit: int = 30 * 1024 * 1024) -> Path:
 
 
 def load_notes(args: argparse.Namespace, scratch: Path) -> tuple[dict[str, Any], str]:
-    """The build's notes and where they came from. Fetched notes must carry a
-    valid signature; a local file is checked when FILE.sig sits next to it."""
+    """The build's notes and where they came from. Notes must carry a valid
+    signature (FILE.sig next to a local file) unless --allow-unsigned."""
     if args.notes:
         source = str(args.notes)
         sig = Path(f"{args.notes}.sig")
-        if sig.is_file() and not release_notes.verified(str(args.notes), args.public_key):
-            raise SystemExit(f"{args.notes}: bad signature")
-        if not sig.is_file():
+        if sig.is_file():
+            if not release_notes.verified(str(args.notes), args.public_key):
+                raise SystemExit(f"{args.notes}: bad signature")
+        elif args.allow_unsigned:
             print(f"note: {args.notes} has no .sig; using it unverified", file=sys.stderr)
+        else:
+            raise SystemExit(f"{args.notes}: no {sig.name} (pass --allow-unsigned to use it anyway)")
         path = args.notes
     else:
         source = args.notes_url or f"{NOTES_BASE}/{args.build}.json"
-        path = fetch(source, scratch / "notes.json")
-        fetch(f"{source}.sig", scratch / "notes.json.sig", 64 * 1024)
+        path = fetch(source, scratch / "notes.json", NOTES_HOST)
+        fetch(f"{source}.sig", scratch / "notes.json.sig", NOTES_HOST, 64 * 1024)
         if not release_notes.verified(str(path), args.public_key):
             raise SystemExit(f"{source}: bad signature")
     notes = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(notes, dict):
         raise SystemExit(f"{source}: not a notes object")
-    if str(notes.get("build", args.build)) != args.build:
+    if str(notes.get("build")) != args.build:
         raise SystemExit(f"{source} is build {notes.get('build')}, not {args.build}")
     return notes, source
 
@@ -155,10 +181,17 @@ def load_heads(args: argparse.Namespace, prs: list[int]) -> dict[int, str]:
     owner, name = args.repo.split("/", 1)
     fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ headRefOid }}" for pr in prs)
     query = f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
+    # A pull request that does not resolve fails the whole call, but stdout still
+    # carries the ones that did.
+    done = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"], capture_output=True, text=True)
     try:
-        data = json.loads(gh(["api", "graphql", "-f", f"query={query}"]))
-    except (RuntimeError, ValueError) as error:
-        print(f"warning: no head shas: {error}", file=sys.stderr)
+        data = json.loads(done.stdout)
+    except ValueError:
+        print(f"warning: no head shas: {done.stderr.strip()[:300]}", file=sys.stderr)
+        return {}
+    if done.returncode != 0:
+        print(f"warning: some head shas did not resolve: {done.stderr.strip()[:300]}", file=sys.stderr)
+    if not isinstance(data, dict):
         return {}
     repo = (data.get("data") or {}).get("repository") or {}
     return {int(key[1:]): value["headRefOid"] for key, value in repo.items()
@@ -212,6 +245,9 @@ def discover(args: argparse.Namespace, prs: list[dict[str, Any]]) -> tuple[dict[
         if head.isdigit() and int(head) in wanted:
             paths.setdefault(int(head), []).append(path)
     truncated = bool(tree.get("truncated"))
+    if truncated and not args.allow_truncated:
+        raise SystemExit("the pr-media listing is truncated, so clips could be missed "
+                         "(pass --allow-truncated to build from it anyway)")
     if truncated:
         print("warning: the pr-media listing was truncated; some clips may be missed", file=sys.stderr)
     heads = load_heads(args, sorted(paths))
@@ -279,10 +315,10 @@ def make_card(pr: int, title: str, work: Path) -> Path:
     return out
 
 
-def local_clip(pr: int, where: str, work: Path) -> Path:
-    """A clip on disk: a given path as is, a URL downloaded into work."""
-    if re.match(r"^[a-z]+://", where):
-        return fetch(where, work / f"source-{pr}.mp4")
+def local_clip(pr: int, where: str, work: Path, repo: str) -> Path:
+    """A clip on disk: a given path as is, a pr-media URL downloaded into work."""
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", where):
+        return fetch(where, work / f"source-{pr}.mp4", clip_prefix(repo))
     path = Path(where)
     if not path.is_file():
         raise FileNotFoundError(where)
@@ -291,7 +327,9 @@ def local_clip(pr: int, where: str, work: Path) -> Path:
 
 def make_segment(pr: int, clip: Path, work: Path) -> Path:
     out = work / f"clip-{pr}.mp4"
-    ffmpeg(["-i", str(clip), "-vf", normalize_filter(), *ENCODE, out.name], work)
+    # The clip is untrusted: read it only as a local mp4/mov file, at most CLIP_SECONDS.
+    ffmpeg(["-protocol_whitelist", "file", "-f", "mov", "-t", str(CLIP_SECONDS), "-i", str(clip),
+            "-vf", normalize_filter(), *ENCODE, out.name], work)
     return out
 
 
@@ -302,7 +340,7 @@ def concat(segments: list[Path], out: Path, work: Path) -> None:
             "-movflags", "+faststart", str(out.resolve())], work)
 
 
-def build_reel(entries: list[dict[str, Any]], out: Path) -> bool:
+def build_reel(entries: list[dict[str, Any]], out: Path, repo: str) -> bool:
     """reel.mp4 from every entry with a clip; an entry whose clip fails gets "error"."""
     segments = []
     with tempfile.TemporaryDirectory() as scratch:
@@ -311,7 +349,7 @@ def build_reel(entries: list[dict[str, Any]], out: Path) -> bool:
             if entry["clip"] == NO_CLIP:
                 continue
             try:
-                clip = make_segment(entry["pr"], local_clip(entry["pr"], entry["clip"], work), work)
+                clip = make_segment(entry["pr"], local_clip(entry["pr"], entry["clip"], work, repo), work)
                 segments += [make_card(entry["pr"], entry["title"], work), clip]
             except (OSError, ValueError, RuntimeError) as error:
                 print(f"warning: #{entry['pr']}: {error}", file=sys.stderr)
@@ -343,7 +381,12 @@ def render_html(build: str, repo: str, entries: list[dict[str, Any]], reel: bool
     for entry in entries:
         link = f"https://github.com/{repo}/pull/{entry['pr']}"
         clip = entry["clip"]
-        cell = NO_CLIP if clip == NO_CLIP else f'<a href="{e(clip, quote=True)}">clip</a>'
+        if clip == NO_CLIP:
+            cell = NO_CLIP
+        elif clip.startswith("https://"):
+            cell = f'<a href="{e(clip, quote=True)}">clip</a>'
+        else:
+            cell = e(clip)
         if entry.get("error"):
             cell += f" (failed: {e(entry['error'][:120])})"
         rows.append(f'<tr><td><a href="{e(link, quote=True)}">#{entry["pr"]}</a></td>'
@@ -393,8 +436,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--clips", type=Path, help="JSON map of pr to a local path or URL; skips discovery")
     parser.add_argument("--tree", type=Path, help="a saved git/trees response for pr-media")
     parser.add_argument("--heads", type=Path, help="JSON map of pr to head sha")
+    parser.add_argument("--allow-unsigned", action="store_true", help="accept a --notes file with no .sig")
+    parser.add_argument("--allow-truncated", action="store_true", help="build from a truncated pr-media listing")
     parser.add_argument("--dry-run", action="store_true", help="print the plan; write only reel.json")
     args = parser.parse_args(argv)
+    if not re.fullmatch(r"[0-9]+", args.build):
+        raise SystemExit(f"--build must be digits, not {args.build!r}")
 
     if not args.dry_run and not shutil.which("ffmpeg"):
         raise SystemExit("ffmpeg is required (or pass --dry-run)")
@@ -413,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
     for entry in entries:
         note = f" ({entry['note']})" if entry.get("note") else ""
         print(f"  #{entry['pr']} {entry['title'][:70]}: {entry['clip']}{note}")
-    reel = False if args.dry_run else build_reel(entries, args.out)
+    reel = False if args.dry_run else build_reel(entries, args.out, args.repo)
     write_json(args.out, args, source, entries, truncated, reel)
     if not args.dry_run:
         (args.out / "index.html").write_text(render_html(args.build, args.repo, entries, reel), encoding="utf-8")

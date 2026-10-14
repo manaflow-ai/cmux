@@ -5,6 +5,7 @@ one reel with a page listing every pull request, and bad notes are refused."""
 
 from __future__ import annotations
 
+import base64
 import html
 import json
 import shutil
@@ -16,7 +17,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/media/reel.py"
-HAS_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+# fc-match: drawtext needs fontconfig's default font, or the cards come out blank.
+HAS_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe") and shutil.which("fc-match"))
+HAS_OPENSSL = bool(shutil.which("openssl"))
+RELEASE_NOTES = ROOT / "scripts/cmux-next/release-notes.py"
 RAW = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/"
 ODD_TITLE = "it's 100%{pts} : a, b; [c] \\ d\nsecond line"
 NOTES = {
@@ -66,7 +70,7 @@ class DryRunTests(unittest.TestCase):
             done = reel("--build", "100", "--notes", str(write(tmp / "notes.json", NOTES)),
                         "--tree", str(write(tmp / "tree.json", TREE)),
                         "--heads", str(write(tmp / "heads.json", {"11": "aaaaaaaa" + "0" * 32})),
-                        "--out", str(tmp / "out"), "--dry-run")
+                        "--out", str(tmp / "out"), "--dry-run", "--allow-unsigned")
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual(sorted(p.name for p in (tmp / "out").iterdir()), ["reel.json"])
             report = json.loads((tmp / "out/reel.json").read_text())
@@ -86,7 +90,8 @@ class DryRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             done = reel("--build", "100", "--notes", str(write(tmp / "notes.json", notes)),
-                        "--tree", str(write(tmp / "tree.json", {"tree": []})), "--out", str(tmp / "out"), "--dry-run")
+                        "--tree", str(write(tmp / "tree.json", {"tree": []})), "--out", str(tmp / "out"), "--dry-run",
+                        "--allow-unsigned")
             self.assertEqual(done.returncode, 0, done.stderr)
             report = json.loads((tmp / "out/reel.json").read_text())
         self.assertEqual([(p["pr"], p["title"], p["clip"]) for p in report["prs"]],
@@ -98,17 +103,21 @@ class BuildTests(unittest.TestCase):
     def test_two_clips_an_odd_title_and_a_pr_without_a_clip(self):
         notes = {"build": "100", "items": [{"title": ODD_TITLE, "author": "Ada", "pr": 11},
                                            {"title": "Sidebar <b>quieter</b>", "author": "Cy", "pr": 22},
-                                           {"title": "No media here", "author": "Ed", "pr": 33}]}
+                                           {"title": "No media here", "author": "Ed", "pr": 33},
+                                           {"title": "Off-branch clip", "author": "Fa", "pr": 44},
+                                           {"title": "Local URL clip", "author": "Gi", "pr": 55}]}
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             for name in ("a", "b"):
                 subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
                                 "testsrc=size=320x200:rate=10:duration=1", "-pix_fmt", "yuv420p",
                                 str(tmp / f"{name}.mp4")], check=True)
-            clips = write(tmp / "clips.json", {"11": str(tmp / "a.mp4"), "22": str(tmp / "b.mp4")})
+            clips = write(tmp / "clips.json", {"11": str(tmp / "a.mp4"), "22": str(tmp / "b.mp4"),
+                                                  "44": "https://example.com/x.mp4",
+                                                  "55": f"file://{tmp / 'a.mp4'}"})
             out = tmp / "out"
             done = reel("--build", "100", "--notes", str(write(tmp / "notes.json", notes)),
-                        "--clips", str(clips), "--out", str(out))
+                        "--clips", str(clips), "--out", str(out), "--allow-unsigned")
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertNotIn("blank card", done.stderr)
             # Two 1.5 s cards and two 1 s clips.
@@ -121,7 +130,59 @@ class BuildTests(unittest.TestCase):
         self.assertIn(">#33</a></td><td>No media here</td><td>Ed</td><td>no clip</td>", page)
         self.assertEqual(report["reel"], "reel.mp4")
         self.assertEqual([(p["pr"], p["clip"] == "no clip") for p in report["prs"]],
-                         [(11, False), (22, False), (33, True)])
+                         [(11, False), (22, False), (33, True), (44, False), (55, False)])
+        # Clips are fetched only from the pr-media branch; a non-https clip is never a link.
+        refused = {p["pr"]: p.get("error", "") for p in report["prs"]}
+        self.assertIn("refused URL", refused[44])
+        self.assertIn("refused URL", refused[55])
+        self.assertNotIn('href="file:', page)
+
+
+def keypair(directory: Path) -> tuple[Path, str]:
+    """A throwaway Ed25519 key: the PEM file and the raw public key in base64."""
+    key = directory / "key.pem"
+    subprocess.run(["openssl", "genpkey", "-algorithm", "ed25519", "-out", str(key)], check=True, capture_output=True)
+    der = subprocess.run(["openssl", "pkey", "-in", str(key), "-pubout", "-outform", "DER"],
+                         check=True, capture_output=True).stdout
+    return key, base64.b64encode(der[-32:]).decode()
+
+
+class SignatureTests(unittest.TestCase):
+    @unittest.skipUnless(HAS_OPENSSL, "needs openssl")
+    def test_notes_signed_with_the_given_key_are_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            key, public = keypair(tmp)
+            notes = write(tmp / "100.json", NOTES)
+            subprocess.run([sys.executable, str(RELEASE_NOTES), "sign", "--key", str(key), str(notes)],
+                           check=True, capture_output=True)
+            done = reel("--build", "100", "--notes", str(notes), "--public-key", public,
+                        "--tree", str(write(tmp / "t.json", TREE)), "--out", str(tmp / "out"), "--dry-run")
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertNotIn("unverified", done.stderr)
+            self.assertEqual(len(json.loads((tmp / "out/reel.json").read_text())["prs"]), 4)
+
+    @unittest.skipUnless(HAS_OPENSSL, "needs openssl")
+    def test_notes_signed_with_another_key_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            key, _ = keypair(tmp)
+            notes = write(tmp / "100.json", NOTES)
+            subprocess.run([sys.executable, str(RELEASE_NOTES), "sign", "--key", str(key), str(notes)],
+                           check=True, capture_output=True)
+            done = reel("--build", "100", "--notes", str(notes), "--tree", str(write(tmp / "t.json", TREE)),
+                        "--out", str(tmp / "out"), "--dry-run")
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("bad signature", done.stderr)
+
+    def test_unsigned_notes_are_refused_without_the_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            done = reel("--build", "100", "--notes", str(write(tmp / "100.json", NOTES)),
+                        "--tree", str(write(tmp / "t.json", TREE)), "--out", str(tmp / "out"), "--dry-run")
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("--allow-unsigned", done.stderr)
+            self.assertFalse((tmp / "out/reel.json").exists())
 
 
 class RefusalTests(unittest.TestCase):
@@ -139,10 +200,38 @@ class RefusalTests(unittest.TestCase):
     def test_notes_for_another_build_are_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            done = reel("--build", "101", "--notes", str(write(tmp / "n.json", NOTES)),
+            done = reel("--build", "101", "--notes", str(write(tmp / "n.json", NOTES)), "--allow-unsigned",
                         "--tree", str(write(tmp / "t.json", TREE)), "--out", str(tmp / "out"), "--dry-run")
             self.assertEqual(done.returncode, 1)
             self.assertIn("is build 100, not 101", done.stderr)
+
+    def test_notes_without_a_build_are_refused(self):
+        notes = {k: v for k, v in NOTES.items() if k != "build"}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            done = reel("--build", "100", "--notes", str(write(tmp / "n.json", notes)), "--allow-unsigned",
+                        "--tree", str(write(tmp / "t.json", TREE)), "--out", str(tmp / "out"), "--dry-run")
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("is build None, not 100", done.stderr)
+
+    def test_a_build_that_is_not_digits_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            done = reel("--build", "../100", "--out", str(Path(tmp) / "out"), "--dry-run")
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("--build must be digits", done.stderr)
+
+    def test_a_truncated_listing_stops_the_build_unless_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            args = ["--build", "100", "--notes", str(write(tmp / "n.json", NOTES)), "--allow-unsigned",
+                    "--tree", str(write(tmp / "t.json", {**TREE, "truncated": True})),
+                    "--out", str(tmp / "out"), "--dry-run"]
+            done = reel(*args)
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("--allow-truncated", done.stderr)
+            done = reel(*args, "--allow-truncated")
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertTrue(json.loads((tmp / "out/reel.json").read_text())["treeTruncated"])
 
 
 if __name__ == "__main__":
