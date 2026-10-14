@@ -1,6 +1,6 @@
 // Leo, 2026-10-13 (coherence pass): "we ought to be unifying more font sizes". Every text the agent
 // composer draws, its footer and the menus it opens included, sits on the one type scale
-// (schemas/design/type-scale.json): sizes 11, 12, 13, 15 and 20 px in two weights, 400 and 600. The
+// (schemas/type-scale/type-scale.json): sizes 11, 12, 13, 15 and 20 px in two weights, 400 and 600. The
 // prompt is reading content and follows the user's agent pane font size (--text-content). This loads
 // every gallery state of the composer, its scope row and its pickers in Chromium and reads the
 // computed size and weight of every element that draws text.
@@ -73,6 +73,15 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
     await page
       .waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, { timeout: 10_000 })
       .catch(() => {});
+    // A play that failed (a menu that never opened) would leave less text to read, so it fails here.
+    const play = await page.evaluate(() => document.documentElement.dataset.galleryPlay);
+    if (play === "fail") {
+      const report = await page.evaluate(() =>
+        JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+      );
+      await page.close();
+      return [`the play failed: ${report}`];
+    }
     const found = await page.evaluate(
       ({ sizes, weights }) => {
         const probe = document.createElement("span");

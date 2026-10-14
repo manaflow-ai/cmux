@@ -934,7 +934,7 @@ jobs:
         run: scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       # The one type scale (schemas/type-scale/type-scale.json): its CSS and Swift copies, and no new raw
-      # font sizes or off-scale weights in the app's Swift (the webviews ratchet runs in react-apps-check).
+      # font sizes or off-scale weights in the app's Swift (fails the checks; the webviews ratchet runs in react-apps-check).
       - name: Type scale
         id: type-scale
         continue-on-error: true
@@ -1154,6 +1154,7 @@ jobs:
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.motion.outcome }}|Motion tokens
+            ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup

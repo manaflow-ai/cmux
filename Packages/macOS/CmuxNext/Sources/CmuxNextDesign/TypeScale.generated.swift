@@ -5,7 +5,7 @@ public import AppKit
 
 /// The one type scale of cmux NEXT, shared with the webviews' `--text-*` tokens: every chrome font
 /// size is one of `sizes`, in one of two weights. New fonts use these (scripts/cmux-next/check-swift-type-scale.py).
-public struct TypeScale {
+public nonisolated struct TypeScale: Sendable {
     public init() {}
 
     /// Shortcuts, badges, counters, tooltips, group labels.
