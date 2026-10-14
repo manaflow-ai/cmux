@@ -35,10 +35,14 @@ transport or models.
   is never re-laid out or rebuilt.
 - **Close buttons and titles.** They arrive and leave as in Safari (measured
   on device recordings): the zooming card's close button rides its corner at
-  full size and fades in with the zoom's progress (0.76 to 0.96); every title
-  row and the other close buttons wait for 0.96, then fade in on their own
+  full size and fades in with the zoom's progress (0.76 to 0.96). The other
+  close buttons wait for 0.96 and the title rows for 0.90 (`titleTrigger`; a
+  little sooner than Safari's 0.96 on purpose), then fade in on their own
   clock (titles `1 − e^(−t/58 ms)` while rising 2 pt, close buttons
-  `1 − e^(−(t−16 ms)/45 ms)`); leaving the grid hides them within two frames.
+  `1 − e^(−(t−16 ms)/45 ms)`). Leaving the grid hides them within two frames.
+- **Notices.** Set `notice` on your data source (for example when
+  `createTab` returns nil) and the kit shows it as a glass toast at the top;
+  a refused New Tab never opens another tab instead.
 - **Pinch.** Pinch in on a page to go to the grid; pinch out on a card to
   open it. Tracking is 1:1 with rubber banding, and release keeps the finger
   velocity.

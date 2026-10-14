@@ -1,29 +1,53 @@
 @testable import CmuxTabsKit
 import Testing
 
-/// Safari's close-button and title timing (measured on device recordings).
+/// Safari's close-button and title timing (measured on device recordings; titles start sooner on purpose).
 struct CardChromeTests {
-    /// Opening: nothing until 0.96, then titles e^(-t/58 ms), close buttons
-    /// 16 ms later e^(-t/45 ms); measured device values within 0.05.
-    @Test func opensOnItsOwnClockAfterTheTrigger() {
+    /// Opening: titles start at `titleTrigger` (0.90, sooner than Safari's
+    /// 0.96 on purpose), the other close buttons at 0.96; then titles
+    /// e^(-t/58 ms) and close buttons 16 ms later e^(-t/45 ms), Safari's
+    /// measured curves within 0.05.
+    @Test func opensOnItsOwnClockAfterTheTriggers() {
+        #expect(CardChrome.titleTrigger == 0.90 && CardChrome.closeTrigger == 0.96)
         var c = CardChrome()
-        c.step(1 / 60, progress: 0.9, headingToOverview: true, settledOnOverview: false)
+        c.step(1 / 60, progress: 0.85, headingToOverview: true, settledOnOverview: false)
         #expect(c.titleOpacity == 0 && c.closeOpacity == 0)
+        // 0.90: the titles start, the close buttons do not.
+        c.step(1 / 60, progress: 0.90, headingToOverview: true, settledOnOverview: false)
+        #expect(c.titleOpacity == 0 && c.closeOpacity == 0)
+        var title: [Double] = []
+        for _ in 0..<3 {
+            c.step(1 / 60, progress: 0.93, headingToOverview: true, settledOnOverview: false)
+            title.append(c.titleOpacity)
+            #expect(c.closeOpacity == 0)
+        }
+        // Device title curve: +17 ms .26, +33 .47, +50 .62
+        #expect(abs(title[0] - 0.26) < 0.05)
+        #expect(abs(title[1] - 0.47) < 0.05)
+        #expect(abs(title[2] - 0.62) < 0.05)
+        // 0.96: the close buttons start.
         c.step(1 / 60, progress: 0.96, headingToOverview: true, settledOnOverview: false)
-        #expect(c.titleOpacity == 0)
-        var measuredTitle: [Double] = []
-        var measuredClose: [Double] = []
+        #expect(c.closeOpacity == 0)
+        var close: [Double] = []
         for _ in 0..<10 {
             c.step(1 / 60, progress: 0.99, headingToOverview: true, settledOnOverview: false)
-            measuredTitle.append(c.titleOpacity); measuredClose.append(c.closeOpacity)
+            close.append(c.closeOpacity)
         }
-        // Device (neighbour title, close): +17 ms .20/.07, +33 .42/.25, +50 .61/.51, +100 .79/.79, +150 .91/.90
-        #expect(abs(measuredTitle[1] - 0.40) < 0.05)
-        #expect(abs(measuredTitle[5] - 0.79) < 0.05)
-        #expect(abs(measuredTitle[8] - 0.91) < 0.05)
-        #expect(abs(measuredClose[2] - 0.51) < 0.08)
-        #expect(abs(measuredClose[8] - 0.92) < 0.05)
-        #expect(c.titleOffset < 0.5)
+        // Device close: +33 ms .25, +50 .51, +150 .90
+        #expect(abs(close[1] - 0.30) < 0.08)
+        #expect(abs(close[2] - 0.51) < 0.08)
+        #expect(abs(close[8] - 0.92) < 0.05)
+        #expect(c.titleOpacity > 0.95 && c.titleOffset < 0.1)
+    }
+
+    /// A pinch that backs off below 0.90 hides the titles again.
+    @Test func backingOffBelowTheTriggerHides() {
+        var c = CardChrome()
+        for _ in 0..<4 { c.step(1 / 60, progress: 0.92, headingToOverview: true, settledOnOverview: false) }
+        #expect(c.titleOpacity > 0.3)
+        c.step(1 / 60, progress: 0.85, headingToOverview: true, settledOnOverview: false)
+        c.step(1 / 60, progress: 0.85, headingToOverview: true, settledOnOverview: false)
+        #expect(c.titleOpacity == 0)
     }
 
     /// Leaving the grid: gone within two frames, from wherever it was.

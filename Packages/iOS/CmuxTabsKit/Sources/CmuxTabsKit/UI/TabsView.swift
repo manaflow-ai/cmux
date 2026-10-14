@@ -164,6 +164,27 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .allowsHitTesting(chrome.menuOpen)
                     .accessibilityHidden(!chrome.menuOpen)
             }
+
+            if let notice = source.notice {
+                Text(notice)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(theme.colors.label)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 20))
+                    .padding(.horizontal, 24)
+                    .padding(.top, safeTop + 8)
+                    .frame(width: size.width, alignment: .top)
+                    .onTapGesture { source.clearNotice() }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .task(id: notice) {
+                        // Toast lifetime (a UI timeout, not synchronization).
+                        try? await Task.sleep(for: .seconds(5))
+                        if source.notice == notice { withAnimation { source.clearNotice() } }
+                    }
+                    .accessibilityAddTraits(.isStaticText)
+            }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .coordinateSpace(.named(TabsScreenSpace.name))
