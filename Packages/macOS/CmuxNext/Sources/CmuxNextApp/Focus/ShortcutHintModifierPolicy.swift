@@ -5,14 +5,17 @@ struct ShortcutHintModifierPolicy {
     static let intentionalHoldDelay: Duration = .milliseconds(300)
     private var suppressed = false
     private var held = false
-
     mutating func keyDown() { suppressed = held }
 
-    mutating func update(flags: NSEvent.ModifierFlags, eligible: Bool, elapsed: Duration) -> Bool {
+    /// The held set a hold may show hints for: Cmd, Ctrl or Option, alone or together, with or without Shift.
+    static func armed(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags? {
         let modifiers = flags.intersection([.command, .control, .shift, .option])
-        held = !modifiers.isEmpty
-        if modifiers.isEmpty { suppressed = false }
-        return eligible && !suppressed && (modifiers == .command || modifiers == .control)
-            && elapsed >= Self.intentionalHoldDelay
+        return modifiers.isDisjoint(with: [.command, .control, .option]) ? nil : modifiers
+    }
+
+    mutating func update(flags: NSEvent.ModifierFlags, eligible: Bool, elapsed: Duration) -> Bool {
+        held = !flags.isDisjoint(with: [.command, .control, .shift, .option])
+        if !held { suppressed = false }
+        return eligible && !suppressed && Self.armed(flags) != nil && elapsed >= Self.intentionalHoldDelay
     }
 }
