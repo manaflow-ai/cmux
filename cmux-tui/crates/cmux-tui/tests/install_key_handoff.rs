@@ -220,12 +220,20 @@ fn an_owner_with_a_key_confirms_a_page_gesture_only_for_the_proved_app() {
         let refused = v2(client, id, "origin.confirmation.issue", issue.clone(), json!({}));
         assert_eq!(refused["ok"], false, "{refused}");
         assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
-        assert_eq!(refused["error"]["message"], "needs a verified cmux app connection", "{refused}");
+        assert_eq!(
+            refused["error"]["message"], "needs a verified cmux app connection",
+            "{refused}"
+        );
     }
 
     // The page's create without a confirmation is refused for the gesture.
-    let page_only = v2(&mut relay, "create-page", "chief.profile.create", create.clone(),
-                       json!({"idempotency_key": "page-create", "origin": {"claim": "page"}}));
+    let page_only = v2(
+        &mut relay,
+        "create-page",
+        "chief.profile.create",
+        create.clone(),
+        json!({"idempotency_key": "page-create", "origin": {"claim": "page"}}),
+    );
     assert_eq!(page_only["ok"], false, "{page_only}");
     assert_eq!(page_only["error"]["details"]["reason"], "gesture_required", "{page_only}");
 
@@ -235,9 +243,14 @@ fn an_owner_with_a_key_confirms_a_page_gesture_only_for_the_proved_app() {
     let issued = v2(&mut app, "issue-app", "origin.confirmation.issue", issue, json!({}));
     assert_eq!(issued["ok"], true, "{issued}");
     let token = issued["result"]["token"].as_str().unwrap().to_owned();
-    let made = v2(&mut relay, "create-user", "chief.profile.create", create,
-                  json!({"idempotency_key": "user-create",
-                         "origin": {"claim": "user", "confirmation": token}}));
+    let made = v2(
+        &mut relay,
+        "create-user",
+        "chief.profile.create",
+        create,
+        json!({"idempotency_key": "user-create",
+                         "origin": {"claim": "user", "confirmation": token}}),
+    );
     assert_eq!(made["ok"], true, "{made}");
     assert_eq!(made["result"]["value"]["display_name"], "Ops", "{made}");
 }
