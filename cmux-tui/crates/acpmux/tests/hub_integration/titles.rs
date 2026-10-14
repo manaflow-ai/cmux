@@ -31,8 +31,11 @@ fn hub(asked: &Path) -> Arc<Hub> {
 }
 
 fn asked_path(name: &str) -> PathBuf {
-    let path = std::env::temp_dir()
-        .join(format!("acpmux-titles-{name}-{}-{}", std::process::id(), uuid::Uuid::now_v7()));
+    let path = std::env::temp_dir().join(format!(
+        "acpmux-titles-{name}-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
     let _ = std::fs::remove_file(&path);
     path
 }
@@ -127,7 +130,10 @@ async fn a_harness_title_wins_and_nothing_is_generated() {
     let session = client.new_session().await;
 
     client.prompt(&session, "harness-title: Picnic planning").await;
-    assert!(client.titled(Duration::from_secs(2)).await.is_none(), "generated over a harness title");
+    assert!(
+        client.titled(Duration::from_secs(2)).await.is_none(),
+        "generated over a harness title"
+    );
     assert_eq!(client.title(&session).await, json!("Picnic planning"));
     assert!(!asked.exists(), "the title command ran for a titled session");
 }
