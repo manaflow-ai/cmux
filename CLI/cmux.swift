@@ -36642,18 +36642,16 @@ function base64NulSeparated(values) {
 function hookEnvironment(cwd) {
   const env = { ...process.env };
   delete env.AMP_API_KEY;
-  // A shell started inside another agent inherits that agent's launch
-  // capture. Only reuse a capture that already describes OpenCode.
-  if (env.CMUX_AGENT_LAUNCH_KIND !== "opencode" || !env.CMUX_AGENT_LAUNCH_ARGV_B64) {
-    delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND;
-    delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND;
-    delete env.CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT;
-    const argv = normalizedLaunchArgv();
-    env.CMUX_AGENT_LAUNCH_KIND = "opencode";
-    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
-    env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
-    env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
-  }
+  // Any inherited capture describes a parent process: another agent, or an
+  // OpenCode that started this one. Always describe this process's launch.
+  delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND;
+  delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND;
+  delete env.CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT;
+  const argv = normalizedLaunchArgv();
+  env.CMUX_AGENT_LAUNCH_KIND = "opencode";
+  env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
+  env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
+  env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
   return env;
 }
 
@@ -36809,7 +36807,7 @@ const CMUX_SESSION_SERVER_OWNER_KEY = Symbol.for("cmux.session.server.owner");
 
 export default {
   id: "cmux.server",
-  server(ctx) {
+  async server(ctx) {
     if (!isTUIProcessServerContext(ctx)) return {};
     // Every loader in one plugin scope receives the same ctx; a reinitialized
     // scope receives a new one and must subscribe again.
@@ -36817,7 +36815,13 @@ export default {
     if (owner.ctx === ctx) return {};
     owner.ctx = ctx;
     globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
-    return createCMUXSessionRestore(ctx);
+    const hooks = await createCMUXSessionRestore(ctx);
+    // OpenCode never disposes a scope's hooks, so a replaced scope goes quiet.
+    return {
+      event: async (input) => {
+        if (owner.ctx === ctx) await hooks.event(input);
+      },
+    };
   },
   // Compatibility alias for older V2 snapshots that called setup().
   setup() { return () => {}; },

@@ -174,18 +174,16 @@ function launchArgv() {
 function launchEnvironment(cwdValue, baseEnvironment = process.env) {
   const env = { ...baseEnvironment, CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" };
   delete env.AMP_API_KEY;
-  // A shell started inside another agent inherits that agent's launch
-  // capture. Only reuse a capture that already describes OpenCode.
-  if (env.CMUX_AGENT_LAUNCH_KIND !== "opencode" || !env.CMUX_AGENT_LAUNCH_ARGV_B64) {
-    delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND;
-    delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND;
-    delete env.CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT;
-    const argv = launchArgv();
-    env.CMUX_AGENT_LAUNCH_KIND = "opencode";
-    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
-    env.CMUX_AGENT_LAUNCH_ARGV_B64 = Buffer.from(`${argv.join("\0")}\0`, "utf8").toString("base64");
-    env.CMUX_AGENT_LAUNCH_CWD = cwdValue || process.cwd();
-  }
+  // Any inherited capture describes a parent process: another agent, or an
+  // OpenCode that started this one. Always describe this process's launch.
+  delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND;
+  delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND;
+  delete env.CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT;
+  const argv = launchArgv();
+  env.CMUX_AGENT_LAUNCH_KIND = "opencode";
+  env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
+  env.CMUX_AGENT_LAUNCH_ARGV_B64 = Buffer.from(`${argv.join("\0")}\0`, "utf8").toString("base64");
+  env.CMUX_AGENT_LAUNCH_CWD = cwdValue || process.cwd();
   return env;
 }
 

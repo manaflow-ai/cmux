@@ -134,6 +134,20 @@ runs++;
 // gets a new ctx and must subscribe again.
 await runScope({ ...ctx }, "ses_server_entry_reinit");
 runs++;
+// The replaced scope's hooks stay registered in OpenCode; they must not emit.
+const stale = "ses_server_entry_stale";
+for (const event of [
+  { type: "session.created", properties: { info: { id: stale, directory: "/tmp" } } },
+  { type: "session.status", properties: { sessionID: stale, status: { type: "busy" } } },
+  { type: "session.idle", properties: { sessionID: stale } },
+]) {
+  for (const hook of first) await hook.event({ event });
+}
+// Hook processes are spawned synchronously inside event(); wait for them.
+await waitFor(() => !fakeCmuxRunning(), "hook processes did not exit");
+if (frames.some((frame) => frame.params?.event?.session_id === `opencode-${stale}`)) {
+  throw new Error("replaced feed scope still emitted events");
+}
 const hookStops = hookLog().split("\n").filter((line) => line.includes("hooks enqueue opencode stop"));
 if (hookStops.length !== 2) throw new Error(`expected one stop hook per turn, got ${hookStops.length}: ${hookLog()}`);
 for (const hook of first) hook.dispose?.();

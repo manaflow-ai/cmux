@@ -48,7 +48,9 @@ if (!mod.sessionBelongsToTUI(makeContext("a"), "child-a")) throw new Error("TUI 
 if (mod.sessionBelongsToTUI(makeContext("a"), "child-b")) throw new Error("TUI A claimed TUI B session");
 const closed = { ui: { router: { current: () => fixture.starterClosed.route }, tabs: { enabled: () => true, list: () => [] } }, data: { session: { root: (id) => fixture.roots[id] || id } } };
 if (mod.sessionBelongsToTUI(closed, "child-a")) throw new Error("closed starter surface retained ownership");
-const dispatchEnvironment = { CMUX_SURFACE_ID: "surface-a", CMUX_WORKSPACE_ID: "workspace-a", CMUX_OPENCODE_HOOKS_DISABLED: "" };
+// A parent OpenCode's capture is inherited by an OpenCode it starts.
+const parentLaunchArgv = Buffer.from("/parent/opencode\0-s\0parent-session\0", "utf8").toString("base64");
+const dispatchEnvironment = { CMUX_SURFACE_ID: "surface-a", CMUX_WORKSPACE_ID: "workspace-a", CMUX_OPENCODE_HOOKS_DISABLED: "", CMUX_AGENT_LAUNCH_KIND: "opencode", CMUX_AGENT_LAUNCH_EXECUTABLE: "/parent/opencode", CMUX_AGENT_LAUNCH_ARGV_B64: parentLaunchArgv };
 let spawnCalls = 0;
 let spawnOptions;
 const fakeSpawn = (_command, _args, options) => {
@@ -62,6 +64,7 @@ if (source.includes("spawnSync")) throw new Error("shared bridge still uses sync
 if (spawnOptions?.env?.CMUX_AGENT_LAUNCH_KIND !== "opencode") throw new Error("session admission dropped launch kind");
 if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_EXECUTABLE) throw new Error("session admission dropped launch executable");
 if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_ARGV_B64) throw new Error("session admission dropped launch argv");
+if (spawnOptions.env.CMUX_AGENT_LAUNCH_ARGV_B64 === parentLaunchArgv) throw new Error("session admission reused a parent OpenCode launch capture");
 
 const socketPath = "/tmp/cmux-opencode-v2-" + process.pid + ".sock";
 try { await fs.unlink(socketPath); } catch (_) {}
