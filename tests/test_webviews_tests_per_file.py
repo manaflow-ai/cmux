@@ -179,6 +179,8 @@ class PerFileRunner(unittest.TestCase):
         contents = {
             "test/slow-declared.test.ts": "// cmux-web-test-timeout: 8\n",
             "test/slow-default.test.ts": "",
+            # A declared limit never shortens a longer CMUX_WEB_TEST_FILE_TIMEOUT.
+            "test/slow-shorter.test.ts": "// cmux-web-test-timeout: 1\n",
         }
         result, _, calls = self.run_runner(list(contents), contents=contents)
         output = result.stdout + result.stderr
@@ -186,6 +188,7 @@ class PerFileRunner(unittest.TestCase):
         self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*test/slow-declared\.test\.ts")
         self.assertRegex(output, r"TIMEOUT[^\n]*test/slow-default\.test\.ts \(limit 2s\)")
         self.assertIn("test/slow-declared.test.ts", output)
+        self.assertRegex(output, r"TIMEOUT[^\n]*test/slow-shorter\.test\.ts \(limit 2s\)")
 
     def test_no_test_files_is_an_error(self):
         result, _, _ = self.run_runner([])
