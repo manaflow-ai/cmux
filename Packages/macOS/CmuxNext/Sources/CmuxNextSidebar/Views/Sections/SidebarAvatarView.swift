@@ -33,7 +33,8 @@ final class SidebarAvatarView: NSView {
         performWithTheme { Self.draw(avatar, in: circleFrame, strong: isStrong) }
     }
 
-    /// The picture clipped round, else the initial on the profile's color.
+    /// The picture clipped round, else the initial on the profile's color. theme-scoped: runs
+    /// inside `performWithTheme` (the footer) or `ThemeScope.app.perform` (the menu image).
     static func draw(_ avatar: SidebarAvatar, in circle: NSRect, strong: Bool) {
         if let picture = picture(avatar) {
             NSGraphicsContext.saveGraphicsState()
@@ -70,7 +71,8 @@ extension SidebarAvatar {
         guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return image }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
-        SidebarAvatarView.draw(self, in: NSRect(origin: .zero, size: size), strong: true)
+        // The menu draws in the app's appearance, not a room's.
+        ThemeScope.app.perform { SidebarAvatarView.draw(self, in: NSRect(origin: .zero, size: size), strong: true) }
         NSGraphicsContext.restoreGraphicsState()
         image.addRepresentation(rep)
         return image

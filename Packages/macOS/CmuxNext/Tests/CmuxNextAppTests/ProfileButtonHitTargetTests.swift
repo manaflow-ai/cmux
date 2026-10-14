@@ -10,7 +10,8 @@ import Testing
     @Test func everyPartOfTheProfileButtonOpensItsMenu() async throws {
         let h = try await SidebarBandHideTests().make()
         defer { h.tearDown() }
-        h.model.profileAvatar = SidebarAvatar(name: "Default")
+        // A colored avatar: its whole circle is ink, not just the initial.
+        h.model.profileAvatar = SidebarAvatar(name: "Default", color: .blue)
         var opened = 0
         h.sidebar.profileMenuProvider = { NSMenu() }
         h.sidebar.footerBand.profileMenuPresenter = { _, _ in opened += 1 }
