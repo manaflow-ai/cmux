@@ -1,10 +1,11 @@
-import CmuxNextBrowser
+public import CmuxNextBrowser
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
+public import CmuxNextDaemonService
 import CmuxNextRemoteLocalhost
-import CmuxNextSettings
+public import CmuxNextSettings
 import CryptoKit
-import Foundation
+public import Foundation
 import Observation
 import os
 
@@ -12,13 +13,13 @@ import os
 /// owns the in-process proxy and one forwarding connection per machine.
 /// Nothing starts until a tab of a remote machine needs it.
 @MainActor
-final class RemoteLocalhostService {
-    private let machines: MachineRegistry
+public final class RemoteLocalhostService {
+    private let machines: any RemoteLocalhostMachines
     private let proxy = RemoteLocalhostProxy()
     private var clients: [ObjectIdentifier: LoopbackForwardClient] = [:]
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-localhost")
     /// cmux.json `browser.remoteLocalhost*`, live.
-    var setting: RemoteLocalhostSetting = .fallback
+    public var setting: RemoteLocalhostSetting = .fallback
     @ObservationIgnored private var observation: Task<Void, Never>?
 
     /// DEBUG builds: `CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET` names a second
@@ -27,7 +28,7 @@ final class RemoteLocalhostService {
     /// release builds.
     private let debugSocket: String?
 
-    init(machines: MachineRegistry, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    public init(machines: any RemoteLocalhostMachines, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.machines = machines
         #if DEBUG
         debugSocket = environment["CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
@@ -38,7 +39,7 @@ final class RemoteLocalhostService {
 
     private static let debugMachineName = "debug-remote"
 
-    func follow(_ settings: SettingsController) {
+    public func follow(_ settings: SettingsController) {
         observation?.cancel()
         observation = Task { [weak self] in
             for await value in ObservationStream({ settings.snapshot.remoteLocalhost }) {
@@ -52,7 +53,7 @@ final class RemoteLocalhostService {
     /// The route of `tab` for `engine`. A page cannot influence it: it
     /// depends only on which daemon holds the tab, the settings and the
     /// daemon's capabilities.
-    func route(for tab: TabModel, engine: BrowserEngineKind) -> RemoteLocalhostRoute {
+    public func route(for tab: TabModel, engine: BrowserEngineKind) -> RemoteLocalhostRoute {
         let daemon = machines.daemon(forTab: tab)
         if daemon.isLocal, debugSocket != nil {
             return engine == .cef ? .machine(Self.debugMachineName) : .thisMacInstead(Self.debugMachineName, .webKit)
@@ -60,10 +61,21 @@ final class RemoteLocalhostService {
         guard !daemon.isLocal else { return .thisMac }
         let name = machineName(of: daemon)
         let workspace = daemon.store.pane(containing: tab.surface).flatMap { daemon.store.workspace(containing: $0.handle) }
-        guard setting.isEnabled(workspace: workspace?.id) else { return .thisMacInstead(name, .turnedOff) }
+        guard isEnabled(workspace: workspace?.id) else { return .thisMacInstead(name, .turnedOff) }
         guard daemon.supports(DaemonCapabilities.shared.loopbackForward) else { return .thisMacInstead(name, .updateMachine) }
         guard engine == .cef else { return .thisMacInstead(name, .webKit) }
         return .machine(name)
+    }
+
+    /// Whether workspace `id` uses its machine's localhost: the person's
+    /// own choice (personal state, `workspace.setRemoteLocalhost`) first,
+    /// then cmux.json `browser.remoteLocalhost*`.
+    public func isEnabled(workspace id: String?) -> Bool {
+        if let id, let address = machines.personalAddress(ofWorkspace: id),
+           let choice = machines.local.store.personal.workspace(session: address.session, key: address.key)?.remoteLocalhost {
+            return choice
+        }
+        return setting.isEnabled(workspace: id)
     }
 
     /// `base` with the store and navigation guard for `tab` showing `url`:
@@ -72,7 +84,7 @@ final class RemoteLocalhostService {
     /// the profile's store and may not navigate to loopback, so this Mac's
     /// localhost is never reached silently. Nil when the proxy failed to
     /// start (the caller shows the failure instead of loading).
-    func configuration(for tab: TabModel, url: URL?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration? {
+    public func configuration(for tab: TabModel, url: URL?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration? {
         var configuration = base
         let route = route(for: tab, engine: .cef)
         let plan = RemoteLocalhostStorePlan.plan(route: route, url: url)
@@ -105,13 +117,13 @@ final class RemoteLocalhostService {
     }
 
     /// 16 hex digits of SHA-256 over the daemon `registry_id`.
-    static func machineKey(registryID: String) -> String {
+    public static func machineKey(registryID: String) -> String {
         SHA256.hash(data: Data(registryID.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The same short name as the machine badge of the machine's terminal
     /// tabs (Cloud title or SSH host), else the daemon's session name.
-    func machineName(of daemon: DaemonService) -> String {
+    public func machineName(of daemon: DaemonService) -> String {
         machines.machineBadge(daemon.machineID) ?? daemon.identity?.session ?? daemon.machineID
     }
 
@@ -119,7 +131,7 @@ final class RemoteLocalhostService {
 
     /// The machine chip of a browser tab showing `url`: shown only for a
     /// loopback page of a tab whose machine is not this Mac.
-    func badge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? {
+    public func badge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? {
         guard let url, LoopbackHost(url: url)?.isLoopback == true else { return nil }
         switch route(for: tab, engine: engine) {
         case .thisMac:
@@ -137,7 +149,7 @@ final class RemoteLocalhostService {
     }
 
     /// The tab with durable id `id` on any machine.
-    func tab(id: String) -> TabModel? {
+    public func tab(id: String) -> TabModel? {
         for daemon in machines.daemons {
             if let tab = daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == id }) {
                 return tab
@@ -161,13 +173,13 @@ final class RemoteLocalhostService {
 
     /// The forwarding connection of `machine` (browser runtimes and their
     /// streams use it too, cx-2cob slice 2); nil for a machine with no daemon here.
-    func loopbackClient(machine: String) -> LoopbackForwardClient? {
+    public func loopbackClient(machine: String) -> LoopbackForwardClient? {
         machines.daemon(machine: machine).map { client(for: $0) }
     }
 
     /// Opens a byte stream to `port` on the loopback of `machine` over its
     /// forwarding connection; nil for a machine with no daemon here.
-    func loopbackOpener(machine: String) -> (@Sendable (UInt16) async throws -> LoopbackStream)? {
+    public func loopbackOpener(machine: String) -> (@Sendable (UInt16) async throws -> LoopbackStream)? {
         guard let client = loopbackClient(machine: machine) else { return nil }
         return { port in try await client.open(host: "127.0.0.1", port: port) }
     }
@@ -185,7 +197,7 @@ final class RemoteLocalhostService {
     }
 
     /// Proxy port, counters and recent outcomes (`debug.remote-localhost`).
-    func report() -> CmuxNextSettings.JSONValue {
+    public func report() -> CmuxNextSettings.JSONValue {
         typealias JSONValue = CmuxNextSettings.JSONValue
         let stats = proxy.stats
         let counters: [String: Int] = [
@@ -205,13 +217,13 @@ final class RemoteLocalhostService {
 
     /// Closes the forwarding connection of a machine that left the registry:
     /// its streams and browser runtimes end with it.
-    func closeClient(of daemon: DaemonService) {
+    public func closeClient(of daemon: DaemonService) {
         guard let client = clients.removeValue(forKey: ObjectIdentifier(daemon)) else { return }
         // task-owner: one connection close; ends when the client has closed.
         Task { await client.close() }
     }
 
-    func shutdown() async {
+    public func shutdown() async {
         proxy.stop()
         for client in clients.values { await client.close() }
         for client in debugClients.values { await client.close() }
