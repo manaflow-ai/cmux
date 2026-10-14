@@ -2030,7 +2030,7 @@ _cmux_start_git_head_watch() {
     [[ -n "$watch_head_path" ]] || return 0
 
     local REPLY watch_head_signature
-    _cmux_git_head_signature_into_reply "$watch_head_path" 2>/dev/null
+    _cmux_git_head_signature_into_reply "$watch_head_path" 2>/dev/null || true
     watch_head_signature="$REPLY"
 
     _CMUX_GIT_HEAD_LAST_PWD="$watch_pwd"
@@ -2049,7 +2049,7 @@ _cmux_start_git_head_watch() {
             _cmux_sleep_cs 100
 
             local signature
-            _cmux_git_head_signature_into_reply "$watch_head_path" 2>/dev/null
+            _cmux_git_head_signature_into_reply "$watch_head_path" 2>/dev/null || true
             signature="$REPLY"
             if [[ -n "$signature" && "$signature" != "$last_signature" ]]; then
                 last_signature="$signature"
