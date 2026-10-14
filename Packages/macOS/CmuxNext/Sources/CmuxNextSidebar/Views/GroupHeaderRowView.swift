@@ -18,17 +18,18 @@ import QuartzCore
 /// the group editor (cx-rcby, Lawrence 2026-10-08); a right-click shows the
 /// group's full menu (cx-a9h6); the chevron and the rest of the row collapse.
 final class GroupHeaderRowView: SidebarRowView {
-    private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
+    let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = NSImageView()
     private let activity = StatusIndicatorView()
     private let badge = UnreadBadgeView()
     private let pin = NSImageView()
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
-    private let pill = CALayer()
+    /// The band (`SidebarGroupHeaderStyle.band` and `.wash`), or minimal mode's hairline.
+    let pill = CALayer()
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
-    private let dot = CALayer()
+    let dot = CALayer()
     /// The more button (the pack's three-dot action.more): the group editor, as a click on the
     /// name (cx-rcby, Lawrence 2026-10-08); its More Group Actions row has the full menu.
     let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
