@@ -128,6 +128,14 @@ public final class AgentChatStore {
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
+    /// A prompt that was not sent, for the composer to put back (then cleared).
+    public var returnedDraft: ReturnedDraft?
+
+    public struct ReturnedDraft: Hashable, Sendable {
+        public var id = UUID()
+        public var text: String
+        public var attachments: [AgentAttachment]
+    }
     /// Bumps on every streamed change (follow-mode scroll keys off it).
     public private(set) var revision = 0
     private var currentMessageID: String?
@@ -302,6 +310,9 @@ public final class AgentChatStore {
             summary.status = status
         case .clientError(let message):
             clientError = message
+        case .promptNotSent(let text, let attachments, let reason):
+            clientError = reason
+            returnedDraft = ReturnedDraft(text: text, attachments: attachments)
         case .subagent(let change):
             applySubagent(change)
         case .subagentUpdate(let id, let update):

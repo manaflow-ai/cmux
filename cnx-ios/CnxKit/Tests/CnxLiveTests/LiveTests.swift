@@ -569,6 +569,7 @@ final class ScriptedSource: AgentSessionSource {
     @Test @MainActor func imagesBecomeACPImageBlocks() {
         let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
         let image = AgentAttachment(kind: .image, name: "Photo", data: png)
+        // A file without an upload adds nothing.
         let blocks = AcpmuxSessionSource.promptBlocks(text: "look", attachments: [image, AgentAttachment(kind: .file, name: "a.txt")])
         #expect(blocks == [
             .object(["type": .string("text"), "text": .string("look")]),
@@ -581,6 +582,46 @@ final class ScriptedSource: AgentSessionSource {
         let blocks = AcpmuxSessionSource.promptBlocks(text: "", attachments: [AgentAttachment(kind: .image, name: "Photo", data: jpeg)])
         #expect(blocks.count == 1)
         #expect(blocks.first?["mimeType"]?.stringValue == "image/jpeg")
+    }
+
+    @Test @MainActor func uploadedFilesBecomeResources() {
+        let text = AgentAttachment(id: "t", kind: .file, name: "notes.md", data: Data("# hi\n".utf8))
+        let binary = AgentAttachment(id: "b", kind: .file, name: "a.zip", data: Data([0x50, 0x4B, 0x03, 0x04, 0]))
+        let blocks = AcpmuxSessionSource.promptBlocks(text: "see", attachments: [text, binary], uploaded: [
+            "t": "/w/.cmux/attachments/phone-1/notes.md", "b": "/w/.cmux/attachments/phone-1/a.zip",
+        ])
+        #expect(blocks.count == 3)
+        #expect(blocks[1]["type"]?.stringValue == "resource")
+        #expect(blocks[1]["resource"]?["uri"]?.stringValue == "file:///w/.cmux/attachments/phone-1/notes.md")
+        #expect(blocks[1]["resource"]?["text"]?.stringValue == "# hi\n")
+        #expect(blocks[2]["type"]?.stringValue == "resource_link")
+        #expect(blocks[2]["uri"]?.stringValue == "file:///w/.cmux/attachments/phone-1/a.zip")
+        #expect(blocks[2]["name"]?.stringValue == "a.zip")
+        #expect(blocks[2]["size"]?.numberValue == 5)
+        // A file the Mac never received is never sent as a reference.
+        #expect(AcpmuxSessionSource.promptBlocks(text: "x", attachments: [text]).count == 1)
+    }
+
+    @Test func uploadRepliesBecomePathsOrFailures() throws {
+        #expect(try LinkUpload.path(fromReply: Data(#"{"path":"/w/a.txt","size":2}"#.utf8)) == "/w/a.txt")
+        #expect(throws: LinkUpload.Failure(code: "too_large", message: "the file is larger than 100 MB")) {
+            try LinkUpload.path(fromReply: Data(#"{"error":"too_large","message":"the file is larger than 100 MB"}"#.utf8))
+        }
+        #expect(throws: LinkUpload.Failure.self) { try LinkUpload.path(fromReply: Data()) }
+        #expect(LinkUpload.folder("/w/x/") == "/w/x")
+        #expect(LinkUpload.folder("~/x") == nil)
+    }
+
+    @Test func splitAcpmuxMessagesJoin() {
+        var joiner = AcpmuxConnection.MessageJoiner()
+        let message = Data((#"{"method":"x","params":{"d":""# + String(repeating: "a", count: 300_000) + #""}}"#).utf8)
+        let first = message.prefix(AcpmuxConnection.MessageJoiner.fullFrame)
+        #expect(joiner.push(Data(first)) == nil)
+        #expect(joiner.push(Data(message.dropFirst(first.count)))?["method"]?.stringValue == "x")
+        #expect(joiner.push(Data(#"{"a":1}"#.utf8))?["a"]?.numberValue == 1)
+        // A short frame that does not parse is dropped, not kept.
+        #expect(joiner.push(Data("{".utf8)) == nil)
+        #expect(joiner.push(Data(#"{"b":2}"#.utf8))?["b"]?.numberValue == 2)
     }
 }
 

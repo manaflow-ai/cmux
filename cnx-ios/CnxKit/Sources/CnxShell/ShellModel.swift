@@ -102,10 +102,12 @@ final class ShellModel {
         if let live {
             terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
             terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
-            creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link)
+            terminalTabs.uploaderProvider = { [weak live] tab in live?.terminalUploader(tabID: tab.id) }
+            creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link, acpmux: live.acpmux)
         } else {
             terminalTabs.sessionProvider = nil
             terminalTabs.artifactSourceProvider = nil
+            terminalTabs.uploaderProvider = nil
             creator.backend = offlineCreation
         }
     }

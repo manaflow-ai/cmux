@@ -73,7 +73,7 @@ struct WorkspacesScreen: View {
                 .background(theme.colors.bg.color.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: Workspace.self) { ws in
-                    WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs)
+                    WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs, creator: shell.creator)
                 }
                 .toolbar {
                     // WorkspacesList owns the title and the Mac chip row.

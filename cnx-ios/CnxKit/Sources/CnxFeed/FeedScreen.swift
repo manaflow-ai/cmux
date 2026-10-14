@@ -17,7 +17,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var columnWidth: CGFloat = 0
     @State private var swipe = FeedSwipeCoordinator()
     @Environment(AppStore.self) private var appStore
+    #if DEBUG
     private let director = DemoDirector.shared
+    #endif
 
     /// `path`: the Feed's navigation stack, owned by the shell so the team
     /// drawer pan stays off while a chat is pushed (the back swipe wins).
@@ -33,6 +35,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 VStack(spacing: 0) {
                     chips
                         .id("top")
+                    if let refreshError = store.refreshError {
+                        refreshErrorRow(refreshError)
+                    }
                     if store.visibleItems.isEmpty {
                         emptyState
                     }
@@ -70,7 +75,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 prefetch()
             }
             .onChange(of: store.items.count) { prefetch() }
-            .refreshable { try? await Task.sleep(for: .milliseconds(600)) }
+            // Re-reads the Mac's sessions and open asks (acpmux watch).
+            .refreshable { await store.refresh() }
             .overlay(alignment: .top) { newPill }
             .background(Color.cnxBackground)
             .navigationTitle("Feed")
@@ -89,7 +95,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac).send(prompt: text)
             }
         }
+        #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
+        #endif
     }
 
     private func open(_ item: FeedItem) {
@@ -162,6 +170,24 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .accessibilityLabel("Filter")
     }
 
+    private func refreshErrorRow(_ message: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
+            Text(message).font(.footnote).foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Button {
+                store.clearRefreshError()
+            } label: {
+                Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+    }
+
     @ViewBuilder
     private var newPill: some View {
         if !store.unseenNewIDs.isEmpty, !atTop {
@@ -201,6 +227,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .padding(.top, 160)
     }
 
+    #if DEBUG
     private func runDemoCommand() {
         guard let command = director.command else { return }
         switch command {
@@ -225,6 +252,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             break
         }
     }
+    #endif
 }
 /// "Marked done" with Undo for a few seconds after a Done swipe (Mail's undo bar).
 private struct DoneUndoBar: View {

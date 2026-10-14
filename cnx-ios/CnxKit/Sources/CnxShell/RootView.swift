@@ -407,7 +407,8 @@ struct ShellTabs: View {
                     settings: shell.settings,
                     path: $shell.settingsPath,
                     scrollRequest: shell.settingsScrollTarget,
-                    inviteToTeam: { shell.invite(to: $0) }
+                    inviteToTeam: { shell.invite(to: $0) },
+                    saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }

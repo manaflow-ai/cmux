@@ -133,7 +133,13 @@ public final class CnxAuthModel {
     }
 
     public var user: User? {
-        if isMock { return mockSignedIn ? User(id: "mock", name: "Aziz Albahar", email: "aziz@example.com") : nil }
+        if isMock {
+            #if DEBUG
+            return mockSignedIn ? User(id: "mock", name: "Aziz Albahar", email: "aziz@example.com") : nil
+            #else
+            return nil
+            #endif
+        }
         guard let user = coordinator?.currentUser else { return nil }
         let name = user.displayName?.isEmpty == false ? user.displayName! : (user.primaryEmail ?? "cmux user")
         return User(id: user.id, name: name, email: user.primaryEmail)
@@ -204,6 +210,42 @@ public final class CnxAuthModel {
         }
     }
 
+    /// A team's members from Stack (`GET /team-member-profiles?team_id=`,
+    /// client access), you first. The personal space is just you.
+    public func teamMembers(teamID: String) async throws -> [TeamMember] {
+        guard let user else { throw AuthError.unauthorized }
+        let you = TeamMember(id: user.id, name: user.name, isYou: true)
+        if teamID.hasPrefix("personal-") { return [you] }
+        if isMock {
+            #if DEBUG
+            return TeamMember.list([(user.id, user.name), ("mock-2", "Lawrence Chen"), ("mock-3", "Austin Wang")], you: (user.id, user.name))
+            #else
+            return [you]
+            #endif
+        }
+        guard let stack, let account = try await stack.getUser(or: .throw),
+              let team = try await account.getTeam(id: teamID) else { throw AuthError.unauthorized }
+        let profiles = try await team.listUsers().map { (userID: $0.id, displayName: $0.teamProfile.displayName) }
+        return TeamMember.list(profiles, you: (user.id, user.name))
+    }
+
+    /// How the signed-in account can sign in: its linked OAuth providers and
+    /// email code, password or passkey when Stack reports them enabled.
+    public func signInMethods() async throws -> [SignInMethod] {
+        guard let user else { throw AuthError.unauthorized }
+        if isMock { return SignInMethod.methods(oauthProviderIDs: [], otpEmail: user.email, hasPassword: false, hasPasskey: false) }
+        guard let stack, let account = try await stack.getUser(or: .throw) else { throw AuthError.unauthorized }
+        let providers = await account.oauthProviders.map(\.id)
+        let otp = await account.otpAuthEnabled
+        let email = await account.primaryEmail
+        return SignInMethod.methods(
+            oauthProviderIDs: providers,
+            otpEmail: otp ? email : nil,
+            hasPassword: await account.hasPassword,
+            hasPasskey: await account.passkeyAuthEnabled
+        )
+    }
+
     /// Retry after the team list failed to load.
     public func retryTeams() async {
         await loadTeams()
@@ -248,9 +290,13 @@ public final class CnxAuthModel {
     /// Verifies the 6-digit code; on success the session is live.
     public func verifyCode(_ code: String) async throws {
         if isMock {
+            #if DEBUG
             guard code == "424242" else { throw AuthError.invalidCode }
             mockSignedIn = true
             return
+            #else
+            throw AuthError.invalidCode
+            #endif
         }
         try await coordinator?.verifyCode(code)
     }

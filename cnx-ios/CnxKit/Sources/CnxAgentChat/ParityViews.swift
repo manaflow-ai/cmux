@@ -33,6 +33,7 @@ extension View {
 private struct ChatDemoReceiver: ViewModifier {
     let store: AgentChatStore
     let surface: AgentChatSurface
+    #if DEBUG
     private let director = DemoDirector.shared
 
     func body(content: Content) -> some View {
@@ -40,6 +41,9 @@ private struct ChatDemoReceiver: ViewModifier {
             if let command = director.command { surface.run(command, store: store) }
         }
     }
+    #else
+    func body(content: Content) -> some View { content }
+    #endif
 }
 
 struct AgentParityDestination: View {

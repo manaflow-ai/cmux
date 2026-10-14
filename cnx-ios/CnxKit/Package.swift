@@ -58,7 +58,7 @@ let package = Package(
         .target(name: "CnxArtifacts", dependencies: ["CnxDesign", "CnxTransport"]),
         // ACP agent session model, AgentSessionSource (mock now, acpmux over the link later), chat screen.
         .target(name: "CnxAgentChat", dependencies: [
-            "CnxDesign", "CnxModel", "CnxMarkdown", "CnxDiff", "CnxArtifacts",
+            "CnxDesign", "CnxModel", "CnxMarkdown", "CnxDiff", "CnxArtifacts", "CnxTransport",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
         .target(name: "CnxFeed", dependencies: [
@@ -101,7 +101,7 @@ let package = Package(
             name: "CnxTerminal",
             // libghostty ships for iOS only here; macOS `swift test` builds the
             // portable parts (session, detector, extractor, input) without it.
-            dependencies: ["CnxDesign", "CnxArtifacts", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS]))]
+            dependencies: ["CnxDesign", "CnxArtifacts", "CnxTransport", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS]))]
         ),
         .target(
             name: "CnxShell",

@@ -399,6 +399,23 @@ public final class LiveCoordinator {
         }
     }
 
+    /// Sends a terminal attachment to the linked Mac (the `upload` service)
+    /// into the tab's folder, next to acpmux's attachments, or the Mac's own
+    /// uploads folder when the tab has none; returns the file's path there.
+    public func terminalUploader(tabID: String) -> @MainActor (Data, String) async throws -> String {
+        { [weak self] data, name in
+            guard let self, let link = self.currentLink else {
+                throw LinkUpload.Failure(code: "offline", message: "the Mac isn't connected")
+            }
+            let cwd = LinkUpload.folder(self.workspaces.tree?.directories[tabID])
+            do {
+                return try await LinkUpload.upload(data, name: name, cwd: cwd, over: link)
+            } catch let failure as LinkUpload.Failure where cwd != nil && (failure.code == "forbidden" || failure.code == "not_found") {
+                return try await LinkUpload.upload(data, name: name, cwd: nil, over: link)
+            }
+        }
+    }
+
     /// Chief over the daemon's local conversations, when the Mac's link allows them.
     private func startChief(_ link: any MacLink) async {
         do {

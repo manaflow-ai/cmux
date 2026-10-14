@@ -247,6 +247,14 @@ public final class AppStore {
         workspaces[index].lastActivityAt = Date()
     }
 
+    /// Puts back a tab whose close the Mac refused, at its old position.
+    public func insertTab(_ tab: WorkspaceTab, at position: Int, in workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              !workspaces[index].tabs.contains(where: { $0.id == tab.id }) else { return }
+        workspaces[index].tabs.insert(tab, at: min(position, workspaces[index].tabs.count))
+    }
+
     /// Removes a tab. Returns the tab that should be on screen next when the
     /// removed one was the remembered tab: its right neighbor, else its left.
     @discardableResult

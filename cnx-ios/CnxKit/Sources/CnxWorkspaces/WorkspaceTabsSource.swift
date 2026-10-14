@@ -27,6 +27,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let terminal: any TerminalTabContent
     @ObservationIgnored let sessions: AgentSessionDirectory
+    /// Opens and closes tabs on the workspace's Mac (nil: nothing to open them on).
+    @ObservationIgnored let creator: WorkspaceCreator?
     /// Leaves the workspace (back to the list).
     @ObservationIgnored public var exit: @MainActor () -> Void = {}
     @ObservationIgnored private var surfaces: [String: AgentChatSurface] = [:]
@@ -42,8 +44,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored private var focusOnOpen = false
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
-                sessions: AgentSessionDirectory = .shared) {
+                sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil) {
         self.store = store
+        self.creator = creator
         self.workspaceID = workspaceID
         self.terminal = terminal
         self.sessions = sessions
@@ -75,12 +78,29 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return workspace.tabs.map { kitTab($0, in: workspace) }
     }
 
-    public let newTabOptions = [
-        TabsKitNewTabOption(id: "claude", title: "New Claude Chat", systemImage: "sparkle", kind: TabsKitTabKind("agent")),
-        TabsKitNewTabOption(id: "codex", title: "New Codex Chat", systemImage: "sparkle", kind: TabsKitTabKind("agent")),
-        TabsKitNewTabOption(id: "terminal", title: "New Terminal", systemImage: "apple.terminal", kind: .terminal),
-        TabsKitNewTabOption(id: "browser", title: "New Browser Tab", systemImage: "globe", kind: .web),
-    ]
+    /// What the Mac can open in this workspace right now. Every option
+    /// becomes a real tab on the Mac; none are shown while it can't.
+    public var newTabOptions: [TabsKitNewTabOption] {
+        guard let workspace, let creator else { return [] }
+        return creator.backend.tabKinds(on: workspace.macID).map(Self.option)
+    }
+
+    static func option(_ kind: NewTabKind) -> TabsKitNewTabOption {
+        switch kind {
+        case .agent(let harness):
+            let name = harness == "codex" ? "Codex" : harness == "claude" ? "Claude" : harness.capitalized
+            return TabsKitNewTabOption(id: "agent:\(harness)", title: "New \(name) Chat", systemImage: "sparkle", kind: TabsKitTabKind("agent"))
+        case .terminal:
+            return TabsKitNewTabOption(id: "terminal", title: "New Terminal", systemImage: "apple.terminal", kind: .terminal)
+        case .browser:
+            return TabsKitNewTabOption(id: "browser", title: "New Browser Tab", systemImage: "globe", kind: .web)
+        }
+    }
+
+    static func kind(of option: TabsKitNewTabOption) -> NewTabKind {
+        if option.id.hasPrefix("agent:") { return .agent(String(option.id.dropFirst("agent:".count))) }
+        return option.id == "browser" ? .browser : .terminal
+    }
 
     func kitTab(_ tab: WorkspaceTab, in workspace: Workspace) -> TabsKitTab {
         switch tab.kind {
@@ -126,7 +146,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
         CnxTheme.standard.haptics.selection()
     }
 
+    /// Closes the tab on the Mac. It leaves the page at once and comes back
+    /// at its place, with a notice, if the Mac refuses.
     public func close(_ id: TabsKitTab.ID) {
+        guard let workspace, let position = workspace.tabs.firstIndex(where: { $0.id == id }) else { return }
+        let tab = workspace.tabs[position]
+        guard let creator else {
+            notice = "Connect to \(macName) to close tabs."
+            return
+        }
         let next = store.removeTab(id, from: workspaceID)
         surfaces[id] = nil
         browsers[id] = nil
@@ -134,36 +162,64 @@ public final class WorkspaceTabsSource: TabsDataSource {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
+        let workspaceID = workspaceID
+        Task { [weak self] in
+            do {
+                try await creator.backend.closeTab(tab, in: workspace)
+            } catch {
+                guard let self else { return }
+                self.store.insertTab(tab, at: position, in: workspaceID)
+                if tab.kind == .browser { self.browsers[tab.id] = BrowserTabModel(url: tab.url) }
+                self.notice = "Couldn't close \(tab.title) on \(self.macName): \(Self.message(error))"
+                CnxTheme.standard.haptics.error()
+            }
+        }
     }
 
     /// Shown by TabsKit as a glass toast (a tab that could not be created).
     public private(set) var notice: String?
     public func clearNotice() { notice = nil }
 
+    /// Opens the tab on the Mac and activates it once the Mac lists it (so a
+    /// terminal attaches at once and a chat is bound to its session). A
+    /// refusal shows as a notice; nothing phone-only is ever added.
     public func createTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
-        guard workspace != nil else {
+        guard let workspace else {
             notice = "This workspace is no longer on the Mac."
             return nil
         }
-        let id = "t-\(UUID().uuidString.prefix(8).lowercased())"
-        let tab: WorkspaceTab
-        switch option.id {
-        case "claude": tab = WorkspaceTab(id: id, kind: .agent, title: "Claude", subtitle: "New session", harness: "claude")
-        case "codex": tab = WorkspaceTab(id: id, kind: .agent, title: "Codex", subtitle: "New session", harness: "codex")
-        case "browser": tab = WorkspaceTab(id: id, kind: .browser, title: "New Tab")
-        default: tab = WorkspaceTab(id: id, kind: .terminal, title: "zsh", subtitle: workspace?.directory)
+        guard let creator, !creator.backend.tabKinds(on: workspace.macID).isEmpty else {
+            notice = "Connect to \(macName) to open tabs."
+            return nil
         }
-        if tab.kind == .browser { browsers[id] = BrowserTabModel(url: nil) }
+        let kind = Self.kind(of: option)
+        let tab: WorkspaceTab
+        do {
+            tab = try await creator.backend.createTab(kind, in: workspace)
+        } catch {
+            notice = "Couldn't open \(option.title.replacingOccurrences(of: "New ", with: "a new ")) on \(macName): \(Self.message(error))"
+            CnxTheme.standard.haptics.error()
+            return nil
+        }
+        // The mock keeps tabs in its own store; a live Mac's list already has it.
+        if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == tab.id }) != true {
+            store.appendTab(tab, to: workspaceID)
+        }
+        let id = tab.id
+        if tab.kind == .browser, browsers[id] == nil { browsers[id] = BrowserTabModel(url: tab.url) }
         // A new chat opens ready to type (SPEC 6.2; ChatGPT, Claude and Grok
         // open a new chat with the keyboard up).
         if tab.kind == .agent { surface(id).composerFocused = true }
-        store.appendTab(tab, to: workspaceID)
         activate(id)
         // A new terminal is the same: a fresh shell's next step is a
         // command, and terminal apps (Blink, Termius, Prompt) raise the
         // keyboard for a new session.
-        if tab.kind == .terminal, let workspace { terminal.focusInput(for: tab, in: workspace) }
+        if tab.kind == .terminal, let workspace = self.workspace { terminal.focusInput(for: tab, in: workspace) }
         return id
+    }
+
+    static func message(_ error: any Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
 
     // MARK: Per-tab state
@@ -251,14 +307,17 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let surface = surface(tab.id)
             return [
                 [
-                    TabsKitMenuItem(title: "Changes", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) },
+                    TabsKitMenuItem(title: "Agent edits", systemImage: "plus.forwardslash.minus",
+                                    isEnabled: AgentChatSurface.hasAgentEdits(store)) { surface.openAllChanges(of: store) },
                     TabsKitMenuItem(title: "Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true },
                     TabsKitMenuItem(title: "Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id },
                 ],
                 [
                     TabsKitMenuItem(title: store.subagents.isEmpty ? "Subagents" : "Subagents (\(store.subagents.count))",
                                     systemImage: "person.2.wave.2") { surface.parityRoute = .subagents },
-                    TabsKitMenuItem(title: "Checkpoints", systemImage: "clock.arrow.circlepath") { surface.parityRoute = .checkpoints },
+                ] + (store.source.supportsCheckpoints
+                    ? [TabsKitMenuItem(title: "Checkpoints", systemImage: "clock.arrow.circlepath") { surface.parityRoute = .checkpoints }]
+                    : []) + [
                     TabsKitMenuItem(title: "Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff },
                 ],
                 [leave],
