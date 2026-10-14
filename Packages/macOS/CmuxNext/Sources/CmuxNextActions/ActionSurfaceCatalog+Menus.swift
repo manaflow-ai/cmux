@@ -41,6 +41,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.resetWorkspaceColor": [p(.workspaceRow, .identity, 105, folder: .appearance)],
         "reconnectWorkspace": [p(.workspaceRow, .connection, 401, folder: .options)],
         "disconnectWorkspace": [p(.workspaceRow, .connection, 402, folder: .options)],
+        "workspace.setRemoteLocalhost": [p(.workspaceRow, .connection, 403, .choices, folder: .options)],
         "copyWorkspaceSSHError": [p(.workspaceRow, .inspect, 408, folder: .copy)],
         "clearWorkspaceNotifications": [p(.workspaceRow, .identity, 114, folder: .options)],
         "revealWorkspaceInFinder": [p(.workspaceRow, .inspect, 403, folder: .tools)],
