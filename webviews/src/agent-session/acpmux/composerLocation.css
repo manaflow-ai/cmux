@@ -280,7 +280,7 @@
   font-size: var(--text-detail);
 }
 @media (max-width: 480px) {
-  .acpmux-composer-context { padding-inline: 9px; gap: 2px; }
+  .acpmux-composer-context { gap: 2px; }
   .acpmux-location-button,
   .acpmux-location-readonly { max-width: 145px; }
   .acpmux-location-readonly { padding-inline: 4px; }
@@ -300,9 +300,8 @@
   white-space: nowrap;
 }
 .acpmux-composer-bar .acpmux-access-trigger {
-  width: 180px;
-  box-sizing: border-box;
-  max-width: 180px;
+  position: relative;
+  width: auto;
   gap: 5px;
   padding-inline: 8px;
 }
@@ -336,33 +335,37 @@
   display: inline-flex;
   align-items: center;
 }
-/* Footer controls share one rhythm; separators are reserved for explicit group boundaries. */
-@media (max-width: 480px) {
-  /* At compact pane widths the rail keeps every action available but uses the same icon-first
-     treatment as the mode picker. The button labels remain in aria-label/title metadata, so
-     keyboard and assistive-technology users still get the full value. */
-  .acpmux-composer-bar .acpmux-model .acpmux-picker-button {
-    width: 32px !important;
-    max-width: 32px;
-    justify-content: center;
-    gap: 0;
-    padding-inline: 0;
-    overflow: hidden;
-  }
-  .acpmux-composer-bar .acpmux-model-name,
-  .acpmux-composer-bar .acpmux-model .acpmux-picker-button .acpmux-icon:last-child {
-    display: none;
-  }
-  .acpmux-composer-bar .acpmux-access-trigger { width: 112px; max-width: 112px; }
-  .acpmux-composer-bar .acpmux-mode-text { display: none; }
+/* The row's two clusters (hq#1957 item 15): + and the chips (model, ring, effort, permission
+   mode, Plan) and the granted status on the left, hugging their controls; the mic and Send (or
+   Stop) on the right (.acpmux-composer-actions, margin-left: auto). The row's free space sits only
+   between the two, so no chip is cut while there is room. A short row gives up the permission
+   labels first (composerRowFit.ts marks it data-fit="icons": the lock alone), then effort
+   shortens, the model last: their flex-shrink weights are far enough apart that each reaches its
+   min width before the next gives up a pixel. Neither the bar nor the footer ever shrinks. */
+.acpmux-composer-bar { flex: none; }
+.acpmux-composer-bar .acpmux-chips { flex: 0 1 auto; min-width: 0; }
+.acpmux-composer-bar > :not(.acpmux-chips),
+.acpmux-composer-bar .acpmux-chips > * { flex: none; }
+.acpmux-composer-bar .acpmux-chips > .acpmux-effort { flex: 0 100000 auto; min-width: 44px; }
+.acpmux-composer-bar .acpmux-chips > .acpmux-model { flex: 0 1 auto; min-width: 56px; }
+.acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
+.acpmux-composer-bar .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
+.acpmux-composer-bar .acpmux-picker-button > :not(span) { flex: none; }
+.acpmux-composer-bar .acpmux-permission-status-trigger { position: relative; }
+/* Out of the row but still laid out, so composerRowFit.ts knows the width they would take back. */
+.acpmux-composer-bar[data-fit="icons"] .acpmux-mode-text,
+.acpmux-composer-bar[data-fit="icons"] .acpmux-permission-status-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
-/* Keep the complete control rail usable in a very narrow pane. The regular 112px access
-   control is comfortable at the 240px compact breakpoint, but plus + access + Send otherwise
-   exceed the bar's content box below 220px. Preserve every action and only tighten their rhythm. */
+/* Keep the complete control rail usable in a very narrow pane: preserve every action and only
+   tighten their rhythm. */
 @media (max-width: 220px) {
   .acpmux-composer-bar { gap: 6px; padding-inline: 8px; }
   .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
-  .acpmux-composer-bar .acpmux-access-trigger { width: 96px; max-width: 96px; }
 }
 /* Start Agent's panel (Composer contextFirst, cx-hkat): the row heads the card, so its hairline
    and rounded corners move to the top. */
@@ -385,26 +388,27 @@
     0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
     inset 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 38%, transparent);
 }
+/* The footer's 22 px controls sit in a 30 px line plus the bar's 6 px padding on the card's edge
+   side: 10 px inside the card's bottom edge, the bar's own vertical inset, at the bar's 12 px
+   side inset, so the card's corner never reaches them. It grows with its content, never clips. */
 .acpmux-composer-context,
 .acpmux-composer-box[data-context-first] > .acpmux-composer-context {
-  height: 30px;
-  padding-inline: 12px;
+  flex: none;
+  height: auto;
+  min-height: 36px;
+  padding: 0 12px 6px;
   border: 0;
   border-radius: 0 0 var(--acpmux-composer-radius) var(--acpmux-composer-radius);
   background: transparent;
   box-shadow: none;
 }
+.acpmux-composer-box[data-context-first] > .acpmux-composer-context { padding: 6px 12px 0; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker {
   margin-left: 0;
   padding-left: 0;
 }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker::before {
   display: none;
-}
-.acpmux-composer-bar .acpmux-chips-spacer {
-  display: block;
-  flex: 1 1 auto;
-  min-width: 8px;
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
   background: var(--agent-accent, var(--agent-text));

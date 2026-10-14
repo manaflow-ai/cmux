@@ -1042,8 +1042,9 @@ export default agentPaneEntry({
         if (contextStyle.borderTopWidth !== "0px" || contextStyle.boxShadow !== "none")
           throw new Error("location scope still draws a divider or inner box");
         if (ctx.document.querySelector(".acpmux-separator")) throw new Error("composer still has a stray divider");
-        const spacer = ctx.find({ selector: ".acpmux-chips-spacer" });
-        if (Number(ctx.document.defaultView!.getComputedStyle(spacer).flexGrow) < 1)
+        // The free space sits only between the left cluster and mic/Send (hq#1957 item 15).
+        const actions = ctx.find({ selector: ".acpmux-composer-actions" });
+        if (ctx.document.defaultView!.getComputedStyle(actions).marginLeft === "0px")
           throw new Error("composer controls lost the flexible gap between left and right groups");
         await ctx.press("ArrowDown");
         await ctx.press("Escape");

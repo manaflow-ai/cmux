@@ -504,7 +504,6 @@ export function ComposerPickers({
         />
       )}
       {!(effort && efforts.length > 1) && lastChips?.effort && <PendingChip kind="effort" label={lastChips.effort} />}
-      <span className="acpmux-chips-spacer" aria-hidden="true" />
       {modes.length === 0 && lastChips?.mode && <PendingChip kind="mode" label={lastChips.mode} />}
       {modes.length > 0 && (
         <AccessMenu
