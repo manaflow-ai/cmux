@@ -58,6 +58,42 @@ async fn text_chunks_carry_their_message_id() {
 /// That result ends the prompt; before, the chat stayed running with Stop doing
 /// nothing (cosmic-gray, 2026-10-14). Lines as Claude Code 2.1.299 prints them.
 #[tokio::test]
+async fn a_late_result_for_a_stopped_prompt_ends_only_that_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id: i64, text: &str| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}]}),
+        )
+    };
+    let answered = |msgs: &[Message], want: i64| {
+        msgs.iter().any(|m| matches!(m, Message::Response { id, .. } if *id == want))
+    };
+    let echo = |lines: &[Value]| json!({"type": "user", "isReplay": true, "uuid": lines[0]["uuid"], "message": lines[0]["message"]});
+    let result = json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 2, "duration_api_ms": 900, "result": "done"});
+
+    let Outbound::Lines(first) = t.outbound(&prompt(1, "run the slow build")).await else {
+        panic!()
+    };
+    t.inbound(&echo(&first)).await;
+    t.inbound(&json!({"type": "assistant", "message": {"id": "a1", "role": "assistant", "content": [{"type": "text", "text": "building"}]}})).await;
+    // Stop: Claude Code is slow to answer the interrupt, so acpmux ends the turn
+    // itself (hub/cancel.rs) and sends the next prompt before that result comes.
+    let Outbound::Lines(second) = t.outbound(&prompt(2, "name three fruits")).await else {
+        panic!()
+    };
+    let msgs = t.inbound(&result).await;
+    assert!(!answered(&msgs, 2), "the stopped turn's result ended the next prompt: {msgs:?}");
+    assert!(answered(&msgs, 1), "the stopped prompt stayed open: {msgs:?}");
+
+    t.inbound(&echo(&second)).await;
+    t.inbound(&json!({"type": "assistant", "message": {"id": "a2", "role": "assistant", "content": [{"type": "text", "text": "apple"}]}})).await;
+    let msgs = t.inbound(&result).await;
+    assert!(answered(&msgs, 2), "the next prompt's own result did not end it: {msgs:?}");
+}
+
+#[tokio::test]
 async fn a_local_command_result_ends_the_prompt() {
     let local_result = |text: &str| json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "result": text});
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
