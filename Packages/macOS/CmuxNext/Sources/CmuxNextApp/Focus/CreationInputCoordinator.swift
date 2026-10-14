@@ -12,12 +12,12 @@ import CmuxNextTerminal
 /// `NSApplication.sendEvent`, as typed (the key router, key equivalents and the menu included).
 ///
 /// The same hold covers Ctrl-1…9 onto a terminal tab with no surface yet (hq#1925 item 3; bound
-/// in `CreationInputBuffer.holds`). Any hold ends as soon as focus leaves the content. An S3 split
-/// view that sends keys by terminal id (cx-wb5.78) takes them while it has the keyboard.
+/// in `CreationInputBuffer.holds`). Any hold ends as soon as focus leaves the content (cx-wb5.78: `earlyTab`).
 @MainActor
 final class CreationInputCoordinator {
     weak var router: KeyRouter?
     private var buffers: [Int: CreationInputBuffer] = [:]
+    private let givenBack = GivenBackInput()
     /// Set while a captured key runs again, so it is not captured a second time.
     private var replaying = false
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
@@ -76,8 +76,7 @@ final class CreationInputCoordinator {
             return true
         }
         // A pending creation's early view has the keyboard: held keys first, then this one.
-        if let controller, case .terminal(_, let tab) = controller.focus.state.resolved,
-           buffer.takesKeysEarly(tab: tab), Self.responderTakesKeys(controller, window: shell) {
+        if let controller, case .terminal(_, let tab) = controller.focus.state.resolved, buffer.takesKeysEarly(tab: tab), Self.responderTakesKeys(controller, window: shell) {
             for held in buffer.take() { replaying = true; NSApp.sendEvent(held); replaying = false }
             return false
         }
@@ -85,8 +84,11 @@ final class CreationInputCoordinator {
         return true
     }
 
+    /// Keys the daemon gave back go to the focused terminal not being created, now or at a focus settle.
+    func giveBack(_ bytes: Data = Data()) { givenBack.deliver(adding: bytes, to: router?.services?.cache.terminals.values.first { $0.session.model.isFocused && $0.gate == nil }.map { $0.session.sendBytes }) }
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
+        giveBack()
         guard let window, buffers[window.windowNumber] != nil else { return }
         scheduleFlush(in: window)
     }

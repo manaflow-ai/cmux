@@ -34,6 +34,9 @@ public nonisolated final class CreatingTerminalInput: Sendable {
         do {
             try await connection.sendTerminalInput(terminalID, bytes: data)
             return true
+        } catch DaemonError.timedOut {
+            // The daemon may hold the chunk: never send it twice (it gives back what it does not write).
+            return true
         } catch {
             done.withLock { $0 = true }
             return false
