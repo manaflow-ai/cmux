@@ -385,6 +385,14 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
 #[cfg(unix)]
 static OWNERS_GONE: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
+/// Where this run's install secret lives, for `status` (`install_secret`):
+/// `keychain` (macOS Keychain) or `ephemeral` (random, in memory, this run
+/// only: Linux, or a Mac with no default keychain).
+static INSTALL_SECRET_KIND: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+#[cfg(target_os = "macos")]
+const INSTALL_SECRET_KEYCHAIN: &str = "keychain";
+const INSTALL_SECRET_EPHEMERAL: &str = "ephemeral";
+
 /// Reads the owner FIFO on its own thread (a blocking read: no polling, no
 /// timer). A read returns 0 when no process holds a write end. Under
 /// `OWNERS_GONE`'s lock the watch then checks again with a non-blocking read:
@@ -503,9 +511,11 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     // Keys live in memory for one router run. macOS keeps the install secret in
     // the Keychain; elsewhere a fresh random secret per run is equivalent.
     #[cfg(target_os = "macos")]
-    let store = macos_install_secret_store()?;
+    let (store, kind) = macos_install_secret_store()?;
     #[cfg(not(target_os = "macos"))]
-    let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
+    let (store, kind): (Arc<dyn InstallSecretStore>, &'static str) =
+        (Arc::new(RandomInstallSecretStore::new("default")?), INSTALL_SECRET_EPHEMERAL);
+    let _ = INSTALL_SECRET_KIND.set(kind);
     let keys = Arc::new(tokio::sync::RwLock::new(KeyRing::new(store)?));
     let port = listener.local_addr()?.port();
     let upstream: SharedUpstream = Arc::new(tokio::sync::RwLock::new(None));
@@ -528,15 +538,25 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
 /// the admin socket closed with no reply. Decided once: the key digest reads
 /// the store on every check, so it must never switch during a run.
 #[cfg(target_os = "macos")]
-fn macos_install_secret_store() -> anyhow::Result<Arc<dyn InstallSecretStore>> {
+fn macos_install_secret_store() -> anyhow::Result<(Arc<dyn InstallSecretStore>, &'static str)> {
     let keychain = KeychainInstallSecretStore::new("default");
-    match keychain.load() {
-        Ok(_) => Ok(Arc::new(keychain)),
+    // Debug builds only: tests take the no-keychain path on any Mac.
+    #[cfg(debug_assertions)]
+    let loaded = if std::env::var_os("CMUX_CODEROUTER_TEST_NO_KEYCHAIN").is_some() {
+        Err(anyhow::anyhow!("no default keychain (CMUX_CODEROUTER_TEST_NO_KEYCHAIN)"))
+    } else {
+        keychain.load().map(drop)
+    };
+    #[cfg(not(debug_assertions))]
+    let loaded = keychain.load().map(drop);
+    match loaded {
+        Ok(()) => Ok((Arc::new(keychain), INSTALL_SECRET_KEYCHAIN)),
         Err(e) => {
+            // The error text only; the secret itself never reaches a log.
             tracing::warn!(
                 "the Keychain install secret is unavailable ({e:#}); this router run uses a random in-memory secret"
             );
-            Ok(Arc::new(RandomInstallSecretStore::new("default")?))
+            Ok((Arc::new(RandomInstallSecretStore::new("default")?), INSTALL_SECRET_EPHEMERAL))
         }
     }
 }
@@ -692,7 +712,7 @@ async fn admin_connection(
             }
             AdminRequest::Status => {
                 let up = upstream.read().await;
-                serde_json::json!({"port": port, "build": router_build(), "pid": std::process::id(), "upstream": up.as_ref().map(Upstream::view), "free": free.view()})
+                serde_json::json!({"port": port, "build": router_build(), "pid": std::process::id(), "upstream": up.as_ref().map(Upstream::view), "free": free.view(), "install_secret": INSTALL_SECRET_KIND.get().copied()})
             }
             AdminRequest::Adopt => {
                 // The daemon opened the owner FIFO before it asked; a router
