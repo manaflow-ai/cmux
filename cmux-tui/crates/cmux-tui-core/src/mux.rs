@@ -204,6 +204,7 @@ mod launch_identity;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
+mod agent_prompts;
 pub use agent_presence::{AgentActivity, AgentPresence};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
@@ -329,7 +330,9 @@ pub use presentation::{
     WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
-pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};
+pub(crate) use resource_topology::{
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, RoomClose,
+};
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{
@@ -609,6 +612,9 @@ pub struct Mux {
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
+    /// Each terminal agent's last prompt (at most 200 characters), memory only: never
+    /// journaled, persisted or logged (`agent_prompts.rs`).
+    agent_prompts: Mutex<HashMap<TerminalPublicId, Arc<str>>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,

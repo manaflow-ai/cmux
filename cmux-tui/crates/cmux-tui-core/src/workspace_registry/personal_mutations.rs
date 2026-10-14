@@ -743,6 +743,7 @@ impl WorkspaceRegistry {
                 params![s, k, i64::try_from(position)?],
             )?;
         }
+        crate::state::sidebar_doc_sync::mark_moved(tx, session, key)?;
         mixed_order::restore_group_slots(tx, &slots, Some((session, key)))
     }
 

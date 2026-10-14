@@ -113,6 +113,8 @@ export type AcpmuxPermission = {
   description?: string;
   rule?: string;
   kind?: string;
+  /// The tool call it asks about: a subagent's own call when a subagent asks (summary/SubagentStatusList.tsx).
+  toolCallId?: string;
   pending: boolean;
   options: {
     id: string;

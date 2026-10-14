@@ -196,6 +196,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
             ? raw.rule
             : undefined,
     kind: raw.toolCall?.kind,
+    ...(typeof raw.toolCall?.toolCallId === "string" ? { toolCallId: raw.toolCall.toolCallId } : {}),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),
