@@ -179,12 +179,13 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
         const color = (name: string) => drawn.find((glyph) => glyph.name === name)!.color;
         expect(color("dot")).toBe("rgb(57, 130, 245)");
         expect(color("info")).not.toBe(color("waiting"));
-        // The error's ring holds an i the still work ring lacks: 10 whole pixels at 1x.
-        const least = scale === 1 ? 10 : 30;
+        // The error's ring holds an i the still work ring lacks: 10 whole pixels at 1x, 16 at 2x (a
+        // 2x2 dot and a 2x6 stem), and the two differ in color too (grey and red). Other pairs: 10 and 30.
+        const least = (a: string, b: string) => (scale === 1 ? 10 : [a, b].sort().join("/") === "idle/info" ? 16 : 30);
         for (let i = 0; i < drawn.length; i++) {
           for (let j = i + 1; j < drawn.length; j++) {
             const count = differ(drawn[i]!.alpha, drawn[j]!.alpha);
-            expect(`${drawn[i]!.name}/${drawn[j]!.name} ${count >= least}`).toBe(
+            expect(`${drawn[i]!.name}/${drawn[j]!.name} ${count >= least(drawn[i]!.name, drawn[j]!.name)}`).toBe(
               `${drawn[i]!.name}/${drawn[j]!.name} true`,
             );
           }

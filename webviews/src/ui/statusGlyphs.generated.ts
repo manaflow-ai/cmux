@@ -68,7 +68,7 @@ export const STATUS_GLYPHS = {
   dot: {
     set: "codex",
     for: "done, unread (Codex-like): a blue dot",
-    tint: "var(--cmux-status-unread, #3982f5)",
+    tint: "var(--cmux-status-unread)",
     master: "M6 10A4 4 0 1 0 14 10A4 4 0 1 0 6 10Z",
     x1: "M4 3h2v1h-2ZM3 4h4v2h-4ZM4 6h2v1h-2Z",
   },
@@ -82,7 +82,7 @@ export const STATUS_GLYPH_SETS = {
     working: { glyph: "idle", tint: "color-mix(in srgb, var(--cmux-app-text, CanvasText) 66%, transparent)" },
     waiting: { glyph: "waiting", tint: "var(--cmux-app-text-secondary, GrayText)" },
     permission: { glyph: "shieldLine", tint: "var(--cmux-app-text-secondary, GrayText)" },
-    done: { glyph: "dot", tint: "var(--cmux-status-unread, #3982f5)" },
+    done: { glyph: "dot", tint: "var(--cmux-status-unread)" },
     error: { glyph: "info", tint: "var(--cmux-app-danger, #c42b1c)" },
   },
 } as const satisfies Record<string, Record<string, { glyph: StatusGlyphName; tint: string }>>;

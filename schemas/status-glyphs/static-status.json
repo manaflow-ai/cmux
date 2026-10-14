@@ -174,7 +174,7 @@
     "success": {"swift": "success", "css": "var(--cmux-app-success, #2f8f46)"},
     "danger": {"swift": "danger", "css": "var(--cmux-app-danger, #c42b1c)"},
     "spinner": {"swift": "spinner", "css": "color-mix(in srgb, var(--cmux-app-text, CanvasText) 66%, transparent)"},
-    "unread": {"swift": "unread", "css": "var(--cmux-status-unread, #3982f5)"}
+    "unread": {"swift": "unread", "css": "var(--cmux-status-unread)"}
   },
   "sets": {
     "codex": {

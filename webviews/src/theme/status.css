@@ -1,0 +1,6 @@
+/* Status colors that are not theme roles. Codex's unread and done blue (sampled from the Codex
+   app, Leo's team 2026-10-14) for the Codex-like status set; the app's twin is
+   StatusIndicatorLayer.Colors.unread. */
+:root {
+  --cmux-status-unread: #3982f5;
+}
