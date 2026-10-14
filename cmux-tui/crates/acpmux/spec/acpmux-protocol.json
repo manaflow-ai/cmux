@@ -247,6 +247,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/prompt_withdraw",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/kill",
       "params": true,
       "result": true

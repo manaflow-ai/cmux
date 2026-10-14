@@ -37,6 +37,7 @@ export interface AcpmuxRequests {
   "_acpmux/stats": { params: unknown; result: unknown };
   "_acpmux/bookmark_get": { params: unknown; result: unknown };
   "_acpmux/bookmark_set": { params: unknown; result: unknown };
+  "_acpmux/prompt_withdraw": { params: unknown; result: unknown };
   "_acpmux/kill": { params: unknown; result: unknown };
   "_acpmux/archive": { params: unknown; result: unknown };
   "_acpmux/side": { params: unknown; result: unknown };
@@ -192,6 +193,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bookmark_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bookmark_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/prompt_withdraw", kind: "request", acp: false, typed: false },
   { name: "_acpmux/kill", kind: "request", acp: false, typed: false },
   { name: "_acpmux/archive", kind: "request", acp: false, typed: false },
   { name: "_acpmux/side", kind: "request", acp: false, typed: false },
