@@ -78,6 +78,11 @@ const PRICES_AND_SHELL: [source: string, shown: string][] = [
     "The runner costs $5 and $10 an hour, and echo $$ prints the PID.",
     "The runner costs $5 and $10 an hour, and echo $$ prints the PID.",
   ],
+  // Prose between two shell `$$` (an apostrophe, a comma) is still prose (the DEV capture's reply).
+  [
+    "echo $$ prints the shell's PID, and echo $$ and $$ print it twice.",
+    "echo $$ prints the shell's PID, and echo $$ and $$ print it twice.",
+  ],
   ["Escaped \\$5 and \\$10.", "Escaped $5 and $10."],
   ["Use `$x$` literally.", "Use $x$ literally."],
 ];
