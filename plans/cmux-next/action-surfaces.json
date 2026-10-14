@@ -13537,33 +13537,6 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "offered",
-      "cli_name" : "browser device",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "browserPage"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "browserDevice",
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Emulate Device…",
-      "title_key" : "action.browserDevice",
-      "title_table" : "ActionCatalog"
-    },
-    {
       "cli" : "guiOnly",
       "cli_name" : "browser stop-vs-code-inline-server",
       "context_menu" : "noTargetSurface",
@@ -15704,7 +15677,7 @@
       "title_table" : "BrowserProfileActions"
     },
     {
-      "cli" : "guiOnly",
+      "cli" : "offered",
       "cli_name" : "browser-profile delete",
       "context_menu" : "offered",
       "context_menus" : [
@@ -15716,7 +15689,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserProfile.delete",
-      "mcp" : "guiOnly",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.browser",
@@ -20737,6 +20710,33 @@
       "palette_suggested" : null,
       "title" : "Install cmux-tui on Machine…",
       "title_key" : "action.remote.install",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace set-remote-localhost",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.setRemoteLocalhost",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Workspace Localhost…",
+      "title_key" : "action.workspace.setRemoteLocalhost",
       "title_table" : "RemoteActions"
     },
     {
@@ -28138,21 +28138,8 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "browserDevice",
-              "kind" : "action",
-              "order" : 3,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-                  "browserFocused"
-                ]
-              }
-            },
-            {
               "kind" : "separator",
-              "order" : 4
+              "order" : 3
             },
             {
               "children" : [
@@ -28314,7 +28301,7 @@
               ],
               "id" : "browser.pageInfo",
               "kind" : "submenu",
-              "order" : 5,
+              "order" : 4,
               "title_from" : "action",
               "visible_when" : {
                 "debug_only" : false,
@@ -28328,7 +28315,7 @@
               "enabled_when" : "can_perform",
               "id" : "showBrowserJavaScriptConsole",
               "kind" : "action",
-              "order" : 6,
+              "order" : 5,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28341,7 +28328,7 @@
               "enabled_when" : "can_perform",
               "id" : "inspectBrowserElement",
               "kind" : "action",
-              "order" : 7,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28352,13 +28339,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 8
+              "order" : 7
             },
             {
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.menu",
               "kind" : "action",
-              "order" : 9,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28371,7 +28358,7 @@
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.manage",
               "kind" : "action",
-              "order" : 10,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28384,7 +28371,7 @@
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.webStore",
               "kind" : "action",
-              "order" : 11,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -28397,7 +28384,7 @@
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.loadUnpacked",
               "kind" : "action",
-              "order" : 12,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -35141,14 +35128,51 @@
                   }
                 },
                 {
+                  "choices" : {
+                    "argument" : "localhost",
+                    "more_opens_palette" : false,
+                    "values" : [
+                      {
+                        "title" : "The Workspace's Machine",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "machine"
+                      },
+                      {
+                        "title" : "This Mac",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "thisMac"
+                      },
+                      {
+                        "title" : "Follow Settings",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "setting"
+                      }
+                    ]
+                  },
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.setRemoteLocalhost",
+                  "kind" : "choices",
+                  "order" : 17,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : "remoteHosts",
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 17
+                  "order" : 18
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "sidebar.workspaceTabs.toggle",
                   "kind" : "action",
-                  "order" : 18,
+                  "order" : 19,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,

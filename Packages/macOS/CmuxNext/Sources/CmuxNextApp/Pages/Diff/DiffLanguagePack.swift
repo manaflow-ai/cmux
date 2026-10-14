@@ -100,10 +100,6 @@ final class DiffLanguageFeed {
         }
     }
 
-    var listenerCount: Int { listeners.count }
-    /// Paths watched now (tests).
-    var watcherCount: Int { watchers.count }
-
     /// Watches exactly `urls` (the folder, its subfolders and files), so a new
     /// file or folder gets its own watch after the read that found it.
     private func watch(_ urls: [URL]) {
