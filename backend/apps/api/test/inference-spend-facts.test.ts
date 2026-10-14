@@ -3,6 +3,7 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import worker from "../src/index.ts"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { chat, inDO, loopback, paidPerson, post, testEnv } from "./setup/inference-person.ts"
+import { stackTeamIdFor } from "../src/domains/user.ts"
 
 /**
  * cx-y79zh S1 (plans/cmux-next/usage-billing.md): one model router call is one fact, and the member's
@@ -158,7 +159,7 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
  */
 
 const SYNC_KEY = "test-billing-levels-key-0123456789abcdef"
-const USAGE_PRICES: Record<string, string> = { "cmux-ai-usage-go-incl5-v1": "price_u_go", "cmux-ai-usage-pro-incl20-v1": "price_u_pro", "cmux-ai-usage-max-incl100-v1": "price_u_max", "cmux-ai-usage-team-incl20-v1": "price_u_team", "cmux-ai-usage-pro-incl1-e2e": "price_e2e_pro" }
+const USAGE_PRICES: Record<string, string> = { "cmux-ai-usage-go-incl5-v1": "price_u_go", "cmux-ai-usage-pro-incl20-v1": "price_u_pro", "cmux-ai-usage-max-incl100-v1": "price_u_max", "cmux-ai-usage-team-incl20-v1": "price_u_team", "cmux-ai-usage-pro-incl1-e2e": "price_e2e_pro", "cmux-ai-usage-team-seat1-e2e": "price_e2e_team_seat" }
 
 type Call = { method: string; path: string; form: Record<string, string>; idempotency: string | null; version: string | null }
 type FakeSub = { id: string; status: string; customer: string; metadata: Record<string, string>; items: { data: Array<any> } }
@@ -364,5 +365,95 @@ describe("the included-amount stop (cx-y79zh S5)", () => {
     const r = await chat(t, stopOn)
     expect(r.status).toBe(402)
     expect(JSON.parse(r.text).error).toMatchObject({ code: "usage.included_reached", details: { included_usd: 20 } })
+  })
+})
+
+/**
+ * cx-y79zh S5 included modes (Lawrence 2026-10-14: per team and per seat). Per seat: the sync sends the level
+ * above included x seats to the per-seat meter for a flat price; per team (above): the whole level for a
+ * graduated price. Driven at POST /v1/internal/billing/sync with the payment service faked at HTTP.
+ */
+describe("team included amount per seat (cx-y79zh S5)", () => {
+  const e2eEnv = { ...(env as object), ENVIRONMENT: "development", BILLING_USAGE_PRICE_SET: "e2e" }
+  it("sends the level above included x seats to the per-seat meter, keeps the most seats of the period, and never touches the plan item", async () => {
+    const stackTeam = "5f0c2a7e-9b1d-4c3e-8a6f-2d4b7e9c1a30"
+    const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, stackTeam)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    const sub = stripe.addSub("sub_seat1", "cus_seat1", { plan: "team", stackTeamId: stackTeam.toUpperCase() }, "cmux-team-monthly-20")
+    sub.items.data[0].quantity = 2
+    fakeBoundaries(stripe, 0)
+    const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
+    await meter.record(team, [{ key: `seat:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 2.5, source: "coderouter", observed_at: Date.now() }])
+    expect((await sync(e2eEnv)).body).toMatchObject({ items_added: 1, pushed: 1, failed: 0 })
+    expect(stripe.calls.filter((c) => c.path === "/v1/subscription_items").map((c) => c.form.price)).toEqual(["price_e2e_team_seat"])
+    // 2.5 USD used, 2 seats x 1 USD included: 0.5 USD above it, on the per-seat meter.
+    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[stripe_customer_id]": "cus_seat1", "payload[value]": "0.500000" })])
+    // A third seat: 3 USD included, nothing above it; a new event says so.
+    sub.items.data[0].quantity = 3
+    await sync(e2eEnv)
+    expect(stripe.events.at(-1)).toMatchObject({ event_name: "cmux_ai_usage_above_included", "payload[value]": "0.000000" })
+    // The seat leaves again in the same period: the period keeps its most seats, so nothing new is sent.
+    sub.items.data[0].quantity = 2
+    expect((await sync(e2eEnv)).body).toMatchObject({ pushed: 0, unchanged: 1 })
+    expect(stripe.events).toHaveLength(2)
+    // More usage: 3.75 USD against 3 seats = 0.75 USD above.
+    await meter.record(team, [{ key: `seat:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 1.25, source: "coderouter", observed_at: Date.now() }])
+    await sync(e2eEnv)
+    expect(stripe.events.at(-1)).toMatchObject({ "payload[value]": "0.750000" })
+    expect(stripe.events.every((e) => e.event_name === "cmux_ai_usage_above_included")).toBe(true)
+    expect(planItemsUntouched(stripe)).toBe(true)
+  })
+
+  it("the closed period's final push keeps its own seats after a renewal", async () => {
+    const stackTeam = "7a3e1c5b-2d4f-4e6a-9b8c-0f1e2d3c4b5a"
+    const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, stackTeam)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 120 })
+    const sub = stripe.addSub("sub_seat2", "cus_seat2", { plan: "team", stackTeamId: stackTeam }, "cmux-team-monthly-20")
+    sub.items.data[0].quantity = 2
+    fakeBoundaries(stripe, 0)
+    const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
+    await meter.record(team, [{ key: `seat:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 3, source: "coderouter", observed_at: Date.now() }])
+    await sync(e2eEnv)
+    expect(stripe.events.at(-1)).toMatchObject({ "payload[value]": "1.000000" })
+    // Late usage in the closed period, then the renewal with one seat fewer.
+    await meter.record(team, [{ key: `seat:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 0.4, source: "coderouter", observed_at: Date.now() }])
+    const closedEnd = stripe.period.end
+    stripe.period.start = closedEnd
+    stripe.period.end = closedEnd + 30 * 86_400
+    sub.items.data[0].quantity = 1
+    await sync(e2eEnv)
+    // The closed period: 3.4 USD against its 2 seats, dated inside it.
+    expect(stripe.events.at(-1)).toMatchObject({ "payload[value]": "1.400000" })
+    expect(Number(stripe.events.at(-1)!.timestamp)).toBeLessThan(closedEnd)
+  })
+})
+
+/** team.ai_limit.get through the Worker's fetch handler with `runEnv` (the stop is a Worker var). */
+const aiLimits = async (t: string, runEnv: unknown) => {
+  const ctx = createExecutionContext()
+  const res = await worker.fetch!(new Request("https://api.test/v1/read", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}` }, body: JSON.stringify({ op: "team.ai_limit.get", params: {} }) }) as any, runEnv as any, ctx)
+  const out = (await res.json()) as any
+  await waitOnExecutionContext(ctx)
+  return out
+}
+
+describe("the console's team usage line (cx-y79zh S5)", () => {
+  it("shows the team's usage against its included amount, the stop, and the billing period once it is billable", async () => {
+    const stackUser = "usage-line-pro"
+    const { t, team } = await paidPerson(stackUser)
+    const stopOn = { ...(env as object), USAGE_HARD_STOP_UNBILLED: "1" }
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    fakeBoundaries(stripe, 0)
+    const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
+    await meter.record(team, [{ key: `line:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 12.5, source: "coderouter", observed_at: Date.now() }])
+    const before = await aiLimits(t, stopOn)
+    expect(before.value.team_usage).toMatchObject({ billed: false, included_usd: 20, per_seat: false, spent_usd: 12.5, stop_applies: true, stopped: false })
+    await meter.record(team, [{ key: `line:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 7.5, source: "coderouter", observed_at: Date.now() }])
+    expect((await aiLimits(t, stopOn)).value.team_usage).toMatchObject({ spent_usd: 20, stopped: true })
+    // Billable: the billing period, the amount the bill uses, and no stop.
+    stripe.addSub("sub_line1", "cus_line1", { plan: "pro", stackUserId: stackUser }, "cmux-pro-monthly-50")
+    await sync()
+    const billed = (await aiLimits(t, stopOn)).value.team_usage
+    expect(billed).toMatchObject({ billed: true, included_usd: 20, per_seat: false, seats: 1, spent_usd: 20, period_start: stripe.period.start * 1000, period_end: stripe.period.end * 1000, stop_applies: false, stopped: false })
   })
 })
