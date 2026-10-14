@@ -5,6 +5,9 @@ extension ShellWindow {
     /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
     /// mouse-down in the band is delivered as usual, then moves the window
     /// (or runs the double-click action) only when the policy says so.
+    /// A titlebar double-click is not delivered: the window runs the user's
+    /// action once. Delivered, a view or AppKit's own titlebar ran it too,
+    /// so the window zoomed and zoomed back (Lawrence 2026-10-14).
     /// A pane's cursor-rect policy (`cursorRectHold`) sees every event first. An Option-press on a
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
@@ -13,7 +16,7 @@ extension ShellWindow {
               !PaneSwapDrag.claims(event, in: self) else {
             return super.sendEvent(event)
         }
-        super.sendEvent(event)
+        if event.clickCount != 2 { super.sendEvent(event) }
         WindowTitlebar.handleMouseDown(event, in: self)
     }
 
