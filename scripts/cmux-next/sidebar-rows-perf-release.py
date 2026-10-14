@@ -271,6 +271,8 @@ class HIDWheel:
         delta = opts.notches if direction == "up" else -opts.notches
         for _ in range(events):
             event = cg.CGEventCreateScrollWheelEvent2(None, 1, 1, delta, 0, 0)  # kCGScrollEventUnitLine
+            if not event:
+                return [{"error": "CGEventCreateScrollWheelEvent2 returned NULL"}]
             cg.CGEventSetLocation(event, at)
             cg.CGEventPost(0, event)  # kCGHIDEventTap
             cls.CFRelease(event)
@@ -404,6 +406,10 @@ def record(name, ticks, terms, profile):
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=dict(os.environ, TMPDIR=xct_tmp + "/"))
     ground()
     time.sleep(4)  # harness: the recorder attaches before the gesture
+    # This recording's ktrace intermediates: the files the recorder holds open now (removed after the export).
+    held = subprocess.run(["lsof", "-p", str(proc.pid), "-Fn"], capture_output=True, text=True).stdout.splitlines()
+    mine = {line[1:] for line in held if line.startswith("n") and os.path.basename(line[1:]).startswith("instruments")
+            and line.endswith(".ktrace")}
     began = time.monotonic()
     bad = sweep("down") + sweep("up")
     gesture_s = round(time.monotonic() - began, 2)
@@ -423,19 +429,16 @@ def record(name, ticks, terms, profile):
     result.update(hitches(path, Target.pid))
     if profile:
         result["profile"] = main_thread_profile(path)
-    # Report (never delete: other jobs' files) ktrace intermediates that still landed in the default temp dir.
-    default_tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
-    leaked = [f for f in (os.listdir(default_tmp) if os.path.isdir(default_tmp) else [])
-              if f.startswith("instruments") and f.endswith(".ktrace") and os.path.getmtime(os.path.join(default_tmp, f)) >= attach_at - 5]
-    result["default_tmp_ktrace_since_start"] = len(leaked)
-    # Those are this recording's (an input job runs alone in the GUI session): remove the ones no process holds open.
-    for name in leaked:
-        path_k = os.path.join(default_tmp, name)
-        if not subprocess.run(["lsof", "-t", path_k], capture_output=True, text=True).stdout.strip():
+    # Remove this recording's own ktrace intermediates (attributed above by the recorder's open files), once closed.
+    removed = 0
+    for path_k in mine:
+        if os.path.exists(path_k) and not subprocess.run(["lsof", "-t", path_k], capture_output=True, text=True).stdout.strip():
             try:
                 os.unlink(path_k)
+                removed += 1
             except OSError:
                 pass
+    result["ktrace_removed"] = removed
     # Keep only the numbers: the trace and the recorder's intermediates are removed (host disk).
     shutil.rmtree(path, ignore_errors=True)
     shutil.rmtree(xct_tmp, ignore_errors=True)
@@ -526,7 +529,7 @@ try:
             use(app)
             cua("bring_to_front", {"pid": Target.pid})
             time.sleep(1)  # harness: the window is in front before the recorder attaches
-            for mode in ("noticks", "ticks"):
+            for mode in (("noticks", "ticks") if i % 2 == 0 else ("ticks", "noticks")):
                 runs[app["label"]][mode].append(record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i < opts.profile_runs))
                 time.sleep(2)  # harness: settle between runs
     summary["runs"] = runs
@@ -534,7 +537,7 @@ try:
         out = summary.setdefault("apps", {}).setdefault(app["label"], {"tag": app["tag"], "tick_window": app.get("tick_window")})
         for mode, rs in runs[app["label"]].items():
             valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
-                     and r.get("app_updates", 0) >= 30 * r.get("gesture_s", 0)]
+                     and r.get("app_updates", 0) >= 60 * r.get("gesture_s", 0)]
             totals = [r["total_ms"] for r in valid]
             out[mode] = {"valid": len(valid), "hitch_total_ms": totals,
                          "median_ms": statistics.median(totals) if totals else None,
@@ -545,11 +548,23 @@ finally:
     summary["failures"] = failures
     with open(os.path.join(opts.out, f"release-{opts.label}.json"), "w") as fh:
         json.dump(summary, fh, indent=1)
+    b_alive = False
     for app in apps[1:]:
-        use(app)
-        stop_b(app)
+        try:
+            use(app)
+            stop_b(app)
+            b_alive = b_alive or app_pid() is not None
+        except Exception as error:  # noqa: BLE001 (cleanup goes on)
+            print(f"B stop: {error}", flush=True)
+            b_alive = True
     use(A)
     subprocess.run([STOP], check=False)
-    cua("end_session", {})
-    shutil.rmtree(SCRATCH, ignore_errors=True)
+    try:
+        cua("end_session", {})
+    except Exception:  # noqa: BLE001
+        pass
+    if b_alive:
+        print(f"B app still runs: its bundle stays in {SCRATCH} (no kill on build hosts)", flush=True)
+    else:
+        shutil.rmtree(SCRATCH, ignore_errors=True)
 sys.exit(1 if failures else 0)
