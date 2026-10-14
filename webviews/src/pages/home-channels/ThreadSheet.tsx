@@ -181,17 +181,17 @@ export function ThreadSheet({
               }
             }}
           >
-          <input
-            className="lg-sheet-title-field"
-            aria-label={t("thread.rename")}
-            value={renaming}
-            maxLength={200}
-            // The field opens from a press on the title: it takes the keyboard at once.
-            // oxlint-disable-next-line jsx-a11y/no-autofocus
-            autoFocus
-            onChange={(event) => setRenaming(event.target.value)}
-            onBlur={() => saveTitle(renaming)}
-          />
+            <input
+              className="lg-sheet-title-field"
+              aria-label={t("thread.rename")}
+              value={renaming}
+              maxLength={200}
+              // The field opens from a press on the title: it takes the keyboard at once.
+              // oxlint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              onChange={(event) => setRenaming(event.target.value)}
+              onBlur={() => saveTitle(renaming)}
+            />
           </KeyboardScope>
         ) : (
           <h2 className="lg-sheet-title">
