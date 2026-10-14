@@ -214,6 +214,19 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "set_model", "model": val}}),
                         ])
                     }
+                    STOP_TASK => {
+                        let task = p.get("taskId").and_then(Value::as_str).unwrap_or("");
+                        if task.is_empty() {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("taskId is required"),
+                            ));
+                        }
+                        self.pending.lock().await.insert(id.to_string(), Pending::StopTask);
+                        Outbound::Lines(vec![
+                            json!({"type": "control_request", "request_id": format!("stop-{}", id), "request": {"subtype": "stop_task", "task_id": task}}),
+                        ])
+                    }
                     method::SESSION_FORK => {
                         // Forking needs a new process (--fork-session); the hub does that.
                         Outbound::Reply(Message::err(

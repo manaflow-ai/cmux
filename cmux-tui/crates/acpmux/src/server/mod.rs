@@ -173,7 +173,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 use std::os::fd::AsRawFd;
                 cmux_link::app_caller::peer_token(stream.as_raw_fd())
             };
-            serve_stream(hub, stream, peer).await;
+            stream::serve_stream(hub, stream, peer).await;
         });
     }
 }
@@ -806,6 +806,7 @@ async fn refuse_unauthenticated(
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     chats::push_activity(hub, conn, &ev);
+    processes::push_update(conn, &ev);
     let rec = &ev.record;
     let watching = conn.watch_all.load(Ordering::SeqCst);
     let sub = conn.sub_opts(&ev.session_id);
@@ -996,19 +997,18 @@ mod chats;
 pub mod conn_auth;
 pub use conn_auth::ConnAuth;
 mod fork_through;
-pub use fork_through::FORK_OPERATIONS;
 mod harness_admin;
 mod harness_enable;
 pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
+mod processes;
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;
-mod stream;
-use stream::serve_stream;
 mod routes;
 mod secrets;
+mod stream;
 pub(crate) mod trust_gate;
 mod view;
 mod wait;
