@@ -929,7 +929,10 @@ impl Hub {
             }
             if let Some((seq, turn_id)) = open {
                 let error = "the daemon restarted before this turn settled";
-                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+                let result = json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error});
+                self.append(&session, "mux", "turn_result", result.clone());
+                // The session shows that turn failed (`lastTurn`), not idle.
+                self.record_last_turn(&session, &result);
                 self.save_meta(&session);
             }
         }
