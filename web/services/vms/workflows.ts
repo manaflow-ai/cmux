@@ -17,7 +17,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, type CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions } from "./drivers/types";
 import { isVmProviderHang, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
@@ -3422,9 +3422,24 @@ function waitForRunningStatus(
   vm: CloudVmRow,
   providerVmId: string,
 ): Effect.Effect<boolean, never> {
+  return waitForRunningOutcome(providers, vm, providerVmId).pipe(Effect.map((outcome) => outcome.settled));
+}
+
+/**
+ * Polls until the machine runs. `observedNotRunning` is true when at least
+ * one probe read a status, so a false `settled` is a confirmed machine state;
+ * otherwise every probe failed and `probeFailure` is the last failure.
+ */
+function waitForRunningOutcome(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<{ readonly settled: boolean; readonly observedNotRunning: boolean; readonly probeFailure: unknown }, never> {
   return Effect.gen(function* () {
     const getStatus = providers.getStatus;
-    if (!getStatus) return true;
+    if (!getStatus) return { settled: true, observedNotRunning: false, probeFailure: undefined };
+    let observedNotRunning = false;
+    let probeFailure: unknown;
     for (let attempt = 0; attempt < RESUME_SETTLE_ATTEMPTS; attempt += 1) {
       const status = yield* getStatus(vm.provider, providerVmId).pipe(
         Effect.timeoutFail({
@@ -3436,12 +3451,16 @@ function waitForRunningStatus(
               cause: new Error("status probe timed out"),
             }),
         }),
-        Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+        Effect.catchAll((failure) => Effect.sync(() => {
+          probeFailure = failure;
+          return null as VMStatus | null;
+        })),
       );
-      if (status === "running") return true;
+      if (status === "running") return { settled: true, observedNotRunning, probeFailure };
+      if (status !== null) observedNotRunning = true;
       yield* Effect.sleep(RESUME_SETTLE_INTERVAL);
     }
-    return false;
+    return { settled: false, observedNotRunning, probeFailure };
   });
 }
 
@@ -3664,13 +3683,18 @@ function preflightResumeIfSuspended(
     if (status === "creating") {
       // Another caller's resume is in flight; wait for it rather than
       // minting endpoints or running commands against a not-yet-ready VM.
-      const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
-      if (!settled) {
+      const outcome = yield* waitForRunningOutcome(providers, vm, providerVmId);
+      if (!outcome.settled) {
+        // Only a status the provider actually reported is a state conflict;
+        // when every probe failed, the failure is the provider's, not the
+        // machine's state.
         return yield* Effect.fail(
           new VmProviderOperationError({
             provider: vm.provider,
             operation: `getStatus(${providerVmId})`,
-            cause: new Error("VM stayed in a resuming state"),
+            cause: outcome.observedNotRunning
+              ? new ProviderStateConflictError(vm.provider, "VM stayed in a resuming state")
+              : outcome.probeFailure ?? new Error("status probe failed"),
           }),
         );
       }
@@ -4394,6 +4418,10 @@ export function statVmFile(input: VmFileInput, path: string): VmWorkflowProgram<
   });
 }
 
+/**
+ * Read provider stats without waking a sleeping machine and mark an awake VM
+ * unknown until its guest has supplied a recent resource sample.
+ */
 export function getVmStats(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -4419,6 +4447,7 @@ export function getVmStats(input: {
       Effect.flatMap((stats) => {
         const now = Date.now();
         const reported = applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, now);
+        /** Keep provider lifecycle state honest when the guest reporter is stale or absent. */
         const withGuestHealth = (value: VMStats): VMStats => {
           if (value.state !== "awake") return value;
           const healthNow = Date.now();

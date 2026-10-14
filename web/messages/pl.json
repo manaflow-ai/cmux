@@ -45,6 +45,16 @@
       "message": "Dostawca chmury nie odpowiedział na czas.",
       "action": "Spróbuj ponownie za chwilę."
     },
+    "providerCapacity": {
+      "title": "Brak wolnej pojemności Cloud",
+      "message": "Usługa Cloud nie ma teraz miejsca na tę maszynę. Nic nie zostało zmienione.",
+      "action": "Spróbuj ponownie za minutę."
+    },
+    "stateConflict": {
+      "title": "Maszyna jest zajęta",
+      "message": "Ta maszyna się uruchamia, wstrzymuje albo nie działa, więc nie może teraz tego zrobić.",
+      "action": "Poczekaj chwilę i spróbuj ponownie. Sprawdź stan maszyny za pomocą cmux vm ls i najpierw ją wznów, jeśli jest wstrzymana."
+    },
     "networkRuleCapacity": {
       "title": "Osiągnięto limit reguł sieciowych",
       "message": "Twoja polityka sieciowa została zapisana, ale nie została zastosowana: cmux Cloud osiągnął limit reguł sieciowych.",

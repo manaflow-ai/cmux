@@ -52,6 +52,8 @@ final class AccountSignInModel {
     private(set) var hasRequestedSignIn = false
     private(set) var signInURL: URL?
     private(set) var linkCopyState: LinkCopyState = .idle
+    private var copiedFailureDetail: String?
+    private var failureDetailCopyFailure: LinkCopyState = .idle
     private(set) var browserOpenState: BrowserOpenState = .idle
     private(set) var isStartingSignIn = false
 
@@ -108,6 +110,18 @@ final class AccountSignInModel {
         signInURL != nil
     }
 
+    /// Detail line shown under a failure so the user can report what failed.
+    var failureDetail: String? {
+        guard case .failed = phase else { return nil }
+        return flow?.lastSignInFailureDetail
+    }
+
+    /// Copy state for the detail on screen. A different detail (a later
+    /// failure) shows the copy button again instead of a stale "Copied".
+    var failureDetailCopyState: LinkCopyState {
+        copiedFailureDetail != nil && copiedFailureDetail == failureDetail ? .copied : failureDetailCopyFailure
+    }
+
     /// Starts the initial attempt once when an automatically presented pane appears.
     func startSignInIfNeeded() {
         guard !hasRequestedSignIn else { return }
@@ -119,6 +133,8 @@ final class AccountSignInModel {
         guard let flow, flow.currentIdentity == nil else { return }
         hasRequestedSignIn = true
         linkCopyState = .idle
+        copiedFailureDetail = nil
+        failureDetailCopyFailure = .idle
         browserOpenState = .idle
         if flow.isPresentingSignIn || flow.isSwitchingAccount {
             // Another surface already has the shared attempt up. Adopt it —
@@ -154,5 +170,15 @@ final class AccountSignInModel {
             return
         }
         linkCopyState = flow?.copySignInURL(signInURL) == true ? .copied : .failed
+    }
+
+    func copyFailureDetail() {
+        guard let failureDetail, flow?.copyFailureDetail(failureDetail) == true else {
+            copiedFailureDetail = nil
+            failureDetailCopyFailure = .failed
+            return
+        }
+        copiedFailureDetail = failureDetail
+        failureDetailCopyFailure = .idle
     }
 }
