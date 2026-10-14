@@ -91,6 +91,8 @@ pub struct ReceiverCore {
     blocked_since: Option<u64>,
     last_pli_us: Option<u64>,
     pli_wanted: bool,
+    /// Send one PLI on the next poll without dropping what is buffered.
+    pli_now: bool,
     rtt_us: Option<u64>,
     stats: ReceiverStats,
 }
@@ -106,6 +108,7 @@ impl ReceiverCore {
             blocked_since: None,
             last_pli_us: None,
             pli_wanted: true,
+            pli_now: false,
             rtt_us: None,
             stats: ReceiverStats::default(),
         }
@@ -135,6 +138,13 @@ impl ReceiverCore {
         self.blocked_since = None;
         self.pli_wanted = true;
         self.last_pli_us = None;
+    }
+
+    /// The path changed under the lane (a WireGuard roam): ask the Mac for a
+    /// keyframe now, and keep releasing whatever completes meanwhile. A gap
+    /// the roam left still waits for its NACK until the deadline.
+    pub fn path_changed(&mut self) {
+        self.pli_now = true;
     }
 
     fn unwrap_seq(&self, seq: u16) -> u64 {
@@ -296,7 +306,14 @@ impl ReceiverCore {
             }
         }
         let mut rtcp: RtcpPackets = Vec::new();
-        if self.next_seq.is_none() {
+        if std::mem::take(&mut self.pli_now) && self.media_ssrc != 0 {
+            self.last_pli_us = Some(now_us);
+            self.stats.plis_sent += 1;
+            rtcp.push(Box::new(PictureLossIndication {
+                sender_ssrc: self.config.ssrc,
+                media_ssrc: self.media_ssrc,
+            }));
+        } else if self.next_seq.is_none() {
             // Nothing below the newest keyframe start can be used.
             if let Some(&start) = self.keyframe_starts().last() {
                 while self.packets.first_key_value().is_some_and(|(seq, _)| *seq < start) {
@@ -350,6 +367,7 @@ pub(crate) async fn run(
 ) {
     let epoch = std::time::Instant::now();
     let mut core = ReceiverCore::new(config);
+    let mut path = carrier.path_changes();
     loop {
         if let Some(rtt) = rtt.as_ref().and_then(|r| *r.borrow()) {
             core.set_rtt(u64::try_from(rtt.as_micros()).unwrap_or(u64::MAX));
@@ -369,6 +387,18 @@ pub(crate) async fn run(
                 core.request_keyframe();
             }
             () = sleep => {}
+            changed = async {
+                match path.as_mut() {
+                    Some(path) => path.changed().await.is_ok(),
+                    None => std::future::pending().await,
+                }
+            } => {
+                if changed {
+                    core.path_changed();
+                } else {
+                    path = None;
+                }
+            }
         }
         let (frames, rtcp) = core.poll(super::micros_since(epoch));
         if !frames.is_empty() {

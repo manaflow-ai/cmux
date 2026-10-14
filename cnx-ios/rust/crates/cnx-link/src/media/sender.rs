@@ -32,6 +32,19 @@ pub const MIN_KEYFRAME_INTERVAL_US: u64 = 250_000;
 /// A sent packet no feedback mentioned after this long no longer counts as
 /// in flight.
 const IN_FLIGHT_EXPIRY_US: u64 = 1_000_000;
+/// The controller gets at most one sample per this long, as from rd's
+/// viewer (`cmux-rd-ffi` `FEEDBACK_INTERVAL_US`): its constants (a 15 % cut
+/// per overusing sample) assume that cadence, and TWCC comes every 25 ms.
+const CC_INTERVAL_US: u64 = 50_000;
+/// After the controller lowers the target, it hears nothing new until the
+/// path could show the effect (the feedback delay plus this, within
+/// [`CC_HOLD_MIN_US`, `CC_HOLD_MAX_US`]). Without it a queue that is still
+/// draining reads as more overuse every 50 ms, and NACK resends plus
+/// keyframe requests during the episode cut the target to the floor (one
+/// decrease per round trip, as GCC does).
+const CC_HOLD_MARGIN_US: u64 = 50_000;
+const CC_HOLD_MIN_US: u64 = 100_000;
+const CC_HOLD_MAX_US: u64 = 400_000;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SenderConfig {
@@ -84,6 +97,7 @@ struct Sent {
 pub struct SenderCore {
     config: SenderConfig,
     ext_id: u8,
+    payload_mtu: usize,
     packetizer: h264::Packetizer,
     seq: u16,
     twcc_seq: u16,
@@ -93,6 +107,12 @@ pub struct SenderCore {
     cc: CongestionController,
     loss_meter: LossMeter,
     loss: f64,
+    /// TWCC arrivals not yet given to the controller, and the settled loss
+    /// over them (lost, settled).
+    cc_pending: Vec<Arrival>,
+    cc_loss: (f64, f64),
+    last_cc_us: Option<u64>,
+    cc_hold_until_us: u64,
     feedback_delay_us: u64,
     last_keyframe_us: Option<u64>,
     keyframe_requests: u64,
@@ -105,6 +125,7 @@ impl SenderCore {
         Self {
             config,
             ext_id: twcc_ext_id,
+            payload_mtu: RTP_PAYLOAD_MTU,
             packetizer: h264::Packetizer::default(),
             seq: rand_u16(),
             twcc_seq: 0,
@@ -114,6 +135,10 @@ impl SenderCore {
             cc: CongestionController::new(config.cc, PathKind::DirectWan),
             loss_meter: LossMeter::default(),
             loss: 0.0,
+            cc_pending: Vec::new(),
+            cc_loss: (0.0, 0.0),
+            last_cc_us: None,
+            cc_hold_until_us: 0,
             feedback_delay_us: 0,
             last_keyframe_us: None,
             keyframe_requests: 0,
@@ -122,10 +147,41 @@ impl SenderCore {
         }
     }
 
+    /// Packetize at most `bytes` of payload per RTP packet (the carrier's
+    /// limit, so packets never fragment).
+    pub fn set_payload_mtu(&mut self, bytes: usize) {
+        self.payload_mtu = bytes.max(200);
+    }
+
+    /// The path changed under the lane (a WireGuard roam): packets in flight
+    /// on the old path will not be reported, so they no longer hold the
+    /// window. Returns whether to ask the source for a keyframe now (rate
+    /// limited with the receiver's PLIs).
+    pub fn on_path_change(&mut self, now_us: u64) -> bool {
+        self.sent.clear();
+        self.sent_order.clear();
+        self.in_flight = 0;
+        // A new path has its own delay: drop the controller's baseline.
+        self.cc_pending.clear();
+        self.cc_loss = (0.0, 0.0);
+        self.cc_hold_until_us = 0;
+        self.cc.on_path_changed(PathKind::DirectWan);
+        self.keyframe_allowed(now_us)
+    }
+
+    fn keyframe_allowed(&mut self, now_us: u64) -> bool {
+        let allowed =
+            self.last_keyframe_us.is_none_or(|t| now_us.saturating_sub(t) >= MIN_KEYFRAME_INTERVAL_US);
+        if allowed {
+            self.last_keyframe_us = Some(now_us);
+        }
+        allowed
+    }
+
     /// The RTP packets of one frame, stamped and recorded as sent at `now_us`.
     pub fn frame(&mut self, frame: &OutgoingFrame, now_us: u64) -> Vec<Packet> {
         let timestamp = super::rtp_timestamp(frame.capture_us);
-        let payloads = self.packetizer.payloads(&frame.access_unit, RTP_PAYLOAD_MTU);
+        let payloads = self.packetizer.payloads(&frame.access_unit, self.payload_mtu);
         let last = payloads.len().saturating_sub(1);
         let mut packets = Vec::with_capacity(payloads.len());
         for (i, payload) in payloads.into_iter().enumerate() {
@@ -193,11 +249,7 @@ impl SenderCore {
                 || any.downcast_ref::<FullIntraRequest>().is_some()
             {
                 self.keyframe_requests += 1;
-                let allowed = self
-                    .last_keyframe_us
-                    .is_none_or(|t| now_us.saturating_sub(t) >= MIN_KEYFRAME_INTERVAL_US);
-                if allowed {
-                    self.last_keyframe_us = Some(now_us);
+                if self.keyframe_allowed(now_us) {
                     outcome.keyframe = true;
                 }
             }
@@ -224,8 +276,25 @@ impl SenderCore {
         let settled = self.loss_meter.on_arrivals(arrivals.iter().map(|a| a.transport_seq));
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
+            let weight = results.len().max(1) as f64;
+            self.cc_loss.0 += lost * weight;
+            self.cc_loss.1 += weight;
         }
-        self.cc.on_feedback(&arrivals, settled.unwrap_or(0.0), now_us);
+        self.cc_pending.extend(arrivals);
+        let due = self.last_cc_us.is_none_or(|last| now_us.saturating_sub(last) >= CC_INTERVAL_US)
+            && now_us >= self.cc_hold_until_us;
+        if due {
+            self.last_cc_us = Some(now_us);
+            let (lost, settled) = std::mem::take(&mut self.cc_loss);
+            let loss = if settled > 0.0 { lost / settled } else { 0.0 };
+            let arrivals = std::mem::take(&mut self.cc_pending);
+            let before = self.cc.target_bps();
+            self.cc.on_feedback(&arrivals, loss, now_us);
+            if self.cc.target_bps() < before {
+                let hold = (self.feedback_delay_us + CC_HOLD_MARGIN_US).clamp(CC_HOLD_MIN_US, CC_HOLD_MAX_US);
+                self.cc_hold_until_us = now_us + hold;
+            }
+        }
         if let Some(delay) = newest_delay {
             self.feedback_delay_us =
                 if self.feedback_delay_us == 0 { delay } else { (self.feedback_delay_us * 7 + delay) / 8 };
@@ -270,9 +339,27 @@ pub(crate) async fn run(
 ) {
     let epoch = std::time::Instant::now();
     let mut core = SenderCore::new(config, carrier.twcc_ext_id());
+    core.set_payload_mtu(carrier.max_payload());
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(100));
+    let mut path = carrier.path_changes();
     loop {
+        let path_changed = async {
+            match path.as_mut() {
+                Some(path) => path.changed().await.is_ok(),
+                None => std::future::pending().await,
+            }
+        };
         tokio::select! {
+            changed = path_changed => {
+                if !changed {
+                    path = None;
+                } else if core.on_path_change(super::micros_since(epoch)) {
+                    // The phone asks too (PLI); whichever is first wins the
+                    // rate limit, so the source makes one keyframe.
+                    tracing::debug!("media path changed; asking the source for a keyframe");
+                    let _ = keyframes.send(());
+                }
+            }
             frame = frames.recv() => {
                 let Some((_, frame)) = frame else { return };
                 let packets = core.frame(&frame, super::micros_since(epoch));

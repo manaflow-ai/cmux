@@ -1088,13 +1088,14 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&public_key),
                         endpoints,
                         overlay_ip: DIALER_OVERLAY.to_string(),
-                        lanes: super::offered_lanes(options, false),
+                        lanes: super::offered_lanes(options, options.video_lane),
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             options.timeline.mark("wg_init_sent");
             let mut early_relay = Vec::new();
             let agreed;
+            let video_agreed;
             let (peer_key, peer_endpoints, peer_ip) = loop {
                 match events.next().await? {
                     SessionEvent::Signal(envelope) => match envelope.payload {
@@ -1104,6 +1105,7 @@ impl Dialer for WireGuardDialer {
                                 .parse()
                                 .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                             agreed = super::input_lane_agreed(options, &lanes);
+                            video_agreed = options.video_lane && super::video_lane_listed(&lanes);
                             break (parse_key(&public_key)?, endpoints, ip);
                         }
                         SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
@@ -1138,6 +1140,32 @@ impl Dialer for WireGuardDialer {
             let guard = Guard { session: Arc::clone(&tunnel.session) };
             let net = tunnel.session.net()?;
             tunnel.session.start_control(&net).await;
+            // The media lane's port is bound before the link stream opens, so
+            // the Mac's first frames (sent once a browser tab claims the lane)
+            // find it.
+            let media = if video_agreed {
+                match crate::media::wireguard::WgCarrier::open(
+                    &net,
+                    IpAddr::V4(peer_ip),
+                    crate::media::wireguard::Direction::Receive,
+                    crate::media::wireguard::StreamSpec::h264_video(),
+                    tunnel.session.path_changes(),
+                    crate::media::wireguard::Impairment::default(),
+                )
+                .await
+                {
+                    Ok(carrier) => {
+                        options.timeline.mark("video_lane");
+                        Some(super::PendingMedia::Receive(carrier))
+                    }
+                    Err(error) => {
+                        tracing::info!(%error, "no media lane on this tunnel; video stays on the channel");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
             let stream = net.connect(link_addr).await.map_err(transport_error)?;
             // The input lane: a second TCP stream to the same port, opened
@@ -1157,13 +1185,7 @@ impl Dialer for WireGuardDialer {
                 });
                 rx
             });
-            Ok(Dialed {
-                stream: Box::new(stream),
-                path: tunnel.path,
-                guard: Box::new(guard),
-                lane,
-                media: None,
-            })
+            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane, media })
         })
     }
 
@@ -1181,6 +1203,7 @@ impl Dialer for WireGuardDialer {
                 return Err(DialError::Unexpected("expected wg-init".into()));
             };
             let agreed = super::input_lane_agreed(options, &lanes);
+            let video_wanted = options.video_lane && super::video_lane_listed(&lanes);
             let peer_key = parse_key(&public_key)?;
             let peer_ip: Ipv4Addr = overlay_ip
                 .parse()
@@ -1209,6 +1232,33 @@ impl Dialer for WireGuardDialer {
             let net = tunnel.session.net()?;
             tunnel.session.start_control(&net).await;
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
+            // The media lane: listed back only once its port is bound, so a
+            // phone never expects a lane this side cannot serve.
+            let media = if video_wanted {
+                let impairment = crate::media::wireguard::Impairment {
+                    drop_permille: options.video_drop_permille,
+                    cap_bps: options.video_cap_bps,
+                    blackout: options.video_blackout,
+                };
+                match crate::media::wireguard::WgCarrier::open(
+                    &net,
+                    IpAddr::V4(peer_ip),
+                    crate::media::wireguard::Direction::Send,
+                    crate::media::wireguard::StreamSpec::h264_video(),
+                    tunnel.session.path_changes(),
+                    impairment,
+                )
+                .await
+                {
+                    Ok(carrier) => Some(carrier),
+                    Err(error) => {
+                        tracing::info!(%error, "no media lane on this tunnel; video stays on the channel");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             drop(net);
             signaling
                 .send_signal(
@@ -1218,7 +1268,7 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&own_public),
                         endpoints,
                         overlay_ip: own_ip.to_string(),
-                        lanes: super::offered_lanes(options, false),
+                        lanes: super::offered_lanes(options, media.is_some()),
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
@@ -1241,7 +1291,10 @@ impl Dialer for WireGuardDialer {
                 path: tunnel.path,
                 guard: Box::new(guard),
                 lane,
-                media: None,
+                media: media.map(|carrier| {
+                    options.timeline.mark("video_lane");
+                    super::PendingMedia::Send(carrier)
+                }),
             })
         })
     }

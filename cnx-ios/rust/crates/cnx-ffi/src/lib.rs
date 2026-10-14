@@ -253,7 +253,7 @@ impl LinkHandle {
         let mut args = args;
         let link = self.link.clone();
         on_runtime(async move {
-            // With a media lane the page's video rides the WebRTC track
+            // With a media lane the page's video rides it (a WebRTC track or RTP in the tunnel)
             // (`video: "track"`); an older hostd ignores the field and
             // streams on the channel, which the viewer reads either way.
             let lane = match link.media() {
@@ -440,7 +440,7 @@ pub struct ConnectOptions {
     #[uniffi(default = false)]
     pub relay_only: bool,
     /// Debug: do not offer the media lane, so browser video rides its
-    /// reliable channel even on WebRTC (the comparison baseline).
+    /// reliable channel on either transport (the comparison baseline).
     #[uniffi(default = false)]
     pub no_video_lane: bool,
 }
@@ -515,7 +515,7 @@ pub struct ConnectRequest {
     pub transport: Transport,
     pub include_loopback: bool,
     pub relay_only: bool,
-    /// Offer the media lane (browser video as a WebRTC track).
+    /// Offer the media lane (browser video as RTP: a WebRTC track, or UDP inside the WireGuard tunnel).
     pub video_lane: bool,
 }
 

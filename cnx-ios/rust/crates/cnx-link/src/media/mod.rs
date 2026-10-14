@@ -20,9 +20,10 @@
 //! - [`CarrierKind::WebRtcTrack`]: a video track on the link's own peer
 //!   connection (SRTP, same ICE and TURN session). See
 //!   [`crate::dial::webrtc`].
-//! - [`CarrierKind::WireGuardUdp`]: RTP and RTCP in UDP inside the
-//!   WireGuard tunnel. Designed, not built: [`wireguard::carrier`] answers
-//!   [`MediaError::Unsupported`], so the phone keeps the reliable path.
+//! - [`CarrierKind::WireGuardUdp`]: RTP and RTCP as plain datagrams on
+//!   overlay UDP inside the WireGuard tunnel ([`wireguard::WgCarrier`]), with
+//!   the same webrtc-rs interceptors bound to the socket and no SRTP
+//!   (WireGuard encrypts).
 //!
 //! The lane is negotiated per carrier: the phone lists [`VIDEO_LANE`] in its
 //! offer's lanes and the Mac lists it back only when it attached a sender.
@@ -36,6 +37,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 
 pub mod h264;
 pub mod receiver;
+pub mod resend;
 pub mod sender;
 pub mod track;
 pub mod twcc;
@@ -69,7 +71,7 @@ pub type RtcpPackets = Vec<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 pub enum CarrierKind {
     /// A video track on the link's WebRTC peer connection.
     WebRtcTrack,
-    /// UDP inside the WireGuard tunnel (not built yet).
+    /// RTP in overlay UDP inside the WireGuard tunnel.
     WireGuardUdp,
 }
 
@@ -99,6 +101,18 @@ pub trait MediaCarrier: Send + Sync + 'static {
     fn kind(&self) -> CarrierKind;
     /// The negotiated id of the TWCC header extension.
     fn twcc_ext_id(&self) -> u8;
+    /// The largest RTP payload this carrier moves in one packet without
+    /// fragmenting.
+    fn max_payload(&self) -> usize {
+        RTP_PAYLOAD_MTU
+    }
+    /// Counts the path's network changes (a WireGuard roam on either side),
+    /// for carriers whose path can change under them without a new
+    /// negotiation. The receiver asks for a keyframe after each; the sender
+    /// forgets what was in flight on the old path.
+    fn path_changes(&self) -> Option<watch::Receiver<u64>> {
+        None
+    }
     fn send_rtp<'a>(&'a self, packet: &'a rtp::packet::Packet) -> BoxFuture<'a, Result<(), MediaError>>;
     fn send_rtcp(&self, packets: RtcpPackets) -> BoxFuture<'_, Result<(), MediaError>>;
     /// The next RTP packet; `None` once the carrier ends.

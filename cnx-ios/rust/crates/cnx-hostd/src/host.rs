@@ -294,14 +294,21 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
 /// (the app starts hostd with its own environment; the file applies to the
 /// next link without a restart).
 fn video_drop_permille() -> u32 {
+    measurement_knob("CNX_VIDEO_DROP_PERMILLE", "video-drop-permille").unwrap_or(0).min(500) as u32
+}
+
+/// Measurement support (WireGuard lane only): a bottleneck for outgoing
+/// video RTP in kbit/s, from `CNX_VIDEO_CAP_KBPS` or the file
+/// `$CNX_STATE_DIR/video-cap-kbps`. 0 or absent: none.
+fn video_cap_bps() -> u64 {
+    measurement_knob("CNX_VIDEO_CAP_KBPS", "video-cap-kbps").unwrap_or(0).min(1_000_000) * 1000
+}
+
+/// A number from the environment, else from a file in `$CNX_STATE_DIR`.
+fn measurement_knob(variable: &str, file: &str) -> Option<u64> {
     let from_file = std::env::var_os("CNX_STATE_DIR")
-        .and_then(|dir| std::fs::read_to_string(std::path::Path::new(&dir).join("video-drop-permille")).ok());
-    std::env::var("CNX_VIDEO_DROP_PERMILLE")
-        .ok()
-        .or(from_file)
-        .and_then(|v| v.trim().parse().ok())
-        .unwrap_or(0)
-        .min(500)
+        .and_then(|dir| std::fs::read_to_string(std::path::Path::new(&dir).join(file)).ok());
+    std::env::var(variable).ok().or(from_file).and_then(|v| v.trim().parse().ok())
 }
 
 /// v1 admission (PROTOCOL.md): the dialing phone belongs to the Mac's own
@@ -331,10 +338,13 @@ async fn answer_session(
         exclude_cgnat: context.exclude_cgnat,
         timeline: timeline.clone(),
         stock_ice_waits: baseline,
-        // Browser video as a WebRTC track (CNX_VIDEO_LANE=0 turns it off;
-        // CNX_VIDEO_DROP_PERMILLE simulates a lossy path).
+        // Browser video on the media lane: a WebRTC track, or RTP inside the
+        // WireGuard tunnel (CNX_VIDEO_LANE=0 turns it off;
+        // CNX_VIDEO_DROP_PERMILLE simulates a lossy path, CNX_VIDEO_CAP_KBPS
+        // a capped one on WireGuard).
         video_lane: std::env::var("CNX_VIDEO_LANE").map_or(true, |v| v != "0"),
         video_drop_permille: video_drop_permille(),
+        video_cap_bps: video_cap_bps(),
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {

@@ -155,8 +155,8 @@ async fn stream_over(transport: Transport, video_lane: bool) {
     assert!(stream.send_message(r#"{"t":"welcome"}"#.into()).is_err());
     let stats = stream.stats();
     assert!(stats.frames >= 1 && stats.bytes >= 2500 && stats.clock_offset_us.is_some());
-    // The media lane exists on WebRTC only (WireGuard keeps the channel).
-    assert_eq!(stats.video_track, video_lane && transport == Transport::WebRtc, "{stats:?}");
+    // With the lane offered the video rides it on either transport.
+    assert_eq!(stats.video_track, video_lane, "{stats:?}");
     stream.close();
     recorder.until("closed", |r| r.closed.lock().unwrap().is_some()).await;
 }
@@ -172,7 +172,7 @@ async fn browser_stream_over_the_webrtc_video_track() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn browser_stream_over_wireguard_with_the_lane_offered_falls_back_to_the_channel() {
+async fn browser_stream_over_rtp_inside_the_wireguard_tunnel() {
     stream_over(Transport::WireGuard, true).await;
 }
 

@@ -45,7 +45,7 @@ pub const NACK_INTERVAL: Duration = Duration::from_millis(20);
 /// controller wants fresher samples).
 pub const TWCC_INTERVAL: Duration = Duration::from_millis(25);
 
-fn h264() -> RTCRtpCodecCapability {
+pub(super) fn h264() -> RTCRtpCodecCapability {
     RTCRtpCodecCapability {
         mime_type: MIME_TYPE_H264.to_owned(),
         clock_rate: super::CLOCK_RATE,
@@ -86,20 +86,31 @@ pub(crate) fn api_builder(
             None,
         )
         .map_err(error)?;
+    Ok(APIBuilder::new()
+        .with_setting_engine(settings)
+        .with_media_engine(media)
+        .with_interceptor_registry(interceptor_registry(drop_permille)))
+}
+
+/// The media lane's interceptors, the same on every carrier: the NACK
+/// responder and its history with a bound on resends (sender), the NACK generator (receiver),
+/// sender and receiver reports, and TWCC feedback (receiver). Each binds
+/// only to the streams it serves. `drop_permille` (test and measurement
+/// support) drops that share of outgoing RTP below the responder.
+pub(super) fn interceptor_registry(drop_permille: u32) -> Registry {
     let mut registry = Registry::new();
     // Interceptors added first sit closest to the network.
     if drop_permille > 0 {
         registry.add(Box::new(LossBuilder { permille: drop_permille }));
     }
+    // Bounds the responder's resends (resend.rs).
+    registry.add(Box::new(super::resend::ResendGuardBuilder));
     registry.add(Box::new(Responder::builder()));
     // 512 packets (2^(3+6)): a gap older than that is not asked for again.
     registry.add(Box::new(Generator::builder().with_interval(NACK_INTERVAL).with_log2_size_minus_6(3)));
     registry = configure_rtcp_reports(registry);
     registry.add(Box::new(TwccReceiver::builder().with_interval(TWCC_INTERVAL)));
-    Ok(APIBuilder::new()
-        .with_setting_engine(settings)
-        .with_media_engine(media)
-        .with_interceptor_registry(registry))
+    registry
 }
 
 /// Phone side, before the offer: the receiving transceiver. The track

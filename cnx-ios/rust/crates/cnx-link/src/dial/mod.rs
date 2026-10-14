@@ -91,14 +91,24 @@ pub struct DialOptions {
     /// stream for keystrokes and resizes. Off only to measure or test the
     /// single-stream behavior of older peers.
     pub input_lane: bool,
-    /// Offer (phone) or accept (Mac) the media lane: browser video as a
-    /// WebRTC video track on the link's peer connection
-    /// (verify/browser-video-track.md). WireGuard links never carry it yet.
+    /// Offer (phone) or accept (Mac) the media lane: browser video as RTP
+    /// (verify/browser-video-track.md). On WebRTC it is a video track on the
+    /// link's peer connection; on WireGuard it is RTP on overlay UDP inside
+    /// the tunnel ([`crate::media::wireguard`]).
     pub video_lane: bool,
     /// Test and measurement support (Mac side): drop this many of every
     /// 1000 outgoing video RTP packets after the NACK responder kept them.
     #[doc(hidden)]
     pub video_drop_permille: u32,
+    /// Test and measurement support (Mac side, WireGuard): a bottleneck of
+    /// this many bits per second for outgoing video RTP (0: none).
+    #[doc(hidden)]
+    pub video_cap_bps: u64,
+    /// Test support (Mac side, WireGuard): drop every outgoing video RTP
+    /// packet first sent from `.0` after the lane opens for `.1`, and every
+    /// resend of those (a loss no NACK recovers).
+    #[doc(hidden)]
+    pub video_blackout: Option<(Duration, Duration)>,
     /// Measurement support: keep webrtc-rs's stock nomination waits
     /// (srflx 500 ms, prflx 1 s, relay 2 s) for before/after comparisons.
     #[doc(hidden)]
@@ -123,6 +133,8 @@ impl Default for DialOptions {
             input_lane: true,
             video_lane: false,
             video_drop_permille: 0,
+            video_cap_bps: 0,
+            video_blackout: None,
             stock_ice_waits: false,
             timeout: Duration::from_secs(25),
             timeline: crate::Timeline::new(),
