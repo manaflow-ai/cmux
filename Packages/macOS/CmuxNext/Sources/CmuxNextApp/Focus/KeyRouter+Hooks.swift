@@ -50,7 +50,8 @@ extension KeyRouter {
         /// The cmux window itself, or a Chromium page window over it.
         case content
         /// A panel or sheet over it (palette, rename sheet): its text field
-        /// has the keyboard.
+        /// has the keyboard, so only system menu items run (none acts on
+        /// the window behind it).
         case textPanel
         /// Not ours (no focus to consult).
         case other
@@ -102,7 +103,7 @@ extension KeyRouter {
     nonisolated static func allowsMenu(_ tier: ActionKeyTier, id: ActionID? = nil, focus: FocusState, keyWindow: KeyWindowKind) -> Bool {
         switch keyWindow {
         case .other: true
-        case .textPanel: tier != .content
+        case .textPanel: tier == .system
         case .content: id.map { allows(tier, id: $0, focus: focus) } ?? allows(tier, focus: focus)
         }
     }
@@ -111,7 +112,7 @@ extension KeyRouter {
         guard let services else { return (nil, .other) }
         // No key window (the app is inactive, or an automation launch):
         // menu actions target the active window, so its focus decides.
-        guard let key = NSApp.keyWindow else { return (services.windows.active, .content) }
+        guard let key = services.keyWindowSource() else { return (services.windows.active, .content) }
         return focus(for: key)
     }
 

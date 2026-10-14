@@ -27,8 +27,11 @@ public struct TerminalKeyEquivalent {
         guard event.type == .keyDown, view.isFirstResponder, let surface = view.surface else { return false }
 
         // App-level Command actions, especially Quit, must win before a
-        // Ghostty binding or an unbound chord can forward text to the PTY.
-        if event.modifierFlags.contains(.command), NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+        // Ghostty binding or an unbound chord can forward text to the PTY,
+        // unless the dispatcher already gave this key to the terminal (the
+        // user's Ghostty keybind won it): then the menu never takes it.
+        let menuMayClaim = Self.menuMayClaim?(event) ?? true
+        if event.modifierFlags.contains(.command), menuMayClaim, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
             return true
         }
 
@@ -40,7 +43,7 @@ public struct TerminalKeyEquivalent {
         }
         Self.trace?("terminal: Ghostty binding \(isBinding ? "yes" : "no")")
         if isBinding {
-            if Self.menuMayClaim?(event) ?? true, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+            if menuMayClaim, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
                 Self.trace?("terminal: the menu took it")
                 return true
             }
