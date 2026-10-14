@@ -67,10 +67,10 @@ extension WindowRootView {
     // @intent familiar first (Lawrence 2026-10-14): a margin on every side of the main pane, as in
     // Helium, the sidebar's side too.
     func applyMainPane() {
-        let gutter = Metrics.mainPaneGutter
+        let gutter = Metrics.mainPaneGutter, top = WindowTitlebar.cardTopInset(of: self, minimal: titlebarStyle == .minimal, gutter: gutter)
         for constraint in mainPaneInsetConstraints {
-            switch constraint.firstAttribute {
-            case .leading, .top: constraint.constant = gutter
+            switch constraint.firstAttribute { // the top as `updateMainPaneTopInset` sets it, so no pass shows the bare gutter
+            case .leading, .top: constraint.constant = constraint.firstAttribute == .top ? top : gutter
             case .trailing, .bottom: constraint.constant = -gutter
             default: break
             }
