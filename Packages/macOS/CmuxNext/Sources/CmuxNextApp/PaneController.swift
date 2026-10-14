@@ -203,11 +203,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         var selectNew = false
-        if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
+        if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }), snapshot.items.contains(where: { $0.id.rawValue == tab.id }) { // held back: NewTabSuccession
             state?.selection.select(tab.id, in: paneKey)
             pendingSelectSurface = nil
             selectNew = true
-        } else if let pending = pendingSelectTab, let tab = pane.tabs.first(where: { $0.id == pending }) {
+        } else if let pending = pendingSelectTab, let tab = pane.tabs.first(where: { $0.id == pending }), snapshot.items.contains(where: { $0.id.rawValue == tab.id }) {
             state?.selection.select(tab.id, in: paneKey)
             pendingSelectTab = nil
             selectNew = true

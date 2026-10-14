@@ -141,10 +141,13 @@ struct NewTabSuccession {
     /// the daemon tab right before it. Shown as listed, that was a second tab growing in beside
     /// the provisional one, which then shrank away (cx-codh2 insertion traces, 3, 10 and 20 tabs).
     /// One new tab of the provisional one's kind and page directly before it waits off the strip
-    /// while the provisional tab is listed: selection and content stay with the provisional tab,
-    /// and once the store swaps them `order` hands the new tab the provisional tab's cell.
+    /// while the provisional tab is listed: selection and content stay with the provisional tab
+    /// (the create's reply selects the new tab once it shows: `PaneController.apply`), and once
+    /// the store swaps them `order` hands the new tab the provisional tab's cell.
     private static func holdingSuccessor(_ reported: PaneController.Snapshot, shown: Set<StripTabID>,
                                          in pane: PaneController) -> PaneController.Snapshot {
+        // A succession places its tab itself (`order`); this is the plain Cmd-T's end of the strip.
+        guard active[ObjectIdentifier(pane.pane)] == nil else { return reported }
         let items = reported.items
         guard items.count > 1, let last = items.last, shown.contains(last.id), ProvisionalTab.isProvisional(last.id.rawValue) else { return reported }
         let fresh = items.filter { !shown.contains($0.id) }
