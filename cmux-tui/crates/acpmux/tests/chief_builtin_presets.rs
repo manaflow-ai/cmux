@@ -30,6 +30,32 @@ impl Rpc {
         Self { lines: tokio::io::BufReader::new(rd).lines(), wr, next: 0 }
     }
 
+    /// The agent text session `session` streams for `text`.
+    async fn prompt_text(&mut self, session: &str, text: &str) -> String {
+        self.next += 1;
+        let id = self.next;
+        let params = json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+        let line =
+            json!({"jsonrpc": "2.0", "id": id, "method": "session/prompt", "params": params});
+        self.wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+        let mut got = String::new();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(30), self.lines.next_line())
+                .await
+                .expect("daemon answered in time")
+                .unwrap()
+                .expect("daemon closed the socket");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v.get("id") == Some(&json!(id)) {
+                assert!(v.get("error").is_none(), "{text}: {v}");
+                return got;
+            }
+            if let Some(t) = v.pointer("/params/update/content/text").and_then(Value::as_str) {
+                got.push_str(t);
+            }
+        }
+    }
+
     async fn call(&mut self, method: &str, params: Value) -> Value {
         self.next += 1;
         let id = self.next;
@@ -59,6 +85,12 @@ impl Daemon {
     /// The real daemon, started the way the brain's LaunchAgent starts it:
     /// its Chief home and the cmux sockets in its own environment.
     fn start(tag: &str) -> Self {
+        Self::start_with(tag, &[])
+    }
+
+    /// [`Daemon::start`] with `extra` in the daemon's own environment, set
+    /// relative to its directory (the starter's leftovers).
+    fn start_with(tag: &str, extra: &[(&str, &str)]) -> Self {
         let dir = std::env::temp_dir().join(format!("acb-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("mux")).unwrap();
@@ -92,6 +124,7 @@ impl Daemon {
             .env_remove("CMUX_APP_DAEMON_SOCKET")
             .env_remove("XPC_SERVICE_NAME")
             .env_remove("CLAUDECODE")
+            .envs(extra.iter().map(|(k, v)| (*k, dir.join(v))))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -197,8 +230,14 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
     assert_eq!(env["CMUX_MUX_SOCKET"], "/tmp/brain-daemon.sock", "{env}");
     assert_eq!(env["CMUX_CHIEF_OWNER_SOCKET"], "/tmp/brain-owner.sock", "{env}");
     assert_eq!(env["OPTCHAT_SUBAGENT"], "1", "{env}");
-    let bundle = std::path::Path::new(env!("CARGO_BIN_EXE_acpmux")).parent().unwrap();
-    assert_eq!(env["PATH"], format!("{}:/usr/bin:/bin", bundle.display()), "{env}");
+    // The daemon's own directory first: compared resolved, since its
+    // `current_exe` resolves a symlinked target directory on Linux (the
+    // Testbox's warm target disk) and keeps it on macOS.
+    let path = env["PATH"].as_str().unwrap();
+    let (first, rest) = path.split_once(':').unwrap();
+    let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_acpmux")).unwrap();
+    assert_eq!(std::fs::canonicalize(first).unwrap(), exe.parent().unwrap(), "{env}");
+    assert_eq!(rest, "/usr/bin:/bin", "{env}");
 }
 
 #[tokio::test]
@@ -283,5 +322,49 @@ async fn each_chief_of_the_chief_home_gets_its_own_codex_homes() {
             root.join("optchat/compactor-codex/slot-1").display().to_string(),
             "{slot}: {env}"
         );
+    }
+}
+
+/// The Chief credential of whoever started the Chief home's acpmux (the
+/// default Chief's host starts it with its own `MUX_AGENT_TOKEN_FILE` and
+/// participant) reaches no session: another Chief's turn or subagent, and the
+/// person's own chat, cannot bind as the default Chief (`agent_mux`). Each
+/// Chief's sessions get only their own Chief's home.
+#[tokio::test]
+async fn no_session_gets_the_credential_of_the_chief_that_started_the_daemon() {
+    let d = Daemon::start_with(
+        "cred",
+        &[("MUX_AGENT_TOKEN_FILE", "mux/agent-token"), ("OPTCHAT_CHIEF_PARTICIPANT", "agent_mux")],
+    );
+    let scout = d.dir.join("mux").join("c").join("bbbb2222");
+    std::fs::create_dir_all(&scout).unwrap();
+    let id = home_id(&scout);
+    let mut chief = Rpc::connect(&d.socket).await;
+    for preset in [Some(format!("optchat-chief-{id}")), Some(format!("optchat-sub-{id}")), None] {
+        let mut params = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+        if let Some(name) = &preset {
+            let r = chief
+                .call("_acpmux/presets", json!({"name": name, "set": {"harness": "fclaude"}}))
+                .await;
+            assert!(r.get("error").is_none(), "{r}");
+            params["_meta"] = json!({"acpmux": {"preset": name}});
+        }
+        let r = chief.call("session/new", params).await;
+        assert!(r.get("error").is_none(), "{preset:?}: {r}");
+        let session = r["result"]["sessionId"].as_str().unwrap().to_owned();
+        for key in ["MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT"] {
+            assert_eq!(
+                chief.prompt_text(&session, &format!("env: {key}")).await,
+                format!("{key}="),
+                "{preset:?}: the session got the starting Chief's {key}"
+            );
+        }
+        if preset.is_some() {
+            assert_eq!(
+                chief.prompt_text(&session, "env: MUX_HOME").await,
+                format!("MUX_HOME={}", scout.display()),
+                "{preset:?}: the session acts as its own Chief"
+            );
+        }
     }
 }
