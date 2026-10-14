@@ -13,14 +13,23 @@ struct SidebarRowViewPool {
     /// Parked keys, oldest first, for eviction.
     private var order: [SidebarRowKey] = []
 
-    /// `key`'s parked view, reset; else a new one.
-    mutating func take(for key: SidebarRowKey) -> SidebarRowView {
+    /// `key`'s parked view, reset; else, when `rebinding`, the oldest parked
+    /// view of the same kind, reset for `key` (scroll realization: a long
+    /// scroll makes no new views); else a new one.
+    mutating func take(for key: SidebarRowKey, rebinding: Bool = false) -> SidebarRowView {
         if let parked = views.removeValue(forKey: key) {
             order.removeAll { $0 == key }
             parked.prepareForReuse(key: key)
             return parked
         }
-        return Self.rowClass(for: key).init(key: key)
+        let rowClass = Self.rowClass(for: key)
+        if rebinding, let index = order.firstIndex(where: { views[$0].map { type(of: $0) == rowClass } ?? false }),
+           let parked = views.removeValue(forKey: order[index]) {
+            order.remove(at: index)
+            parked.prepareForReuse(key: key)
+            return parked
+        }
+        return rowClass.init(key: key)
     }
 
     /// Parks a view that left the list (already removed from its superview)

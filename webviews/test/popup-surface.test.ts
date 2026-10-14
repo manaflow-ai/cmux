@@ -207,8 +207,11 @@ ${tooltips}`,
           path.resolve(import.meta.dir, "../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PopupStyle.swift"),
           "utf8",
         );
-        const value = (name: string) => Number(swift.match(new RegExp(`let ${name}: CGFloat = ([\\d.]+)`))![1]);
-        const [offset, blur, alpha] = [value("shadowOffset"), value("shadowBlur"), value("shadowAlpha")];
+        // The raised step of the shared scale (`elevation2`; subtle-elevation.test.ts).
+        const raised = swift.match(
+          /static let elevation2 = Elevation\(offset: ([\d.]+), blur: ([\d.]+), alpha: ([\d.]+)\)/,
+        )!;
+        const [offset, blur, alpha] = raised.slice(1, 4).map(Number);
         const page = await open(browser, pages);
         const shadow = await page.$eval("#menu", (node) => getComputedStyle(node).boxShadow);
         // Black at an alpha serializes as rgba() or, from color-mix(), as color(srgb ...).
