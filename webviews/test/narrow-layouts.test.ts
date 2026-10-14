@@ -10,7 +10,7 @@ import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("narrow-layouts.test.ts", async () => {
-  const VARIANTS = ["controls", "working", "pull-requests", "new-tab", "code"];
+  const VARIANTS = ["controls", "working", "pull-requests", "new-tab", "code", "model-menu", "access-menu", "summary"];
   const SIZES = [
     { width: 280, scale: 1 },
     { width: 360, scale: 1 },
@@ -33,13 +33,19 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
 
-  const stageURL = (variant: string, scale: number) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.narrow&variant=${variant}&scale=${scale}`;
+  const stageURL = (variant: string) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.narrow&variant=${variant}`;
 
+  // Interface scale is WKWebView.pageZoom in the app: the page lays out in width / scale CSS px,
+  // media queries included, drawn at scale. (The gallery's own `scale` is CSS zoom, which media
+  // queries do not see.)
   const play = async (variant: string, width: number, scale: number) => {
-    const page = await browser!.newPage({ viewport: { width, height: 560 } });
+    const page = await browser!.newPage({
+      viewport: { width: Math.round(width / scale), height: Math.round(560 / scale) },
+      deviceScaleFactor: scale,
+    });
     for (;;) {
-      await page.goto(stageURL(variant, scale));
+      await page.goto(stageURL(variant));
       try {
         await page.waitForFunction(() => {
           const ready = document.documentElement.dataset.galleryReady;

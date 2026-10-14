@@ -67,6 +67,9 @@ const visible = (element: Element) => {
   return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
 };
 
+// An open menu renders inside its chip; the stage judges popups itself (play.ts judgePopups).
+const inPopup = (element: Element) => Boolean(element.closest(".ui-popup, .acpmux-mp, [role='menu'], [role='dialog']"));
+
 /** The geometry problems of the pane as rendered; empty when it holds at this width. */
 export function narrowProblems(document: Document): string[] {
   const view = document.defaultView!;
@@ -86,7 +89,8 @@ export function narrowProblems(document: Document): string[] {
       const box = row.getBoundingClientRect();
       // The innermost controls: a chip's wrapper and its button are one control.
       const controls = [...row.querySelectorAll("button, a[href], [role='button']")].filter(
-        (control) => visible(control) && !control.querySelector("button, a[href], [role='button']"),
+        (control) =>
+          visible(control) && !control.querySelector("button, a[href], [role='button']") && !inPopup(control),
       );
       const rects = controls.map((control) => ({ control, rect: control.getBoundingClientRect() }));
       for (const { control, rect } of rects)
@@ -115,7 +119,7 @@ export function narrowProblems(document: Document): string[] {
           );
       }
       for (const text of row.querySelectorAll("span, button, a")) {
-        if (!visible(text) || !text.textContent?.trim() || text.children.length) continue;
+        if (!visible(text) || !text.textContent?.trim() || text.children.length || inPopup(text)) continue;
         const style = getComputedStyle(text);
         if (
           text.scrollWidth > text.clientWidth + 1 &&
@@ -172,6 +176,36 @@ export default agentPaneEntry({
       note: "A finished chat with every composer control: model, speed, access, mic and Send.",
       snapshot: withControls(chat(finished)),
       play: check,
+    },
+    "model-menu": {
+      note: "Play: open the model picker from the icon-only chip; it stays inside the pane, unclipped.",
+      snapshot: withControls(chat(finished)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp"));
+        await check(ctx);
+      },
+    },
+    "access-menu": {
+      note: "Play: open the access menu from its icon-only chip.",
+      snapshot: withControls(chat(finished)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Mode" });
+        await ctx.waitFor(() => ctx.document.querySelector("[role='menu']"));
+        await check(ctx);
+      },
+    },
+    summary: {
+      note: "Play: open the chat summary; the card fits the pane.",
+      snapshot: withControls(chat(finished)),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-summary-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-card"));
+        const card = ctx.document.querySelector(".acpmux-summary-card")!.getBoundingClientRect();
+        const view = ctx.document.defaultView!;
+        if (card.left < -1 || card.right > view.innerWidth + 1) throw new Error("the summary card leaves the pane");
+        await check(ctx);
+      },
     },
     working: {
       note: "A turn running: Stop beside the mic, with the context ring busy.",
