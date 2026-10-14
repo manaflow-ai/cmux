@@ -1813,6 +1813,7 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         XCTAssertEqual(controller.focusToggleDestination(currentResponder: descendant), .rightSidebar)
     }
 
+    @MainActor
     private func startAndWaitForLiveSurface(_ surface: TerminalSurface) async {
         guard !surface.hasLiveSurface else { return }
         let previousOnRuntimeReady = surface.onRuntimeReady
@@ -1828,10 +1829,12 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         for await _ in readiness { break }
     }
 
+    @MainActor
     private func mainWindow(for windowId: UUID) -> NSWindow? {
         AppDelegate.shared?.windowForMainWindowId(windowId)
     }
 
+    @MainActor
     private func closeWindow(withId windowId: UUID) {
         mainWindow(for: windowId)?.close()
     }
