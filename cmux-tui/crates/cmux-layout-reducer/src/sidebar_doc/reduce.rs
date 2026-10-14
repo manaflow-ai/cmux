@@ -260,6 +260,10 @@ pub fn apply_one(doc: &mut Doc, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Re
             Ok(())
         }
         Op::Adopt { refs, to } => adopt(doc, refs, to.as_ref()),
+        Op::Close { refs } => {
+            close(doc, refs);
+            Ok(())
+        }
         Op::ItemPut { item } => {
             match doc.items.iter_mut().find(|existing| existing.id == item.id) {
                 Some(existing) => *existing = item.clone(),
@@ -581,6 +585,7 @@ fn adopt(doc: &mut Doc, refs: &[WorkspaceRef], to: Option<&Target>) -> Result<()
         {
             let mut resolved = reference.clone();
             resolved.extra.remove("unresolved");
+            resolved.extra.insert("workspace_ref".into(), key.into());
             item.body = Body::Workspace { reference: resolved };
             continue;
         }
@@ -603,6 +608,22 @@ fn adopt(doc: &mut Doc, refs: &[WorkspaceRef], to: Option<&Target>) -> Result<()
         place(doc, &adopted, to)?;
     }
     Ok(())
+}
+
+fn close(doc: &mut Doc, refs: &[WorkspaceRef]) {
+    for reference in refs {
+        let Some(item) = doc.workspace_item(reference).cloned() else { continue };
+        let keeps = |doc: &Doc, section: &str| doc.section(section).is_some_and(|s| s.keeps_closed);
+        if keeps(doc, &item.section) {
+            continue;
+        }
+        doc.items.retain(|other| other.id != item.id);
+        if let Some(parent) = &item.parent
+            && !doc.items.iter().any(|other| other.parent.as_ref() == Some(parent))
+        {
+            doc.items.retain(|other| other.id != *parent);
+        }
+    }
 }
 
 fn update_item(doc: &mut Doc, id: &str, patch: &ItemPatch) -> Result<(), Refusal> {
