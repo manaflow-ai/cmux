@@ -27,6 +27,8 @@ export const HomeOps = {
   attachmentRead: "cmux.home.attachmentRead",
   /** A short-lived URL of one attachment variant (video playback with seeking, downloads). */
   attachmentUrl: "cmux.home.attachmentUrl",
+  /** A participant's picture ({participant}): {avatar: {sha256, mediaType, data} | null}. */
+  avatar: "cmux.home.avatar",
   runs: "cmux.home.runs",
   run: "cmux.home.run",
   events: "cmux.home.events",
@@ -341,6 +343,8 @@ export interface HomeEventBatch {
   inbox?: HomeInboxChange[];
   /** Agent runs that changed: each run after the change and the steps it wrote. */
   runs?: HomeRunChange[];
+  /** Participants whose picture changed (`participant-avatar-changed`). */
+  avatars?: string[];
 }
 
 export interface HomeSearchHit {
