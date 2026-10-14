@@ -191,8 +191,9 @@ def setup():
 
     top, subs = menu_at(row_by_id(w1))
     check("A grouped workspace's menu has Remove from Group at the top level", REMOVE, top, REMOVE in top)
-    own = subs.get(move_row(top, subs)) or []
-    check("A grouped workspace's Move to Group does not list its own group", f"no {GROUP_NAME}", own, GROUP_NAME not in own)
+    own_row = move_row(top, subs)
+    own = subs.get(own_row) or []
+    check("A grouped workspace's Move to Group does not list its own group", f"no {GROUP_NAME}", own, own_row is not None and GROUP_NAME not in own)
     top, _ = menu_at(row_by_id(w3))
     check("An ungrouped workspace's menu still has no Remove from Group", f"no {REMOVE}", top, REMOVE not in top)
 
@@ -214,7 +215,7 @@ def verify():
     """After a relaunch: the group's header is listed and its members (by title; ids may be new) are in it."""
     with open(opts.state) as f:
         state = json.load(f)
-    group, titles, name = state["group"], state["titles"], state["name"]
+    group, titles, name = state["group"], state["titles"], state.get("name", "Groups proof")
     check("After a relaunch the group is listed", f"header {group}", bool(wait(lambda: header(group), 30)), header(group) is not None)
     def members():
         return sorted(str(r.get("title")) for r in rows() if str(r.get("key", "")).startswith("workspace(") and r.get("group") == group)
