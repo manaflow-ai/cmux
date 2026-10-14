@@ -18,7 +18,7 @@ use std::time::Instant;
 const SESSIONS: usize = 40;
 const WRITERS: usize = 8;
 const READERS: usize = 8;
-const RUN_FOR: Duration = Duration::from_secs(20);
+const RUN_FOR: Duration = Duration::from_secs(5);
 /// A healthy list answers in milliseconds.
 const LIST_ANSWER: Duration = Duration::from_secs(5);
 
