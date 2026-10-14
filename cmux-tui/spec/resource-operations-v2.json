@@ -3218,6 +3218,236 @@
       },
       "extra": false
     },
+    "AgentRuntime": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "local:<pid>:<start ms>, one process generation; a reused pid gets a different id."
+        },
+        "vendor": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "codex",
+              "claude",
+              "opencode"
+            ]
+          }
+        },
+        "role": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "cli",
+              "task",
+              "server",
+              "shared_server",
+              "updater",
+              "launcher"
+            ]
+          }
+        },
+        "pid": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "ppid": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "started_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "executable_path": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The home directory is shown as ~."
+        },
+        "executable_version": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "args": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Program name, flag names and leading subcommand words; every value is <redacted>."
+        },
+        "cpu_ns": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
+        },
+        "memory_bytes": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
+        },
+        "attribution": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AgentRuntimeAttribution"
+          }
+        },
+        "known_cmux_terminal_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          },
+          "description": "For a server: cmux terminals running a same-vendor client. Probable: cmux sees processes, not connections."
+        },
+        "total_clients": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "Every client, cmux's or not. null when unknown; zero known cmux clients never means zero clients."
+        },
+        "can_stop_safely": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Always false in phase 1."
+        }
+      },
+      "extra": false
+    },
+    "AgentRuntimeAttribution": {
+      "kind": "object",
+      "fields": {
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "verified",
+              "probable",
+              "unattributed"
+            ]
+          },
+          "description": "verified: an unbroken parent chain from a live cmux terminal's child; probable: reparented but still in a live cmux terminal's session; unattributed: no evidence. A shared controlling terminal is never evidence."
+        },
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "terminal_process_tree",
+              "terminal_session",
+              "none"
+            ]
+          }
+        },
+        "terminal_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          },
+          "description": "The cmux terminal named by the evidence."
+        }
+      },
+      "extra": false
+    },
+    "AgentRuntimeInventory": {
+      "kind": "object",
+      "fields": {
+        "session_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "session"
+          }
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The scan read every process of this user. When false a runtime may be missing."
+        },
+        "scanned_processes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "runtimes": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "AgentRuntime"
+            }
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "Read from the operating system on each request, bounded to this user's processes; the daemon keeps no timer for it."
+      ]
+    },
     "AgentSnapshot": {
       "kind": "object",
       "fields": {
@@ -13389,6 +13619,35 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "agent.runtime.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "AgentRuntimeInventory"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

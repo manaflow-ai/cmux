@@ -634,6 +634,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "notification.create",
         ),
         (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
+        (vec!["agent", "runtime", "list"], "agent.runtime.list"),
         (
             vec![
                 "agent",
