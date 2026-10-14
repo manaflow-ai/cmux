@@ -1384,6 +1384,8 @@ def back_walk(label):
 def load_rows(variant, launched):
     """How long each page took to report after the relaunch (restore time per tab, compared
     before and after a change), and that the reopened history page loaded once."""
+    if "web" in SKIP:  # no page was seeded: nothing reports, nothing reopens
+        return
     with LOCK:
         first = {}
         for page, at in REPORT_LOG:
