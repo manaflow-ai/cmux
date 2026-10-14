@@ -152,24 +152,8 @@ pub(crate) fn row_index(
     session: &str,
     key: &str,
 ) -> anyhow::Result<Option<usize>> {
-    use rusqlite::OptionalExtension;
-    let Some(position) = transaction
-        .query_row(
-            "SELECT position FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
-            rusqlite::params![session, key],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?
-    else {
-        return Ok(None);
-    };
-    let count: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM personal_workspaces
-         WHERE (position, session_id, workspace_key) < (?1, ?2, ?3)",
-        rusqlite::params![position, session, key],
-        |row| row.get(0),
-    )?;
-    Ok(Some(usize::try_from(count)?))
+    Ok(crate::workspace_registry::personal_store::read_workspace(transaction, session, key)?
+        .map(|row| row.index))
 }
 
 pub(crate) fn all_placements(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {

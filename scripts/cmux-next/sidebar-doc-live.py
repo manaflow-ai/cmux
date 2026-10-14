@@ -684,7 +684,9 @@ def main() -> int:
                   and old_batch.get(w8_id) == w8_row["index"],
                   {"missing": sorted(set(expected) - set(old_batch))[:5],
                    "wrong": {p: (old_batch.get(p), i) for p, i in expected.items() if old_batch.get(p) not in (None, i)}})
-            daemon.ok("workspace.place", {"workspace": w8, "index": 4}, mutate=True)
+            target = w8_row["index"] + 3
+            assert target < len(rows), {"target": target, "rows": len(rows)}
+            daemon.ok("workspace.place", {"workspace": w8, "index": target}, mutate=True)
             rows = daemon.raw({"cmd": "list-personal"})["workspaces"]
             moved = next(r for r in rows if f"{r['session_id']}/{r['workspace_key']}" == w8_id)
             between = {f"{r['session_id']}/{r['workspace_key']}": r["index"] for r in rows

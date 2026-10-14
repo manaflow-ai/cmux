@@ -1872,11 +1872,11 @@ fn collect_patch_subjects(patch: &ResourcePatch, subjects: &mut BTreeSet<Journal
             ResourceChange::TombstoneWorkspace { workspace_id } => {
                 insert_subject(subjects, "workspace", workspace_id.as_str());
             }
-            ResourceChange::SetWorkspaceOrder { workspace_ids } => {
-                for workspace in workspace_ids {
-                    insert_subject(subjects, "workspace", workspace.as_str());
-                }
-            }
+            // The order is the session's: the workspaces a commit adds,
+            // moves or selects are subjects through their own changes and
+            // the result, not every workspace the order lists (2000 index
+            // rows per create at 2000 workspaces).
+            ResourceChange::SetWorkspaceOrder { .. } => {}
             ResourceChange::SetActiveWorkspace { workspace_id } => {
                 if let Some(workspace) = workspace_id {
                     insert_subject(subjects, "workspace", workspace.as_str());

@@ -796,6 +796,12 @@ pub(crate) fn write_back(
                     )?
                 ],
             )?;
+            // The new last row, and the live workspaces with no row (they
+            // follow every row and moved down by one): restated for
+            // `workspace_placement` readers without `sidebar-doc-v1`.
+            if let Some(index) = super::personal::row_index(transaction, session, &key)? {
+                super::placement_shift::queue(transaction, index, None)?;
+            }
             wrote = true;
         }
         // A loose workspace in Pinned or a custom section keeps its old row

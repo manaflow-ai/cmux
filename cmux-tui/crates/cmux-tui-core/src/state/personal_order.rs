@@ -196,10 +196,14 @@ fn place_created_rows(
         }
     };
     let Some((index, group)) = slot else {
-        // Appended last: only the new rows changed.
+        // Appended last: the new rows changed; the live workspaces with no
+        // row, which follow every row, moved down by their count.
         for key in &placed {
             queue_placement(transaction, &local, key)?;
         }
+        let rows: i64 =
+            transaction.query_row("SELECT COUNT(*) FROM personal_workspaces", [], |row| row.get(0))?;
+        super::placement_shift::queue(transaction, usize::try_from(rows)?, None)?;
         return Ok(());
     };
     let groups_before = read_groups(transaction)?;

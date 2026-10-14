@@ -383,11 +383,16 @@ def main() -> int:
               any("sidebar-doc-v1" in caps for caps in proxy.echoed), proxy.echoed)
         with proxy.lock:
             proxy.placement_deltas.clear()
+        known = {(r["session_id"], r["workspace_key"]) for r in daemon.raw({"cmd": "list-personal"})["workspaces"]}
         probe = daemon.ok("workspace.create", {"name": "s6-probe", "initial_content": "empty"}, mutate=True)
         probe_id = probe["value"]["workspace_id"]
+        rows = daemon.raw({"cmd": "list-personal"})["workspaces"]
+        probe_row = next(r for r in rows if (r["session_id"], r["workspace_key"]) not in known)
+        shifted = [r for r in rows if r["index"] > probe_row["index"]]
         seen = wait_for("probe placement", lambda: list(proxy.placement_deltas), timeout=10)
         check("a new top workspace sends the TUI one placement, no restatement of the shifted rows",
-              bool(seen) and all(len(delta) == 1 for delta in seen), seen)
+              bool(seen) and len(shifted) >= len(NAMES) and all(len(delta) == 1 for delta in seen),
+              {"deltas": seen, "shifted": len(shifted)})
         daemon.ok("workspace.close", {"workspace": probe_id}, mutate=True)
         wait_for("probe gone", lambda: "s6-probe" not in "".join(tui.screen()), timeout=10)
 

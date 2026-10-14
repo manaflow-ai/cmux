@@ -4068,9 +4068,11 @@ fn validate_touched_resource_invariants(
             ResourceChange::TombstoneWorkspace { workspace_id } => {
                 workspaces.insert(workspace_id.to_string());
             }
-            ResourceChange::SetWorkspaceOrder { workspace_ids } => {
-                workspaces.extend(workspace_ids.iter().map(ToString::to_string));
-            }
+            // An order change writes only `workspaces.position`: the set
+            // (set_resource_workspace_order) and the contiguous positions
+            // (below) are its invariants, so it touches no workspace's own
+            // rows; validating every workspace per create cost O(n).
+            ResourceChange::SetWorkspaceOrder { .. } => {}
             ResourceChange::SetActiveWorkspace { workspace_id } => {
                 if let Some(workspace) = workspace_id {
                     workspaces.insert(workspace.to_string());

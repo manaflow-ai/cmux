@@ -83,15 +83,36 @@ pub(crate) fn merge(shift: &mut Option<PlacementShift>, more: PlacementShift) {
     *shift = Some(shift.map_or(more, |shift| shift.union(more)));
 }
 
-/// The `workspace_placement` upserts a connection without `sidebar-doc-v1`
-/// gets for `shift`, from the current state.
-pub(crate) fn restatement(
-    connection: &Connection,
-    shift: PlacementShift,
-) -> anyhow::Result<Vec<Value>> {
-    let range = shift.from..=shift.to.unwrap_or(usize::MAX);
-    Ok(super::personal_state_store::placements_in(connection, range)?
+/// What the current placements depend on: the resource revision and the
+/// personal revision. Equal keys read equal placements.
+pub(crate) fn state_key(connection: &Connection) -> anyhow::Result<(u64, u64)> {
+    let resource = connection.query_row(
+        "SELECT value FROM meta WHERE key = 'resource_revision'",
+        [],
+        |row| row.get::<_, String>(0),
+    )?;
+    let personal = crate::workspace_registry::personal_store::personal_revision(connection)?;
+    Ok((resource.parse()?, personal))
+}
+
+/// Every current placement as its `workspace_placement` upsert, in order.
+pub(crate) fn all_changes(connection: &Connection) -> anyhow::Result<Vec<Value>> {
+    Ok(super::personal_state_store::placement_snapshots(connection)?
         .into_iter()
         .map(super::personal::placement_change)
         .collect())
+}
+
+/// The upserts of `all` (from [`all_changes`]) that `shift` restates.
+pub(crate) fn restatement(all: &[Value], shift: PlacementShift) -> Vec<Value> {
+    let to = shift.to.unwrap_or(usize::MAX);
+    all.iter()
+        .filter(|change| {
+            change["value"]["index"]
+                .as_u64()
+                .and_then(|index| usize::try_from(index).ok())
+                .is_some_and(|index| shift.from <= index && index <= to)
+        })
+        .cloned()
+        .collect()
 }
