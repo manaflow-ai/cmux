@@ -67,6 +67,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
         }
     }
 
+    var connectedPath: LinkPathKind? { handle.path().kind }
+
     var timings: [(String, Double)] {
         handle.timings().map { ($0.name, $0.millis) }
     }

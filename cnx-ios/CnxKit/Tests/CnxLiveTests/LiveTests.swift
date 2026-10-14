@@ -382,6 +382,90 @@ struct MockDialer: MacLinkDialer {
     }
 }
 
+// MARK: Off-main channel setup after the dial
+
+/// A daemon that answers the setup batch (verify/perf-latency.md).
+private func setupDaemon(_ log: CommandLog? = nil) -> MockMacLink {
+    MockMacLink { service, data in
+        data.split(separator: 0x0A).map { request -> Data in
+            let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
+            let id = object["id"] as! String
+            let cmd = object["cmd"] as! String
+            log?.append("\(service):\(cmd)", nil)
+            let line: String
+            switch cmd {
+            case "list-workspaces":
+                line = #"{"id":"\#(id)","ok":true,"data":{"workspaces":[{"id":1,"key":"k1","name":"one","screens":[]}]}}"#
+            case "list-agents":
+                line = #"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#
+            default:
+                line = #"{"id":"\#(id)","ok":true,"data":{}}"#
+            }
+            return Data(line.utf8) + Data([0x0A])
+        }
+    }
+}
+
+private struct LinkOf: MacLinkDialer {
+    let link: MockMacLink
+    func dial(_ endpoint: LinkEndpoint, transport: CnxTransport.TransportKind, accessToken: String) async throws -> any MacLink { link }
+}
+
+@MainActor
+@Suite struct PreparedLinkTests {
+    /// The setup batch goes out in the dial step; binding it later publishes the
+    /// list without sending anything more.
+    @Test func preparedDaemonBindsWithoutAnotherRequest() async throws {
+        let log = CommandLog()
+        let link = setupDaemon(log)
+        let prepared = await WorkspaceSync.prepare(try await link.openChannel(service: "daemon", args: [:]), deviceID: "d", deviceName: "iPhone")
+        _ = await prepared.replies.value
+        #expect(log.count == 5)
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        var trees: [DaemonTree] = []
+        sync.onTree = { trees.append($0) }
+        await sync.bind(prepared, macID: "mac")
+        #expect(trees.count == 1)
+        #expect(sync.tree?.workspaces.map(\.id) == ["k1"])
+        #expect(sync.daemon != nil)
+        #expect(log.count == 5)
+    }
+
+    /// `prepare` runs once per dial, before the link is handed over, and its
+    /// result is there for that link once.
+    @Test func dialRunsPrepareBeforeHandingTheLinkOver() async throws {
+        let mock = setupDaemon()
+        let controller = LinkController(transport: .webRTC, dialer: LinkOf(link: mock), accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        let calls = CommandLog()
+        controller.prepare = { _, macID in
+            calls.append("prepare", macID)
+            return "ready-\(macID)"
+        }
+        var preparedAtHandover: (any Sendable)?
+        controller.onLink = { link in
+            if let link { preparedAtHandover = controller.takePrepared(for: link) }
+        }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<5000 where preparedAtHandover == nil { await Task.yield() }
+        #expect(calls.count == 1)
+        #expect(preparedAtHandover as? String == "ready-m")
+        #expect(controller.takePrepared(for: mock) == nil)
+    }
+
+    /// A link that knows its path is connected in the same turn it is adopted:
+    /// the hand-over does not wait for the state stream.
+    @Test func linkWithKnownPathIsConnectedAtHandover() async throws {
+        let controller = LinkController(transport: .webRTC, dialer: LinkOf(link: setupDaemon()), accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        var phaseAtHandover: LinkMachine.Phase?
+        controller.onLink = { if $0 != nil { phaseAtHandover = controller.phase } }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<5000 where phaseAtHandover == nil { await Task.yield() }
+        #expect(phaseAtHandover?.isConnected == true)
+    }
+}
+
 // MARK: Workspace creation on the daemon
 
 @MainActor
@@ -485,6 +569,7 @@ final class CommandLog: @unchecked Sendable {
         }
     }
     func contains(_ cmd: String) -> Bool { lock.withLock { commands.contains(cmd) } }
+    var count: Int { lock.withLock { commands.count } }
     var names: [String: String] { lock.withLock { nameByCommand } }
 }
 

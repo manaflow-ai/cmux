@@ -48,30 +48,59 @@ public final class WorkspaceSync {
         client = nil
         activity = [:]
         guard let channel else { return }
-        self.macID = macID
+        await bind(Self.prepare(channel, deviceID: deviceID, deviceName: deviceName), macID: macID, cached: cached)
+    }
+
+    /// A `daemon` channel whose client is reading and whose setup batch is on
+    /// its way, made without the main actor right after the dial
+    /// (verify/perf-latency.md).
+    public struct Prepared: Sendable {
+        let client: DaemonClient
+        let replies: Task<[Result<Data, any Error>], Never>
+    }
+
+    /// Starts `channel`'s client and sends the whole setup in one write (one
+    /// round trip, not five): declare the client, identify, subscribe, list
+    /// agents, list workspaces. The daemon answers a connection's lines in
+    /// order; events after the subscribe wait in the client's stream. Does not
+    /// wait for the answers (a Mac that pairs holds them until `auth` passes).
+    public nonisolated static func prepare(_ channel: any LinkChannel, deviceID: String, deviceName: String) async -> Prepared {
         let client = DaemonClient(channel: channel)
-        self.client = client
         await client.start()
+        let replies = Task.detached { () -> [Result<Data, any Error>] in
+            let replies = await client.requests([
+                ("set-client-info", [
+                    "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
+                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1"],
+                ]),
+                ("identify", [:]),
+                ("subscribe", ["tree_events": "deltas"]),
+                ("list-agents", [:]),
+                ("list-workspaces", [:]),
+            ])
+            ConnectTimeline.shared.mark("first_daemon_response")
+            return replies
+        }
+        return Prepared(client: client, replies: replies)
+    }
+
+    /// Binds a prepared `daemon` channel for `macID` and publishes its list
+    /// when the setup answers arrive.
+    public func bind(_ prepared: Prepared, macID: String, cached: [Workspace] = []) async {
+        eventTask?.cancel()
+        activity = [:]
+        self.macID = macID
+        let client = prepared.client
+        self.client = client
         let events = client.events
         eventTask = Task { [weak self] in
             for await line in events {
                 self?.handle(DaemonEvent.parse(line))
             }
         }
-        // The whole setup in one write (one round trip, not five): declare
-        // the client, identify, subscribe, list agents, list workspaces. The
-        // daemon answers a connection's lines in order.
-        let replies = await client.requests([
-            ("set-client-info", [
-                "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
-                "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1"],
-            ]),
-            ("identify", [:]),
-            ("subscribe", ["tree_events": "deltas"]),
-            ("list-agents", [:]),
-            ("list-workspaces", [:]),
-        ])
-        ConnectTimeline.shared.mark("first_daemon_response")
+        let replies = await prepared.replies.value
+        // Bound again meanwhile (another link or Mac): this answer is stale.
+        guard self.client === client else { return }
         do {
             _ = try Self.check(replies[0].get())
             let identify = try Self.check(replies[1].get())

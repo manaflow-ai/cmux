@@ -171,6 +171,14 @@ public final class LiveCoordinator {
         store.macConnection = [:]
         store.teamDataState = .loading
         link.onLink = { [weak self] link in self?.linkChanged(link) }
+        // Right after each dial, off the main actor: open `auth` then `daemon`
+        // (in that order: a Mac that pairs serves channels opened behind
+        // `auth`) and send the workspace setup batch.
+        let pairing = pairing
+        let deviceID = identity.link
+        link.prepare = { link, _ in
+            await Self.prepareLink(link, pairing: pairing, deviceID: deviceID, deviceName: deviceName)
+        }
         workspaces.onTree = { [weak self] tree in self?.apply(tree) }
         acpmux.onWatchEvent = { [weak self] event in
             guard let self else { return }
@@ -643,31 +651,69 @@ public final class LiveCoordinator {
             }
             return
         }
+        if let prepared = self.link.takePrepared(for: link) as? PreparedLink {
+            // The dial already opened `auth` and `daemon`: serve now, in this turn.
+            ConnectTimeline.shared.mark("link_served")
+            let passed = startServing(link, macID: macID, auth: prepared.auth, daemon: prepared.daemon)
+            Task { [weak self] in await self?.finishServing(link, macID: macID, passed: passed) }
+            return
+        }
         Task { [weak self] in await self?.serve(link, macID: macID) }
+    }
+
+    /// What the dial step opened on a link before handing it over
+    /// (`LinkController.prepare`): no main-actor turn per channel.
+    struct PreparedLink: Sendable {
+        let auth: Result<LinkPairing.Opened, LinkError>?
+        let daemon: Result<WorkspaceSync.Prepared, LinkError>
+    }
+
+    nonisolated static func prepareLink(_ link: any MacLink, pairing: LinkPairing?, deviceID: String,
+                                        deviceName: String) async -> PreparedLink {
+        let auth = await pairing?.open(link: link)
+        ConnectTimeline.shared.mark("pairing_opened")
+        do {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            ConnectTimeline.shared.mark("daemon_channel_open")
+            return PreparedLink(auth: auth, daemon: .success(await WorkspaceSync.prepare(channel, deviceID: deviceID, deviceName: deviceName)))
+        } catch {
+            return PreparedLink(auth: auth, daemon: .failure(error as? LinkError ?? LinkError(code: "daemon", message: LinkController.reason(error))))
+        }
     }
 
     /// Pairs `link` and serves its channels. Runs again on the same link from
     /// Retry after the Mac refused or nobody answered (review M2).
     private func serve(_ link: any MacLink, macID: String) async {
+        // Pairing first: a Mac that pairs serves a channel only after `auth`, and holds the
+        // ones opened behind it until it passes. Workspaces, the chats and the Feed open
+        // right behind it, without waiting for each other (an open costs no round trip).
+        ConnectTimeline.shared.mark("link_served")
+        let auth = await self.openPairing(link)
+        guard let passed = startServing(link, macID: macID, auth: auth, daemon: nil) else { return }
+        await finishServing(link, macID: macID, passed: passed)
+    }
+
+    /// Serves `link` from this turn: workspaces bind, the version check and
+    /// pairing start. Nil (and `auth` closed) when the link moved on.
+    private func startServing(_ link: any MacLink, macID: String, auth: Result<LinkPairing.Opened, LinkError>?,
+                              daemon: Result<WorkspaceSync.Prepared, LinkError>?) -> Task<Bool, Never>? {
+        guard currentLink === link else {
+            if case .success(let opened)? = auth { Task { await opened.close() } }
+            if case .success(let prepared)? = daemon { Task { await prepared.client.close() } }
+            return nil
+        }
+        servedLink = link
+        acpmux.macLink = link
+        bindWorkspaces(link, macID: macID, prepared: daemon)
+        Task { [weak self] in await self?.checkVersion(link, macID: macID) }
+        let passed = startPairing(link, macID: macID, auth: auth)
+        pairingGate = (link, passed)
+        return passed
+    }
+
+    private func finishServing(_ link: any MacLink, macID: String, passed: Task<Bool, Never>?) async {
+        guard let passed else { return }
         do {
-            // Pairing first: a Mac that pairs serves a channel only after `auth`, and holds the
-            // ones opened behind it until it passes. Workspaces, the chats and the Feed open
-            // right behind it, without waiting for each other (an open costs no round trip).
-            ConnectTimeline.shared.mark("link_served")
-            let auth = await self.openPairing(link)
-            ConnectTimeline.shared.mark("pairing_opened")
-            guard self.currentLink === link else {
-                if case .success(let opened)? = auth { await opened.close() }
-                return
-            }
-            self.servedLink = link
-            self.acpmux.macLink = link
-            self.bindWorkspaces(link, macID: macID)
-            Task { [weak self] in await self?.checkVersion(link, macID: macID) }
-            let passed = Task { @MainActor [weak self] in
-                await self?.pair(link, macID: macID, auth: auth) ?? false
-            }
-            self.pairingGate = (link, passed)
             guard await passed.value else {
                 // Nothing on this link is served now: terminals, files and uploads say
                 // "not connected" instead of `unpaired`, and Retry pairs again.
@@ -720,14 +766,19 @@ public final class LiveCoordinator {
 
     /// Opens the `daemon` channel and loads the workspaces; a failure or a
     /// Mac that never answers shows as a failure with Retry.
-    private func bindWorkspaces(_ link: any MacLink, macID: String) {
+    private func bindWorkspaces(_ link: any MacLink, macID: String, prepared: Result<WorkspaceSync.Prepared, LinkError>? = nil) {
         armWorkspacesDeadline(link, macID: macID)
         Task { [weak self] in
             guard let self else { return }
             do {
-                let daemon = try await link.openChannel(service: "daemon", args: [:])
-                ConnectTimeline.shared.mark("daemon_channel_open")
-                await self.workspaces.bind(daemon, macID: macID, cached: self.store.workspaces.filter { $0.macID == macID })
+                let cached = self.store.workspaces.filter { $0.macID == macID }
+                if let prepared {
+                    await self.workspaces.bind(try prepared.get(), macID: macID, cached: cached)
+                } else {
+                    let daemon = try await link.openChannel(service: "daemon", args: [:])
+                    ConnectTimeline.shared.mark("daemon_channel_open")
+                    await self.workspaces.bind(daemon, macID: macID, cached: cached)
+                }
                 // The link may have moved on (another Mac, or this one was removed).
                 if let error = self.workspaces.lastError, self.link.target?.macID == macID, self.store.macData[macID]?.source != .live {
                     self.store.handleMacData(.failed(error), macID: macID)
@@ -810,30 +861,37 @@ public final class LiveCoordinator {
     }
 
     /// Proves this phone's keys on the `auth` channel `auth`; false when the Mac refused it.
-    private func pair(_ link: any MacLink, macID: String, auth: Result<LinkPairing.Opened, LinkError>?) async -> Bool {
-        guard let pairing, let auth else { return true }
+    /// Proves this phone's keys on `auth`, starting at once off the main actor
+    /// (the Mac holds the `daemon` answers until it passes). The task's value
+    /// is false when the Mac refused it.
+    private func startPairing(_ link: any MacLink, macID: String, auth: Result<LinkPairing.Opened, LinkError>?) -> Task<Bool, Never> {
+        guard let pairing, let auth else { return Task { true } }
         let name = self.link.target?.name ?? "your Mac"
         let keys = pairing.keys
-        let outcome = await pairing.finish(auth, macID: macID) { [weak self] in
+        let onWaiting: @MainActor @Sendable () -> Void = { [weak self] in
             // Only the current link's pairing speaks for the banner (review M1).
             guard let self, self.currentLink === link else { return }
             self.pairingState = keys.takeReplaced() ? .waitingAfterNewKeys(mac: name) : .waiting(mac: name)
         }
-        guard currentLink === link else { return false }
-        switch outcome {
-        case .paired(let macDevice):
-            pairingState = .paired
-            acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
-                try await keys.authorizeApproval(reason: reason)
+        let outcome = Task.detached { await pairing.finish(auth, macID: macID, onWaiting: onWaiting) }
+        return Task { @MainActor [weak self] in
+            let outcome = await outcome.value
+            guard let self, self.currentLink === link else { return false }
+            switch outcome {
+            case .paired(let macDevice):
+                self.pairingState = .paired
+                self.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
+                    try await keys.authorizeApproval(reason: reason)
+                }
+                return true
+            case .legacy:
+                self.pairingState = .idle
+                return true
+            case .refused(let error):
+                log.error("pairing refused: \(error.code, privacy: .public) \(error.message, privacy: .public)")
+                self.pairingState = error.code == "denied" ? .denied(mac: name) : .failed(LinkPairing.refusalText(error))
+                return false
             }
-            return true
-        case .legacy:
-            pairingState = .idle
-            return true
-        case .refused(let error):
-            log.error("pairing refused: \(error.code, privacy: .public) \(error.message, privacy: .public)")
-            pairingState = error.code == "denied" ? .denied(mac: name) : .failed(LinkPairing.refusalText(error))
-            return false
         }
     }
 
