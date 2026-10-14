@@ -13,6 +13,7 @@ import {
   MAX_VM_REPLACE_RECORDS,
   parseVmPublish,
   parseVmRecord,
+  VM_REPLACE_ABSENCE_GRACE_MS,
   VMS_COLLECTION,
   vmShapeEqual,
   type VmRecord,
@@ -201,8 +202,8 @@ describe("applyVmOps", () => {
     const deltas = await applyVmOps(storage, [{
       kind: "replace",
       records: [vm("vm-1"), vm("vm-2", { displayName: "Renamed", sourceUpdatedAtMs: T0 + 1 })],
-      observedAtMs: T0 + 2,
-    }], T0 + 3);
+      observedAtMs: T0 + VM_REPLACE_ABSENCE_GRACE_MS + 1,
+    }], T0 + VM_REPLACE_ABSENCE_GRACE_MS + 2);
     // vm-1 unchanged (no delta), vm-2 renamed (delta), vm-3 tombstoned (delta).
     expect(deltas.map((d) => [d.records[0]?.id, d.records[0]?.deleted])).toEqual([
       ["vm-2", false],
@@ -220,6 +221,21 @@ describe("applyVmOps", () => {
     const deltas = await applyVmOps(storage, [{ kind: "replace", records: [vm("vm-1")], observedAtMs: T0 + 2 }], T0 + 7);
     expect(deltas.map((d) => d.records[0]?.id)).toEqual(["vm-1"]);
     expect(await liveIds(storage)).toEqual(["vm-1", "vm-new"]);
+  });
+
+  it("replace does not tombstone a machine whose write committed after the list read", async () => {
+    const storage = new FakeStorage();
+    // The create stamped updated_at at T0+1 inside its transaction; the list
+    // read at T0+2 ran before that commit, so it lacks the machine, and the
+    // create's upsert reached the DO first.
+    await applyVmOps(storage, [{ kind: "upsert", record: vm("vm-new", { sourceUpdatedAtMs: T0 + 1 }) }], T0 + 3);
+    const deltas = await applyVmOps(storage, [{ kind: "replace", records: [vm("vm-1")], observedAtMs: T0 + 2 }], T0 + 4);
+    expect(deltas.map((d) => d.records[0]?.id)).toEqual(["vm-1"]);
+    expect(await liveIds(storage)).toEqual(["vm-1", "vm-new"]);
+    // A list observed well after that write still removes a machine it lacks.
+    const later = T0 + 1 + VM_REPLACE_ABSENCE_GRACE_MS + 1;
+    await applyVmOps(storage, [{ kind: "replace", records: [vm("vm-1")], observedAtMs: later }], later);
+    expect(await liveIds(storage)).toEqual(["vm-1"]);
   });
 
   it("replace with an unchanged list mints no rev", async () => {

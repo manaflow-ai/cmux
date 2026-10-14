@@ -39,6 +39,10 @@ export const VMS_COLLECTION = "vms";
 /** Max ops in one publish. A full `replace` carries at most the team's
  * visible list, and the web list is bounded well below this. */
 export const MAX_VM_PUBLISH_OPS = 200;
+/** A `replace` leaves a live record alone when its write clock is within this
+ * window before the list's observation time: the list read may have run before
+ * that write's transaction committed. Explicit deletes are not delayed. */
+export const VM_REPLACE_ABSENCE_GRACE_MS = 60_000;
 /** Max records inside one `replace` op (the whole visible list). */
 export const MAX_VM_REPLACE_RECORDS = MAX_VM_PUBLISH_OPS;
 /** Max request body for a vms publish. ~1 KiB per record covers every bounded
