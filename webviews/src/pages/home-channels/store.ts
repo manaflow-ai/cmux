@@ -9,6 +9,7 @@ import { AttachmentService } from "./attachmentService";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, threadOf } from "./model";
 import { RunBook } from "./runs";
+import { HomeSheets } from "./sheets";
 import {
   HomeOps,
   type HomeAttachment,
@@ -135,12 +136,24 @@ export class HomeChannelsStore {
 
   /** Uploads and reads of attachments through this store's client (none without a client). */
   readonly attachments: AttachmentService | undefined;
+  /** The page's sheets (new message, new Chief, invite, archive) and the Chief records. */
+  readonly sheets: HomeSheets;
 
+  /** `host`: the page's host, when there is one (the app): it relays the person's click for a
+   * Chief's grant and delete. */
   constructor(
     private readonly client: PageClient | null,
     private readonly carry: PendingCarry = new PendingCarry(),
+    host: PageClient | null = null,
   ) {
     this.attachments = client ? new AttachmentService(client) : undefined;
+    this.sheets = new HomeSheets(client, host, {
+      open: async (conversation) => {
+        await this.reloadInbox();
+        await this.select(conversation);
+      },
+      fail: (message) => this.set({ error: message }),
+    });
     this.snapshot = {
       connection: client ? "connecting" : "offline",
       loading: client !== null,
@@ -199,6 +212,7 @@ export class HomeChannelsStore {
       this.set({ error: describe(error), loading: false });
     }
     await this.reloadInbox();
+    void this.sheets.start();
     this.followHash();
   }
 
@@ -207,6 +221,8 @@ export class HomeChannelsStore {
   private followHash(): void {
     if (typeof window === "undefined") return;
     const open = () => {
+      // A sheet route (routes.ts) opens its sheet over the open conversation.
+      if (this.sheets.follow(window.location.hash)) return;
       const link = hashLink(window.location.hash);
       if (link) void this.openLink(link);
     };
@@ -506,26 +522,6 @@ export class HomeChannelsStore {
     const keys = new Set(messages.map((message) => message.clientMessageId).filter(Boolean));
     const left = this.snapshot.pending.filter((entry) => !keys.has(entry.key));
     return left.length === this.snapshot.pending.length ? undefined : left;
-  }
-
-  /** Creates a channel (a titled group) with these members and opens it. Resolves true when the
-   * owner created it. */
-  async createChannel(title: string, participants: readonly string[]): Promise<boolean> {
-    const name = title.trim();
-    if (!this.client || !name || participants.length === 0) return false;
-    try {
-      const result = await this.client.call<{ conversation?: string }>(HomeOps.createGroup, {
-        title: name,
-        participants,
-        idempotencyKey: this.key("create"),
-      });
-      await this.reloadInbox();
-      if (result.conversation) await this.select(result.conversation);
-      return true;
-    } catch (error) {
-      this.set({ error: describe(error) });
-      return false;
-    }
   }
 
   /** Adds my reaction, or takes it back when I already reacted with it. */

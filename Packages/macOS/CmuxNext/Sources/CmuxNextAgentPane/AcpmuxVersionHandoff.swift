@@ -83,7 +83,7 @@ nonisolated enum AcpmuxVersionHandoff {
         guard handedOff.withLock({ $0.insert(bundled ?? "pid \(pid)").inserted }) else { return false }
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         do {
-            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath)
+            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
             logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
             return false

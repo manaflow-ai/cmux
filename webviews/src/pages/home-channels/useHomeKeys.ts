@@ -26,7 +26,7 @@ export function useHomeKeys(actions: HomeKeyActions): void {
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing) return;
     // A popup (menu, popover, picker, the palette) owns its own Escape and arrows.
-    if (event.target instanceof Element && event.target.closest(".ui-popup, .lg-palette")) return;
+    if (event.target instanceof Element && event.target.closest(".ui-popup, .lg-palette, .lg-form")) return;
     const key = event.key.toLowerCase();
     const plain = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
     if (key === "k" && event.metaKey && !event.shiftKey && !event.altKey) actions.openPalette();

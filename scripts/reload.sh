@@ -1185,6 +1185,24 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+# Per-build isolation (cx-is1kf.4): a shipped build owns these names (its
+# daemon session cmux-app-<name>, its control socket and state). A DEV build
+# with such a tag gets names of its build key instead (CmuxNextCompat
+# BuildIdentity+AppNames.swift), so the socket and markers this script writes
+# for the tag would name no app. Refuse the tag before anything is cleaned or built.
+owned_tag_names=("$TAG")
+if [[ "$BUNDLE_SET" -eq 1 && "$BUNDLE_ID" == com.cmuxterm.app.debug.* ]]; then
+  owned_tag_names+=("${BUNDLE_ID#com.cmuxterm.app.debug.}")
+fi
+for owned_tag_name in "${owned_tag_names[@]}"; do
+  case "$(cmux_attach__slug_raw "$owned_tag_name")" in
+    nightly | rc | staging | cmux-next)
+      echo "error: --tag or --bundle-id '$owned_tag_name' is the name of a shipped cmux build (nightly, rc, staging, cmux-next); pick another tag" >&2
+      exit 1
+      ;;
+  esac
+done
+
 # Release's product is cmux.app, which the tag step stages as the tagged app. It
 # bundles the pinned cmux-tui by default; dogfood the checkout's own instead. Its
 # entitlements need a signing team, and the tagged app is signed ad hoc.
@@ -2118,6 +2136,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u CMUX_PANEL_ID
     -u CMUXD_UNIX_PATH
     -u CMUX_TAG
+    # A launch from an acpmux agent inherits its daemon's home and socket: the
+    # build would share that daemon and hand it off as its own outdated one.
+    -u ACPMUX_HOME
+    -u ACPMUX_SOCKET
+    -u ACPMUX_ENV
+    -u ACPMUX_SESSION_ID
+    -u ACPMUX_SESSION_NAME
     -u CMUX_DEBUG_LOG
     -u CMUX_BUNDLE_ID
     -u CMUX_BUNDLED_CLI_PATH
