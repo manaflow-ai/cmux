@@ -361,14 +361,17 @@ try:
         for n in range(3):
             say("columns new column", json.dumps(rpc("action.run", {"action": "newColumn", "focus": True}))[:200])
             time.sleep(1)
-        for step in range(5):
-            time.sleep(1.5)
-            # The window as the window server composites it, its child windows (Chromium pages)
-            # included: a desktop shot on the shared GUI host shows other apps in front.
-            shot = os.path.join(OUT, f"columns-{step}.png")
-            r = rpc("debug.window_snapshot", {"kind": "main", "path": shot}, timeout=60)
-            say("columns shot", step, json.dumps({k: (r or {}).get(k) for k in ("method", "child_windows", "child_windows_failed", "width")}))
-            say("columns focus left", json.dumps(rpc("action.run", {"action": "focusLeft", "focus": True}))[:200])
+        time.sleep(1.5)
+        for step in range(4):
+            say("columns focus left", json.dumps(rpc("action.run", {"action": "focusLeft", "focus": True}))[:160])
+            # Mid-scroll, where the page drew past its column, then settled. The window as the
+            # window server composites it, its child windows (Chromium pages) included: a desktop
+            # shot on the shared GUI host shows other apps in front.
+            for delay in (0.05, 0.12, 0.25, 1.2):
+                time.sleep(delay)
+                shot = os.path.join(OUT, f"columns-{step}-{int(delay * 1000):04d}.png")
+                r = rpc("debug.window_snapshot", {"kind": "main", "path": shot}, timeout=60)
+                say("columns shot", step, delay, json.dumps({k: (r or {}).get(k) for k in ("method", "child_windows", "child_windows_failed")}))
         raise SystemExit(0)
     if STAGE == "subagents":
         # Native Codex subagents (cx-07ezn): a Codex chat that starts two subagents shows them as one
