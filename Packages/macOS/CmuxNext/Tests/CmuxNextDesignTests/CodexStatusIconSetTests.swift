@@ -25,6 +25,12 @@ import Testing
         #expect(abs(grey.alpha - 0.66) < 0.001 && grey.components?.first == 1)
     }
 
+    @Test func aStillLoaderStaysAStoppedArcNotTheWorkRing() {
+        // Loading (a page or a command) keeps the default loading drawing; only agent work stands still as a ring.
+        let loader = Self.plan(.busy, animates: false)
+        #expect(loader.glyph == .arc && loader.animation == nil && loader.tint == .loading)
+    }
+
     @Test func doneIsCodexsBlueDotAndOnlyAnErrorIsRed() {
         #expect(Self.plan(.success) == StatusIndicatorPlan(glyph: .mark(.vector(.dot)), animation: nil, tint: .unread))
         let blue = Self.colors.color(for: .unread).components ?? []
