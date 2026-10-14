@@ -224,7 +224,11 @@ def trace_stop(handle):
         proc.kill()
         log = "timeout"
     open(os.path.join(opts.out, "xctrace.log"), "w").write(log or "")
-    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--toc"], capture_output=True, text=True, timeout=300).stdout
+    try:
+        toc = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--toc"], capture_output=True, text=True, timeout=300).stdout
+    except subprocess.TimeoutExpired:
+        TRACE["error"] = "xctrace export --toc timed out"
+        return
     open(os.path.join(opts.out, "hitches-toc.xml"), "w").write(toc)
     import re, xml.etree.ElementTree as ET
     schemas = sorted(set(re.findall(r'schema="([^"]*hitch[^"]*)"', toc)))
@@ -232,8 +236,12 @@ def trace_stop(handle):
     duration = re.search(r"<duration>([0-9.]+)</duration>", toc)
     summary["trace_seconds"] = float(duration.group(1)) if duration else None
     for schema in schemas:
-        xml = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--xpath", f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'],
-                             capture_output=True, text=True, timeout=300).stdout
+        try:
+            xml = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--xpath", f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'],
+                                 capture_output=True, text=True, timeout=300).stdout
+        except subprocess.TimeoutExpired:
+            summary[schema] = {"error": "export timed out"}
+            continue
         open(os.path.join(opts.out, f"{schema}.xml"), "w").write(xml)
         rows = xml.count("<row")
         total_ns = 0
@@ -287,10 +295,10 @@ def launch():
 
 
 launch()
-if opts.real_pointer or opts.trace:
-    Target.find()
 trace = None
 try:
+    if opts.real_pointer or opts.trace:
+        Target.find()
     for name in ("Alpha", "Beta", "Gamma", "Delta", "Echo", "Foxtrot"):
         cli("workspace", "create", "--name", name)
     wait(lambda: {"Alpha", "Foxtrot"} <= set(rows()), 20)
@@ -331,7 +339,7 @@ try:
     if "4" in WANTED and listed:
         top = listed[0]
         bottom = max(r["window_frame"]["y"] + r["window_frame"]["height"] for r in listed)
-        edge = min(bottom, 820 - 30)
+        edge = min(bottom, 820 - (12 if opts.real_pointer else 30))  # no hold with cua-driver: end inside the autoscroll band
         record("4-autoscroll-across", [center(top["window_frame"]), (center(top["window_frame"])[0], edge - 4)], {str(top.get("key"))},
                hold=2.0, seconds=1.6)
     # 5. A refusal: a row dragged down three rows, Escape before the release: the gap closes, the card flies home.
@@ -341,7 +349,10 @@ try:
         record("5-refusal-springs-back", [center(row["window_frame"]), (center(row["window_frame"])[0], center(below["window_frame"])[1])],
                {str(row.get("key"))}, dropped_key=str(row.get("key")), refused=True, seconds=1.6, escape_at=1.1)
 finally:
-    trace_stop(trace)
+    try:
+        trace_stop(trace)
+    except Exception as error:  # the checks and the app stop still run
+        TRACE["error"] = repr(error)
     json.dump({"checks": CHECKS, "trace": TRACE, "real_pointer": opts.real_pointer, "stress": opts.stress}, open(os.path.join(opts.out, "CHECKS.json"), "w"), indent=1)
     subprocess.run([STOP], check=False)
 sys.exit(0 if CHECKS and all(c["ok"] for c in CHECKS.values()) else 1)

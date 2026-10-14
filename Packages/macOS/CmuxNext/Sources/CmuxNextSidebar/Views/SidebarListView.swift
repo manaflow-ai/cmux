@@ -37,6 +37,8 @@ final class SidebarListView: NSView {
     /// under a held drag): rows spring from where they are on the drag's one additive spring, new rows
     /// appear in their slot with no opening, so frames the drag already shows move nothing.
     var springsRows = false
+    /// Rows an adopting apply took out of `rowViews` that still fade on screen (sampled by the motion probe).
+    var fadingRows: [ObjectIdentifier: SidebarRowView] = [:]
     /// Wires a new block's region as the sidebar wires its bands (activation, menus, app views).
     var configureBlockRegion: ((SidebarRegionView) -> Void)?
     /// Listed document items (link, tab, app rows) by item id.
@@ -205,7 +207,8 @@ final class SidebarListView: NSView {
         if let drag, drag.geometryRevision != model.sectionsRevision { drag.docGeometry = nil }
         let settled = settleDrop()
         // A drag's look hands over to the model on the same spring (DESIGN "Drag feel" 6).
-        springsRows = animated && (adopt || settled != nil || drag != nil || settling != nil)
+        // Also a non-animated reload (provisional rows, a space switch) under a held drag or a settle: rows never snap then.
+        springsRows = (animated && adopt) || settled != nil || drag != nil || settling != nil
         defer { springsRows = false }
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.
@@ -271,7 +274,7 @@ final class SidebarListView: NSView {
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var keep = Set<SidebarRowKey>()
-        let adopting = springsRows && animated && !old.rows.isEmpty
+        let adopting = springsRows && !old.rows.isEmpty
         let animate = !adopting && animated && !old.rows.isEmpty && selectedRowKey.map { old.row(for: $0) != nil } != false // a row shown as it is added (Cmd-N) appears in place, with the rest (cx-8g3sn)
         // New rows open from their run's top, so only the rows below move; a row still opening
         // that the next update moves (appended, then placed below) opens again there, in a new view:
@@ -289,7 +292,8 @@ final class SidebarListView: NSView {
             keep.insert(row.key)
             let view = existing ?? dequeue(row.key)
             view.targetSize = target.size
-            configure(view, row: row, animated: animate || adopting)
+            // A recycled view (a block's region from another time) takes its content at once, not on a spring.
+            configure(view, row: row, animated: animate || (adopting && existing != nil))
             let opens = animate && ((existing == nil && old.row(for: row.key) == nil) || reopened.contains(row.key))
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
@@ -350,7 +354,7 @@ final class SidebarListView: NSView {
         // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
-        decorations.setGap(gapFrame, animated: animate)
+        decorations.setGap(gapFrame, animated: animate || adopting)
         let lines = groupLineViews.update(groupLines(layout), from: animate || adopting ? groupLines(layout, current: true) : [], in: self, above: decorations,
                                           animated: animate || adopting)
         if adopting { return adoptRows(targets: targets, leaving: leaving, lines: lines) }

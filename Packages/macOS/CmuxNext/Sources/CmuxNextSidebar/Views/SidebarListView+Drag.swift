@@ -110,8 +110,12 @@ extension SidebarListView {
             settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
             revealedActive = nil
+            let sentBefore = SidebarDocStore.current?.lastIntentKey
             doc.drop(items, target)
             settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
+            // The drop sent nothing (no intent, e.g. an adopt still on the way): nothing will end a settle, so the
+            // rows and the card go back as for a refusal.
+            if settling != nil, SidebarDocStore.current?.lastIntentKey == sentBefore { settling = nil }
             suppressed = drag.hiddenKeys
             // The drop's look is what the drag shows: adopting it moves nothing (the card settles into its slot).
             reload(animated: true, adopt: true)
@@ -252,6 +256,12 @@ extension SidebarListView {
         if landing === drag { landing = nil }
         Motion.withoutAnimation {
             drag.lift.removeFromSuperview()
+            // The dropped item, held invisible under the flying card (landSettled), shows in the same transaction.
+            for view in drag.heldViews {
+                view.layer?.removeAnimation(forKey: "opacity")
+                view.alphaValue = 1
+            }
+            drag.heldViews = []
             suppressed.subtract(drag.hiddenKeys)
             for key in drag.hiddenKeys { rowViews[key]?.alphaValue = 1 }
         }
@@ -272,11 +282,31 @@ extension SidebarListView {
     func landSettled(_ settled: SidebarSettlingDrop) {
         let drag = settled.drag
         guard drag.lift.superview != nil else { return }
+        // The model's item is under the card: it stays invisible until the card is gone (no double, no fade-in pop).
+        drag.heldViews = droppedViews(drag)
+        Motion.withoutAnimation {
+            for view in drag.heldViews {
+                view.layer?.removeAnimation(forKey: "opacity")
+                view.alphaValue = 0
+            }
+        }
         if let real = droppedFrame(drag), abs(real.minX - drag.lift.frame.minX) > 0.5 || abs(real.minY - drag.lift.frame.minY) > 0.5
             || abs(real.width - drag.lift.frame.width) > 0.5 || abs(real.height - drag.lift.frame.height) > 0.5 {
             return land(drag, at: real, then: settled.then)
         }
         if settled.landed { finishLand(drag, then: settled.then) }
+    }
+
+    /// The views that show a document drop's item now: its list row, its tile in a block.
+    func droppedViews(_ drag: Drag) -> [NSView] {
+        var views: [NSView] = []
+        for id in drag.docItems ?? [] {
+            if let view = rowViews[.item(id)] { views.append(view) }
+            for case let block as SidebarBlockRowView in rowViews.values {
+                if let view = block.region.itemView(LayoutItemID(id)) { views.append(view) }
+            }
+        }
+        return views
     }
 
     /// Where the model shows a document drop's item now: its list row, else its tile in a block.
@@ -343,6 +373,10 @@ extension SidebarListView {
         for (key, view) in rowViews where layout.row(for: key) == nil && !suppressed.contains(key) {
             SidebarDragSpring.fade(view, to: 0)
         }
+        // A tile dropped among rows opens the list's slot underlay with the rows.
+        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
+        decorations.frame = bounds
+        decorations.setGap(gapFrame, animated: true)
         let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
         Motion.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
     }
@@ -357,11 +391,16 @@ extension SidebarListView {
         }
         Motion.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
         guard !leaving.isEmpty else { return }
+        // The motion probe keeps sampling a fading row until it is gone (a fade is not a pop).
+        for (view, _) in leaving { fadingRows[ObjectIdentifier(view)] = view }
         Motion.animate(.hover, in: self, {
             for (view, _) in leaving { view.animator().alphaValue = 0 }
         }, completion: { [weak self, leaving] in
             guard let self else { return }
-            for (view, _) in leaving where !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
+            for (view, _) in leaving {
+                self.fadingRows[ObjectIdentifier(view)] = nil
+                if !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
+            }
         })
     }
 }

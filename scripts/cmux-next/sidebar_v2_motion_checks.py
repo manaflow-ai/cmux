@@ -54,7 +54,12 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
             settle = {"key": dropped_key, "card_meets_item_pt": round(meet, 2), "item_max_step_after_pt": round(drift, 2),
                       "ok": meet < SETTLE_PT and drift <= 0.5}
     # The echo: every model revision change after the release (the optimistic model, then the daemon's batch).
+    # The release: the first settling frame (document drops), else the frame after the card's last pointer-driven move
+    # (work_ms changes only while the pointer moves).
     release = next((i for i, f in enumerate(frames) if i and frames[i - 1]["lift"] and f.get("settling")), None)
+    if release is None:
+        moves = [i for i in range(1, len(frames)) if frames[i]["work_ms"] != frames[i - 1]["work_ms"]]
+        release = moves[-1] + 1 if moves else None
     echo = None
     if frames and "revision" in frames[0]:
         changes = [i for i in range(1, len(frames)) if frames[i]["revision"] != frames[i - 1]["revision"] and (release is None or i >= release)]

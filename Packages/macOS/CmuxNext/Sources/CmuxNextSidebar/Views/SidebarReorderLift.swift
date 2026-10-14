@@ -46,6 +46,12 @@ import QuartzCore
     static func land(_ lift: DragLiftView, at destination: NSRect?, completion: @escaping @MainActor () -> Void) {
         lift.landings &+= 1
         let landing = lift.landings
+        // A window with no screen never advances an animation: the card lands at once.
+        guard Motion.canAnimate(in: lift) else {
+            Motion.withoutAnimation { lift.frame = destination ?? lift.frame }
+            lift.setLifted(false, animated: false)
+            return completion()
+        }
         CATransaction.begin()
         CATransaction.setCompletionBlock {
             MainActor.assumeIsolated { // main-proof: CA runs transaction completions on the main thread

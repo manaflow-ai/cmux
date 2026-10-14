@@ -70,6 +70,8 @@ final class SidebarListDrag {
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?
+    /// The dropped item's real views, invisible under the landing card until it is gone.
+    var heldViews: [NSView] = []
     init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, head: CGFloat? = nil,
          target: DropTarget?) {
         self.payload = payload

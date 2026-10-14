@@ -54,7 +54,8 @@ final class SidebarMotionProbe {
         guard let list, frames.count < Self.capacity else { return false }
         var views: [String: CGRect] = [:]
         var opacity: [String: Float] = [:]
-        for (key, view) in list.rowViews {
+        let fading = list.fadingRows.values.map { (key: $0.key, view: $0) }
+        for (key, view) in fading + list.rowViews.map({ (key: $0.key, view: $0.value) }) { // a live row wins over a fading one
             views[String(describing: key)] = Self.presented(view)
             opacity[String(describing: key)] = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
             guard let block = view as? SidebarBlockRowView else { continue }

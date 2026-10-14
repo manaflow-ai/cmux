@@ -86,7 +86,8 @@ final class DragLiftView: NSView {
             }
         }
         // The shadow keeps the card's shape: `morph` springs it with the size.
-        if layer.animation(forKey: "shadowPath") == nil { Motion.transaction(nil) { layer.shadowPath = shadowPath(bounds) } }
+        // The model always holds the current shape; a running spring (morph) keeps showing its own path until it ends there.
+        Motion.transaction(nil) { layer.shadowPath = shadowPath(bounds) }
     }
 
     private func shadowPath(_ rect: CGRect) -> CGPath {
