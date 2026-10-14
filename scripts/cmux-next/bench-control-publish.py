@@ -11,11 +11,14 @@ isolated Chief home), fills its daemon with --workspaces workspaces of --tabs
 terminal tabs each through the daemon socket (`new-workspace`, `new-tab`),
 then renames one workspace --renames times (`rename-workspace`, round robin)
 and waits after each rename until `snapshot.get` shows the new name. Each
-rename is one change to one workspace. It reads, over the app's control
-socket:
+rename is one change to one workspace; each control request also publishes
+after its frame, so most measured publishes change nothing (every workspace
+comes from the cache), the case the 2026-10-13 hang paid O(tabs) for. It
+reads, over the app's control socket:
 
   debug.timings control_publishes   main-actor time of each publish and its
-                                    tab count (only publishes of the full tree)
+                                    tab count (only publishes of the full
+                                    tree; the app keeps the first 256)
   debug.hangs                       main-thread stalls over the watchdog
                                     threshold during the renames
 
@@ -87,7 +90,7 @@ def wait_until(condition, limit_s, what):
     raise SystemExit(f"bench-control-publish: timed out waiting for {what}")
 
 
-def seed(daemon, control, workspaces, tabs):
+def seed(daemon, workspaces, tabs):
     def listed():
         return {w["id"]: w for w in daemon.call("list-workspaces", cmd_key="cmd")["data"]["workspaces"]}
 
@@ -147,7 +150,7 @@ def main():
         control = wait_for_socket(f"/tmp/cmux-debug-{tag}.sock")
         daemon = Client(daemon_socket(tag), timeout=30)
         started = time.monotonic()
-        ids = seed(daemon, control, args.workspaces, args.tabs)
+        ids = seed(daemon, args.workspaces, args.tabs)
         wait_until(lambda: tab_count(tree(control)) >= args.workspaces * args.tabs, 300, "the app to list every tab")
         report["seed_s"] = round(time.monotonic() - started, 1)
         total = tab_count(tree(control))
