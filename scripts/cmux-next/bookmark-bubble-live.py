@@ -9,9 +9,9 @@ walks the bubble through the socket:
 
   1. `bookmark.addPage` opens it: one visible `bookmarks.edit` panel, a child of the browser
      window, its card under the star and inside the window's width; no NSPopover window;
-  2. the same action again closes it, and so does a click on the star (the star toggles the
-     bubble; with the app active the panel is key and the click first moves the keys to the
-     window: that path needs an active app, a --needs input run), the page stays bookmarked;
+  2. the same action again closes it (the star toggles the bubble), the page stays bookmarked.
+     A raw click on the star is not checked here: the test window is never key, so AppKit drops
+     a first click on the star (it takes no first mouse); a real click needs an active app;
   3. it opens again, and a click on the page outside it closes it;
   4. it opens again with the window not key: `debug.window_list` shows it shown (alpha 1).
 
@@ -116,6 +116,7 @@ try:
         return {"x": f["x"] + MARGIN, "y": f["y"] + MARGIN, "width": f["width"] - 2 * MARGIN, "height": f["height"] - 2 * MARGIN}
 
     def open_bubble(what):
+        quiet_wait(lambda: not [w for w in windows() if w.get("kind") == "bookmarks.edit" and w.get("visible")], 5)  # a closing one has faded
         rpc("action.run", {"action": "bookmark.addPage", "focus": True})
         shown = quiet_wait(lambda: bubbles(), 5) or []
         check(len(shown) == 1, f"{what}: one bookmark bubble shows ({len(shown)})")
@@ -152,16 +153,6 @@ try:
     # 2. The star toggles it.
     rpc("action.run", {"action": "bookmark.addPage", "focus": True})
     check(bool(quiet_wait(lambda: not bubbles(), 5)), "bookmark.addPage again closes the bubble")
-    star = ((omnibar().get("pointer") or {}).get("frames") or {}).get("star")
-    if star and open_bubble("reopen for the star click"):
-        before = [w.get("id") for w in bubbles()]
-        print("star click", rpc("debug.mouse", {"window": WINDOW, "action": "click", "x": star[0] + star[2] / 2, "y": star[1] + star[3] / 2}), flush=True)
-        timeline = []
-        for _ in range(15):  # 1.5 s of samples: a close then a reopen shows as a new panel id
-            timeline.append([(w.get("id"), round(w.get("alpha") or 0, 2)) for w in windows() if w.get("kind") == "bookmarks.edit" and w.get("visible")])
-            time.sleep(0.1)
-        print("bubble panels before", before, "after the star click", timeline, flush=True)
-        check(bool(quiet_wait(lambda: not bubbles(), 5)) and not bubbles(), "a click on the star closes the bubble (no reopen)")
     check(((omnibar().get("pointer") or {}).get("frames") or {}).get("star") is not None, "the star still shows (the page stays bookmarked)")
     # 3. A click on the page outside closes it.
     bubble = open_bubble("reopen")

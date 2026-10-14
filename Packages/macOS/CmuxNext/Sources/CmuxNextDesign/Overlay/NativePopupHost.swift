@@ -37,8 +37,15 @@ public final class NativePopupHost {
                 guard let self, let keyed else { return }
                 // A press on the control that toggles the popup makes its window key first; the
                 // control closes the popup itself, so that key loss is not a dismiss.
-                if let event = NSApp.currentEvent, [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
-                   event.window !== keyed, keepsOpen(event) { return }
+                let press = NSApp.currentEvent.flatMap { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) ? $0 : nil }
+                if let press, press.window !== keyed, keepsOpen(press) { return }
+                // Its own window took the keys without a press (Cmd-Tab into the app, a focus
+                // request): the popup takes them over, as a popup shown with the app active has
+                // them; it never takes them while the app is inactive (ActiveAppKeyPanel).
+                if press == nil, isShown, let parent = keyed.parent, NSApp.keyWindow === parent {
+                    keyed.makeKey()
+                    return
+                }
                 dismiss()
             }
         }
