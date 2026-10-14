@@ -1474,7 +1474,10 @@ fn archived_non_output_after(
     // The active table owns the tail. Let the normal indexed query handle
     // mixed archive/active ranges; this fast path is only for a fully sealed
     // range and never claims an empty/active range as covered.
-    if rows.is_empty() || i64::try_from(sequence)? >= archive_end || archive_end < i64::try_from(through)? {
+    if rows.is_empty()
+        || i64::try_from(sequence)? >= archive_end
+        || archive_end < i64::try_from(through)?
+    {
         return Ok(None);
     }
     let first_start = rows.first().map(|row| row.1).unwrap_or_default();
@@ -1485,7 +1488,11 @@ fn archived_non_output_after(
     let mut previous_end = None;
     for row in &rows {
         if let Some(previous_end) = previous_end {
-            anyhow::ensure!(row.1 == previous_end + 1, "journal segments contain a gap before sequence {}", row.1);
+            anyhow::ensure!(
+                row.1 == previous_end + 1,
+                "journal segments contain a gap before sequence {}",
+                row.1
+            );
         }
         previous_end = Some(row.2);
     }
