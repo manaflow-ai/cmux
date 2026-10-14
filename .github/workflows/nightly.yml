@@ -3780,6 +3780,59 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  # cx-x7hwx: the build publish-nightly-identity-legacy copies, if any: the
+  # newest build on the cmux NEXT feed when it is newer than the old feed's.
+  # Linux, seconds; the macOS job starts only when there is work.
+  legacy-identity-target:
+    needs: [decide, publish-nightly, publish-release-notes]
+    if: "!cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    # A feed read error must not turn a run that published cmux NEXT red; the
+    # macOS job then does not start (it needs this job's success and a build).
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      build: ${{ steps.target.outputs.build }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Compare the cmux NEXT feed with the old feed
+        id: target
+        env:
+          LEGACY_APPCAST: appcast-arm64.xml
+          DMG_PREFIX: cmux-nightly-next-macos-arm64-
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o old.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          build="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX")"
+          # A build that already failed twice (the open failure issue names it
+          # twice) is not tried again by every later run; a newer build is.
+          if [ -n "$build" ]; then
+            title="cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)"
+            number="$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" --jq ".[] | select(.title == \"$title\") | .number" | head -1)"
+            if [ -n "$number" ]; then
+              failures="$( { gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq .body; gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$number/comments" --jq '.[].body'; } | grep -c "^Build $build was not published" || true)"
+              if [ "${failures:-0}" -ge 2 ]; then
+                echo "::warning title=cmux NIGHTLY-identity build $build skipped (cx-x7hwx)::it failed $failures times (issue #$number); a newer cmux NEXT build is tried again"
+                build=""
+              fi
+            fi
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          if [ -n "$build" ]; then
+            echo "### cmux NIGHTLY-identity: old feed gets cmux NEXT build $build (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### cmux NIGHTLY-identity: old feed is current (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # cx-x7hwx: installs of the nightly-next track from before cmux NEXT
   # (b9ac67887fa7, 2026-10-12) are cmux NIGHTLY (com.cmuxterm.app.nightly) and
   # read NIGHTLY_NEXT_LEGACY_FEED_BASE/appcast-arm64.xml. Sparkle installs only
@@ -3789,6 +3842,12 @@ jobs:
   # as the same build signed as cmux NIGHTLY
   # (scripts/ci/nightly-next-legacy-identity.sh), on the old feed, with its
   # signed release notes. Same Sparkle key; no new secret.
+  # Which build: the newest build on the cmux NEXT feed when it is newer than
+  # the old feed's (legacy-identity-target), whichever run published it: this
+  # run's publish-nightly, a later run's recovery (#20518 hands a build still
+  # in Apple's queue to recover-nightly-next-notarization) or a
+  # nightly_next_continue_only run. A run that publishes nothing still catches
+  # the old feed up to an earlier publication.
   # After the cmux NEXT publication and its notes; no job needs this one, and
   # continue-on-error keeps the run's result to cmux NEXT. A failure opens or
   # updates the "cmux NIGHTLY-identity publication failed" issue; the old feed
@@ -3796,8 +3855,8 @@ jobs:
   # job's notarization in the workflow concurrency group (hq-a3 accepted, 2026-10-14).
   # Off switch: repository variable NIGHTLY_NEXT_LEGACY_IDENTITY=off.
   publish-nightly-identity-legacy:
-    needs: [decide, publish-nightly, publish-release-notes]
-    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_probe != 'true' && needs.publish-nightly.result == 'success' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    needs: [decide, legacy-identity-target]
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     continue-on-error: true
     environment: release-next
     # A nightly_next_continue_only run has its own workflow group: one old-feed
@@ -3819,7 +3878,7 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
-      NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
+      NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
       LEGACY_NOTARY_WAIT_MIN: ${{ vars.NIGHTLY_LEGACY_NOTARY_WAIT_MIN || '150' }}
       CHANNEL_RELEASE_TAG: nightly-next
       CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
@@ -3835,7 +3894,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # A rerun of an older request must never move the old feed back.
+      # Checked again here: another run may have moved the old feed meanwhile.
       - name: Skip a build older than the old feed's
         id: order
         run: |
@@ -3895,7 +3954,7 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
-          [ -n "$APPLE_CERTIFICATE_BASE64" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] || { echo "Missing signing certificate secrets" >&2; exit 1; }
+          if [ -z "$APPLE_CERTIFICATE_BASE64" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then echo "Missing signing certificate secrets" >&2; exit 1; fi
           KEYCHAIN_PASSWORD="$(uuidgen)"
           echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
           security delete-keychain build.keychain >/dev/null 2>&1 || true
@@ -3938,8 +3997,10 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
-          [[ "$LEGACY_NOTARY_WAIT_MIN" =~ ^[0-9]+$ ]] && [ "$LEGACY_NOTARY_WAIT_MIN" -ge 10 ] && [ "$LEGACY_NOTARY_WAIT_MIN" -le 165 ] \
-            || { echo "NIGHTLY_LEGACY_NOTARY_WAIT_MIN must be 10..165 minutes (job limit 200; about 30 min of the job is not the wait), got '$LEGACY_NOTARY_WAIT_MIN'" >&2; exit 1; }
+          if ! [[ "$LEGACY_NOTARY_WAIT_MIN" =~ ^[0-9]+$ ]] || [ "$LEGACY_NOTARY_WAIT_MIN" -lt 10 ] || [ "$LEGACY_NOTARY_WAIT_MIN" -gt 165 ]; then
+            echo "NIGHTLY_LEGACY_NOTARY_WAIT_MIN must be 10..165 minutes (job limit 200; about 30 min of the job is not the wait), got '$LEGACY_NOTARY_WAIT_MIN'" >&2
+            exit 1
+          fi
           mkdir -p legacy-out
           : > "$RUNNER_TEMP/unused-helper-state"
           CMUX_CHANNEL=nightly \
@@ -4051,7 +4112,7 @@ jobs:
         if: failure()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          BUILD: ${{ needs.publish-nightly.outputs.build }}
+          BUILD: ${{ needs.legacy-identity-target.outputs.build }}
         with:
           script: |
             const title = 'cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)';
