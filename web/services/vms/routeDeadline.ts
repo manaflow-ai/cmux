@@ -261,7 +261,7 @@ function recordContinuationSpan(label: string, outcome: string, detail: Record<s
     }
   }
   return withPrioritySpan("cmux-vm", "cmux.vm.continuation", attributes, () => undefined)
-    .then(() => forceFlushTraces())
+    .then(async () => { await forceFlushTraces(); })
     .catch(() => undefined);
 }
 
