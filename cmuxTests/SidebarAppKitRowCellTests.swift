@@ -371,6 +371,10 @@ struct SidebarAppKitRowCellTests {
             _ = element.perform(legacy, with: NSAccessibility.Action.press.rawValue)
         }
 
+        let selected = await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
+            tabManager.selectedTabId == workspace.id
+        }
+        #expect(selected)
         #expect(tabManager.selectedTabId == workspace.id)
     }
 
