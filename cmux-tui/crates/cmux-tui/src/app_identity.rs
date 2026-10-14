@@ -73,8 +73,14 @@ impl AppIdentity {
     /// NIGHTLY's shared roots.
     pub(crate) fn build(&self) -> BuildIdentity {
         match (self.bundle_id.as_deref(), self.tag.as_deref()) {
+            // `scripts/reload.sh` names a tagged build `com.cmuxterm.app.debug.<segment>`:
+            // runs outside `[a-z0-9]` become one `.` (tag `foo-bar` is `…debug.foo.bar`).
             (None, Some(tag)) => {
-                BuildIdentity::new(Some(&format!("{DEBUG_BUNDLE_ID}.{tag}")), None)
+                let segment: Vec<&str> = tag
+                    .split(|c: char| !c.is_ascii_alphanumeric())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                BuildIdentity::new(Some(&format!("{DEBUG_BUNDLE_ID}.{}", segment.join("."))), None)
             }
             (bundle_id, _) => BuildIdentity::new(bundle_id, self.shipped_tag.as_deref()),
         }

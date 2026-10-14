@@ -78,13 +78,44 @@ fn cmux_acp_uses_the_acpmux_home_of_its_own_build() {
             wrong.push(format!("{}: {} (want {})", case["name"], got.display(), want.display()));
         }
     }
+    // A terminal that sets only `CMUX_TAG` names that tag's DEV build
+    // (`scripts/reload.sh`: tag `foo-bar` is `com.cmuxterm.app.debug.foo.bar`),
+    // never NIGHTLY's shared home.
+    let mut tag_only = Command::new(bin());
+    tag_only.args(["acp", "config", "--json"]).env("LC_ALL", "C").env("HOME", &user_home);
+    for key in FOREIGN {
+        tag_only.env_remove(key);
+    }
+    let config =
+        json_of(&tag_only.env("CMUX_TAG", "foo-bar").stdin(Stdio::null()).output().unwrap());
+    let want = user_home.join(".acpmux/builds/com.cmuxterm.app.debug.foo.bar");
+    if config["home"].as_str() != Some(want.to_str().unwrap()) {
+        wrong.push(format!("CMUX_TAG=foo-bar only: {} (want {})", config["home"], want.display()));
+    }
     let _ = fs::remove_dir_all(&user_home);
     assert!(wrong.is_empty(), "acpmux homes of the wrong build:\n{}", wrong.join("\n"));
 }
 
+/// Stops the acpmux daemons of `bundles` under `user_home` when dropped, so a
+/// failed assertion never leaves one running.
+struct StopDaemons<'a> {
+    user_home: &'a Path,
+    bundles: [&'static str; 2],
+}
+
+impl Drop for StopDaemons<'_> {
+    fn drop(&mut self) {
+        for bundle in self.bundles {
+            let _ = acp_as(Some(bundle), None, self.user_home, &["daemon", "shutdown"]);
+        }
+    }
+}
+
 /// NIGHTLY and the untagged DEV build run acpmux daemons at the same time:
 /// two processes, two sockets, each in its own build's home. Stopping the
-/// DEV build's daemon through its CLI leaves NIGHTLY's running.
+/// DEV build's daemon through its CLI leaves NIGHTLY's running. NIGHTLY's
+/// config (harness and model defaults) keeps every setting, and the DEV
+/// build's new home neither copies nor links anything of NIGHTLY's home.
 #[test]
 fn stopping_one_builds_acpmux_leaves_nightlys_running() {
     const NIGHTLY: &str = "com.cmuxterm.app.nightly";
@@ -96,9 +127,16 @@ fn stopping_one_builds_acpmux_leaves_nightlys_running() {
     fs::create_dir_all(&nightly_home).unwrap();
     fs::write(
         nightly_home.join("config.json"),
-        r#"{"websocket": {"listen": "127.0.0.1:0", "token": "acpmux-build-homes-test"}}"#,
+        r#"{"defaultHarness": "codex", "webAskingModes": {"codex": ["nightly-own-mode"]},
+            "websocket": {"listen": "127.0.0.1:0", "token": "acpmux-build-homes-test"}}"#,
     )
     .unwrap();
+    let nightly_config = || -> Value {
+        serde_json::from_str(&fs::read_to_string(nightly_home.join("config.json")).unwrap())
+            .unwrap()
+    };
+    let before = nightly_config();
+    let guard = StopDaemons { user_home: &user_home, bundles: [DEV, NIGHTLY] };
     let shutdown = |bundle: &str| acp_as(Some(bundle), None, &user_home, &["daemon", "shutdown"]);
     let nightly = json_of(&acp_as(Some(NIGHTLY), None, &user_home, &["daemon", "start", "--json"]));
     let dev = json_of(&acp_as(Some(DEV), None, &user_home, &["daemon", "start", "--json"]));
@@ -111,8 +149,27 @@ fn stopping_one_builds_acpmux_leaves_nightlys_running() {
         (nightly["socket"].as_str().map(str::to_owned), dev["socket"].as_str().map(str::to_owned));
     let stop_dev = shutdown(DEV);
     let nightly_after = running(pid(&nightly));
-    let _ = shutdown(NIGHTLY);
-    let _ = shutdown(DEV);
+    drop(guard);
+    let after = nightly_config();
+    // Every file of the DEV home: no link anywhere, no NIGHTLY setting in any file.
+    let dev_home = user_home.join(".acpmux/builds").join(DEV);
+    let mut links = Vec::new();
+    let mut copied = Vec::new();
+    let mut pending = vec![dev_home.clone()];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let kind = entry.file_type().unwrap();
+            if kind.is_symlink() {
+                links.push(entry.path());
+            } else if kind.is_dir() {
+                pending.push(entry.path());
+            } else if fs::read(entry.path())
+                .is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains("nightly-own-mode"))
+            {
+                copied.push(entry.path());
+            }
+        }
+    }
     let _ = fs::remove_dir_all(&user_home);
     assert_eq!(homes.0.as_deref(), Some(nightly_home.as_path()), "NIGHTLY's daemon home");
     assert_eq!(
@@ -123,5 +180,14 @@ fn stopping_one_builds_acpmux_leaves_nightlys_running() {
     assert_ne!(pid(&nightly), pid(&dev), "one daemon served both builds");
     assert_ne!(sockets.0, sockets.1, "both builds' daemons share one socket");
     assert_success(&stop_dev);
+    for key in ["defaultHarness", "webAskingModes"] {
+        assert_eq!(after[key], before[key], "NIGHTLY's config lost or changed {key}");
+    }
+    assert_eq!(
+        after["websocket"]["listen"], before["websocket"]["listen"],
+        "NIGHTLY's listen address"
+    );
+    assert!(links.is_empty(), "the DEV build's home links elsewhere: {links:?}");
+    assert!(copied.is_empty(), "the DEV build's home holds NIGHTLY's settings: {copied:?}");
     assert!(nightly_after, "the DEV build's `cmux acp daemon shutdown` stopped NIGHTLY's acpmux");
 }

@@ -368,7 +368,7 @@ def acpmux_home():
     not a slot HOME). Never /tmp/acpmux-<uid> as such: other apps' daemons live there."""
     slug = re.sub(r"[^a-z0-9]+", "-", (APP.tag or "").lower()).strip("-")
     for base in {os.path.expanduser("~"), APP.env.get("HOME", "")}:
-        home = os.path.join(base, ".acpmux", "builds", "com.cmuxterm.app.debug." + slug)
+        home = os.path.join(base, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug.lower()).strip("."))
         if base and os.path.exists(acpmux_socket_of(home)):
             return home
     return None

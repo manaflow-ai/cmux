@@ -153,7 +153,7 @@ def acpmux_homes(tag):
     /tmp/acpmux-<uid> as such: it is shared with every other app of this user."""
     found = {}
     for user_home in opts.home:
-        home = os.path.join(user_home, ".acpmux", "builds", "com.cmuxterm.app.debug." + tag_slug(tag))
+        home = os.path.join(user_home, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", tag.lower()).strip("."))
         if os.path.exists(socket_of(home)):
             found[home] = socket_of(home)
     return found

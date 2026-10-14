@@ -28,6 +28,7 @@ Exit 0 when every step passed; the first failed step's number otherwise.
 Usage: chief-per-build-live.py --tag TAG --app APP [--reply-wait 240] [--out DIR]
 """
 import argparse, json, os, shutil, socket, sqlite3, subprocess, sys, tempfile, time
+import re
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--tag", required=True)
@@ -241,7 +242,7 @@ try:
     ok0 = wait(lambda: brain_pid(NIGHTLY_HOME), 180) and a.send(m0)
     say(f"step 0: shared home {NIGHTLY_HOME}: brain and reply {'ok' if ok0 else 'FAILED'}")
     a.quit(NIGHTLY_HOME)
-    acpmux_shutdown(a, os.path.join(ACPMUX_ROOT, "builds", f"com.cmuxterm.app.debug.{TAG}"))
+    acpmux_shutdown(a, os.path.join(ACPMUX_ROOT, "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip(".")))
     if not ok0:
         failed = failed or 10
         raise SystemExit

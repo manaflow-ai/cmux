@@ -2505,7 +2505,7 @@ jobs:
           app="$RUNNER_TEMP/launch-budget/cmux DEV ${tag}.app"
           mkdir -p "$RUNNER_TEMP/launch-budget"
           /bin/cp -R "$built" "$app"
-          trap 'pkill -f "$RUNNER_TEMP/launch-budget/" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/.acpmux/tags/$tag" "$HOME/.cmux/mux/tags/$tag" "$RUNNER_TEMP/launch-budget"' EXIT
+          trap 'pkill -f "$RUNNER_TEMP/launch-budget/" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$RUNNER_TEMP/launch-budget"' EXIT
           python3 scripts/cmux-next/bench-startup.py --app "$app" --profile empty --mode warm --runs 3 --timeout 6 \
             --budget did_finish_launching_end=800 --budget first_window_frame_committed=1000 --budget sidebar_rows_shown=1000
 
