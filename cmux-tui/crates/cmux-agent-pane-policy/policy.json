@@ -12,7 +12,7 @@
     "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread",
-    "_acpmux/harness/health", "_acpmux/side", "_acpmux/offer_respond"
+    "_acpmux/harness/health", "_acpmux/side", "_acpmux/offer_respond", "_acpmux/start_mode"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -58,6 +58,7 @@
     "_acpmux/warm": {"params": ["sessionIds", "limit"], "acpmux": []},
     "_acpmux/kill": {"params": ["sessionId", "purge"], "acpmux": []},
     "_acpmux/prewarm": {"params": ["harness", "cwd"], "acpmux": []},
+    "_acpmux/start_mode": {"params": ["harness", "cwd"], "acpmux": []},
     "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
     "_acpmux/models": {"params": [], "acpmux": []},
     "_acpmux/status": {"params": [], "acpmux": []},
