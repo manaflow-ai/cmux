@@ -253,9 +253,11 @@ extension Workspace {
     func settleAgentTurnFromProgramStatus(key: String, panelId: UUID, edge: Date) {
         guard panels[panelId] != nil,
               agentLifecycleStatesByPanelId[panelId]?[key] == .running else { return }
-        if let reported = agentStatusEntriesByPanelId[panelId]?[key]?.timestamp, reported > edge {
-            return
-        }
+        // Only a foreground Running row is stale. A Waiting or subagent row
+        // means the turn ended with background work still live.
+        guard let reported = agentStatusEntriesByPanelId[panelId]?[key],
+              reported.workState == .running,
+              reported.timestamp <= edge else { return }
         let store = programStatusStoresByPanelId[panelId] ?? ProgramStatusRecordStore()
         guard !ProgramStatusAgentSettlement().isActive(statusKey: key, in: store) else { return }
         let source = key == "claude_code" ? "claude" : key
