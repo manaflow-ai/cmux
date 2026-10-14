@@ -39,7 +39,9 @@ final class CardSwipeState {
     /// Times the tab's removal during a fly-off (injected for tests).
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
 
-    private func spring(_ s: ZoomSpring) -> Animation { .spring(response: s.response, dampingFraction: s.damping) }
+    /// The textbook spring for `s` (SwiftUI's `.spring(response:dampingFraction:)`
+    /// renders faster and stiffer than its parameters; tabs-parity-reaudit D8).
+    private func spring(_ s: ZoomSpring) -> Animation { s.animation() }
 
     func track(_ key: String, translation: CGFloat, reduceMotion: Bool) {
         let target = CardSwipe.offset(translation: translation)
@@ -154,7 +156,7 @@ final class CardSwipeState {
             let s = from > 0 ? CardSwipe.snapBackRight : CardSwipe.snapBack
             // The spring's velocity is a fraction of the change per second.
             let relative = abs(from) > 0.5 ? Double(velocity / (0 - from)) : 0
-            let animation = Animation.interpolatingSpring(Spring(response: s.response, dampingRatio: s.damping), initialVelocity: relative)
+            let animation = s.animation(initialVelocity: relative)
             withAnimation(animation, completionCriteria: .removed) {
                 offsets[key] = 0
                 opacities[key] = 1
@@ -167,6 +169,15 @@ final class CardSwipeState {
                 if self?.offsets[key] == 0 { self?.scales[key] = nil }
             }
         }
+    }
+}
+
+extension ZoomSpring {
+    /// A damped oscillator with this response and damping (mass 1,
+    /// stiffness (2π / response)², damping 4π · damping / response).
+    func animation(initialVelocity: Double = 0) -> Animation {
+        let w = 2 * Double.pi / response
+        return .interpolatingSpring(mass: 1, stiffness: w * w, damping: 2 * damping * w, initialVelocity: initialVelocity)
     }
 }
 
