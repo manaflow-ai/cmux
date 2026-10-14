@@ -66,6 +66,16 @@ public final class AppStore {
         UserDefaults.standard.set(id, forKey: Self.lastTeamKey)
     }
 
+    /// Setup's "Personal": makes the personal space active when the store
+    /// lists it (mock data, or live once the account's spaces have loaded);
+    /// false when it isn't listed yet (the live coordinator adds it).
+    @discardableResult
+    public func selectPersonalSpace() -> Bool {
+        guard let id = teams.first(where: \.isPersonalSpace)?.id else { return false }
+        selectTeam(id)
+        return true
+    }
+
     public func setAppearance(_ appearance: TeamAppearance, for teamID: String) {
         guard let index = teams.firstIndex(where: { $0.id == teamID }) else { return }
         teams[index].appearance = appearance
@@ -158,7 +168,7 @@ public final class AppStore {
         }
     }
 
-    private static let lastTeamKey = "cnx.lastTeamID"
+    static let lastTeamKey = "cnx.lastTeamID"
     private static func appearanceKey(_ teamID: String) -> String { "cnx.teamAppearance.\(teamID)" }
 
     private static func storedAppearance(_ teamID: String) -> TeamAppearance? {

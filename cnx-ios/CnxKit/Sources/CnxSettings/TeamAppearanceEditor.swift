@@ -63,16 +63,20 @@ public struct TeamAppearanceEditor: View {
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-            // Pinned above the scrolling controls, so the color and the
-            // character stay in view while the keyboard is up (smaller then).
-            preview
-                .padding(.top, 12)
-                .padding(.bottom, 4)
+            // Pinned above the scrolling Icon controls: the preview, the
+            // "Color" header and the grid stay whole and in view while the
+            // keyboard is up (the preview smaller then). Only Icon scrolls.
+            VStack(spacing: 0) {
+                preview
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
+                sectionHeader("Color").padding(.top, 16)
+                colorGrid.padding(.top, 8)
+            }
+            .padding(.horizontal, theme.metrics.sideMargin)
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
-                        sectionHeader("Color").padding(.top, 16)
-                        colorGrid.padding(.top, 8)
                         iconSection.padding(.top, 24).padding(.bottom, 16)
                     }
                     .padding(.horizontal, theme.metrics.sideMargin)
