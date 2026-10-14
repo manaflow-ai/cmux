@@ -1567,10 +1567,7 @@ mod tests {
                 Err(_) => break,
             }
         }
-        assert!(
-            saw_can,
-            "checkpoint recovery must publish CAN after the unreplayable PTY bytes"
-        );
+        assert!(saw_can, "checkpoint recovery must publish CAN after the unreplayable PTY bytes");
 
         mux.journal_terminal_output(
             Arc::new(public_id.clone()),
