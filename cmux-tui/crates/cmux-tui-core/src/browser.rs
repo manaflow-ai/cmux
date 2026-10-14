@@ -352,6 +352,8 @@ struct BrowserState {
     /// The attached session has no screencast: a natively hosted page with
     /// no frame viewer. Never set for a daemon-hosted page.
     screencast_paused: bool,
+    /// A failed frame-demand start or stop is retried at this time.
+    frame_demand_retry_at: Option<Instant>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -812,6 +814,7 @@ struct BrowserCaptureOptions {
 pub const TRANSPORT_SAFE_CAPTURE_MEGAPIXELS: f64 = 2.0;
 const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
+const FRAME_DEMAND_RETRY_DELAY: Duration = Duration::from_millis(500);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_RETAINED_RELEASE_CAPACITY: usize = BROWSER_COMMAND_QUEUE_CAPACITY + 1;
 const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(30);

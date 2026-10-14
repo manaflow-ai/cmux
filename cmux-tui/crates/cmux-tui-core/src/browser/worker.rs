@@ -250,6 +250,7 @@ pub(super) fn next_browser_lifecycle_deadline(
     [
         next_pointer_lifecycle_deadline(failures),
         surface.as_browser().and_then(BrowserSurface::pending_authority_deadline),
+        surface.as_browser().and_then(BrowserSurface::frame_demand_retry_at),
     ]
     .into_iter()
     .flatten()

@@ -149,6 +149,28 @@ fn recv_attach_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
     }
 }
 
+/// A guarded TUI client attached to the browser surface at 30x10 cells.
+fn attach_viewer(socket: &std::path::Path, surface: u64, id: u64) -> BufReader<UnixStream> {
+    let mut stream = UnixStream::connect(socket).unwrap();
+    send_line(
+        &mut stream,
+        json!({
+            "id": id,
+            "cmd": "set-client-info",
+            "kind": "tui",
+            "capabilities": [server::GUARDED_BROWSER_POINTER_CAPABILITY],
+        }),
+    );
+    let mut viewer = BufReader::new(stream);
+    let info = read_reply(&mut viewer);
+    assert_eq!(info["ok"], true, "viewer registration failed: {info}");
+    send_line(
+        viewer.get_mut(),
+        json!({"id": id + 1, "cmd": "attach-surface", "surface": surface, "cols": 30, "rows": 10}),
+    );
+    viewer
+}
+
 fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
     let deadline = Instant::now() + test_duration(timeout);
     loop {
@@ -224,23 +246,7 @@ fn native_hosted_provider_keeps_native_geometry_and_screencasts_only_for_viewers
 
     // A frame viewer attaches: only now does a screencast start, and it is
     // the first screencast or metrics call the target ever got.
-    let mut viewer_stream = UnixStream::connect(&socket_path).unwrap();
-    send_line(
-        &mut viewer_stream,
-        json!({
-            "id": 3,
-            "cmd": "set-client-info",
-            "kind": "tui",
-            "capabilities": [server::GUARDED_BROWSER_POINTER_CAPABILITY],
-        }),
-    );
-    let mut viewer = BufReader::new(viewer_stream);
-    let info = read_reply(&mut viewer);
-    assert_eq!(info["ok"], true, "viewer registration failed: {info}");
-    send_line(
-        viewer.get_mut(),
-        json!({"id": 4, "cmd": "attach-surface", "surface": surface.id, "cols": 30, "rows": 10}),
-    );
+    let mut viewer = attach_viewer(&socket_path, surface.id, 3);
     let (start, before_viewer) = recv_until(&seen_rx, "Page.startScreencast");
     assert_none_forbidden("attach and resize without a viewer", &before_viewer);
     assert!(
@@ -263,6 +269,26 @@ fn native_hosted_provider_keeps_native_geometry_and_screencasts_only_for_viewers
     drop(viewer);
     let (_, before_stop) = recv_until(&seen_rx, "Page.stopScreencast");
     assert_none_forbidden("viewer detach", &before_stop);
+
+    // A new viewer starts it again. Its frames then stall (the endpoint
+    // sends one frame per start); input on a stalled native page must not
+    // bring the native window's target to the front.
+    let mut second = attach_viewer(&socket_path, surface.id, 5);
+    let (_, before_second) = recv_until(&seen_rx, "Page.startScreencast");
+    assert_none_forbidden("second viewer attach", &before_second);
+    let frame = recv_attach_event(&mut second, "frame");
+    assert_eq!(frame["data"], "bmF0aXZl");
+    wait_for(
+        || surface.browser_frames_stalled().filter(|stalled| *stalled),
+        Duration::from_secs(10),
+    )
+    .expect("the viewed native page's frames stalled");
+    // The input may be refused for a client-owned pointer; either way the
+    // detach below is the fence for anything it could have sent.
+    let _ = surface.browser_mouse_event("mousePressed", 12.0, 9.0, Some("left"), Some(1));
+    drop(second);
+    let (_, before_second_stop) = recv_until(&seen_rx, "Page.stopScreencast");
+    assert_none_forbidden("input on a stalled viewed page", &before_second_stop);
 
     mux.close_surface(surface.id).unwrap();
     drop(provider);

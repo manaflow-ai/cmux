@@ -198,6 +198,7 @@ impl BrowserSurface {
         state.status = BrowserStatus::Starting;
         // The replacement session starts its own screencast (or none).
         state.screencast_paused = false;
+        state.frame_demand_retry_at = None;
         state.failure_kind = None;
         state.source = None;
         state.title = state.url.clone();

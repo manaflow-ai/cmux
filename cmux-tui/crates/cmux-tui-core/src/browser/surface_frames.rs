@@ -56,19 +56,29 @@ impl BrowserSurface {
     /// Worker side of frame demand for a natively hosted page: screencast
     /// while a frame viewer is attached, nothing otherwise. Daemon-hosted
     /// pages always screencast and are left alone. A failed start or stop is
-    /// retried on the worker's next wake.
+    /// retried at [`Self::frame_demand_retry_at`], which the worker waits for.
     pub(super) fn reconcile_frame_demand(&self) {
-        if self.is_dead() {
-            return;
-        }
-        let session = match self.session.lock().unwrap().as_ref() {
-            Some(session) if session.runtime.native_hosted() => session.clone(),
-            _ => return,
+        let now = Instant::now();
+        let session = if self.is_dead() {
+            None
+        } else {
+            match self.session.lock().unwrap().as_ref() {
+                Some(session) if session.runtime.native_hosted() => Some(session.clone()),
+                _ => None,
+            }
         };
         let wanted = self.has_frame_viewers();
-        if wanted != self.screencast_paused() {
-            return;
+        {
+            let mut state = self.state.lock().unwrap();
+            if session.is_none() || wanted != state.screencast_paused {
+                state.frame_demand_retry_at = None;
+                return;
+            }
+            if state.frame_demand_retry_at.is_some_and(|retry_at| now < retry_at) {
+                return;
+            }
         }
+        let Some(session) = session else { return };
         let (width, height) = self.pixel_size();
         let client = &session.runtime.client;
         let result = if wanted {
@@ -76,13 +86,32 @@ impl BrowserSurface {
         } else {
             client.stop_screencast(&session.session_id)
         };
-        if result.is_err() {
+        let current = self.session.lock().unwrap();
+        if current.as_ref().is_none_or(|live| live.session_id != session.session_id) {
             return;
         }
-        let current = self.session.lock().unwrap();
-        if current.as_ref().is_some_and(|live| live.session_id == session.session_id) {
-            self.set_screencast_paused(!wanted);
+        let mut state = self.state.lock().unwrap();
+        if result.is_err() {
+            state.frame_demand_retry_at = Some(Instant::now() + FRAME_DEMAND_RETRY_DELAY);
+            return;
         }
+        state.frame_demand_retry_at = None;
+        drop(state);
+        self.set_screencast_paused(!wanted);
+        if !wanted {
+            // Nobody views the page now: the next viewer must not get, or
+            // aim guarded pointer input at, pixels from before the pause.
+            let mut state = self.state.lock().unwrap();
+            state.latest_frame = None;
+            Self::set_pointer_frame_locked(&mut state, None);
+            self.set_pending_attach_frame_locked(&mut state, None);
+            self.mark_state_dirty_locked(&mut state);
+        }
+    }
+
+    /// When the worker retries a failed screencast start or stop.
+    pub(super) fn frame_demand_retry_at(&self) -> Option<Instant> {
+        self.state.lock().unwrap().frame_demand_retry_at
     }
 
     #[cfg(test)]
