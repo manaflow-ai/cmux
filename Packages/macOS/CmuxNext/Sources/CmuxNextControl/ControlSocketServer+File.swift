@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 /// The socket file: created with its mode, reclaimed when stale, and removed
 /// only while it is still this server's.
@@ -14,12 +15,25 @@ extension ControlSocketServer {
                                                  attributes: [.posixPermissions: 0o700])
     }
 
-    /// Points `link` at `target` when nothing is at `link`; never replaces anything.
-    /// Creates `link` to `target` when nothing is at `link`; true unless the symlink call failed.
+    /// Creates `link` to `target` when nothing is at `link`, or when a stale socket
+    /// of this user is (a pre-move app that crashed: nothing listens, the same rule
+    /// as ``reclaimStalePath(_:)``). Anything else at `link` stays, logged once per
+    /// call. True unless the symlink call failed.
     @discardableResult
     static func makeLink(_ link: String, to target: String) -> Bool {
         var info = stat()
-        guard lstat(link, &info) != 0, errno == ENOENT else { return true }
+        if lstat(link, &info) == 0 {
+            let isStaleSocket = info.st_mode & S_IFMT == S_IFSOCK && info.st_uid == getuid() && probe(link) == .refused
+            guard isStaleSocket else {
+                if (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) != target {
+                    socketFileLog.notice("compatibility link not made: something else is at \(link, privacy: .public)")
+                }
+                return true
+            }
+            unlink(link)
+        } else if errno != ENOENT {
+            return true
+        }
         return symlink(target, link) == 0 || errno == EEXIST
     }
 
@@ -149,3 +163,5 @@ extension ControlSocketServer {
         return code == ECONNREFUSED ? .refused : .inconclusive(code)
     }
 }
+
+private let socketFileLog = Logger(subsystem: "com.cmuxterm.app.next", category: "control-socket")
