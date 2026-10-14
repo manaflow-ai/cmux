@@ -60,9 +60,9 @@ final class CardBitmaps {
     @ObservationIgnored private var requested: [String: Request] = [:]
 
     /// The baked card for `id` showing `source` as `spec` describes. Returns
-    /// the last bitmap baked at this spec (possibly of the previous
-    /// snapshot while the new one bakes), or nil when there is none yet
-    /// (draw the card live meanwhile). Safe to call from a view body: the
+    /// the last bitmap baked for the card (possibly of the previous snapshot
+    /// or size while the new one bakes), or nil when there is none yet (draw
+    /// the card live meanwhile). Safe to call from a view body: the
     /// result is published asynchronously.
     func image(for id: String, source: UIImage, spec: CardBitmapSpec) -> UIImage? {
         if let r = requested[id], r.source === source, r.spec == spec {
@@ -74,8 +74,12 @@ final class CardBitmaps {
                 await self?.publish(id, source: source, spec: spec, image: baked)
             }
         }
-        guard let p = published[id], p.spec == spec else { return nil }
-        return p.image
+        // While a new size bakes (a reflow into or out of the lone-tab
+        // layout), the last bitmap stretches with the card's animating frame:
+        // its corners are proportional to the width, so it looks the same.
+        // Returning nil there swapped the card to the live view mid-reflow,
+        // which jumped (lone-trans.mp4). Only a card never baked draws live.
+        return published[id]?.image
     }
 
     /// Drops cards that are not in the grid any more.
