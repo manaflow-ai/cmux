@@ -266,8 +266,7 @@ pub struct Hub {
     pub(super) web_modes: StdMutex<web_control::WebModeCache>,
     /// Where the folder-trust gate reads (`server/trust_gate.rs`); None: no gate.
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
-    /// The `sandbox-exec` remote chains run Claude Code under
-    /// (`remote_sandbox.rs`).
+    /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
