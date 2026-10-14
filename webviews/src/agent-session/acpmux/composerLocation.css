@@ -209,7 +209,9 @@
   border-radius: 6px;
   background: transparent;
   color: var(--agent-muted);
-  font: var(--text-control)/20px system-ui;
+  font-family: system-ui;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
   cursor: pointer;
 }
 .acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
