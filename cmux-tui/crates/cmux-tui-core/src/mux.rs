@@ -275,9 +275,9 @@ pub(crate) use time::now_ms;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
-pub(crate) mod creating_input;
 mod pending_terminals;
 mod terminal_adoption;
 pub(crate) mod terminal_archive;
