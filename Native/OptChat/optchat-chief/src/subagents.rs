@@ -52,7 +52,7 @@ pub const MAX_TASKS: usize = 8;
 /// start as others finish.
 pub const MAX_LIVE: usize = 16;
 /// Longest `spawn` waits for the view to settle (section 6), as a turn does
-/// (chief 2026-10-10: a user turn never waits more than 10 s on compaction):
+/// (a user turn never waits more than SETTLE_BOUND, 1 s, on compaction):
 /// then the subagent gets the view with the lines still building as the
 /// placeholder.
 pub const SETTLE_LIMIT: Duration = crate::brain::SETTLE_BOUND;
@@ -151,6 +151,12 @@ pub struct Spawner {
     /// a restarted host reports them as not started).
     waiting: Mutex<BTreeMap<String, Waiting>>,
     log: crate::brain::Log,
+    /// The harnesses the person lets this Chief's subagents use (its
+    /// record's `harnesses`, chief_profile.rs); empty: every harness.
+    harnesses: std::collections::BTreeSet<String>,
+    /// Queued ids of a spawn the grant refused, with the refusal: the queue
+    /// starter fails them with it when the brain dequeues them.
+    refused: Mutex<BTreeMap<String, String>>,
 }
 
 impl Spawner {
@@ -172,7 +178,15 @@ impl Spawner {
             pinned: false,
             waiting: Mutex::new(BTreeMap::new()),
             log,
+            harnesses: std::collections::BTreeSet::new(),
+            refused: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// The person's harness grant (empty: every harness).
+    pub fn with_harness_grant(mut self, harnesses: std::collections::BTreeSet<String>) -> Spawner {
+        self.harnesses = harnesses;
+        self
     }
 
     pub fn with_trace(mut self, trace: Trace) -> Spawner {
@@ -521,6 +535,14 @@ impl Spawner {
                 error: error.to_owned(),
             });
         };
+        let refused = self
+            .refused
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(id);
+        if let Some(e) = refused {
+            return fail(&e);
+        }
         let Some(w) = waiting else {
             return fail("the Chief host restarted while it waited for a free slot");
         };
@@ -670,6 +692,19 @@ impl Orchestrator for Spawner {
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())??;
         let run = self.engine_settings(plan.engine.as_ref());
+        // The person's grant: a harness outside it starts nothing.
+        let refused =
+            (!self.harnesses.is_empty() && !self.harnesses.contains(&run.harness)).then(|| {
+                format!(
+                    "the person has not given this Chief's subagents the {} harness; it may use {}",
+                    run.harness,
+                    self.harnesses
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            });
         self.trace.emit(
             "spawn",
             json!({
@@ -701,7 +736,31 @@ impl Orchestrator for Spawner {
         };
         let mut started = Vec::new();
         let mut lines = Vec::new();
+        if let Some(e) = &refused {
+            // Queued ids first, before any failure frees a slot: the brain
+            // dequeues them to the queue starter, which fails them with this
+            // refusal (they are in no `waiting` entry).
+            let mut map = self
+                .refused
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for id in plan.ids.iter().filter(|id| plan.queued.contains(id)) {
+                map.insert(id.clone(), e.clone());
+            }
+        }
         for (id, task) in plan.ids.iter().zip(&tasks) {
+            if let Some(e) = &refused {
+                (self.log)(&format!("subagent {id} did not start: {e}"));
+                lines.push(format!("- {id}: did not start ({e})"));
+                if plan.queued.contains(id) {
+                    continue;
+                }
+                let _ = self.send(Input::SubagentFailed {
+                    id: id.clone(),
+                    error: e.clone(),
+                });
+                continue;
+            }
             if plan.queued.contains(id) {
                 self.waiting
                     .lock()
@@ -735,7 +794,7 @@ impl Orchestrator for Spawner {
                 }
             }
         }
-        let head = if started.is_empty() && plan.queued.is_empty() {
+        let head = if started.is_empty() && (plan.queued.is_empty() || refused.is_some()) {
             "No subagent started.".to_owned()
         } else if started.is_empty() {
             format!("Queued {}.", plan.queued.join(", "))

@@ -155,6 +155,10 @@ final class DividerHandleView: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// A press here drags the divider, also where the handle reaches into the titlebar band:
+    /// it never moves the window (`TitlebarDragPolicy`), and its double-click stays its own.
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 {
             onDrag?(.doubleClick)
