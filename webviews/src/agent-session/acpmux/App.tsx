@@ -784,6 +784,8 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
 function RowFrame({
   row,
   kind,
+  joinsPrevious,
+  joinsNext,
   index,
   setSize,
   top,
@@ -804,6 +806,10 @@ function RowFrame({
 }: {
   row: AcpmuxRow;
   kind: string;
+  /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
+  joinsPrevious: boolean;
+  /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
+  joinsNext: boolean;
   index: number;
   setSize: number;
   top: number;
@@ -849,14 +855,14 @@ function RowFrame({
         row.version,
         acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
       );
-  }, [row.id, row.version, rowWidth, expanded, report]);
+  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
   return (
     <article
       ref={ref}
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
+      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -896,6 +902,9 @@ function RowFrame({
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
+/// A row drawn as tool rows: tool calls and thoughts, or a background task's end.
+const isStepRow = (row: AcpmuxRow | undefined) =>
+  row !== undefined && (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -1854,6 +1863,8 @@ export function VirtualTranscript({
                       key={`${sessionId ?? ""}:${row.id}`}
                       row={row}
                       kind={kind}
+                      joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
+                      joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
@@ -1952,10 +1963,11 @@ function DefaultComposerChips({
     if (!startsChat || !harness || snapshot.summary?.sessionId) return;
     void callNative("chat.new", { harness, ...inFolder }).catch(() => undefined);
   };
-  const picker = usePickerCatalog(snapshot.catalog, {
-    harness: snapshot.summary?.harness,
-    configOptions: snapshot.summary?.configOptions,
-  });
+  const picker = usePickerCatalog(
+    snapshot.catalog,
+    { harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions },
+    snapshot.sessions,
+  );
   const [refreshStatus, setRefreshStatus] = useState<"idle" | "fetching" | "updated" | "error">("idle");
   const refreshCatalog = useCallback(async () => {
     setRefreshStatus("fetching");
@@ -2574,7 +2586,7 @@ function AcpmuxPane() {
     () => ({ harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions }),
     [snapshot.summary?.harness, snapshot.summary?.configOptions],
   );
-  const pickerState = usePickerCatalog(snapshot.catalog, pickerSession);
+  const pickerState = usePickerCatalog(snapshot.catalog, pickerSession, snapshot.sessions);
   const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
@@ -3437,6 +3449,14 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
+        /// Opens a chat this one made in a tab of its own (`chat.openTab`); false when the host opens none.
+        const openOwnTab = (sessionId: string) =>
+          mock
+            ? Promise.resolve(false)
+            : callNative("chat.openTab", { sessionId }).then(
+                () => true,
+                () => false,
+              );
         /// Settles when the turn ends. `accepted` runs once acpmux took the prompt; a sender that
         /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
         /// Without it a refused prompt goes back into the composer.
@@ -3647,9 +3667,15 @@ function AcpmuxPane() {
           "chat.menu.openImage": async () => openReportedImage(),
           // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
           "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
+          // A fork and a started Continue in… open in a tab of their own, so the chat keeps its tab
+          // and stays in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the
+          // floating chat) gets the new chat in this tab, as before.
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
-            return persistSession(await client.fork(Number(throughSeq)));
+            const chat = client.selectedSession;
+            const forked = await client.fork(Number(throughSeq), undefined, true);
+            if (!forked || (await openOwnTab(forked)) || client.selectedSession !== chat) return forked;
+            return persistSession(await client.select(forked));
           },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
           // edited text with the prompt's attachments; the original chat stays as it was.
@@ -3704,13 +3730,24 @@ function AcpmuxPane() {
               await persistSession(await client.select(String(sessionId)));
             }
           },
+          // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
+          // its own tab and brings this one back to the chat.
           "chat.handoff.prepare": async ({ harness }) => {
             harnessSwitch.cancel();
-            return persistSession(await client.continueIn(String(harness)));
+            return client.continueIn(String(harness));
           },
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
-          "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
+          "chat.handoff.start": async ({ review }) => {
+            const receipt = await client.startHandoff(review as HandoffReviewInput);
+            const source = client.handoff.state.record?.source.sessionId;
+            const target = receipt?.targetSessionId;
+            if (!target || !source || client.selectedSession !== target) return receipt;
+            if (await openOwnTab(target)) {
+              if (client.selectedSession === target) await persistSession(await client.select(source));
+            } else await persistSession(target);
+            return receipt;
+          },
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope, paths, context_lines }) =>
             client.gitDiff(String(scope), {

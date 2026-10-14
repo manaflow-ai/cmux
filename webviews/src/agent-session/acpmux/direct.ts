@@ -2342,14 +2342,15 @@ export class AcpmuxDirectClient {
   /// Forks the open session (or `from`, the chat it was forked from) through the turn whose summary
   /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
-  /// stays there.
-  async fork(throughSeq: number, from?: string): Promise<string | undefined> {
+  /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
+  async fork(throughSeq: number, from?: string, stay = false): Promise<string | undefined> {
     if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
       const result = await this.request(FORK_OP, { sessionId: from ?? this.selectedSessionId, throughSeq });
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
+      if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (generation === this.selectionGeneration) {

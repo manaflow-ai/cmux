@@ -5784,6 +5784,13 @@ the profile's bookmarks, reports their number in `deleted_bookmarks`, and,
 when there were any, emits `bookmarks-changed`. The app moves its tabs and
 removes its engine data.
 
+Only a person deletes a browser profile: the command needs the verified
+cmux app connection (origin `user`, request-origin.md), always. Any
+other connection (an agent, a script, the CLI, a page relay) gets
+`error_code: "origin.forbidden"` and nothing changes. The app runs it only
+after the person's own palette, menu, keyboard or Settings click and the
+confirmation sheet.
+
 Params: `browser_profile` (required).
 
 Result: `object{browser_profile:string, cleared_workspaces:[object{session_id:string, workspace_key:string}], cleared_rooms:[string], deleted_bookmarks?:usize}`
