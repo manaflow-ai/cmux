@@ -60,7 +60,11 @@ nonisolated public struct UpdateReadyNotes: Equatable, Sendable {
     public init(version: String?, notes: ReleaseNotes?, fullNotesURL: URL?, limit: Int = UpdateReadyNotes.shownChanges) {
         headline = version.map(UpdaterStrings.downloadedHeadline) ?? UpdaterStrings.downloadedHeadlineNoVersion
         keepsRunning = UpdaterStrings.keepsRunning
-        let all = notes?.changeItems ?? []
+        // Editorial notes are the user-facing projection. Older builds fall back to their
+        // structured commit items until a signed editorial note exists.
+        let all = notes?.userNotes?.map { note in
+            ReleaseNotes.ChangeItem(title: note.title, pr: note.prs.first)
+        } ?? notes?.changeItems ?? []
         changes = Array(all.prefix(max(0, limit)))
         whatsChangedTitle = changes.isEmpty ? nil : UpdaterStrings.whatsChanged
         moreCount = all.count - changes.count

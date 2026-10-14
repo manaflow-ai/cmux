@@ -13,6 +13,8 @@ import urllib.request
 from urllib.parse import urlparse
 
 AREAS = ("agent-chat", "browser", "sidebar", "terminal", "workspaces", "settings", "updates", "general")
+MAX_LEGACY_RECORDS = 40
+MAX_MODEL_INPUT_BYTES = 60_000
 NOTE = re.compile(r"^[ \t]*(?:[-*][ \t]+)?(?:\*\*)?Release note:(?:\*\*)?[ \t]*(.*?)[ \t]*$", re.I | re.M)
 INTERNAL = re.compile(r"^(?:tests?|ci|docs?|refactor|chore|build|lint|style)(?:\([^)]*\))?\s*[:!]", re.I)
 MODEL_URL = "https://models.github.ai/inference/chat/completions"
@@ -84,12 +86,39 @@ def title_key(title):
     return " ".join(re.findall(r"\w+", title.casefold()))
 
 
+def semantic_tokens(title):
+    stop = {"a", "an", "and", "by", "can", "for", "from", "in", "is", "it", "of", "on", "only", "the", "to", "you"}
+    tokens = []
+    for token in re.findall(r"[a-z0-9]+", title.casefold()):
+        if token in stop:
+            continue
+        for suffix in ("ing", "ed", "es", "s"):
+            if len(token) > len(suffix) + 3 and token.endswith(suffix):
+                token = token[:-len(suffix)]
+                break
+        tokens.append(token)
+    return set(tokens)
+
+
+def equivalent_titles(left, right):
+    if title_key(left) == title_key(right):
+        return True
+    a, b = semantic_tokens(left), semantic_tokens(right)
+    shared = a & b
+    if len(shared) < 2:
+        return False
+    actions = {"add", "allow", "block", "change", "create", "delete", "disable", "download", "edit", "fix", "keep", "open", "prevent", "remove", "restore", "save", "show", "support", "update"}
+    left_actions, right_actions = a & actions, b & actions
+    if left_actions and right_actions and not left_actions & right_actions:
+        return False
+    return len(shared) / max(1, min(len(a), len(b))) >= 0.6
+
+
 def deduplicate(notes):
     merged = []
     for note in notes:
-        key = title_key(note["title"])
         existing = next((n for n in merged if n["area"] == note["area"] and
-                         (title_key(n["title"]) == key or set(n["prs"]) & set(note["prs"]))), None)
+                         (equivalent_titles(n["title"], note["title"]) or set(n["prs"]) & set(note["prs"]))), None)
         if existing:
             existing["prs"] = sorted(set(existing["prs"] + note["prs"]))
         else:
@@ -100,6 +129,9 @@ def deduplicate(notes):
 def candidates(records, token):
     if not records:
         return []
+    records = records[:MAX_LEGACY_RECORDS]
+    while records and len(json.dumps(records, ensure_ascii=False).encode("utf-8")) > MAX_MODEL_INPUT_BYTES:
+        records.pop()
     endpoint = os.environ.get("CMUX_RELEASE_NOTES_MODEL_URL", MODEL_URL)
     parsed = urlparse(endpoint)
     # The only override is a local transport fixture. Never send a token to an arbitrary host.

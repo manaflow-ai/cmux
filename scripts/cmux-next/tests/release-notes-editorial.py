@@ -36,6 +36,7 @@ def main():
             (105, "Opaque overlays draw the separator hairline", "## Summary\nFix a missing separator below the sidebar header.", "webviews/src/sidebar/header.tsx"),
             (106, "Browser profile deletion permission", "Release note: Browser: Browser profiles can only be deleted by you.", "webviews/src/browser/Profiles.tsx"),
             (107, "test: browser profile deletion", "", "tests/test_profiles.py"),
+            (108, "Blank note regression", "Release note:\n## Summary\nThis line must stay out of news.", "webviews/src/browser/Profiles.tsx"),
         ]
         prs = {}
         for number, title, body, path in rows:
@@ -91,6 +92,13 @@ def main():
             inputs = json.loads(requests[0]["messages"][1]["content"])
             assert {pr["number"] for pr in inputs} == {103, 105}, inputs
             assert all(line["title"] not in notes["changes"] for line in notes["summary"])
+            assert 108 not in {pr for note in digest for pr in note["prs"]}, digest
+            from editorial_notes import deduplicate
+            equivalent = deduplicate([
+                {"area": "browser", "title": "Browser profiles can only be deleted by you.", "prs": [201]},
+                {"area": "browser", "title": "Only you can delete a browser profile.", "prs": [202]},
+            ])
+            assert len(equivalent) == 1 and equivalent[0]["prs"] == [201, 202], equivalent
             # Model failure/unavailability never resurrects raw titles.
             offline = publish("offline", {**env, "CMUX_RELEASE_NOTES_MODEL_URL": "http://127.0.0.1:1"})
             assert offline["userNotes"] == digest[:1], offline["userNotes"]
