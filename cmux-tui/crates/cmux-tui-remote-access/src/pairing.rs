@@ -197,9 +197,11 @@ impl PairingBroker {
         let request =
             state.pending.remove(&id).expect("pairing lock reserves the validated pending request");
         let decision = if let Some(value) = credential {
-            state
-                .credentials
-                .push_back(Credential { value: value.clone(), expires_at: now + CREDENTIAL_TTL, page: None });
+            state.credentials.push_back(Credential {
+                value: value.clone(),
+                expires_at: now + CREDENTIAL_TTL,
+                page: None,
+            });
             while state.credentials.len() > MAX_CREDENTIALS {
                 state.credentials.pop_front();
             }
@@ -234,9 +236,11 @@ impl PairingBroker {
         let value = random_credential()?;
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         Self::prune(&mut state, now);
-        state
-            .page_credentials
-            .push_back(Credential { value: value.clone(), expires_at: now + PAGE_CREDENTIAL_TTL, page });
+        state.page_credentials.push_back(Credential {
+            value: value.clone(),
+            expires_at: now + PAGE_CREDENTIAL_TTL,
+            page,
+        });
         while state.page_credentials.len() > MAX_PAGE_CREDENTIALS {
             state.page_credentials.pop_front();
         }
@@ -254,7 +258,11 @@ impl PairingBroker {
     /// Checks `provided` for a handshake whose Origin names `handshake_page`
     /// (none: no page Origin). A page credential is used up by any match,
     /// even one this handshake may not use.
-    pub fn authenticate_for(&self, provided: &str, handshake_page: Option<&str>) -> CredentialMatch {
+    pub fn authenticate_for(
+        &self,
+        provided: &str,
+        handshake_page: Option<&str>,
+    ) -> CredentialMatch {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
