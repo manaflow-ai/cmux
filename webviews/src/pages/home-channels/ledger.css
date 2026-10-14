@@ -836,7 +836,8 @@
   /* A fixed height: filtering shrinks the list, never the dialog, so the key hint stays put. */
   height: min(520px, 72vh);
   padding: 0;
-  border: 1px solid var(--lg-line);
+  /* One rim: the hairline in --ui-popup-shadow (ui/popupSurface.css), no border over it. */
+  border: 0;
   border-radius: 12px;
   background: var(--surface-popup);
   box-shadow: var(--ui-popup-shadow);
