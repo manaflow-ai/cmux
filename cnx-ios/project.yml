@@ -26,6 +26,9 @@ settings:
     # builds fall back to the dev Worker when it is empty.
     CNX_API_BASE: ""
   configs:
+    Release:
+      # Release (the `xcodebuild archive` default) is a production build too.
+      CNX_API_BASE: https:/$()/cnx-ios-api.cmux.dev
     Demo:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CNX_DEMO
       SWIFT_OPTIMIZATION_LEVEL: -O
@@ -34,8 +37,8 @@ settings:
       SWIFT_OPTIMIZATION_LEVEL: -O
       CNX_TAG: .prod
       CNX_DISPLAY_NAME: cmux cnx
-      # The dev Worker accepts production Stack users (backend/README.md).
-      CNX_API_BASE: https:/$()/cnx-ios-api-dev.debussy.workers.dev
+      # The production Worker (cnx-ios-api-prod; production Stack project only).
+      CNX_API_BASE: https:/$()/cnx-ios-api.cmux.dev
 packages:
   CnxKit:
     path: CnxKit
@@ -73,6 +76,9 @@ targets:
           # Stack tokens never mix with the Demo or Debug installs. No app group:
           # the app shares no container with anything.
           CODE_SIGN_ENTITLEMENTS: App/CnxApp-Production.entitlements
+        Release:
+          # Push notifications (aps-environment).
+          CODE_SIGN_ENTITLEMENTS: App/CnxApp-Release.entitlements
     info:
       path: App/Info.plist
       properties:

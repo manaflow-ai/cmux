@@ -24,8 +24,8 @@
 # --config Production builds the "Production" configuration instead: -O, no
 # DEBUG (no dev sign-in, no Settings → Developer, no mock data or demo
 # drivers), the production Stack project, bundle dev.cmux.cnx.prod ("cmux
-# cnx") beside the demo install, and the dev Worker (which accepts production
-# Stack users). Its tag is always "prod": ~/cnx-ios-builds/<date>-<sha>-prod/.
+# cnx") beside the demo install, and the production Worker
+# (https://cnx-ios-api.cmux.dev, production Stack users only). Its tag is always "prod": ~/cnx-ios-builds/<date>-<sha>-prod/.
 #
 # Environment:
 #   CNX_BUILDS_ROOT      output root (default ~/cnx-ios-builds)
@@ -292,7 +292,7 @@ beside the demo build (\`dev.cmux.cnx.cnx\`); both are named "cmux cnx".
 | --- | --- |
 | Compilation | Production configuration: Release optimization ($opt), \`CNX_PRODUCTION\`, no \`DEBUG\` in the app or any package. The build checks the binaries for DEBUG-only strings. |
 | Stack Auth | **Production** project \`9790718f-14cd-4f7e-824d-eaf527a82b82\`, no publishable key, email callback \`https://cmux.com/auth/callback\` (CmuxAuthRuntime \`AuthConfig(environment: .production)\`). Sign in with a real account: email code, Google or GitHub. |
-| Backend | **Dev** Worker \`https://cnx-ios-api-dev.debussy.workers.dev\` (API 0.4.0 or later), which accepts dev and production Stack users. A production user is a separate user there (Stack project plus user id). |
+| Backend | **Production** Worker \`https://cnx-ios-api.cmux.dev\` (\`cnx-ios-api-prod\`, API 0.7.0 or later, its own database), which accepts production Stack users only. \`./run-host.sh --prod\` uses it too. |
 | Developer surface | None: no "42" dev sign-in, no Settings → Developer, no mock data toggle, no scripted demos, no launch overrides (\`scripts/check-production-binary.sh\` passed). |
 | Error reporting | None (the app has none configured). |
 | Data before a Mac links | Empty: no sample teams, Macs, Feed, chats or Chief. A terminal tab without its Mac session shows "Connecting to <Mac>…", never sample output. Mock code is compiled out, and stored developer settings from an earlier Debug or Demo install are removed at launch. |

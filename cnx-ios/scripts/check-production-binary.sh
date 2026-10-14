@@ -43,7 +43,10 @@ done < <(find "$app" -type f -print0)
 bad=()
 if [[ -n "$expected_bundle" ]]; then
   [[ "$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")" == "$expected_bundle" ]] || bad+=("bundle id")
-  [[ "$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null)" == https://* ]] || bad+=("CNXAPIBase")
+  api_base=$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null || true)
+  [[ "$api_base" == https://* ]] || bad+=("CNXAPIBase")
+  # Production talks to the production Worker, never a dev deployment.
+  [[ "$api_base" != *-dev* ]] || bad+=("CNXAPIBase is a dev Worker ($api_base)")
 fi
 dump=$(mktemp)
 trap 'rm -f "$dump"' EXIT
