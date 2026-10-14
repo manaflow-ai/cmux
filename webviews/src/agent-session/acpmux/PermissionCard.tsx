@@ -12,20 +12,30 @@ type KnownPermissionKind = "allow_once" | "allow_always" | "allow_chat" | "deny"
  * their agent-provided name and id, since those may be a question rather than a tool decision. */
 export function permissionOptionKind(option: PermissionOption): KnownPermissionKind | undefined {
   const value = `${option.kind ?? ""} ${option.id} ${option.name}`.toLowerCase();
-  if (/deny|reject/.test(value)) return "deny";
+  if (/deny|reject|\bno\b/.test(value) || option.allow === false) return "deny";
   if (/allow[_ -]?(always|forever|permanent)|always/.test(value)) return "allow_always";
   if (/allow[_ -]?(chat|session)/.test(value)) return "allow_chat";
   if (/allow[_ -]?(once|one)|single|approve/.test(value)) return "allow_once";
   return undefined;
 }
 
-export function permissionOptionLabel(option: PermissionOption, t: Translate): string {
+export function permissionOptionLabel(option: PermissionOption, t: Translate, harness?: string): string {
   const kind = permissionOptionKind(option);
   if (kind === "allow_once") {
+    if (harness === "claude" || harness === "codex") return "Yes";
     if (/^allow once$/i.test(option.name.trim())) return t("permission.allowOnce");
     return option.name;
   }
-  if (kind === "allow_always" || kind === "allow_chat" || kind === "deny") return option.name;
+  if (kind === "allow_always" || kind === "allow_chat") {
+    if (harness === "claude") return "Yes, and don't ask again";
+    if (harness === "codex") return "Yes, and don't ask again for this command this session";
+    return option.name;
+  }
+  if (kind === "deny") {
+    if (harness === "claude") return "No, tell Claude what to do differently";
+    if (harness === "codex") return "No, tell Codex what to do differently";
+    return option.name;
+  }
   return option.name;
 }
 
@@ -43,6 +53,7 @@ function permissionOptionDescription(
   permission: AcpmuxPermission,
   option: PermissionOption,
   kind: KnownPermissionKind | undefined,
+  harness?: string,
 ): string | undefined {
   if (kind !== "allow_always" && kind !== "allow_chat") return option.description;
   return option.rule || permission.rule || option.description;
@@ -213,8 +224,8 @@ export function PermissionCard({
           return (
             <PermissionActionButton
               key={option.id}
-              label={permissionOptionLabel(option, t)}
-              description={permissionOptionDescription(permission, option, kind)}
+              label={permissionOptionLabel(option, t, harness)}
+              description={permissionOptionDescription(permission, option, kind, harness)}
               shortcut={shortcut}
               className={
                 deny ? "acpmux-permission-deny" : kind === "allow_once" ? "acpmux-permission-primary" : undefined

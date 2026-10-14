@@ -139,6 +139,20 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const permissionId = envelope?.permissionId ?? raw?.permissionId;
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
   const question = questionFromPermission({ permissionId: String(permissionId), session: sessionId, request: raw });
+  const claudeMeta =
+    raw.toolCall?._meta?.claude && typeof raw.toolCall._meta.claude === "object"
+      ? raw.toolCall._meta.claude
+      : undefined;
+  const suggestions = Array.isArray(claudeMeta?.suggestions)
+    ? claudeMeta.suggestions.flatMap((suggestion: unknown) => {
+        if (typeof suggestion === "string" && suggestion.trim()) return [suggestion.trim()];
+        if (!suggestion || typeof suggestion !== "object") return [];
+        const rules = (suggestion as { rules?: unknown }).rules;
+        return Array.isArray(rules)
+          ? rules.filter((rule): rule is string => typeof rule === "string" && rule.trim()).map((rule) => rule.trim())
+          : [];
+      })
+    : [];
   return {
     ...(question ? { question } : {}),
     permissionId: String(permissionId),
@@ -154,13 +168,21 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
             ? raw.command
             : undefined,
     description:
-      typeof raw.toolCall?.description === "string"
-        ? raw.toolCall.description
-        : typeof raw.description === "string"
-          ? raw.description
-          : undefined,
+      typeof claudeMeta?.description === "string"
+        ? claudeMeta.description
+        : typeof raw.toolCall?.description === "string"
+          ? raw.toolCall.description
+          : typeof raw.description === "string"
+            ? raw.description
+            : undefined,
     rule:
-      typeof raw.toolCall?.rule === "string" ? raw.toolCall.rule : typeof raw.rule === "string" ? raw.rule : undefined,
+      suggestions.length > 0
+        ? `Always allow ${suggestions.join(", ")}`
+        : typeof raw.toolCall?.rule === "string"
+          ? raw.toolCall.rule
+          : typeof raw.rule === "string"
+            ? raw.rule
+            : undefined,
     kind: raw.toolCall?.kind,
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
