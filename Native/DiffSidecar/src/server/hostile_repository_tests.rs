@@ -188,8 +188,8 @@ async fn hostile_repository_filter_driver_name_with_equals_sign_never_runs() {
 }
 
 /// A file the repository's config includes is repository config too: its
-/// filter driver never runs. (A driver only the user's global config
-/// defines still runs; cmux-git's tests cover that, with an isolated home.)
+/// filter driver never runs. (cmux-git's tests cover global drivers, with
+/// an isolated home.)
 #[tokio::test]
 async fn hostile_repository_included_filter_driver_never_runs() {
     let scratch = Scratch::new("filter-include");

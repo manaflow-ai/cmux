@@ -2,9 +2,9 @@
 //! paths), confined by cmux-git's `run::confine_read`, the same confinement
 //! as the session host's `git.*` reads: a repository's own config never
 //! runs a program (no fsmonitor, no submodule inline diff, no lazy fetch,
-//! and every filter driver the repository's or a checked-out submodule's
-//! config defines blanked; the user's global ones, such as git-lfs's, still
-//! run) and never names a file the diff reads to the end. Each diff also
+//! and every filter driver blanked, in the repository and each checked-out
+//! submodule, the user's global ones such as git-lfs's included) and never
+//! names a file the diff reads to the end. Each diff also
 //! passes `--no-ext-diff` and `--no-textconv`.
 
 use std::path::{Path, PathBuf};
