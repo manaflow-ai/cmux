@@ -10,20 +10,24 @@ import CoreGraphics
 ///   right is rubber-banded (at most ≈ 58 pt seen on device) and always
 ///   springs back.
 /// - No fade while dragging.
-/// - Release closes when the card is at least 72% of its width to the left,
-///   or when the finger leaves leftward faster than 225 pt/s; otherwise the
+/// - The card follows the finger from touch-down (the slop is not lost).
+/// - Release closes when the card, projected 0.35 s ahead at its release
+///   velocity, is at least 72% of its width to the left, or when the finger
+///   leaves leftward faster than 225 pt/s; otherwise the
 ///   card springs back to its slot (0.66 / 0.86) and settles to scale 1
 ///   (0.57 / 0.94).
-/// - Closing: the card keeps going left at the finger's speed (≥ 1000 pt/s),
-///   lifted and opaque, then the grid reflows once the host confirmed (a
-///   refused close brings the card back). When one tab is left, Safari opens
-///   it.
+/// - Closing: the card keeps going left at the finger's speed (≥ 1000 pt/s,
+///   out within 190 ms), lifted and opaque; its tab leaves the grid on the
+///   way out without waiting for the host (a refused close brings the card
+///   back). When one tab is left, Safari opens it.
 struct CardSwipe: Equatable, Sendable {
     static let commitFraction: CGFloat = 0.72
     static let flingVelocity: CGFloat = 225
     /// Rightward rubber band: `d * (1 - 1 / (x * c / d + 1))`.
     static let rubberDimension: CGFloat = 120
-    static let rubberConstant: CGFloat = 0.55
+    /// Safari: a 100 pt drag right (measured from touch-down) moves the card
+    /// 44 pt (tabs-parity-audit 3f).
+    static let rubberConstant: CGFloat = 0.695
     /// Spring back to the slot (device: centre x fit 0.66 / 0.86, rms 0.6 pt).
     static let snapBack = ZoomSpring(response: 0.66, damping: 0.86)
     /// The card lifts while it is dragged (device: 1.0 -> 1.09 within ~60 ms
@@ -56,9 +60,17 @@ struct CardSwipe: Equatable, Sendable {
     }
 
     /// Close on release? `offset` and `velocity` in points (/s), negative left.
+    /// The card is where it would come to rest: the release offset plus the
+    /// leftward velocity over `projectionTime`. A held release (no velocity)
+    /// still needs 72% of the width; a slow swipe that is still moving
+    /// closes sooner (Safari closed a 100 pt / 1 s swipe at −104.6 pt,
+    /// tabs-parity-audit 3e and 8a; a 60 pt flick closes at 250 pt/s, not
+    /// at 200).
+    static let projectionTime: CGFloat = 0.35
     static func commits(offset: CGFloat, velocity: CGFloat, cardWidth: CGFloat) -> Bool {
         guard offset < 0, velocity < flingVelocity else { return false }
-        return offset <= -commitFraction * cardWidth || velocity <= -flingVelocity
+        let projected = offset + min(0, velocity) * projectionTime
+        return projected <= -commitFraction * cardWidth || velocity <= -flingVelocity
     }
 
     /// Where the fly-off ends: past the screen's leading edge.

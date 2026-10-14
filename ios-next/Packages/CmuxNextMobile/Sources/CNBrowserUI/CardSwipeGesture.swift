@@ -183,7 +183,12 @@ struct CardSwipeGesture: UIGestureRecognizerRepresentable {
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
 
     func handleUIGestureRecognizerAction(_ g: UIPanGestureRecognizer, context: Context) {
-        let dx = g.translation(in: g.view).x
+        // From touch-down, not from recognition: the pan's own translation
+        // drops the slop (about 14 pt behind the finger; Safari's card
+        // catches it up, tabs-parity-audit 3e). Window coordinates, since
+        // the card under the finger moves.
+        let start = context.coordinator.touchDown ?? g.location(in: nil)
+        let dx = g.location(in: nil).x - start.x
         switch g.state {
         case .began, .changed: onPhase(.changed(translation: dx))
         case .ended: onPhase(.ended(translation: dx, velocity: g.velocity(in: g.view).x))
@@ -193,6 +198,14 @@ struct CardSwipeGesture: UIGestureRecognizerRepresentable {
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        /// Where the finger went down, in window coordinates.
+        var touchDown: CGPoint?
+
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            touchDown = touch.location(in: nil)
+            return true
+        }
+
         func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
             guard let pan = g as? UIPanGestureRecognizer else { return true }
             let v = pan.velocity(in: pan.view)
