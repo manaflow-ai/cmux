@@ -1547,8 +1547,8 @@ mod tests {
             .decode(replay["bytes_base64"].as_str().unwrap())
             .unwrap();
         assert!(
-            replay_bytes.len() < upload.len(),
-            "checkpoint replay must drop the unreplayable upload payload"
+            !replay_bytes.windows(3).any(|window| window == b"\x1b_G"),
+            "checkpoint replay must drop the unreplayable Kitty upload"
         );
 
         let mut attach_output = Vec::new();
