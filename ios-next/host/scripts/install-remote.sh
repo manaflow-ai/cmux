@@ -112,6 +112,11 @@ Installed on $ALIAS in ~/$REMOTE_DIR. Nothing was started.
    ssh $ALIAS 'cp ~/$REMOTE_DIR/com.cmux.next-host.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.cmux.next-host.plist'
    Stop: ssh $ALIAS 'launchctl bootout gui/\$(id -u)/com.cmux.next-host'
 
+Local Network Privacy: a detached run (nohup after the ssh session ends, or the LaunchAgent) has no LAN
+access until node is allowed once in System Settings > Privacy & Security > Local Network on $ALIAS
+(over Screen Sharing). Until then links still work but go through the TURN relay, and the host log
+prints "local network: BLOCKED".
+
 Logs: ssh $ALIAS 'tail -f ~/.cmux-next-host/host.log'
 Add --relay-only to run to force TURN, --cdp http://127.0.0.1:9222 to use an existing browser.
 Agents need the claude or codex CLI logged in on $ALIAS ('claude auth status', 'codex login status').

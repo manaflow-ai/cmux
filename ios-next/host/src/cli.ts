@@ -18,6 +18,7 @@ import type { BrowserResolver } from "./layout/index.ts";
 import { downloadChrome, findChromeBinaries } from "./providers/browser/chrome.ts";
 import { createLoopbackPair } from "./transport/loopback.ts";
 import { enableRtcLoggingFromEnv, shutdownWebRtc } from "./transport/webrtc.ts";
+import { checkLocalNetwork, describeLocalNetwork } from "./transport/localNetwork.ts";
 import { configPath, makeLogger, readConfig, stateDir, VERSION, writeConfig } from "./util.ts";
 
 const USAGE = `cmux-next-host ${VERSION}
@@ -288,6 +289,7 @@ async function run(opts: RunOptions): Promise<void> {
   if (!opts.cdp && opts.launch && opts.download && findChromeBinaries().length === 0) {
     void downloadChrome(makeLogger("browser")).then((bin) => log(bin ? `browser ready: ${bin}` : "no browser; browser.v1 disabled"));
   }
+  watchLocalNetwork(log);
   const harnesses = await core.agents.harnesses();
   log(`harnesses: ${harnesses.map((h) => `${h.id}=${h.available ? "available" : "unavailable"}`).join(" ")}`);
   const stop = (sig: string) => {
@@ -302,6 +304,18 @@ async function run(opts: RunOptions): Promise<void> {
   await new Promise(() => {});
 }
 
+/** Logs the Local Network Privacy state at startup and whenever it changes (checked every 5 minutes). */
+function watchLocalNetwork(log: (msg: string) => void): void {
+  let last = "";
+  const check = async () => {
+    const line = describeLocalNetwork(await checkLocalNetwork());
+    if (line !== last) log(line);
+    last = line;
+  };
+  void check();
+  setInterval(() => void check(), 5 * 60_000).unref();
+}
+
 async function status(): Promise<void> {
   const cfg = readConfig();
   const loggedIn = Boolean(cfg.hostToken);
@@ -312,6 +326,7 @@ async function status(): Promise<void> {
   for (const h of await core.agents.harnesses()) console.log(`harness:   ${h.id} ${h.available ? "available" : "unavailable"}`);
   const browsers = findChromeBinaries();
   console.log(`browser:   ${browsers[0] ?? "none (cmux-next-host install-chrome)"}`);
+  console.log(describeLocalNetwork(await checkLocalNetwork()).replace(/^local network:/, "lan:      ") + " [this shell; a detached run can differ]");
   if (loggedIn && cfg.api) {
     try {
       const ice = await new ApiClient(cfg.api, cfg.hostToken).ice();
