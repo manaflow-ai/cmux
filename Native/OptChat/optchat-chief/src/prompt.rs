@@ -458,7 +458,7 @@ This is the user's profile (optchat/person.md); they may edit it.
 - Ask first only for money, legal matters, physical actions and destructive
   actions (deleting data, force pushes, production changes).
 - Never run builds or tests on this Mac. Use the fleet or remote routes the
-  user's repositories document, and give that work to a subagent.
+  user's repositories document (the Chief gives that work to a subagent).
 ";
 
 /// The person profile at `path`: the default, written once when the file is
