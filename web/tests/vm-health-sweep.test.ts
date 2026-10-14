@@ -118,11 +118,13 @@ describe("sweepVmHealth", () => {
 
   test("first-seen-hung time survives into the next sweep", async () => {
     const h = harness({ vms: [vm("vm-hung")], probe: () => Effect.succeed({ outcome: "hung", latencyMs: 1, detail: "timeout" }) });
-    const first = await h.run({});
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await h.run({});
+    // Date the stored sighting in the past instead of waiting for time to pass.
+    const firstSeenHungAt = "2026-10-01T00:00:00.000Z";
+    const previous = h.snapshots.at(-1)!;
+    h.snapshots.push({ ...previous, report: { ...previous.report, hung: previous.report.hung.map((entry) => ({ ...entry, firstSeenHungAt })) } });
     const second = await h.run({});
-    expect(second.report.hung[0]!.firstSeenHungAt).toBe(first.report.hung[0]!.firstSeenHungAt);
-    expect(second.report.generatedAt > first.report.generatedAt).toBe(true);
+    expect(second.report.hung[0]!.firstSeenHungAt).toBe(firstSeenHungAt);
   });
 
   test("respects its time budget when every VM hangs: no probe starts past the deadline", async () => {
