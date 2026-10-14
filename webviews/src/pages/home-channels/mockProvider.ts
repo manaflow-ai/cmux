@@ -6,6 +6,7 @@ import { MockPageStreams } from "../shared/pageStreams";
 import { threadOf } from "./model";
 import {
   HomeOps,
+  type HomeAttachment,
   type HomeConversation,
   type HomeDraftItem,
   type HomeEventBatch,
@@ -158,6 +159,61 @@ export function addLongThread(home: ReturnType<typeof sampleHome>): void {
   home.conversations.push(conversation(id, "incident", "group", [chief, builder, reviewer], list));
 }
 
+/** A sample file part (gallery `media`): the mock draws its pixels when the page reads it. */
+function file(hash: string, name: string, mimeType: string, byteCount: number, extra: Partial<HomeAttachment> = {}) {
+  return { type: "attachment" as const, hash, name, mimeType, byteCount, ...extra };
+}
+
+/** #media (gallery `media`): screenshots, a run recording with its poster, and a PDF. */
+export function addMedia(home: ReturnType<typeof sampleHome>): void {
+  const id = "c-media";
+  const jpeg = (hash: string) => ({ hash, mimeType: "image/jpeg", byteCount: 24_000 });
+  const message = text(id, 1, builder, BASE + 30 * MINUTE, "Screens from the sidebar fix, and the run.");
+  message.parts.push(
+    file("a".repeat(64), "sidebar-before.png", "image/png", 812_000, {
+      width: 1600,
+      height: 1000,
+      preview: jpeg("b".repeat(64)),
+    }),
+    file("c".repeat(64), "sidebar-after.png", "image/png", 790_000, {
+      width: 1600,
+      height: 1000,
+      preview: jpeg("d".repeat(64)),
+    }),
+    file("e".repeat(64), "scroll.png", "image/png", 64_000, { width: 640, height: 400 }),
+    file("f".repeat(64), "run-recording.mp4", "video/mp4", 2_300_000, {
+      width: 1280,
+      height: 720,
+      durationMs: 6_000,
+      poster: jpeg("1".repeat(64)),
+    }),
+    file("2".repeat(64), "release-notes.pdf", "application/pdf", 90_000),
+  );
+  home.messages.set(id, [message]);
+  home.conversations.push(conversation(id, "media", "group", [builder, reviewer], [message]));
+}
+
+/** A raster picture of `hash` as base64 PNG (the mock stores no bytes; it draws one per hash). */
+async function picture(hash: string): Promise<string> {
+  const canvas = document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 200;
+  const context = canvas.getContext("2d");
+  if (context) {
+    const hue = (parseInt(hash.slice(0, 2), 16) * 47) % 360;
+    const gradient = context.createLinearGradient(0, 0, 320, 200);
+    gradient.addColorStop(0, `hsl(${hue} 55% 45%)`);
+    gradient.addColorStop(1, `hsl(${(hue + 60) % 360} 55% 25%)`);
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 320, 200);
+  }
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  const bytes = new Uint8Array(await (blob ?? new Blob()).arrayBuffer());
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 /** The owner's stats of the thread roots in `page`, counted over every reply of the conversation that
  * is not retracted (as both owners count them). */
 function statsFor(all: readonly HomeMessage[], page: readonly HomeMessage[]): HomeThreadStats[] {
@@ -284,13 +340,18 @@ export class MockHomeProvider implements PageClient {
   private seq = 0;
 
   private readonly runs = new Map<string, { run: HomeRun; steps: HomeRunStep[] }>();
+  private readonly uploads = new Map<string, Record<string, unknown>>();
 
   constructor(
     private readonly draft?: MockDraft,
     longThread = false,
     private readonly runMode: MockRuns = "none",
+    /** The owner refuses pins and marks (the page puts the row back and says why). */
+    private readonly refuseInbox = false,
+    media = false,
   ) {
     if (longThread) addLongThread(this.data);
+    if (media) addMedia(this.data);
     if (runMode !== "none") {
       const done = sampleRun();
       this.runs.set(done.run.id, done);
@@ -396,7 +457,7 @@ export class MockHomeProvider implements PageClient {
     const id = String(params.conversation ?? "");
     switch (op) {
       case HomeOps.inbox:
-        return { me, conversations: this.data.conversations, rev: 1 } as R;
+        return { me, conversations: this.data.conversations, rev: 1, inboxState: true } as R;
       case HomeOps.page: {
         const found = this.data.conversations.find((c) => c.id === id);
         if (!found) throw pageError("cmux.home.not_found", id);
@@ -425,6 +486,25 @@ export class MockHomeProvider implements PageClient {
           thread: thread ?? { root: root.id, replyCount: 0, authors: [] },
         } as R;
       }
+      case HomeOps.pin:
+      case HomeOps.markUnread: {
+        if (this.refuseInbox) throw pageError("cmux.page.unavailable", "this cmux instance keeps no pins");
+        const index = this.data.conversations.findIndex((c) => c.id === id);
+        if (index < 0) throw pageError("cmux.home.not_found", id);
+        const current = this.data.conversations[index]!;
+        const pinned = op === HomeOps.pin ? params.pinned === true : current.pinned;
+        const markedUnread = op === HomeOps.markUnread ? params.unread === true : current.markedUnread === true;
+        const change = {
+          conversation: id,
+          pinned,
+          markedUnread,
+          ...(pinned ? { pinPosition: op === HomeOps.pin && !current.pinned ? Date.now() : current.pinPosition } : {}),
+        };
+        const updated = { ...current, pinned, markedUnread, pinPosition: change.pinPosition };
+        this.data.conversations[index] = updated;
+        this.emit({ inbox: [change] });
+        return { conversation: id } as R;
+      }
       case HomeOps.read: {
         const index = this.data.conversations.findIndex((c) => c.id === id);
         if (index >= 0) {
@@ -449,6 +529,8 @@ export class MockHomeProvider implements PageClient {
         // The owner keeps the sender's idempotency key as the message's client id (the page's
         // pending send ends on it).
         if (typeof params.idempotencyKey === "string") message.clientMessageId = params.idempotencyKey;
+        if (!message.parts[0] || (message.parts[0].type === "text" && !message.parts[0].text)) message.parts = [];
+        if (Array.isArray(params.attachments)) message.parts.push(...(params.attachments as HomeAttachment[]));
         list.push(message);
         this.data.messages.set(id, list);
         this.emit({ messages: [message] });
@@ -507,6 +589,29 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.search:
         return { hits: [] } as R;
+      case HomeOps.attachmentSupport:
+        return { local: true, cloud: false } as R;
+      case HomeOps.attachmentUpload: {
+        // The steps of an upload; the mock keeps no bytes.
+        if (params.op === "begin") {
+          const upload = `upload-${this.uploads.size + 1}`;
+          const needs = ["original", ...(params.poster ? ["poster"] : []), ...(params.preview ? ["preview"] : [])];
+          this.uploads.set(upload, params);
+          return { upload, needs, stored: null } as R;
+        }
+        if (params.op === "chunk") return { received: Number(params.offset ?? 0) } as R;
+        const begun = this.uploads.get(String(params.upload ?? "")) ?? {};
+        return {
+          stored: { hash: begun.sha256, mime_type: begun.mime_type, byte_count: begun.byte_count },
+        } as R;
+      }
+      case HomeOps.attachmentRead: {
+        const data = await picture(String(params.hash ?? ""));
+        return { mimeType: "image/png", byteCount: data.length, offset: 0, data, eof: true } as R;
+      }
+      case HomeOps.attachmentUrl:
+        // No video bytes in the mock: the player shows its poster.
+        throw pageError("cmux.page.unavailable", "the mock serves no video");
       case HomeOps.runs: {
         const turns = (params.turns as string[] | undefined) ?? [];
         const all = [...this.runs.values()].filter((entry) => entry.run.conversation === id);

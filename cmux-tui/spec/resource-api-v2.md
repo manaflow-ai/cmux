@@ -202,9 +202,27 @@ new workspace is pinned to a room other than the group's);
 The home workspace (`workspace.ensure_home`) always takes the top, and a
 reopened workspace is created last and then takes its closed row's place.
 The creation's `session.events` batch carries a `workspace_placement`
-change for each new row and each row it moved, and a `workspace_group`
-change for each group whose `top_index` moved, and no personal journal
-record of its own, so a group place counts it from the start. A caller that
+change for each new row, the rows after them as a placement shift (below),
+and a `workspace_group` change for each group whose `top_index` moved, and
+no personal journal record of its own, so a group place counts it from the
+start.
+Placement shift: `index` is an ordinal, so a new row or a moved row changes
+the `index` of the rows it passes, and nothing else of them. A commit
+does not restate those rows; its journal record carries `placement_shift
+{from_index, to_index}` (`to_index` null: through the last placement) beside
+`changes`. A connection that echoed `placement-shift-v1` in `set-client-info`
+or `client.metadata.update` (it does not order by `index`, for example
+because it reads the order from the sidebar document) gets the batch as
+stored: only the new or moved placement. `sidebar-doc-v1` alone does not
+change placement delivery. Every other
+connection gets, at the end of that batch's `changes`, a
+`workspace_placement` upsert for each placement in the range, read from the
+state when the batch is sent (a later write that moves a row again sends it
+again, so a reader that applies the batches in order ends at the current
+order; `forget-session`, which deletes a machine's rows outside a resource
+batch, sends no placement change, as before). `workspace.place`, and a `sidebar.*` mutation that writes a
+workspace's personal row back, do the same for the rows between the moved
+row's old and new index. A caller that
 wants another place sends `workspace.place` after the creation; that later
 write wins. The commit bumps
 `personal_revision` but sends no raw `personal-changed` event, so raw

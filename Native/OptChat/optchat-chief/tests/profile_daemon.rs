@@ -508,7 +508,10 @@ fn the_default_chief_serves_only_zoom_and_date_until_it_reads_its_record() {
         "the daemon is away: the default Chief's grant is not known, so it gets zoom and date only"
     );
     let (refused, why) = mcp.call("tell", json!({"id": "a1", "message": "x"}));
-    assert!(refused && why.contains("not given"), "tell is refused while the grant is not known: {why}");
+    assert!(
+        refused && why.contains("not given"),
+        "tell is refused while the grant is not known: {why}"
+    );
 
     // The daemon comes up; the person narrows the default Chief's tools; the
     // brain's token is there; the link connects and the brain reads its record.
@@ -527,16 +530,24 @@ fn the_default_chief_serves_only_zoom_and_date_until_it_reads_its_record() {
     let record = &updated["value"];
     assert_eq!(record["tools"], json!(["tell"]), "{updated}");
     let mut expected = vec!["zoom", "date", "tell"];
-    if record["self_edit"].as_array().is_some_and(|a| !a.is_empty()) {
+    if record["self_edit"]
+        .as_array()
+        .is_some_and(|a| !a.is_empty())
+    {
         expected.push("profile");
     }
     let minted = me.token_file(dir.path(), "agent_mux");
     std::fs::rename(&minted, &token).unwrap();
-    wait_until(&host_log, "the host reading the default Chief's record", || {
-        mcp.names() == expected
-    });
+    wait_until(
+        &host_log,
+        "the host reading the default Chief's record",
+        || mcp.names() == expected,
+    );
     let (refused, why) = mcp.call("spawn", json!({"tasks": ["build it"]}));
-    assert!(refused && why.contains("not given"), "the record's grant holds: {why}");
+    assert!(
+        refused && why.contains("not given"),
+        "the record's grant holds: {why}"
+    );
     drop(mcp);
     drop(host);
 }
@@ -567,11 +578,17 @@ fn a_chief_with_self_edit_reads_of_chief_profile_in_its_launcher_prompt() {
     let host_log = dir.path().join("host.log");
     let _host = start_host(dir.path(), &daemon.socket, &token, Some(&scout));
     let agents_md = dir.path().join("mux/optchat/session/AGENTS.md");
-    let chief = dir.path().join("mux/optchat/bin/chief").display().to_string();
+    let chief = dir
+        .path()
+        .join("mux/optchat/bin/chief")
+        .display()
+        .to_string();
     let line = format!("- Your profile: `{chief} profile` prints your record");
-    wait_until(&host_log, "the launcher prompt naming chief profile", || {
-        std::fs::read_to_string(&agents_md).is_ok_and(|text| text.contains(&line))
-    });
+    wait_until(
+        &host_log,
+        "the launcher prompt naming chief profile",
+        || std::fs::read_to_string(&agents_md).is_ok_and(|text| text.contains(&line)),
+    );
 }
 
 /// S5 gap 4: the person's `harnesses` grant reaches the spawn path. A Chief
@@ -600,7 +617,11 @@ fn a_spawn_on_a_harness_outside_the_grant_starts_nothing() {
     let token = me.token_file(dir.path(), &builder);
     let tools = Arc::new(
         ChiefTools::start(
-            Some(ProfileClient::new(daemon.socket.clone(), Some(token), builder.clone())),
+            Some(ProfileClient::new(
+                daemon.socket.clone(),
+                Some(token),
+                builder.clone(),
+            )),
             false,
             &|_| {},
         )

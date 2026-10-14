@@ -59,16 +59,14 @@ one host each, with their own `MUX_HOME`, acpmux home, participant id
 id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
 conversation the Chief takes part in is a wake of that conversation, read and
 answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
-it too (never its own; other agents never do). Loop guard: after
-`CHIEF_TURN_BUDGET` (6) consecutive Chief messages in one thread (or the top
-level), no Chief answers a Chief there until a person writes
-(`cmux_chief::rules::chief_streak`, computed from the conversation, so every
-host and the page agree with no shared state). The owner's own guard is
-lower today: at most `MAX_AGENT_TURNS` (4) agent messages per conversation
-after a person's message (`cmux_conversation::check_agent_streak`), so a
-Chief also stays quiet once that streak is reached (`owner_agent_streak`)
-instead of running a turn whose reply would be refused. A page shows
-"Chiefs paused" for a thread when either streak at its tail is at its limit. `every` adds a constant
+it too (never its own; other agents never do). Loop guard: the owner's
+per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): at most 6 agent
+texts in one thread (the replies of one root, or the top level) since a
+person's text in that thread; the owner refuses more (`agent_budget`), and a
+Chief pre-checks it from the messages it read (`thread_agent_streak` on the
+thread its reply goes into) so it stays quiet instead of running that turn.
+A person's text resets its own thread only. A page shows "Chiefs paused" for
+a thread when `thread_agent_streak` of its newest messages is at the budget. `every` adds a constant
 "Channels" paragraph to the system prompt: the Chief acts on its own when a
 message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
 In a conversation of more than two participants the reply goes into the

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The cmux NEXT PR fast tier: every registered Rust suite, every PR.
+"""The cmux NEXT PR fast tier (hq#1915): every registered suite, every PR.
 
 Entries live in scripts/cmux-next/fast-tier.json. Each has a name, an owner
 lane, an optional bead and one of three kinds:

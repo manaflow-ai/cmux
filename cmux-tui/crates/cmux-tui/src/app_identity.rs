@@ -8,6 +8,8 @@
 
 use std::path::{Path, PathBuf};
 
+use cmux_agent_pane_policy::build_identity::BuildIdentity;
+
 const DEBUG_BUNDLE_ID: &str = "com.cmuxterm.app.debug";
 /// `action.list`'s per-action surface plan key (where the app offers the
 /// action: palette, CLI, right-click, MCP). App control vocabulary for UI
@@ -26,6 +28,9 @@ pub(crate) struct AppIdentity {
     pub tag: Option<String>,
     /// Set by the app in its terminals; wins over the derived path.
     pub socket_override: Option<PathBuf>,
+    /// The tag as given (`CMUX_TAG` of an app terminal, else the bundle's
+    /// `LSEnvironment` `CMUX_TAG`), unsanitized: the build identity's input.
+    pub shipped_tag: Option<String>,
 }
 
 impl AppIdentity {
@@ -56,8 +61,29 @@ impl AppIdentity {
     }
 
     fn new(bundle_id: Option<String>, tag: Option<&str>, socket_override: Option<PathBuf>) -> Self {
+        let shipped_tag = tag.map(str::to_owned);
         let tag = bundle_id.as_deref().and_then(bundle_tag).or_else(|| tag.and_then(sanitize));
-        Self { bundle_id, tag, socket_override }
+        Self { bundle_id, tag, socket_override, shipped_tag }
+    }
+
+    /// The build whose state roots this process uses (per-build isolation,
+    /// cx-is1kf): the bundle id and the tag it ships. A tag with no bundle id
+    /// (an app terminal of a build that sets only `CMUX_TAG`) names the DEV
+    /// build of that tag, as the control socket does, so it never resolves
+    /// NIGHTLY's shared roots.
+    pub(crate) fn build(&self) -> BuildIdentity {
+        match (self.bundle_id.as_deref(), self.tag.as_deref()) {
+            // `scripts/reload.sh` names a tagged build `com.cmuxterm.app.debug.<segment>`:
+            // runs outside `[a-z0-9]` become one `.` (tag `foo-bar` is `…debug.foo.bar`).
+            (None, Some(tag)) => {
+                let segment: Vec<&str> = tag
+                    .split(|c: char| !c.is_ascii_alphanumeric())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                BuildIdentity::new(Some(&format!("{DEBUG_BUNDLE_ID}.{}", segment.join("."))), None)
+            }
+            (bundle_id, _) => BuildIdentity::new(bundle_id, self.shipped_tag.as_deref()),
+        }
     }
 
     /// The app control socket (`ControlSocketPath.resolve`).

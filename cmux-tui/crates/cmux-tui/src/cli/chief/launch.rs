@@ -47,6 +47,8 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
         // An owner this call starts serves chief.engine.* and chief.stop
         // through the home's brain.
         chief_tools_socket: Some(home.root.join("optchat/tools.sock")),
+        // ...and runs the brains of the home's other Chiefs.
+        chief_brains: brains_value(home),
         websocket: None,
     };
     let progress = RestoreProgress::silent();
@@ -96,6 +98,17 @@ fn ensure_error(error: &EnsureError) -> &'static str {
             "it speaks another protocol version"
         }
     }
+}
+
+/// `CMUX_TUI_CHIEF_BRAINS` for an owner this call starts (cmux-tui-core
+/// chief_brains): the same brain executable, this home, and this `cmux`'s
+/// directory first on the brains' `PATH`.
+fn brains_value(home: &ChiefHome) -> Option<String> {
+    let executable = std::path::absolute(brain_binary()?).ok()?;
+    let bin_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
+    let value = serde_json::json!({"executable": executable, "home": home.root,
+                                   "app": {"bin_dir": bin_dir}});
+    Some(value.to_string())
 }
 
 /// Whether a brain holds the home's lock (`flock`, as optchat-chief's

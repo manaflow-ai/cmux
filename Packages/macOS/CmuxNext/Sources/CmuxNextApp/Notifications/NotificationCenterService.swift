@@ -216,6 +216,7 @@ final class NotificationCenterService {
 
     /// Acknowledges `tab` in the daemon (a dismiss verb, or a policy trigger).
     func acknowledge(_ tab: TabModel) {
+        note("ack \(tab.id)")
         timeouts.removeValue(forKey: tab.id)?.cancel()
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         let surface = tab.surface
@@ -232,8 +233,13 @@ final class NotificationCenterService {
     private func arrived(_ notification: DaemonNotification) {
         guard let services else { return }
         let store = services.daemon.store
+        arrive(notification, located: notification.surface.flatMap { locate(surface: $0, in: store) })
+    }
+
+    /// One arrival on `located` (nil: its tab is not in the store). `visibility` is where the tab
+    /// is for the user now (`visibility(of:)` when nil); tests pass their own.
+    func arrive(_ notification: DaemonNotification, located: LocatedTab?, visibility: TerminalVisibility? = nil) {
         let source = Self.source(notification.source)
-        let located = notification.surface.flatMap { locate(surface: $0, in: store) }
         if source == .terminal, !terminalNotificationsEnabled() {
             note("arrived \(notification.notification.rawValue) terminal off (desktop-notifications = false)")
             if let located { acknowledge(located.tab) }
@@ -251,17 +257,23 @@ final class NotificationCenterService {
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         let decision = NotificationPolicy.decide(arrival, prefs: preferences)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
-        guard desktopPostingEnabled else {
-            note("desktop posting suppressed")
-            return
-        }
         guard let located else {
+            guard desktopPostingEnabled else { return note("desktop posting suppressed") }
             feedDriver?.run()
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
             return
         }
         if decision.acknowledge {
+            acknowledge(located.tab)
+            return
+        }
+        // A turn that finished in front of the user is already seen (default call, cx-slk1h): the
+        // history keeps it, read. An agent that asks or fails stays unread even there, and so does
+        // an earlier ask or error the tab still holds (acknowledging reads the whole tab).
+        let shown = visibility ?? self.visibility(of: located)
+        if Self.isFinishedTurn(notification), shown.isVisible, !Self.holdsUnreadAsk(located.tab, besides: notification) {
+            note("finished turn visible: read at once")
             acknowledge(located.tab)
             return
         }
@@ -273,14 +285,27 @@ final class NotificationCenterService {
             }
             return
         }
-        deliver(notification, source: source, located: located, decision: decision, program: program)
+        deliver(notification, source: source, located: located, decision: decision, program: program, visibility: shown)
+    }
+
+    /// An agent's turn completion (`agent.turn.completed`, "<Agent> finished"): the agent source's
+    /// info level. Its asks (approval, question, plan review) are warnings and its errors errors.
+    nonisolated static func isFinishedTurn(_ notification: DaemonNotification) -> Bool {
+        notification.source == NotificationSource.agent.rawValue && notification.level == .info
+    }
+
+    /// The tab's unread marker is another notification's warning or error, still to be seen.
+    static func holdsUnreadAsk(_ tab: TabModel, besides notification: DaemonNotification) -> Bool {
+        guard let marker = tab.notification, marker.unread, marker.notification != notification.notification else { return false }
+        return marker.level == .warning || marker.level == .error
     }
 
     /// The rest of an arrival once its OSC 7501 record (if any) is known.
     func deliver(_ notification: DaemonNotification, source: NotificationSource, located: LocatedTab,
-                 decision: NotificationPolicy.Decision, program: ProgramStatusNotification?) {
+                 decision: NotificationPolicy.Decision, program: ProgramStatusNotification?,
+                 visibility: TerminalVisibility? = nil) {
         // An OSC 7501 done for a terminal the user can see is read at once.
-        if let program, !program.notifies(visibility: visibility(of: located)) {
+        if let program, !program.notifies(visibility: visibility ?? self.visibility(of: located)) {
             note("program status \(program.reason.rawValue) visible: read at once")
             acknowledge(located.tab)
             return
@@ -289,6 +314,12 @@ final class NotificationCenterService {
         // driver's pass applies the policy to the daemon's item, and a notice that did
         // not alert here (pane in view, app active, banners off) stays local.
         moveToTop(located.workspace)
+        // Showcase captures read and order rows as the app does, and post nothing.
+        guard desktopPostingEnabled else {
+            note("desktop posting suppressed")
+            if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
+            return
+        }
         feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
         feedDriver?.run()
         if decision.desktop {

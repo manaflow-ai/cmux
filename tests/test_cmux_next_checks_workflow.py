@@ -849,5 +849,40 @@ class FastTierTriggers(unittest.TestCase):
                          "scripts/cmux-next/quarantine.json", "scripts/cmux-next/tests/fast-tier.test.sh"):
                 self.assertTrue(any(fnmatch.fnmatch(path, pattern) for pattern in paths), f"{event}: {path}")
 
+
+FAST_TIER_FORK_CLAUSE = (
+    "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository "
+    "&& 'blacksmith-6vcpu-macos-26' || "
+)
+FAST_LANE_CLAUSE = (
+    "vars.CI_FAST_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && "
+    "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_FAST_LANE_RUNNER || "
+)
+# The fast tier's runs-on before CI_FAST_LANE_RUNNER: with the variable unset it must route exactly so.
+FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
+    + "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || "
+    "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
+    + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
+    "&& (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || "
+    "vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
+)
+
+
+class FastTierRunner(unittest.TestCase):
+    def test_the_fast_lane_label_comes_after_the_fork_clause(self):
+        """vars.CI_FAST_LANE_RUNNER gives the fast tier its own owned runner label. A fork pull
+        request must take its hosted label before that variable is read, and with the variable
+        unset the route is the one the job had before it."""
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        runs_on = job["runs-on"]
+        self.assertIn(FAST_LANE_CLAUSE, runs_on)
+        self.assertLess(runs_on.index(FAST_TIER_FORK_CLAUSE), runs_on.index("vars.CI_FAST_LANE_RUNNER"))
+        self.assertTrue(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE) == runs_on.index(FAST_LANE_CLAUSE))
+        self.assertEqual(runs_on.replace(FAST_LANE_CLAUSE, "", 1), FAST_TIER_RUNNER_WITHOUT_FAST_LANE)
+        # No env value mirrors runs-on with the old route.
+        for value in (job.get("env") or {}).values():
+            self.assertNotIn("CI_SIDE_LANE_RUNNER", str(value))
+
 if __name__ == "__main__":
     unittest.main()

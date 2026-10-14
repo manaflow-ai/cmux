@@ -32,6 +32,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "if_empty");
     try expectExplicitNullRejected(protocol.CloudInboxListRequest, "include_archived");
     try expectExplicitNullRejected(protocol.ConversationHistoryResult, "threads");
+    try expectExplicitNullRejected(protocol.ConversationInboxOpResult, "pin_position");
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "message");
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "thread_root");
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "truncated");
@@ -90,6 +91,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "overrides");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
+    try expectExplicitNullRejected(protocol.ConversationInboxChangedEvent, "pin_position");
     try expectExplicitNullRejected(protocol.DetachedEvent, "by");
     try expectExplicitNullRejected(protocol.DetachedEvent, "reason");
     try expectExplicitNullRejected(protocol.DetachedEvent, "scope");
@@ -171,6 +173,9 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationReactionKind, "emoji");
     try expectExplicitNullRejected(protocol.ConversationReactionKind, "tapback");
     try expectExplicitNullRejected(protocol.ConversationSummary, "last_message");
+    try expectExplicitNullRejected(protocol.ConversationSummary, "marked_unread");
+    try expectExplicitNullRejected(protocol.ConversationSummary, "pin_position");
+    try expectExplicitNullRejected(protocol.ConversationSummary, "pinned");
     try expectExplicitNullRejected(protocol.ConversationTabRecord, "agent_session");
     try expectExplicitNullRejected(protocol.ConversationTabRecord, "conversation");
     try expectExplicitNullRejected(protocol.ConversationTabRecord, "owner");

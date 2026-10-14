@@ -42,8 +42,8 @@ nonisolated enum AcpmuxVersionHandoff {
     /// in place after the daemon started (update-dev-daily.sh renames the old bundle aside and
     /// deletes it; a reinstall), so it is an earlier install of this app. The server peer check
     /// refuses it whatever its build, since its executable is not the bundled one, and every chat
-    /// would say acpmux did not start (cx-ame2k). Another install's daemon (NIGHTLY and Release
-    /// share `~/.acpmux`) runs a file that still exists.
+    /// would say acpmux did not start (cx-ame2k). Another install's daemon (another
+    /// copy of the same build, or an older build on `~/.acpmux`) runs a file that still exists.
     static func replaced(pid: Int32) -> Bool {
         guard kill(pid, 0) == 0 else { return false }
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))

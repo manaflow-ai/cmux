@@ -20,6 +20,10 @@ daemon socket.
    `sidebar section-scroll` / `section-max-rows`, the url body `icon_url`
    (migrated from an old item's `extra.icon_url`, `item.update`, lifted on
    `item.add`, restated for old clients in `sidebar_layout`).
+5. Doc slice 3: a new workspace and a workspace.place send a reader that
+   echoed placement-shift-v1 only the new or moved placement, and an
+   old-protocol reader (also one that echoes only sidebar-doc-v1) every
+   placement the change shifted.
 
 Usage: sidebar-doc-live.py --binary path/to/cmux-tui [--workdir DIR]
 Prints one PASS/FAIL line per check; exits 1 on any FAIL.
@@ -178,6 +182,64 @@ def sidebar_batch(daemon: Daemon, action) -> dict | None:
             if any(change.get("resource") == "sidebar_doc" for change in changes):
                 return item
     return None
+
+
+class EventStream:
+    """One `session.events` stream on its own connection. `echo`: the
+    capabilities the connection echoes in `set-client-info` first (a client
+    that reads the order from the sidebar document echoes sidebar-doc-v1)."""
+
+    def __init__(self, daemon: Daemon, echo: list[str] | None = None) -> None:
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.socket.connect(str(daemon.socket_path))
+        self.buffer = b""
+        if echo is not None:
+            self.socket.sendall(json.dumps({"id": next(_ids), "cmd": "set-client-info",
+                                            "capabilities": echo}).encode() + b"\n")
+            reply = next(self.lines(10.0), {})
+            if not reply.get("ok"):
+                raise RuntimeError(f"set-client-info failed: {reply}")
+        request = {"protocol": PROTOCOL, "type": "request", "id": f"r{next(_ids)}",
+                   "operation": "session.events",
+                   "params": {"machine": "current", "session": "current",
+                              "stream_id": f"stream_{os.urandom(16).hex()}"}}
+        self.socket.sendall(json.dumps(request).encode() + b"\n")
+        for _ in self.lines(1.0):
+            pass
+
+    def lines(self, timeout: float):
+        self.socket.settimeout(timeout)
+        while True:
+            while b"\n" in self.buffer:
+                line, self.buffer = self.buffer.split(b"\n", 1)
+                yield json.loads(line)
+            try:
+                chunk = self.socket.recv(1 << 20)
+            except TimeoutError:
+                return
+            if not chunk:
+                return
+            self.buffer += chunk
+
+    def delta_with(self, resource: str, value_id: str, index: int | None = None) -> dict | None:
+        """The first delta (within 15 s) with an upsert of `resource` `value_id`
+        (at `index`, when given)."""
+        for message in self.lines(15.0):
+            item = message.get("item") or {}
+            if any(change.get("resource") == resource and change.get("id") == value_id
+                   and (index is None or (change.get("value") or {}).get("index") == index)
+                   for change in item.get("changes") or []):
+                return item
+        return None
+
+    def close(self) -> None:
+        self.socket.close()
+
+
+def placements_of(item: dict | None) -> dict[str, int]:
+    """The workspace_placement upserts of a delta: placement id -> index."""
+    return {change["id"]: change["value"]["index"] for change in (item or {}).get("changes") or []
+            if change.get("resource") == "workspace_placement" and change.get("kind") == "state_upsert"}
 
 
 def registry_file(state: Path) -> Path:
@@ -599,6 +661,57 @@ def main() -> int:
         order = [w["id"] for w in daemon.ok("workspace.list", {"order": "personal"})]
         check("workspace.list personal order follows the document (Pinned first)",
               order.index(ids["w6"]) < order.index(ids["w3"]), order)
+        # Placement shift (doc3): a new top workspace or a move shifts the
+        # other rows' ordinals; a placement-shift-v1 reader gets only the new
+        # or moved placement, an old-protocol reader every shifted one, and a
+        # reader that echoes only sidebar-doc-v1 is an old-protocol reader.
+        check("capability placement-shift-v1 advertised", "placement-shift-v1" in caps)
+        doc_reader = EventStream(daemon, ["placement-shift-v1", "sidebar-doc-v1"])
+        old_reader = EventStream(daemon)
+        doc_only_reader = EventStream(daemon, ["sidebar-doc-v1"])
+        try:
+            known = {(r["session_id"], r["workspace_key"])
+                     for r in daemon.raw({"cmd": "list-personal"})["workspaces"]}
+            created = daemon.ok("workspace.create", {"name": "w8", "initial_content": "empty"}, mutate=True)
+            w8 = created["value"]["workspace_id"]
+            rows = daemon.raw({"cmd": "list-personal"})["workspaces"]
+            w8_row = next(r for r in rows if (r["session_id"], r["workspace_key"]) not in known)
+            w8_id = f"{local}/{w8_row['workspace_key']}"
+            expected = {f"{r['session_id']}/{r['workspace_key']}": r["index"] for r in rows
+                        if r["index"] > w8_row["index"]}
+            doc_batch = placements_of(doc_reader.delta_with("workspace_placement", w8_id))
+            old_batch = placements_of(old_reader.delta_with("workspace_placement", w8_id))
+            doc_only_batch = placements_of(doc_only_reader.delta_with("workspace_placement", w8_id))
+            check("create: a reader that echoes only sidebar-doc-v1 still gets every shifted placement",
+                  bool(expected) and all(doc_only_batch.get(pid) == index for pid, index in expected.items()),
+                  {"missing": sorted(set(expected) - set(doc_only_batch))[:5]})
+            check("create: a placement-shift-v1 reader gets only the new workspace's placement (no restatement)",
+                  doc_batch == {w8_id: w8_row["index"]} and expected, {"doc": doc_batch, "shifted": len(expected)})
+            check("create: an old-protocol reader still gets every shifted placement at its new index",
+                  all(old_batch.get(pid) == index for pid, index in expected.items())
+                  and old_batch.get(w8_id) == w8_row["index"],
+                  {"missing": sorted(set(expected) - set(old_batch))[:5],
+                   "wrong": {p: (old_batch.get(p), i) for p, i in expected.items() if old_batch.get(p) not in (None, i)}})
+            target = w8_row["index"] + 3
+            check("place: the target index is inside the order", target < len(rows),
+                  {"target": target, "rows": len(rows)})
+            daemon.ok("workspace.place", {"workspace": w8, "index": min(target, len(rows) - 1)}, mutate=True)
+            rows = daemon.raw({"cmd": "list-personal"})["workspaces"]
+            moved = next(r for r in rows if f"{r['session_id']}/{r['workspace_key']}" == w8_id)
+            between = {f"{r['session_id']}/{r['workspace_key']}": r["index"] for r in rows
+                       if w8_row["index"] <= r["index"] <= moved["index"]}
+            doc_place = placements_of(doc_reader.delta_with("workspace_placement", w8_id, moved["index"]))
+            old_place = placements_of(old_reader.delta_with("workspace_placement", w8_id, moved["index"]))
+            check("place: a placement-shift-v1 reader gets only the moved placement",
+                  doc_place == {w8_id: moved["index"]}, doc_place)
+            check("place: an old-protocol reader gets every placement between the old and new index",
+                  len(between) > 1 and all(old_place.get(pid) == index for pid, index in between.items()),
+                  {"between": between, "got": old_place})
+            daemon.ok("workspace.close", {"workspace": w8}, mutate=True)
+        finally:
+            doc_reader.close()
+            old_reader.close()
+            doc_only_reader.close()
         final = daemon.ok("sidebar.get")
     finally:
         daemon.stop()

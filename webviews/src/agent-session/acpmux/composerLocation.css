@@ -381,7 +381,7 @@
   --acpmux-composer-rim: color-mix(in srgb, var(--agent-text) 16%, transparent);
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
   box-shadow:
-    0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
+    var(--elevation-2),
     inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-rim);
 }
 :root[data-borders="none"] .acpmux-composer-box {
@@ -389,7 +389,7 @@
 }
 .acpmux-composer-box:focus-within {
   box-shadow:
-    0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
+    var(--elevation-2),
     inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--agent-accent, var(--agent-text)) 38%, transparent);
 }
 .acpmux-composer-context,
@@ -424,7 +424,7 @@
   border: .5px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-surface-elevated));
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--agent-shadow, #000) 10%, transparent);
+  box-shadow: var(--elevation-2);
 }
 .acpmux-permission-card-heading { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
 .acpmux-permission-card-heading strong { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-title); }

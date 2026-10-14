@@ -84,7 +84,7 @@ enum SidebarStyle {
     static var headerFont: NSFont { Typography.header }
     /// The count: tabular digits in the system face (a monospaced face read
     /// boxy and cramped, Leo 2026-10-13), at the shortcut size.
-    static var badgeFont: NSFont { .monospacedDigitSystemFont(ofSize: Typography.shortcut.pointSize, weight: .medium) }
+    static var badgeFont: NSFont { Typography.system(.monospacedDigit, size: Typography.shortcut.pointSize, weight: .medium) }
     /// How far an AppKit label cell draws its text inside its frame: a label
     /// sits this much before the edge its text aligns to.
     static var labelCellPadding: CGFloat { Metrics.space1 }

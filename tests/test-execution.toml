@@ -825,6 +825,10 @@ path = "tests/test_triage_rules.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tui_focused_filter_guard.py"
 lane = "linux-guard"
 
@@ -1302,6 +1306,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_daily_tree_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_lane_daemon_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_intent_familiar_warning.py"
 lane = "linux-guard"
 
 [[test]]
