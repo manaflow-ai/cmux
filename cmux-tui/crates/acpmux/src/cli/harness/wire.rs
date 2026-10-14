@@ -103,7 +103,7 @@ impl TempFolder {
         let path = std::fs::canonicalize(&path).unwrap_or(path);
         Ok(Self { path })
     }
-    /// Windows port: owner-only is an ACL there (a later landing).
+    /// Windows: the new folder is made owner-only (`owner_only.rs`).
     #[cfg(not(unix))]
     pub(crate) fn new(id: &str) -> std::io::Result<Self> {
         let nanos = std::time::SystemTime::now()
@@ -112,7 +112,9 @@ impl TempFolder {
             .unwrap_or(0);
         let path = std::env::temp_dir()
             .join(format!("cmux-harness-doctor-{id}-{}-{nanos}", std::process::id()));
+        // A new folder only (mode 0700 on Unix): never an existing one.
         std::fs::DirBuilder::new().create(&path)?;
+        crate::owner_only::restrict(&path)?;
         let path = std::fs::canonicalize(&path).unwrap_or(path);
         Ok(Self { path })
     }

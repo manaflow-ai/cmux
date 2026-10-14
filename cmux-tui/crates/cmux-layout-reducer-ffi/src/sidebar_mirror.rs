@@ -1,0 +1,261 @@
+//! The app's mirror of the sidebar document (CONTRACT.md "FFI"): the
+//! confirmed document from `sidebar.get` and the `session.events` batches,
+//! plus the app's pending intents replayed on top with the daemon's own
+//! reducer, so a row moves the moment the user drops it.
+//!
+//! - `load`: the confirmed document (a `sidebar.get` result); pending
+//!   intents are kept and replayed.
+//! - `apply_batch`: one echoed batch `{revision, previous_revision?,
+//!   idempotency_key?, changes:[state_upsert|state_delete of sidebar_item,
+//!   sidebar_section, sidebar_doc]}`. The document revisions and key come
+//!   from the daemon's `sidebar_doc` changes (the first one's
+//!   `previous_revision`, the last one's `revision`); the batch's own fields
+//!   count only when it has none, and a batch with neither is ignored. The
+//!   pending intent with the batch's key is dropped first, in every case. A
+//!   batch whose previous revision is not the confirmed revision answers
+//!   `{"refetch":true}`; a batch at or below the confirmed revision is stale
+//!   and ignored. Every pending intent that no longer applies is dropped.
+//!   `{idempotency_key, rejected:true}` drops a refused intent.
+//! - `apply_intent`: `{idempotency_key, ops:[op]}` (or `op`) on the shown
+//!   document: `{"ok":true,"ops":[...],"inverse":[...]}` (`ops` with the
+//!   ids the mirror minted for added items: send those to the daemon) or
+//!   `{"refusal":"<code>"}`.
+//! - `view`: the flat rows (an array) of a view request on the shown
+//!   document.
+//! - `drag_begin`: `{items:[id]}` (or a bare array): the acceptance table
+//!   `{row_key: {before, into, after, refusal?}}` over the rows of the last
+//!   view.
+
+use cmux_layout_reducer::sidebar_doc::{
+    Doc, Item, Op, Section, accept, reduce,
+    view::{self, Row, ViewRequest},
+};
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+struct Intent {
+    key: String,
+    ops: Vec<Op>,
+}
+
+#[derive(Default)]
+pub struct Mirror {
+    confirmed: Doc,
+    loaded: bool,
+    pending: Vec<Intent>,
+    next_local: u64,
+    /// A per-mirror random prefix of local ids, so ids minted after a
+    /// relaunch never collide with ones the daemon stored earlier.
+    local_prefix: String,
+    rows: Vec<Row>,
+}
+
+fn refusal(reason: &str) -> Value {
+    json!({"refusal": reason})
+}
+
+fn error(message: impl std::fmt::Display) -> Value {
+    json!({"error": message.to_string()})
+}
+
+impl Mirror {
+    pub fn new() -> Self {
+        use std::hash::{BuildHasher, Hasher};
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        hasher.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_nanos()),
+        );
+        Mirror { local_prefix: format!("itm_{:016x}", hasher.finish()), ..Mirror::default() }
+    }
+
+    /// The confirmed document with every pending intent replayed. An
+    /// intent that no longer applies is skipped (and dropped by the caller).
+    fn shown(&mut self) -> (Doc, Vec<String>) {
+        let mut doc = self.confirmed.clone();
+        let mut failed = Vec::new();
+        // Stored intents carry every id they add (see `apply_intent`).
+        let mut mint = String::new;
+        for intent in &self.pending {
+            match reduce::apply(&doc, &intent.ops, &mut mint) {
+                Ok(outcome) => doc = outcome.doc,
+                Err(_) => failed.push(intent.key.clone()),
+            }
+        }
+        (doc, failed)
+    }
+
+    fn prune(&mut self) -> Vec<String> {
+        let (_, failed) = self.shown();
+        self.pending.retain(|intent| !failed.contains(&intent.key));
+        failed
+    }
+
+    pub fn load(&mut self, input: &[u8]) -> Value {
+        let mut doc: Doc = match serde_json::from_slice(input) {
+            Ok(doc) => doc,
+            Err(e) => return error(e),
+        };
+        doc.normalize();
+        self.confirmed = doc;
+        self.loaded = true;
+        let dropped = self.prune();
+        json!({"ok": true, "revision": self.confirmed.revision.to_string(), "dropped": dropped})
+    }
+
+    pub fn apply_batch(&mut self, input: &[u8]) -> Value {
+        let batch: Value = match serde_json::from_slice(input) {
+            Ok(batch) => batch,
+            Err(e) => return error(e),
+        };
+        let changes = batch["changes"].as_array().cloned().unwrap_or_default();
+        // The document revisions come from the `sidebar_doc` markers (a
+        // session.events delta's own revisions are the session's): the
+        // first marker's previous revision and the last marker's revision
+        // (one commit can write two). A batch with no marker and no
+        // document fields of its own is not a sidebar batch.
+        let markers: Vec<&Value> = changes
+            .iter()
+            .filter(|change| change["resource"] == "sidebar_doc")
+            .map(|change| &change["value"])
+            .collect();
+        let decimal = |value: Option<&Value>| {
+            value.and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        };
+        let own = |name: &str| batch.get(name).filter(|v| !v.is_null());
+        let key = markers
+            .iter()
+            .find_map(|marker| marker["idempotency_key"].as_str())
+            .or_else(|| own("idempotency_key").and_then(Value::as_str))
+            .map(str::to_string);
+        // The intent this batch confirms or refuses goes in every case: a
+        // stale or gapped batch still says the daemon decided it.
+        let mut dropped = Vec::new();
+        if let Some(key) = &key
+            && self.pending.iter().any(|intent| intent.key == *key)
+        {
+            self.pending.retain(|intent| intent.key != *key);
+            dropped.push(key.clone());
+        }
+        if batch["rejected"] == true {
+            return json!({"ok": true, "dropped": dropped});
+        }
+        let (revision, previous) = if markers.is_empty() {
+            (decimal(own("revision")), decimal(own("previous_revision")))
+        } else {
+            (
+                decimal(markers.last().map(|m| &m["revision"])),
+                decimal(markers.first().map(|m| &m["previous_revision"])),
+            )
+        };
+        let Some(revision) = revision else {
+            return json!({"ok": true, "ignored": true, "dropped": dropped});
+        };
+        if !self.loaded {
+            return json!({"refetch": true, "dropped": dropped});
+        }
+        if revision <= self.confirmed.revision {
+            return json!({"ok": true, "stale": true, "dropped": dropped});
+        }
+        if previous.unwrap_or(revision - 1) != self.confirmed.revision {
+            return json!({"refetch": true, "dropped": dropped});
+        }
+        let mut doc = self.confirmed.clone();
+        for change in &changes {
+            let resource = change["resource"].as_str().unwrap_or_default();
+            let id = change["id"].as_str().unwrap_or_default().to_string();
+            let op = match (change["kind"].as_str().unwrap_or_default(), resource) {
+                ("state_upsert", "sidebar_item") => {
+                    match serde_json::from_value::<Item>(change["value"].clone()) {
+                        Ok(item) => Op::ItemPut { item },
+                        Err(e) => return error(e),
+                    }
+                }
+                ("state_upsert", "sidebar_section") => {
+                    match serde_json::from_value::<Section>(change["value"].clone()) {
+                        Ok(section) => Op::SectionPut { section },
+                        Err(e) => return error(e),
+                    }
+                }
+                ("state_delete", "sidebar_item") => Op::ItemDelete { id },
+                ("state_delete", "sidebar_section") => Op::SectionDelete { id },
+                _ => continue,
+            };
+            if let Err(refusal) = reduce::apply_one(&mut doc, &op, &mut String::new) {
+                return error(refusal);
+            }
+        }
+        doc.normalize();
+        doc.revision = revision;
+        self.confirmed = doc;
+        dropped.extend(self.prune());
+        json!({"ok": true, "revision": revision.to_string(), "dropped": dropped})
+    }
+
+    pub fn apply_intent(&mut self, input: &[u8]) -> Value {
+        #[derive(Deserialize)]
+        struct IntentInput {
+            idempotency_key: String,
+            #[serde(default)]
+            ops: Vec<Op>,
+            #[serde(default)]
+            op: Option<Op>,
+        }
+        let intent: IntentInput = match serde_json::from_slice(input) {
+            Ok(intent) => intent,
+            Err(e) => return error(e),
+        };
+        let mut ops = intent.ops;
+        ops.extend(intent.op);
+        // Mint the ids of added items now, so a replay adds the same ids.
+        for op in &mut ops {
+            let slot = match op {
+                Op::ItemAdd { item, .. } => &mut item.id,
+                Op::GroupCreate { id, .. } => id,
+                _ => continue,
+            };
+            if slot.is_none() {
+                self.next_local += 1;
+                *slot = Some(format!("{}_{}", self.local_prefix, self.next_local));
+            }
+        }
+        let (doc, _) = self.shown();
+        let mut mint = String::new;
+        match reduce::apply(&doc, &ops, &mut mint) {
+            Ok(outcome) => {
+                // The ops with their minted ids: send these to the daemon,
+                // so the echo and the inverse name the same items.
+                let stamped = serde_json::to_value(&ops).unwrap_or(Value::Null);
+                self.pending.push(Intent { key: intent.idempotency_key, ops });
+                json!({"ok": true, "ops": stamped, "inverse": outcome.inverse})
+            }
+            Err(reason) => refusal(reason.as_str()),
+        }
+    }
+
+    pub fn view(&mut self, input: &[u8]) -> Value {
+        let request: ViewRequest = match serde_json::from_slice(input) {
+            Ok(request) => request,
+            Err(e) => return error(e),
+        };
+        let (doc, _) = self.shown();
+        self.rows = view::view(&doc, &request);
+        json!(self.rows)
+    }
+
+    pub fn drag_begin(&mut self, input: &[u8]) -> Value {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Items {
+            List(Vec<String>),
+            Object { items: Vec<String> },
+        }
+        let items = match serde_json::from_slice::<Items>(input) {
+            Ok(Items::List(items) | Items::Object { items }) => items,
+            Err(e) => return error(e),
+        };
+        let (doc, _) = self.shown();
+        json!(accept::drag_begin(&doc, &self.rows, &items))
+    }
+}

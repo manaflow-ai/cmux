@@ -82,6 +82,12 @@ for line in sys.stdin:
         continue
     if kind == "control_request":
         request = msg.get("request") or {}
+        # Like Claude Code: bypassPermissions only for a process launched with a skip flag.
+        if (request.get("subtype") == "set_permission_mode" and request.get("mode") == "bypassPermissions"
+                and not {"--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"} & set(sys.argv)):
+            send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
+                  "error": "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}})
+            continue
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
         if request.get("subtype") == "initialize":
             send({"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",

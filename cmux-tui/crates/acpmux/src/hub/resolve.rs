@@ -80,6 +80,7 @@ impl Hub {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
+                mode: None,
                 prefer: vec![],
                 env: p.env.clone(),
             });
@@ -191,6 +192,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         remote_origin: d.remote,
         session_env: Default::default(),
         chat_store: None,
+        adopted_cwd: None,
         harness_roots: vec![],
         composer_draft: None,
     }

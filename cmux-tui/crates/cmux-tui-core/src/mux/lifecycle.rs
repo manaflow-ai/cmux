@@ -62,6 +62,7 @@ impl Mux {
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
+        self.agent_prompts.lock().unwrap().remove(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
         // yet, so a closed terminal retires its roster entry explicitly.
         // The snapshot persists so a restart does not resurrect the entry;
@@ -110,6 +111,8 @@ impl Mux {
     pub fn shutdown(&self) {
         let screen_checkpoint = self.wants_shutdown_checkpoint();
         self.shutting_down.store(true, Ordering::Release);
+        // An in-flight maintenance tick must not delay the rest of shutdown.
+        self.stop_journal_maintenance();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         // Hosts of closed terminals were already asked to exit; give them

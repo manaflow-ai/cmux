@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d. */
+/* cmux-tui mux protocol 12, IR f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719. */
 
 
 import type * as T from "./types.js";
@@ -596,6 +596,20 @@ export type ConversationImportResult = {
   "conversation": T.ConversationSummary;
   "imported": Array<bigint>;
   "skipped": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationLinkResolveRequest extends CmuxRequestBase {
+  cmd: "conversation-link-resolve";
+  "url": string;
+}
+export type ConversationLinkResolveResult = {
+  "conversation": T.ConversationSummary;
+  "message"?: T.ConversationMessage;
+  "path": Array<string>;
+  "thread_root"?: string;
+  "truncated"?: boolean;
+  "url": string;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -1696,6 +1710,7 @@ export interface RegisterBrowserProviderRequest extends CmuxRequestBase {
   "authentication": T.BrowserProviderAuthentication;
   "bearer_token"?: (string) | null;
   "endpoint": string;
+  "hosting"?: (T.BrowserProviderHosting) | null;
   "provider_id": string;
   "targets": Array<T.BrowserProviderTarget>;
 }
@@ -2592,6 +2607,7 @@ export type CmuxRequest =
   | ConversationDraftRequest
   | ConversationHistoryRequest
   | ConversationImportRequest
+  | ConversationLinkResolveRequest
   | ConversationListRequest
   | ConversationOpRequest
   | ConversationSearchRequest
@@ -3241,6 +3257,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-link-resolve": {
+    request: ConversationLinkResolveRequest;
+    result: ConversationLinkResolveResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-tree-v1";
     stream: null;
   };
   "conversation-list": {

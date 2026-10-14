@@ -583,6 +583,22 @@
       "title" : "Borders",
       "type" : "string"
     },
+    "appearance.chromeStyle" : {
+      "default" : "default",
+      "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
+      "enum" : [
+        "default",
+        "card",
+        "card-outlined",
+        "flat",
+        "flat-sidebar-line",
+        "bare",
+        "panes",
+        "two-tone"
+      ],
+      "title" : "Window Style",
+      "type" : "string"
+    },
     "appearance.density" : {
       "default" : "compact",
       "description" : "appearance.density",
@@ -1058,9 +1074,10 @@
       "type" : "string"
     },
     "browser.omnibar.glass" : {
-      "default" : "regular",
-      "description" : "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color.",
+      "default" : "transparent",
+      "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
       "enum" : [
+        "transparent",
         "regular",
         "clear",
         "off"
@@ -1400,6 +1417,12 @@
       "minimum" : 0.5,
       "title" : "Width",
       "type" : "number"
+    },
+    "freeModel.enabled" : {
+      "default" : true,
+      "description" : "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits.",
+      "title" : "Free AI Model Without Sign-In",
+      "type" : "boolean"
     },
     "history.closed.maxAgeDays" : {
       "default" : 0,
@@ -2500,7 +2523,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.notification" : {
-      "default" : true,
+      "default" : false,
       "description" : "The text of the workspace's newest unread notification.",
       "title" : "Latest Notification",
       "type" : "boolean"
@@ -2828,6 +2851,12 @@
       ],
       "title" : "Animations",
       "type" : "string"
+    },
+    "ui.paneAnimations" : {
+      "default" : false,
+      "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
+      "title" : "Animate Panes",
+      "type" : "boolean"
     },
     "UpdateChannel" : {
       "description" : "Update channel this device follows.",
