@@ -1713,7 +1713,7 @@ struct ContentView: View {
                 AppDelegate.shared?.performNewWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.hiddenNewWorkspace",
-                    skipConfiguredAction: true
+                    localOnly: true
                 )
             },
             observedWindowReference: observedWindowReference,
@@ -2066,7 +2066,7 @@ struct ContentView: View {
                 AppDelegate.shared?.performNewWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.fullscreenNewWorkspace",
-                    skipConfiguredAction: true
+                    localOnly: true
                 )
             },
             onFocusHistoryBack: {
@@ -7346,12 +7346,6 @@ struct ContentView: View {
                 mainAreaPanelIsTerminal: focusedPanelContext?.panel.panelType == .terminal
             )
         )
-        // Agent turn navigation acts on the main-area terminal, so it has no
-        // target while the Dock owns keyboard focus.
-        snapshot.setBool(
-            Self.commandPaletteAgentTurnsAvailableKey,
-            focusedDock == nil && tabManager.focusedAgentTurnRailModel != nil
-        )
 
         if let workspace = tabManager.selectedWorkspace {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
@@ -8964,7 +8958,7 @@ struct ContentView: View {
             AppDelegate.shared?.performNewWorkspaceAction(
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace",
-                skipConfiguredAction: true
+                localOnly: true
             )
         }
         registry.register(commandId: "palette.newBrowserWorkspace") {
@@ -10316,9 +10310,6 @@ struct ContentView: View {
             return .terminal(.textBoxInput)
         case "palette.toggleTerminalCopyMode":
             // Copy mode reads keys from the terminal surface.
-            return .terminal(.surface)
-        case "palette.previousAgentTurn", "palette.nextAgentTurn":
-            // Keep the terminal focused so repeated jumps stay on the keyboard.
             return .terminal(.surface)
         default:
             return nil
@@ -15748,7 +15739,7 @@ struct SidebarFooterButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if shows(.account) || shows(.mobileConnect) || shows(.help) {
+            if shows(.account) || shows(.mobileConnect) || shows(.help) || shows(.cloud) {
                 HStack(spacing: 0) {
                     if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
                         SidebarAccountMenuButton()
@@ -15758,6 +15749,10 @@ struct SidebarFooterButtons: View {
                     }
                     if shows(.help) {
                         SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+                    }
+                    // Right of Help and left of Upgrade, per the footer design.
+                    if shows(.cloud) {
+                        SidebarCloudButton()
                     }
                 }
             }

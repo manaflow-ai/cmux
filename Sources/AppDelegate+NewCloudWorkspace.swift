@@ -236,7 +236,7 @@ extension AppDelegate {
         }
     }
 
-    private func cloudCreationGate() -> CloudCreationGate {
+    func cloudCreationGate() -> CloudCreationGate {
         CloudCreationGate.resolve(
             isAvailable: CloudMachinesFeature.isAvailable,
             isEnabled: CloudMachinesFeature.isEnabled,
@@ -245,9 +245,27 @@ extension AppDelegate {
         )
     }
 
+    /// The sidebar footer Cloud button: reveals Cloud Machines in the right
+    /// sidebar on every press (never toggles it closed), and while Cloud is off
+    /// or signed out also reopens the welcome card, whose next step routes to
+    /// sign-in, Upgrade or Enable from the account's plan.
+    func performSidebarCloudButtonAction(preferredWindow: NSWindow?) {
+        let window = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        SidebarCloudButtonAction(
+            isAvailable: { CloudMachinesFeature.isAvailable },
+            isEnabled: { [weak self] in self?.cloudCreationGate() != .introduceCloud },
+            revealMachines: { [weak self] in
+                _ = self?.focusRightSidebarInActiveMainWindow(mode: .machines, preferredWindow: window)
+            },
+            presentIntroduction: { [weak self] in
+                self?.cloudWelcomeWindowController.presentIntroduction(over: window)
+            }
+        ).perform()
+    }
+
     /// Cloud creation shortcuts and menu rows introduce Cloud while it is off
-    /// or signed out, instead of doing nothing. The welcome card's own next
-    /// step decides between Enable and Upgrade; Enable then resumes `resume`.
+    /// or signed out. Returning users skip the card and take its next step;
+    /// Enable then resumes `resume`.
     private func introduceCloudIfNeeded(
         over window: NSWindow?,
         resume: @escaping @MainActor () -> Void

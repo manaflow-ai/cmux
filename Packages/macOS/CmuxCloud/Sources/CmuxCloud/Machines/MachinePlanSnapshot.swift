@@ -55,6 +55,13 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         }
     }
 
+    /// Whether Max is a larger plan for shared vCPU and memory capacity.
+    /// Team and Founders have the same active-machine tier as Max but can still
+    /// upgrade their shared pool to Max capacity.
+    public var hasHigherResourcePoolPlan: Bool {
+        planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "max"
+    }
+
     public static func isPaidPlanID(_ planId: String) -> Bool {
         switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "go", "pro", "max", "team", "founders":

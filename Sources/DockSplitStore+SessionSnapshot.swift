@@ -47,7 +47,7 @@ extension DockSplitStore {
                         panelIds: terminalPanelIds
                     )
         }
-        let panelSnapshots = orderedPanelIds
+        let builtPanelSnapshots = orderedPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
                 // A Dock's owner UUID can change when its window/workspace is restored or
@@ -66,6 +66,10 @@ extension DockSplitStore {
                         processPresenceProvider: agentProcessPresence,
                         revalidateProcessEvidence: false
                     ),
+                    observationIsAuthoritative: restorableAgentIndex?.observesEveryLiveSession(
+                        forPanelId: panelId,
+                        kind: surfaceResumeBindingsByPanelId[panelId]?.kind
+                    ) ?? true,
                     detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
                         workspaceId: observationWorkspaceId,
                         panelId: panelId
@@ -81,6 +85,9 @@ extension DockSplitStore {
                     agentProcessPresence: agentProcessPresence
                 )
             }
+        let panelSnapshots = restorableAgentIndex?.removingTranscriptlessClaudeResume(
+            from: builtPanelSnapshots
+        ) ?? builtPanelSnapshots
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
         let sourceWorkspaceIdsByPanelId: [UUID: UUID] = Dictionary(
             uniqueKeysWithValues: panelSnapshots.compactMap { panel -> (UUID, UUID)? in
@@ -157,7 +164,7 @@ extension DockSplitStore {
             terminalFontSizeSnapshotProjection = nil
         }
 
-        return sessionPanelSnapshot(
+        let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
             observation: restorableAgentIndex?.entryForStablePanel(
@@ -193,6 +200,8 @@ extension DockSplitStore {
                 return PIDPresence.current(pid: pid_t($0))
             }
         )
+        guard let snapshot, let restorableAgentIndex else { return snapshot }
+        return restorableAgentIndex.removingTranscriptlessClaudeResume(from: [snapshot]).first
     }
 
     private func orderedSessionPanelIds() -> [UUID] {
@@ -217,6 +226,7 @@ extension DockSplitStore {
         panelId: UUID,
         includeScrollback: Bool,
         observation: RestorableAgentSessionIndex.Entry?,
+        observationIsAuthoritative: Bool = true,
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool,
         detectedResumeBindingIsAmbiguous: Bool = false,
@@ -287,6 +297,7 @@ extension DockSplitStore {
                 terminal: terminal,
                 transfer: transfer,
                 observation: observation,
+                observationIsAuthoritative: observationIsAuthoritative,
                 currentAgentProcessIdentity: currentAgentProcessIdentity,
                 agentProcessPresence: agentProcessPresence
             )
@@ -616,6 +627,7 @@ extension DockSplitStore {
         terminal: TerminalPanel,
         transfer: Workspace.DetachedSurfaceTransfer?,
         observation: RestorableAgentSessionIndex.Entry?,
+        observationIsAuthoritative: Bool = true,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -670,7 +682,12 @@ extension DockSplitStore {
         if managedBinding != nil,
            relevantObservation == nil,
            confirmedRuntimeIdentities.isEmpty {
-            return false
+            // An incomplete index (for example the cached index a quit
+            // falls back to) may predate this session (#20186). A shell
+            // back at its prompt still shows the agent has exited.
+            guard !observationIsAuthoritative,
+                  terminal.shellActivity.state != .promptIdle else { return false }
+            return nil
         }
         if restorableAgent?.resumeCommand == nil,
            terminal.shellActivity.state == .commandRunning {

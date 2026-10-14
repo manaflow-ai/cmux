@@ -225,7 +225,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                 } catch let error as CloudMachineLink.LinkError {
                     let requeueInput: Bool
                     switch error {
-                    case .clientMissing, .spawnFailed, .inputTooLarge, .timedOut, .exited, .failureMessage:
+                    case .clientMissing, .spawnFailed, .inputTooLarge, .timedOut, .requestTimedOut, .exited, .failureMessage:
                         requeueInput = false
                     }
                     if case .clientMissing = error {
