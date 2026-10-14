@@ -9,7 +9,7 @@ import CmuxNextSettings
 /// overlay (focus ring, dim, drop highlight) draws above content child
 /// windows (Chromium pages). WebKit pages are in-window views and never
 /// appear as child windows. DEBUG builds with `titlebar_band: true` add the
-/// first window's top-row press map (`TitlebarBandMap`).
+/// first window's top-row press map (`NSWindow.titlebarBandMap`).
 enum DebugLayers {
     static func report(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
@@ -23,7 +23,7 @@ enum DebugLayers {
         ]
         #if DEBUG
         if params["titlebar_band"]?.boolValue == true, let window = services.windows.controllers.first?.window {
-            fields["titlebar_band"] = JSONValue(foundation: TitlebarBandMap.report(window))
+            fields["titlebar_band"] = JSONValue(foundation: window.titlebarBandMap())
         }
         #endif
         return .object(fields)

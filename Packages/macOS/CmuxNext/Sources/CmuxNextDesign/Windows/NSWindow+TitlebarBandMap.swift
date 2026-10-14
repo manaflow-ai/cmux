@@ -8,11 +8,11 @@ public import AppKit
 /// and the `TitlebarPressDeciding` view that answered, if any. A drag area
 /// should be drawn where it moves the window and nowhere else (Leo,
 /// cosmic-gray 2026-10-13). A `JSONSerialization` object graph.
-@MainActor public enum TitlebarBandMap {
-    public static func report(_ window: NSWindow, step: CGFloat = 2) -> [String: Any] {
-        guard let content = window.contentView, let frameView = content.superview else { return ["error": "no window"] }
+extension NSWindow {
+    public func titlebarBandMap(step: CGFloat = 2) -> [String: Any] {
+        guard let content = contentView, let frameView = content.superview else { return ["error": "no window"] }
         let height = content.bounds.height, width = content.bounds.width
-        let band = TitlebarDragPolicy.bandRect(in: window)
+        let band = TitlebarDragPolicy.bandRect(in: self)
         let step = max(1, step)
         // The band and a strip's height below it: a top-row strip can be taller than the band.
         let bottom = min(band.minY, band.maxY - Metrics.tabStripHeight)
@@ -28,7 +28,7 @@ public import AppKit
                 let point = CGPoint(x: x, y: y)
                 let hit = frameView.hitTest(frameView.convert(point, from: nil))
                 let decider = sequence(first: hit, next: { $0?.superview }).lazy.compactMap { $0 as? TitlebarPressDeciding }.first
-                let key = [TitlebarDragPolicy.decide(at: point, in: window) == .movesWindow ? "moves" : "stays",
+                let key = [TitlebarDragPolicy.decide(at: point, in: self) == .movesWindow ? "moves" : "stays",
                            hit.map { String(describing: type(of: $0)) } ?? "nil",
                            decider.map { String(describing: type(of: $0)) } ?? ""]
                 if current?.key != key {
