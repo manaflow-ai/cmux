@@ -6,6 +6,10 @@ use super::*;
 /// ssh peer may take its ssh connect, tunnel and WebSocket timeouts in turn.
 const PEER_SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The record kind of a peer's `_acpmux/permission_pending`, relayed to
+/// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
+pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
+
 impl Hub {
     // ------------------------------------------------------------- peers
 
@@ -377,7 +381,20 @@ impl Hub {
                             msg: params.get("msg").cloned().unwrap_or(Value::Null),
                             host_seq: None,
                         },
-                        // permission_pending is derived from the permission_request event locally.
+                        // A prompt the person must answer, to watchers of this
+                        // daemon that did not attach the session (attached
+                        // clients derive it from the permission_request event):
+                        // the peer's decision nonce and run come with it, so the
+                        // app that holds the peer's key can answer
+                        // (`hub/person.rs` (c)).
+                        method::MUX_PERMISSION_PENDING => EventRecord {
+                            seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                            at: now_ms(),
+                            dir: "peer".into(),
+                            kind: PEER_PERMISSION_PENDING.into(),
+                            msg: params.clone(),
+                            host_seq: None,
+                        },
                         _ => return,
                     };
                     let _ = self.events.send(HubEvent {

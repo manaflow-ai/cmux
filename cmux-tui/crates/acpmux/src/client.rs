@@ -91,12 +91,21 @@ impl Client {
             notif_tx,
             closed,
         });
-        let init = client
-            .request(
-                method::INITIALIZE,
-                json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}}),
-            )
-            .await?;
+        let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}});
+        // Inside an acpmux session: say which, with the caller token the
+        // daemon put in that session's env (`hub/person.rs` (a)).
+        let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        if let (Some(id), Some(token)) =
+            (caller("ACPMUX_SESSION_ID"), caller(crate::hub::person::CALLER_TOKEN_ENV))
+        {
+            let mut meta = serde_json::Map::new();
+            meta.insert(
+                crate::hub::person::CALLER_FIELD.to_owned(),
+                json!({"sessionId": id, "token": token}),
+            );
+            hello["_meta"] = json!({"acpmux": meta});
+        }
+        let init = client.request(method::INITIALIZE, hello).await?;
         *client.daemon_build.lock().unwrap() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
         Ok(client)
