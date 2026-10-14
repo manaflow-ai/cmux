@@ -91,7 +91,10 @@ pub(super) fn piece(value: Option<String>, field: &str) -> anyhow::Result<Piece>
     }
 }
 
-pub(super) fn derived(value: Option<Value>, field: &str) -> anyhow::Result<Option<DerivedDeclaration>> {
+pub(super) fn derived(
+    value: Option<Value>,
+    field: &str,
+) -> anyhow::Result<Option<DerivedDeclaration>> {
     value
         .filter(|value| !value.is_null())
         .map(|value| super::conversations::decode(value, field))
@@ -212,10 +215,10 @@ pub(super) fn checked_name(name: Option<String>) -> anyhow::Result<Option<String
         {
             Ok(Some(name))
         }
-        Some(_) => Err(crate::conversation_store::attachments::AttachmentRejected(
-            "validation_invalid",
-        )
-        .into()),
+        Some(_) => {
+            Err(crate::conversation_store::attachments::AttachmentRejected("validation_invalid")
+                .into())
+        }
     }
 }
 

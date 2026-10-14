@@ -560,7 +560,7 @@ pub(crate) fn write_refs(
 pub(crate) fn declared_record(
     declaration: &UploadDeclaration,
 ) -> anyhow::Result<(StoredAttachment, Vec<(Piece, String, u64)>)> {
-        let mime_type = declaration.mime_type.to_lowercase();
+    let mime_type = declaration.mime_type.to_lowercase();
     let class = validate_attachment_meta(
         &declaration.sha256,
         &mime_type,

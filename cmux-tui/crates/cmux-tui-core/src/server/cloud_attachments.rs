@@ -125,7 +125,8 @@ pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Resul
                     intent[field] = json!(value);
                 }
             }
-            for (field, image) in [("poster", &declaration.poster), ("preview", &declaration.preview)]
+            for (field, image) in
+                [("poster", &declaration.poster), ("preview", &declaration.preview)]
             {
                 if let Some(image) = image {
                     intent[field] = json!({"sha256": image.sha256, "byte_count": image.byte_count,

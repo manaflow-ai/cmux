@@ -164,7 +164,11 @@ impl CloudBackend for RemoteCloudBackend {
             let response = request.send().await.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
             let header = |name: reqwest::header::HeaderName| {
-                response.headers().get(name).and_then(|value| value.to_str().ok()).map(str::to_string)
+                response
+                    .headers()
+                    .get(name)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string)
             };
             let content_type = header(reqwest::header::CONTENT_TYPE);
             // `bytes a-b/total` on a 206; the whole length on a 200.
@@ -177,7 +181,9 @@ impl CloudBackend for RemoteCloudBackend {
             // A 200 (no range support) carries everything: keep only the asked slice.
             let body = if status == 200 {
                 let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
-                let end = start.saturating_add(usize::try_from(length).unwrap_or(usize::MAX)).min(bytes.len());
+                let end = start
+                    .saturating_add(usize::try_from(length).unwrap_or(usize::MAX))
+                    .min(bytes.len());
                 bytes[start..end].to_vec()
             } else {
                 bytes.to_vec()

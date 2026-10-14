@@ -74,56 +74,90 @@ impl FakeFiles {
                 let _ = reader.read_exact(&mut body);
                 log.lock().unwrap().push((method.clone(), path.clone(), bearer, body.len()));
                 let json_body = serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null);
-                let ok = |value: Value| json!({"ok": true, "value": value}).to_string().into_bytes();
-                let (status, content_type, extra, reply): (u16, &str, String, Vec<u8>) =
-                    if path == "/v1/home/attachments/intent" {
-                        let hash = json_body["sha256"].as_str().unwrap_or("").to_string();
-                        if stored.lock().unwrap().contains_key(&hash) {
-                            let attachment = json!({"hash": hash, "mime_type": json_body["mime_type"],
+                let ok =
+                    |value: Value| json!({"ok": true, "value": value}).to_string().into_bytes();
+                let (status, content_type, extra, reply): (u16, &str, String, Vec<u8>) = if path
+                    == "/v1/home/attachments/intent"
+                {
+                    let hash = json_body["sha256"].as_str().unwrap_or("").to_string();
+                    if stored.lock().unwrap().contains_key(&hash) {
+                        let attachment = json!({"hash": hash, "mime_type": json_body["mime_type"],
                                 "byte_count": json_body["byte_count"], "poster": {"hash": hex(POSTER),
                                 "mime_type": "image/jpeg", "byte_count": POSTER.len()}});
-                            (200, "application/json", String::new(), ok(json!({"state": "exists", "attachment": attachment})))
-                        } else {
-                            (200, "application/json", String::new(), ok(json!({"state": "upload", "mode": "stream",
+                        (
+                            200,
+                            "application/json",
+                            String::new(),
+                            ok(json!({"state": "exists", "attachment": attachment})),
+                        )
+                    } else {
+                        (
+                            200,
+                            "application/json",
+                            String::new(),
+                            ok(json!({"state": "upload", "mode": "stream",
                                 "method": "PUT", "slot": "slot1",
                                 "upload_url": format!("{origin}/v1/home/attachments/upload/{CONV}/slot1.1.sig"),
                                 "headers": {"content-type": json_body["mime_type"]},
-                                "poster_upload": {"upload_url": format!("{origin}/v1/home/attachments/poster/{CONV}/slot1.1.sig")}})))
-                        }
-                    } else if path.starts_with("/v1/home/attachments/poster/") {
-                        stored.lock().unwrap().insert("poster".into(), body.clone());
-                        (200, "application/json", String::new(), ok(json!({"state": "poster_stored"})))
-                    } else if path.starts_with("/v1/home/attachments/upload/") {
-                        let poster_first = stored.lock().unwrap().contains_key("poster");
-                        if !poster_first {
-                            (409, "application/json", String::new(), json!({"ok": false, "error": {"code": "attachment.poster_missing", "message": "poster first"}}).to_string().into_bytes())
-                        } else {
-                            let hash = hex(&body);
-                            stored.lock().unwrap().insert(hash.clone(), body.clone());
-                            stored.lock().unwrap().insert("object".into(), body.clone());
-                            (200, "application/json", String::new(), ok(json!({"state": "stored", "attachment": {"hash": hash,
-                                "mime_type": "video/mp4", "byte_count": body.len(), "poster": {"hash": hex(POSTER),
-                                "mime_type": "image/jpeg", "byte_count": POSTER.len()}}})))
-                        }
-                    } else if path == "/v1/home/attachments/url" {
-                        let variant = json_body["variant"].as_str().unwrap_or("original").to_string();
-                        (200, "application/json", String::new(), ok(json!({"url": format!("{origin}/v1/home/attachments/{CONV}/{OBJECT}?variant={variant}&s=sig"),
-                            "expires_at": 4_102_444_800_000_u64})))
-                    } else if path.starts_with(&format!("/v1/home/attachments/{CONV}/{OBJECT}")) {
-                        let key = if path.contains("variant=poster") { "poster" } else { "object" };
-                        let object = stored.lock().unwrap().get(key).cloned().unwrap_or_default();
-                        let total = object.len();
-                        let (start, end) = range
-                            .as_deref()
-                            .and_then(|r| r.strip_prefix("bytes="))
-                            .and_then(|r| r.split_once('-'))
-                            .map(|(a, b)| (a.parse::<usize>().unwrap_or(0), b.parse::<usize>().unwrap_or(total - 1).min(total - 1)))
-                            .unwrap_or((0, total - 1));
-                        let mime = if key == "poster" { "image/jpeg" } else { "video/mp4" };
-                        (206, mime, format!("Content-Range: bytes {start}-{end}/{total}\r\n"), object[start..=end].to_vec())
+                                "poster_upload": {"upload_url": format!("{origin}/v1/home/attachments/poster/{CONV}/slot1.1.sig")}})),
+                        )
+                    }
+                } else if path.starts_with("/v1/home/attachments/poster/") {
+                    stored.lock().unwrap().insert("poster".into(), body.clone());
+                    (200, "application/json", String::new(), ok(json!({"state": "poster_stored"})))
+                } else if path.starts_with("/v1/home/attachments/upload/") {
+                    let poster_first = stored.lock().unwrap().contains_key("poster");
+                    if !poster_first {
+                        (409, "application/json", String::new(), json!({"ok": false, "error": {"code": "attachment.poster_missing", "message": "poster first"}}).to_string().into_bytes())
                     } else {
-                        (404, "text/plain", String::new(), b"no route".to_vec())
-                    };
+                        let hash = hex(&body);
+                        stored.lock().unwrap().insert(hash.clone(), body.clone());
+                        stored.lock().unwrap().insert("object".into(), body.clone());
+                        (
+                            200,
+                            "application/json",
+                            String::new(),
+                            ok(json!({"state": "stored", "attachment": {"hash": hash,
+                                "mime_type": "video/mp4", "byte_count": body.len(), "poster": {"hash": hex(POSTER),
+                                "mime_type": "image/jpeg", "byte_count": POSTER.len()}}})),
+                        )
+                    }
+                } else if path == "/v1/home/attachments/url" {
+                    let variant = json_body["variant"].as_str().unwrap_or("original").to_string();
+                    (
+                        200,
+                        "application/json",
+                        String::new(),
+                        ok(
+                            json!({"url": format!("{origin}/v1/home/attachments/{CONV}/{OBJECT}?variant={variant}&s=sig"),
+                            "expires_at": 4_102_444_800_000_u64}),
+                        ),
+                    )
+                } else if path.starts_with(&format!("/v1/home/attachments/{CONV}/{OBJECT}")) {
+                    let key = if path.contains("variant=poster") { "poster" } else { "object" };
+                    let object = stored.lock().unwrap().get(key).cloned().unwrap_or_default();
+                    let total = object.len();
+                    let (start, end) = range
+                        .as_deref()
+                        .and_then(|r| r.strip_prefix("bytes="))
+                        .and_then(|r| r.split_once('-'))
+                        .map(|(a, b)| {
+                            (
+                                a.parse::<usize>().unwrap_or(0),
+                                b.parse::<usize>().unwrap_or(total - 1).min(total - 1),
+                            )
+                        })
+                        .unwrap_or((0, total - 1));
+                    let mime = if key == "poster" { "image/jpeg" } else { "video/mp4" };
+                    (
+                        206,
+                        mime,
+                        format!("Content-Range: bytes {start}-{end}/{total}\r\n"),
+                        object[start..=end].to_vec(),
+                    )
+                } else {
+                    (404, "text/plain", String::new(), b"no route".to_vec())
+                };
                 let head = format!(
                     "HTTP/1.1 {status} X\r\nContent-Type: {content_type}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
                     reply.len()
@@ -145,7 +179,11 @@ impl FakeFiles {
 fn get(addr: &str, path: &str, range: &str) -> (u16, String, Vec<u8>) {
     let mut stream = TcpStream::connect(addr).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
-    write!(stream, "GET {path} HTTP/1.1\r\nHost: {addr}\r\nRange: {range}\r\nConnection: close\r\n\r\n").unwrap();
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: {addr}\r\nRange: {range}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw).unwrap();
     let end = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
@@ -153,7 +191,9 @@ fn get(addr: &str, path: &str, range: &str) -> (u16, String, Vec<u8>) {
     let status = head.split(' ').nth(1).unwrap().parse().unwrap();
     let content_range = head
         .lines()
-        .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-range:").map(|v| v.trim().to_string()))
+        .find_map(|line| {
+            line.to_ascii_lowercase().strip_prefix("content-range:").map(|v| v.trim().to_string())
+        })
         .unwrap_or_default();
     (status, content_range, raw[end + 4..].to_vec())
 }
@@ -170,13 +210,18 @@ fn the_persons_page_sends_and_plays_a_cloud_video_through_the_daemon() {
     let mut page = Page::open(&addr, &credential);
     let identity = page.rpc(json!({"cmd":"identify"}));
     assert!(
-        identity["data"]["capabilities"].as_array().unwrap().iter().any(|v| v == "cloud-attachments-v1"),
+        identity["data"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "cloud-attachments-v1"),
         "{identity}"
     );
 
     // The same steps as a local upload: begin, chunks, commit.
     let bytes = video();
-    let poster = json!({"sha256": hex(POSTER), "byte_count": POSTER.len(), "mime_type": "image/jpeg"});
+    let poster =
+        json!({"sha256": hex(POSTER), "byte_count": POSTER.len(), "mime_type": "image/jpeg"});
     let begin = json!({"cmd":"cloud-attachment-upload","op":"begin","conversation":CONV,
         "sha256":hex(&bytes),"byte_count":bytes.len(),"mime_type":"video/mp4","name":"clip.mp4",
         "duration_ms":3000,"poster":poster});
@@ -185,21 +230,27 @@ fn the_persons_page_sends_and_plays_a_cloud_video_through_the_daemon() {
     assert_eq!(begun["data"]["needs"], json!(["original", "poster"]), "{begun}");
     let upload = begun["data"]["upload"].as_str().unwrap().to_owned();
     let b64 = |data: &[u8]| base64::engine::general_purpose::STANDARD.encode(data);
-    for (piece, offset, data) in
-        [("original", 0, &bytes[..100_000]), ("original", 100_000, &bytes[100_000..]), ("poster", 0, POSTER)]
-    {
+    for (piece, offset, data) in [
+        ("original", 0, &bytes[..100_000]),
+        ("original", 100_000, &bytes[100_000..]),
+        ("poster", 0, POSTER),
+    ] {
         let chunk = page.rpc(json!({"cmd":"cloud-attachment-upload","op":"chunk","upload":upload,
             "piece":piece,"offset":offset,"data":b64(data)}));
         assert_eq!(chunk["ok"], true, "{chunk}");
     }
-    let committed = page.rpc(json!({"cmd":"cloud-attachment-upload","op":"commit","upload":upload}));
+    let committed =
+        page.rpc(json!({"cmd":"cloud-attachment-upload","op":"commit","upload":upload}));
     assert_eq!(committed["ok"], true, "{committed}");
     assert_eq!(committed["data"]["stored"]["hash"], hex(&bytes), "{committed}");
     assert_eq!(committed["data"]["stored"]["poster"]["hash"], hex(POSTER), "{committed}");
     let seen = cloud.seen();
     let order: Vec<&str> = seen.iter().map(|(_, path, _, _)| path.as_str()).collect();
     assert!(order[0] == "/v1/home/attachments/intent", "{order:?}");
-    assert!(order[1].starts_with("/v1/home/attachments/poster/"), "the poster goes first: {order:?}");
+    assert!(
+        order[1].starts_with("/v1/home/attachments/poster/"),
+        "the poster goes first: {order:?}"
+    );
     assert!(order[2].starts_with("/v1/home/attachments/upload/"), "{order:?}");
     assert_eq!(seen[2].3, bytes.len(), "the whole video went to the slot");
     assert_eq!(seen[0].2, format!("Bearer {token}"), "the intent carries the lease");
@@ -211,20 +262,26 @@ fn the_persons_page_sends_and_plays_a_cloud_video_through_the_daemon() {
     assert_eq!(again["data"]["stored"]["hash"], hex(&bytes), "{again}");
 
     // Bytes back through a signed URL, at an offset.
-    let read = page.rpc(json!({"cmd":"cloud-attachment-read","conversation":CONV,"hash":hex(&bytes),
+    let read = page
+        .rpc(json!({"cmd":"cloud-attachment-read","conversation":CONV,"hash":hex(&bytes),
         "offset":1000,"length":16}));
     assert_eq!(read["ok"], true, "{read}");
-    let data = base64::engine::general_purpose::STANDARD.decode(read["data"]["data"].as_str().unwrap()).unwrap();
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(read["data"]["data"].as_str().unwrap())
+        .unwrap();
     assert_eq!(data, bytes[1000..1016], "{read}");
     assert_eq!(read["data"]["byte_count"], bytes.len(), "{read}");
     assert_eq!(read["data"]["mime_type"], "video/mp4", "{read}");
     let poster_read = page.rpc(json!({"cmd":"cloud-attachment-read","conversation":CONV,
         "hash":hex(&bytes),"variant":"poster"}));
-    let poster_bytes = base64::engine::general_purpose::STANDARD.decode(poster_read["data"]["data"].as_str().unwrap()).unwrap();
+    let poster_bytes = base64::engine::general_purpose::STANDARD
+        .decode(poster_read["data"]["data"].as_str().unwrap())
+        .unwrap();
     assert_eq!(poster_bytes, POSTER, "{poster_read}");
 
     // A local download link that a video element seeks in.
-    let link = page.rpc(json!({"cmd":"cloud-attachment-link","conversation":CONV,"hash":hex(&bytes),
+    let link = page
+        .rpc(json!({"cmd":"cloud-attachment-link","conversation":CONV,"hash":hex(&bytes),
         "name":"clip.mp4"}));
     assert_eq!(link["ok"], true, "{link}");
     let path = link["data"]["path"].as_str().unwrap().to_owned();
@@ -233,11 +290,13 @@ fn the_persons_page_sends_and_plays_a_cloud_video_through_the_daemon() {
     assert_eq!(content_range, format!("bytes 150000-150099/{}", bytes.len()));
     assert_eq!(body, bytes[150_000..150_100]);
     // The signed URL was minted once and reused.
-    let mints = cloud.seen().iter().filter(|(_, path, _, _)| path == "/v1/home/attachments/url").count();
+    let mints =
+        cloud.seen().iter().filter(|(_, path, _, _)| path == "/v1/home/attachments/url").count();
     assert_eq!(mints, 2, "one URL per variant: {:?}", cloud.seen());
 
     // The file token never uses the person's lease.
     let mut other = Page::open(&addr, &file_token);
-    let refused = other.rpc(json!({"cmd":"cloud-attachment-read","conversation":CONV,"hash":hex(&bytes)}));
+    let refused =
+        other.rpc(json!({"cmd":"cloud-attachment-read","conversation":CONV,"hash":hex(&bytes)}));
     assert_eq!(refused["ok"], false, "{refused}");
 }
