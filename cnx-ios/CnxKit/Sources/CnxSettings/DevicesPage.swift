@@ -5,39 +5,7 @@ import SwiftUI
 
 private let theme = CnxTheme.standard
 
-/// One of the account's devices as Settings → Connection lists it. A phone
-/// registers two service devices (link and presence); `ids` holds both, so
-/// removing the phone removes them together.
-public struct SettingsDevice: Identifiable, Hashable, Sendable {
-    public enum Kind: Sendable, Hashable { case mac, phone }
-
-    public var id: String { ids.first ?? name }
-    public var ids: [String]
-    public var kind: Kind
-    public var name: String
-    /// Live presence for a Mac; nil for a phone.
-    public var online: Bool?
-    public var lastSeenAt: Date?
-    /// When the account first registered it (nil when the list doesn't say).
-    public var addedAt: Date?
-    public var isThisDevice: Bool
-    /// A phone with an APNs token registered.
-    public var receivesNotifications: Bool
-
-    public init(ids: [String], kind: Kind, name: String, online: Bool?, lastSeenAt: Date?, addedAt: Date? = nil,
-                isThisDevice: Bool, receivesNotifications: Bool) {
-        self.ids = ids
-        self.kind = kind
-        self.name = name
-        self.online = online
-        self.lastSeenAt = lastSeenAt
-        self.addedAt = addedAt
-        self.isThisDevice = isThisDevice
-        self.receivesNotifications = receivesNotifications
-    }
-}
-
-/// The live service behind Settings → Connection and account deletion (the
+/// The live service behind Settings → Devices and account deletion (the
 /// shell supplies it; mock mode has none).
 @MainActor
 public protocol SettingsDeviceDirectory: AnyObject {
@@ -49,13 +17,44 @@ public protocol SettingsDeviceDirectory: AnyObject {
     func deleteAccountData() async throws
 }
 
-/// Settings → Connection → Paired Macs: the account's Macs and phones from
-/// the service, with real presence; stale ones can be removed.
-struct PairedMacsPage: View {
+/// The account's devices from the service, shared by the Settings root (its
+/// "Devices" count) and the Devices page, so both read one list.
+@MainActor
+@Observable
+final class SettingsDeviceList {
+    /// The service's list; nil until it loads (or with no service).
+    private(set) var devices: [SettingsDevice]?
+    private(set) var loadError: String?
+
+    func load(_ directory: (any SettingsDeviceDirectory)?) async {
+        guard let directory else { return }
+        do {
+            devices = try await directory.devices()
+            loadError = nil
+        } catch is CancellationError {
+        } catch {
+            loadError = "Couldn't load your devices. Pull to try again."
+        }
+    }
+
+    func removed(_ device: SettingsDevice) {
+        devices?.removeAll { $0.id == device.id }
+    }
+
+    /// The Mac rows (see `SettingsDeviceRows.macs`); nil while loading.
+    func macs(store: AppStore, hasService: Bool) -> [SettingsDevice]? {
+        SettingsDeviceRows.macs(service: devices, hasService: hasService, liveMacs: store.teams.flatMap(\.macs))
+    }
+
+    var phones: [SettingsDevice] { SettingsDeviceRows.phones(service: devices) }
+}
+
+/// Settings → Devices: the account's Macs and phones from the service, with
+/// real presence; stale ones can be removed.
+struct DevicesPage: View {
     let store: AppStore
     let directory: (any SettingsDeviceDirectory)?
-    @State private var devices: [SettingsDevice]?
-    @State private var loadError: String?
+    let list: SettingsDeviceList
     @State private var pendingRemoval: SettingsDevice?
     @State private var removalError: ServiceFailureMessage?
     /// Rows whose removal is in flight (shown dimmed, not removable twice).
@@ -65,14 +64,14 @@ struct PairedMacsPage: View {
         List {
             if let relay = directory?.relayAvailable, !relay {
                 Section {
-                    Label("Relay (TURN) unavailable — connections outside your network may fail.", systemImage: "exclamationmark.triangle")
+                    Label("Relay unavailable. Connections from outside your network may fail.", systemImage: "exclamationmark.triangle")
                         .font(theme.type.meta)
                         .foregroundStyle(theme.colors.label2)
                 }
             }
             Section {
                 if macs.isEmpty {
-                    Text(devices == nil && directory != nil ? "Loading…" : "No Macs yet. Open cmux on your Mac and sign in with this account.")
+                    Text(loadedMacs == nil ? "Loading…" : "No Macs yet. Open cmux on your Mac and sign in with this account.")
                         .font(theme.type.meta).foregroundStyle(theme.colors.label2)
                 }
                 ForEach(macs) { mac in
@@ -96,25 +95,14 @@ struct PairedMacsPage: View {
                     Text("Sign out to remove this iPhone.")
                 }
             }
-            if let loadError {
+            if let loadError = list.loadError {
                 Section { Text(loadError).font(theme.type.meta).foregroundStyle(theme.colors.danger) }
             }
         }
-        .settingsPage("Paired Macs")
+        .settingsPage("Devices")
         .toolbar { if directory != nil { EditButton() } }
-        .refreshable { await load() }
-        .task { await load() }
-        .confirmationDialog(
-            pendingRemoval.map { "Remove \(displayName($0))?" } ?? "",
-            isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
-            titleVisibility: .visible,
-            presenting: pendingRemoval
-        ) { device in
-            Button("Remove", role: .destructive) { Task { await remove(device) } }
-        } message: { device in
-            Text(Self.removalExplanation(device, connected: isConnected(device), honorsRemoval: honorsRemoval(device),
-                                         displayName: displayName(device)))
-        }
+        .refreshable { await list.load(directory) }
+        .task { await list.load(directory) }
         .alert("Couldn't remove", isPresented: Binding(get: { removalError != nil }, set: { if !$0 { removalError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -122,23 +110,9 @@ struct PairedMacsPage: View {
         }
     }
 
-    private var macs: [SettingsDevice] {
-        guard directory != nil else {
-            return (store.activeTeam?.macs ?? []).map {
-                SettingsDevice(ids: [$0.id], kind: .mac, name: $0.name, online: $0.isOnline, lastSeenAt: $0.lastSeenAt, isThisDevice: false, receivesNotifications: false)
-            }
-        }
-        // The service's list, with live presence from the store where this
-        // phone follows the Mac (the list itself is as old as the page).
-        let live = Dictionary(store.teams.flatMap(\.macs).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return (devices ?? []).filter { $0.kind == .mac }.map { device in
-            guard let mac = device.ids.lazy.compactMap({ live[$0] }).first else { return device }
-            var next = device
-            next.online = mac.isOnline
-            next.lastSeenAt = mac.lastSeenAt ?? device.lastSeenAt
-            return next
-        }
-    }
+    private var loadedMacs: [SettingsDevice]? { list.macs(store: store, hasService: directory != nil) }
+    private var macs: [SettingsDevice] { loadedMacs ?? [] }
+    private var phones: [SettingsDevice] { list.phones }
 
     /// Tags for Macs that share a name ("Aziz's MacBook Pro" twice), so
     /// the rows and the remove confirmation say which one.
@@ -146,9 +120,10 @@ struct PairedMacsPage: View {
         MacNameDisambiguation(macs.map { (id: $0.id, name: $0.name) })
     }
 
-    /// The name with its tag when another Mac has the same name.
+    /// The name with its tag when another Mac has the same name: the text the
+    /// row shows (name, then the tag capsule) and the confirmation's title.
     private func displayName(_ device: SettingsDevice) -> String {
-        device.kind == .mac ? sameNames.displayName(id: device.id, name: device.name) : device.name
+        device.kind == .mac ? sameNames.taggedName(id: device.id, name: device.name) : device.name
     }
 
     private func canRemove(_ device: SettingsDevice) -> Bool {
@@ -156,7 +131,8 @@ struct PairedMacsPage: View {
     }
 
     /// A row with its Remove paths: the trailing swipe, the context menu, and
-    /// Edit's delete control (`onDelete`).
+    /// Edit's delete control (`onDelete`). The confirmation is anchored to the
+    /// row, so it opens next to what was swiped.
     @ViewBuilder private func removableRow(_ device: SettingsDevice) -> some View {
         row(device)
             .opacity(removing.contains(device.id) ? 0.5 : 1)
@@ -175,6 +151,16 @@ struct PairedMacsPage: View {
                         pendingRemoval = device
                     }
                 }
+            }
+            .confirmationDialog(
+                "Remove \(displayName(device))?",
+                isPresented: Binding(get: { pendingRemoval?.id == device.id }, set: { if !$0, pendingRemoval?.id == device.id { pendingRemoval = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Remove", role: .destructive) { Task { await remove(device) } }
+            } message: {
+                Text(Self.removalExplanation(device, connected: isConnected(device), honorsRemoval: honorsRemoval(device),
+                                             displayName: displayName(device)))
             }
     }
 
@@ -207,18 +193,25 @@ struct PairedMacsPage: View {
         return parts.joined(separator: " ")
     }
 
-    private var phones: [SettingsDevice] { (devices ?? []).filter { $0.kind == .phone } }
-
     @ViewBuilder private func row(_ device: SettingsDevice) -> some View {
-        HStack(spacing: 14) {
-            if device.kind == .mac {
-                StatusDot(Self.dot(status(device)?.dot ?? (device.online == true ? .connected : .offline)))
-                    .frame(width: theme.metrics.settingsIconFrame)
-            } else {
-                Image(systemName: "iphone").font(.system(size: 17)).frame(width: theme.metrics.settingsIconFrame)
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Group {
+                if device.kind == .mac {
+                    StatusDot(Self.dot(status(device)?.dot ?? (device.online == true ? .connected : .offline)))
+                } else {
+                    SettingsIcon("iphone")
+                }
             }
+            .frame(width: theme.metrics.settingsIconFrame)
+            // Centered on the name's line, not the two-line block.
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 6 }
             VStack(alignment: .leading, spacing: 2) {
-                Text(device.name).font(theme.type.rowTitle)
+                HStack(spacing: 6) {
+                    Text(device.name).font(theme.type.rowTitle)
+                    if device.kind == .mac, let tag = sameNames.tag(for: device.id) {
+                        DeviceTag(tag)
+                    }
+                }
                 Text(subtitle(device)).font(theme.type.meta).foregroundStyle(theme.colors.label2)
                 if device.kind == .mac, device.online == true,
                    let link = device.ids.lazy.compactMap({ store.macLinkStatus[$0] }).first {
@@ -245,9 +238,9 @@ struct PairedMacsPage: View {
         } else {
             presence = "Offline"
         }
-        // Same-name Macs: when each was added and its ID tag.
-        guard let detail = sameNames.detail(for: device.id, addedAt: device.addedAt) else { return presence }
-        return "\(presence) · \(detail)"
+        // Same-name Macs: when each was added (the tag is next to the name).
+        guard let added = sameNames.added(for: device.id, addedAt: device.addedAt) else { return presence }
+        return "\(presence) · \(added)"
     }
 
     /// Presence plus this phone's own connection, for a Mac this phone knows:
@@ -268,23 +261,13 @@ struct PairedMacsPage: View {
         }
     }
 
-    private func load() async {
-        guard let directory else { return }
-        do {
-            devices = try await directory.devices()
-            loadError = nil
-        } catch {
-            loadError = "Couldn't load your devices. Pull to try again."
-        }
-    }
-
     private func remove(_ device: SettingsDevice) async {
         guard let directory, !removing.contains(device.id) else { return }
         removing.insert(device.id)
         defer { removing.remove(device.id) }
         do {
             try await directory.remove(device)
-            devices?.removeAll { $0.id == device.id }
+            list.removed(device)
             theme.haptics.success()
         } catch let failure as ServiceFailureMessage {
             removalError = failure
@@ -293,6 +276,23 @@ struct PairedMacsPage: View {
             removalError = ServiceFailureMessage(text: "Couldn't remove \(displayName(device)): \(error.localizedDescription)")
             theme.haptics.error()
         }
+    }
+}
+/// The tag that tells same-name Macs apart: "3F2A" in a small capsule.
+struct DeviceTag: View {
+    let tag: String
+
+    init(_ tag: String) {
+        self.tag = tag
+    }
+
+    var body: some View {
+        Text(verbatim: tag)
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(theme.colors.label2)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(theme.colors.fillSelected, in: .rect(cornerRadius: 6, style: .continuous))
     }
 }
 #endif

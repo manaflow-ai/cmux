@@ -16,6 +16,27 @@ public enum TransportKind: String, CaseIterable, Identifiable, Sendable, Codable
     }
 }
 
+/// The system notification permission as Settings shows it.
+public enum NotificationPermission: Sendable, Equatable {
+    case notDetermined, on, off
+
+    /// "On", "Off" or "Not set" (the Notifications page's permission row).
+    public var title: String {
+        switch self {
+        case .on: "On"
+        case .off: "Off"
+        case .notDetermined: "Not set"
+        }
+    }
+
+    /// The Settings root's trailing value for Notifications. A build without
+    /// push gets only Chief's local alerts, so "On" there reads "Chief only".
+    public func rootValue(push: Bool) -> String {
+        guard !push, self == .on else { return title }
+        return "Chief only"
+    }
+}
+
 /// App appearance override.
 public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable, Codable {
     case light, dark, system

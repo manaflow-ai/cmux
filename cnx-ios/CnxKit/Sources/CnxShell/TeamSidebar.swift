@@ -24,12 +24,17 @@ struct TeamSidebar: View {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Teams")
-                        .font(theme.type.meta)
-                        .foregroundStyle(theme.colors.label2)
-                        .padding(.horizontal, theme.metrics.sideMargin)
-                        .padding(.top, 24)
-                        .padding(.bottom, 6)
+                    // A label only when there is a list to label.
+                    if store.teams.count > 1 {
+                        Text("Teams")
+                            .font(theme.type.meta)
+                            .foregroundStyle(theme.colors.label2)
+                            .padding(.horizontal, theme.metrics.sideMargin)
+                            .padding(.top, 24)
+                            .padding(.bottom, 6)
+                    } else {
+                        Spacer().frame(height: 16)
+                    }
                     ForEach(store.teams) { team in
                         row(team)
                     }
@@ -125,7 +130,9 @@ struct TeamSidebar: View {
         Button {
             if let team = store.activeTeam { shell.invite(to: team) }
         } label: {
-            HStack(spacing: 14) {
+            // Same columns as the team rows: the glyph centered in the 36 pt
+            // avatar column, the title at the team name's x.
+            HStack(spacing: 12) {
                 ZStack {
                     if shell.isFetchingInvite {
                         ProgressView()

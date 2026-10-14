@@ -46,7 +46,7 @@ public enum TerminalSessionChoice {
     }
 
     /// `live`: the Mac's session for the tab, when it exists. `mockDataEnabled`:
-    /// Settings → Developer → Mock data (or a mock launch); ignored outside DEBUG.
+    /// Settings → Developer → Mock (or a mock launch); ignored outside DEBUG.
     public static func session(
         live: (any TerminalSession)?,
         mockDataEnabled: Bool,

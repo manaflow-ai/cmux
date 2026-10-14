@@ -11,7 +11,7 @@ extension AppStore {
                 MacDevice(id: "mac-studio", name: "Aziz's Mac Studio", isOnline: true),
                 MacDevice(id: "mbp", name: "MacBook Pro", isOnline: false, lastSeenAt: now.addingTimeInterval(-2 * 3600)),
             ]),
-            Team(id: "team-personal", name: "Personal", appearance: TeamAppearance(colorHex: "#30D158", emoji: "🌵"), macs: [
+            Team(id: "personal-mock", name: "Personal", appearance: TeamAppearance(colorHex: "#30D158", emoji: "🌵"), macs: [
                 MacDevice(id: "mbp-home", name: "Home MacBook", isOnline: false),
                 // Two Macs that share a name (a reinstall, or two laptops):
                 // the lists tag each with its id ending.

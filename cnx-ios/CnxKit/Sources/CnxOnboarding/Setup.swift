@@ -316,11 +316,18 @@ private struct TeamStep: View {
         let space = store.teams.first { $0.id.hasPrefix("personal-") }
         let presence = space?.macDots() ?? (dots: [], overflow: 0)
         return HStack(spacing: 12) {
-            Image(systemName: "person.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(theme.colors.label)
-                .frame(width: theme.metrics.teamAvatar, height: theme.metrics.teamAvatar)
-                .background(theme.colors.fillSelected, in: .rect(cornerRadius: theme.metrics.teamAvatarRadius, style: .continuous))
+            // The personal space looks the same here as in the sidebar: its
+            // own avatar once the account has it, a person until then.
+            if let space {
+                TeamAvatar(name: space.name, colorHex: space.appearance.colorHex, emoji: space.appearance.emoji,
+                           size: theme.metrics.teamAvatar)
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(theme.colors.label)
+                    .frame(width: theme.metrics.teamAvatar, height: theme.metrics.teamAvatar)
+                    .background(theme.colors.fillSelected, in: .rect(cornerRadius: theme.metrics.teamAvatarRadius, style: .continuous))
+            }
             VStack(alignment: .leading, spacing: 5) {
                 Text("Personal")
                     .font(theme.type.rowTitle)

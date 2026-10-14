@@ -82,7 +82,7 @@ let package = Package(
             dependencies: ["CnxDesign", "CnxModel", "CnxAuth"],
             resources: [.process("Resources")]
         ),
-        .target(name: "CnxSettings", dependencies: ["CnxDesign", "CnxModel", "CnxAuth"]),
+        .target(name: "CnxSettings", dependencies: ["CnxDesign", "CnxModel", "CnxAuth", "CnxOnboarding"]),
         // Streamed browser tabs: a Mac browser page as H.264 video over the link's
         // `browser` service (VideoToolbox decode, rb input, rb.page chrome).
         .target(name: "CnxBrowserStream", dependencies: ["CnxDesign", "CnxTransport"]),
