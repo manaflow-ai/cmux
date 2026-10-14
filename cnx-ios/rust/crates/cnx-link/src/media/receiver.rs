@@ -73,7 +73,6 @@ struct Slot {
     recovered: bool,
 }
 
-
 /// Most packets held (about 2 MB).
 const MAX_PACKETS: usize = 2048;
 /// The largest forward jump in sequence numbers a NACK may still fill; a
@@ -304,7 +303,8 @@ impl ReceiverCore {
                     self.packets.pop_first();
                 }
             }
-            let due = self.last_pli_us.is_none_or(|t| now_us.saturating_sub(t) >= self.config.pli_interval_us);
+            let due =
+                self.last_pli_us.is_none_or(|t| now_us.saturating_sub(t) >= self.config.pli_interval_us);
             if self.pli_wanted && due && self.media_ssrc != 0 {
                 self.last_pli_us = Some(now_us);
                 self.stats.plis_sent += 1;
@@ -397,16 +397,19 @@ pub(crate) async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::media::OutgoingFrame;
     use crate::media::h264::tests::access_unit;
     use crate::media::sender::{SenderConfig, SenderCore};
-    use crate::media::OutgoingFrame;
 
     fn frames(sender: &mut SenderCore, n: usize, start: u64) -> Vec<Vec<Packet>> {
         (0..n as u64)
             .map(|i| {
                 let t = start + i;
                 sender.frame(
-                    &OutgoingFrame { access_unit: access_unit(t == 0, 2500 + (t as usize % 7) * 100, (t % 200) as u8 + 2), capture_us: t * 16_667 },
+                    &OutgoingFrame {
+                        access_unit: access_unit(t == 0, 2500 + (t as usize % 7) * 100, (t % 200) as u8 + 2),
+                        capture_us: t * 16_667,
+                    },
                     t * 16_667,
                 )
             })
@@ -510,8 +513,12 @@ mod tests {
         assert!(receiver.stats().frames_dropped >= 1);
         // The Mac's answer: a keyframe; later P-frames follow it.
         sent.clear();
-        let key = sender.frame(&OutgoingFrame { access_unit: access_unit(true, 9000, 11), capture_us: now }, now);
-        let next = sender.frame(&OutgoingFrame { access_unit: access_unit(false, 900, 12), capture_us: now + 16_667 }, now);
+        let key =
+            sender.frame(&OutgoingFrame { access_unit: access_unit(true, 9000, 11), capture_us: now }, now);
+        let next = sender.frame(
+            &OutgoingFrame { access_unit: access_unit(false, 900, 12), capture_us: now + 16_667 },
+            now,
+        );
         for p in key.iter().chain(&next) {
             receiver.push(p.clone(), now);
         }
@@ -533,5 +540,4 @@ mod tests {
         assert!(out.is_empty());
         assert!(has_pli(&rtcp));
     }
-
 }

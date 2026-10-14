@@ -30,8 +30,8 @@ use webrtc::rtp_transceiver::rtp_codec::{
     RTCRtpCodecCapability, RTCRtpCodecParameters, RTCRtpHeaderExtensionCapability, RTPCodecType,
 };
 use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
-use webrtc::rtp_transceiver::{RTCPFeedback, RTCRtpTransceiverInit};
 use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
+use webrtc::rtp_transceiver::{RTCPFeedback, RTCRtpTransceiverInit};
 use webrtc::track::track_local::TrackLocalWriter;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc::track::track_remote::TrackRemote;
@@ -71,7 +71,11 @@ pub(crate) fn api_builder(
     let mut media = MediaEngine::default();
     media
         .register_codec(
-            RTCRtpCodecParameters { capability: h264(), payload_type: super::DEFAULT_PAYLOAD_TYPE, ..Default::default() },
+            RTCRtpCodecParameters {
+                capability: h264(),
+                payload_type: super::DEFAULT_PAYLOAD_TYPE,
+                ..Default::default()
+            },
             RTPCodecType::Video,
         )
         .map_err(error)?;
@@ -92,7 +96,10 @@ pub(crate) fn api_builder(
     registry.add(Box::new(Generator::builder().with_interval(NACK_INTERVAL).with_log2_size_minus_6(3)));
     registry = configure_rtcp_reports(registry);
     registry.add(Box::new(TwccReceiver::builder().with_interval(TWCC_INTERVAL)));
-    Ok(APIBuilder::new().with_setting_engine(settings).with_media_engine(media).with_interceptor_registry(registry))
+    Ok(APIBuilder::new()
+        .with_setting_engine(settings)
+        .with_media_engine(media)
+        .with_interceptor_registry(registry))
 }
 
 /// Phone side, before the offer: the receiving transceiver. The track
@@ -100,7 +107,10 @@ pub(crate) fn api_builder(
 pub(crate) async fn add_receiver(pc: &RTCPeerConnection) -> Result<Arc<ReceiveCarrier>, MediaError> {
     pc.add_transceiver_from_kind(
         RTPCodecType::Video,
-        Some(RTCRtpTransceiverInit { direction: RTCRtpTransceiverDirection::Recvonly, send_encodings: Vec::new() }),
+        Some(RTCRtpTransceiverInit {
+            direction: RTCRtpTransceiverDirection::Recvonly,
+            send_encodings: Vec::new(),
+        }),
     )
     .await
     .map_err(|e| MediaError::Other(e.to_string()))?;
@@ -115,12 +125,17 @@ pub(crate) async fn add_receiver(pc: &RTCPeerConnection) -> Result<Arc<ReceiveCa
 }
 
 /// Mac side, before applying an offer with the lane: the sending track.
-pub(crate) async fn add_sender(pc: &RTCPeerConnection) -> Result<(Arc<TrackLocalStaticRTP>, Arc<RTCRtpSender>), MediaError> {
+pub(crate) async fn add_sender(
+    pc: &RTCPeerConnection,
+) -> Result<(Arc<TrackLocalStaticRTP>, Arc<RTCRtpSender>), MediaError> {
     let track = Arc::new(TrackLocalStaticRTP::new(h264(), "browser".to_owned(), "cnx-video".to_owned()));
     let transceiver = pc
         .add_transceiver_from_track(
             Arc::clone(&track) as Arc<dyn webrtc::track::track_local::TrackLocal + Send + Sync>,
-            Some(RTCRtpTransceiverInit { direction: RTCRtpTransceiverDirection::Sendonly, send_encodings: Vec::new() }),
+            Some(RTCRtpTransceiverInit {
+                direction: RTCRtpTransceiverDirection::Sendonly,
+                send_encodings: Vec::new(),
+            }),
         )
         .await
         .map_err(|e| MediaError::Other(e.to_string()))?;
@@ -189,7 +204,10 @@ struct LossBuilder {
 }
 
 impl webrtc::interceptor::InterceptorBuilder for LossBuilder {
-    fn build(&self, _id: &str) -> Result<Arc<dyn webrtc::interceptor::Interceptor + Send + Sync>, webrtc::interceptor::Error> {
+    fn build(
+        &self,
+        _id: &str,
+    ) -> Result<Arc<dyn webrtc::interceptor::Interceptor + Send + Sync>, webrtc::interceptor::Error> {
         Ok(Arc::new(Loss { permille: self.permille }))
     }
 }
@@ -240,7 +258,11 @@ impl webrtc::interceptor::Interceptor for Loss {
         _info: &webrtc::interceptor::stream_info::StreamInfo,
         writer: Arc<dyn webrtc::interceptor::RTPWriter + Send + Sync>,
     ) -> Arc<dyn webrtc::interceptor::RTPWriter + Send + Sync> {
-        Arc::new(LossWriter { permille: self.permille, next: writer, count: std::sync::atomic::AtomicU64::new(0) })
+        Arc::new(LossWriter {
+            permille: self.permille,
+            next: writer,
+            count: std::sync::atomic::AtomicU64::new(0),
+        })
     }
 
     async fn unbind_local_stream(&self, _info: &webrtc::interceptor::stream_info::StreamInfo) {}

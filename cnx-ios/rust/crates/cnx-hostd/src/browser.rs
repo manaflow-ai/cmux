@@ -306,7 +306,13 @@ pub async fn serve(
         None => "about:blank".to_owned(),
     };
     let (addr, secret, viewer, cancelled) = config.claim(tab, &url).await?;
-    let result = splice(addr, &secret, peer, sender, receiver, cancelled).await;
+    // `video: "track"`: the page's video on the link's media lane when the
+    // link has one; otherwise (WireGuard, an older phone) on this channel.
+    let track = (args.get("video").and_then(Value::as_str) == Some("track"))
+        .then_some(peer.video.as_ref())
+        .flatten()
+        .filter(|video| !video.is_closed());
+    let result = splice(addr, &secret, peer, sender, receiver, cancelled, track).await;
     config.release(tab, viewer).await;
     result
 }
@@ -318,6 +324,7 @@ async fn splice(
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
     mut cancelled: oneshot::Receiver<()>,
+    track: Option<&cnx_link::media::VideoOut>,
 ) -> Result<(), Refusal> {
     let stream = TcpStream::connect(addr)
         .await
@@ -331,12 +338,82 @@ async fn splice(
     let mut deframer = StreamDeframer::default();
     let mut buffer = vec![0u8; 64 * 1024];
     let mut dropped = 0u64;
+    // Track mode (browser_track.rs): hostd is the main stream's viewer and
+    // the page's frames ride the media lane. A newer browser channel on the
+    // same link takes the lane over; this one then carries its video on
+    // the channel again (the host deframer stays, so frames stay whole).
+    let mut claim = track.map(|video| video.claim());
+    let mut host_deframer = claim.as_ref().map(|_| StreamDeframer::default());
+    let mut bridge = crate::browser_track::TrackBridge::new();
+    let epoch = Instant::now();
+    let now_us = || u64::try_from(epoch.elapsed().as_micros()).unwrap_or(u64::MAX);
+    if claim.is_some() {
+        tracing::info!("browser: video on the link's media lane");
+    }
     loop {
+        if claim.as_ref().is_some_and(|c| !c.owns()) {
+            tracing::info!("browser: another tab took the media lane; video returns to the channel");
+            claim = None;
+            // The phone's own viewer starts on the channel at a keyframe.
+            bridge.request_keyframe();
+            let recovery = bridge.feedback(false, now_us());
+            if host_write.write_all(&recovery).await.is_err() {
+                return Ok(());
+            }
+        }
+        let wake = if claim.is_some() { bridge.next_deadline_us(now_us()) } else { now_us() + 3_600_000_000 };
+        let sleep = tokio::time::sleep(Duration::from_micros(wake.saturating_sub(now_us())));
+        let keyframe = async {
+            match claim.as_mut() {
+                Some(c) => c.keyframes.recv().await.is_ok(),
+                None => std::future::pending().await,
+            }
+        };
         tokio::select! {
             read = host_read.read(&mut buffer) => match read {
                 Ok(0) | Err(_) => return Ok(()),
                 Ok(n) => {
-                    if sender.send(Bytes::copy_from_slice(&buffer[..n])).await.is_err() {
+                    let Some(host_deframer) = host_deframer.as_mut() else {
+                        if sender.send(Bytes::copy_from_slice(&buffer[..n])).await.is_err() {
+                            return Ok(());
+                        }
+                        continue;
+                    };
+                    host_deframer.extend(&buffer[..n]);
+                    let mut to_phone = Vec::new();
+                    let mut frames = Vec::new();
+                    loop {
+                        match host_deframer.next_frame() {
+                            Ok(Some((STREAM_DATAGRAM, payload))) => {
+                                match (claim.as_ref(), cmux_rd_proto::DatagramHeader::decode(&payload)) {
+                                    (Some(c), Ok((header, body))) if crate::browser_track::TrackBridge::takes(&header) => {
+                                        let target = c.state().target_bps;
+                                        frames.extend(bridge.on_datagram(&header, body, payload.len() + 5, target, now_us()));
+                                    }
+                                    _ => {
+                                        let _ = encode_stream_frame(STREAM_DATAGRAM, &payload, &mut to_phone);
+                                    }
+                                }
+                            }
+                            Ok(Some((kind, payload))) => {
+                                let _ = encode_stream_frame(kind, &payload, &mut to_phone);
+                            }
+                            Ok(None) => break,
+                            Err(_) => return Err(Refusal::new("unavailable", "the browser host sent an invalid rd stream")),
+                        }
+                    }
+                    if let Some(c) = claim.as_ref() {
+                        for frame in frames {
+                            let outgoing = cnx_link::media::OutgoingFrame {
+                                access_unit: Bytes::from(frame.body.access_unit),
+                                capture_us: frame.body.t_capture_us,
+                            };
+                            if c.send(outgoing).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    if !to_phone.is_empty() && sender.send(Bytes::from(to_phone)).await.is_err() {
                         return Ok(());
                     }
                 }
@@ -347,6 +424,9 @@ async fn splice(
                     let mut out = Vec::new();
                     loop {
                         match deframer.next_frame() {
+                            // In track mode hostd answers for the main stream.
+                            Ok(Some((STREAM_DATAGRAM, payload)))
+                                if claim.is_some() && crate::browser_track::phone_datagram_superseded(&payload) => {}
                             Ok(Some((kind, payload))) => match filter_frame(kind, &payload) {
                                 FrameVerdict::Forward => {
                                     let _ = encode_stream_frame(kind, &payload, &mut out);
@@ -368,8 +448,28 @@ async fn splice(
                 }
                 _ => return Ok(()),
             },
+            requested = keyframe => {
+                if requested {
+                    bridge.request_keyframe();
+                }
+            }
+            () = sleep => {}
             _ = &mut cancelled => {
                 return Err(Refusal::new("replaced", "another viewer opened this tab"));
+            }
+        }
+        if let Some(c) = claim.as_ref() {
+            let now = now_us();
+            for frame in bridge.tick(now) {
+                let outgoing = cnx_link::media::OutgoingFrame {
+                    access_unit: Bytes::from(frame.body.access_unit),
+                    capture_us: frame.body.t_capture_us,
+                };
+                let _ = c.send(outgoing).await;
+            }
+            let feedback = bridge.feedback(c.state().congested, now);
+            if !feedback.is_empty() && host_write.write_all(&feedback).await.is_err() {
+                return Ok(());
             }
         }
     }
@@ -663,7 +763,7 @@ mod tests {
     fn hello_carries_the_secret_and_the_rb_service() {
         let frame = hello_frame(
             "ab".repeat(32).as_str(),
-            &Peer { device_id: "phone".into(), session_id: "s".into() },
+            &Peer { device_id: "phone".into(), session_id: "s".into(), video: None },
         );
         let mut deframer = StreamDeframer::default();
         deframer.extend(&frame);

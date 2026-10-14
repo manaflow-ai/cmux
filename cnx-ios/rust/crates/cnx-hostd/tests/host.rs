@@ -302,7 +302,10 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     assert_eq!(value["link"], 2);
     assert!(value["hostd"].is_string());
     // This fixture has a browser host: a phone may offer browser tabs.
-    assert_eq!(value["capabilities"], serde_json::json!(["removal-v1", "browser-stream-v1"]));
+    assert_eq!(
+        value["capabilities"],
+        serde_json::json!(["removal-v1", "browser-stream-v1", "browser-video-track-v1"])
+    );
 
     // daemon: allowed lines reach the socket, denied ones are answered locally,
     // and responses stay whole lines in order.
@@ -497,6 +500,97 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     assert_eq!(drain(&mut shell).await.1, "unknown_service");
 
     link.close("done");
+}
+
+/// `browser {"video": "track"}` on a link with a media lane: the page's
+/// frames ride the WebRTC video track (hostd is the main stream's viewer),
+/// rb control stays on the channel. A second tab takes the lane over and
+/// the first gets its video on its channel again. Without the lane
+/// (WireGuard) the same request streams on the channel.
+async fn browser_video(kind: TransportKind) {
+    let fixture = fixture(FakeOptions::default()).await;
+    let phone = DialOptions { video_lane: true, ..options() };
+    let connected =
+        cnx_link::dial::connect(&fixture.phone, &fixture.mac_id, kind, &phone, LinkConfig::default())
+            .await
+            .expect("dial");
+    let link = &connected.link;
+    let lane = match link.media() {
+        Some(cnx_link::media::MediaLane::In(input)) => Some(input),
+        None => None,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(lane.is_some(), kind == TransportKind::WebRtc);
+    let mut frames = match &lane {
+        Some(lane) => Some(lane.subscribe().await),
+        None => None,
+    };
+    let mut tab_a = link
+        .open("browser", serde_json::json!({"tab": "sA", "url": "https://example.com/", "video": "track"}))
+        .await
+        .unwrap();
+    let mut rd = RdReader::default();
+    assert_eq!(rd.control(&mut tab_a).await["t"], "welcome");
+    assert_eq!(rd.control(&mut tab_a).await["t"], "started");
+    assert_eq!(rd.control(&mut tab_a).await["body"]["t"], "rb.opened");
+    let Some(frames) = frames.as_mut() else {
+        // No lane: the shards come on the channel.
+        let datagram = rd.datagram(&mut tab_a).await;
+        let (header, _) = cmux_rd_proto::DatagramHeader::decode(&datagram).unwrap();
+        assert_eq!(header.kind, cmux_rd_proto::DatagramKind::Video);
+        link.close("done");
+        return;
+    };
+    // Frames on the track, starting at a keyframe, in order.
+    let mut got = Vec::new();
+    while got.len() < 10 {
+        let frame = tokio::time::timeout(Duration::from_secs(10), frames.frames.recv())
+            .await
+            .expect("frame")
+            .unwrap();
+        got.push(frame);
+    }
+    assert!(got[0].keyframe);
+    assert!(got.iter().skip(1).any(|f| !f.keyframe));
+    // The channel carries no main-stream video meanwhile.
+    let quiet = tokio::time::Instant::now() + Duration::from_millis(500);
+    loop {
+        let Ok(Some(event)) = tokio::time::timeout_at(quiet, tab_a.recv()).await else { break };
+        if let ChannelEvent::Data(data) = event {
+            rd.0.extend(&data);
+            while let Some((kind, payload)) = rd.0.next_frame().unwrap() {
+                if kind == cmux_rd_proto::STREAM_DATAGRAM {
+                    let (header, _) = cmux_rd_proto::DatagramHeader::decode(&payload).unwrap();
+                    assert!(!matches!(
+                        header.kind,
+                        cmux_rd_proto::DatagramKind::Video | cmux_rd_proto::DatagramKind::Fec
+                    ));
+                }
+            }
+        }
+    }
+    // Tab B takes the lane; tab A's video returns to its channel.
+    let mut tab_b = link.open("browser", serde_json::json!({"tab": "sB", "video": "track"})).await.unwrap();
+    let mut rd_b = RdReader::default();
+    assert_eq!(rd_b.control(&mut tab_b).await["t"], "welcome");
+    loop {
+        let datagram = rd.datagram(&mut tab_a).await;
+        let (header, _) = cmux_rd_proto::DatagramHeader::decode(&datagram).unwrap();
+        if header.kind == cmux_rd_proto::DatagramKind::Video {
+            break;
+        }
+    }
+    link.close("done");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn browser_video_rides_the_webrtc_track() {
+    browser_video(TransportKind::WebRtc).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn browser_video_stays_on_the_channel_over_wireguard() {
+    browser_video(TransportKind::WireGuard).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

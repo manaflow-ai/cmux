@@ -227,11 +227,8 @@ impl SenderCore {
         }
         self.cc.on_feedback(&arrivals, settled.unwrap_or(0.0), now_us);
         if let Some(delay) = newest_delay {
-            self.feedback_delay_us = if self.feedback_delay_us == 0 {
-                delay
-            } else {
-                (self.feedback_delay_us * 7 + delay) / 8
-            };
+            self.feedback_delay_us =
+                if self.feedback_delay_us == 0 { delay } else { (self.feedback_delay_us * 7 + delay) / 8 };
         }
     }
 
@@ -315,8 +312,10 @@ mod tests {
     #[test]
     fn frames_get_consecutive_sequence_numbers_a_marker_and_the_capture_timestamp() {
         let mut core = SenderCore::new(SenderConfig::default(), super::super::DEFAULT_TWCC_EXT_ID);
-        let a = core.frame(&OutgoingFrame { access_unit: access_unit(true, 4000, 3), capture_us: 1_000_000 }, 0);
-        let b = core.frame(&OutgoingFrame { access_unit: access_unit(false, 200, 4), capture_us: 1_016_000 }, 16_000);
+        let a =
+            core.frame(&OutgoingFrame { access_unit: access_unit(true, 4000, 3), capture_us: 1_000_000 }, 0);
+        let b = core
+            .frame(&OutgoingFrame { access_unit: access_unit(false, 200, 4), capture_us: 1_016_000 }, 16_000);
         assert!(a.len() > 3 && b.len() == 1);
         let all: Vec<_> = a.iter().chain(&b).collect();
         for pair in all.windows(2) {
@@ -342,7 +341,8 @@ mod tests {
         let pli: RtcpPackets = vec![Box::new(PictureLossIndication { sender_ssrc: 0, media_ssrc: 1 })];
         assert!(core.on_rtcp(&pli, 40_000).keyframe);
         assert!(!core.on_rtcp(&pli, 100_000).keyframe);
-        let fir: RtcpPackets = vec![Box::new(FullIntraRequest { sender_ssrc: 0, media_ssrc: 1, fir: vec![] })];
+        let fir: RtcpPackets =
+            vec![Box::new(FullIntraRequest { sender_ssrc: 0, media_ssrc: 1, fir: vec![] })];
         assert!(core.on_rtcp(&fir, 300_000).keyframe);
         assert_eq!(core.state().keyframe_requests, 3);
     }
@@ -355,7 +355,12 @@ mod tests {
         let mut sent = Vec::new();
         let mut now = 0;
         while !core.state().congested {
-            sent.extend(core.frame(&OutgoingFrame { access_unit: access_unit(false, 20_000, 5), capture_us: now }, now));
+            sent.extend(
+                core.frame(
+                    &OutgoingFrame { access_unit: access_unit(false, 20_000, 5), capture_us: now },
+                    now,
+                ),
+            );
             now += 16_667;
             assert!(now < 2_000_000);
         }
@@ -382,7 +387,10 @@ mod tests {
         for frame in 0..300u64 {
             now = frame * 16_667;
             let bytes = (core.state().target_bps / 8 / 60) as usize;
-            let packets = core.frame(&OutgoingFrame { access_unit: access_unit(frame % 120 == 0, bytes, 5), capture_us: now }, now);
+            let packets = core.frame(
+                &OutgoingFrame { access_unit: access_unit(frame % 120 == 0, bytes, 5), capture_us: now },
+                now,
+            );
             for p in &packets {
                 let size = (p.payload.len() + 40) as f64 * 8.0;
                 queue_free_us = queue_free_us.max(now as f64) + size / path_bps * 1e6;

@@ -49,7 +49,10 @@ fn transport_error(error: impl std::fmt::Display) -> DialError {
     DialError::Transport(error.to_string())
 }
 
-async fn new_peer_connection(options: &super::DialOptions, video: bool) -> Result<Arc<RTCPeerConnection>, DialError> {
+async fn new_peer_connection(
+    options: &super::DialOptions,
+    video: bool,
+) -> Result<Arc<RTCPeerConnection>, DialError> {
     let mut settings = SettingEngine::default();
     settings.detach_data_channels();
     settings.set_ice_multicast_dns_mode(MulticastDnsMode::Disabled);
@@ -77,7 +80,9 @@ async fn new_peer_connection(options: &super::DialOptions, video: bool) -> Resul
     // The media lane registers H.264, TWCC and its interceptors; without
     // it the media engine stays empty, as in every earlier build.
     let api = if video {
-        crate::media::track::api_builder(settings, options.video_drop_permille).map_err(transport_error)?.build()
+        crate::media::track::api_builder(settings, options.video_drop_permille)
+            .map_err(transport_error)?
+            .build()
     } else {
         APIBuilder::new().with_setting_engine(settings).build()
     };
@@ -450,7 +455,10 @@ impl Dialer for WebRtcDialer {
                 .send_signal(
                     mac,
                     session_id,
-                    SignalPayload::WebrtcOffer { sdp: offer.sdp, lanes: super::offered_lanes(options, receiver.is_some()) },
+                    SignalPayload::WebrtcOffer {
+                        sdp: offer.sdp,
+                        lanes: super::offered_lanes(options, receiver.is_some()),
+                    },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             timeline.mark("offer_sent");
@@ -556,7 +564,10 @@ impl Dialer for WebRtcDialer {
                 .send_signal(
                     &first.from,
                     &first.session_id,
-                    SignalPayload::WebrtcAnswer { sdp: answer.sdp, lanes: super::offered_lanes(options, sending.is_some()) },
+                    SignalPayload::WebrtcAnswer {
+                        sdp: answer.sdp,
+                        lanes: super::offered_lanes(options, sending.is_some()),
+                    },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             timeline.mark("answer_sent");

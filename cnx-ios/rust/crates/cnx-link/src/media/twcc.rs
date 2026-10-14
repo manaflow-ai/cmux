@@ -25,7 +25,9 @@ pub fn results(feedback: &TransportLayerCc) -> Vec<PacketResult> {
             PacketStatusChunk::RunLengthChunk(run) => {
                 symbols.extend(std::iter::repeat_n(run.packet_status_symbol, usize::from(run.run_length)));
             }
-            PacketStatusChunk::StatusVectorChunk(vector) => symbols.extend(vector.symbol_list.iter().copied()),
+            PacketStatusChunk::StatusVectorChunk(vector) => {
+                symbols.extend(vector.symbol_list.iter().copied())
+            }
         }
     }
     symbols.truncate(usize::from(feedback.packet_status_count));

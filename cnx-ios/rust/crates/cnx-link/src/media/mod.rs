@@ -37,8 +37,8 @@ use tokio::sync::{Mutex, mpsc, watch};
 pub mod h264;
 pub mod receiver;
 pub mod sender;
-pub mod twcc;
 pub mod track;
+pub mod twcc;
 pub mod wireguard;
 
 pub use receiver::{ReceivedFrame, ReceiverConfig, ReceiverCore};

@@ -834,7 +834,13 @@ impl Dialer for WireGuardDialer {
                 });
                 rx
             });
-            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane, media: None })
+            Ok(Dialed {
+                stream: Box::new(stream),
+                path: tunnel.path,
+                guard: Box::new(guard),
+                lane,
+                media: None,
+            })
         })
     }
 
@@ -910,7 +916,13 @@ impl Dialer for WireGuardDialer {
                 });
                 rx
             });
-            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane, media: None })
+            Ok(Dialed {
+                stream: Box::new(stream),
+                path: tunnel.path,
+                guard: Box::new(guard),
+                lane,
+                media: None,
+            })
         })
     }
 }

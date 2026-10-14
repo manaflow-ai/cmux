@@ -49,15 +49,20 @@ async fn pair(kind: TransportKind, phone: DialOptions, mac: DialOptions) -> Pair
     tokio::spawn(async move {
         while let Some(session) = mac_client.next_session().await {
             let first = session.first;
-            let events =
-                SessionEvents { backend: mac_client.events(), session_id: first.session_id.clone(), session: session.events };
+            let events = SessionEvents {
+                backend: mac_client.events(),
+                session_id: first.session_id.clone(),
+                session: session.events,
+            };
             let connected =
                 dial::answer(&mac_client, first, events, &mac, LinkConfig::default()).await.expect("answer");
             let _ = links_tx.send(connected.link).await;
         }
     });
-    let phone_client = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
-    let connected = dial::connect(&phone_client, &mac_id, kind, &phone, LinkConfig::default()).await.expect("dial");
+    let phone_client =
+        SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let connected =
+        dial::connect(&phone_client, &mac_id, kind, &phone, LinkConfig::default()).await.expect("dial");
     let mac = links_rx.recv().await.unwrap();
     Pair { phone: connected.link, mac, _server: server }
 }
@@ -94,7 +99,11 @@ async fn stream(pair: &Pair, n: u64) -> (Vec<cnx_link::media::ReceivedFrame>, cn
         }
         let keyframe = keyframe_next || i % 60 == 0;
         keyframe_next = false;
-        let au = access_unit(keyframe, if keyframe { 30_000 } else { 3_000 + (i as usize % 5) * 400 }, (i % 200) as u8 + 3);
+        let au = access_unit(
+            keyframe,
+            if keyframe { 30_000 } else { 3_000 + (i as usize % 5) * 400 },
+            (i % 200) as u8 + 3,
+        );
         claim.send(OutgoingFrame { access_unit: au, capture_us: i * 16_667 }).await.unwrap();
         while let Ok(frame) = frames.frames.try_recv() {
             got.push(frame);
@@ -178,6 +187,8 @@ async fn a_newer_claim_preempts_the_older_source() {
     let second = out.claim();
     tokio::time::timeout(Duration::from_secs(1), first.preempted()).await.expect("preempted");
     assert!(!first.owns() && second.owns());
-    assert!(first.send(OutgoingFrame { access_unit: access_unit(true, 10, 3), capture_us: 0 }).await.is_err());
+    assert!(
+        first.send(OutgoingFrame { access_unit: access_unit(true, 10, 3), capture_us: 0 }).await.is_err()
+    );
     pair.phone.close("done");
 }

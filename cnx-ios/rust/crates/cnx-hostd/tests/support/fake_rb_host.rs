@@ -125,10 +125,17 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
         let mut out = Vec::new();
         if let Some(req) = pending.take() {
             painted += 1;
-            // A placeholder access unit: an Annex-B start code and the frame number.
-            let mut au = vec![0, 0, 0, 1, if req.force_idr { 0x65 } else { 0x41 }];
-            au.extend(painted.to_le_bytes());
-            au.resize(2500, 0xAB);
+            // A placeholder access unit: an Annex-B start code and the frame
+            // number; an IDR carries an SPS and a PPS first, as VideoToolbox's do.
+            let mut au = Vec::new();
+            if req.force_idr {
+                au.extend_from_slice(&[
+                    0, 0, 0, 1, 0x67, 0x42, 0xc0, 0x1f, 0xda, 0x01, 0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80,
+                ]);
+            }
+            au.extend_from_slice(&[0, 0, 0, 1, if req.force_idr { 0x65 } else { 0x41 }]);
+            au.extend(painted.to_be_bytes().map(|b| b | 0x80));
+            au.resize(au.len() + 2500, 0xAB);
             let encoded = Encoded { access_unit: au, idr: req.force_idr, t_capture_us: now() };
             if let Ok(o) = engine.encoded(&req, Some(encoded), now()) {
                 pending = emit(&mut out, o);

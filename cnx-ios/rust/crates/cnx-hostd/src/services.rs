@@ -26,6 +26,9 @@ pub struct Peer {
     pub device_id: String,
     /// The link session (a UUID): one `upload` folder per session.
     pub session_id: String,
+    /// The link's media lane (browser video as a WebRTC track), if the
+    /// phone and this Mac negotiated one.
+    pub video: Option<cnx_link::media::VideoOut>,
 }
 
 /// Serve one incoming channel to completion. With pairing on, only `auth`
@@ -120,12 +123,16 @@ pub const LINK_PROTOCOL: u32 = 2;
 pub const CAPABILITIES: [&str; 1] = ["removal-v1"];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
+/// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
+/// video on the link's media lane when the link has one.
+pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 
 /// What this host does that a phone may rely on.
 pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     let mut out = CAPABILITIES.to_vec();
     if config.browser.available() {
         out.push(BROWSER_STREAM);
+        out.push(BROWSER_VIDEO_TRACK);
     }
     out
 }
@@ -985,7 +992,7 @@ mod tests {
             Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
         });
         config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
-        assert_eq!(capabilities(&config), ["removal-v1", BROWSER_STREAM]);
+        assert_eq!(capabilities(&config), ["removal-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]);
     }
 
     #[test]

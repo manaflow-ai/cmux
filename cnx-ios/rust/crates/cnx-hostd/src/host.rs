@@ -293,7 +293,7 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone() };
+    let mut peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone(), video: None };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
     timeline.mark("offer_received");
@@ -307,6 +307,13 @@ async fn answer_session(
         exclude_cgnat: context.exclude_cgnat,
         timeline: timeline.clone(),
         stock_ice_waits: baseline,
+        // Browser video as a WebRTC track (CNX_VIDEO_LANE=0 turns it off;
+        // CNX_VIDEO_DROP_PERMILLE simulates a lossy path).
+        video_lane: std::env::var("CNX_VIDEO_LANE").map_or(true, |v| v != "0"),
+        video_drop_permille: std::env::var("CNX_VIDEO_DROP_PERMILLE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0),
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {
@@ -317,7 +324,10 @@ async fn answer_session(
         }
     };
     let path = *connected.path.borrow();
-    tracing::info!(session_id, ?kind, ?path, phone = peer.device_id, timings = %timeline.summary(), "link up");
+    if let Some(cnx_link::media::MediaLane::Out(video)) = connected.link.media() {
+        peer.video = Some(video);
+    }
+    tracing::info!(session_id, ?kind, ?path, phone = peer.device_id, video = peer.video.is_some(), timings = %timeline.summary(), "link up");
     control::emit(&Event::PhoneUp {
         session_id: session_id.clone(),
         phone_device_id: peer.device_id.clone(),
