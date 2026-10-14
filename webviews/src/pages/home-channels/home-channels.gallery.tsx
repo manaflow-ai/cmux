@@ -546,6 +546,13 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
       },
     },
+    "narrow-run-card-480": {
+      note: "A run card on a 480 px page: the step count and cost move under Worked for as one line, never starting with a separator.",
+      props: { width: 480, pane: "conversation", select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
+      },
+    },
     "draft-posted": {
       note: "The reply posts: its draft row ends, the message shows once, and a late draft item stays hidden.",
       props: { select: "c-chief", draft: "posted" },
