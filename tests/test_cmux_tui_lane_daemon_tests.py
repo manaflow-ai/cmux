@@ -16,6 +16,7 @@ checks the jobs that consume its output.
 """
 
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,95 @@ def policy_step():
     if len(found) != 1:
         raise SystemExit("FAIL: tree-preflight has no daemon-policy step")
     return found[0]["run"]
+
+
+# files.cmux.com and the Actions API for tree-preflight's inspect step: a
+# published tree whose source.json says daemonTests "separate" and names its
+# publisher run (FAKE_SOURCE_RUN, status FAKE_SOURCE_STATUS or "fail").
+FAKE_CURL = r"""#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+url = next(a for a in args if a.startswith("http")).split("?")[0]
+log = os.environ["FAKE_LOG"]
+open(log, "a").write(url + "\n")
+out = args[args.index("-o") + 1] if "-o" in args else None
+if "/actions/runs/" in url:
+    if os.environ["FAKE_SOURCE_STATUS"] == "fail":
+        sys.exit(22)
+    print(json.dumps({"status": os.environ["FAKE_SOURCE_STATUS"]}))
+    sys.exit(0)
+if "/actions/" in url:
+    print("{}")
+    sys.exit(0)
+if "/tree/" not in url:
+    sys.exit(0)
+key = url.split("/tree/")[1].split("/")[0]
+name = url.rsplit("/", 1)[1]
+names = ["cmux-tui-aarch64-apple-darwin", "cmux-tui-app-host-aarch64-apple-darwin", "cmux-tui-cloud-server-aarch64-apple-darwin"]
+if name == "daemon-tests.json" and os.environ.get("FAKE_MARKER") != "1":
+    sys.exit(22)
+if name == "completion.json":
+    body = json.dumps({"key": key, "binaries": {n: "a" * 64 for n in names}})
+elif name == "source.json":
+    body = json.dumps({"key": key, "run": os.environ["FAKE_SOURCE_RUN"], "daemonTests": "separate"})
+elif name.endswith(".sha256"):
+    body = "a" * 64 + "  x\n"
+else:
+    body = ""
+if out and out != "/dev/null":
+    open(out, "w").write(body)
+elif not out:
+    sys.stdout.write(body)
+"""
+
+
+def run_preflight(source_status, source_run="77", marker="0"):
+    """tree-preflight's inspect step for a next-batch push whose tree is published."""
+    steps = jobs()["tree-preflight"]["steps"]
+    script = next(step["run"] for step in steps if step.get("id") == "inspect")
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    with tempfile.TemporaryDirectory() as tmp:
+        bin_dir = os.path.join(tmp, "bin")
+        os.makedirs(bin_dir)
+        curl = os.path.join(bin_dir, "curl")
+        with open(curl, "w") as handle:
+            handle.write(FAKE_CURL)
+        os.chmod(curl, os.stat(curl).st_mode | stat.S_IXUSR)
+        output, log = os.path.join(tmp, "out"), os.path.join(tmp, "log")
+        open(output, "w").close()
+        open(log, "w").close()
+        env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", EVENT_NAME="push", REF="refs/heads/next-batch/abc",
+                   SHA=sha, SOURCE_COMMIT=sha, HEAD_REPOSITORY="manaflow-ai/cmux", REPOSITORY="manaflow-ai/cmux",
+                   SERVER_URL="https://github.invalid", API_URL="https://api.github.invalid", RUN_ID="5",
+                   GITHUB_RUN_ID="5", GH_TOKEN="x", GITHUB_OUTPUT=output, RUNNER_TEMP=tmp, FAKE_LOG=log,
+                   FAKE_SOURCE_STATUS=source_status, FAKE_SOURCE_RUN=source_run, FAKE_MARKER=marker)
+        result = subprocess.run(["bash", "-e", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
+        values = dict(line.split("=", 1) for line in open(output).read().splitlines() if "=" in line)
+        return result, values, open(log).read()
+
+
+def check_preflight_retest():
+    """cx-y0nf2: an unmarked published tree is re-tested only once its publisher run ended.
+
+    Every publisher publishes before its own daemon tests end. Re-testing in
+    that window put a second test job on the promote runner for every
+    feat-cmux-next push of the key; the publisher's own tests write the marker.
+    """
+    cases = [
+        ("in_progress", "77", "0", "true", "an active publisher's unmarked tree is not re-tested"),
+        ("queued", "77", "0", "true", "a queued publisher's unmarked tree is not re-tested"),
+        ("completed", "77", "0", "false", "an ended publisher's unmarked tree is re-tested"),
+        ("fail", "77", "0", "false", "a publisher whose state cannot be read: re-tested"),
+        ("in_progress", "5", "0", "false", "this run's own unmarked tree (a re-run attempt) is re-tested"),
+        ("in_progress", "77", "1", "true", "a marked tree needs no test and no run lookup"),
+    ]
+    for status, run, marker, want, why in cases:
+        result, values, log = run_preflight(status, run, marker)
+        got = values.get("daemon_tested")
+        _check(result.returncode == 0 and values.get("tree_ready") == "true" and got == want,
+               f"{why}: daemon_tested {got!r}, want {want!r} (exit {result.returncode}: {result.stderr.strip()[-300:]})")
+        if marker == "1" or run == "5":
+            _check("/actions/runs/" not in log, f"{why}: no run lookup")
 
 
 def run_policy(event, ref, message):
@@ -107,6 +197,8 @@ def main():
     _check("needs.tree-preflight.outputs.tree_ready == 'true'" in marker_if
            and "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true'" not in marker_if,
            "any run that tested an already published tree writes its marker")
+    check_preflight_retest()
+
     tested = all_jobs["publish-tree-tested"]
     _check("tree-owner-wait" in tested["needs"] and "needs.tree-owner-wait.outputs.unmarked == 'true'" in str(tested["if"]),
            "the run that tested an owner's unmarked tree writes its marker")

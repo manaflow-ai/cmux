@@ -204,15 +204,12 @@ def main():
     _check(len(marker_steps) == 1 and writers == ["publish-tree-tested"],
            f"only publish-tree-tested writes the daemon-tests marker ({writers})")
 
-    # A pull request tree's source.json names no ref: a pull_request_target
-    # run's github.ref is the base branch, feat-cmux-next, and tree-owner-wait
-    # does not re-test an unmarked tree whose source ref is feat-cmux-next.
-    pr_publish = next(step for step in all_jobs["publish-pr-tree"]["steps"] if step.get("name", "").startswith("Publish the PR tree"))
-    _check('"ref":' not in pr_publish["run"] and "GITHUB_REF" not in pr_publish["run"],
-           "publish-pr-tree's source.json names no ref, so a run that defers to its key re-tests it")
-    owner_wait = str(all_jobs["tree-owner-wait"]["steps"])
-    _check('"$source_ref" != refs/heads/feat-cmux-next' in owner_wait and "unmarked=true" in owner_wait,
-           "tree-owner-wait re-tests an unmarked tree published from any ref but feat-cmux-next")
+    # An unmarked tree is re-tested only once the run that owns or published
+    # it ended (tests/test_cmux_tui_owner_wait_defers.py and
+    # tests/test_cmux_tui_lane_daemon_tests.py run those steps).
+    _check("unmarked=true" in str(all_jobs["tree-owner-wait"]["steps"])
+           and "daemon_tested=false" in str(all_jobs["tree-preflight"]["steps"]),
+           "tree-owner-wait and tree-preflight still send an unmarked tree to the daemon tests")
     _check(set(tree_publishers) <= set(needs(marker)),
            f"publish-tree-tested follows every tree publisher ({needs(marker)})")
     for name in tree_publishers:

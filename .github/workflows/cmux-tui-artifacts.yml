@@ -511,7 +511,14 @@ jobs:
           # daemon tests stay queued: tree c77d397b3a9f, 2026-10-14, blocked
           # every feat-cmux-next promotion with that key), and a lane-branch
           # push publishes without them (daemon-policy). Any testing run
-          # (daemon_tests true, not main) then runs them and writes the marker.
+          # (daemon_tests true, not main) then runs them and writes the marker,
+          # but only once the run that published the tree (source.json "run")
+          # has ended (cx-y0nf2): every publisher publishes before its own
+          # tests end, and while it is active they write the marker. A feat-
+          # cmux-next push in that window would otherwise queue a second test
+          # job for the promote runner. The election above is skipped for a
+          # published tree, so this is one run lookup, only for an unmarked
+          # one. A lookup that fails, or names this run, tests here.
           daemon_tested=true
           if [[ "$tree_ready" == true ]] &&
               source_json="$(curl -fsSL --proto '=https' --connect-timeout 5 --max-time 15 \
@@ -519,8 +526,22 @@ jobs:
               python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.argv[1]).get("daemonTests") == "separate" else 1)' "$source_json" &&
               ! curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
                 "https://files.cmux.com/cmux-tui/tree/$published_key/daemon-tests.json?preflight=$RUN_ID" 2>/dev/null; then
-            daemon_tested=false
-            echo "Tree $published_key has no daemon-tests marker; a testing run (daemon_tests true) runs the daemon tests to write it."
+            source_run="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("run", ""))' "$source_json" 2>/dev/null || true)"
+            source_state=unknown
+            if [[ "$source_run" =~ ^[0-9]+$ && "$source_run" != "$RUN_ID" ]]; then
+              source_state="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                -u "x-access-token:$GH_TOKEN" \
+                -H 'Accept: application/vnd.github+json' \
+                "$API_URL/repos/$REPOSITORY/actions/runs/$source_run" 2>/dev/null |
+                python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", "unknown"))' 2>/dev/null || echo unknown)"
+            fi
+            case "$source_state" in
+              queued|in_progress|waiting|pending|requested)
+                echo "Tree $published_key has no daemon-tests marker yet; its publisher run $source_run is still active ($source_state) and its own daemon tests write it." ;;
+              *)
+                daemon_tested=false
+                echo "Tree $published_key has no daemon-tests marker and its publisher run ${source_run:-?} is not active ($source_state); a testing run (daemon_tests true) runs the daemon tests to write it." ;;
+            esac
           elif [[ "$tree_ready" == true && -z "${source_json:-}" ]]; then
             echo "::warning::could not read tree/$published_key/source.json; the daemon-tests marker is not checked in this run"
           fi
@@ -681,24 +702,25 @@ jobs:
               takeover=false
               # Every publisher publishes before its daemon tests end (no
               # daemon-tests marker yet; cx-y0nf2), and a lane-branch owner
-              # never runs them, possibly after this run's preflight saw the
-              # key unpublished. A testing run then tests the tree here, so a
-              # branch, pin or pull request owner whose tests fail or stay
-              # queued cannot hold promotion (tree c77d397b3a9f, cx-kfbom).
-              # A feat-cmux-next publisher tests its own tree, so not that
-              # one; publish-pr-tree's source.json names no ref (a
-              # pull_request_target run's github.ref is the base branch), so
-              # a pull request tree is tested here.
+              # never runs them. While the owner is active, its own daemon
+              # tests and publish-tree-tested write the marker, so this run
+              # does not test the tree again: the promote runner is the scarce one,
+              # and every feat-cmux-next push in the owner's test window would
+              # queue there. An owner that ended (or whose state could not be
+              # read) without the marker failed or skipped them: this run
+              # tests the tree here, so no owner can hold promotion (tree
+              # c77d397b3a9f, cx-kfbom). Any later run of the key whose
+              # preflight finds the tree unmarked tests it the same way.
               base="https://files.cmux.com/cmux-tui/tree/$KEY"
               if ! curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
                   "$base/daemon-tests.json?owner-wait=$GITHUB_RUN_ID-marker" 2>/dev/null; then
-                source_ref="$(curl --fail --silent --connect-timeout 5 --max-time 15 \
-                  "$base/source.json?owner-wait=$GITHUB_RUN_ID-source" 2>/dev/null |
-                  python3 -c 'import json,sys; print(json.load(sys.stdin).get("ref", ""))' 2>/dev/null || true)"
-                if [[ "$source_ref" != refs/heads/feat-cmux-next ]]; then
-                  unmarked=true
-                  echo "Tree $KEY has no daemon-tests marker (published from ${source_ref:-an unknown ref}); a testing run tests it here."
-                fi
+                case "$owner_state" in
+                  queued*|in_progress*|waiting*|pending*|requested*)
+                    echo "Tree $KEY has no daemon-tests marker yet; run $OWNER_RUN_ID is still active and its own daemon tests write it." ;;
+                  *)
+                    unmarked=true
+                    echo "Tree $KEY has no daemon-tests marker and its owner run $OWNER_RUN_ID ($owner_state) is not active; this run tests it here." ;;
+                esac
               fi
             elif [[ "$branch_owner_takeover" == true ]]; then
               feat_builder=true
@@ -2619,9 +2641,8 @@ jobs:
           import json, os, sys
           key, commit, tui_tree, ghostty_commit, ghostty_next_commit, manifest_path = sys.argv[1:]
           manifest = json.load(open(manifest_path))
-          # Names no ref: github.ref is the base branch here, and a tree whose
-          # source.json names refs/heads/feat-cmux-next is not re-tested by a
-          # run that deferred to its owner (tree-owner-wait unmarked).
+          # Names no ref: github.ref is the base branch here (feat-cmux-next),
+          # not the ref the tree came from.
           print(json.dumps({
               "key": key,
               "cmuxTuiTree": tui_tree,
