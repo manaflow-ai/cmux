@@ -17,6 +17,8 @@ private final class StageManagerRightSidebarResponder: NSView, FeedKeyboardFocus
 
 private final class EnsureFocusMiniaturizedTestWindow: NSWindow {
     var miniaturizedForTesting = true
+
+    /// Supplies deterministic miniaturized state without changing AppKit state.
     override var isMiniaturized: Bool { miniaturizedForTesting }
 }
 
@@ -65,11 +67,13 @@ struct GhosttyEnsureFocusWindowActivationTests {
         ))
     }
 
+    /// Keeps deferred focus recovery disabled until a minimized window is restored.
     @Test(arguments: [false, true])
     func blocksDeferredActivationForMiniaturizedWindow(hasMainWindow: Bool) {
         let manager = TabManager()
         let targetWindow = EnsureFocusMiniaturizedTestWindow()
 
+        /// Evaluates focus recovery with the current simulated window state.
         func allowsActivation() -> Bool {
             shouldAllowEnsureFocusWindowActivation(
                 activeTabManager: manager,
