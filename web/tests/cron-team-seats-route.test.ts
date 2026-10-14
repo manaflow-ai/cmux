@@ -6,6 +6,7 @@ let outcome: () => Promise<Awaited<ReturnType<typeof realTeamSeats.reconcileTeam
 let calls = 0;
 mock.module("../services/billing/teamSeats", () => ({
   ...realTeamSeats,
+  markActiveTeamSubscriptionsDirty: async () => 0,
   reconcileTeamSeats: async () => {
     calls += 1;
     return outcome();

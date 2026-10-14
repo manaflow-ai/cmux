@@ -136,14 +136,15 @@ describe("Cloud VM plan ceilings", () => {
 });
 
 describe("Cloud VM resource pool policy", () => {
-  test("each plan's pool follows the paid seat count like the machine allowance", () => {
+  test("Team has one shared pool regardless of member count", () => {
     for (const plan of ["pro", "founders"]) {
       expect(resourcePoolForPlan(plan, maxActiveVmsForPlan(plan, {}))).toEqual(PRO_POOL);
     }
-    expect(resourcePoolForPlan("team", maxActiveVmsForPlan("team", {}, { seats: 3 }))).toEqual({ vcpus: 60, memoryMb: 120 * GB });
+    expect(resourcePoolForPlan("team", maxActiveVmsForPlan("team", {}, { seats: 3 }))).toEqual(PRO_POOL);
     expect(resourcePoolForPlan("max", maxActiveVmsForPlan("max", {}))).toEqual({ vcpus: 80, memoryMb: 160 * GB });
-    // A Max caller on a large team keeps the larger pool in each dimension.
-    expect(resourcePoolForPlan("max", 50)).toEqual({ vcpus: 200, memoryMb: 400 * GB });
+    // Legacy allowance values never multiply the resource pool.
+    expect(resourcePoolForPlan("max", 50)).toEqual({ vcpus: 80, memoryMb: 160 * GB });
+    expect(resourcePoolForPlan("team", 50)).toEqual(PRO_POOL);
     expect(resourcePoolForPlan("go", 1)).toBeNull();
     expect(resourcePoolForPlan("free", 0)).toBeNull();
     expect(resourcePoolForPlan("pro", null)).toBeNull();

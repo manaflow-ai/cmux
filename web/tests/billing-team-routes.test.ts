@@ -41,6 +41,7 @@ mock.module("../db/client", () => ({
 }));
 mock.module("../services/billing/stripe", () => ({
   ...stripeModule,
+  resolveTeamBillingPortalConfiguration: async () => "bpc_team",
   isStripeBillingConfigured: () => true,
   stripe: () => ({
     billingPortal: { sessions: { create: createPortal } },
@@ -74,6 +75,7 @@ describe("team portal", () => {
     expect(createPortal).toHaveBeenCalledWith({
       customer: "cus_team_b",
       return_url: "https://cmux.test/dashboard/billing?team=team-b",
+      configuration: "bpc_team",
     });
   });
 

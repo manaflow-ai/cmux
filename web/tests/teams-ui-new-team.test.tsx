@@ -54,21 +54,19 @@ describe("new team flow steps", () => {
     const html = await render(<NewTeamFlow initialState={{ step: "plan", team }} />);
     expect(html).toContain("Choose a plan for Acme");
     expect(html).toContain("Continue with Free");
-    expect(html).toContain("$60 per seat per month");
+    expect(html).toContain("$60 per team per month");
     expect(teamCheckoutHref(team.id)).toBe("/api/billing/checkout?plan=team&teamId=team+1");
     expect(html).toContain('href="/api/billing/checkout?plan=team&amp;teamId=team+1"');
-    expect(html).toContain("Personal Pro or Max can power this team for up to 3 people.");
-    expect(html).toContain("Pending invitations are free.");
-    expect(html).toContain("switching teams does not move or reset machines");
+    expect(html).toContain("Pro or Max supports up to 3 people, including the owner and pending invitations.");
+    expect(html).toContain("Invitations and new members do not change the price or VM allowance.");
+    expect(html).toContain("Switching teams does not move or reset machines");
   });
 
-  test("the plan step says seats follow the member count", async () => {
+  test("the plan step makes flat Team pricing clear", async () => {
     const html = await render(<NewTeamFlow initialState={{ step: "plan", team }} />);
 
-    // Seats are not soft: the subscription quantity follows the member count,
-    // so this line must not go back to offering to add seats later.
     expect(html).toContain(
-      "Seats follow your member count: each member is billed, and the total updates when people join or leave."
+      "Team is $60/month for the whole team with no member cap and 5 shared Cloud VMs. Invitations and new members do not change the price or VM allowance."
     );
     expect(html).not.toContain("add seats later");
   });

@@ -106,7 +106,7 @@ export function resolveVmEntitlements(
   const teamPlanId = billing.billingCustomerType === "team" && billingPlanId === MAX_PLAN_ID
     ? TEAM_PLAN_ID : billingPlanId;
   // Max belongs to the caller. It does not grant Max to other team members
-  // or replace the team's seat-based machine allowance.
+  // or increase the team's shared machine allowance.
   const planId = normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID
     ? MAX_PLAN_ID : teamPlanId;
   const maxActiveVms = maxActiveVmsForPlan(teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId, env, { seats: billing.billingSeats });
@@ -338,31 +338,27 @@ export function defaultMemoryMbForPlan(
 /**
  * Active-machine ceiling for a plan, or null when there is none. Paid plans
  * get the allowance sold on /pricing (PAID_MAX_ACTIVE_VMS_DEFAULT), counted
- * per billing team; a Team subscription multiplies it by its paid seats
- * (`cmuxSeats`), so "5 per user" holds for the whole team. Free plans stay
- * capped (zero unless free provisioning is allowed).
+ * per billing team. Team is a flat subscription with one shared five-machine
+ * allowance; its member count never changes the limit. Free plans stay capped
+ * (zero unless free provisioning is allowed).
  */
 export function maxActiveVmsForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
-  options: { readonly seats?: number | null } = {},
+  _options: { readonly seats?: number | null } = {},
 ): number | null {
   const normalized = normalizedPlanId(planId ?? "");
   const resolved = activeVmLimitForPlan(normalized, env);
-  // An operator brake is an absolute ceiling for the whole team; only the
-  // advertised allowance scales with paid seats.
-  if (resolved.limit === null || resolved.brake || normalized !== TEAM_PLAN_ID) return resolved.limit;
-  const seats = options.seats;
-  const paidSeats = typeof seats === "number" && Number.isSafeInteger(seats) && seats > 0 ? seats : 1;
-  return resolved.limit * paidSeats;
+  // An operator brake is an absolute ceiling for the whole team. Team's
+  // advertised allowance is flat; membership is not a billing multiplier.
+  return resolved.limit;
 }
 
 /**
  * The vCPUs and memory a billing scope's active machines share, or null when
- * the plan has no pool (Free, Go, or an uncapped allowance). Team multiplies
- * the per-seat pool by paid seats exactly as it multiplies the machine count,
- * so the seat count is recovered from the resolved allowance. A Max caller on
- * a large team keeps whichever pool is larger in each dimension.
+ * the plan has no pool (Free, Go, or an uncapped allowance). Team has one
+ * shared Pro-sized pool regardless of member count. A Max caller keeps the
+ * larger personal pool in each dimension.
  */
 export function resourcePoolForPlan(
   planId: string | null | undefined,
@@ -371,18 +367,7 @@ export function resourcePoolForPlan(
   const normalized = normalizedPlanId(planId ?? "");
   if (!isPaidVmPlan(normalized) || normalized === GO_PLAN_ID) return null;
   if (maxActiveVms === null) return null;
-  const seats = maxActiveVms !== undefined && maxActiveVms > 0
-    ? Math.max(1, Math.ceil(maxActiveVms / PAID_MAX_ACTIVE_VMS_DEFAULT))
-    : 1;
-  const seatPool = {
-    vcpus: PLAN_RESOURCE_POOL.vcpus * seats,
-    memoryMb: PLAN_RESOURCE_POOL.memoryMb * seats,
-  };
-  if (normalized !== MAX_PLAN_ID) return seatPool;
-  return {
-    vcpus: Math.max(MAX_PLAN_RESOURCE_POOL.vcpus, seatPool.vcpus),
-    memoryMb: Math.max(MAX_PLAN_RESOURCE_POOL.memoryMb, seatPool.memoryMb),
-  };
+  return normalized === MAX_PLAN_ID ? MAX_PLAN_RESOURCE_POOL : PLAN_RESOURCE_POOL;
 }
 
 /** vCPUs on the image ladder row that boots `memoryMb`. */
@@ -571,7 +556,7 @@ function activeVmLimitForPlan(
   if (planId === GO_PLAN_ID) return { limit: 1, brake: false };
 
   // Paid allowance is product policy. Legacy deployment overrides must not
-  // silently reduce it or prevent Team seats from scaling. The existing create
+  // silently reduce it or change the flat Team allowance. The existing create
   // kill switch remains the explicit control for a provisioning incident.
   return { limit: PAID_MAX_ACTIVE_VMS_DEFAULT, brake: false };
 }

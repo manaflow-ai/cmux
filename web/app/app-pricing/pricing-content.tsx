@@ -362,7 +362,7 @@ export function AppPricingContent({
       <PlanCard
         name={pricing.team.name}
         price={`$${TEAM_PRICING_USD.month.billedAmount}`}
-        period={pricing.perUserMonth}
+        period={pricing.perMonth}
       >
         {appStorePaymentGated ? (
           <DisabledButton>{pricing.billingUnavailable}</DisabledButton>

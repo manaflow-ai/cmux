@@ -1,5 +1,5 @@
 import { authorizeCronRequest } from "../../../../services/cronAuth";
-import { reconcileTeamSeats } from "../../../../services/billing/teamSeats";
+import { markActiveTeamSubscriptionsDirty, reconcileTeamSeats } from "../../../../services/billing/teamSeats";
 import { captureCoderouterError } from "../../../../services/errors";
 
 export const maxDuration = 60;
@@ -11,6 +11,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
+    await markActiveTeamSubscriptionsDirty();
     const result = await reconcileTeamSeats();
     return Response.json({ ok: result.failed === 0, ...result }, { status: result.failed === 0 ? 200 : 503 });
   } catch (error) {

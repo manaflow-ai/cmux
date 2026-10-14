@@ -739,8 +739,8 @@
         "fallbackName": "your team",
         "activeBody": "{team} renews on {date}.",
         "pendingBody": "{team} is scheduled to end on {date}.",
-        "price": "${amount}/seat/mo",
-        "annualPrice": "${monthly}/seat/mo, billed annually",
+        "price": "${amount}/mo",
+        "annualPrice": "${monthly}/mo, billed annually",
         "createCta": "Create a team"
       },
       "details": {
@@ -781,15 +781,12 @@
         "unavailable": "Team billing could not be loaded. Try again shortly.",
         "welcome": "Team is active. Invite your teammates from the team's members page.",
         "freeBody": "{team} is on the Free plan. Team gives every member cloud agents with one shared invoice.",
-        "personalPlanBody": "{team} is using your {plan} plan. Personal plans support up to 3 members. Team is $60 per accepted member per month and adds 5 shared Cloud VMs per paid seat. Pending invitations do not use seats. Cloud capacity belongs to this team; switching teams does not move or reset machines. A new team has its own team-scoped allowance.",
-        "planRules": "Pro or Max can power a team for up to 3 people and 5 shared Cloud VMs. Team has no seat cap: each accepted member costs $60 per month and adds 5 shared Cloud VMs to the team's shared pool. Pending invitations are free. Cloud capacity belongs to the selected team; switching teams does not move or reset machines. A new team has its own team-scoped allowance.",
+        "personalPlanBody": "{team} is using your {plan} plan. Pro or Max supports up to 3 people, including the owner and pending invitations. Switching teams does not move or reset machines.",
+        "planRules": "Team is $60/month for the whole team with no member cap and 5 shared Cloud VMs. Invitations and new members do not change the price or VM allowance.",
         "upgradeCta": "Upgrade this team",
         "askAdmin": "Only team admins can change billing. Ask an admin of {team} to upgrade.",
         "memberReadOnly": "Only team admins can change this plan.",
-        "grantedBody": "Team access was granted to {team} by the cmux team. There is no subscription to manage.",
-        "seatsUsed": "{members} of {seats} used",
-        "overSeat": "{team} has {members} members and {seats} paid seats. Seats follow the member count, so the subscription updates on its own.",
-        "addSeats": "Add seats"
+        "grantedBody": "Team access was granted to {team} by the cmux team. There is no subscription to manage."
       },
       "teamList": {
         "heading": "Billing scopes",
@@ -811,7 +808,6 @@
         "renewsOn": "Renews on {date}",
         "endsOn": "Ends on {date}",
         "perMonth": "per month",
-        "perSeatMonth": "per seat per month",
         "paymentMethod": "Manage payment method",
         "invoices": "Invoices",
         "heading": "Plans",
@@ -851,7 +847,7 @@
           ],
           "team": [
             "Everything in Pro for every member",
-            "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
+            "Up to 5 shared Cloud VMs, sharing 20 vCPUs and 40 GB RAM across the team",
             "One invoice for the whole team",
             "Priority support"
           ]
@@ -1338,15 +1334,15 @@
         "freeName": "Free",
         "freePrice": "$0",
         "teamName": "Team",
-        "teamPrice": "${price} per seat per month",
+        "teamPrice": "${price} per team per month",
         "featureMembers": "Members, roles, and invitations",
         "featureProForEveryone": "Everything in Pro for every member",
         "featureCentralBilling": "Centralized billing for the whole team",
         "featurePrioritySupport": "Priority support",
         "chooseFree": "Continue with Free",
-        "chooseTeam": "Upgrade to Team (${price}/seat/month)",
-        "upgradeLater": "Seats follow your member count: each member is billed, and the total updates when people join or leave.",
-        "planRules": "Personal Pro or Max can power this team for up to 3 people. Team has no seat cap: each accepted member costs $60 per month and adds 5 shared Cloud VMs to the team's shared pool. Pending invitations are free. Cloud capacity belongs to the selected team; switching teams does not move or reset machines. A new team has its own team-scoped allowance.",
+        "chooseTeam": "Upgrade to Team (${price}/month)",
+        "upgradeLater": "Team is $60/month for the whole team with no member cap and 5 shared Cloud VMs. Invitations and new members do not change the price or VM allowance.",
+        "planRules": "Pro or Max supports up to 3 people, including the owner and pending invitations. Switching teams does not move or reset machines.",
         "inviteTitle": "Invite people to {team}",
         "inviteDescription": "Optional. You can also invite people later from the team's Members page.",
         "inviteByEmail": "Invite by email",
@@ -1463,8 +1459,6 @@
         "revoke": "Revoke",
         "linksTitle": "Invite links",
         "linksDescription": "A reusable link anyone can use to join as a member.",
-        "seatNudge": "{used} people are members or invited, but the plan has {seats} seats. Invitations still work; add {over, plural, one {# seat} other {# seats}} to cover everyone.",
-        "seatNudgeAction": "Manage seats",
         "actions": {
           "makeAdmin": "Make admin",
           "makeMember": "Make member",
@@ -1763,10 +1757,10 @@
     },
     "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
-    "perUserMonth": "/user/mo",
+    "perUserMonth": "/team/mo",
     "billingPeriod": "Billing period",
     "monthly": "Monthly",
-    "teamMonthlyComparePrice": "${monthly}/user/mo",
+    "teamMonthlyComparePrice": "${monthly}/team/mo",
     "currentPlan": "Current plan",
     "manageBilling": "Manage billing",
     "free": {
@@ -1832,7 +1826,7 @@
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
+        "Up to 5 shared Cloud VMs, sharing 20 vCPUs and 40 GB RAM across the team",
         "Centralized billing for your whole team",
         "Priority support"
       ]
@@ -1925,7 +1919,7 @@
           "free": "false",
           "pro": "5",
           "max": "5",
-          "team": "5 per paid seat",
+          "team": "5",
           "enterprise": "Custom",
           "go": "1"
         },
@@ -1934,7 +1928,7 @@
           "free": "false",
           "pro": "20 vCPUs and 40 GB RAM, shared",
           "max": "80 vCPUs and 160 GB RAM, shared",
-          "team": "20 vCPUs and 40 GB RAM per paid seat, shared across the team",
+          "team": "Up to 5 shared Cloud VMs, sharing 20 vCPUs and 40 GB RAM across the team",
           "enterprise": "Custom",
           "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
         },
@@ -2041,7 +2035,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Up to 5 shared Cloud VMs, sharing 20 vCPUs and 40 GB RAM across the team."
         },
         {
           "q": "What does Max add?",
@@ -2058,7 +2052,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $480/yr ($40/mo) when billed yearly. Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. Team is $60/user/mo. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $480/yr ($40/mo) when billed yearly. Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. Team is $60/month for the whole team. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -2066,7 +2060,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $60/user/mo with centralized billing for your whole team and priority support."
+          "a": "Yes. Team is $60/month for the whole team with centralized billing and priority support."
         }
       ]
     },
@@ -2090,7 +2084,7 @@
       "team": "Team & Enterprise"
     },
     "priceMonthlyNote": "${amount}/mo when billed monthly",
-    "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly",
+    "priceMonthlyPerUserNote": "${amount}/team/mo when billed monthly",
     "manageInAppStore": "Manage in the App Store",
     "resumePlan": "Resume {plan}"
   },
@@ -4518,7 +4512,7 @@
       "limitsDesc": "Your active machines share one pool of vCPUs and memory. Run one large machine or several small ones. Paused machines do not use the pool. Disk is set for each machine and is not pooled.",
       "limitsFree": "Free accounts cannot create machines.",
       "limitsPaid": "Pro and Founder's Edition accounts can have up to 5 active machines that share 20 vCPUs and 40 GB of memory. A machine is active while it is running or starting.",
-      "limitsTeam": "Team accounts can have up to 5 active machines for each paid seat. Each paid seat adds 20 vCPUs and 40 GB of memory to the team's pool.",
+      "limitsTeam": "Up to 5 shared Cloud VMs, sharing 20 vCPUs and 40 GB RAM across the team",
       "limitsMax": "Max accounts can have up to 5 active machines that share 80 vCPUs and 160 GB of memory. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
       "limitsPoolFull": "If a new, resumed, resized, or forked machine would go over the pool, cmux refuses the request and shows how much of the pool is in use. Pause or delete a machine to free resources, or upgrade to Max.",
       "limitsOversize": "A machine larger than your plan allows is locked. You can list and delete it, but you cannot open it, run commands on it, resume it, or resize it until you upgrade.",

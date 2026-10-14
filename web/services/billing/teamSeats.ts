@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import type Stripe from "stripe";
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
@@ -12,20 +12,20 @@ import { billingPlanIdFromMetadata } from "./teamResolution";
 import { planItem } from "./subscriptionItems";
 
 /**
- * Seat rules for a Team subscription. Every current member is a billed seat,
- * pending invitations cost nothing, and a subscription never drops below one
- * seat. Pro and Max personal teams have a member cap instead of a quantity
- * (services/teams/seats.ts) and free teams have no subscription; both are
- * skipped. A quantity edited in Stripe is not fought: the reconciler runs
- * only on membership facts, and then the member count wins.
+ * Team is a flat subscription: Stripe quantity is always one, regardless of
+ * accepted members or pending invitations. Pro and Max personal teams have a
+ * member cap instead of a quantity (services/teams/seats.ts), and free teams
+ * have no subscription; both are skipped. The reconciler also normalizes old
+ * per-member subscriptions back to one so membership changes never add a
+ * charge.
  */
 export type SeatDecision =
   | { readonly action: "skip"; readonly reason: "personal_plan" | "no_team_subscription" }
   | { readonly action: "noop"; readonly quantity: number }
   | { readonly action: "update"; readonly from: number | null; readonly to: number };
 
-export function billableSeats(memberCount: number): number {
-  return Math.max(1, memberCount);
+export function billableSeats(_memberCount: number): number {
+  return 1;
 }
 
 export function seatDecision(input: {
@@ -36,7 +36,7 @@ export function seatDecision(input: {
 }): SeatDecision {
   if (input.planId === PRO_PLAN_ID || input.planId === MAX_PLAN_ID) return { action: "skip", reason: "personal_plan" };
   if (!input.hasTeamSubscription) return { action: "skip", reason: "no_team_subscription" };
-  const to = billableSeats(input.memberCount);
+  const to = 1;
   if (input.quantity === to) return { action: "noop", quantity: to };
   return { action: "update", from: input.quantity, to };
 }
@@ -75,7 +75,7 @@ export type TeamSeatOutcomeKind = "updated" | "noop" | "skipped" | "failed" | "b
 const DEFAULT_LIMIT = 200;
 
 /**
- * Bring every dirty team's Stripe quantity to its member count. Safe to run
+ * Bring every dirty team's Stripe quantity to one. Safe to run
  * from several workers at once: each team is taken under a try-lock, and a
  * failure keeps the team dirty for the next cron pass.
  */
@@ -94,6 +94,32 @@ export async function reconcileTeamSeats(
     else if (kind === "busy") result.busy += 1;
   }
   return result;
+}
+
+/** Queue old per-member quantities for repair, even without a membership change. */
+export async function markActiveTeamSubscriptionsDirty(
+  queue: TeamSeatQueue = databaseTeamSeatQueue,
+  list: () => Promise<readonly { stackTeamId: string | null }[]> = listNonFlatTeamSubscriptions,
+): Promise<number> {
+  const rows = await list();
+  const teamIds = [...new Set(rows.map((row) => row.stackTeamId).filter((id): id is string => !!id))];
+  // Keep queue writes bounded rather than opening one connection per customer.
+  for (const teamId of teamIds) await queue.markDirty(teamId);
+  return teamIds.length;
+}
+
+async function listNonFlatTeamSubscriptions(): Promise<readonly { stackTeamId: string | null }[]> {
+  return cloudDb()
+    .select({ stackTeamId: stripeSubscriptions.stackTeamId })
+    .from(stripeSubscriptions)
+    .where(and(
+      eq(stripeSubscriptions.scope, "team"),
+      eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+      inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+      gt(stripeSubscriptions.seats, 1),
+    ))
+    .orderBy(stripeSubscriptions.updatedAt)
+    .limit(DEFAULT_LIMIT);
 }
 
 async function reconcileTeam(
@@ -146,8 +172,7 @@ async function reconcileTeamUnlocked(
     quantity: subscription?.seats ?? null,
   });
   if (decision.action === "skip") return { kind: "skipped", outcome: { memberCount, stripeQuantity: null, error: null } };
-  if (decision.action === "noop") return { kind: "noop", outcome: { memberCount, stripeQuantity: decision.quantity, error: null } };
-  const quantity = await updateStripeQuantity(subscription!.id, decision.to, dependencies);
+  const quantity = await updateStripeQuantity(subscription!.id, 1, dependencies);
   return { kind: quantity.changed ? "updated" : "noop", outcome: { memberCount, stripeQuantity: quantity.value, error: null } };
 }
 
@@ -167,7 +192,11 @@ async function updateStripeQuantity(
   if (!item || !(ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(live.status)) {
     return { changed: false, value: current };
   }
-  if (current === to) return { changed: false, value: current };
+  if (current === to) {
+    // Repair a missed webhook or an earlier failed mirror write as well.
+    await (dependencies.apply ?? applySubscriptionUpdate)(live);
+    return { changed: false, value: current };
+  }
   const updated = await client.updateQuantity(subscriptionId, item.id, to);
   await (dependencies.apply ?? applySubscriptionUpdate)(updated);
   return { changed: true, value: planItem(updated)?.quantity ?? to };

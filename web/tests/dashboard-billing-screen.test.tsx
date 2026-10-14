@@ -222,7 +222,7 @@ describe("dashboard.teams.billing", () => {
     });
 
     expect(html).toContain("Renews on");
-    expect(html).toContain("6 of 4 used");
+    expect(html).not.toContain("6 of 4 used");
     expect(html).toContain("Only team admins can change the plan.");
     expect(html).not.toContain("/api/billing/portal");
   });
@@ -376,7 +376,7 @@ describe("dashboard billing screen", () => {
     expect(html).toContain('href="/api/billing/portal"');
   });
 
-  test("renders the selected team's active Team plan with seats vs members and admin actions", async () => {
+  test("renders the selected team's flat Team plan and admin actions", async () => {
     const team = teamWithMembers("team-pro", "Team Pro", 3, { cmuxPlan: "team", cmuxSeats: 4 });
     proUser.selectedTeam = team;
     mockImplementation(proUser.listTeams, async () => [team]);
@@ -396,9 +396,9 @@ describe("dashboard billing screen", () => {
 
     expect(html).toMatch(/data-plan="team"[^>]*aria-current="true"/);
     expect(html).toContain("Renews on");
-    expect(html).toContain("Seats");
-    expect(html).toContain("3 of 4 used");
-    expect(html).toContain(">$60</span> <span class=\"text-xs text-muted\">per seat per month<");
+    expect(html).not.toContain("Seats");
+    expect(html).not.toContain("3 of 4 used");
+    expect(html).toContain(">$240</span> <span class=\"text-xs text-muted\">per month<");
     expect(html).toContain("Cancel plan");
     expect(html).toContain('href="/api/billing/portal?scope=team&amp;teamId=team-pro"');
     expect(proUser.hasPermission).toHaveBeenCalledWith(team, "team_admin");
@@ -420,7 +420,7 @@ describe("dashboard billing screen", () => {
     ];
     customerRows = [{ id: "cus_team" }];
 
-    expect(await renderBillingPage({ team: "team-pro" })).toContain(">$48</span> <span class=\"text-xs text-muted\">per seat per month, billed annually<");
+    expect(await renderBillingPage({ team: "team-pro" })).toContain(">$192</span> <span class=\"text-xs text-muted\">per month, billed annually<");
   });
 
   test("uses the current Stripe price interval over stale checkout metadata", async () => {
@@ -439,7 +439,7 @@ describe("dashboard billing screen", () => {
     ];
     customerRows = [{ id: "cus_team" }];
 
-    expect(await renderBillingPage({ team: "team-pro" })).toContain(">$35</span> <span class=\"text-xs text-muted\">per seat per month<");
+    expect(await renderBillingPage({ team: "team-pro" })).toContain(">$140</span> <span class=\"text-xs text-muted\">per month<");
 
     subscriptionRows = [
       stripeSubscriptionRow({
@@ -452,21 +452,18 @@ describe("dashboard billing screen", () => {
         recurringInterval: "year",
       }),
     ];
-    expect(await renderBillingPage({ team: "team-pro" })).toContain(">$28</span> <span class=\"text-xs text-muted\">per seat per month, billed annually<");
+    expect(await renderBillingPage({ team: "team-pro" })).toContain(">$112</span> <span class=\"text-xs text-muted\">per month, billed annually<");
   });
 
-  test("explains a seat count that has not caught up with the members", async () => {
+  test("does not show a seat overage when membership changes", async () => {
     const team = teamWithMembers("team-pro", "Team Pro", 6);
     proUser.selectedTeam = team;
     subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, plan: "team", scope: "team", seats: 4 })];
 
     const html = await renderBillingPage({ team: "team-pro" });
 
-    expect(html).toContain("6 of 4 used");
-    // Seats follow the member count, so there is nothing for an admin to add
-    // here: the line says the subscription catches up on its own, and no
-    // add-seats link is offered.
-    expect(html).toContain("Team Pro has 6 members and 4 paid seats. Seats follow the member count, so the subscription updates on its own.");
+    expect(html).not.toContain("6 of 4 used");
+    expect(html).toContain("Invitations and new members do not change the price or VM allowance.");
     expect(html).not.toContain("Add seats");
     expect(html).not.toContain("add seats to cover everyone");
   });
@@ -505,10 +502,10 @@ describe("dashboard billing screen", () => {
 
     const html = await renderBillingPage({ team: "team-pro-fallback" });
     expect(html).toContain("Team Pro Fallback is using your Pro plan.");
-    expect(html).toContain("Personal plans support up to 3 members.");
-    expect(html).toContain("each accepted member costs $60 per month");
-    expect(html).toContain("Pending invitations do not use seats");
-    expect(html).toContain("switching teams does not move or reset machines");
+    expect(html).toContain("Pro or Max supports up to 3 people, including the owner and pending invitations.");
+    expect(html).toContain("Team is $60/month for the whole team");
+    expect(html).toContain("Invitations and new members do not change the price or VM allowance");
+    expect(html).toContain("Switching teams does not move or reset machines");
   });
 
   test("asks members of a free team to contact an admin", async () => {
@@ -536,7 +533,7 @@ describe("dashboard billing screen", () => {
       "${monthly}/mo, billed annually",
     );
     expect(jaMessages.dashboard.billing.pro.annualPrice).toBe("${monthly}/月（年払い）");
-    expect(jaMessages.dashboard.billing.team.price).toBe("${amount}/シート/月");
+    expect(jaMessages.dashboard.billing.team.price).toBe("${amount}/月");
   });
 
   test("without ?team=, Plan & billing is personal even when Stack selected a team", async () => {

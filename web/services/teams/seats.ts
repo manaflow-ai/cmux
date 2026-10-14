@@ -7,8 +7,7 @@ import { TeamApiError } from "./errors";
  * Teams without a Team subscription may hold three members, the owner
  * included. A member's personal Pro or Max plan can power the selected team,
  * but it remains a small personal roster. Team subscriptions have no cap:
- * their Stripe quantity follows the accepted member count
- * (services/billing/teamSeats.ts).
+ * their flat subscription includes all members.
  */
 export const PERSONAL_PLAN_MEMBER_LIMIT = 3;
 

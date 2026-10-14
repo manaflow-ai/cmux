@@ -117,7 +117,7 @@ describe("app pricing page", () => {
     expect(html).toContain("plan%253Dmax");
     expect(html).toMatch(/plan=max[^"]*interval=year/);
     expect(html).toContain("/mo");
-    expect(html).toContain("/user/mo");
+    expect(html).toContain("/team/mo");
     expect(html).toContain("$50");
     expect(html).toContain("$200");
     expect(html).toContain("$10");
@@ -127,7 +127,7 @@ describe("app pricing page", () => {
     expect(html).toContain("Get Max");
     expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
     expect(html).toContain("Largest Cloud VM");
-    expect(html).toContain("$60/user/mo");
+    expect(html).toContain("$60/team/mo");
     expect(html).toContain(
       "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
     );
@@ -236,14 +236,14 @@ describe("app pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain("/mo");
-    expect(html).toContain("/user/mo");
+    expect(html).toContain("/team/mo");
     expect(html).not.toContain("/mo, billed yearly");
-    expect(html).not.toContain("/user/mo, billed yearly");
+    expect(html).not.toContain("/team/mo, billed yearly");
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
-    expect(html).toContain("$60/user/mo");
+    expect(html).toContain("$60/team/mo");
     expect(html).not.toContain("$480/year");
-    expect(html).not.toContain("$576/user/year");
+    expect(html).not.toContain("$576/team/year");
     // Max follows the annual selector just like Pro.
     expect(html).toContain("$200");
     expect(html).toContain("$160");

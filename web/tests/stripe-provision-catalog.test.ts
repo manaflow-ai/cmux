@@ -47,6 +47,17 @@ afterEach(() => {
 });
 
 describe("Stripe catalog provisioning", () => {
+  test("provisions a Team portal without subscription quantity editing", async () => {
+    const result = await runProvision("test", "valid");
+    expect(result.exitCode).toBe(0);
+    const call = result.calls.find(call => call.args.includes("POST") && call.args.includes("metadata[purpose]=team_billing"));
+    expect(call).toBeDefined();
+    expect(call!.args).toContain("features[subscription_update][enabled]=false");
+    expect(call!.args).toContain("features[invoice_history][enabled]=true");
+    expect(call!.args).toContain("features[payment_method_update][enabled]=true");
+    expect(call!.args).toContain("features[subscription_cancel][enabled]=true");
+  });
+
   test("offers current monthly and yearly prices in the plan-switch portal", async () => {
     const result = await runProvision("test", "portal-switch-exists");
     expect(result.exitCode).toBe(0);
@@ -112,7 +123,7 @@ describe("Stripe catalog provisioning", () => {
       ?.args.find((argument) => argument.startsWith("description="));
     expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app.");
     expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.");
-    expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
+    expect(description("prod_team")).toBe("description=Up to 5 shared Cloud VMs, sharing 20 vCPUs and 40 GB RAM across the team, plus the cmux iOS app and priority support.");
   });
 
   test("provisions monthly and yearly Max prices and the Pro/Max plan switch portal", async () => {
@@ -153,6 +164,7 @@ describe("Stripe catalog provisioning", () => {
       result.calls.some(
         (call) =>
           call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+          call.args.includes("metadata[purpose]=personal_plan_switch") &&
           call.args.includes("POST"),
       ),
     ).toBe(false);

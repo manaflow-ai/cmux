@@ -315,7 +315,7 @@ function stripeIntervalMonths(row: StripeSubscriptionInput): number {
 
 type StripePrice = { readonly chargeUsd: number; readonly fallback: boolean };
 
-/** Web list price per month (per seat for Team), USD. */
+/** Web list price per month, USD. */
 const STRIPE_USD_MONTHLY_LIST_PRICE: Readonly<Record<string, number>> = {
   go: GO_PRICING_USD.month.monthlyEquivalent,
   pro: PRO_PRICING_USD.month.monthlyEquivalent,
@@ -330,7 +330,10 @@ const STRIPE_USD_MONTHLY_LIST_PRICE: Readonly<Record<string, number>> = {
  * subscription never adds zero to MRR silently.
  */
 export function stripeChargeUsd(row: StripeSubscriptionInput): StripePrice {
-  const quantity = Math.max(row.quantity ?? row.seats ?? 1, 1);
+  // Team is a flat subscription. Legacy rows may still carry a member-based
+  // quantity until the reconciler normalizes them; analytics must not report
+  // those historical quantities as current Team revenue.
+  const quantity = row.plan === "team" ? 1 : Math.max(row.quantity ?? row.seats ?? 1, 1);
   const converted = row.unitAmount === null ? null : toUsd((row.unitAmount / 100) * quantity, row.currency);
   if (converted === null) {
     const listPrice = STRIPE_USD_MONTHLY_LIST_PRICE[row.plan] ?? 0;

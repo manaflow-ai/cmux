@@ -103,12 +103,8 @@ function normalizedPlanId(value: string | null | undefined): string | null {
 }
 
 /**
- * Paid seats on a team (`cmuxSeats`, written from the Stripe subscription
- * quantity by syncTeamPlanMetadata). Null when absent or malformed; callers
- * treat that as a single seat. Teams recorded before seats were written are
- * backfilled without a migration: the billing-reconcile cron re-applies every
- * stored subscription through the same sync, so `cmuxSeats` lands on its next
- * pass (and on the next Stripe subscription event, whichever is first).
+ * Legacy subscription quantity mirrored into team metadata for accounting and
+ * migration display. It never controls member limits, billing, or Cloud capacity.
  */
 export function billingSeatsFromMetadata(metadata: unknown): number | null {
   if (!metadata || typeof metadata !== "object") return null;

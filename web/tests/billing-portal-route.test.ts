@@ -78,6 +78,7 @@ mock.module("../db/client", () => ({
 const resolvePersonalPlanSwitchPortalConfiguration = mock(async () => "bpc_switch");
 mock.module("../services/billing/stripe", () => ({
   ...stripeModule,
+  resolveTeamBillingPortalConfiguration: async () => "bpc_team",
   resolvePersonalPlanSwitchPortalConfiguration,
   isStripeBillingConfigured: () => stripeConfigured,
   stripe: () => ({
@@ -253,6 +254,7 @@ describe("billing portal route", () => {
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_team",
       return_url: "https://cmux.test/dashboard/billing?team=team-pro",
+      configuration: "bpc_team",
     });
   });
 

@@ -38,6 +38,7 @@ mock.module("../db/client", () => ({
 }));
 mock.module("../services/billing/stripe", () => ({
   ...stripeModule,
+  resolveTeamBillingPortalConfiguration: async () => "bpc_team",
   isStripeBillingConfigured: () => true,
   resolveTeamPrice: async () => "price_team_month",
   stripe: () => ({
@@ -94,7 +95,7 @@ describe("explicit team checkout", () => {
     const params = sessionParams();
     expect(params.client_reference_id).toBe("team-b");
     expect(params.line_items).toEqual([
-      { price: "price_team_month", quantity: 5, adjustable_quantity: { enabled: true, minimum: 1 } },
+      { price: "price_team_month", quantity: 1 },
     ]);
     expect(params.metadata).toMatchObject({ stackTeamId: "team-b", stackUserId: USER_ID, plan: "team" });
     expect((params.subscription_data as { metadata: unknown }).metadata).toMatchObject({ stackTeamId: "team-b", stackUserId: USER_ID });
@@ -217,6 +218,7 @@ describe("explicit team checkout", () => {
     expect(createPortal).toHaveBeenCalledWith({
       customer: "cus_team_b",
       return_url: "https://cmux.test/dashboard/billing?team=team-b",
+      configuration: "bpc_team",
     });
   });
 });

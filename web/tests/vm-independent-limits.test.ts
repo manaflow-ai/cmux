@@ -26,7 +26,7 @@ describe("independent Cloud VM limits", () => {
     const env = { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1", CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "1" };
     expect(maxActiveVmsForPlan("pro", env)).toBe(5);
     expect(maxActiveVmsForPlan("founders", env)).toBe(5);
-    expect(maxActiveVmsForPlan("team", env, { seats: 4 })).toBe(20);
+    expect(maxActiveVmsForPlan("team", env, { seats: 4 })).toBe(5);
   });
 
   dbTest("admits the third machine, all 50 sizes, and exactly one concurrent final slot", async () => {

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type Stripe from "stripe";
 import {
   billableSeats,
+  markActiveTeamSubscriptionsDirty,
   reconcileTeamSeats,
   seatDecision,
   type TeamSeatReconcileDependencies,
@@ -23,12 +24,12 @@ import {
 const SUBSCRIPTION_ID = "sub_team_1";
 const ITEM_ID = "si_team_1";
 
-describe("seat delta rule", () => {
-  test("bills one seat per member and never below one", () => {
+describe("Team quantity rule", () => {
+  test("keeps one Stripe quantity regardless of member count", () => {
     expect(billableSeats(0)).toBe(1);
-    expect(billableSeats(4)).toBe(4);
+    expect(billableSeats(4)).toBe(1);
     expect(seatDecision({ planId: "team", hasTeamSubscription: true, memberCount: 3, quantity: 2 }))
-      .toEqual({ action: "update", from: 2, to: 3 });
+      .toEqual({ action: "update", from: 2, to: 1 });
     expect(seatDecision({ planId: "team", hasTeamSubscription: true, memberCount: 1, quantity: 4 }))
       .toEqual({ action: "update", from: 4, to: 1 });
     expect(seatDecision({ planId: "team", hasTeamSubscription: true, memberCount: 0, quantity: 3 }))
@@ -36,13 +37,13 @@ describe("seat delta rule", () => {
   });
 
   test("is a no-op when the quantity already matches", () => {
-    expect(seatDecision({ planId: "team", hasTeamSubscription: true, memberCount: 3, quantity: 3 }))
-      .toEqual({ action: "noop", quantity: 3 });
+    expect(seatDecision({ planId: "team", hasTeamSubscription: true, memberCount: 12, quantity: 1 }))
+      .toEqual({ action: "noop", quantity: 1 });
   });
 
   test("updates from an unknown quantity", () => {
     expect(seatDecision({ planId: null, hasTeamSubscription: true, memberCount: 2, quantity: null }))
-      .toEqual({ action: "update", from: null, to: 2 });
+      .toEqual({ action: "update", from: null, to: 1 });
   });
 
   test("ignores Pro and Max personal teams and teams without a Team subscription", () => {
@@ -114,7 +115,7 @@ function harness(input: { stack?: FakeStack; quantity?: number; rowSeats?: numbe
 }
 
 describe("team seat reconciler", () => {
-  test("raises the Stripe quantity to the member count after a join", async () => {
+  test("normalizes an old per-member quantity to one after a join", async () => {
     const { stack, queue, stripe, applied, deps } = harness();
     stack.addMember(TEAM_ID, OUTSIDER_ID, MEMBER_GRANTS);
     await queue.markDirty(TEAM_ID);
@@ -122,10 +123,10 @@ describe("team seat reconciler", () => {
     const result = await reconcileTeamSeats({}, deps);
 
     expect(result).toEqual({ checked: 1, updated: 1, skipped: 0, failed: 0, busy: 0 });
-    expect(stripe.updates).toEqual([{ subscriptionId: SUBSCRIPTION_ID, itemId: ITEM_ID, quantity: 3 }]);
-    expect(applied).toEqual([3]);
+    expect(stripe.updates).toEqual([{ subscriptionId: SUBSCRIPTION_ID, itemId: ITEM_ID, quantity: 1 }]);
+    expect(applied).toEqual([1]);
     const row = queue.rows.get(TEAM_ID)!;
-    expect(row).toMatchObject({ dirtyAt: null, lastMemberCount: 3, lastStripeQuantity: 3, lastError: null });
+    expect(row).toMatchObject({ dirtyAt: null, lastMemberCount: 3, lastStripeQuantity: 1, lastError: null });
   });
 
   test("changes the seat item, not a metered usage item listed before it", async () => {
@@ -137,11 +138,11 @@ describe("team seat reconciler", () => {
     const result = await reconcileTeamSeats({}, deps);
 
     expect(result).toEqual({ checked: 1, updated: 1, skipped: 0, failed: 0, busy: 0 });
-    expect(stripe.updates).toEqual([{ subscriptionId: SUBSCRIPTION_ID, itemId: ITEM_ID, quantity: 3 }]);
-    expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastMemberCount: 3, lastStripeQuantity: 3, lastError: null });
+    expect(stripe.updates).toEqual([{ subscriptionId: SUBSCRIPTION_ID, itemId: ITEM_ID, quantity: 1 }]);
+    expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastMemberCount: 3, lastStripeQuantity: 1, lastError: null });
   });
 
-  test("lowers the quantity after a removal and leaves the row clean", async () => {
+  test("normalizes an old quantity after a removal and leaves the row clean", async () => {
     const { stack, queue, stripe, deps } = harness({ quantity: 2 });
     stack.teams.get(TEAM_ID)!.members.delete(MEMBER_ID);
     await queue.markDirty(TEAM_ID);
@@ -160,13 +161,13 @@ describe("team seat reconciler", () => {
 
     const result = await reconcileTeamSeats({}, deps);
 
-    expect(result.updated).toBe(0);
-    expect(stripe.updates).toEqual([]);
-    expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastMemberCount: 2, lastStripeQuantity: 2 });
+    expect(result.updated).toBe(1);
+    expect(stripe.updates).toEqual([{ subscriptionId: SUBSCRIPTION_ID, itemId: ITEM_ID, quantity: 1 }]);
+    expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastMemberCount: 2, lastStripeQuantity: 1 });
   });
 
-  test("is a no-op when our row lags but Stripe already matches", async () => {
-    const { stack, queue, stripe, applied, deps } = harness({ quantity: 3, rowSeats: 2 });
+  test("repairs our stale row without charging when Stripe already matches", async () => {
+    const { stack, queue, stripe, applied, deps } = harness({ quantity: 1, rowSeats: 3 });
     stack.addMember(TEAM_ID, OUTSIDER_ID, MEMBER_GRANTS);
     await queue.markDirty(TEAM_ID);
 
@@ -174,8 +175,8 @@ describe("team seat reconciler", () => {
 
     expect(result.updated).toBe(0);
     expect(stripe.updates).toEqual([]);
-    expect(applied).toEqual([]);
-    expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastStripeQuantity: 3 });
+    expect(applied).toEqual([1]);
+    expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastStripeQuantity: 1 });
   });
 
   test("skips personal-plan and unsubscribed teams but still clears them", async () => {
@@ -271,7 +272,27 @@ describe("team seat reconciler", () => {
     stack.addMember(TEAM_ID, OUTSIDER_ID, ADMIN_GRANTS);
     await queue.markDirty(TEAM_ID);
     await reconcileTeamSeats({}, deps);
-    expect(stripe.updates.map((update) => update.quantity)).toEqual([3]);
+    expect(stripe.updates.map((update) => update.quantity)).toEqual([]);
     expect(stack.teams.get(TEAM_ID)!.members.has(ADMIN_ID)).toBe(true);
   });
+});
+
+test("the periodic sweep queues old quantities without a new membership event", async () => {
+  const { queue, stripe, deps } = harness({ quantity: 8 });
+  const count = await markActiveTeamSubscriptionsDirty(queue, async () => [
+    { stackTeamId: TEAM_ID }, { stackTeamId: TEAM_ID }, { stackTeamId: null },
+  ]);
+  expect(count).toBe(1);
+  expect(queue.rows.get(TEAM_ID)?.dirtyAt).not.toBeNull();
+  expect(await reconcileTeamSeats({}, deps)).toMatchObject({ updated: 1, failed: 0 });
+  expect(stripe.quantity).toBe(1);
+});
+
+test("accepted members and invitations leave a flat subscription untouched", async () => {
+  const { stack, queue, stripe, deps } = harness({ quantity: 1 });
+  stack.addMember(TEAM_ID, OUTSIDER_ID, MEMBER_GRANTS);
+  stack.addInvitation(TEAM_ID, "next@example.com");
+  await queue.markDirty(TEAM_ID);
+  expect(await reconcileTeamSeats({}, deps)).toMatchObject({ updated: 0, failed: 0 });
+  expect(stripe.updates).toEqual([]);
 });

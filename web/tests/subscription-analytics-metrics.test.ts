@@ -144,13 +144,13 @@ describe("net revenue", () => {
     const team = stripeSubscriptionRecord(stripeRow({ id: "t", plan: "team", unitAmount: null, quantity: 3 }))!;
     expect(mrrAt([noPrice], at).grossUsd).toBe(50);
     expect(mrrAt([unknownCurrency], at).grossUsd).toBe(200);
-    expect(mrrAt([team], at).grossUsd).toBe(180);
+    expect(mrrAt([team], at).grossUsd).toBe(60);
     expect([noPrice, unknownCurrency, team].map((record) => record.fxFallbacks)).toEqual([1, 1, 1]);
   });
 
-  test("Stripe team MRR multiplies the unit price by seats", () => {
+  test("Stripe team MRR stays flat when a legacy row has member quantity", () => {
     const team = stripeSubscriptionRecord(stripeRow({ id: "t", plan: "team", unitAmount: 6000, quantity: 3 }))!;
-    expect(mrrAt([team], d("2026-03-01T00:00:00Z")).grossUsd).toBe(180);
+    expect(mrrAt([team], d("2026-03-01T00:00:00Z")).grossUsd).toBe(60);
   });
 });
 

@@ -504,11 +504,9 @@ async function stripeTeamCheckout(
       line_items: [
         {
           price: await resolveTeamPrice(interval),
-          quantity: await checkoutTeamSeatCount(team),
-          adjustable_quantity: {
-            enabled: true,
-            minimum: 1,
-          },
+          // Team is a flat subscription. Membership changes never change the
+          // Stripe quantity; capacity expansion is a separate future product.
+          quantity: 1,
         },
       ],
       customer: customerId,
@@ -628,7 +626,6 @@ function isAccountDeletionInProgress(user: { readonly clientReadOnlyMetadata?: u
 type CheckoutTeamCustomer = {
   readonly id?: string;
   readonly displayName?: string | null;
-  listUsers?(): Promise<readonly unknown[]>;
   delete?(): Promise<void>;
 };
 
@@ -737,12 +734,6 @@ async function stripeCustomerForTeam(
     if (raceWinner?.id) return raceWinner.id;
     throw error;
   }
-}
-
-async function checkoutTeamSeatCount(team: CheckoutTeamCustomer): Promise<number> {
-  if (!team.listUsers) return 1;
-  const users = await team.listUsers();
-  return Math.max(1, users.length);
 }
 
 function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null {

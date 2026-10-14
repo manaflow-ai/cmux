@@ -146,6 +146,10 @@ export async function redeemTeamInviteLink(
   const stack = dependencies.stack ?? defaultTeamStackApp();
   const { link, team, alreadyMember, memberCount } = await resolveLink(userId, token, store, stack);
   if (!alreadyMember) {
+    // A consumed link is invalid for a new member regardless of the team's
+    // separate membership limit. Preserve the link contract and avoid
+    // leaking a different admission error for an exhausted link.
+    if (isFull(link)) throw new TeamApiError("link_invalid", 410);
     assertSeatsAvailable({ team, occupied: memberCount, adding: 1 });
     const claim = await store.claimLink(link.id, userId);
     if (claim === "unavailable") throw new TeamApiError("link_invalid", 410);

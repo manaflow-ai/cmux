@@ -119,6 +119,7 @@ mock.module("../db/client", () => ({
 }));
 
 mock.module("../services/billing/stripe", () => ({
+  resolveTeamBillingPortalConfiguration: async () => "bpc_team",
   isStripeBillingConfigured: () => stripeConfigured,
   resolveMaxPrice,
   resolveGoPrice,
@@ -923,8 +924,7 @@ describe("billing checkout route", () => {
       line_items: [
         {
           price: "price_team_month",
-          quantity: 2,
-          adjustable_quantity: { enabled: true, minimum: 1 },
+          quantity: 1,
         },
       ],
       customer: "cus_team",
@@ -973,7 +973,7 @@ describe("billing checkout route", () => {
 
     expect(resolveTeamPrice).toHaveBeenCalledWith("month");
     expect(createdStripeSessions[0]).toMatchObject({
-      line_items: [{ price: "price_team_month", quantity: 2 }],
+      line_items: [{ price: "price_team_month", quantity: 1 }],
       metadata: { billingInterval: "month" },
       subscription_data: { metadata: { billingInterval: "month" } },
       cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=month",
