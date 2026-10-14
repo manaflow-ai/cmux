@@ -108,3 +108,39 @@ fn workspace_name_source_auto_rename_respects_user_names() {
     assert_eq!(latest["extra"]["name_source"], "user");
     assert_eq!(latest["extra"]["name_revision"], pinned_revision);
 }
+
+/// A person hands a pinned name back to the automatic namer: `source: auto`
+/// with `release: true`, no name and no expected revision.
+#[test]
+fn workspace_name_source_release_returns_a_pinned_name_to_auto() {
+    let mux = Mux::new_for_test("workspace-name-release", SurfaceOptions::default());
+    let workspace = created_workspace(&mux);
+    let pinned = rename(&mux, &workspace, json!({"name":"Billing"}), "pin").unwrap();
+    assert_eq!(pinned["value"]["extra"]["name_revision"], "1");
+
+    let released =
+        rename(&mux, &workspace, json!({"source":"auto","release":true}), "release").unwrap();
+    assert_eq!(released["value"]["name"], "Billing", "a release keeps the text");
+    assert_eq!(released["value"]["extra"]["name_source"], "auto");
+    assert_eq!(released["value"]["extra"]["name_revision"], "2");
+
+    // The namer may now replace it from the released revision.
+    let named =
+        rename(&mux, &workspace, auto_fields(&mux, "Fix Login", &json!("2")), "auto").unwrap();
+    assert_eq!(named["value"]["name"], "Fix Login");
+
+    let mut auto_without_name = auto_fields(&mux, "", &json!("3"));
+    auto_without_name.as_object_mut().unwrap().remove("name");
+    for (fields, key) in [
+        (json!({"release":true}), "release-user"),
+        (json!({"source":"user","release":true}), "release-explicit-user"),
+        (json!({"source":"auto","release":true,"name":"Other"}), "release-renames"),
+        (auto_without_name, "auto-without-name"),
+    ] {
+        let error = rename(&mux, &workspace, fields.clone(), key).unwrap_err();
+        assert_eq!(error.code, "validation.invalid", "{fields}: {error:?}");
+    }
+    let latest = snapshot_workspace(&mux, &workspace);
+    assert_eq!(latest["name"], "Fix Login");
+    assert_eq!(latest["extra"]["name_revision"], "3");
+}

@@ -128,3 +128,34 @@ fn workspace_name_source_v1_auto_rename_survives_restart() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// v1 `rename-workspace` releases a pinned name with `source: "auto"`,
+/// `release: true` and the current name.
+#[test]
+fn workspace_name_source_v1_release_returns_a_pinned_name_to_auto() {
+    let mux = test_mux();
+    let key = mux.create_empty_workspace(Some("Billing".into()), None, None).unwrap().key;
+    let release = |name: &str| json!({"cmd":"rename-workspace","key":key,"name":name,"source":"auto","release":true});
+    let renamed = run_json_command(&mux, release("Other"));
+    assert!(renamed.is_err(), "a release renamed the workspace");
+    let no_source = json!({"cmd":"rename-workspace","key":key,"name":"Billing","release":true});
+    assert!(run_json_command(&mux, no_source).is_err(), "a user rename released the name");
+    assert_eq!(listed(&mux, &key)["name_source"], "user");
+
+    run_json_command(&mux, release("Billing")).unwrap();
+    let released = listed(&mux, &key);
+    assert_eq!(released["name"], "Billing");
+    assert_eq!(released["name_source"], "auto", "{released}");
+    assert_eq!(released["name_revision"], "1", "{released}");
+
+    let (_, generation) = mux.registry_identity();
+    run_json_command(
+        &mux,
+        json!({
+            "cmd":"rename-workspace", "key":key, "name":"Fix Login", "source":"auto",
+            "expected_generation":generation, "expected_name_revision":"1",
+        }),
+    )
+    .unwrap();
+    assert_eq!(listed(&mux, &key)["name"], "Fix Login");
+}

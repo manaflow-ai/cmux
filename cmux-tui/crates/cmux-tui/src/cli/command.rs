@@ -3478,6 +3478,33 @@ mod tests {
         }
     }
 
+    /// `workspace rename --release-to-auto` hands a pinned name back to the
+    /// automatic namer: no name and no expected revision (hq#1957).
+    #[test]
+    fn workspace_rename_release_to_auto_needs_no_name() {
+        const WORKSPACE: &str = "ws_00000000000000000000000000000007";
+        let plan = protocol(&["workspace", WORKSPACE, "rename", "--release-to-auto"]);
+        assert_eq!(operation(&plan), "workspace.rename");
+        assert_eq!(plan.params["source"], "auto");
+        assert_eq!(plan.params["release"], true);
+        assert!(plan.params.get("name").is_none(), "{:?}", plan.params);
+
+        let current = protocol(&["workspace", "rename", "--release-to-auto"]);
+        assert_eq!(current.params["release"], true);
+
+        for invalid in [
+            vec!["workspace", WORKSPACE, "rename", "--release-to-auto", "--source", "user"],
+            vec!["workspace", WORKSPACE, "rename", "--release-to-auto", "--name", "Billing"],
+            vec!["tab", "tab_00000000000000000000000000000007", "rename", "--release-to-auto"],
+            vec!["workspace", WORKSPACE, "rename"],
+        ] {
+            assert!(
+                parse(&strings(&invalid), super::super::Surface::CmuxTui).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
+    }
+
     /// The machine `notify` accepts the macOS flag set, ignores the Mac-only ones, and validates `--desktop`.
     #[test]
     fn notify_matches_the_local_cmux_notify_signature() {

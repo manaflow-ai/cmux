@@ -170,14 +170,15 @@ fn name_source_refusals_are_typed_operation_failures() {
 #[test]
 fn workspace_name_source_user_rename_ignores_the_mutation_generation() {
     for source in [None, Some(NameSource::User)] {
-        let user = NameUpdate::from_request(source, Some(GENERATION.into()), None).unwrap();
+        let user = NameUpdate::from_request(source, Some(GENERATION.into()), None, false).unwrap();
         assert!(user.fingerprint().is_none(), "{source:?}");
         let mut target = workspace("workspace-1", NameSource::Auto, 0);
         user.apply_workspace(&mut target, "Billing".into(), "generation-b").unwrap();
         assert_eq!(target.name_source, NameSource::User);
     }
     let automatic =
-        NameUpdate::from_request(Some(NameSource::Auto), Some(GENERATION.into()), Some(0)).unwrap();
+        NameUpdate::from_request(Some(NameSource::Auto), Some(GENERATION.into()), Some(0), false)
+            .unwrap();
     assert_eq!(automatic.fingerprint().unwrap()["expected_generation"], GENERATION);
     let retired = automatic
         .apply_workspace(
@@ -187,5 +188,44 @@ fn workspace_name_source_user_rename_ignores_the_mutation_generation() {
         )
         .unwrap_err();
     assert_eq!(resource_code(&retired), Some("operation.failed"));
-    assert!(NameUpdate::from_request(Some(NameSource::Auto), None, Some(0)).is_err());
+    assert!(NameUpdate::from_request(Some(NameSource::Auto), None, Some(0), false).is_err());
+}
+
+fn release() -> WorkspaceNameUpdate {
+    NameUpdate::parse(&fields(json!({"source":"auto","release":true}))).unwrap()
+}
+
+#[test]
+fn workspace_name_source_release_hands_a_user_name_back_to_auto() {
+    let mut pinned = workspace("Billing", NameSource::User, 4);
+    release().apply_workspace(&mut pinned, "Billing".into(), GENERATION).unwrap();
+    assert_eq!(pinned.name, "Billing");
+    assert_eq!(pinned.name_source, NameSource::Auto);
+    assert_eq!(pinned.name_revision, 5);
+    // The automatic namer takes it from the released revision.
+    auto(5).apply_workspace(&mut pinned, "Fix Login".into(), GENERATION).unwrap();
+    assert_eq!(pinned.name_source, NameSource::Auto);
+
+    // A release keeps the current text.
+    let mut target = workspace("Billing", NameSource::User, 4);
+    let renamed = release().apply_workspace(&mut target, "Other".into(), GENERATION).unwrap_err();
+    assert_eq!(resource_code(&renamed), Some("validation.invalid"));
+    assert_eq!(target, workspace("Billing", NameSource::User, 4));
+
+    // Only an automatic source can be released to.
+    for user in [json!({"release":true}), json!({"source":"user","release":true})] {
+        let error = NameUpdate::parse(&fields(user.clone())).err().unwrap();
+        assert_eq!(resource_code(&error), Some("validation.invalid"), "{user}");
+    }
+    assert!(NameUpdate::from_request(Some(NameSource::User), None, None, true).is_err());
+    let v1 = NameUpdate::from_request(Some(NameSource::Auto), Some(GENERATION.into()), None, true)
+        .unwrap();
+    assert_eq!(v1.fingerprint().unwrap()["release"], true);
+    assert!(auto(0).fingerprint().unwrap().get("release").is_none());
+
+    // Tab names have no release.
+    let error = release()
+        .apply(&mut tab(Some("Logs"), NameSource::User, 2), Some("Logs".into()), GENERATION, 2)
+        .unwrap_err();
+    assert_eq!(resource_code(&error), Some("validation.invalid"));
 }
