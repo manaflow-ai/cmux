@@ -66,10 +66,7 @@ export default agentPaneEntry({
     { selector: ".acpmux-composer-box" },
     { selector: ".acpmux-composer-bar" },
   ],
-  covers: [
-    "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
-    "agent-session/acpmux/Composer.tsx#Composer",
-  ],
+  covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext", "agent-session/acpmux/Composer.tsx#Composer"],
   variants: {
     project: {
       note: "A started chat: folder · computer and the branch in the strip on the card's top edge; one controls row in the card.",

@@ -6,7 +6,8 @@
 //     (or Stop) on the right; the row's free space sits only between the two;
 //   - no label is cut while the row has free space, and a short row cuts by priority: the
 //     permission labels go to icons first, then effort shortens, the model last;
-//   - the footer row sits whole inside the card, at the bar's inset.
+//   - the folder and computer controls sit whole inside the location strip on the card's top edge
+//     (hq#1957 composer location strip; composer-location-strip.test.ts measures the strip itself).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -26,8 +27,6 @@ type Row = {
   barGap: number;
   /** Each label: cut (an ellipsis or a label pushed out of its chip) or whole. */
   labels: Record<string, { cut: boolean; dropped: boolean; atMin: boolean; need: number } | undefined>;
-  plusInset: number;
-  footerInset: number;
 };
 
 await requireBrowserLane("composer-row-layout.test.ts", async () => {
@@ -41,7 +40,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       element instanceof HTMLElement && element.getBoundingClientRect().width > 0;
     const bar = document.querySelector(".acpmux-composer-bar")!;
     const box = document.querySelector(".acpmux-composer-box")!;
-    const footer = document.querySelector(".acpmux-composer-context")!;
+    const footer = document.querySelector(".acpmux-composer-strip")!;
     const named: [string, string][] = [
       ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
       ["model", ".acpmux-model .acpmux-picker-button"],
@@ -84,8 +83,6 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           : 0;
       return { cut: !inside || overflow, dropped: !shown, atMin: host.getBoundingClientRect().width <= min + 1, need };
     };
-    const plus = bar.querySelector(".acpmux-composer-plus .acpmux-picker-button")!;
-    const firstFooter = footer.querySelector(".acpmux-location-button, .acpmux-location-readonly")!;
     return {
       bar: rect(bar),
       box: rect(box),
@@ -104,8 +101,6 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           ".acpmux-permission-status",
         ),
       },
-      plusInset: plus.getBoundingClientRect().left - box.getBoundingClientRect().left,
-      footerInset: firstFooter.getBoundingClientRect().left - box.getBoundingClientRect().left,
     };
   }
 
@@ -163,7 +158,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
 
   for (const variant of ["claude-auto", "long-model", "granted", "queued"])
     for (const width of [420, 720, 1100])
-      test(`${variant} at ${width} px: two clusters, cut by priority, footer whole`, async () => {
+      test(`${variant} at ${width} px: two clusters, cut by priority, strip whole`, async () => {
         const measured = await row(variant, width);
         const { left, right, labels, barGap } = measured;
         const names = left.map((control) => control.name);
@@ -192,15 +187,14 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         // At a normal and a wide pane every label of Leo's row shows whole.
         if (width >= 720 && variant !== "long-model" && cut.length > 0)
           problems.push(`${cut.join(", ")} cut at ${width} px`);
-        // The footer is inside the card, its controls whole and inset from the card's bottom edge.
-        if (measured.footer.bottom > measured.box.bottom + 0.5) problems.push("the footer runs past the card");
+        // The location strip heads the card, its controls whole inside it.
+        if (Math.abs(measured.footer.bottom - measured.box.top) > 1)
+          problems.push("the strip is not on the card's top edge");
         for (const control of measured.footerControls) {
-          if (control.top < measured.footer.top - 0.5) problems.push("a footer control rises out of its row");
-          const inset = measured.box.bottom - control.bottom;
-          if (inset < 8) problems.push(`a footer control sits ${Math.round(inset)} px from the card's bottom edge`);
+          if (control.top < measured.footer.top - 0.5 || control.bottom > measured.footer.bottom + 0.5)
+            problems.push("a strip control runs out of the strip");
+          if (control.left < measured.footer.left - 0.5) problems.push("a strip control runs out of the strip's side");
         }
-        if (Math.abs(measured.footerInset - measured.plusInset) > 1)
-          problems.push(`footer inset ${measured.footerInset} px, bar inset ${measured.plusInset} px`);
         expect(problems).toEqual([]);
       });
 });

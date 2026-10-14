@@ -4665,8 +4665,6 @@ function AcpmuxPane() {
           // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
           // panel lists them before its first prompt (cx-hkat).
           projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
-          // Start Agent's pickers head its panel: the folder row comes before the prompt.
-          contextFirst={quick}
           onBrowseProject={
             freshChat && !quick
               ? () => {

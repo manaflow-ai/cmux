@@ -209,8 +209,6 @@ type Props = {
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
-  /// The location row heads the card instead of closing it (Start Agent's panel, cx-hkat).
-  contextFirst?: boolean;
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
@@ -255,7 +253,6 @@ export function Composer({
   onShellInterrupt,
   onMode,
   onOpenInWindow,
-  contextFirst = false,
   handle,
   sessionId,
   blocked,
@@ -926,8 +923,8 @@ export function Composer({
     },
   ];
 
-  // The location row: the card's footer (one fill, one edge, a hairline above it), or its header
-  // where `contextFirst` is set (Start Agent).
+  // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
+  // composer location strip), so the card holds one controls row.
   const context = (
     <ComposerContext
       projectChoices={projectChoices}
@@ -990,7 +987,8 @@ export function Composer({
           />,
           form.current.parentElement,
         )}
-      <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
+      {context}
+      <div className="acpmux-composer-box">
         <ComposerQueue
           queue={snapshot.queue}
           paused={snapshot.summary?.queuePaused === true}
@@ -1000,7 +998,6 @@ export function Composer({
           onLost={onQueueLost}
           onLeave={() => field.current?.focus()}
         />
-        {contextFirst && context}
         <input
           ref={importInput}
           className="acpmux-import-input"
@@ -1250,7 +1247,6 @@ export function Composer({
             </span>
           </div>
         </ChromeArea>
-        {!contextFirst && context}
       </div>
     </form>
   );

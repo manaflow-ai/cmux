@@ -1,6 +1,6 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
 .nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(16px,calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
-/* A short pane gives the card's location row (36px) back from the space above the card, so the
+/* A short pane gives the card's location strip (30px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll). */
 @media (max-height:480px){.nt-screen{padding-top:12px}}
 .nt-screen>*{width:100%}
@@ -62,7 +62,7 @@
 }
 /* The card's bar, the agent composer's (Leo 2026-10-13): the agent's model, effort and speed chip,
    then the mic and Send at the end (acpmux-composer-actions). The chips keep the composer's own
-   look; the project is the location row's below (.nt-location). */
+   look; the project is the location strip's above (.nt-location). */
 .nt-pickers {
   display: flex;
   flex-wrap: wrap;
@@ -72,13 +72,19 @@
   padding: 0 10px 6px;
   box-sizing: border-box;
 }
-/* The location row (ComposerContext, the composer's own) is the card's last row: its wrapper only
-   marks the page as touched, so it draws nothing of its own. */
-.nt-location {
-  display: contents;
+/* The location strip (ComposerContext, the composer's own; hq#1957 composer location strip) heads
+   the card, a tab on its top edge: the strip and the card stack with no gap, the strip's fill is
+   the card's over the theme's solid surface, and it stands in from the card's sides by the card's
+   corner radius. Its wrapper only marks the page as touched, so it draws nothing of its own. */
+.nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
+.nt-location { display: contents; }
+.nt-composer .acpmux-composer-strip {
+  --acpmux-strip-inset: 20px;
+  --acpmux-strip-edge: var(--acpmux-composer-edge);
+  background: linear-gradient(var(--acpmux-composer-bg), var(--acpmux-composer-bg)), var(--cmux-surface-solid, var(--acpmux-base));
 }
-/* The location row tints itself with its own corner radius: the card clips it to the card's own
-   corners in every template (its menus and the suggestions open in portals, outside the card). */
+/* The card clips what it holds to its own corners in every template (its menus and the
+   suggestions open in portals, outside the card). */
 .nt-box {
   overflow: hidden;
 }
@@ -91,6 +97,9 @@
 }
 .nt-screen[data-template="console"] .nt-box {
   border-radius: 10px;
+}
+.nt-screen[data-template="console"] .acpmux-composer-strip {
+  --acpmux-strip-inset: 10px;
 }
 .nt-screen[data-template="console"],
 .nt-screen[data-template="console"] .nt-field {
@@ -105,6 +114,9 @@
 }
 .nt-screen[data-template="composer"] .nt-box {
   border-radius: 24px;
+}
+.nt-screen[data-template="composer"] .acpmux-composer-strip {
+  --acpmux-strip-inset: 24px;
 }
 .nt-screen[data-template="composer"] .nt-input {
   height: 96px;

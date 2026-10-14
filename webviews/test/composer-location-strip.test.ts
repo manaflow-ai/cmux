@@ -88,7 +88,12 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
 
   const surfaces = [
     { name: "the chat composer", entry: "agent-pane.composer-strip", variant: "project", card: ".acpmux-composer-box" },
-    { name: "a new chat's composer", entry: "agent-pane.composer-strip", variant: "no-project", card: ".acpmux-composer-box" },
+    {
+      name: "a new chat's composer",
+      entry: "agent-pane.composer-strip",
+      variant: "no-project",
+      card: ".acpmux-composer-box",
+    },
     { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "empty", card: ".nt-box" },
   ];
   for (const surface of surfaces)
@@ -172,35 +177,55 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
 
   test("the folder popover names duplicates apart, keeps paths for hover and filters as typed", async () => {
     const page = await open("agent-pane.composer-context", "duplicate-worktrees", 720);
-    await page.getByRole("button", { name: "Folder" }).click();
-    const options = page.locator('.acpmux-location-menu [role="option"]');
+    // The variant's play opened the popover from the strip's Folder control.
+    expect(await page.getByRole("button", { name: "Folder", exact: true }).getAttribute("aria-expanded")).toBe("true");
+    const options = page.locator('.acpmux-location-menu [role="option"]:has(.acpmux-location-row)');
     await options.first().waitFor();
     const rows = async () =>
       options.evaluateAll((all) =>
         all.map((row) => ({
           text: (row.querySelector(".acpmux-menu-text")?.textContent ?? "").replace(/\s+/g, " ").trim(),
-          title: row.getAttribute("title"),
-          checked: row.getAttribute("aria-checked") === "true",
+          title: row.querySelector("[title]")?.getAttribute("title"),
+          checked: row.querySelector(".acpmux-location-check svg") !== null,
         })),
       );
     const all = await rows();
     // Duplicates carry their lane, a unique name none; no row prints a path.
-    expect(all.map((row) => row.text)).toEqual(["cmux · cg-lane-adopt", "cmux · fleet-ci", "cmux · src", "atlas-web", "relay"]);
+    expect(all.map((row) => row.text)).toEqual([
+      "cmux · cg-lane-adopt",
+      "cmux · fleet-ci",
+      "cmux · src",
+      "atlas-web",
+      "relay",
+    ]);
     expect(all.every((row) => row.title?.startsWith("/Users/you/"))).toBe(true);
     expect(all.filter((row) => row.checked).map((row) => row.text)).toEqual(["cmux · cg-lane-adopt"]);
-    // The search field has the keyboard: typing a lane keeps its row, arrows and Return pick.
+    // The search field has the keyboard: typing a lane keeps its row; a path's folder does too.
     await page.keyboard.type("fleet");
-    await page.waitForFunction(() => document.querySelectorAll('.acpmux-location-menu [role="option"]').length === 1);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
+    );
     expect((await rows()).map((row) => row.text)).toEqual(["cmux · fleet-ci"]);
-    await page.keyboard.press("Control+A");
-    await page.keyboard.type("atlas");
-    await page.waitForFunction(() => document.querySelectorAll('.acpmux-location-menu [role="option"]').length === 1);
-    await page.keyboard.press("Backspace");
+    await page.getByRole("combobox", { name: "Search projects" }).fill("src");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 3,
+    );
     // Choose folder… closes the list, after the folders and the other existing rows.
     const actions = await page
-      .locator(".acpmux-location-menu .acpmux-location-choose")
+      .locator(".acpmux-location-menu .acpmux-location-action")
       .evaluateAll((all) => all.map((row) => (row.textContent ?? "").trim()));
-    expect(actions.at(-1)).toBe("Choose folder…");
+    expect(actions).toEqual(["New Worktree", "Add project", "Choose folder…"]);
+    // ↓ moves the highlight from the first match to the next; Escape closes back to the strip.
+    const highlighted = () =>
+      page.evaluate(() =>
+        document.querySelector(".acpmux-location-menu [data-highlighted] [title]")?.getAttribute("title"),
+      );
+    expect(await highlighted()).toBe("/Users/you/src/cmux");
+    await page.keyboard.press("ArrowDown");
+    expect(await highlighted()).toBe("/Users/you/src/atlas-web");
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector(".acpmux-location-menu"));
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Folder");
     await page.close();
   });
 });

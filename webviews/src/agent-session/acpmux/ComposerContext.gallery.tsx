@@ -48,7 +48,7 @@ const baseProps = {
 
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
 };
 
 // Leo's list (hq#1957 composer location strip): three checkouts of cmux, each named "cmux".
@@ -76,7 +76,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
   id: "agent-pane.composer-context",
   title: "Composer scope row",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext"],
+  covers: [
+    "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
+    "agent-session/acpmux/FolderPopover.tsx#FolderPopover",
+  ],
   styles: () => Promise.all([import("./styles.css"), import("./composerLocation.css")]),
   load: () => import("./ComposerContext").then((module) => module.ComposerContext),
   widths: { narrow: 400, normal: 620, wide: 760 },
@@ -102,7 +105,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "The folder menu shows recent projects with paths and keeps the row anchored below the composer.",
+      note: "The folder popover: a search field over the recent projects (paths on hover), then Add project and Choose folder….",
       props: baseProps,
       play: openFolder,
     },
@@ -121,7 +124,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.click({ role: "button", name: "Folder" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
         await ctx.type("adopt");
-        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-location-menu [role="option"]').length === 1);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1);
       },
     },
     "computer-menu": {
