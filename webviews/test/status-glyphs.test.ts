@@ -22,6 +22,8 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
+  // The Codex-like set (Leo's team, 2026-10-14): its states' glyphs, in order.
+  const CODEX = ["idle", "waiting", "shieldLine", "dot", "info"];
   const url = (variant: string, scheme: string) =>
     `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=ui.status-glyphs&variant=${variant}&colorScheme=${scheme}`;
 
@@ -155,6 +157,41 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
       .filter(([x, y, inked]) => (inked ? alpha[y * 20 + x]! < 215 : alpha[y * 20 + x]! > 40))
       .map(([x, y]) => `${x},${y}=${alpha[y * 20 + x]}`);
   const differ = (a: number[], b: number[]) => a.filter((value, index) => value > 127 !== b[index]! > 127).length;
+
+  for (const [variant, scheme] of [
+    ["codex", "light"],
+    ["codex", "dark"],
+    ["codex-wallpaper", "dark"],
+  ] as const) {
+    for (const scale of [1, 2]) {
+      test(`${variant} ${scheme} @${scale}x: Codex-like line glyphs, a blue done dot, still, apart by shape`, async () => {
+        const { pixels, glyphs: drawn } = await glyphs(variant, scheme, scale);
+        expect(drawn.map((glyph) => glyph.name)).toEqual(CODEX);
+        for (const glyph of drawn) {
+          expect(`${glyph.name}: ${glyph.animations} ${glyph.motion}`).toBe(`${glyph.name}: 0 none 0s`);
+          expect(`${glyph.name}: ${glyph.color}`).toBe(`${glyph.name}: ${glyph.tint}`);
+          if (scale === 1) expect(`${glyph.name} soft ${fuzz(glyph.alpha).toFixed(2)}`).toBe(`${glyph.name} soft 0.00`);
+          // Thin line symbols, not filled badges: a line glyph inks under 40% of its square.
+          const inked = ink(glyph.alpha).length / (pixels * pixels);
+          if (glyph.name !== "dot") expect(`${glyph.name} ink ${inked < 0.4}`).toBe(`${glyph.name} ink true`);
+        }
+        // Codex's blue for done; the error's red is the theme's danger color, never the waiting grey.
+        const color = (name: string) => drawn.find((glyph) => glyph.name === name)!.color;
+        expect(color("dot")).toBe("rgb(57, 130, 245)");
+        expect(color("info")).not.toBe(color("waiting"));
+        // The error's ring holds an i the still work ring lacks: 10 whole pixels at 1x.
+        const least = scale === 1 ? 10 : 30;
+        for (let i = 0; i < drawn.length; i++) {
+          for (let j = i + 1; j < drawn.length; j++) {
+            const count = differ(drawn[i]!.alpha, drawn[j]!.alpha);
+            expect(`${drawn[i]!.name}/${drawn[j]!.name} ${count >= least}`).toBe(
+              `${drawn[i]!.name}/${drawn[j]!.name} true`,
+            );
+          }
+        }
+      });
+    }
+  }
 
   for (const [variant, scheme] of [
     ["sheet", "light"],
