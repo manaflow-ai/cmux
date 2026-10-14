@@ -1260,6 +1260,17 @@ struct RestorableAgentSessionIndex: Sendable {
         return !hasUnboundedCodexIncompleteness || verifiedCodexPanelIds.contains(panelId)
     }
 
+    /// Whether this index's absence of a `kind` session is evidence it stopped.
+    ///
+    /// False only when the hook store for `kind` was not read, or the index is
+    /// a cached copy that may predate the session (`markingIncomplete()`,
+    /// #20186). Per-panel Codex verification gaps describe a recorded
+    /// checkpoint, not whether the census could have missed the current
+    /// session, so they must not let a stale record vouch for a binding.
+    func observesEveryLiveSession(forKind kind: String?) -> Bool {
+        hookStoreIsComplete(forKind: kind)
+    }
+
     /// Whether the hook store that owns `kind` was read and decoded.
     ///
     /// Callers without a kind, and fixtures that mark the whole index

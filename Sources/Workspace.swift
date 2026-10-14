@@ -618,10 +618,8 @@ extension Workspace {
                 resumeBinding: resumeBinding,
                 terminal: terminalPanel,
                 observation: restorableAgentObservation,
-                observationIsAuthoritative: restorableAgentIndex?.isComplete(
-                    forWorkspaceId: id,
-                    panelId: panelId,
-                    kind: resumeBinding?.kind ?? effectiveRestorableAgent?.kind.rawValue
+                observationIsAuthoritative: restorableAgentIndex?.observesEveryLiveSession(
+                    forKind: resumeBinding?.kind ?? effectiveRestorableAgent?.kind.rawValue
                 ) ?? true,
                 currentAgentProcessIdentity: currentAgentProcessIdentity,
                 agentProcessPresence: agentProcessPresence
