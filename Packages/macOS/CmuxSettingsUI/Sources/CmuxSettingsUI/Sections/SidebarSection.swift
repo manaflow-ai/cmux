@@ -36,6 +36,8 @@ public struct SidebarSection: View {
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var showMetadata: DefaultsValueModel<Bool>
+    @State var statusEntryLimit: DefaultsValueModel<Int>
+    @State var showProgramStatus: DefaultsValueModel<Bool>
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
@@ -70,6 +72,8 @@ public struct SidebarSection: View {
         _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
+        _statusEntryLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.statusEntryLimit))
+        _showProgramStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgramStatus))
         _compactAgentStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.compactAgentStatus))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
@@ -110,6 +114,8 @@ public struct SidebarSection: View {
             loadingSpinnerPosition,
             notificationBadgePosition,
             showMetadata,
+            statusEntryLimit,
+            showProgramStatus,
             compactAgentStatus,
             rightMaxWidth,
             rememberedRightMaxWidth,
@@ -527,6 +533,39 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.statusEntryLimit"),
+                String(localized: "settings.app.statusEntryLimit", defaultValue: "Status Entries Before Show More"),
+                subtitle: String(localized: "settings.app.statusEntryLimit.subtitle", defaultValue: "Maximum custom status rows shown before Show more. Set to All to keep every row visible."),
+                controlWidth: 110
+            ) {
+                Stepper(
+                    statusEntryLimit.current == 0
+                        ? String(localized: "settings.app.statusEntryLimit.all", defaultValue: "All")
+                        : "\(statusEntryLimit.current)",
+                    value: Binding(get: { statusEntryLimit.current }, set: { statusEntryLimit.set($0) }),
+                    in: SidebarCatalogSection.statusEntryLimitRange
+                )
+                .accessibilityIdentifier("SettingsSidebarStatusEntryLimitStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.app.statusEntryLimit", defaultValue: "Status Entries Before Show More")
+                )
+            }
+            .disabled(hideAll.current || !showMetadata.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showProgramStatus"),
+                String(localized: "settings.app.showProgramStatus", defaultValue: "Show Program Status in Sidebar"),
+                subtitle: String(localized: "settings.app.showProgramStatus.subtitle", defaultValue: "Display status reported through OSC 7501 as a sidebar row.")
+            ) {
+                Toggle("", isOn: Binding(get: { showProgramStatus.current }, set: { showProgramStatus.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current || !showMetadata.current)
             SettingsCardDivider()
 
             SettingsCardRow(

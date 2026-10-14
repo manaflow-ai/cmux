@@ -545,6 +545,27 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test(arguments: [
+        (2, 2),
+        (0, 4),
+    ])
+    func statusEntryLimitControlsCollapsedRowsAndShowMore(_ limit: Int, _ expectedVisibleRows: Int) {
+        let defaults = Self.makeDefaults()
+        defaults.set(limit, forKey: "sidebarStatusEntryLimit")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let entries = (0..<4).map { index in
+            SidebarStatusEntry(key: "status\(index)", value: "Status \(index)")
+        }
+        let model = Self.makeModel(settings: settings, metadataEntries: entries)
+        let cell = Self.configuredCell(model: model)
+        _ = Self.layoutCell(cell, model: model)
+
+        let visibleRows = Self.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowIconTextLine }
+            .filter { !$0.isHidden }
+        #expect(visibleRows.count == expectedVisibleRows)
+    }
+
+    @Test(arguments: [
         "http://example.com/page",
         "https://linear.app/attendu/issue/ATD-366",
     ])

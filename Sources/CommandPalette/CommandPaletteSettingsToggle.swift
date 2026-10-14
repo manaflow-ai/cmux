@@ -845,6 +845,18 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "showProgramStatusInSidebar",
+                settingsKey: "sidebar.showProgramStatus",
+                title: {
+                    String(localized: "settings.app.showProgramStatus", defaultValue: "Show Program Status in Sidebar")
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.showProgramStatus", "sidebar", "program", "status", "OSC", "7501"],
+                defaultValue: SidebarCatalogSection().showProgramStatus.defaultValue,
+                defaultsKey: SidebarCatalogSection().showProgramStatus.userDefaultsKey,
+                isAvailable: sidebarDetailsAvailable
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "rightSidebarFeed",
                 settingsKey: "betaFeatures.feed",
                 title: {

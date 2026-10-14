@@ -73,6 +73,23 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(result.isEmpty)
     }
 
+    @Test("validates sidebar status display settings")
+    func validatesSidebarStatusDisplaySettings() throws {
+        let valid = try issues([
+            "sidebar": [
+                "statusEntryLimit": 0,
+                "showProgramStatus": false,
+            ],
+        ])
+        #expect(valid.isEmpty)
+
+        let belowMinimum = try issues(["sidebar": ["statusEntryLimit": -1]])
+        #expect(contains(belowMinimum, path: "$.sidebar.statusEntryLimit", message: "must be >= 0"))
+
+        let aboveMaximum = try issues(["sidebar": ["statusEntryLimit": 51]])
+        #expect(contains(aboveMaximum, path: "$.sidebar.statusEntryLimit", message: "must be <= 50"))
+    }
+
     @Test("reports unknown paths, types, enums, bounds, and nested constraints")
     func reportsSemanticFailures() throws {
         let cases: [(Any, String, String)] = [

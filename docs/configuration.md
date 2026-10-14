@@ -262,6 +262,28 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 - A pull request glyph shows whether the pull request is open, merged or closed, and nothing about its checks. cmux does not fetch CI status or mergeability for a pull request, so there is no passing, failing or conflict glyph: adding one would advertise a color no user could see. An open pull request shows gray, merged shows purple, and closed shows gray with a minus badge. See [#12807](https://github.com/manaflow-ai/cmux/issues/12807).
 - Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
 
+## `sidebar.statusEntryLimit` and `sidebar.showProgramStatus`
+
+The sidebar keeps status rows compact by showing three rows before a `Show more`
+link. Set `statusEntryLimit` to another value from `0` through `50` to choose
+the collapsed limit, or set it to `0` to keep every status row visible without
+an expansion link. The setting applies to custom status rows and does not remove
+the underlying status records.
+
+`showProgramStatus` controls only the row created from OSC 7501
+`program_status` reports. It defaults to `true`; setting it to `false` hides
+that row while `program_status.changed` events, `list_status`, and other status
+consumers continue to receive the record.
+
+```json
+{
+  "sidebar": {
+    "statusEntryLimit": 0,
+    "showProgramStatus": false
+  }
+}
+```
+
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
 `terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.
