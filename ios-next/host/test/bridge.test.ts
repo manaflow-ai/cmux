@@ -462,6 +462,20 @@ describe("session preview", () => {
   });
 });
 
+describe("bridged session status", () => {
+  it("shows a session whose last turn failed as error, and closed sessions as closed", async () => {
+    const { toAgentSession, mapStatus } = await import("../src/bridge/acpmuxAgents.ts");
+    const base = { sessionId: "s", name: "claude", harness: "claude", cwd: "/Users/me", createdAt: 1, updatedAt: 2 };
+    const failed = toAgentSession({ ...base, status: "ready", preview: "", lastTurn: { status: "failed", errorText: "Not logged in · Please run /login" } });
+    expect(failed).toMatchObject({ status: "error", preview: "Not logged in · Please run /login" });
+    expect(toAgentSession({ ...base, status: "ready", lastTurn: { status: "completed" } }).status).toBe("idle");
+    expect(toAgentSession({ ...base, status: "closed", lastTurn: { status: "failed" } }).status).toBe("closed");
+    expect(mapStatus("running", { status: "failed" })).toBe("running");
+    expect(mapStatus("error")).toBe("error");
+    expect(mapStatus("exited")).toBe("closed");
+  });
+});
+
 describe("Chief in bridge mode", () => {
   it("starts /spawn sessions through acpmux so they are real Mac sessions", async () => {
     const a = await fakeAcpmux();

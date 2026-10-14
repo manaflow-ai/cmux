@@ -28,21 +28,32 @@ interface SessionSummary {
   currentModeId?: string | null;
   createdAt?: number;
   updatedAt?: number;
+  /** The last finished turn; status "failed" with errorText when it ended in an error. */
+  lastTurn?: { status?: string; errorText?: string | null } | null;
 }
 
-/** Phone status for an acpmux session status. */
-export function mapStatus(s: string): SessionStatus {
+/**
+ * Phone status for an acpmux session. acpmux keeps an errored session
+ * "ready" (it can take another prompt) and records the failure on lastTurn,
+ * so a ready/idle session whose last turn failed is "error" on the phone.
+ */
+export function mapStatus(s: string, lastTurn?: SessionSummary["lastTurn"]): SessionStatus {
   switch (s) {
     case "running":
       return "running";
     case "waiting":
       return "waiting";
     case "closed":
+    case "exited":
+    case "killed":
       return "closed";
     case "disconnected":
+    case "error":
+    case "failed":
+    case "crashed":
       return "error";
-    default:
-      return "idle"; // idle, ready
+    default: // idle, ready
+      return lastTurn?.status === "failed" || lastTurn?.status === "error" ? "error" : "idle";
   }
 }
 
@@ -54,11 +65,15 @@ export function toAgentSession(s: SessionSummary): AgentSession {
     ...(s.model ? { model: s.model } : {}),
     ...(s.currentModeId ? { mode: s.currentModeId } : {}),
     cwd: s.cwd,
-    status: mapStatus(s.status),
+    status: mapStatus(s.status, s.lastTurn),
     createdAt: s.createdAt ?? Date.now(),
     updatedAt: s.updatedAt ?? s.createdAt ?? Date.now(),
     unread: s.unread ? 1 : 0,
-    ...(s.preview ? { preview: cleanPreview(s.preview) } : {}),
+    ...(s.preview
+      ? { preview: cleanPreview(s.preview) }
+      : s.lastTurn?.errorText && mapStatus(s.status, s.lastTurn) === "error"
+        ? { preview: cleanPreview(s.lastTurn.errorText) }
+        : {}),
   };
 }
 
