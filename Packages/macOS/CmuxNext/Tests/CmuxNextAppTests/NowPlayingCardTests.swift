@@ -145,7 +145,7 @@ import Testing
         #expect(h.card.subviews.first is CardSurfaceView, "the card is not on the sidebar cards' surface")
     }
 
-    @Test func nothingOnTheCardMovesUnderReduceMotion() throws {
+    @Test func nothingOnTheCardMovesUnderReduceMotion() async throws {
         _ = NSApplication.shared
         let card = SidebarNowPlayingCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNowPlayingCardView.height(for: Self.track())))
         let window = NSWindow(contentRect: card.frame, styleMask: [.borderless], backing: .buffered, defer: false)
