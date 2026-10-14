@@ -269,11 +269,32 @@ impl Mux {
         let members = record["members"].as_array().cloned().unwrap_or_default();
         let (restore, _) = choose(members, request.members.as_deref())?;
         let mut reopened = Reopened::default();
+        // A closed tab's id to the id it reopened as.
+        let mut reopened_as = std::collections::HashMap::new();
         for member in &restore {
+            let before = reopened.tabs.len();
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
+            if let (Some(closed), Some(tab)) =
+                (member["tab_id"].as_str(), reopened.tabs.get(before))
+            {
+                reopened_as.insert(closed.to_string(), tab.clone());
+            }
         }
         if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
-            self.reopen_tab_group(&mutation.actor, group, &mut reopened)?;
+            // A closed group (Close Group) names its closed tabs: it forms
+            // again around those this reopen brought back.
+            let mut group = group.clone();
+            let closed = !restore.is_empty();
+            if closed {
+                let tabs = group["tab_ids"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|tab| reopened_as.get(tab.as_str()?).cloned())
+                    .collect::<Vec<_>>();
+                group["tab_ids"] = serde_json::json!(tabs);
+            }
+            self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
         }
         if let Some(group) = record.get("screen_group").filter(|group| group.is_object()) {
             self.reopen_screen_group(&mutation.actor, group, &mut reopened)?;
@@ -323,15 +344,22 @@ impl Mux {
     /// of the first. A group formed since keeps its tabs.
     /// None still open forms nothing; a live group of that id (a retried
     /// reopen) is left as it is.
+    ///
+    /// `closed`: the archive is a closed group's (Close Group) and names the
+    /// tabs this reopen brought back, which are already in `reopened`. A
+    /// live group of that id (an earlier partial reopen formed it) takes
+    /// them in.
     fn reopen_tab_group(
         self: &Arc<Self>,
         actor: &Actor,
         archive: &Value,
+        closed: bool,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
         let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
         let presentation = self.presentation_snapshot();
-        if !presentation.tab_groups.groups.contains_key(&id) {
+        let live = presentation.tab_groups.groups.contains_key(&id);
+        if !live || closed {
             let wanted = archive["tab_ids"]
                 .as_array()
                 .into_iter()
@@ -355,6 +383,9 @@ impl Mux {
                             .find_map(|(surface, id)| (id.as_str() == tab).then_some(*surface))
                     })
                     .collect::<Vec<_>>();
+                if live {
+                    return open;
+                }
                 let pane = home
                     .as_deref()
                     .and_then(|pane| pane_by_public_id(state, pane))
@@ -369,18 +400,29 @@ impl Mux {
             if members.is_empty() {
                 return Ok(());
             }
-            self.tab_group_create(
-                StripRequest::local(actor, "closed.reopen"),
-                move |_| Ok(members),
-                archive["name"].as_str().map(str::to_string),
-                archive["color"].as_str().map(str::to_string),
-                id.clone(),
-                archive["icon"].as_str().map(str::to_string),
-            )?;
+            if live {
+                self.tab_group_add(
+                    StripRequest::local(actor, "closed.reopen"),
+                    &id,
+                    move |_| Ok(members),
+                    None,
+                )?;
+            } else {
+                self.tab_group_create(
+                    StripRequest::local(actor, "closed.reopen"),
+                    move |_| Ok(members),
+                    archive["name"].as_str().map(str::to_string),
+                    archive["color"].as_str().map(str::to_string),
+                    id.clone(),
+                    archive["icon"].as_str().map(str::to_string),
+                )?;
+            }
         }
         let outcome = self.tab_group_outcome(&id);
-        for surface in &outcome.members {
-            reopened.tabs.push(self.public_tab_of(*surface)?);
+        if !closed {
+            for surface in &outcome.members {
+                reopened.tabs.push(self.public_tab_of(*surface)?);
+            }
         }
         if let Some(pane) = outcome.pane {
             let (workspace, _) = self.public_screen_of_pane(pane)?;

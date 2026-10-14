@@ -519,6 +519,52 @@ fn an_ungrouped_tab_group_reopens_whole() {
     assert_eq!(since["tab_ids"], serde_json::json!([tabs[1]]));
 }
 
+/// Closing a tab group (cx-gzh.10) is one closed-history group of its tabs,
+/// and Cmd-Shift-T reopens them as that group again: its id, name and
+/// color around the reopened tabs, in order.
+#[test]
+fn a_closed_tab_group_reopens_as_its_group() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-group-close");
+    for _ in 0..2 {
+        app.send(serde_json::json!({"cmd":"new-tab","pane":pane}));
+    }
+    let tabs = kinds_workspace(&mut app)["screens"][0]["panes"][0]["tabs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tab| tab["tab_resource_id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    assert_eq!(tabs.len(), 3, "{tabs:?}");
+    resource_request(
+        &harness.socket,
+        "group-close-create",
+        "tab_group.create",
+        serde_json::json!({"machine":"current","session":"current","tabs":tabs[1..],
+                           "name":"Build","color":"blue"}),
+        Some("group-close-create"),
+    );
+    let created = tab_groups(&harness, "group-close-list-1");
+    assert_eq!(created.len(), 1, "{created:?}");
+    let group_id = created[0]["id"].as_str().expect("the group has an id").to_string();
+
+    let (item, reopened) = close_records_and_reopens(
+        &harness,
+        "tab_group.close",
+        serde_json::json!({"tab_group":group_id}),
+        "group-close",
+    );
+    assert_eq!(item["kind"], "tab", "{item}");
+    let back = reopened["tab_ids"].as_array().cloned().unwrap_or_default();
+    assert_eq!(back.len(), 2, "both tabs reopen once: {reopened}");
+    let groups = tab_groups(&harness, "group-close-list-2");
+    assert_eq!(groups.len(), 1, "the reopen formed no group: {groups:?}");
+    assert_eq!(groups[0]["id"], group_id.as_str());
+    assert_eq!(groups[0]["name"], "Build");
+    assert_eq!(groups[0]["color"], "blue");
+    assert_eq!(groups[0]["tab_ids"], serde_json::Value::Array(back), "{groups:?}");
+}
+
 fn screen_groups(harness: &RecoveryHarness, request: &str) -> Vec<serde_json::Value> {
     let reply = resource_request(
         &harness.socket,
