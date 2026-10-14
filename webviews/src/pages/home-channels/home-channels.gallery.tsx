@@ -184,12 +184,21 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
         await ctx.waitFor(() => ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster"));
+        // A file row shows its download action on hover.
+        await ctx.hover({ selector: ".hc-att-file" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-att-file:hover .hc-att-download"));
       },
     },
     "attachments-lightbox": {
       note: "A click on an image opens the lightbox; the arrow keys move to the next image.",
       props: { select: "c-media", media: true },
-      checks: { longFrameFailMs: openFrame },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "The arrow key swaps the lightbox's image for the next one, which has its own size.",
+        },
+      },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
         await ctx.click({ selector: ".hc-att-image" });
@@ -206,6 +215,7 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         const field = ".lg-main-compose .hc-composer-field";
         await ctx.waitFor(() => ctx.document.querySelector('.lg-main-compose button[aria-label="Attach files"]'));
+        await ctx.click({ selector: field });
         const data = new DataTransfer();
         data.items.add(new File(["# Notes\n"], "notes.md", { type: "text/markdown" }));
         data.items.add(new File(["{}"], "result.json", { type: "application/json" }));
