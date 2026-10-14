@@ -34,7 +34,7 @@ const EPOCH_KEY: &str = "sidebar_doc_epoch";
 /// the rows.
 enum Slot {
     Empty,
-    Cached { registry: String, epoch: String, doc: Doc },
+    Cached { registry: String, epoch: String, doc: Box<Doc> },
     /// A commit holds the document. A reader parses the rows instead; a
     /// nested writer (an old-store sync inside that commit) does too and
     /// marks the lease stale, so the holder does not cache a copy that
@@ -118,7 +118,7 @@ pub(crate) fn with_doc<T>(
     if let Some((registry, epoch)) = key {
         let mut slot = lock();
         if !matches!(*slot, Slot::Leased { .. }) {
-            *slot = Slot::Cached { registry, epoch, doc };
+            *slot = Slot::Cached { registry, epoch, doc: Box::new(doc) };
         }
     }
     value
@@ -144,7 +144,7 @@ impl Drop for Lease<'_> {
         }
         if let (Some(doc), Ok(Some((registry, epoch)))) = (self.doc.take(), cache_key(self.connection))
         {
-            *slot = Slot::Cached { registry, epoch, doc };
+            *slot = Slot::Cached { registry, epoch, doc: Box::new(doc) };
         }
     }
 }
@@ -169,7 +169,7 @@ pub(crate) fn with_doc_mut<T>(
             Slot::Cached { registry, epoch, doc }
                 if key.as_ref().is_some_and(|(r, e)| *r == registry && *e == epoch) =>
             {
-                (false, Some(doc))
+                (false, Some(*doc))
             }
             _ => (false, None),
         }
