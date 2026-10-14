@@ -11,6 +11,8 @@ import CmuxNextUpdater
 /// `{action: "unstage"}` follows the real updater again. `{action: "tip",
 /// id?}` shows a "Did you know" tip; `{action: "untip"}` hides it;
 /// `{action: "tips", press?, at?}`: `UpdaterService.debugTips`.
+/// `{action: "available", version?}` shows a found, not downloaded update (the notice card);
+/// `{action: "snooze", press?, at?}`: `UpdaterService.debugSnooze` (UPDATE-CARD-CLOSE).
 /// `{action: "updated", previous?}` records `previous` (default "0.0.1")
 /// as the last seen version, so this launch
 /// shows the "cmux Updated!" card (cx-7py7); `{action: "share"}` opens the
@@ -31,6 +33,11 @@ enum DebugUpdater {
             let count = max(0, Int(params["changes"]?.doubleValue ?? 12))
             services.updater.debugStage(version: version, notes: fakeNotes(version: version, changes: count))
             return .object(["staged": .string(version), "changes": JSONValue(count)])
+        case "available":
+            services.updater.debugIndicatorPhase = .available(version: params["version"]?.stringValue ?? "1.99.0")
+            return .object(["notice": .string(services.updater.card?.kind ?? "none")])
+        case "snooze":
+            return .object(services.updater.debugSnooze(press: params["press"]?.stringValue, at: params["at"]?.doubleValue).mapValues(JSONValue.string))
         case "tip":
             services.updater.debugShowTip(params["id"]?.stringValue ?? TipCatalog.all.first?.id)
             return .object(["tip": services.updater.tip.map { .string($0.id) } ?? .null])
@@ -56,7 +63,7 @@ enum DebugUpdater {
             services.updater.debugStage(version: nil, notes: nil)
             return .object(["staged": .null])
         default:
-            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"unstage\", \"tip\", \"tips\", \"untip\", \"updated\", \"share\" or \"share-copy\"")
+            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"unstage\", \"available\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"share\" or \"share-copy\"")
         }
     }
 

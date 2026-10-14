@@ -23,6 +23,14 @@ final class SidebarIconButton: NSButton {
             renderIcon()
         }
     }
+    /// Full Keyboard Access reaches this button (a card's x, UPDATE-CARD-CLOSE): Tab focuses it,
+    /// Space presses it, and the focus shows as a ring in the theme's focus color (cx-wqn5), not
+    /// the system's blue ring. Off by default: most icon buttons have a keyboard path elsewhere.
+    var takesKeyFocus = false {
+        didSet { refusesFirstResponder = !takesKeyFocus }
+    }
+    private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+    private lazy var keyRepaint = KeyWindowRepaint(self)
     /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
     private var renderedSize: CGFloat = 0
@@ -44,6 +52,7 @@ final class SidebarIconButton: NSButton {
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
+        focusRingType = .none
         // Hover follows the pointer and the button's frame (cx-3wu5).
         hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
     }
@@ -85,10 +94,33 @@ final class SidebarIconButton: NSButton {
 
     override var wantsUpdateLayer: Bool { true }
 
+    override var acceptsFirstResponder: Bool { takesKeyFocus ? NSApp.isFullKeyboardAccessEnabled && isEnabled : super.acceptsFirstResponder }
+    override var canBecomeKeyView: Bool { takesKeyFocus ? acceptsFirstResponder && !isHiddenOrHasHiddenAncestor : super.canBecomeKeyView }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { isKeyFocused = true }
+        return became
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { isKeyFocused = false }
+        return resigned
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if takesKeyFocus { keyRepaint.track() }
+    }
+
     override func updateLayer() {
         layer?.cornerRadius = Metrics.itemCornerRadius
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
+            let ring = takesKeyFocus && KeyWindowRepaint.showsFocus(self, focused: isKeyFocused)
+            layer?.borderColor = Palette.focusRing.cgColor
+            layer?.borderWidth = ring ? Metrics.lineWidth(1.5) : 0
         }
         hover.refresh(animated: false)
     }

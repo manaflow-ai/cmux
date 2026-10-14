@@ -21,6 +21,8 @@ extension SidebarBridge {
 @MainActor
 enum SidebarCardFeed {
     static let updateCardID = "update"
+    /// The staged update card's id for its x's menu (UPDATE-CARD-CLOSE).
+    static let readyCardID = "update-ready"
     /// Tip notices are `tip:<tip id>`; their one button is `try`, their x's menu `UpdaterService.tipMenu`.
     static let tipPrefix = "tip:"
     static let tryActionID = "try"
@@ -103,10 +105,13 @@ enum SidebarCardFeed {
     }
 
     /// A notice button: the update status's actions (Release Notes is a
-    /// link `open` shows like a popover link), Use Real Feed, an
-    /// announcement's allow-listed Try It, a tip's Try It and its x's menu.
+    /// link `open` shows like a popover link), the update cards' x menu
+    /// (UPDATE-CARD-CLOSE), Use Real Feed, an announcement's allow-listed
+    /// Try It, a tip's Try It and its x's menu.
     static func noticeAction(_ card: String, _ action: String, updater: UpdaterService, open: (URL) -> Void) {
-        if card == updateCardID, let action = UpdateCardAction(rawValue: action) {
+        if card == updateCardID || card == readyCardID, let option = UpdateCardCloseOption(rawValue: action) {
+            updater.closeUpdateCard(option)
+        } else if card == updateCardID, let action = UpdateCardAction(rawValue: action) {
             if action == .releaseNotes, let url = updater.cardReleaseNotesURL {
                 open(url)
             } else {
@@ -164,10 +169,14 @@ enum SidebarCardFeed {
     /// title, detail and actions.
     static func notice(_ shown: UpdateCardPresentation) -> SidebarNoticeCard {
         let progress: SidebarNoticeCard.Progress? = shown.showsProgress ? (shown.progress.map { .fraction($0) } ?? .indeterminate) : nil
+        // A found update's x offers Hide Until a Newer Version and Remind Me Later (UPDATE-CARD-CLOSE);
+        // a check's result keeps the plain x.
+        let closes = shown.actions.contains(.update)
         return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, lines: shown.lines,
                                  progress: progress,
                                  actions: shown.actions.map { SidebarNoticeCard.Action(id: $0.rawValue, title: $0.title, prominent: $0.isProminent) },
-                                 dismissLabel: shown.dismissible ? UpdaterService.cardDismissLabel : nil)
+                                 dismissLabel: shown.dismissible ? (closes ? UpdaterService.updateCloseLabel : UpdaterService.cardDismissLabel) : nil,
+                                 dismissMenu: closes ? closeMenu : [])
     }
 
     /// The staged update card (UPDATE-CARD; nil while checking or downloading).
@@ -184,6 +193,12 @@ enum SidebarCardFeed {
             automaticUpdatesTitle: card.automaticUpdatesTitle, automaticUpdates: card.automaticUpdates,
             notes: SidebarUpdateCard.Notes(headline: notes.headline, keepsRunning: notes.keepsRunning,
                                            whatsChangedTitle: notes.whatsChangedTitle, changes: changes,
-                                           moreTitle: notes.moreTitle, moreURL: notes.moreURL))
+                                           moreTitle: notes.moreTitle, moreURL: notes.moreURL),
+            id: readyCardID, closeLabel: card.isInstalling ? nil : UpdaterService.updateCloseLabel, closeMenu: closeMenu)
+    }
+
+    /// The update cards' x menu (UPDATE-CARD-CLOSE).
+    static var closeMenu: [SidebarNoticeCard.Action] {
+        UpdaterService.updateCloseMenu.map { SidebarNoticeCard.Action(id: $0.id, title: $0.title) }
     }
 }
