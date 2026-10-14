@@ -227,6 +227,7 @@ const fn access(operation: Op) -> Access {
         | Op::AgentReport
         | Op::AgentMessageList
         | Op::AgentMessageMark
+        | Op::AgentMessageRelease
         | Op::SidebarViewGet
         | Op::SidebarViewEnsure
         | Op::SidebarViewResize
