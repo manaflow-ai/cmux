@@ -80,7 +80,8 @@ const layers = (value: string) => {
   }
   return [...parts, value.slice(start).trim()];
 };
-const hairlines = (value: string) => layers(expand(value)).filter((layer) => /^inset\s+0\s+0\s+0\s+[\d.]*\d(px)?\b/.test(layer));
+const hairlines = (value: string) =>
+  layers(expand(value)).filter((layer) => /^inset\s+0\s+0\s+0\s+[\d.]*\d(px)?\b/.test(layer));
 
 // Each box-shadow that names a popup token, with the selector of its rule.
 const uses = css.flatMap(({ file, text }) =>

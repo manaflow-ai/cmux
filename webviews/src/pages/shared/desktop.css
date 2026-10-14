@@ -223,6 +223,8 @@ input[type="submit"] {
     --agent-border-strong: var(--agent-text, CanvasText) !important;
     --acpmux-pill-edge: var(--agent-text, CanvasText) !important;
     --cmux-diff-border: var(--cmux-diff-fg, CanvasText) !important;
+    /* A popup's one hairline edge (ui/popupSurface.css) in its own ink. */
+    --ui-popup-edge: currentColor;
   }
 
   :root:not([data-borders="none"]) :is(.acpmux-shell, .ui-positioner) {
