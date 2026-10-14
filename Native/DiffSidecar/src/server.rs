@@ -47,6 +47,7 @@ use crate::protocol::{
     DiffSource, OpenSessionRequest, PAGE_PATCH_URL_PREFIX, SessionOpened, SessionRequest,
     handshake,
 };
+use crate::session_git::SessionGit;
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
 
@@ -658,8 +659,11 @@ async fn open_session(
     );
 
     let source = resolve_session_source(params.source, &canonical_repo).await?;
-    run_git_patch(&source, &canonical_repo, &temporary_path).await?;
-    let generated_paths = git_generated_paths(&source, &canonical_repo).await;
+    let git = SessionGit::open(&canonical_repo, SESSION_GIT_TIMEOUT)
+        .await
+        .ok_or(SessionOpenError::Failed)?;
+    run_git_patch(&source, &git, &temporary_path).await?;
+    let generated_paths = git_generated_paths(&source, &git).await;
     rename_owned_session_temp(&state.config.root, &temporary_path, &final_path)
         .map_err(|_| SessionOpenError::Failed)?;
     temporary_file.retarget(final_path.clone());
@@ -771,49 +775,39 @@ async fn resolve_session_source(
 
 async fn run_git_patch(
     source: &DiffSource,
-    repo: &Path,
+    git: &SessionGit,
     output_path: &Path,
 ) -> Result<(), SessionOpenError> {
-    run_git_patch_with_limit(source, repo, output_path, MAX_SESSION_PATCH_BYTES).await
+    run_git_patch_with_limit(source, git, output_path, MAX_SESSION_PATCH_BYTES).await
 }
 
 async fn run_git_patch_with_limit(
     source: &DiffSource,
-    repo: &Path,
+    git: &SessionGit,
     output_path: &Path,
     max_patch_bytes: u64,
 ) -> Result<(), SessionOpenError> {
-    let mut arguments = vec![
-        "-C".to_owned(),
-        repo.to_string_lossy().into_owned(),
-        "diff".to_owned(),
-        "--no-ext-diff".to_owned(),
-        "--no-color".to_owned(),
-        "--binary".to_owned(),
-    ];
+    let mut command = git.command();
+    command.args([
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--binary",
+    ]);
     match source {
-        DiffSource::Unstaged { .. } => arguments.push("--".to_owned()),
+        DiffSource::Unstaged { .. } => {
+            command.arg("--");
+        }
         DiffSource::Staged { .. } => {
-            arguments.push("--cached".to_owned());
-            arguments.push("--".to_owned());
+            command.args(["--cached", "--"]);
         }
         DiffSource::Branch {
             base_ref: Some(base_ref),
             ..
         } => {
-            let base_commit = git_single_line(
-                repo,
-                &[
-                    "rev-parse",
-                    "--verify",
-                    "--end-of-options",
-                    &format!("{base_ref}^{{commit}}"),
-                ],
-            )
-            .await?;
-            let merge_base = git_single_line(repo, &["merge-base", "HEAD", &base_commit]).await?;
-            arguments.push(merge_base);
-            arguments.push("--".to_owned());
+            let merge_base = git_merge_base(git, base_ref).await?;
+            command.args([merge_base.as_str(), "--"]);
         }
         DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
             return Err(SessionOpenError::Failed);
@@ -826,7 +820,7 @@ async fn run_git_patch_with_limit(
     let mut bytes_written = 0_u64;
     let result = async {
         stream_git_stdout(
-            arguments,
+            command,
             &[0],
             &mut output,
             &mut bytes_written,
@@ -840,12 +834,12 @@ async fn run_git_patch_with_limit(
             // Best effort: an untracked file git cannot read, or one that does
             // not fit the remaining budget, is left out. It must never fail the
             // session or hide the tracked diff, which plain `git diff` shows.
-            let untracked = git_untracked_paths(repo).await.unwrap_or_default();
+            let untracked = git_untracked_paths(git).await.unwrap_or_default();
             for path in untracked {
                 let budget = max_patch_bytes
                     .saturating_sub(bytes_written)
                     .min(MAX_UNTRACKED_FILE_PATCH_BYTES);
-                let Some(patch) = git_untracked_file_patch(repo, path, budget).await else {
+                let Some(patch) = git_untracked_file_patch(git, path, budget).await else {
                     continue;
                 };
                 output
@@ -869,15 +863,13 @@ async fn run_git_patch_with_limit(
 /// limit and the per-command timeout. Any failure kills the child; the caller
 /// owns the partially written file.
 async fn stream_git_stdout(
-    arguments: Vec<String>,
+    mut command: Command,
     allowed_exit_codes: &[i32],
     output: &mut tokio::fs::File,
     bytes_written: &mut u64,
     max_patch_bytes: u64,
 ) -> Result<(), SessionOpenError> {
-    let mut command = Command::new("/usr/bin/git");
     command
-        .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -931,12 +923,12 @@ async fn stream_git_stdout(
 /// Changed paths whose `.gitattributes` mark them generated
 /// (`linguist-generated` set or `diff` unset). Best effort: any failure or an
 /// oversized listing yields an empty list so a session never fails over it.
-async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
-    let Ok(mut paths) = git_changed_paths(source, repo).await else {
+async fn git_generated_paths(source: &DiffSource, git: &SessionGit) -> Vec<String> {
+    let Ok(mut paths) = git_changed_paths(source, git).await else {
         return Vec::new();
     };
     if matches!(source, DiffSource::Unstaged { .. })
-        && let Ok(untracked) = git_untracked_paths(repo).await
+        && let Ok(untracked) = git_untracked_paths(git).await
     {
         paths.extend(untracked);
     }
@@ -948,10 +940,8 @@ async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
         stdin_bytes.extend_from_slice(path.as_bytes());
         stdin_bytes.push(0);
     }
-    let mut command = Command::new("/usr/bin/git");
+    let mut command = git.command();
     command
-        .arg("-C")
-        .arg(repo)
         .args(["check-attr", "-z", "--stdin", "linguist-generated", "diff"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -967,8 +957,11 @@ async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
         let _ = stdin.write_all(&stdin_bytes).await;
         drop(stdin);
     };
-    let ((), output) = tokio::join!(write, child.wait_with_output());
-    let Ok(output) = output else {
+    let Ok(((), Ok(output))) = tokio::time::timeout(SESSION_GIT_TIMEOUT, async {
+        tokio::join!(write, child.wait_with_output())
+    })
+    .await
+    else {
         return Vec::new();
     };
     if !output.status.success() {
@@ -994,39 +987,33 @@ async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
 /// Paths changed by the source, mirroring the range `run_git_patch` diffs.
 async fn git_changed_paths(
     source: &DiffSource,
-    repo: &Path,
+    git: &SessionGit,
 ) -> Result<Vec<String>, SessionOpenError> {
-    let mut arguments = vec!["diff".to_owned(), "--name-only".to_owned(), "-z".to_owned()];
+    let mut command = git.command();
+    command.args([
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--name-only",
+        "-z",
+    ]);
     match source {
         DiffSource::Unstaged { .. } => {}
-        DiffSource::Staged { .. } => arguments.push("--cached".to_owned()),
+        DiffSource::Staged { .. } => {
+            command.arg("--cached");
+        }
         DiffSource::Branch {
             base_ref: Some(base_ref),
             ..
         } => {
-            let base_commit = git_single_line(
-                repo,
-                &[
-                    "rev-parse",
-                    "--verify",
-                    "--end-of-options",
-                    &format!("{base_ref}^{{commit}}"),
-                ],
-            )
-            .await?;
-            let merge_base = git_single_line(repo, &["merge-base", "HEAD", &base_commit]).await?;
-            arguments.push(merge_base);
+            command.arg(git_merge_base(git, base_ref).await?);
         }
         DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
             return Err(SessionOpenError::Failed);
         }
     }
-    arguments.push("--".to_owned());
-    let mut command = Command::new("/usr/bin/git");
     command
-        .arg("-C")
-        .arg(repo)
-        .args(&arguments)
+        .arg("--")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
@@ -1048,14 +1035,13 @@ async fn git_changed_paths(
 /// The added-file patch for one untracked `path`, or `None` when git fails on
 /// it, times out, or its output exceeds `budget` bytes. Output is buffered so a
 /// rejected file leaves nothing in the session patch.
-async fn git_untracked_file_patch(repo: &Path, path: String, budget: u64) -> Option<Vec<u8>> {
-    let mut command = Command::new("/usr/bin/git");
+async fn git_untracked_file_patch(git: &SessionGit, path: String, budget: u64) -> Option<Vec<u8>> {
+    let mut command = git.command();
     command
-        .arg("-C")
-        .arg(repo)
         .args([
             "diff",
             "--no-ext-diff",
+            "--no-textconv",
             "--no-color",
             "--binary",
             "--no-index",
@@ -1099,11 +1085,9 @@ async fn git_untracked_file_patch(repo: &Path, path: String, budget: u64) -> Opt
 
 /// Untracked, non-ignored paths relative to `repo`, bounded so a huge
 /// unignored tree degrades to the tracked-only diff instead of stalling.
-async fn git_untracked_paths(repo: &Path) -> Result<Vec<String>, SessionOpenError> {
-    let mut command = Command::new("/usr/bin/git");
+async fn git_untracked_paths(git: &SessionGit) -> Result<Vec<String>, SessionOpenError> {
+    let mut command = git.command();
     command
-        .arg("-C")
-        .arg(repo)
         .args(["ls-files", "--others", "--exclude-standard", "-z"])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -1127,11 +1111,18 @@ async fn git_untracked_paths(repo: &Path) -> Result<Vec<String>, SessionOpenErro
         .collect())
 }
 
-async fn git_single_line(repo: &Path, arguments: &[&str]) -> Result<String, SessionOpenError> {
-    let mut command = Command::new("/usr/bin/git");
+/// The merge base of HEAD and `base_ref`, the commit a branch session
+/// diffs from.
+async fn git_merge_base(git: &SessionGit, base_ref: &str) -> Result<String, SessionOpenError> {
+    let base = format!("{base_ref}^{{commit}}");
+    let arguments = ["rev-parse", "--verify", "--end-of-options", base.as_str()];
+    let base_commit = git_single_line(git, &arguments).await?;
+    git_single_line(git, &["merge-base", "HEAD", &base_commit]).await
+}
+
+async fn git_single_line(git: &SessionGit, arguments: &[&str]) -> Result<String, SessionOpenError> {
+    let mut command = git.command();
     command
-        .arg("-C")
-        .arg(repo)
         .args(arguments)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -2135,6 +2126,9 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
     stdout.flush().await.map_err(|error| error.to_string())
 }
 
+#[cfg(all(test, unix))]
+mod hostile_repository_tests;
+
 #[cfg(test)]
 mod tests {
     use std::process::Command;
@@ -2152,6 +2146,7 @@ mod tests {
         reserve_session_owner, run_git_patch_with_limit, valid_group_id,
     };
     use super::{AppState, ResourceScheme, ServerConfig, app_state, resource_url};
+    use super::{SESSION_GIT_TIMEOUT, SessionGit};
 
     #[tokio::test]
     async fn handshake_reports_transport_capabilities() {
@@ -2376,6 +2371,12 @@ mod tests {
         );
     }
 
+    async fn session_git(repo: &std::path::Path) -> SessionGit {
+        SessionGit::open(repo, SESSION_GIT_TIMEOUT)
+            .await
+            .expect("open the session's git")
+    }
+
     #[tokio::test]
     async fn unstaged_patch_includes_untracked_files() {
         let root = std::env::temp_dir().join(format!(
@@ -2415,7 +2416,7 @@ mod tests {
             repo_root: repo.to_string_lossy().into_owned(),
         };
 
-        run_git_patch_with_limit(&source, &repo, &patch_path, 1024 * 1024)
+        run_git_patch_with_limit(&source, &session_git(&repo).await, &patch_path, 1024 * 1024)
             .await
             .expect("write unstaged patch");
 
@@ -2430,7 +2431,7 @@ mod tests {
 
         // An untracked-only working tree is not an empty diff.
         std::fs::write(repo.join("story.txt"), "one\n").expect("restore tracked file");
-        run_git_patch_with_limit(&source, &repo, &patch_path, 1024 * 1024)
+        run_git_patch_with_limit(&source, &session_git(&repo).await, &patch_path, 1024 * 1024)
             .await
             .expect("write untracked-only patch");
         let patch = std::fs::read_to_string(&patch_path).expect("read untracked-only patch");
@@ -2483,7 +2484,7 @@ mod tests {
             repo_root: repo.to_string_lossy().into_owned(),
         };
 
-        let mut generated = git_generated_paths(&source, &repo).await;
+        let mut generated = git_generated_paths(&source, &session_git(&repo).await).await;
         generated.sort();
         assert_eq!(
             generated,
@@ -2499,7 +2500,11 @@ mod tests {
         let staged = DiffSource::Staged {
             repo_root: repo.to_string_lossy().into_owned(),
         };
-        assert!(git_generated_paths(&staged, &repo).await.is_empty());
+        assert!(
+            git_generated_paths(&staged, &session_git(&repo).await)
+                .await
+                .is_empty()
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2548,7 +2553,9 @@ mod tests {
         // A 16 KiB budget fits the tracked change and the small untracked file
         // but not the 64 KiB one. Neither the oversized nor the unreadable
         // untracked file may fail the session or hide the tracked diff.
-        let result = run_git_patch_with_limit(&source, &repo, &patch_path, 16 * 1024).await;
+        let result =
+            run_git_patch_with_limit(&source, &session_git(&repo).await, &patch_path, 16 * 1024)
+                .await;
         let _ = std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644));
         result.expect("write unstaged patch");
         let patch = std::fs::read_to_string(&patch_path).expect("read patch");
@@ -2598,7 +2605,7 @@ mod tests {
             &DiffSource::Unstaged {
                 repo_root: repo.to_string_lossy().into_owned(),
             },
-            &repo,
+            &session_git(&repo).await,
             &patch_path,
             1024,
         )
