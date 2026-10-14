@@ -59,6 +59,7 @@ try {
     viewport: { width: 1100, height: 850 },
     locale: "en-US",
     timezoneId: "America/Los_Angeles",
+    recordVideo: { dir: output, size: { width: 1100, height: 850 } },
   });
   await page.addInitScript((data) => {
     window.webkit = {
@@ -88,6 +89,9 @@ try {
   const span = page.getByTestId("changelog.sinceLastUpdate");
   await span.locator(".cl-group").first().waitFor();
   await page.screenshot({ path: resolve(output, "whats-new.png"), fullPage: true });
+  if (process.env.CMUX_CHANGELOG_CAPTURE_ONLY === "1") {
+    console.log("Captured the unchanged page through the same bridge fixture");
+  } else {
   assert.deepEqual(await span.locator(".cl-group h3").allTextContents(), ["Browser", "Sidebar"]);
   assert.equal(await span.locator(".cl-row-title").count(), 2, "Related PRs appear once across the update span");
   assert.equal(
@@ -117,6 +121,7 @@ try {
     "Narrow pages do not overflow",
   );
   console.log("PASS: What's New real page bridge, filtering, dedup, labels, weight, links and layout");
+  }
 } finally {
   await browser?.close();
   await server.close();

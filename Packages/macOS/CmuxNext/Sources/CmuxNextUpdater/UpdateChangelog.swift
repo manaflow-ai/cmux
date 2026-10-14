@@ -26,9 +26,9 @@ nonisolated public struct UpdateChangelog: Codable, Equatable, Sendable {
         self.init(version: version, date: date, lines: Self.lines(description))
     }
 
-    /// From a build's signed release notes: its summary, else nothing.
+    /// From a build's signed editorial notes. Raw legacy summaries stay in history.
     public init(notes: ReleaseNotes, version: String?) {
-        let lines = (notes.summary ?? []).map { "\(Self.groupTitle($0.group)): \($0.title)" }
+        let lines = (notes.userNotes ?? []).map(\.title)
         self.init(version: version ?? notes.shortVersion, date: Self.day(notes.date), lines: lines)
     }
 

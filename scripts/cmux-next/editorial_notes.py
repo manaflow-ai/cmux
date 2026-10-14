@@ -87,16 +87,14 @@ def title_key(title):
 
 
 def semantic_tokens(title):
-    stop = {"a", "an", "and", "by", "can", "for", "from", "in", "is", "it", "of", "on", "only", "the", "to", "you"}
+    # Ignore only grammatical glue. Negations, qualifiers and action words stay:
+    # "can delete" and "cannot delete" must never collapse.
+    stop = {"a", "an", "be", "by", "can", "is", "the", "to"}
     tokens = []
     for token in re.findall(r"[a-z0-9]+", title.casefold()):
         if token in stop:
             continue
-        for suffix in ("ing", "ed", "es", "s"):
-            if len(token) > len(suffix) + 3 and token.endswith(suffix):
-                token = token[:-len(suffix)]
-                break
-        token = {"delet": "delete", "profil": "profile", "be": ""}.get(token, token)
+        token = {"deleted": "delete", "profiles": "profile"}.get(token, token)
         if token:
             tokens.append(token)
     return set(tokens)
@@ -106,14 +104,7 @@ def equivalent_titles(left, right):
     if title_key(left) == title_key(right):
         return True
     a, b = semantic_tokens(left), semantic_tokens(right)
-    shared = a & b
-    if len(shared) < 2:
-        return False
-    actions = {"add", "allow", "block", "change", "create", "delete", "disable", "download", "edit", "fix", "keep", "open", "prevent", "remove", "restore", "save", "show", "support", "update"}
-    left_actions, right_actions = a & actions, b & actions
-    if left_actions and right_actions and not left_actions & right_actions:
-        return False
-    return len(shared) / max(1, min(len(a), len(b))) >= 0.6
+    return len(a) >= 3 and a == b
 
 
 def deduplicate(notes):
@@ -134,6 +125,8 @@ def candidates(records, token):
     records = records[:MAX_LEGACY_RECORDS]
     while records and len(json.dumps(records, ensure_ascii=False).encode("utf-8")) > MAX_MODEL_INPUT_BYTES:
         records.pop()
+    if not records:
+        return []
     endpoint = os.environ.get("CMUX_RELEASE_NOTES_MODEL_URL", MODEL_URL)
     parsed = urlparse(endpoint)
     # The only override is a local transport fixture. Never send a token to an arbitrary host.
@@ -145,7 +138,7 @@ def candidates(records, token):
             "model": "openai/gpt-4.1-mini", "temperature": 0, "max_tokens": 3000,
             "response_format": {"type": "json_object"},
             "messages": [{"role": "system", "content": PROMPT},
-                         {"role": "user", "content": json.dumps(records)}],
+                         {"role": "user", "content": json.dumps(records, ensure_ascii=False)}],
         }).encode())
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
@@ -157,25 +150,30 @@ def candidates(records, token):
             if not isinstance(note, dict):
                 continue
             area, title, prs = note.get("area"), note.get("title"), note.get("prs")
+            title = title.strip() if isinstance(title, str) else title
             if (area not in AREAS or not isinstance(title, str) or not 1 <= len(title) <= 180
                     or any(c in title for c in "\n\r<>`") or not isinstance(prs, list) or not prs
                     or any(type(pr) is not int or pr not in allowed for pr in prs)):
                 continue
-            validated.append({"area": area, "title": title.strip(), "prs": prs})
+            validated.append({"area": area, "title": title, "prs": prs})
         return validated
     except (OSError, ValueError, KeyError, IndexError, TypeError):
         warn("summarizer unavailable or invalid; using explicit release notes only")
         return []
 
 
-def build_news(items, commits):
+def build_news(items, commits, *, summarize=True):
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
         return []
     numbers = sorted({item["pr"] for item in items if item.get("pr")})
     prs = pr_metadata(numbers, commits, os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"))
     notes, legacy = [], []
+    seen = set()
     for pr in prs:
+        if pr["number"] in seen:
+            continue
+        seen.add(pr["number"])
         body = re.sub(r"<!--.*?-->", "", pr.get("body") or "", flags=re.S)
         match = NOTE.search(body)
         if match:
@@ -193,4 +191,4 @@ def build_news(items, commits):
         elif not internal(pr):
             legacy.append({"number": pr["number"], "title": pr["title"], "body": body[:3000],
                            "files": [f["path"] for f in pr.get("files", {}).get("nodes", [])]})
-    return deduplicate(notes + candidates(legacy, token))
+    return deduplicate(notes + (candidates(legacy, token) if summarize else []))

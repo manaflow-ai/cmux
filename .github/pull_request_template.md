@@ -16,14 +16,14 @@ The contributor verification ladder suggests the first useful check for each kin
 https://github.com/manaflow-ai/cmux/blob/main/docs/contributor-verification.md
 -->
 
-## Changelog
-
 <!-- Optional nightly news in user words, one line. An area prefix is optional.
 Release note: Browser: Browser profiles can only be deleted by you.
 Release note: none explicitly hides an internal change. Without this line, a
 publish-time summarizer may propose a note for a user-visible change; raw titles
 remain in All changes. Remove these examples before filling the line below. -->
 Release note:
+
+## Changelog
 
 <!--
 Keep this section. Write one line for the release notes, or `none` for internal-only changes (CI, tests, docs, refactors, build scripts).

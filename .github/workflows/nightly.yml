@@ -3451,10 +3451,9 @@ jobs:
             --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
             --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
-          # cmux-next lands commits, not PRs: its appcast item carries a short
-          # changelog of the user-facing commit subjects since the previous
-          # published build (New / Fixed / Changed, at most 8 lines, plain
-          # text; cx-lntk). The app shows the same lines from the signed notes.
+          # Explicit PR release notes are safe before the signed editorial
+          # digest arrives. Never fall back to raw commit titles or run the
+          # model again in this publication job.
           if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$NOTES_HEAD" ]; then
             ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
             python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \

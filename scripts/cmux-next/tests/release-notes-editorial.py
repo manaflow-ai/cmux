@@ -112,6 +112,21 @@ def main():
             assert offline["userNotes"] == digest[:1], offline["userNotes"]
             hidden = publish("no-token", {**env, "GH_TOKEN": "", "GITHUB_TOKEN": ""})
             assert hidden["userNotes"] == [] and hidden["summary"] == [], hidden
+            # A busy nightly still makes one size-bounded request. The fixture
+            # observes the HTTP boundary, not the summarizer's implementation.
+            for number in range(200, 245):
+                git("commit", "-qm", f"Browser interaction polish (#{number})", "--allow-empty")
+                prs[f"p{number}"] = {"number": number, "title": "Browser interaction polish", "body": "漢" * 3000,
+                                    "mergedAt": "2026-10-14T05:20:00Z", "baseRefName": "feat-cmux-next",
+                                    "mergeCommit": {"oid": git("rev-parse", "HEAD")},
+                                    "files": {"totalCount": 1, "nodes": [{"path": "webviews/src/browser/Profiles.tsx"}]}}
+            (root / "prs.json").write_text(json.dumps({"data": {"repository": prs}}))
+            requests.clear()
+            publish("busy", env)
+            assert len(requests) == 1
+            inputs = json.loads(requests[0]["messages"][1]["content"])
+            assert len(inputs) <= 40, len(inputs)
+            assert len(json.dumps(inputs, ensure_ascii=False).encode()) <= 60_000
             print("PASS: release notes publish CLI filters, deduplicates and fails closed")
         finally:
             server.shutdown()

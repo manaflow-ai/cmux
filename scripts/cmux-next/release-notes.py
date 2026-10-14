@@ -232,10 +232,14 @@ def build(args):
 
 
 def appcast(args):
-    """Writes the build's short changelog into its item in every published appcast."""
+    """Use explicit PR notes until the separately signed editorial digest arrives."""
+    from editorial_notes import build_news
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci"))
     from nightly_release_notes import update_appcasts
-    lines = summarize_changes(commit_subjects(args.since, args.head))
+    members = set(git("log", "--no-merges", "--format=%H", rev_range(args.since, args.head)).splitlines()[:MAX_CHANGES])
+    items = [change_item(subject, "") for subject in commit_subjects(args.since, args.head)]
+    news = build_news(items, members, summarize=False)
+    lines = [{"group": "changed", "title": line["title"]} for line in news[:SUMMARY_LIMIT]]
     text = summary_text(lines) or "Maintenance and internal improvements."
     update_appcasts(Path(args.appcasts), args.build, text, tuple(args.feeds))
     print(text)
