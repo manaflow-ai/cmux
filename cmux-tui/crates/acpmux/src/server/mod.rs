@@ -67,8 +67,7 @@ impl Conn {
         self.person.load(Ordering::SeqCst)
     }
 
-    /// Whether this connection gets the person challenge: the unix socket
-    /// or the proven local app.
+    /// Whether this connection gets the person challenge: the unix socket or the proven local app.
     pub(super) fn challengeable(&self) -> bool {
         matches!(self.origin, Origin::Local | Origin::LocalApp)
     }
@@ -896,6 +895,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             | "model"
             | "config"
             | "policy"
+            | "tools"
             | "rules"
             | "tags"
             | "turn_started"

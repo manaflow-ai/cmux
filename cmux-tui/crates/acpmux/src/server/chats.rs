@@ -38,6 +38,7 @@
 //! the `chats.read` scope, which is never granted by default.
 
 mod offers;
+mod stats;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -78,6 +79,10 @@ pub(super) async fn route(
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
         return hub.transfer_request(m, &params).await;
+    }
+    // Personal stats over the session logs (`stats.rs`): local, never a peer's.
+    if m == crate::rpc::method::MUX_STATS {
+        return stats::handle(hub, conn.origin, &params).await;
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {

@@ -78,7 +78,8 @@ pub(super) async fn check(
         method::SESSION_PROMPT
         | method::SESSION_FORK
         | method::SESSION_SET_MODE
-        | method::SESSION_SET_CONFIG_OPTION => session_key(params).ok().map(str::to_owned),
+        | method::SESSION_SET_CONFIG_OPTION
+        | method::MUX_SET_TOOLS => session_key(params).ok().map(str::to_owned),
         method::MUX_HANDOFF_START => params
             .get("handoffId")
             .and_then(Value::as_str)

@@ -7,7 +7,7 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
-import { useBookmarks } from "./bookmarks";
+import { promptSeq, useBookmarks } from "./bookmarks";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useHoverIntent } from "../../../ui/hoverIntent";
 import {
@@ -51,7 +51,7 @@ export function ThreadMinimap({
   width: number;
 }) {
   const t = useT();
-  const bookmarks = useBookmarks();
+  const bookmarks = useBookmarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   const turns = useMemo(() => {
     const next = minimapTurns(rows, sessionId, lastTurns.current);
@@ -168,7 +168,9 @@ export function ThreadMinimap({
   const center = first + active * pitch;
   /// The column's top edge: the first tick's band starts half a pitch above its center.
   const railTop = first - pitch / 2;
-  const marked = turn ? bookmarks.marks.has(turn.key) : false;
+  /// The hovered prompt's seq in acpmux's log; a prompt not logged yet has no bookmark.
+  const seq = turn ? promptSeq(turn.id) : undefined;
+  const marked = seq !== undefined && bookmarks.marks.has(seq);
   return (
     <div className="acpmux-minimap">
       <nav
@@ -207,7 +209,7 @@ export function ThreadMinimap({
             }
             tabbable={index === active}
             current={index === current}
-            label={t(bookmarks.marks.has(entry.key) ? "minimap.tickBookmarked" : "minimap.tick", {
+            label={t(isMarked(bookmarks.marks, entry.id) ? "minimap.tickBookmarked" : "minimap.tick", {
               index: index + 1,
               count: turns.length,
               prompt: entry.prompt,
@@ -229,16 +231,18 @@ export function ThreadMinimap({
           >
             <div className="acpmux-minimap__title">
               <span className="acpmux-minimap__prompt">{turn.prompt}</span>
-              <button
-                type="button"
-                className="acpmux-minimap__bookmark"
-                aria-pressed={marked}
-                aria-label={t(marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-                title={t(marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-                onClick={() => bookmarks.toggle(turn.key)}
-              >
-                <BookmarkIcon filled={marked} />
-              </button>
+              {seq !== undefined && (
+                <button
+                  type="button"
+                  className="acpmux-minimap__bookmark"
+                  aria-pressed={marked}
+                  aria-label={t(marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+                  title={t(marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+                  onClick={() => bookmarks.toggle(seq)}
+                >
+                  <BookmarkIcon filled={marked} />
+                </button>
+              )}
             </div>
             {turn.reply.length > 0 && (
               <div className="acpmux-minimap__reply">
@@ -256,6 +260,11 @@ export function ThreadMinimap({
       </nav>
     </div>
   );
+}
+
+function isMarked(marks: ReadonlySet<number>, rowId: string): boolean {
+  const seq = promptSeq(rowId);
+  return seq !== undefined && marks.has(seq);
 }
 
 const Tick = memo(function Tick({

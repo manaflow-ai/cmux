@@ -227,6 +227,7 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("stop-{}", id), "request": {"subtype": "stop_task", "task_id": task}}),
                         ])
                     }
+                    method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::SESSION_FORK => {
                         // Forking needs a new process (--fork-session); the hub does that.
                         Outbound::Reply(Message::err(

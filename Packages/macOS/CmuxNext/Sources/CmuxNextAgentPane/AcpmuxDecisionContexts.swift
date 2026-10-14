@@ -39,8 +39,25 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         if object["method"] as? String == "_acpmux/event", let record = object["params"] as? [String: Any] {
             return observeRecord(record)
         }
-        if let events = (object["result"] as? [String: Any])?["events"] as? [[String: Any]] {
-            return events.forEach(observeRecord)
+        // Only the daemon's own replies are read (an agent's forwarded result could carry a
+        // `session` or `events` member of its own).
+        let snapshotReply = method == "_acpmux/attach" || method == "_acpmux/watch"
+        if let result = object["result"] as? [String: Any], snapshotReply || method == "_acpmux/events" {
+            // A session snapshot (`_acpmux/attach` `session`, `_acpmux/watch` `sessions`) lists its
+            // open prompts with their nonce and run: after a keyed restart the re-issued prompt
+            // may reach a page that reconnected only through it (cx-0w0jj proof). Its seq is the
+            // session's `lastSeq`, so a later re-issue still wins.
+            let sessions = !snapshotReply ? [] : (result["sessions"] as? [[String: Any]] ?? []) + [result["session"] as? [String: Any]].compactMap { $0 }
+            for snapshot in sessions {
+                // Without a seq a snapshot could hide a later re-issue: it is not read.
+                guard let session = snapshot["sessionId"] as? String, let pending = snapshot["pending"] as? [[String: Any]],
+                      let seq = (snapshot["lastSeq"] as? NSNumber)?.uint64Value ?? (result["lastSeq"] as? NSNumber)?.uint64Value
+                else { continue }
+                for prompt in pending { note(session: session, prompt, seq: seq) }
+            }
+            if let events = result["events"] as? [[String: Any]] {
+                return events.forEach(observeRecord)
+            }
         }
         guard object["method"] as? String == "_acpmux/permission_pending",
               let params = object["params"] as? [String: Any],

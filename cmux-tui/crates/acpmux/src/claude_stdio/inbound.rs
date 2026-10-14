@@ -52,8 +52,27 @@ impl Translator {
                         }),
                     ));
                 }
-                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model"), "version": line.get("claude_code_version")}}})));
+                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "plugins": line.get("plugins"), "skills": line.get("skills"), "model": line.get("model"), "version": line.get("claude_code_version")}}})));
                 out.push(upd(json!({"sessionUpdate": "config_option_update", "configOptions": self.config_options_value().await})));
+                // Claude Code names its skills only here (every turn): their
+                // commands are sent again, tagged, when that changes the list.
+                if let Some(skills) = line.get("skills").and_then(Value::as_array) {
+                    *self.skills.lock().await =
+                        skills.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                    if let Some(u) = self.commands_update(false).await {
+                        out.push(upd(u));
+                    }
+                }
+            }
+            // Claude Code's whole command list after a change mid-session
+            // (skills found in a subdirectory, a reload): it replaces ours.
+            "system" if sub == "commands_changed" => {
+                if let Some(cmds) = line.get("commands").and_then(Value::as_array) {
+                    *self.slash_commands.lock().await = cmds.clone();
+                    if let Some(u) = self.commands_update(false).await {
+                        out.push(upd(u));
+                    }
+                }
             }
             "stream_event" => {
                 let ev = line.get("event").cloned().unwrap_or(Value::Null);
@@ -127,10 +146,10 @@ impl Translator {
                         let input = c.get("input").cloned().unwrap_or(Value::Null);
                         // A subagent comes before its Agent tool call, so a client
                         // that draws subagents can leave the call out.
-                        if let ("Task" | "Agent", Some(id)) =
+                        if let ("Task" | "Agent" | "Workflow", Some(id)) =
                             (name, c.get("id").and_then(Value::as_str))
                         {
-                            out.push(upd(self.spawn_subagent(id, &input).await));
+                            out.push(upd(self.spawn_subagent(id, name, &input).await));
                         }
                         // The todo list is the turn's ACP plan (cx-ncc.80): clients
                         // draw it as a checklist.
@@ -248,6 +267,9 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
+                        if let Some(update) = self.workflow_launched(tool, is_err, line).await {
+                            out.push(upd(update));
+                        }
                         // A background subagent's result is only its launch.
                         if self.background_subagents.lock().await.contains(tool) {
                             continue;
@@ -353,9 +375,10 @@ impl Translator {
                         "authMethods": [],
                         "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
                     })));
-                    if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
-                        let list: Vec<Value> = cmds.iter().map(|c| json!({"name": c.get("name"), "description": c.get("description")})).collect();
-                        out.push(upd(json!({"sessionUpdate": "available_commands_update", "availableCommands": list})));
+                    if inner.get("commands").is_some_and(Value::is_array)
+                        && let Some(u) = self.commands_update(true).await
+                    {
+                        out.push(upd(u));
                     }
                 } else if let Some(acp) = rid.strip_prefix("ctl-") {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
@@ -385,17 +408,12 @@ impl Translator {
                             ),
                         ));
                     }
-                }
-                // A stop_task's answer (`STOP_TASK`); the task's end is its own event.
-                if let Some(acp) = rid.strip_prefix("stop-") {
+                } else if let Some(acp) = rid.strip_prefix("stop-") {
+                    // A stop_task's answer (`subagent_stop`, `STOP_TASK`); the
+                    // task's end is its own event.
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     self.pending.lock().await.remove(&id.to_string());
-                    out.push(if ok {
-                        Message::ok(id, json!({}))
-                    } else {
-                        let error = resp.get("error").and_then(Value::as_str);
-                        Message::err(id, RpcError::internal(error.unwrap_or("stop_task failed")))
-                    });
+                    out.push(super::workflows::stop_reply(acp, ok, &resp));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
             }
@@ -508,6 +526,9 @@ impl Translator {
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {
                     out.push(update);
+                }
+                if let Some(progress) = self.subagent_progress(sub, line).await {
+                    out.push(upd(progress));
                 }
                 if let Some(ended) = self.subagent_task(sub, line).await {
                     out.push(upd(ended));
@@ -654,6 +675,7 @@ impl Translator {
             return None;
         }
         self.subagent_tasks.lock().await.remove(task);
+        self.workflows.lock().await.remove(&tool);
         let child = self.subagents.lock().await.remove(&tool)?;
         let state = match line.get("status").and_then(Value::as_str) {
             Some("failed") => "failed",
@@ -667,16 +689,24 @@ impl Translator {
         }))
     }
 
-    /// Records a new Agent tool call as a subagent session and returns its
-    /// `subagent_spawned` update. Claude's short `description` names it.
-    async fn spawn_subagent(&self, tool_use_id: &str, input: &Value) -> Value {
+    /// Records a new Agent or Workflow tool call as a subagent session and
+    /// returns its `subagent_spawned` update. Claude's short `description`
+    /// names an agent; a workflow, which always runs in the background, is
+    /// named by its saved name until its launch names the run.
+    async fn spawn_subagent(&self, tool_use_id: &str, tool: &str, input: &Value) -> Value {
         let child = format!("{}/{tool_use_id}", self.acp_session_id);
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
-        if input.get("run_in_background") == Some(&Value::Bool(true)) {
+        let workflow = tool == "Workflow";
+        if workflow {
+            self.workflows.lock().await.insert(tool_use_id.to_owned(), None);
+        }
+        if workflow || input.get("run_in_background") == Some(&Value::Bool(true)) {
             self.background_subagents.lock().await.insert(tool_use_id.to_owned());
         }
         let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
-        let task = s("description").or(s("name")).or(s("subagent_type")).unwrap_or("Agent");
+        let task = s("description").or(s("name")).or(s("subagent_type"));
+        let task = task.unwrap_or(if workflow { "Workflow" } else { "Agent" });
+        let kind = if workflow { Some(&json!("workflow")) } else { input.get("subagent_type") };
         json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": child,
@@ -684,7 +714,7 @@ impl Translator {
             "task": task,
             "prompt": input.get("prompt"),
             "capabilities": {},
-            "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
+            "_meta": {"claude": {"subagentType": kind, "toolUseId": tool_use_id}}
         })
     }
 }

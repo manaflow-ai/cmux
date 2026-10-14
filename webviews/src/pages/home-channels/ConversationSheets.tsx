@@ -69,6 +69,7 @@ export function NewMessageSheet({ sheets, strings }: { sheets: HomeSheets; strin
         <span className="lg-form-label">{t("sheet.channelName")}</span>
         <input
           className="hc-link-field"
+          aria-label={t("sheet.channelName")}
           value={title}
           maxLength={80}
           placeholder={t("channel.namePlaceholder")}
