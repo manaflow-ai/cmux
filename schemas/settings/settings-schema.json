@@ -490,6 +490,16 @@
               "key" : "settings.group.computerUse",
               "text" : "Computer Use"
             }
+          },
+          {
+            "key" : "settings.group.freeModel",
+            "rows" : [
+              "freeModel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.freeModel",
+              "text" : "AI Models"
+            }
           }
         ],
         "id" : "agents",

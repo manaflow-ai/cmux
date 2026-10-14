@@ -15,9 +15,10 @@ nonisolated extension AcpmuxPaneMethods {
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         "_acpmux/watch": (["enabled"], []),
-        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "kinds"], []),
+        // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
+        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
-        "_acpmux/attach": (["sessionId", "limit", "kinds", "eventStream", "visible"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
@@ -52,6 +53,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
+        "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),

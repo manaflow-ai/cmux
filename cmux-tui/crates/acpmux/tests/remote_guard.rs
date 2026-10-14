@@ -151,6 +151,15 @@ async fn an_unhandled_session_method_reaches_the_harness_only_from_the_unix_sock
     }
     let r = local.call("_harness/anything", json!({"sessionId": id})).await;
     assert!(!err(&r).contains("only from the local unix socket"), "{r}");
+    // The app's stop on a subagent row is the one exception, and only for the app: it stops a
+    // task the agent already runs and carries no params that spawn or read.
+    let stop = json!({"sessionId": id, "subagentSessionId": "x/toolu_1"});
+    let r = Client::new(&hub, Origin::Web).call("_acpmux/subagent_stop", stop.clone()).await;
+    assert!(err(&r).contains("only from the local unix socket"), "{r}");
+    let r = Client::new(&hub, Origin::Peer).call("_acpmux/subagent_stop", stop.clone()).await;
+    assert!(r.get("error").is_some(), "a peer cannot stop a subagent: {r}");
+    let r = Client::new(&hub, Origin::LocalApp).call("_acpmux/subagent_stop", stop).await;
+    assert!(!err(&r).contains("only from the local unix socket"), "{r}");
     let _ = std::fs::remove_dir_all(&d.base);
 }
 

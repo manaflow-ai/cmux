@@ -49,7 +49,8 @@ final class FocusCoordinator {
         // script, agent or remote run without `focus: true`) never moves
         // focus or selection, nor bumps the intent generation, which would
         // void the user's own pending expectation (OWNERSHIP-PRINCIPLES.md).
-        if event.changesView, !ActionRunScope.viewChangeAllowed() {
+        // The permission is read first: only a refusing run asks the rule.
+        if !ActionRunScope.viewChangeAllowed(), event.changesView {
             observer?(.refusedByRun(event))
             return
         }

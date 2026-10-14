@@ -162,8 +162,7 @@
   background: var(--acpmux-minimap-card);
   box-shadow:
     0 0 0 0.5px var(--acpmux-minimap-card-ring),
-    0 12px 32px -4px color-mix(in srgb, var(--agent-shadow, rgb(0 0 0 / 20%)) 55%, transparent),
-    0 4px 10px -2px color-mix(in srgb, var(--agent-shadow, rgb(0 0 0 / 20%)) 35%, transparent);
+    var(--elevation-2);
   color: var(--agent-text);
   font: var(--text-body, 13px) / 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;

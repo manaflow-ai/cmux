@@ -43,13 +43,19 @@ public final class ChiefConversationOwner {
 
     /// The owner's process environment: the app's, plus the brain host's
     /// tools socket, so `chief.engine.*` and `chief.stop` reach this home's
-    /// brain (cmux-tui forwards them there, as chief-inspect). An owner that
-    /// another build already started keeps its environment until it restarts.
-    static func ownerEnvironment(home: ChiefHome, process: [String: String]) -> [String: String] {
+    /// brain (cmux-tui forwards them there, as chief-inspect), and the
+    /// values the owner needs to run the other Chiefs' brains
+    /// (`brainsValue`). An owner that another build already started keeps
+    /// its environment until it restarts.
+    static func ownerEnvironment(home: ChiefHome, process: [String: String], bundle: Bundle = .main) -> [String: String] {
         var environment = process
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
+        environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, bundle: bundle)
         return environment
     }
+
+    /// `start` ran and its connection loop runs (false: never started, or the launcher failed).
+    public var isRunning: Bool { runTask != nil }
 
     public func supports(_ capability: String) -> Bool {
         connection != nil && identity?.supports(capability) == true
@@ -66,17 +72,20 @@ public final class ChiefConversationOwner {
         let launcher: DaemonLauncher
         do {
             launcher = try DaemonLauncher.forChief(session: home.session, stateDirectory: home.daemonStateDirectory,
-                                                   bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment))
+                                                   bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment, bundle: bundle))
         } catch {
             lastError = String(describing: error)
             logger.error("chief owner: \(String(describing: error), privacy: .public)")
             return
         }
+        // client-hello role main, with the install key the owner got at launch (an unsigned
+        // build): the owner verifies this app, so it issues the page's gesture confirmations.
         let configuration = DaemonConnection.Configuration(
             clientName: "cmux-next-home",
             requiredCapabilities: [DaemonCapabilities.shared.localConversations],
             retryWake: wake,
-            terminalEnvironment: nil)
+            terminalEnvironment: nil,
+            clientHello: ClientHelloIdentity(installKey: launcher.configuration.installKey))
         let provider = launcher.endpointProvider
         let wake = wake
         let logger = logger

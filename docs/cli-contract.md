@@ -49,13 +49,13 @@ Global options, accepted before the scope:
 
 `--socket` is a daemon session socket. The remote commands (`connect`, `ssh`,
 `forward`, `rpc`) reach a ROUTE and refuse `--socket`. A tagged app's
-`/tmp/cmux-debug-<tag>.sock` is the app control socket: pass it with
+`~/.local/state/cmux/cmux-debug-<tag>.sock` is the app control socket: pass it with
 `--app-socket` to an app verb (`cmux --app-socket <path> app identify`).
 To call one app control method of a DEV or tagged build (for example a
 `debug.*` read), use `app call`:
 
 ```text
-cmux --app-socket /tmp/cmux-debug-<tag>.sock app call debug.surfaces '{}'
+cmux --app-socket ~/.local/state/cmux/cmux-debug-<tag>.sock app call debug.surfaces '{}'
 ```
 
 `app call METHOD [JSON_OBJECT]` first asks the app `system.identify` and
@@ -85,10 +85,19 @@ session explicitly (`--socket`, `--session`, `<session>:<id>`) still works.
 an agent caller with the same code, reason and marker (`details.refused` names
 the refused word), for every field of every Chief. A Chief changes its own
 profile only with its `profile` tool on its own bound connection.
-`cmux chief list` stays open. This check is cooperative, like the one above:
-`cmux chief engine` and `cmux raw operation chief.profile.*` do not check the
-marker, and the daemon cannot yet tell a Chief turn's unbound connection from
-the person's.
+`cmux chief list` stays open. `cmux chief engine` with a change
+(`details.refused` `engine`), `cmux chief stop` (`stop`), `cmux chief
+shutdown` (`shutdown`), `/model`, `/effort` and Ctrl+C in the chat (a note,
+no call), `cmux raw operation` or `cmux raw command` naming a `chief.*` write
+(`details.refused` the operation), and the app actions `home.newChief`,
+`home.archiveChief` and `home.stopChief` (by id or CLI name; `details.refused`
+the name given) are refused the same way, before any connection.
+`cmux chief engine` with no change and the `chief.engine.get`,
+`chief.profile.list`, `chief.profile.get` and `chief.profile.avatar.get`
+reads stay open. An action alias other than the id or CLI name is not
+checked. This check is cooperative, like
+the one above: the daemon cannot yet tell a Chief turn's unbound connection
+from the person's.
 
 ## Output and exit codes
 
@@ -127,7 +136,7 @@ daemon inject, so no flags are needed.
 | --- | --- |
 | `CMUX_SOCKET_PATH` | App control socket. Wins over the derived path. |
 | `CMUX_BUNDLE_ID` | App bundle id; derives the app socket and daemon session. |
-| `CMUX_TAG` | Tagged dev build; derives `/tmp/cmux-debug-<tag>.sock`, session `cmux-app-<tag>` and acpmux home `~/.acpmux/tags/<tag>`. |
+| `CMUX_TAG` | Tagged dev build; derives `~/.local/state/cmux/cmux-debug-<tag>.sock`, session `cmux-app-<tag>` and, with the bundle id, the acpmux home `~/.acpmux/builds/<build key>`. |
 | `CMUX_TUI_SOCKET` | Daemon session socket. |
 | `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it. `current` selectors do not use it. |
 | `ACPMUX_HOME` | acpmux state directory. Wins over the tag rule. |
@@ -136,15 +145,20 @@ App socket order: `--app-socket`, then `CMUX_SOCKET_PATH`/`CMUX_BUNDLE_ID`/`CMUX
 then the app bundle that contains the executable (`CFBundleIdentifier` and
 `LSEnvironment.CMUX_TAG`). The path table mirrors the app's `ControlSocketPath`:
 release uses `~/.local/state/cmux/cmux.sock`, nightly/rc/staging use
-`/tmp/cmux-<channel>.sock`, and a tagged debug build uses
-`/tmp/cmux-debug-<tag>.sock`.
+`~/.local/state/cmux/cmux-<channel>.sock`, and a tagged debug build uses
+`~/.local/state/cmux/cmux-debug-<tag>.sock`. Every one but release keeps a
+symlink at its old `/tmp` name (`/tmp/cmux-debug-<tag>.sock`) for tools that
+still use it; the CLI takes the old name when only it exists (an app from
+before the move), and a path too long for `sun_path` stays at the old name.
 
 Daemon socket order: `--socket`/`--session`, `CMUX_TUI_SOCKET`, then (macOS) the
 app's session `cmux-app` or `cmux-app-<tag>` under the per-user Darwin temp
 directory, then cmux-tui's `main` session.
 
-acpmux home: `ACPMUX_HOME`, else `~/.acpmux/tags/<tag>` under `CMUX_TAG`, else
-`~/.acpmux` (shared with a standalone acpmux).
+acpmux home: `ACPMUX_HOME`, else the home of the CLI's build (`CMUX_BUNDLE_ID` and
+`CMUX_TAG`, else the app bundle around the CLI; schemas/build-identity/vectors.json):
+`~/.acpmux` for NIGHTLY (`com.cmuxterm.app.nightly`) and outside any app (shared
+with a standalone acpmux), `~/.acpmux/builds/<build key>` for every other build.
 
 ## Selectors
 
@@ -362,7 +376,7 @@ These address `browser_…` resources. App browser tabs use the page commands in
 
 ```text
 cmux notification list [--limit <n>]
-cmux notification create --title <value> --body <value> [--subtitle <value>] [--level info|success|warning|error] [--terminal <term_id>]
+cmux notification create --title <value> --body <value> [--subtitle <value>] [--level info|warning|error] [--terminal <term_id>]
 cmux notification clear [--terminal <term_id>]
 cmux notification ack --client <id> <notification_id...>
 cmux notify [--title <value>] [--subtitle <value>] [--body <value>] [--surface <term_id|current>] [--workspace <ws_id|current>]
