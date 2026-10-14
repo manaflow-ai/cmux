@@ -2406,7 +2406,11 @@ function AcpmuxPane() {
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
-  const summaryCard = useSummaryCard(shownSessionId, hasSubagents);
+  // A subagent's pane keeps its own card choice, hidden at first: the chat's pane shows the card.
+  const summaryCard = useSummaryCard(
+    subagentPane.current && shownSessionId ? `${shownSessionId}#subagent` : shownSessionId,
+    hasSubagents && !subagentPane.current,
+  );
   const askedToolCalls = useMemo(
     () => pendingToolCalls(snapshot),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the asks' inputs, not the whole snapshot

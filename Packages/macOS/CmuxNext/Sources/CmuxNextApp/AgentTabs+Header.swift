@@ -79,6 +79,10 @@ extension AgentTabStore {
         }
         guard panes.begin(agent, focus: focus) else { return true }
         let next: @MainActor () -> Void = { [weak self] in
+            // The daemon's move-tab-to-split focuses the new pane; an unfocused open gives focus back
+            // to the chat (cx-1933q follow-up: a move that keeps focus, in the daemon).
+            if !focus, let self { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(
+                target: ActionTargetRef(kind: .tab, id: resolve(provisional)), arguments: ["focus": .bool(true)], origin: .script)) }
             if let request = panes.finish() { _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: provisional) }
         }
         let stack = panes.stackAnchor(isOpen: isOpen)

@@ -416,7 +416,10 @@ try:
             s_ = pane("chat_state", pane=pane_id or PANE)
             return (s_ or {}).get("summaryCard") if isinstance(s_, dict) else None
         harness = os.environ.get("CMUX_LIVE_HARNESS", "claude")
-        say("sp new_chat", json.dumps(pane("new_chat", pane=PANE, harness=harness)))
+        made = pane("new_chat", pane=PANE, harness=harness)
+        say("sp new_chat", json.dumps(made))
+        # The chat's own pane, by id from here on: subagent panes on the same session come next to it.
+        PANE = (made or {}).get("pane") or PANE
         time.sleep(5)
         trust()
         if os.environ.get("CMUX_LIVE_MODEL"):
@@ -438,7 +441,10 @@ try:
         with open(os.path.join(OUT, "sp-snapshot.json"), "w") as f:
             json.dump(snap_after, f)
         st_parent = pane("chat_state", pane=PANE)
-        say("SP parent focused:", (st_parent or {}).get("focused"), "card:", json.dumps((st_parent or {}).get("summaryCard")))
+        focus_after = (topo().get("focus") or {}).get("pane")
+        say("SP focus after spawn:", focus_after, "chat pane:", PANE, "kept:", focus_after == PANE,
+            "card:", json.dumps((st_parent or {}).get("summaryCard")))
+        report["focus_kept"] = focus_after == PANE
         children = [p for p in panes_now if p not in before]
         for child in children:
             cs = pane("chat_state", pane=child)
@@ -462,11 +468,10 @@ try:
         snap_click = rpc("snapshot.get")
         with open(os.path.join(OUT, "sp-snapshot-after-row.json"), "w") as f:
             json.dump(snap_click, f)
-        focused_child = None
-        for child in children:
-            cs = pane("chat_state", pane=child)
-            if (cs or {}).get("focused"):
-                focused_child = child
+        focus_row = (topo().get("focus") or {}).get("pane")
+        focused_child = focus_row if focus_row in children else None
+        if focused_child:
+            say("SP focused child shows:", (pane("chat_state", pane=focused_child) or {}).get("subagentOf"))
         say("SP focused child after row click:", focused_child)
         shot("row-click")
         done = wait(lambda: (lambda c: c if c and c.get("agents") and all(a.get("status") == "done" for a in c["agents"]) else None)(card()), 240, 2)
@@ -475,7 +480,7 @@ try:
         report["subagent_panes"] = {"opened": len(children), "card": live, "kept_after_outside_click": bool(kept),
                                     "focused_child": focused_child, "done": bool(done)}
         say("SP REPORT", json.dumps(report["subagent_panes"]))
-        raise SystemExit(0 if len(children) >= 2 and kept and live else 1)
+        raise SystemExit(0 if len(children) >= 2 and kept and live and report["focus_kept"] and focused_child else 1)
     if STAGE == "perm":
         marker = os.path.join(WORK, "perm-marker")
         say("perm new_chat", json.dumps(pane("new_chat", pane=PANE, harness="claude")))
