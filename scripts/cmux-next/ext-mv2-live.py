@@ -49,26 +49,34 @@ UBO_NAME = "uBlock Origin"
 SCORE_PAGES = (("d3ward", "https://d3ward.github.io/toolz/adblock.html", "d3ward.github.io"),
                ("turtlecute", "https://adblock.turtlecute.org/", "adblock.turtlecute.org"))
 AD_SCRIPT = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"
+AD_BEACON = "https://pagead2.googlesyndication.com/pagead/gen_204?id=mv2-proof"
 JQUERY = "https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"
 
 ADS_PAGE = """<!doctype html><meta charset="utf-8"><title>mv2 ads</title>
 <body style="background:#fff;font:16px -apple-system,sans-serif">
 <h1>Ad test page</h1>
-<div class="adsbygoogle ad-banner" id="ad-slot" style="width:300px;height:120px;background:#fdd">ad slot (.adsbygoogle)</div>
+<div class="adsbygoogle-box ad-banner-300x250" id="ad-slot" style="width:300px;height:120px;background:#fdd">ad slot (EasyList ##.adsbygoogle-box, ##.ad-banner-300x250)</div>
 <p id="state">running</p>
 <script>window.mv2 = {};</script>
 <script src="%s"
   onload="mv2.ad='loaded'" onerror="mv2.ad='blocked'"></script>
 <script src="%s" onload="mv2.jq='loaded'" onerror="mv2.jq='blocked'"></script>
 <script>
-addEventListener('load', () => setTimeout(() => {
+// A request to an ad server that uBlock Origin blocks outright (a script can get a
+// neutered surrogate instead, which still fires onload).
+mv2.beacon = 'pending';
+fetch('%s', {mode: 'no-cors', cache: 'no-store'}).then(() => mv2.beacon = 'loaded', () => mv2.beacon = 'blocked');
+</script>
+<script>
+addEventListener('load', () => setTimeout(function finish() {
+  if (mv2.beacon === 'pending') return setTimeout(finish, 250);
   const slot = document.getElementById('ad-slot');
   mv2.slot = slot && getComputedStyle(slot).display === 'none' ? 'hidden' : 'shown';
   mv2.done = true;
   document.getElementById('state').textContent = JSON.stringify(mv2);
 }, 1500));
 </script>
-""" % (AD_SCRIPT, JQUERY)
+""" % (AD_SCRIPT, JQUERY, AD_BEACON)
 
 
 def log(message):
@@ -213,7 +221,11 @@ class Job:
             params["clip"] = {"x": 0, "y": 0, "width": width, "height": height, "scale": 2}
         except RuntimeError:
             pass
-        data = session.call("Page.captureScreenshot", params, timeout=30)["data"]
+        try:
+            data = session.call("Page.captureScreenshot", params, timeout=30)["data"]
+        except Exception as error:  # noqa: BLE001 - a shot is evidence, not a check
+            log(f"page shot {name} failed: {error!r}")
+            return None
         path = os.path.join(self.out, f"{name}.png")
         with open(path, "wb") as png:
             png.write(base64.b64decode(data))
@@ -264,7 +276,7 @@ def ads_check(job, url, label, expect_blocked):
     try:
         for attempt in range(6):
             state = poll(session, "window.mv2 && window.mv2.done && window.mv2", 20) or {}
-            if not expect_blocked or (state.get("ad") == "blocked" and state.get("slot") == "hidden"):
+            if not expect_blocked or (state.get("beacon") == "blocked" and state.get("slot") == "hidden"):
                 break
             time.sleep(5)  # first run: uBlock Origin may still compile its filter lists
             session.call("Page.reload")
@@ -273,10 +285,11 @@ def ads_check(job, url, label, expect_blocked):
     finally:
         session.close()
     if expect_blocked:
-        job.row(f"{label}: ad script blocked (network filter)", state.get("ad") == "blocked", state)
+        job.row(f"{label}: ad server request blocked (network filter)", state.get("beacon") == "blocked", state)
         job.row(f"{label}: ad slot hidden (cosmetic filter)", state.get("slot") == "hidden", state)
     else:
-        job.row(f"{label}: ad script loads without a blocker", state.get("ad") == "loaded", state)
+        job.row(f"{label}: ad server request and ad script load without a blocker",
+                state.get("beacon") == "loaded" and state.get("ad") == "loaded" and state.get("slot") == "shown", state)
     return state
 
 
@@ -432,10 +445,10 @@ def phase_ublock(args):
     def blocking():
         time.sleep(10)  # first start compiles the bundled filter lists
         # Controls: the host reaches both scripts, so "blocked" in the page is uBlock Origin.
-        for name, address in (("ad script", AD_SCRIPT), ("jQuery CDN", JQUERY)):
+        for name, address in (("ad server", AD_BEACON), ("jQuery CDN", JQUERY)):
             status = host_reaches(address)
-            job.row(f"control: the host reaches the {name}", status == 200, {"url": address, "status": status})
-        ads_check(job, url, "ublock", expect_blocked=True)
+            job.row(f"control: the host reaches the {name}", status in (200, 204), {"url": address, "status": status})
+        ctx["ads"] = ads_check(job, url, "ublock", expect_blocked=True)
 
     def popup():
         prefix = ctx["prefix"]
@@ -450,45 +463,49 @@ def phase_ublock(args):
                 detail["size"] = poll(session, "(() => { const r = document.body.getBoundingClientRect();"
                                                " return r.width > 100 && r.height > 100 && document.body.innerText.length > 10"
                                                " ? [r.width, r.height] : null; })()", 15)
+                time.sleep(1)
+                detail["text"] = (session.evaluate("document.body.innerText") or "")[:300]
                 detail["shot"] = job.page_shot(session, "ublock-popup")
+                # Dynamic filtering through uBlock Origin's own privileged messaging (an
+                # extension page may use the dashboard channel), as "My rules" does.
+                ctx["rule"] = session.evaluate(
+                    "vAPI.messaging.send('dashboard', {what: 'modifyRuleset', permanent: false,"
+                    " toAdd: '* * 3p-script block', toRemove: ''})"
+                    ".then(r => (r && r.sessionRules || []).filter(x => /3p-script/.test(x)))")
             finally:
                 session.close()
             detail["window_shot"] = job.window_shot("ublock-popup-window", popups=True)
         job.row("ublock: popup opens", bool(target and detail.get("size")), detail)
         job.call("debug.extensions.popup", {"hide": True})
 
+    def dynamic():
+        before = (ctx.get("ads") or {}).get("jq")
+        after = ads_check_jq(job, url)
+        job.row("ublock: dynamic filtering blocks a third-party script", before == "loaded" and after == "blocked"
+                and bool(ctx.get("rule")), {"before": before, "rule": ctx.get("rule"), "after": after})
+
     def dashboard():
-        session = job.open_tab(ctx["prefix"] + "dashboard.html", match="dashboard.html")
+        """Automation may not open extension pages as tabs; a person's tab is
+        navigated there through DevTools, as typing the address would."""
+        session = job.open_tab(url + "?dash=1", match="/ads.html?dash=1")
         try:
+            session.call("Page.navigate", {"url": ctx["prefix"] + "dashboard.html"})
             ready = poll(session, "(() => { const f = document.querySelector('iframe');"
-                                  " return f && f.contentDocument && f.contentDocument.readyState === 'complete'"
+                                  " return location.href.includes('dashboard.html') && f && f.contentDocument"
+                                  " && f.contentDocument.readyState === 'complete'"
                                   " && f.contentDocument.body.innerText.length > 50 ? f.src : null; })()", 20)
+            if ready:
+                time.sleep(1)
             shot = job.page_shot(session, "ublock-dashboard")
+            where = session.evaluate("location.href")
         finally:
             session.close()
-        job.row("ublock: dashboard loads", bool(ready), {"pane": ready, "shot": shot})
-
-    def dynamic():
-        before = ads_check_jq(job, url)
-        rules = job.open_tab(ctx["prefix"] + "dyna-rules.html", match="dyna-rules.html")
-        try:
-            poll(rules, "typeof vAPI === 'object' && !!vAPI.messaging", 15)
-            result = rules.evaluate(
-                "vAPI.messaging.send('dashboard', {what: 'modifyRuleset', permanent: false,"
-                " toAdd: '* * 3p-script block', toRemove: ''}).then(r => JSON.stringify(r).slice(0, 400))")
-            rules.call("Page.reload")
-            time.sleep(2)
-            shot = job.page_shot(rules, "ublock-dynamic-rules")
-        finally:
-            rules.close()
-        after = ads_check_jq(job, url)
-        job.row("ublock: dynamic filtering blocks a third-party script", before == "loaded" and after == "blocked",
-                {"before": before, "rule": result, "after": after, "shot": shot})
+        job.row("ublock: dashboard loads", bool(ready), {"pane": ready, "url": where, "shot": shot})
         job.window_shot("ublock-window")
 
     return run_phase(job, [("ublock: loaded", loaded), ("ublock: background", background),
                            ("ublock: blocking", blocking), ("ublock: popup", popup),
-                           ("ublock: dashboard", dashboard), ("ublock: dynamic filtering", dynamic),
+                           ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
                            ("ublock: score pages", lambda: score_pages(job, "ublock"))],
                      cleanup=[server.shutdown])
 
