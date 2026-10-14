@@ -955,12 +955,15 @@ mark {
   opacity: 0.9;
 }
 
+/* On a chip like the moving wallpaper's badge, so it reads over any picture. */
 .backdrop-download {
   position: absolute;
   right: 6px;
   bottom: 6px;
-  color: #fff;
-  filter: drop-shadow(0 0 2px rgb(0 0 0 / 70%));
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text);
 }
 
 /* Choose Image… (cx-t2x.8): an empty tile with a plus. */
