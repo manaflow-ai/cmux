@@ -269,15 +269,20 @@ impl Drop for Guard {
 }
 
 /// A signaling socket that drops mid-handshake (a Worker deploy resets
-/// every socket) need not end the dial: once offer, answer and some
-/// candidates crossed, ICE and DTLS finish without it. `None` means the
-/// socket is gone and the caller keeps waiting for the data channel (the
-/// dial's timeout still bounds it); backend refusals still fail the dial.
+/// every socket) need not end the dial: once offer and answer crossed
+/// (`described`), ICE and DTLS finish without it. `None` means the socket is
+/// gone and the caller keeps waiting for the data channel (the dial's
+/// timeout still bounds it). Before the answer, the loss fails the dial at
+/// once so the app redials on a fresh socket; backend refusals always fail.
 fn signaling_outage(
     event: Result<SessionEvent, DialError>,
     timeline: &Timeline,
+    described: bool,
 ) -> Result<Option<SessionEvent>, DialError> {
     match event {
+        Ok(SessionEvent::Disconnected) | Err(DialError::Signaling(_)) if !described => {
+            Err(DialError::Signaling("signaling socket closed before the answer".into()))
+        }
         Ok(SessionEvent::Disconnected) | Err(DialError::Signaling(_)) => {
             timeline.mark("signaling_lost");
             Ok(None)
@@ -404,7 +409,7 @@ impl Dialer for WebRtcDialer {
                 tokio::select! {
                     opened = &mut open_rx => break opened.map_err(|_| DialError::Transport("data channel never opened".into()))?,
                     event = events.next(), if signaling_up => {
-                        let Some(event) = signaling_outage(event, timeline)? else {
+                        let Some(event) = signaling_outage(event, timeline, remote.ready)? else {
                             signaling_up = false;
                             continue;
                         };
@@ -472,7 +477,7 @@ impl Dialer for WebRtcDialer {
                 tokio::select! {
                     opened = &mut open_rx => break opened.map_err(|_| DialError::Transport("data channel never opened".into()))?,
                     event = events.next(), if signaling_up => {
-                        let Some(event) = signaling_outage(event, timeline)? else {
+                        let Some(event) = signaling_outage(event, timeline, true)? else {
                             signaling_up = false;
                             continue;
                         };
@@ -533,13 +538,21 @@ mod tests {
     #[test]
     fn a_signaling_outage_does_not_fail_the_handshake() {
         let timeline = Timeline::new();
-        assert!(matches!(signaling_outage(Ok(SessionEvent::Disconnected), &timeline), Ok(None)));
-        assert!(matches!(signaling_outage(Err(DialError::Signaling("reset".into())), &timeline), Ok(None)));
-        assert!(timeline.get("signaling_lost").is_some());
-        let refused = Err(DialError::Refused { code: "offline".into(), message: String::new() });
-        assert!(signaling_outage(refused, &timeline).is_err());
+        assert!(matches!(signaling_outage(Ok(SessionEvent::Disconnected), &timeline, true), Ok(None)));
         assert!(matches!(
-            signaling_outage(Ok(SessionEvent::Relay(bytes::Bytes::new())), &timeline),
+            signaling_outage(Err(DialError::Signaling("reset".into())), &timeline, true),
+            Ok(None)
+        ));
+        assert!(timeline.get("signaling_lost").is_some());
+        // Before the answer arrived there is nothing to finish: fail fast.
+        assert!(matches!(
+            signaling_outage(Ok(SessionEvent::Disconnected), &timeline, false),
+            Err(DialError::Signaling(_))
+        ));
+        let refused = Err(DialError::Refused { code: "offline".into(), message: String::new() });
+        assert!(signaling_outage(refused, &timeline, true).is_err());
+        assert!(matches!(
+            signaling_outage(Ok(SessionEvent::Relay(bytes::Bytes::new())), &timeline, true),
             Ok(Some(SessionEvent::Relay(_)))
         ));
     }
