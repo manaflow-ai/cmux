@@ -152,7 +152,9 @@ const PROMPT_START: &[u8] = b"\x1b]133;A";
 fn follow_marks(pty: &PtySurface, output: &[u8]) {
     let Some(identity) = pty.host_identity.as_ref() else { return };
     crate::debug_spans::terminal_mark(&identity.terminal_id, "host.first_output");
-    if output.windows(PROMPT_START.len()).any(|window| window == PROMPT_START) {
+    if crate::debug_spans::owes(&identity.terminal_id, "first_prompt_mark")
+        && output.windows(PROMPT_START.len()).any(|window| window == PROMPT_START)
+    {
         crate::debug_spans::terminal_mark(&identity.terminal_id, "first_prompt_mark");
     }
 }

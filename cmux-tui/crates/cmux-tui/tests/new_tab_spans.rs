@@ -59,7 +59,7 @@ fn a_new_tab_traces_its_terminal_through_its_first_prompt() {
     let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), 0x58);
     let request = json!({"id": 1, "cmd": "new-tab", "terminal_id": terminal_id,
         "env": {"SHELL": "/bin/sh"},
-        "shell_args": ["-c", r"sleep 0.5; printf '\033]133;A\007$ '; sleep 2"]});
+        "shell_args": ["-c", r"sleep 0.3; for i in 1 2 3 4 5 6 7 8; do printf '\033]133;A\007$ '; sleep 0.5; done"]});
     stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     let mut writer = stream.try_clone().unwrap();
     writeln!(writer, "{request}").unwrap();

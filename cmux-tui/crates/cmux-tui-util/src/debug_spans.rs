@@ -42,6 +42,10 @@ pub const FOLLOW_MARKS: [&str; 3] =
 /// oldest first.
 const FOLLOW_LIMIT: usize = 64;
 
+/// How long a terminal stays followed: one never attached (a headless
+/// create, a tab closed first) must not keep every output path checking.
+const FOLLOW_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// A terminal still owed some of [`FOLLOW_MARKS`].
 struct Followed {
     label: &'static str,
@@ -163,6 +167,16 @@ pub fn following() -> bool {
     FOLLOWING.load(Ordering::Acquire)
 }
 
+/// Whether `terminal` is still owed `name`.
+pub fn owes(terminal: &str, name: &'static str) -> bool {
+    following()
+        && FOLLOWED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .any(|entry| entry.terminal == terminal && entry.left.contains(&name))
+}
+
 /// Record `name` for `terminal` the first time, if it is followed.
 pub fn terminal_mark(terminal: &str, name: &'static str) {
     if !following() {
@@ -170,6 +184,10 @@ pub fn terminal_mark(terminal: &str, name: &'static str) {
     }
     let (label, elapsed) = {
         let mut owed = FOLLOWED.lock().unwrap_or_else(PoisonError::into_inner);
+        owed.retain(|entry| entry.start.elapsed() < FOLLOW_WINDOW);
+        if owed.is_empty() {
+            FOLLOWING.store(false, Ordering::Release);
+        }
         let Some(index) =
             owed.iter().position(|entry| entry.terminal == terminal && entry.left.contains(&name))
         else {
