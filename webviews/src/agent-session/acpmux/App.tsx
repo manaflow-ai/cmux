@@ -968,6 +968,9 @@ const JUMP_LATEST_SETTLE_MS = 600;
 /// the latest line, which stopped the chat following for good (cx-02st5).
 const READER_SCROLL_MS = 1000;
 const STRAY_SCROLL_PX = 24;
+/// The longest a reopened chat stays unseen while older pages bring back the row the reader left it
+/// on (cx-odzaz); past it the chat opens at its latest message.
+const OPEN_AT_SEEK_MS = 3000;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view.
 function scrollRangeIn(scroller: HTMLElement, range: Range) {
   const box = range.getBoundingClientRect();
@@ -1272,6 +1275,11 @@ export function VirtualTranscript({
   }, [rows]);
   useLayoutEffect(flushDrawn);
   const didOpenAtLatest = useRef(false);
+  /// The open waits, unseen, while older pages bring back `openAt`'s row; expired, it opens at the latest.
+  const [seeking, setSeeking] = useState(false);
+  const [seekExpired, setSeekExpired] = useState(false);
+  const seekTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(seekTimer.current), []);
   const previousSession = useRef(sessionId);
   useEffect(() => {
     const node = ref.current;
@@ -1559,6 +1567,10 @@ export function VirtualTranscript({
       // openAt position or latest row.
       previousSession.current = sessionId;
       didOpenAtLatest.current = false;
+      clearTimeout(seekTimer.current);
+      seekTimer.current = undefined;
+      setSeeking(false);
+      setSeekExpired(false);
       previousLayout.current = null;
       previousRows.current = rows;
       scrolledTo.current = { top: 0, atLatest: false };
@@ -1637,23 +1649,34 @@ export function VirtualTranscript({
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
       // A chat reopened where the reader left it (cx-6bgzj), else at the latest message.
       const at = openAt ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
-      const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
-      node.scrollTop = top;
-      followTrace.set(top);
-      setScroll({ top, delta: 0 });
-      follow(top >= latest - 1);
-      didOpenAtLatest.current = true;
+      // That row is older than the pages loaded so far (a chat opens on its tail): page back to it
+      // unseen, one older page after another: each page that lands changes `rows` and looks again
+      // (cx-odzaz).
+      if (openAt && at < 0 && canLoadOlder && onLoadOlder && !seekExpired) {
+        seekTimer.current ??= setTimeout(() => setSeekExpired(true), OPEN_AT_SEEK_MS);
+        setSeeking(true);
+        onLoadOlder().catch(() => {});
+      } else {
+        const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
+        node.scrollTop = top;
+        followTrace.set(top);
+        setScroll({ top, delta: 0 });
+        follow(top >= latest - 1);
+        didOpenAtLatest.current = true;
+        clearTimeout(seekTimer.current);
+        setSeeking(false);
+      }
     }
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
-    if (node && node.clientHeight > 0) {
+    if (node && node.clientHeight > 0 && didOpenAtLatest.current) {
       scrolledTo.current = scrollPosition(node, layout.totalHeight);
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width, sessionId]);
+  }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -1757,7 +1780,8 @@ export function VirtualTranscript({
   }, [sessionId]);
   const reportAnchor = () => {
     const node = ref.current;
-    if (!node || !onAnchor) return;
+    // Before the chat opens its offset is not the reader's: the kept place stays.
+    if (!node || !onAnchor || !didOpenAtLatest.current) return;
     // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
     anchorDeferred.current = node.clientHeight === 0;
     if (anchorDeferred.current) return;
@@ -1917,6 +1941,7 @@ export function VirtualTranscript({
         onScroll={onScroll}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        data-seeking={seeking || undefined}
         data-fade-top={renderScroll.top > 0.5 || undefined}
         data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
       >

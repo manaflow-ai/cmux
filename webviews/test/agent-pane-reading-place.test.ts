@@ -170,6 +170,9 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
     expect(top).toBeDefined();
     expect(Math.abs(top! - (await rowPad(tab)))).toBeLessThan(40);
     expect(await bubbleTop(tab, `Question ${TURNS}`)).toBeUndefined();
+    // Paging back never saved another place over the kept one.
+    const saved = await tab.evaluate(() => (window as any).savedAnchors as { rowId: string | null }[]);
+    expect(saved.filter((anchor) => anchor.rowId !== `user-${questionSeq.get(100)}`)).toEqual([]);
     expect(errors).toEqual([]);
     await tab.close();
   });
