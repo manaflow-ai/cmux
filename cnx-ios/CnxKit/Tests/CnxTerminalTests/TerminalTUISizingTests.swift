@@ -49,3 +49,32 @@ import Testing
         #expect(rows(sizing) == 20)
     }
 }
+
+/// User report 2026-10-14: no resize for a size that only lasts a layout pass.
+@Suite struct TerminalResizeSettleTests {
+    typealias Size = TerminalResizeSettle.Size
+
+    @Test func theFirstSizeGoesAtOnce() {
+        var settle = TerminalResizeSettle()
+        #expect(settle.measured(Size(columns: 53, rows: 42)) == .sendNow(Size(columns: 53, rows: 42)))
+    }
+
+    @Test func aSizeThatRevertsWithinTheSettleIsNeverSent() {
+        var settle = TerminalResizeSettle()
+        _ = settle.measured(Size(columns: 53, rows: 42))
+        // Mid-change: 39 rows for one pass, then 42 again (seen live).
+        #expect(settle.measured(Size(columns: 53, rows: 39)) == .wait)
+        #expect(settle.measured(Size(columns: 53, rows: 42)) == .nothing)
+        #expect(settle.settled() == nil)
+    }
+
+    @Test func aSizeThatHoldsIsSentOnce() {
+        var settle = TerminalResizeSettle()
+        _ = settle.measured(Size(columns: 53, rows: 42))
+        #expect(settle.measured(Size(columns: 53, rows: 24)) == .wait)
+        #expect(settle.measured(Size(columns: 53, rows: 24)) == .nothing)
+        #expect(settle.settled() == Size(columns: 53, rows: 24))
+        #expect(settle.settled() == nil)
+        #expect(settle.measured(Size(columns: 53, rows: 24)) == .nothing)
+    }
+}

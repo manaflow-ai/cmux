@@ -48,3 +48,60 @@ public struct TerminalTUISizing: Equatable, Sendable {
         return max(1, Int(floor((bottom - chromeTop) / max(1, cellHeight))))
     }
 }
+
+/// When a new grid size reaches the Mac (user report 2026-10-14, "blinking
+/// and oscillating"). Every resize makes the Mac reset the phone's mirror and
+/// replay the whole history, and an inline TUI such as Codex redraw its whole
+/// transcript. Layout passes measured the page mid-change (the toolbar or
+/// keyboard insets in flux) and sent 53x39 then 53x42 40 ms apart: two resets
+/// and two full redraws for nothing. A size goes to the Mac only once it has
+/// held for `settle`; one that reverts before then is dropped. The first size
+/// goes at once (the attach needs it).
+public struct TerminalResizeSettle: Equatable, Sendable {
+    public struct Size: Equatable, Sendable {
+        public var columns: Int
+        public var rows: Int
+        public init(columns: Int, rows: Int) { self.columns = columns; self.rows = rows }
+    }
+
+    public static let settle: Duration = .milliseconds(250)
+
+    /// The size the Mac was last given.
+    public private(set) var applied: Size?
+    /// A size measured but not yet sent.
+    public private(set) var pending: Size?
+
+    public init() {}
+
+    public enum Action: Equatable, Sendable {
+        /// Send now (the first size).
+        case sendNow(Size)
+        /// Wait `settle`, then ask `settled()`.
+        case wait
+        case nothing
+    }
+
+    /// The layout measured `size`.
+    public mutating func measured(_ size: Size) -> Action {
+        guard let applied else {
+            self.applied = size
+            pending = nil
+            return .sendNow(size)
+        }
+        if size == applied {
+            pending = nil
+            return .nothing
+        }
+        if pending == size { return .nothing }
+        pending = size
+        return .wait
+    }
+
+    /// `settle` passed since the last change: the size to send, if any.
+    public mutating func settled() -> Size? {
+        guard let size = pending else { return nil }
+        pending = nil
+        applied = size
+        return size
+    }
+}

@@ -187,3 +187,14 @@ import Testing
         #expect(JoystickRepeat.fastestRate <= 20)
     }
 }
+
+/// User report 2026-10-14 (resize loop): the PTY's rows are measured against
+/// the composer's one-line card, never its transient rows.
+@Suite struct ComposerRestingHeightTests {
+    @Test func theRestingCardIsOneLineTall() {
+        let metrics = ComposerMetrics()
+        #expect(metrics.restingCardHeight(lineHeight: 20.29) == 48)
+        // Larger text: taller, but still fixed for that size.
+        #expect(metrics.restingCardHeight(lineHeight: 40) == 60)
+    }
+}

@@ -111,6 +111,10 @@ public final class DaemonTerminalSession: TerminalSession {
 
     public func resize(columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
+        // A no-op resize never reaches the Mac (each one makes it reset the
+        // mirror and replay, and an inline TUI redraw its whole transcript).
+        if attached, let last = lastSize, last.columns == columns, last.rows == rows { return }
+        log.notice("surface \(self.surface, privacy: .public): resize to \(columns, privacy: .public)x\(rows, privacy: .public)")
         lastSize = (columns, rows)
         if attached {
             enqueue(.size(columns: columns, rows: rows))
@@ -177,13 +181,31 @@ public final class DaemonTerminalSession: TerminalSession {
                     MainActor.assumeIsolated { self?.channelEnded(client) }
                 }
             }
-            _ = try? await client.request("identify")
+            attachedWithSize = nil
+            let identify = try? await client.request("identify")
+            let initialSize = identify.map(Self.acceptsInitialSize) ?? false
             // The replay that follows rebuilds the screen and scrollback. The
             // reset also tells the screen where the Mac's screen starts in its
             // taller mirror (TerminalRowShift).
+            log.notice("surface \(self.surface, privacy: .public): mirror reset for an attach (everAttached \(self.everAttached, privacy: .public))")
             setAlternate(false)
             handler?(.output(Data("\u{1B}c".utf8)))
-            let reply = try await client.request("attach-surface", params: ["surface": surface])
+            // With the size in the attach the Mac builds the replay at that size
+            // once; attached first and resized after, it reset the mirror and
+            // replayed the whole history a second time (user report 2026-10-14).
+            var reply: Data
+            if initialSize, let size = lastSize ?? pendingSize {
+                reply = try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows])
+                if Self.error(in: reply) != nil {
+                    // A policy that does not pass the size: attach without it.
+                    reply = try await client.request("attach-surface", params: ["surface": surface])
+                } else {
+                    lastSize = size
+                    attachedWithSize = size
+                }
+            } else {
+                reply = try await client.request("attach-surface", params: ["surface": surface])
+            }
             if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
             guard self.client === client else { return }
             attached = true
@@ -191,7 +213,7 @@ public final class DaemonTerminalSession: TerminalSession {
             handler?(.connection(.attached))
             lastError = nil
             pendingSize = nil
-            if let size = lastSize {
+            if let size = lastSize, attachedWithSize.map({ $0.columns != size.columns || $0.rows != size.rows }) ?? true {
                 outbox.removeAll { if case .size = $0 { true } else { false } }
                 outbox.insert(.size(columns: size.columns, rows: size.rows), at: 0)
             }
@@ -233,6 +255,7 @@ public final class DaemonTerminalSession: TerminalSession {
         case .rows(let rows):
             reportedRows = rows
         case .resetMirror(let alternate):
+            log.notice("surface \(self.surface, privacy: .public): mirror reset for a resized event (rows \(self.reportedRows ?? -1, privacy: .public), last size asked \(self.lastSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public))")
             setAlternate(alternate)
             handler?(.output(Data("\u{1B}c".utf8)))
         case .detached(let reason):
@@ -412,6 +435,17 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         }
         return try result.get()
+    }
+
+    /// The size the attach already carried (no separate resize needed).
+    private var attachedWithSize: (columns: Int, rows: Int)?
+
+    /// Whether the daemon takes the viewer's size in `attach-surface`.
+    nonisolated static func acceptsInitialSize(_ identify: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
+              let data = object["data"] as? [String: Any],
+              let capabilities = data["capabilities"] as? [String] else { return false }
+        return capabilities.contains("attach-initial-size")
     }
 
     private static func error(in reply: Data) -> String? {

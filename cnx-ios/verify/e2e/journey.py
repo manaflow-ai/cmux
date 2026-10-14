@@ -1008,6 +1008,71 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
         check(len(late_changes) <= 2, f"the page passed through {len(late_changes)} positions after the reattach: frames {late_changes}")
         return f"reattach with 24000 styled rows of history: {len(late_changes)} band change(s) after the opening, no black frames"
 
+    def s_no_resize_on_scroll(self):
+        """User report 2026-10-14 (resize loop): scrolling up shows Jump to bottom
+        in the composer card; that must not resize the PTY (an inline TUI such as
+        Codex redraws its whole transcript on every resize). A shell counts
+        SIGWINCH while the reader scrolls up and back."""
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        self.mac_write(term, "clear; trap 'echo WINCH' WINCH; seq 1 200; echo READY; while :; do sleep 1; done\n")
+        self.mac_wait_text(term, "READY", timeout=10)
+        time.sleep(1.5)
+        for _ in range(2):
+            self.sim.drag(201, 300, 201, 520, duration=0.5, hold=0.3); time.sleep(2.5)
+            jump = self.sim.find(label="Scroll to bottom")
+            if jump:
+                self.sim.tap_el(jump[0]); time.sleep(2.5)
+        text = self.mac_screen(term).get("text", "")
+        self.mac_write(term, "\x03"); time.sleep(0.5)
+        winches = text.count("WINCH")
+        check(winches == 0, f"scrolling up and back resized the PTY {winches} time(s) (Jump to bottom in the composer resized it)")
+        return "scrolling up and back (Jump to bottom shown and tapped twice): no resize"
+
+    def s_codex_reset_watch(self):
+        """User report 2026-10-14 diagnosis (real Codex, CNX_E2E_REAL_CODEX=1):
+        Codex working with a long transcript, keyboard down, nobody touching:
+        logs every PTY resize and mirror reset with its cause and records the
+        page; no resets or resizes may happen and the view must not move."""
+        if os.environ.get("CNX_E2E_REAL_CODEX") != "1":
+            raise Blocked("needs CNX_E2E_REAL_CODEX=1 (the real Codex CLI makes model calls)")
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        proj = os.path.expanduser("~/cnx-ios-e2e/codexqa-proj")
+        os.makedirs(proj, exist_ok=True)
+        self.mac_write(term, f"clear; cd {proj} && codex\n")
+        deadline = time.time() + 40
+        while time.time() < deadline:
+            text = self.mac_screen(term).get("text", "")
+            if "trust" in text.lower() and "1." in text:
+                self.mac_write(term, "\r"); time.sleep(2)
+            if "›" in text and "trust" not in text.lower():
+                break
+            time.sleep(1)
+        self.sim.tap_q(ident="terminal.composer.field"); time.sleep(0.8)
+        self.sim.softtype("write a 120 line numbered story, then run ls and sleep 20 in the shell and summarize")
+        self.sim.tap_q(ident="terminal.composer.send")
+        self.hide_keyboard()
+        time.sleep(12)
+        video = os.path.join(self.out, f"codex-watch-{self.run_id}.mp4")
+        start = time.time()
+        self.sim.record_start(video)
+        time.sleep(20)
+        self.sim.record_stop()
+        logs = subprocess.run(["xcrun", "simctl", "spawn", self.sim.udid, "log", "show", "--last", f"{int(time.time() - start) + 5}s",
+                               "--style", "compact", "--predicate",
+                               'subsystem == "dev.cmux.cnx" AND (category == "terminal-sizing" OR category == "terminal")', "--debug"],
+                              capture_output=True, text=True).stdout
+        events = [l for l in logs.splitlines() if "resize" in l or "mirror reset" in l]
+        open(os.path.join(self.out, f"codex-watch-{self.run_id}.log"), "w").write("\n".join(events))
+        changes, black = self.band_changes(video, top=0.08, bottom=0.40)
+        self.mac_write(term, "\x03"); time.sleep(0.5); self.mac_write(term, "\x03")
+        check(not events, f"{len(events)} resize/reset events while nobody touched the page: {events[:6]}")
+        check(not black, f"black frames: {black[:10]}")
+        return f"20 s of Codex working, keyboard down: no resize or reset; {len(changes)} upper-band changes (Codex output)"
+
     def s_keybar_swipe_no_back(self):
         """design/terminal R4-1: with the keyboard up, a rightward swipe that starts
         on the key bar (pinned ^C, the scroller, the joystick) stays on the
@@ -1595,6 +1660,8 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
             ("codex_scroll_hold", "Terminal: scrolled up during a Codex stream holds (real Codex)", "termlive", self.s_codex_scroll_hold),
             ("joystick_paste_close", "Terminal: joystick flick and hold, paste control, close confirmation", "termlive", self.s_joystick_paste_close),
             ("reattach_no_jumps", "Terminal: a reattach with long history does not pass through old rows", "termlive", self.s_reattach_no_jumps),
+            ("no_resize_on_scroll", "Terminal: scrolling up never resizes the PTY", "termlive", self.s_no_resize_on_scroll),
+            ("codex_reset_watch", "Terminal: Codex working, untouched: no resets or resizes (real Codex)", "termlive", self.s_codex_reset_watch),
             ("keybar_swipe_no_back", "Terminal: a swipe on the key bar never swipes back", "termlive", self.s_keybar_swipe_no_back),
             ("shell_pull_keyboard_up", "Terminal: pull-down with the keyboard up reaches history", "termlive", self.s_shell_pull_keyboard_up),
             ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),

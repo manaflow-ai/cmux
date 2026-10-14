@@ -159,6 +159,18 @@ public struct ComposerMetrics: Sendable {
 
     public init() {}
 
+    /// The card's height with one line of text and nothing else: what the
+    /// terminal's rows are measured against. Never the card's current height:
+    /// its Jump to bottom row, an attachment strip or a long draft come and
+    /// go, and sizing the PTY by them resized it each time (user report
+    /// 2026-10-14: an inline TUI such as Codex redraws its whole transcript on
+    /// every resize, the view moved, Jump to bottom toggled, and the card
+    /// resized the PTY again).
+    public func restingCardHeight(lineHeight: CGFloat) -> CGFloat {
+        let text = lineHeight + 2 * verticalTextInset(lineHeight: lineHeight)
+        return max(Self.circle, text.rounded(.up)) + 2 * Self.padding
+    }
+
     /// The text view's top and bottom inset for a font of `lineHeight`.
     public func verticalTextInset(lineHeight: CGFloat) -> CGFloat {
         max(4, ((Self.circle - lineHeight) / 2).rounded(.down))

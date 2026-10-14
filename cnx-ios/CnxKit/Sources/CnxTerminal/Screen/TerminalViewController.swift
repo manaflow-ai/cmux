@@ -2,6 +2,11 @@
 import CnxDesign
 import SwiftUI
 import UIKit
+import OSLog
+
+/// Why the PTY is resized and when the mirror is reset (DEBUG diagnosis of
+/// resize/replay loops: `log stream --predicate 'category == "terminal-sizing"'`).
+private let sizingLog = Logger(subsystem: "dev.cmux.cnx", category: "terminal-sizing")
 
 /// Lays out the terminal screen in UIKit, where keyboard tracking is exact:
 ///
@@ -118,6 +123,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var keyBarRule = KeyBarVisibility()
     private var tuiSizing = TerminalTUISizing()
     private var laidOutSize = CGSize.zero
+    private var resizeSettle = TerminalResizeSettle()
+    private var settleTask: Task<Void, Never>?
     private var keyBarHidden: NSLayoutConstraint!
     private var keyBarPinned: NSLayoutConstraint!
     /// A drag that began while following the prompt with the keyboard up:
@@ -473,10 +480,53 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         chrome == .embedded ? embeddedInsets.top : view.safeAreaInsets.top
     }
 
-    /// The composer stack's top with the keyboard down (the key bar folded).
+    /// A size the layout measured goes to the Mac only once it held for a
+    /// moment (`TerminalResizeSettle`): each resize resets the mirror, and an
+    /// inline TUI redraws its transcript.
+    private func measuredGrid(columns: Int, rows: Int) {
+        // Before the Mac's terminal is attached a size costs nothing (the
+        // session keeps it for the attach): the latest one goes at once.
+        if !model.connectionState.isAttached {
+            resizeSettle = TerminalResizeSettle()
+            _ = resizeSettle.measured(.init(columns: columns, rows: rows))
+            settleTask?.cancel()
+            model.session.resize(columns: columns, rows: rows)
+            return
+        }
+        switch resizeSettle.measured(.init(columns: columns, rows: rows)) {
+        case .sendNow(let size):
+            sendResize(size, why: "first size")
+        case .wait:
+            settleTask?.cancel()
+            settleTask = Task { @MainActor [weak self] in
+                try? await ContinuousClock().sleep(for: TerminalResizeSettle.settle)
+                guard let self, !Task.isCancelled, let size = self.resizeSettle.settled() else { return }
+                self.sendResize(size, why: "held \(TerminalResizeSettle.settle)")
+            }
+        case .nothing:
+            if resizeSettle.pending == nil { settleTask?.cancel() }
+        }
+    }
+
+    private func sendResize(_ size: TerminalResizeSettle.Size, why: String) {
+        sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) (\(why, privacy: .public); TUI \(self.model.isTUI, privacy: .public))")
+        model.session.resize(columns: size.columns, rows: size.rows)
+    }
+
+    /// The composer stack's top with the keyboard down (the key bar folded)
+    /// and the composer at its one-line height: the rows never follow the
+    /// card's transient rows (Jump to bottom, attachments, a long draft).
     private var restingStackTop: CGFloat {
-        let composerHeight = composerHost.view.bounds.height > 0 ? composerHost.view.bounds.height : 64
-        return restingComposerBottom - composerHeight
+        restingComposerBottom - restingComposerHeight
+    }
+
+    private var restingComposerHeight: CGFloat {
+        ComposerMetrics().restingCardHeight(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight)
+    }
+
+    /// How much taller the composer card is now than at rest.
+    private var composerGrowth: CGFloat {
+        max(0, composerHost.view.bounds.height - restingComposerHeight)
     }
 
     /// The composer's bottom with the keyboard down.
@@ -586,6 +636,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .output(let data):
             let isReset = data == Self.mirrorReset
             if isReset {
+                sizingLog.notice("mirror reset (the session's replay follows)")
                 freezeLastFrame()
                 // The rows being read are rebuilt from the replay: back to the
                 // prompt once it is laid out (user report 2026-10-14).
@@ -847,8 +898,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiRows = newTUIRows
             gridColumns = columns
             tuiHeight.constant = CGFloat(tuiRows) * cellHeight
-            if columns > 0 { model.session.resize(columns: columns, rows: tuiRows) }
         }
+        if columns > 0 { measuredGrid(columns: columns, rows: newTUIRows) }
 
         // Insets: content starts under the toolbar and ends above the composer.
         let top = chromeTop
@@ -1241,7 +1292,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.layoutIfNeeded()
         // The keyboard settled: a TUI gets the rows above the composer now,
         // one resize (R1-1).
-        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY, restingStackTop: restingStackTop, isTUI: model.isTUI)
+        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth, restingStackTop: restingStackTop, isTUI: model.isTUI)
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The page changed without output (the keyboard came or went): the
