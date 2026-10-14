@@ -278,8 +278,11 @@ fn a_chief_changes_its_own_picture_and_only_the_fields_the_person_allowed() {
 #[test]
 fn an_agent_caller_cannot_make_delete_or_widen_a_chief() {
     let server = HeadlessServer::start("chief-registry-agent");
-    let made =
-        stdout_json(&chief_cli(&server, &["new", "--name", "Ops", "--tools", "tell", "--json"], ""));
+    let made = stdout_json(&chief_cli(
+        &server,
+        &["new", "--name", "Ops", "--tools", "tell", "--json"],
+        "",
+    ));
     let id = made["id"].as_str().unwrap().to_owned();
     let refused_calls: Vec<Vec<&str>> = vec![
         vec!["new", "--name", "Rogue", "--json"],
@@ -292,7 +295,8 @@ fn an_agent_caller_cannot_make_delete_or_widen_a_chief() {
         vec!["edit", &id, "--effort", "high", "--json"],
         vec!["edit", &id, "--role", "Boss", "--tools", "browser", "--json"],
     ];
-    for (key, value) in [("ACPMUX_SESSION_ID", "s_chief_turn"), ("CMUX_AGENT_PRINCIPAL", id.as_str())]
+    for (key, value) in
+        [("ACPMUX_SESSION_ID", "s_chief_turn"), ("CMUX_AGENT_PRINCIPAL", id.as_str())]
     {
         for args in &refused_calls {
             let output = chief_cli_as(&server, args, "", &[(key, value)]);
