@@ -20,7 +20,13 @@ export type HomeIconName =
   | "addReaction"
   | "more"
   | "close"
-  | "chevronRight";
+  | "chevronRight"
+  | "chevronLeft"
+  | "compose"
+  | "search"
+  | "check"
+  | "expand"
+  | "collapse";
 
 const PATHS: Record<HomeIconName, ReactNode> = {
   bold: <path d="M6 4h5a3 3 0 0 1 0 6H6zM6 10h6a3 3 0 0 1 0 6H6z" strokeWidth="2" />,
@@ -88,6 +94,22 @@ const PATHS: Record<HomeIconName, ReactNode> = {
   ),
   close: <path d="M5 5l10 10M15 5 5 15" />,
   chevronRight: <path d="m8 5 5 5-5 5" />,
+  chevronLeft: <path d="m12 5-5 5 5 5" />,
+  compose: (
+    <>
+      <path d="M9 4H5.5A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16h9a1.5 1.5 0 0 0 1.5-1.5V11" />
+      <path d="m8.5 11.5.5-2.5 6.5-6.5 2 2L11 11z" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="9" cy="9" r="5" />
+      <path d="m13 13 3.5 3.5" />
+    </>
+  ),
+  check: <path d="m4.5 10.5 3.5 3.5 7.5-8" />,
+  expand: <path d="M11.5 4H16v4.5M8.5 16H4v-4.5M16 4l-5 5M4 16l5-5" />,
+  collapse: <path d="M15.5 9H11V4.5M4.5 11H9v4.5M11 9l5-5M9 11l-5 5" />,
 };
 
 export function HomeIcon({ name, size = 20 }: { name: HomeIconName; size?: number }) {

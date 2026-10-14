@@ -12,6 +12,8 @@ import type { HomeDraft } from "./drafts";
 import { HomeIcon } from "./icons";
 import { MessageActions } from "./MessageActions";
 import { MAX_THREAD_INDENT, messageText, mentionsMe, type ThreadSummary } from "./model";
+import type { PendingSend } from "./store";
+import type { ThreadMeta } from "./threads";
 import type { HomeMessage, HomeParticipant, HomePart } from "./types";
 
 export interface MessageRowProps {
@@ -40,6 +42,14 @@ export interface MessageRowProps {
   parent?: HomeMessage;
   /** A link opened this message: it is marked (the timeline scrolls to it). */
   highlighted?: boolean;
+  /** The keyboard cursor is on this message (j/k). */
+  selected?: boolean;
+  /** A root's thread as an object (title, status, owner). */
+  meta?: ThreadMeta;
+  /** The root's thread is open in place under it. */
+  expanded?: boolean;
+  /** Answers an agent's open question part. */
+  onAnswer?(message: HomeMessage, partIndex: number, selections: Record<string, string>): void;
 }
 
 export const MessageRow = memo(function MessageRow({
@@ -62,6 +72,10 @@ export const MessageRow = memo(function MessageRow({
   depth = 0,
   parent,
   highlighted = false,
+  selected = false,
+  meta,
+  expanded = false,
+  onAnswer,
 }: MessageRowProps) {
   const { t, format } = strings;
   const author = people.get(message.author);
@@ -72,12 +86,18 @@ export const MessageRow = memo(function MessageRow({
   const canEdit = own && textOnly && onEdit !== undefined && onEditStart !== undefined;
   return (
     <article
-      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}`}
+      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}${selected ? " selected" : ""}${depth > 0 ? " reply" : ""}${meta?.status === "resolved" ? " resolved" : ""}`}
       aria-label={`${author?.name ?? message.author}, ${time}`}
+      aria-current={selected ? "true" : undefined}
       data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
+      data-message={message.id}
     >
       <div className="hc-msg-gutter">
-        {head ? <Avatar participant={author} size={36} /> : <time className="hc-msg-hover-time">{time}</time>}
+        {head ? (
+          <Avatar participant={author} size={depth > 0 ? 24 : 36} />
+        ) : (
+          <time className="hc-msg-hover-time">{time}</time>
+        )}
       </div>
       <div className="hc-msg-main">
         {parent && depth > MAX_THREAD_INDENT && (
@@ -103,14 +123,28 @@ export const MessageRow = memo(function MessageRow({
             }}
           />
         ) : (
-          message.parts.map((part, index) => <Part key={index} part={part} strings={strings} />)
+          message.parts.map((part, index) => (
+            <Part
+              key={index}
+              part={part}
+              strings={strings}
+              onAnswer={onAnswer ? (selections) => onAnswer(message, index, selections) : undefined}
+            />
+          ))
         )}
         {message.editedAt && !message.retracted && !editing && (
           <span className="hc-msg-edited">{t("message.edited")}</span>
         )}
         {message.reactions.length > 0 && <Reactions message={message} me={me} people={people} onReact={onReact} />}
         {thread && onOpenThread && (
-          <ThreadLink thread={thread} people={people} strings={strings} onOpen={() => onOpenThread(message.id)} />
+          <ThreadChip
+            thread={thread}
+            meta={meta}
+            expanded={expanded}
+            people={people}
+            strings={strings}
+            onToggle={() => onOpenThread(message.id)}
+          />
         )}
         {confirmDelete && onRetract && (
           <div className="hc-confirm" role="alert">
@@ -188,57 +222,135 @@ function Head({
   time: ReactNode;
   strings: Strings;
 }) {
+  const tag =
+    author?.kind === "agent" ? strings.t(author.chief ? "chief.badge" : "agent.badge") : undefined;
   return (
     <header className="hc-msg-head">
       <span className="hc-msg-author">{author?.name ?? fallback}</span>
-      {author?.chief && <span className="hc-tag">{strings.t("chief.badge")}</span>}
-      {author?.kind === "agent" && !author.chief && <span className="hc-tag">{strings.t("agent.badge")}</span>}
+      {author && tag && !author.name.toLowerCase().includes(tag.toLowerCase()) && <span className="hc-tag">{tag}</span>}
       {typeof time === "string" ? <time className="hc-msg-time">{time}</time> : time}
     </header>
   );
 }
 
-function ThreadLink({
+/** A root's thread, closed or open in place: who replied, how many, the status and when. */
+function ThreadChip({
   thread,
+  meta,
+  expanded,
   people,
   strings,
-  onOpen,
+  onToggle,
 }: {
   thread: ThreadSummary;
+  meta?: ThreadMeta;
+  expanded: boolean;
   people: ReadonlyMap<string, HomeParticipant>;
   strings: Strings;
-  onOpen(): void;
+  onToggle(): void;
 }) {
   const { t, format } = strings;
-  const stamp = new Intl.DateTimeFormat(strings.language, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
   const count = thread.count === 1 ? t("thread.replies.one") : format("thread.replies.many", String(thread.count));
+  const resolved = meta?.status === "resolved";
   return (
-    <button type="button" className="hc-thread-link" onClick={onOpen}>
+    <button
+      type="button"
+      className={`hc-chip-thread${expanded ? " expanded" : ""}${resolved ? " resolved" : ""}`}
+      aria-expanded={expanded}
+      onClick={onToggle}
+    >
       <span className="hc-thread-faces" aria-hidden="true">
         {thread.authors.slice(0, 3).map((id) => (
-          <Avatar key={id} participant={people.get(id)} size={20} />
+          <Avatar key={id} participant={people.get(id)} size={18} />
         ))}
       </span>
       <span className="hc-thread-count">{count}</span>
-      {thread.unread > 0 && (
-        <span className="hc-thread-new">{strings.format("thread.new", String(thread.unread))}</span>
+      {thread.unread > 0 && !expanded && (
+        <span className="hc-thread-new">{format("thread.new", String(thread.unread))}</span>
       )}
-      <span className="hc-thread-last">{format("thread.lastReply", stamp.format(thread.lastAt))}</span>
-      <span className="hc-thread-view">{t("thread.view")}</span>
-      <span className="hc-thread-chevron" aria-hidden="true">
-        <HomeIcon name="chevronRight" size={16} />
-      </span>
+      {resolved && (
+        <span className="hc-thread-status">
+          <HomeIcon name="check" size={13} />
+          {t("thread.resolved")}
+        </span>
+      )}
+      <span className="hc-thread-last">{expanded ? t("thread.collapse") : relative(thread.lastAt, strings)}</span>
     </button>
   );
 }
 
-function Part({ part, strings }: { part: HomePart; strings: Strings }) {
+/** "now", "5m", "3h", else the date: the chip's quiet age of the last reply. */
+function relative(at: number, strings: Strings): string {
+  const minutes = Math.round((Date.now() - at) / 60_000);
+  const style = new Intl.RelativeTimeFormat(strings.language, { numeric: "auto", style: "narrow" });
+  if (minutes < 1) return style.format(0, "second");
+  if (minutes < 60) return style.format(-minutes, "minute");
+  if (minutes < 24 * 60) return style.format(-Math.round(minutes / 60), "hour");
+  return new Intl.DateTimeFormat(strings.language, { month: "short", day: "numeric" }).format(at);
+}
+
+/** My message the owner has not shown yet: the same shape, dimmed; Retry when it failed. */
+export function PendingRow({
+  pending,
+  head,
+  depth = 0,
+  me,
+  strings,
+  onRetry,
+  onDiscard,
+}: {
+  pending: PendingSend;
+  head: boolean;
+  depth?: number;
+  me?: HomeParticipant;
+  strings: Strings;
+  onRetry(key: string): void;
+  onDiscard(key: string): void;
+}) {
+  const { t } = strings;
+  return (
+    <article
+      className={`hc-msg pending${head ? " head" : ""}${depth > 0 ? " reply" : ""}${pending.failed ? " failed" : ""}`}
+      data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
+      aria-busy={!pending.failed}
+    >
+      <div className="hc-msg-gutter">{head && <Avatar participant={me} size={depth > 0 ? 24 : 36} />}</div>
+      <div className="hc-msg-main">
+        {head && (
+          <header className="hc-msg-head">
+            <span className="hc-msg-author">{me?.name ?? ""}</span>
+            {!pending.failed && <span className="hc-msg-time">{t("message.sending")}</span>}
+          </header>
+        )}
+        <Markdown className="hc-md">{pending.text}</Markdown>
+        {pending.failed && (
+          <p className="hc-msg-failed" role="alert">
+            <span>{t("message.failed")}</span>
+            <button type="button" className="hc-link-button" onClick={() => onRetry(pending.key)}>
+              {t("message.retry")}
+            </button>
+            <button type="button" className="hc-link-button" onClick={() => onDiscard(pending.key)}>
+              {t("action.delete")}
+            </button>
+          </p>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function Part({
+  part,
+  strings,
+  onAnswer,
+}: {
+  part: HomePart;
+  strings: Strings;
+  onAnswer?(selections: Record<string, string>): void;
+}) {
   switch (part.type) {
+    case "question":
+      return <Question part={part} strings={strings} onAnswer={onAnswer} />;
     case "text":
       return <Markdown className="hc-md">{part.text}</Markdown>;
     case "work":
@@ -259,6 +371,49 @@ function Part({ part, strings }: { part: HomePart; strings: Strings }) {
     case "other":
       return <p className="hc-msg-other">{part.text}</p>;
   }
+}
+
+/** An agent's question: each prompt with its choices as quiet buttons; one press answers. */
+function Question({
+  part,
+  strings,
+  onAnswer,
+}: {
+  part: Extract<HomePart, { type: "question" }>;
+  strings: Strings;
+  onAnswer?(selections: Record<string, string>): void;
+}) {
+  const open = part.state === "pending" && onAnswer !== undefined;
+  const single = part.items.length === 1;
+  return (
+    <div className={`hc-question ${part.state}`}>
+      {part.items.map((item) => (
+        <div key={item.id} className="hc-question-item">
+          <p className="hc-question-prompt">{item.prompt}</p>
+          {open && single && (
+            <div className="hc-question-options">
+              {item.options.map((option, index) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`hc-option${index === 0 ? " primary" : ""}`}
+                  onClick={() => onAnswer?.({ [item.id]: option.id })}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+      {part.state === "answered" && (
+        <p className="hc-question-answer">
+          <HomeIcon name="check" size={13} />
+          {part.answer ? strings.format("question.answered", part.answer) : strings.t("question.done")}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function Reactions({

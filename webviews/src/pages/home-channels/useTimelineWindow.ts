@@ -8,7 +8,8 @@
 // the reader is at the bottom it follows new content (a new message, a growing draft); otherwise
 // the row at the top of the viewport keeps its place when rows above it change height or older
 // messages are prepended. A `focus` row (a message a link opened) is scrolled to the middle once,
-// after layout, and the reader stops following the bottom.
+// after layout, and the reader stops following the bottom. A `follow` row (the keyboard cursor)
+// is kept inside the viewport with the smallest scroll.
 import { useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 
 const NEAR_BOTTOM_PX = 48;
@@ -112,6 +113,7 @@ export function useTimelineWindow(
   rows: readonly WindowRow[],
   conversation: string | undefined,
   focus?: string,
+  follow?: string,
 ): TimelineWindow {
   const [metrics] = useState(() => new TimelineMetrics());
   const snapshot = useSyncExternalStore(metrics.subscribe, metrics.getSnapshot);
@@ -134,6 +136,7 @@ export function useTimelineWindow(
     atBottom: true,
     anchor: undefined as { key: string; offset: number } | undefined,
     focused: undefined as string | undefined,
+    followed: undefined as string | undefined,
   });
   const anchorFor = (element: HTMLElement) => {
     const top = element.scrollTop;
@@ -160,6 +163,17 @@ export function useTimelineWindow(
       state.atBottom = false;
       const end = focusIndex + 1 < rows.length ? starts[focusIndex + 1]! : total;
       element.scrollTop = Math.max(0, (starts[focusIndex]! + end - element.clientHeight) / 2);
+    } else if (follow && follow !== state.followed && rows.some((row) => row.key === follow)) {
+      // Once per cursor move: the smallest scroll that shows the row (with a little room).
+      state.followed = follow;
+      const index = rows.findIndex((row) => row.key === follow);
+      const start = starts[index]!;
+      const end = index + 1 < rows.length ? starts[index + 1]! : total;
+      const room = 24;
+      if (start - room < element.scrollTop) element.scrollTop = Math.max(0, start - room);
+      else if (end + room > element.scrollTop + element.clientHeight)
+        element.scrollTop = end + room - element.clientHeight;
+      state.atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < NEAR_BOTTOM_PX;
     } else if (state.atBottom) {
       element.scrollTop = element.scrollHeight;
     } else if (state.anchor) {

@@ -1,5 +1,6 @@
 // A participant's initials on a neutral tile (the theme's foreground at low strength; no hue).
 // Agents get a rounded square, people a circle, so a glance tells them apart.
+import type { CSSProperties } from "react";
 import type { HomeParticipant } from "./types";
 
 export function initials(name: string): string {
@@ -14,12 +15,12 @@ export function Avatar({ participant, size = 32 }: { participant?: HomeParticipa
   const agent = participant?.kind === "agent";
   return (
     <span
-      className={`hc-avatar${size >= 24 ? " large" : ""}${agent ? " agent" : ""}${participant?.chief ? " chief" : ""}`}
-      style={{ width: size, height: size }}
+      className={`hc-avatar${agent ? " agent" : ""}${participant?.chief ? " chief" : ""}`}
+      style={{ width: size, height: size, "--face": `${size}px` } as CSSProperties}
       aria-hidden="true"
     >
-      {/* A rail-size tile has room for one letter only. */}
-      {initials(participant?.name ?? "?").slice(0, size >= 24 ? 2 : 1)}
+      {/* A small face has room for one letter only. */}
+      {initials(participant?.name ?? "?").slice(0, size >= 30 ? 2 : 1)}
     </span>
   );
 }

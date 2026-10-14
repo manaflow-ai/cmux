@@ -2,10 +2,12 @@
 // viewport, measured after render because messages differ in height), day lines with a centered
 // date pill, message rows and the running reply. Scrolling near the top asks the store for one
 // older page.
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
-import { DraftRow, MessageRow } from "./MessageRow";
+import { HomeIcon } from "./icons";
+import { DraftRow, MessageRow, PendingRow } from "./MessageRow";
 import type { TimelineRow } from "./model";
+import type { ThreadMeta } from "./threads";
 import type { HomeMessage, HomeParticipant } from "./types";
 import { useTimelineWindow } from "./useTimelineWindow";
 
@@ -31,11 +33,32 @@ export interface TimelineProps {
   highlight?: string;
   className?: string;
   /** What the empty timeline says. */
-  empty?: string;
+  empty?: ReactNode;
+  /** The message under the keyboard cursor (kept in view). */
+  selected?: string;
+  /** The thread object of a root (title, status, owner). */
+  meta?(root: HomeMessage): ThreadMeta | undefined;
+  /** The root whose thread is open in place. */
+  expanded?: string;
+  onAnswer?(message: HomeMessage, partIndex: number, selections: Record<string, string>): void;
+  onRetry?(key: string): void;
+  onDiscard?(key: string): void;
+  /** An open thread's actions: reply, focus it, resolve or reopen it, close it, load more replies. */
+  onThreadAction?(root: string, action: ThreadAction): void;
+  /** The focused thread draws its end row without the Focus and Hide actions. */
+  focused?: boolean;
 }
 
+export type ThreadAction = "reply" | "focus" | "resolve" | "close" | "more";
+
 const estimate = (row: TimelineRow) =>
-  row.kind === "day" || row.kind === "replies" ? 44 : row.kind === "new" ? 24 : row.head ? 64 : 28;
+  row.kind === "day" || row.kind === "replies" || row.kind === "threadEnd"
+    ? 44
+    : row.kind === "new"
+      ? 24
+      : row.head
+        ? 64
+        : 28;
 
 export function Timeline({
   conversation,
@@ -57,6 +80,14 @@ export function Timeline({
   highlight,
   className,
   empty,
+  selected,
+  meta,
+  expanded,
+  onAnswer,
+  onRetry,
+  onDiscard,
+  onThreadAction,
+  focused = false,
 }: TimelineProps) {
   const timeFormat = useMemo(
     () => new Intl.DateTimeFormat(strings.language, { hour: "numeric", minute: "2-digit" }),
@@ -68,7 +99,7 @@ export function Timeline({
   );
   const sized = useMemo(() => rows.map((row) => ({ key: row.key, estimate: estimate(row) })), [rows]);
   // Destructured: `scroller` alone is the ref; the rest are plain render values.
-  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation, highlight);
+  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation, highlight, selected);
   if (rows.length === 0)
     return <div className={`hc-timeline-empty ${className ?? ""}`}>{empty ?? strings.t("timeline.empty")}</div>;
   return (
@@ -110,6 +141,25 @@ export function Timeline({
                         : strings.format("thread.replies.many", String(row.count))}
                     </span>
                   </div>
+                ) : row.kind === "pending" ? (
+                  <PendingRow
+                    pending={row.pending}
+                    head={row.head}
+                    depth={row.depth}
+                    me={me ? people.get(me) : undefined}
+                    strings={strings}
+                    onRetry={(key) => onRetry?.(key)}
+                    onDiscard={(key) => onDiscard?.(key)}
+                  />
+                ) : row.kind === "threadEnd" ? (
+                  <ThreadEnd
+                    count={row.count}
+                    more={row.more}
+                    resolved={metaById(rows, row.root, meta)?.status === "resolved"}
+                    focused={focused}
+                    strings={strings}
+                    onAction={(action) => onThreadAction?.(row.root, action)}
+                  />
                 ) : row.kind === "draft" ? (
                   <DraftRow draft={row.draft} head={row.head} people={people} strings={strings} />
                 ) : (
@@ -133,6 +183,10 @@ export function Timeline({
                     depth={row.depth}
                     parent={row.parent}
                     highlighted={row.message.id === highlight}
+                    selected={row.message.id === selected}
+                    meta={row.thread ? meta?.(row.message) : undefined}
+                    expanded={row.message.id === expanded}
+                    onAnswer={onAnswer}
                   />
                 )}
               </div>
@@ -140,6 +194,69 @@ export function Timeline({
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The thread object of a root among the rows. */
+function metaById(
+  rows: readonly TimelineRow[],
+  root: string,
+  meta: TimelineProps["meta"],
+): ThreadMeta | undefined {
+  const row = rows.find((entry) => entry.kind === "message" && entry.message.id === root);
+  return row?.kind === "message" && meta ? meta(row.message) : undefined;
+}
+
+/** The end of a thread open in place: Reply, Resolve, Focus and Hide as quiet words with their keys. */
+function ThreadEnd({
+  count,
+  more,
+  resolved,
+  focused,
+  strings,
+  onAction,
+}: {
+  count: number;
+  more: boolean;
+  resolved: boolean;
+  focused: boolean;
+  strings: Strings;
+  onAction(action: ThreadAction): void;
+}) {
+  const { t } = strings;
+  return (
+    <div className={`hc-thread-end${focused ? " focused" : ""}`} role="toolbar" aria-label={t("thread.title")}>
+      {more && (
+        <button type="button" className="hc-end-button" onClick={() => onAction("more")}>
+          {t("thread.more")}
+        </button>
+      )}
+      <button type="button" className="hc-end-button strong" onClick={() => onAction("reply")}>
+        <HomeIcon name="reply" size={15} />
+        {t("action.replyTo")}
+        <kbd>R</kbd>
+      </button>
+      <button type="button" className="hc-end-button" onClick={() => onAction("resolve")}>
+        <HomeIcon name="check" size={15} />
+        {t(resolved ? "thread.reopen" : "thread.resolve")}
+        <kbd>E</kbd>
+      </button>
+      {!focused && (
+        <button type="button" className="hc-end-button" onClick={() => onAction("focus")}>
+          <HomeIcon name="expand" size={14} />
+          {t("thread.focus")}
+        </button>
+      )}
+      {!focused && (
+        <button type="button" className="hc-end-button" onClick={() => onAction("close")}>
+          {t("thread.collapse")}
+          <kbd>T</kbd>
+        </button>
+      )}
+      <span className="hc-end-count">
+        {count === 1 ? t("thread.replies.one") : strings.format("thread.replies.many", String(count))}
+      </span>
     </div>
   );
 }

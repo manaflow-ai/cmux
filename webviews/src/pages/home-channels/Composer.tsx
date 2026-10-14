@@ -4,7 +4,7 @@
 // the sent text, the emoji and the mention are inserted text. The Home send op takes text only,
 // so there is no attach, voice, video or scheduled send. In an empty composer, Up edits my last
 // message. The text clears only when the owner took the message; the owner's event shows it.
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../agent-session/acpmux/composer/PromptEditor";
 import type { MarkdownFormat } from "../../agent-session/acpmux/markdownFormat";
 import type { EmojiTable } from "../../icon-picker/emojiData";
@@ -34,6 +34,8 @@ export interface ComposerProps {
   /** Take the keyboard focus when it opens (an inline edit started from the keyboard). */
   focusOnOpen?: boolean;
   className?: string;
+  /** A line above the field inside the box (what the message replies to). */
+  context?: ReactNode;
 }
 
 const FORMAT_GROUPS: ReadonlyArray<ReadonlyArray<{ format: MarkdownFormat; icon: HomeIconName; key: string }>> = [
@@ -70,10 +72,11 @@ export function Composer({
   onCancel,
   focusOnOpen,
   className,
+  context,
 }: ComposerProps) {
   const { t } = strings;
   const [value, setValue] = useState(initialValue);
-  const [showFormats, setShowFormats] = useState(true);
+  const [showFormats, setShowFormats] = useState(false);
   const [active, setActive] = useState("");
   const [pop, setPop] = useState<Pop | undefined>();
   const [emoji, setEmoji] = useState<EmojiTable | undefined>();
@@ -124,6 +127,7 @@ export function Composer({
       ref={root}
       className={`hc-composer${disabled ? " disabled" : ""}${editing ? " hc-edit" : ""}${className ? ` ${className}` : ""}`}
     >
+      {context}
       {showFormats && (
         <Toolbar label={t("format.toolbar")} className="hc-format">
           {FORMAT_GROUPS.map((group, index) => (

@@ -7,6 +7,7 @@ import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, threadOf } from "./model";
+import type { ThreadStatus } from "./threads";
 import {
   HomeOps,
   type HomeConversation,
@@ -27,6 +28,18 @@ const LINK_PAGES = 20;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
+
+/** A message I sent that the owner has not shown yet (optimistic): it shows at once, dimmed, and
+ * goes away when the owner's event with the same key arrives. A failed one offers Retry. */
+export interface PendingSend {
+  key: string;
+  conversation: string;
+  text: string;
+  threadRoot?: string;
+  replyTo?: string;
+  at: number;
+  failed: boolean;
+}
 
 /** The open thread as the owner's thread read returned it (`cmux.home.thread`), kept current by
  * events. Absent on a host without the read: the panel shows the window's replies. */
@@ -66,6 +79,12 @@ export interface HomeSnapshot {
   draft?: HomeDraft;
   /** The message a link opened: the timeline or thread panel scrolls to it and marks it. */
   highlight?: string;
+  /** Who is writing where right now (typing or a running reply), in every conversation. */
+  activity: ReadonlyMap<string, string>;
+  /** My sends the owner has not shown yet. */
+  pending: readonly PendingSend[];
+  /** Threads resolved or reopened in this visit (threads.ts placeholder until the owner keeps it). */
+  threadStatus: ReadonlyMap<string, ThreadStatus>;
   error?: string;
 }
 
@@ -93,6 +112,9 @@ export class HomeChannelsStore {
       typing: [],
       threadsSeen: new Set(),
       threadStats: new Map(),
+      activity: new Map(),
+      pending: [],
+      threadStatus: new Map(),
     };
   }
 
@@ -268,6 +290,7 @@ export class HomeChannelsStore {
         unseen,
         draft: this.drafts.draft(id),
         threadStats: withStats(this.snapshot.threadStats, page.threads),
+        pending: this.snapshot.pending.filter((entry) => !messages.some((m) => m.clientMessageId === entry.key)),
       });
       this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
@@ -349,19 +372,72 @@ export class HomeChannelsStore {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
     if (!this.client || !conversation || !trimmed) return false;
+    const pending: PendingSend = {
+      key: this.key("send"),
+      conversation,
+      text: trimmed,
+      at: Date.now(),
+      failed: false,
+      ...(thread ? { threadRoot: thread } : {}),
+      ...(parent ? { replyTo: parent } : {}),
+    };
+    // Optimistic: the row shows now; the composer clears now. The owner's event replaces it.
+    this.set({ pending: [...this.snapshot.pending, pending] });
+    void this.deliver(pending);
+    return true;
+  }
+
+  /** Sends a pending message (again, after a failure: the same key, so the owner never doubles it). */
+  retry(key: string): void {
+    const pending = this.snapshot.pending.find((entry) => entry.key === key);
+    if (!pending) return;
+    this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === key ? { ...entry, failed: false } : entry)) });
+    void this.deliver({ ...pending, failed: false });
+  }
+
+  discard(key: string): void {
+    this.set({ pending: this.snapshot.pending.filter((entry) => entry.key !== key) });
+  }
+
+  private async deliver(pending: PendingSend): Promise<void> {
+    if (!this.client) return;
     try {
       await this.client.call(HomeOps.send, {
-        conversation,
-        text: trimmed,
-        threadRoot: thread,
-        replyTo: parent,
-        idempotencyKey: this.key("send"),
+        conversation: pending.conversation,
+        text: pending.text,
+        threadRoot: pending.threadRoot,
+        replyTo: pending.replyTo,
+        idempotencyKey: pending.key,
       });
-      return true;
+    } catch (error) {
+      this.set({
+        error: describe(error),
+        pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? { ...entry, failed: true } : entry)),
+      });
+    }
+  }
+
+  /** Answers an agent's open question (one option per item). */
+  async answer(message: HomeMessage, partIndex: number, selections: Record<string, string>): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call(HomeOps.answer, {
+        conversation: message.conversation,
+        message: message.id,
+        partIndex,
+        selections,
+        idempotencyKey: this.key("answer"),
+      });
     } catch (error) {
       this.set({ error: describe(error) });
-      return false;
     }
+  }
+
+  /** Resolves an open thread, or reopens a resolved one (threads.ts: this visit only for now). */
+  toggleResolved(root: string): void {
+    const next = new Map(this.snapshot.threadStatus);
+    next.set(root, next.get(root) === "resolved" ? "open" : "resolved");
+    this.set({ threadStatus: next });
   }
 
   /** Creates a channel (a titled group) with these members and opens it. Resolves true when the
@@ -469,6 +545,27 @@ export class HomeChannelsStore {
     for (const item of batch.drafts ?? []) this.drafts.apply(item);
     for (const entry of batch.typing ?? []) if (!entry.on) this.drafts.typingOff(entry.conversation, entry.participant);
     for (const message of batch.messages ?? []) this.drafts.posted(message);
+    // Who is writing where: typing and running replies in every conversation, not only the open one.
+    let activity: Map<string, string> | undefined;
+    const touch = (participant: string, conversation: string | undefined) => {
+      activity ??= new Map(this.snapshot.activity);
+      if (conversation === undefined) activity.delete(participant);
+      else activity.set(participant, conversation);
+    };
+    for (const item of batch.drafts ?? []) touch(item.participant, item.done ? undefined : item.conversation);
+    for (const entry of batch.typing ?? []) {
+      if (entry.on) touch(entry.participant, entry.conversation);
+      else if (this.snapshot.activity.get(entry.participant) === entry.conversation) touch(entry.participant, undefined);
+    }
+    for (const message of batch.messages ?? [])
+      if (message.clientMessageId && (activity ?? this.snapshot.activity).get(message.author) === message.conversation)
+        touch(message.author, undefined);
+    if (batch.connection === "offline") activity = new Map();
+    if (activity) patch.activity = activity;
+    // My pending sends the owner now shows (same key) are done.
+    const shown = new Set((batch.messages ?? []).map((message) => message.clientMessageId).filter(Boolean));
+    if (shown.size > 0 && this.snapshot.pending.some((entry) => shown.has(entry.key)))
+      patch.pending = this.snapshot.pending.filter((entry) => !shown.has(entry.key));
     let conversations: Map<string, HomeConversation> | undefined;
     for (const conversation of batch.conversations ?? []) {
       conversations ??= new Map(this.snapshot.conversations);

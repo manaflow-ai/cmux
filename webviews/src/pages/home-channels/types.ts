@@ -16,6 +16,7 @@ export const HomeOps = {
   retract: "cmux.home.retract",
   createGroup: "cmux.home.createGroup",
   resolveLink: "cmux.home.resolveLink",
+  answer: "cmux.home.answer",
   events: "cmux.home.events",
 } as const;
 
@@ -50,6 +51,12 @@ export interface HomeConversation {
   muted: boolean;
   pinned: boolean;
   lastText?: string;
+  /** When the last message was written (the list's order and time; absent with no message). */
+  lastAt?: number;
+  /** Who wrote the last message (absent with no message). */
+  lastAuthor?: string;
+  /** The last message asks me a question that is still open (an agent's pending question). */
+  lastAsks?: boolean;
 }
 
 export interface HomeMention {
@@ -63,7 +70,17 @@ export type HomePart =
   | { type: "text"; text: string; mentions: HomeMention[] }
   | { type: "work"; title: string; status: "running" | "waiting" | "done" | "failed"; preview?: string }
   | { type: "attachment"; name: string; mimeType: string; byteCount: number; hash: string }
+  | { type: "question"; items: HomeQuestionItem[]; state: "pending" | "answered" | "cancelled"; answer?: string }
   | { type: "other"; text: string };
+
+/** One item of an agent's question (`question` part): the prompt and its choices. */
+export interface HomeQuestionItem {
+  id: string;
+  header?: string;
+  prompt: string;
+  options: { id: string; label: string }[];
+  multiSelect: boolean;
+}
 
 export interface HomeReaction {
   author: string;

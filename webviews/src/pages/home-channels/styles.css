@@ -1,19 +1,32 @@
-/* The channels Home. Colors come only from the shared web theme (Ghostty-derived `--cmux-app-*`
-   and `--page-*`), so light and dark follow the theme; color marks only real state (new, mention,
-   danger). Sizes come only from the type tokens. Chrome breathes (52 px headers, 28 px rail rows);
-   the transcript stays dense. Surfaces: hairline borders and a slightly lighter fill, radii nested
-   (composer 10, popovers 10, hover card 8, buttons 6). Rows never move when their actions show. */
+/* The Home, "Conversation" direction: a personal messenger that grew channels and threads. Colors
+   come only from the shared web theme (Ghostty-derived `--cmux-app-*` and `--page-*`), so light and
+   dark follow the theme; color marks only real state (a Chief waiting for you, new, danger). Sizes
+   come only from the type tokens (relative em for the few large titles). Chrome breathes: 68 px
+   list rows with 40 px faces, a 60 px header, generous gaps between message groups; the transcript
+   column stays readable at full width (880 px). Surfaces: hairlines and a slightly lighter fill,
+   radii nested (composer 14, rows 12, chips 8, buttons 6). Rows never move when actions show. */
+@property --hc-turn {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
 :root {
   --hc-accent: var(--cmux-app-accent, var(--page-text));
   --hc-on-accent: var(--cmux-app-on-accent, var(--cmux-surface-solid, Canvas));
   --hc-danger: var(--cmux-app-danger, #e5484d);
+  /* Something needs you (a Chief waiting for your answer): the theme's warning, else amber. */
+  --hc-attention: var(--cmux-app-warning, #f2a93b);
   /* Ink on a text-colored fill: the opaque surface (the page background is clear in a translucent
      window). */
   --hc-on-text: var(--cmux-surface-solid, Canvas);
   --hc-fill: color-mix(in srgb, var(--page-text) 4%, transparent);
   --hc-fill-strong: color-mix(in srgb, var(--page-text) 8%, transparent);
-  --hc-line-strong: color-mix(in srgb, var(--page-text) 24%, transparent);
-  --hc-gutter: 20px;
+  --hc-line-strong: color-mix(in srgb, var(--page-text) 22%, transparent);
+  --hc-gutter: 24px;
+  --hc-column: 880px;
+  /* A reply in a thread opened in place starts under its root's text (36 px face + 12 px gap). */
+  --hc-thread-start: 48px;
+  --hc-indent: 22px;
   /* The agent pane's Markdown tokens, mapped to the page theme at chat density. */
   --agent-text: var(--page-text);
   --agent-muted: var(--page-text-2);
@@ -35,13 +48,11 @@ body,
   overflow: hidden;
 }
 
+/* The list takes about a third of a narrow window (the Home dock) and at most 340 px of a wide one. */
 .hc-page {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: clamp(248px, 31%, 340px) minmax(0, 1fr);
   height: 100%;
-}
-.hc-page.with-thread {
-  grid-template-columns: 248px minmax(0, 1fr) minmax(320px, 400px);
 }
 
 .hc-icon {
@@ -51,13 +62,18 @@ body,
 .hc-icon-button {
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: var(--page-text-2);
   cursor: default;
+}
+.hc-icon-button.small {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
 }
 .hc-icon-button:hover {
   background: var(--page-hover);
@@ -75,6 +91,12 @@ body,
   font-weight: 600;
   cursor: default;
 }
+.hc-text-button.large {
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: var(--text-body);
+}
 .hc-text-button:hover:not(:disabled) {
   background: var(--page-hover);
 }
@@ -82,6 +104,9 @@ body,
   border-color: transparent;
   background: var(--page-text);
   color: var(--hc-on-text);
+}
+.hc-text-button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--page-text) 86%, transparent);
 }
 .hc-text-button.primary:disabled {
   opacity: 0.4;
@@ -92,317 +117,324 @@ body,
   /* Danger is fitted against the app theme's window, so that is its ink. */
   color: var(--cmux-app-window, var(--cmux-surface-solid, Canvas));
 }
-
-/* ---------- Rail ---------- */
-/* The rail paints no fill, as the native sidebar (Palette.sidebarBackground: "the same as the
-   window"): html's one background shows through it, the theme color in an opaque window and the
-   window material and art in a see-through one, where the window tint keeps text legible. */
-.hc-rail {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-inline-end: 1px solid var(--page-separator);
-}
-.hc-rail-header {
-  height: 52px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-}
-.hc-rail-title {
-  font-weight: 700;
-  font-size: var(--text-heading);
-  letter-spacing: -0.01em;
-}
-.hc-jump {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 10px 10px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--page-separator);
-  border-radius: 8px;
-  background: var(--hc-fill);
-  color: var(--page-text-3);
-  font: inherit;
-  cursor: default;
-}
-.hc-jump:hover {
-  background: var(--page-hover);
-  color: var(--page-text-2);
-}
-.hc-jump kbd {
-  font: inherit;
-  font-size: var(--text-caption);
-}
-.hc-rail-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding-bottom: 12px;
-}
-.hc-rail-empty {
-  padding: 8px 16px;
-  color: var(--page-text-3);
-}
-.hc-rail-section {
-  margin-top: 10px;
-}
-.hc-rail-section h2 {
-  margin: 0 0 2px;
-  padding: 0 8px;
-  font-size: inherit;
-  font-weight: inherit;
-}
-.hc-rail-fold {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 26px;
-  width: 100%;
-  padding: 0 6px;
+.hc-link-button {
+  padding: 0;
   border: 0;
-  border-radius: 6px;
   background: transparent;
-  color: var(--page-text-2);
+  color: var(--page-text);
   font: inherit;
-  font-size: var(--text-detail);
   font-weight: 600;
-  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: default;
 }
-.hc-rail-fold:hover {
-  background: var(--page-hover);
-}
-.hc-rail-caret {
-  display: inline-grid;
-  place-items: center;
-  transform: rotate(90deg);
-  transition: transform 120ms ease-out;
-}
-.hc-rail-section.folded .hc-rail-caret {
-  transform: rotate(0deg);
-}
-:dir(rtl) .hc-rail-section.folded .hc-rail-caret {
-  transform: rotate(180deg);
-}
-.hc-rail-section ul {
-  list-style: none;
-  margin: 0;
-  padding: 0 8px;
-}
-.hc-rail-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--page-text-2);
-  font: inherit;
-  text-align: start;
-  cursor: default;
-}
-.hc-rail-row:hover {
-  background: var(--page-hover);
-}
-.hc-rail-row.active {
-  background: var(--page-selection);
-  color: var(--page-text);
-}
-.hc-rail-row.unread {
-  color: var(--page-text);
-  font-weight: 700;
-}
-.hc-rail-row.muted {
-  opacity: 0.55;
-}
-.hc-rail-name {
-  flex: 1;
-  min-width: 0;
+.hc-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
-  text-overflow: ellipsis;
+  clip-path: inset(50%);
   white-space: nowrap;
 }
-.hc-hash {
-  width: 16px;
-  text-align: center;
-  color: var(--page-text-3);
-  font-weight: 400;
-}
-.hc-tag {
-  padding: 0 5px;
-  border-radius: 4px;
-  font-size: var(--text-caption);
-  font-weight: 600;
-  line-height: 16px;
-  color: var(--page-text-2);
-  background: var(--hc-fill-strong);
-}
-.hc-badge {
-  min-width: 18px;
-  padding: 0 6px;
-  border-radius: 9px;
-  font-size: var(--text-caption);
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-  color: var(--hc-on-accent);
-  background: var(--hc-accent);
-}
-.hc-badge.subtle {
-  color: var(--page-text-2);
-  background: var(--page-hover);
+kbd {
+  font: inherit;
 }
 
-.hc-rail-extra {
-  color: var(--page-text-3);
-  font-weight: 400;
-  font-size: var(--text-caption);
-}
-.hc-rail-add {
-  color: var(--page-text-3);
-}
-.hc-rail-add-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  background: var(--hc-fill-strong);
-  color: var(--page-text-2);
-  font-weight: 600;
-  line-height: 1;
-}
-.hc-add-channel.ui-popover {
-  width: 300px;
-  padding: 14px;
-}
-.hc-add-channel form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.hc-add-title {
-  margin: 0;
-  font-size: var(--text-title);
-  font-weight: 700;
-}
-.hc-add-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 0;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  font-weight: 600;
-}
-.hc-add-members {
-  max-height: 220px;
-  overflow-y: auto;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.hc-add-members .hc-pick-row input {
-  margin: 0;
-}
-.hc-add-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-/* ---------- Avatar ---------- */
+/* ---------- Faces ---------- */
+/* Initials on a soft monochrome gradient (no hue): people round, agents a rounded square. The size
+   comes from the element (`--face`), so the initials scale with it. */
 .hc-avatar {
-  font-size: var(--text-caption);
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
+  font-size: calc(var(--face, 2.4em) * 0.38);
   font-weight: 600;
-  color: var(--page-text);
-  background: color-mix(in srgb, var(--page-text) 14%, transparent);
-}
-.hc-avatar.large {
-  font-size: var(--text-detail);
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--page-text) 88%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--page-text) 24%, transparent),
+    color-mix(in srgb, var(--page-text) 12%, transparent)
+  );
 }
 .hc-avatar.agent {
-  border-radius: 28%;
+  border-radius: 30%;
 }
-.hc-avatar.chief {
-  box-shadow: inset 0 0 0 1.5px var(--hc-accent);
+.hc-face {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 30%;
+  font-size: calc(var(--face, 2.4em) * 0.46);
+  font-weight: 500;
+  color: var(--page-text-2);
+  background: var(--hc-fill-strong);
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+}
+.hc-face-wrap {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+}
+/* A Chief at work: a thin ring whose bright arc turns slowly around the face. */
+.hc-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 36%;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--hc-turn),
+    color-mix(in srgb, var(--page-text) 12%, transparent) 0deg,
+    color-mix(in srgb, var(--page-text) 12%, transparent) 150deg,
+    color-mix(in srgb, var(--page-text) 90%, transparent) 320deg,
+    color-mix(in srgb, var(--page-text) 12%, transparent) 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hc-ring {
+    animation: hc-turn 2.6s linear infinite;
+  }
+}
+@keyframes hc-turn {
+  to {
+    --hc-turn: 360deg;
+  }
+}
+/* A Chief waiting for you: a small dot on the face's corner. */
+.hc-dot {
+  position: absolute;
+  inset-inline-end: -2px;
+  bottom: -2px;
+  width: 30%;
+  height: 30%;
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: 50%;
+  background: var(--hc-attention);
+  box-shadow: 0 0 0 2px var(--cmux-surface-solid, Canvas);
 }
 
-/* ---------- Main ---------- */
-.hc-main {
+/* ---------- Conversation list ---------- */
+/* The list paints no fill, as the native sidebar (Palette.sidebarBackground: "the same as the
+   window"): html's one background shows through it, the theme color in an opaque window and the
+   window material and art in a see-through one, where the window tint keeps text legible. */
+.hc-inbox {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-inline-end: 1px solid var(--page-separator);
+}
+.hc-inbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 60px;
+  flex: none;
+  padding: 0 12px 0 20px;
+}
+.hc-inbox-title {
+  margin: 0;
+  font-size: 1.6em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.hc-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  margin: 0 12px 10px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--hc-fill-strong);
+  color: var(--page-text-3);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.hc-search > span {
+  flex: 1;
+}
+.hc-search:hover {
+  color: var(--page-text-2);
+}
+.hc-search kbd {
+  font-size: var(--text-caption);
+}
+.hc-inbox-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 2px 8px 12px;
+  list-style: none;
+  overflow-y: auto;
+}
+.hc-inbox-empty {
+  margin: 8px 20px;
+  color: var(--page-text-3);
+}
+.hc-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 68px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.hc-row:hover {
+  background: var(--page-hover);
+}
+.hc-row.active {
+  background: var(--page-selection);
+}
+.hc-row:focus-visible {
+  outline: 2px solid var(--hc-line-strong);
+  outline-offset: -2px;
+}
+.hc-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.hc-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.hc-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--page-text);
+}
+.hc-row-time {
+  flex: none;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.hc-row-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--page-text-3);
+}
+/* Unread is weight: the name, the time and the preview take full ink. */
+.hc-row.unread .hc-row-name {
+  font-weight: 700;
+}
+.hc-row.unread .hc-row-preview {
+  color: var(--page-text);
+}
+.hc-row.unread .hc-row-time {
+  color: var(--page-text);
+  font-weight: 600;
+}
+.hc-row-state {
+  font-weight: 600;
+  color: var(--page-text-2);
+}
+.hc-row-state.waiting {
+  color: var(--hc-attention);
+}
+
+/* ---------- Conversation pane ---------- */
+.hc-pane {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
 }
-.hc-main-header {
+.hc-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 52px;
+  gap: 12px;
+  height: 60px;
   flex: none;
-  padding: 0 var(--hc-gutter);
+  /* Aligned with the transcript's column at any width. */
+  padding-inline: max(var(--hc-gutter), calc((100% - var(--hc-column)) / 2 + 12px));
   border-bottom: 1px solid var(--page-separator);
 }
-.hc-main-title {
+.hc-head-text {
   display: flex;
-  align-items: baseline;
-  gap: 2px;
+  flex-direction: column;
   min-width: 0;
+}
+.hc-head-title {
   margin: 0;
-  font-size: var(--text-heading);
-  font-weight: 700;
-  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--text-title);
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
-.hc-main-title .hc-hash {
-  width: auto;
-  font-weight: 500;
-}
-.hc-connection {
-  color: var(--page-text-3);
+.hc-head-sub {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--text-detail);
+  color: var(--page-text-3);
 }
-.hc-members {
+.hc-head-sub.working {
+  color: var(--page-text-2);
+}
+.hc-head-sub.waiting {
+  color: var(--hc-attention);
+}
+.hc-back {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-inline-start: auto;
+  gap: 2px;
+  flex: none;
   height: 30px;
-  padding: 0 8px 0 4px;
+  padding: 0 10px 0 6px;
   border: 1px solid var(--page-separator);
   border-radius: 8px;
+  background: transparent;
   color: var(--page-text-2);
+  font: inherit;
   font-size: var(--text-detail);
-  font-weight: 600;
+  cursor: default;
 }
-.hc-members-faces,
-.hc-thread-faces {
-  display: inline-flex;
+.hc-back:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
 }
-.hc-members-faces > .hc-avatar,
-.hc-thread-faces > .hc-avatar {
-  box-shadow: 0 0 0 2px var(--cmux-surface-solid, Canvas);
+:dir(rtl) .hc-back .hc-icon {
+  transform: scaleX(-1);
 }
-.hc-members-faces > .hc-avatar + .hc-avatar {
-  margin-inline-start: -6px;
-}
-.hc-thread-faces > .hc-avatar + .hc-avatar {
-  margin-inline-start: 2px;
-  box-shadow: none;
+.hc-connection {
+  margin-inline-start: auto;
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
 }
 .hc-error {
   display: flex;
@@ -420,6 +452,51 @@ body,
   text-decoration: underline;
 }
 
+/* The empty Home: one look explains it (a large title, one muted sentence, the action). */
+.hc-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+.hc-empty h1 {
+  margin: 0;
+  font-size: 1.8em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.hc-empty p {
+  max-width: 420px;
+  margin: 0 0 14px;
+  color: var(--page-text-2);
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+}
+/* An empty conversation: its face and what it is. */
+.hc-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.hc-intro h2 {
+  margin: 10px 0 0;
+  font-size: 1.4em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--page-text);
+}
+.hc-intro p {
+  margin: 0;
+  color: var(--page-text-3);
+}
+
+/* ---------- Timeline ---------- */
 .hc-timeline-frame {
   position: relative;
   display: flex;
@@ -430,17 +507,19 @@ body,
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 0 4px;
+  padding: 10px 0 6px;
 }
 .hc-timeline-space {
   position: relative;
   width: 100%;
 }
+/* Every row sits in one centered column, so long lines stay readable at full width. */
 .hc-timeline-row {
   position: absolute;
   top: 0;
   inset-inline-start: 0;
   width: 100%;
+  padding-inline: max(12px, calc((100% - var(--hc-column)) / 2));
 }
 .hc-timeline-empty {
   flex: 1;
@@ -458,39 +537,24 @@ body,
   color: var(--page-text-3);
   font-size: var(--text-detail);
 }
-/* A day: a hairline across the timeline with the date in a pill on it. */
+/* A day: the date, small and centered, with room above it. */
 .hc-day {
-  position: relative;
   display: flex;
   justify-content: center;
-  padding: 12px var(--hc-gutter) 6px;
-}
-.hc-day::before {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  top: 50%;
-  margin-top: 3px;
-  height: 1px;
-  background: var(--page-separator);
+  padding: 22px 12px 8px;
 }
 .hc-day-pill {
-  position: relative;
-  padding: 0 12px;
-  border: 1px solid var(--page-separator);
-  border-radius: 6px;
-  background: var(--cmux-surface-solid, Canvas);
-  color: var(--page-text-2);
+  color: var(--page-text-3);
   font-size: var(--text-caption);
   font-weight: 600;
-  line-height: 22px;
+  letter-spacing: 0.02em;
 }
 .hc-new-line {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px var(--hc-gutter);
-  color: var(--hc-danger);
+  gap: 10px;
+  padding: 8px 12px 2px;
+  color: var(--hc-attention);
   font-size: var(--text-caption);
   font-weight: 700;
 }
@@ -499,21 +563,15 @@ body,
   flex: 1;
   height: 1px;
   background: currentColor;
-  opacity: 0.6;
+  opacity: 0.5;
 }
 .hc-replies-line {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px var(--hc-gutter);
+  padding: 6px 12px;
   color: var(--page-text-3);
   font-size: var(--text-detail);
-}
-.hc-replies-line::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--page-separator);
 }
 
 /* ---------- Message ---------- */
@@ -521,68 +579,82 @@ body,
   position: relative;
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
-  column-gap: 10px;
-  padding: 3px var(--hc-gutter);
+  column-gap: 12px;
+  padding: 2px 12px;
+  border-radius: 10px;
   user-select: text;
 }
 .hc-msg.head {
-  padding-top: 10px;
+  margin-top: 12px;
+  padding-top: 6px;
 }
 .hc-msg:hover,
-.hc-msg:focus-within,
+.hc-msg:has(:focus-visible),
 .hc-msg:has(.hc-msg-actions.pinned) {
   background: var(--hc-fill);
+}
+.hc-msg.selected {
+  background: var(--page-selection);
 }
 .hc-msg.editing {
   background: color-mix(in srgb, var(--hc-accent) 6%, transparent);
 }
 .hc-msg.mention {
-  background: color-mix(in srgb, var(--hc-accent) 7%, transparent);
-  box-shadow: inset 2px 0 0 var(--hc-accent);
-}
-.hc-msg.mention:dir(rtl) {
-  box-shadow: inset -2px 0 0 var(--hc-accent);
+  background: color-mix(in srgb, var(--hc-attention) 8%, transparent);
 }
 .hc-msg.highlighted {
-  background: color-mix(in srgb, var(--hc-accent) 14%, transparent);
+  background: color-mix(in srgb, var(--hc-attention) 16%, transparent);
 }
-/* Thread replies indent by depth (capped at MAX_THREAD_INDENT): a reply of a reply moves in one
-   step and shows a rail line on its start edge. */
-.hc-msg[data-depth="2"],
-.hc-msg[data-depth="3"],
-.hc-msg[data-depth="4"] {
-  border-inline-start: 2px solid var(--page-separator);
+.hc-msg.pending {
+  opacity: 0.55;
+}
+.hc-msg.pending.failed {
+  opacity: 1;
+}
+.hc-msg-failed {
+  display: flex;
+  gap: 10px;
+  margin: 2px 0 0;
+  font-size: var(--text-detail);
+  color: var(--hc-danger);
+}
+/* A reply in a thread opened in place: under its root's text, indented one step per level (at
+   most MAX_THREAD_INDENT), with a hairline rail on its start edge; a smaller face. */
+.hc-msg.reply {
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 10px;
+  margin-inline-start: var(--hc-thread-start);
+  border-radius: 0 10px 10px 0;
+  border-inline-start: 1.5px solid var(--page-separator);
+  padding-inline-start: 14px;
+}
+.hc-msg.reply:dir(rtl) {
+  border-radius: 10px 0 0 10px;
+}
+.hc-msg.reply.head {
+  margin-top: 0;
+  padding-top: 8px;
 }
 .hc-msg[data-depth="2"] {
-  margin-inline-start: 18px;
+  margin-inline-start: calc(var(--hc-thread-start) + var(--hc-indent));
 }
 .hc-msg[data-depth="3"] {
-  margin-inline-start: 36px;
+  margin-inline-start: calc(var(--hc-thread-start) + var(--hc-indent) * 2);
 }
 .hc-msg[data-depth="4"] {
-  margin-inline-start: 54px;
+  margin-inline-start: calc(var(--hc-thread-start) + var(--hc-indent) * 3);
+}
+.hc-msg.reply .hc-msg-hover-time {
+  line-height: 22px;
+}
+/* The focused thread draws its replies from the pane's start. */
+.in-focus .hc-msg.reply {
+  --hc-thread-start: 24px;
 }
 .hc-msg-parent {
   margin: 0;
   font-size: var(--text-caption);
   color: var(--page-text-3);
-}
-.hc-thread-replying {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 4px var(--hc-gutter) 0;
-  font-size: var(--text-caption);
-  color: var(--page-text-2);
-}
-.hc-visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 .hc-msg-gutter {
   display: flex;
@@ -597,20 +669,31 @@ body,
   white-space: nowrap;
 }
 .hc-msg:hover .hc-msg-hover-time,
-.hc-msg:focus-within .hc-msg-hover-time {
+.hc-msg:has(:focus-visible) .hc-msg-hover-time,
+.hc-msg.selected .hc-msg-hover-time {
   visibility: visible;
 }
 .hc-msg-head {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
+  margin-bottom: 1px;
 }
 .hc-msg-author {
-  font-weight: 700;
+  font-weight: 650;
 }
 .hc-msg-head .hc-tag {
   align-self: center;
+}
+.hc-tag {
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--page-text-3);
+  box-shadow: inset 0 0 0 1px var(--page-separator);
 }
 .hc-msg-time,
 .hc-msg-edited {
@@ -625,6 +708,9 @@ body,
 }
 .hc-md {
   overflow-wrap: anywhere;
+}
+.hc-msg.resolved > .hc-msg-main > .hc-md {
+  color: var(--page-text-2);
 }
 .hc-writing {
   font-size: var(--text-caption);
@@ -653,7 +739,7 @@ body,
   transition: opacity 90ms ease-out;
 }
 .hc-msg:hover .hc-msg-actions,
-.hc-msg:focus-within .hc-msg-actions,
+.hc-msg:has(:focus-visible) .hc-msg-actions,
 .hc-msg-actions.pinned {
   opacity: 1;
   pointer-events: auto;
@@ -698,166 +784,210 @@ body,
   font-size: var(--text-body);
 }
 
-/* The thread summary: reply authors, the count, the last reply; framed on hover. */
-.hc-thread-link {
-  display: flex;
+
+/* A root's thread: faces, the count, the status and the last reply's age, on one quiet chip. */
+.hc-chip-thread {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  width: min(100%, 560px);
-  margin: 4px 0 2px;
-  margin-inline-start: -5px;
-  padding: 4px;
-  border: 1px solid transparent;
+  max-width: 100%;
+  height: 28px;
+  margin: 6px 0 2px;
+  padding: 0 10px 0 5px;
+  border: 1px solid var(--page-separator);
   border-radius: 8px;
-  background: transparent;
+  background: var(--hc-fill);
   color: var(--page-text-2);
   font: inherit;
   font-size: var(--text-detail);
-  text-align: start;
   cursor: default;
 }
-.hc-thread-link:hover,
-.hc-thread-link:focus-visible {
-  border-color: var(--page-separator);
-  background: var(--cmux-surface-solid, Canvas);
+.hc-chip-thread:hover,
+.hc-chip-thread:focus-visible {
+  border-color: var(--hc-line-strong);
+  color: var(--page-text);
+}
+.hc-chip-thread.expanded {
+  background: var(--page-selection);
+}
+.hc-chip-thread.resolved {
+  background: transparent;
+}
+.hc-thread-faces {
+  display: inline-flex;
+  gap: 2px;
 }
 .hc-thread-count {
-  font-weight: 700;
+  font-weight: 650;
   color: var(--page-text);
   /* A new reply changes the count, never the width (no layout shift). */
   font-variant-numeric: tabular-nums;
 }
 .hc-thread-new {
-  padding: 0 6px;
-  border-radius: 9px;
-  font-size: var(--text-caption);
-  font-weight: 700;
-  line-height: 16px;
-  color: var(--hc-on-accent);
-  background: var(--hc-accent);
+  font-weight: 650;
+  color: var(--hc-attention);
+}
+.hc-thread-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--page-text-2);
 }
 .hc-thread-last {
   color: var(--page-text-3);
-}
-.hc-thread-view,
-.hc-thread-chevron {
-  display: none;
-  color: var(--page-text-3);
-}
-.hc-thread-chevron {
-  margin-inline-start: auto;
-}
-:dir(rtl) .hc-thread-chevron {
-  transform: scaleX(-1);
-}
-.hc-thread-link:hover .hc-thread-last,
-.hc-thread-link:focus-visible .hc-thread-last {
-  display: none;
-}
-.hc-thread-link:hover :is(.hc-thread-view, .hc-thread-chevron),
-.hc-thread-link:focus-visible :is(.hc-thread-view, .hc-thread-chevron) {
-  display: inline-grid;
+  white-space: nowrap;
 }
 
-.hc-reactions {
+/* The end of a thread opened in place: quiet words with their keys, on the thread's rail. */
+.hc-thread-end {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
-}
-.hc-reaction {
-  display: inline-flex;
-  gap: 5px;
   align-items: center;
-  height: 24px;
+  gap: 2px;
+  margin-inline-start: var(--hc-thread-start);
+  margin-bottom: 8px;
+  padding: 6px 8px 8px 10px;
+  border-inline-start: 1.5px solid var(--page-separator);
+}
+.hc-thread-end.focused {
+  margin-inline-start: 24px;
+}
+.hc-end-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
   padding: 0 8px;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 6px;
-  background: var(--hc-fill-strong);
-  color: var(--page-text);
+  background: transparent;
+  color: var(--page-text-3);
   font: inherit;
   font-size: var(--text-detail);
   cursor: default;
 }
-.hc-reaction:hover {
-  border-color: var(--hc-line-strong);
-}
-.hc-reaction.mine {
-  border-color: var(--hc-accent);
-  background: color-mix(in srgb, var(--hc-accent) 14%, transparent);
-}
-.hc-reaction-count {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.hc-chip {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  max-width: 560px;
-  margin: 4px 0;
-  padding: 8px 12px;
-  border: 1px solid var(--page-separator);
-  border-radius: 8px;
-  background: var(--hc-fill);
-}
-.hc-chip-status {
-  font-size: var(--text-caption);
-  font-weight: 600;
+.hc-end-button.strong {
   color: var(--page-text-2);
-}
-.hc-chip.work.failed .hc-chip-status {
-  color: var(--hc-danger);
-}
-.hc-chip-title {
   font-weight: 600;
 }
-.hc-chip-preview {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.hc-end-button:hover,
+.hc-end-button:focus-visible {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.hc-end-button kbd {
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  line-height: 15px;
+  color: var(--page-text-3);
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+}
+.hc-end-count {
+  margin-inline-start: auto;
+  padding: 0 4px;
+  font-size: var(--text-caption);
   color: var(--page-text-3);
 }
-.hc-confirm {
+
+/* An agent's question: the prompt, then its choices as quiet buttons (the first one primary). */
+.hc-question {
+  max-width: 560px;
+  margin: 6px 0 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--page-separator);
+  border-radius: 12px;
+  background: var(--hc-fill);
+}
+.hc-question.pending {
+  border-color: color-mix(in srgb, var(--hc-attention) 45%, transparent);
+}
+.hc-question-prompt {
+  margin: 0;
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
+  font-weight: 500;
+}
+.hc-question-options {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-  padding: 8px 10px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.hc-option {
+  height: 30px;
+  padding: 0 12px;
   border: 1px solid var(--page-separator);
   border-radius: 8px;
-  background: var(--hc-fill);
-  font-size: var(--text-detail);
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: default;
 }
-.hc-confirm > span {
-  flex: 1;
+.hc-option:hover {
+  background: var(--page-hover);
+}
+.hc-option.primary {
+  border-color: transparent;
+  background: var(--page-text);
+  color: var(--hc-on-text);
+}
+.hc-option.primary:hover {
+  background: color-mix(in srgb, var(--page-text) 86%, transparent);
+}
+.hc-question-answer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 8px 0 0;
+  font-size: var(--text-detail);
+  color: var(--page-text-2);
 }
 
 /* ---------- Composer ---------- */
 .hc-typing {
-  height: 18px;
+  height: 20px;
   flex: none;
-  padding: 0 var(--hc-gutter);
+  padding-inline: max(var(--hc-gutter), calc((100% - var(--hc-column)) / 2 + 12px));
   font-size: var(--text-caption);
-  line-height: 18px;
+  line-height: 20px;
   color: var(--page-text-3);
 }
+/* The page composer: one quiet box in the transcript's column. */
 .hc-composer {
   flex: none;
   display: flex;
   flex-direction: column;
-  margin: 0 var(--hc-gutter) 16px;
   border: 1px solid var(--page-separator);
-  border-radius: 10px;
+  border-radius: 14px;
   background: var(--hc-fill);
   transition: border-color 120ms ease-out;
+}
+.hc-composer-main {
+  width: min(calc(100% - 2 * var(--hc-gutter)), calc(var(--hc-column) - 24px));
+  margin: 0 auto 18px;
 }
 .hc-composer:focus-within {
   border-color: var(--hc-line-strong);
 }
 .hc-composer.disabled {
   opacity: 0.6;
+}
+.hc-reply-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 0 12px;
+  font-size: var(--text-detail);
+  color: var(--page-text-2);
+}
+.hc-reply-context-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .hc-format {
   display: flex;
@@ -1021,97 +1151,173 @@ body,
   width: 300px;
 }
 
-/* ---------- Thread ---------- */
-.hc-thread {
+.hc-add-channel.ui-popover {
+  width: 300px;
+  padding: 14px;
+}
+.hc-add-channel form {
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  border-inline-start: 1px solid var(--page-separator);
+  gap: 10px;
 }
-@media (prefers-reduced-motion: no-preference) {
-  .hc-thread {
-    animation: hc-thread-in 140ms ease-out;
-  }
+.hc-add-title {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 700;
 }
-@keyframes hc-thread-in {
-  from {
-    opacity: 0;
-  }
-}
-.hc-thread-header {
+.hc-add-label {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 52px;
-  flex: none;
-  padding: 0 12px 0 var(--hc-gutter);
-  border-bottom: 1px solid var(--page-separator);
-}
-/* The next page of a long thread's replies (the owner's thread read). */
-.hc-thread-more {
-  flex: none;
-  margin: 4px var(--hc-gutter);
-  padding: 4px 8px;
-  border: 1px solid var(--page-separator);
-  border-radius: 8px;
-  background: transparent;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
   color: var(--page-text-2);
+  font-size: var(--text-detail);
+  font-weight: 600;
+}
+.hc-add-members {
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.hc-add-members .hc-pick-row input {
+  margin: 0;
+}
+.hc-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.hc-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.hc-reaction {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--hc-fill-strong);
+  color: var(--page-text);
   font: inherit;
   font-size: var(--text-detail);
+  cursor: default;
 }
-.hc-thread-more:hover:not(:disabled),
-.hc-thread-more:focus-visible {
-  background: var(--cmux-surface-solid, Canvas);
-  color: var(--page-text);
+.hc-reaction:hover {
+  border-color: var(--hc-line-strong);
 }
-.hc-thread-heading {
+.hc-reaction.mine {
+  border-color: var(--hc-accent);
+  background: color-mix(in srgb, var(--hc-accent) 14%, transparent);
+}
+.hc-reaction-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hc-chip {
   display: flex;
-  align-items: baseline;
   gap: 8px;
-  min-width: 0;
+  align-items: baseline;
+  max-width: 560px;
+  margin: 4px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  background: var(--hc-fill);
 }
-.hc-thread-title {
-  font-weight: 700;
-  font-size: var(--text-title);
+.hc-chip-status {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--page-text-2);
 }
-.hc-thread-place {
+.hc-chip.work.failed .hc-chip-status {
+  color: var(--hc-danger);
+}
+.hc-chip-title {
+  font-weight: 600;
+}
+.hc-chip-preview {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--page-text-3);
+}
+.hc-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  background: var(--hc-fill);
   font-size: var(--text-detail);
 }
+.hc-confirm > span {
+  flex: 1;
+}
 
-/* ---------- Switcher ---------- */
+/* ---------- Danger rows in menus ---------- */
+.ui-menu-item.danger {
+  color: var(--hc-danger);
+}
+
+
+/* ---------- Palette ---------- */
 /* ui/Dialog places the backdrop and the popup (ui.css .ui-backdrop, .ui-dialog); both sit on the
-   overlay layer, the popup after the backdrop. */
+   overlay layer, the popup after the backdrop. The page behind dims and blurs. */
 .hc-scrim {
   z-index: var(--layer-overlay);
-  background: var(--cmux-scrim, rgb(0 0 0 / 0.25));
+  background: var(--cmux-scrim, rgb(0 0 0 / 0.3));
+  backdrop-filter: blur(2px);
 }
 /* A fixed height: filtering shrinks the list, never the dialog, so the key hint stays put. */
 .hc-switcher {
   z-index: var(--layer-overlay);
-  width: min(600px, 90vw);
-  height: min(60vh, 460px);
+  width: min(640px, 92vw);
+  height: min(62vh, 480px);
   display: flex;
   flex-direction: column;
   border: 1px solid var(--page-separator);
-  border-radius: 12px;
+  border-radius: 16px;
   background: var(--surface-popup);
-  box-shadow: 0 16px 48px rgb(0 0 0 / 0.28);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.32);
   overflow: hidden;
+}
+.hc-switcher-field {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.hc-switcher-field > .hc-icon {
+  position: absolute;
+  top: 17px;
+  inset-inline-start: 18px;
+  color: var(--page-text-3);
 }
 .hc-switcher-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 14px 16px;
+  padding: 15px 18px 15px 44px;
   border: 0;
   border-bottom: 1px solid var(--page-separator);
   background: transparent;
   font-size: var(--text-title);
   outline: none;
+}
+.hc-switcher-input:dir(rtl) {
+  padding: 15px 44px 15px 18px;
 }
 .hc-switcher-list {
   flex: 1;
@@ -1124,39 +1330,49 @@ body,
 .hc-switcher-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 6px;
+  gap: 12px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 9px;
 }
 .hc-switcher-row[data-highlighted] {
   background: var(--cmux-row-focus, var(--page-selection));
-  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
-.hc-switcher-row[data-highlighted]::after {
-  content: "↩";
+.hc-switcher-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hc-switcher-name.unread {
+  font-weight: 700;
+}
+.hc-switcher-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  color: var(--page-text-3);
+}
+.hc-switcher-kind {
+  font-size: var(--text-caption);
   color: var(--page-text-3);
 }
 .hc-switcher-none {
   margin: 0;
-  padding: 12px 16px;
+  padding: 12px 18px;
   color: var(--page-text-3);
 }
 .hc-switcher-hint {
   margin: 0;
-  margin-top: auto;
-  padding: 8px 16px;
+  padding: 9px 18px;
   border-top: 1px solid var(--page-separator);
   color: var(--page-text-3);
   font-size: var(--text-caption);
 }
 
-/* ---------- Danger rows in menus ---------- */
-.ui-menu-item.danger {
-  color: var(--hc-danger);
-}
-
-/* The page on a cmux instance's daemon (?daemon=): the connect gate and the instance bar. */
+/* The page on a cmux instance's daemon (?daemon=): the connect gate and the instance line at the
+   bottom of the conversation list. */
 .hc-daemon {
   display: flex;
   flex-direction: column;
@@ -1168,19 +1384,37 @@ body,
 }
 .hc-instance {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--page-separator);
-  font-size: var(--text-detail);
+  gap: 4px 10px;
+  flex: none;
+  padding: 10px 20px 12px;
+  border-top: 1px solid var(--page-separator);
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+.hc-instance button {
+  margin-inline-start: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--page-separator);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+}
+.hc-instance button:hover:not(:disabled) {
+  background: var(--page-hover);
 }
 .hc-instance-url {
-  margin-inline-start: auto;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: ui-monospace, monospace;
-  opacity: 0.7;
   user-select: text;
   -webkit-user-select: text;
 }
+
 .hc-gate {
   max-width: 420px;
   margin: 15vh auto 0;
@@ -1214,4 +1448,27 @@ body,
 }
 .hc-gate-error {
   color: var(--hc-danger);
+}
+
+/* A channel's face: two of its people, the last author in front at the lower end corner. */
+.hc-face-pair {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+.hc-face-pair > .hc-avatar {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+}
+.hc-face-pair > .hc-avatar:last-child {
+  top: auto;
+  bottom: 0;
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  box-shadow: 0 0 0 2px var(--cmux-surface-solid, Canvas);
+}
+.hc-face-pair > .hc-avatar:only-child {
+  inset: 0;
+  margin: auto;
 }

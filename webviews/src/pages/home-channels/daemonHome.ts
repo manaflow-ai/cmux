@@ -45,7 +45,8 @@ function participant(raw: Json): HomeParticipant {
   return {
     id: String(raw.id),
     kind: raw.kind === "agent" ? "agent" : "human",
-    name: chief ? "Chief" : String(raw.display_name ?? raw.id),
+    // A Chief keeps the name it was given ("Release Chief"); an unnamed one is the Chief.
+    name: String(raw.display_name || (chief ? "Chief" : raw.id)),
     chief,
   };
 }
@@ -79,6 +80,33 @@ function part(raw: Json): HomePart {
         byteCount: num(raw.byte_count),
         hash: String(raw.hash ?? ""),
       };
+    case "question": {
+      const items = ((raw.items as Json[] | undefined) ?? []).map((item) => ({
+        id: String(item.id ?? ""),
+        prompt: String(item.prompt ?? ""),
+        options: ((item.options as Json[] | undefined) ?? []).map((option) => ({
+          id: String(option.id ?? ""),
+          label: String(option.label ?? ""),
+        })),
+        multiSelect: item.multi_select === true,
+        ...(typeof item.header === "string" ? { header: item.header } : {}),
+      }));
+      const state = (raw.state ?? {}) as Json;
+      const kind = state.kind === "answered" ? "answered" : state.kind === "cancelled" ? "cancelled" : "pending";
+      const result: HomePart = { type: "question", items, state: kind };
+      if (kind === "answered") {
+        // The chosen labels, in item order (the answer's option ids mapped back to their labels).
+        const selections = (((state.answer as Json | undefined)?.selections ?? {}) as Record<string, Json>);
+        const labels = items.flatMap((item) => {
+          const picked = selections[item.id];
+          const ids = ((picked?.option_ids as string[] | undefined) ?? []).map(String);
+          const named = item.options.filter((option) => ids.includes(option.id)).map((option) => option.label);
+          return typeof picked?.other === "string" ? [...named, picked.other] : named;
+        });
+        result.answer = labels.join(", ");
+      }
+      return result;
+    }
     case "link_preview":
       return { type: "other", text: String(raw.url ?? "") };
     default:
@@ -120,6 +148,11 @@ function plain(raw: Json | undefined): string | undefined {
   return ((raw.parts as Json[] | undefined) ?? [])
     .map((item) => (item.type === "text" ? String(item.text ?? "") : ""))
     .join(" ")
+    .slice(0, 400)
+    .replace(/^\s*(?:[-*+]|\d+\.)\s+/gm, "")
+    .replace(/(\*\*|__|`|~~)/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
     .slice(0, 200);
 }
 
@@ -149,6 +182,19 @@ export function conversation(raw: Json, me: string): HomeConversation {
   };
   const text = plain(last);
   if (text !== undefined) result.lastText = text;
+  if (last && !last.retracted_at) {
+    result.lastAuthor = String(last.author);
+    result.lastAt = time(last.created_at);
+    const parts = (last.parts as Json[] | undefined) ?? [];
+    if (parts.some((item) => item.type === "question" && (item.state as Json | undefined)?.kind === "pending"))
+      result.lastAsks = true;
+    // A question with no text: the preview is its first prompt.
+    if (!text) {
+      const question = parts.find((item) => item.type === "question");
+      const prompt = ((question?.items as Json[] | undefined) ?? [])[0]?.prompt;
+      if (typeof prompt === "string") result.lastText = prompt.slice(0, 200);
+    }
+  }
   return result;
 }
 
@@ -383,6 +429,19 @@ export class DaemonHomeClient implements PageClient {
           kind: "message.retract",
           message_id: str(params, "message"),
         });
+      case HomeOps.answer: {
+        // One choice per item (`selections: {item: option}`): the owner stamps who answered.
+        const picks = (params.selections ?? {}) as Record<string, unknown>;
+        const selections: Json = {};
+        for (const [item, option] of Object.entries(picks))
+          if (typeof option === "string" && option) selections[item] = { option_ids: [option] };
+        return this.submit(str(params, "conversation"), this.key(params, options), {
+          kind: "question.answer",
+          message_id: str(params, "message"),
+          part_index: Math.max(0, num(params.partIndex)),
+          answer: { selections },
+        });
+      }
       case HomeOps.createGroup:
         return this.createGroup(params, options);
       default:

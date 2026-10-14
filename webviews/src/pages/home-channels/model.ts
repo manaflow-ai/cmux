@@ -5,6 +5,7 @@
 // not retracted) plus the loaded replies the stats did not count yet; without stats, from the
 // loaded window. A retracted reply never counts (it shows as deleted in the thread).
 import type { HomeDraft } from "./drafts";
+import type { PendingSend } from "./store";
 import type { HomeConversation, HomeMessage, HomePart, HomeThreadStats } from "./types";
 
 /** Messages closer than this from the same author share one head. */
@@ -50,6 +51,14 @@ export function railSections(conversations: Iterable<HomeConversation>, me?: str
   return { channels, direct };
 }
 
+/** The conversation list: every conversation, channels and direct ones together, newest activity
+ * first (pinned ones on top). */
+export function inboxOrder(conversations: Iterable<HomeConversation>): HomeConversation[] {
+  // The last message's time, not the summary's: reading or renaming must not move a row.
+  const at = (c: HomeConversation) => c.lastAt ?? c.updatedAt;
+  return [...conversations].sort((a, b) => Number(b.pinned) - Number(a.pinned) || at(b) - at(a));
+}
+
 /** The rail and header name: the title, else the other participants' names. */
 export function conversationName(conversation: HomeConversation, me: string | undefined): string {
   if (conversation.title) return conversation.title;
@@ -72,6 +81,8 @@ export function partText(part: HomePart): string {
       return part.preview ?? part.title;
     case "attachment":
       return part.name;
+    case "question":
+      return part.items.map((item) => item.prompt).join("\n");
   }
 }
 
@@ -107,7 +118,11 @@ export type TimelineRow =
       parent?: HomeMessage;
     }
   | { kind: "draft"; key: string; draft: HomeDraft; head: boolean }
-  | { kind: "replies"; key: string; count: number };
+  | { kind: "replies"; key: string; count: number }
+  /** My send the owner has not shown yet (optimistic). */
+  | { kind: "pending"; key: string; pending: PendingSend; head: boolean; depth?: number }
+  /** The end of a thread opened in place: its reply count, more replies, the thread actions. */
+  | { kind: "threadEnd"; key: string; root: string; count: number; more: boolean; depth: number };
 
 const dayKey = (at: number) => {
   const date = new Date(at);
@@ -168,21 +183,33 @@ export function replyCount(replies: readonly HomeMessage[], stats: HomeThreadSta
 
 /** Top-level messages with day lines, author heads and a "New" line before the first message that
  * was unread when the conversation opened (not my own); thread replies stay in the thread panel. */
+/** A thread opened in place under its root: its loaded replies (any order) and whether more follow. */
+export interface OpenThread {
+  root: string;
+  replies: readonly HomeMessage[];
+  hasMore: boolean;
+  stats?: HomeThreadStats;
+}
+
 export function timelineRows(
   messages: readonly HomeMessage[],
   unseen?: Unseen,
   me?: string,
   seenThreads?: ReadonlySet<string>,
   owner?: ReadonlyMap<string, HomeThreadStats>,
+  open?: OpenThread,
+  pending: readonly PendingSend[] = [],
 ): TimelineRow[] {
   const summaries = threadSummaries(messages, unseen, me, seenThreads, owner);
   const rows: TimelineRow[] = [];
   let previous: HomeMessage | undefined;
+  let lastDay: string | undefined;
   let marked = false;
   for (const message of messages) {
     if (threadOf(message)) continue;
     const day = dayKey(message.createdAt);
-    const newDay = !previous || dayKey(previous.createdAt) !== day;
+    const newDay = lastDay !== day;
+    lastDay = day;
     if (newDay) rows.push({ kind: "day", key: `day-${day}`, at: message.createdAt });
     const fresh = !marked && isUnseen(message, unseen, me);
     if (fresh) {
@@ -197,7 +224,46 @@ export function timelineRows(
       summaries.has(previous?.id ?? "");
     rows.push({ kind: "message", key: message.id, message, head, thread: summaries.get(message.id) });
     previous = message;
+    if (open?.root === message.id) {
+      rows.push(...threadRows(open, pending));
+      // The next top-level message starts a new group under an opened thread.
+      previous = undefined;
+    }
   }
+  let last = previous?.author;
+  for (const entry of pending) {
+    if (entry.threadRoot) continue;
+    rows.push({ kind: "pending", key: `pending-${entry.key}`, pending: entry, head: last !== me });
+    last = me;
+  }
+  return rows;
+}
+
+/** A thread's replies in tree order (indented by depth), my pending replies under their parents,
+ * and the thread's end row. Used in place under the root and in the focused thread. */
+export function threadRows(open: OpenThread, pending: readonly PendingSend[]): TimelineRow[] {
+  const rows: TimelineRow[] = [];
+  const depthOf = new Map<string, number>([[open.root, 0]]);
+  let previous: ThreadNode | undefined;
+  const nodes = threadTree(open.replies, open.root);
+  for (const node of nodes) {
+    depthOf.set(node.message.id, node.depth);
+    // A run of one author at one depth shares a head, as in the timeline.
+    const head =
+      !previous ||
+      previous.message.author !== node.message.author ||
+      previous.depth !== node.depth ||
+      node.message.createdAt - previous.message.createdAt > GROUP_GAP_MS;
+    rows.push({ kind: "message", key: node.message.id, message: node.message, head, depth: node.depth, parent: node.parent });
+    previous = node;
+  }
+  for (const entry of pending) {
+    if (entry.threadRoot !== open.root) continue;
+    const parentDepth = entry.replyTo ? (depthOf.get(entry.replyTo) ?? 0) : 0;
+    rows.push({ kind: "pending", key: `pending-${entry.key}`, pending: entry, head: true, depth: parentDepth + 1 });
+  }
+  const count = replyCount(open.replies, open.stats);
+  rows.push({ kind: "threadEnd", key: `end-${open.root}`, root: open.root, count, more: open.hasMore, depth: 1 });
   return rows;
 }
 

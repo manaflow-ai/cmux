@@ -8,7 +8,7 @@
 //   the endpoint and the daemon's credential. No Swift serves Home data.
 // In the gallery and dev loop (`?mock`) the in-memory mock provider stands in.
 import "../shared/desktop";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
@@ -59,8 +59,13 @@ export function mountDaemonHomeChannelsPage(
       <DaemonGate source={source} strings={strings}>
         {(daemon, pages) => (
           <div className="hc-daemon">
-            <InstanceBar daemon={daemon} strings={strings} pageUrl={pages ? `${pages}home-channels/` : undefined} />
-            <DaemonHome daemon={daemon} strings={strings} />
+            <DaemonHome
+              daemon={daemon}
+              strings={strings}
+              footer={
+                <InstanceBar daemon={daemon} strings={strings} pageUrl={pages ? `${pages}home-channels/` : undefined} />
+              }
+            />
           </div>
         )}
       </DaemonGate>
@@ -69,9 +74,9 @@ export function mountDaemonHomeChannelsPage(
 }
 
 /** One store per daemon connection (a render never makes a second one). */
-function DaemonHome({ daemon, strings }: { daemon: DaemonSocket; strings: Strings }) {
+function DaemonHome({ daemon, strings, footer }: { daemon: DaemonSocket; strings: Strings; footer: ReactNode }) {
   const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon)));
-  return <HomeChannelsPage store={store} strings={strings} />;
+  return <HomeChannelsPage store={store} strings={strings} footer={footer} />;
 }
 
 /** The daemon endpoint in the query (`?daemon=ws://127.0.0.1:7681`): only ws/wss URLs. */
