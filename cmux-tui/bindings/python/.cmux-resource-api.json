@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "9b4214b07c93e0eadd0087bbd83116e93c6b92dbd7deacf89d5157391e494d62",
+  "catalog_sha256": "2c8a0a4476f709a82f50464da6a02cdc8855d254dd93b9c262ad308e7220db5d",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -788,6 +788,9 @@
       "class": "read"
     },
     "workspace.move": {
+      "class": "mutation"
+    },
+    "workspace.open_url": {
       "class": "mutation"
     },
     "workspace.place": {
