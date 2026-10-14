@@ -304,3 +304,25 @@ fn a_host_with_its_own_acpmux_home_keeps_its_own_daemon() {
     assert_eq!(calls(&acpmux_home), ["shutdown"], "it shuts the daemon it started down");
     wait_for("its daemon ending", Duration::from_secs(5), || !alive(fake));
 }
+
+/// The default Chief's host (no shared flag, `ACPMUX_HOME` = the Chief home's
+/// acpmux) starts that acpmux for every Chief of the home: its credential
+/// (`MUX_AGENT_TOKEN_FILE`, the token that binds as `agent_mux`) stays out of
+/// the daemon, so no session the daemon starts inherits it.
+#[test]
+fn the_default_chiefs_host_starts_the_chief_homes_acpmux_without_its_credential() {
+    let dir = tempfile::tempdir().unwrap();
+    let chief_home = dir.path().join("h");
+    let acpmux_home = chief_home.join("acpmux");
+    let fake = host_stops(dir.path(), &chief_home, &acpmux_home, None);
+    let _guard = Leftovers(vec![fake]);
+    let identity: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(acpmux_home.join("identity.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        identity.get("MUX_AGENT_TOKEN_FILE").is_none(),
+        "the Chief home's acpmux got the default Chief's token file: {identity}"
+    );
+    assert!(identity.get("OPTCHAT_CHIEF_PARTICIPANT").is_none(), "{identity}");
+}
