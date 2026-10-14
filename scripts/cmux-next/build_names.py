@@ -5,7 +5,8 @@ session and its acpmux home.
 The restore journey (restore-journey.py, restore-journey-slot.sh) drives a capture slot's app
 through these names.
 
-  build_names.py socket APP_PATH    print the control socket of the app at APP_PATH
+  build_names.py socket APP_PATH    print the control socket of the app at APP_PATH: the real one
+                                    in ~/.local/state/cmux first, then its /tmp link
 """
 import os, plistlib, re, sys
 
@@ -71,6 +72,13 @@ def names(bundle_id, bundled_tag, user_home):
     }
 
 
+def socket_paths(tmp_name, user_home):
+    """ControlSocketPath.moved: the socket in `<home>/.local/state/cmux` (when its path fits
+    sun_path, 103 bytes), then the `/tmp` name the app keeps as a link to it (since #20508)."""
+    moved = os.path.join(user_home, ".local", "state", "cmux", os.path.basename(tmp_name))
+    return [moved, tmp_name] if len(moved.encode()) <= 103 else [tmp_name]
+
+
 def bundled_tag(app_path):
     """The tag the app at `app_path` ships: `LSEnvironment` `CMUX_TAG`, else its `cmux DEV <tag>.app` name."""
     try:
@@ -93,4 +101,4 @@ def of_app(app_path, user_home=None):
 if __name__ == "__main__":
     if len(sys.argv) != 3 or sys.argv[1] != "socket":
         sys.exit("usage: build_names.py socket APP_PATH")
-    print(of_app(sys.argv[2])["socket"])
+    print("\n".join(socket_paths(of_app(sys.argv[2])["socket"], os.path.expanduser("~"))))

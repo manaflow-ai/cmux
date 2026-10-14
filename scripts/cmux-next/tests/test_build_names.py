@@ -47,6 +47,13 @@ class BuildNamesTests(unittest.TestCase):
         self.assertEqual(got["session"], "cmux-app--7c2fab35")
         self.assertEqual(got["acpmux_home"], "/Users/cmux/.acpmux/builds/com.cmuxterm.app.debug.rjar.capslot2--rjar")
 
+    def test_the_real_socket_is_in_the_state_folder_before_its_tmp_link(self):
+        tmp = "/tmp/cmux-debug--7c2fab35.sock"
+        self.assertEqual(build_names.socket_paths(tmp, "/Users/cmux"),
+                         ["/Users/cmux/.local/state/cmux/cmux-debug--7c2fab35.sock", tmp])
+        # A state path past sun_path keeps the socket at its /tmp name.
+        self.assertEqual(build_names.socket_paths(tmp, "/Users/" + "x" * 90), [tmp])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -60,7 +60,8 @@ name=$(basename "$app" .app)
 build_tag=${name#cmux DEV }
 capture-host launch "$lease" "$app" rj -- | tee "$out/launch.txt"
 # The app's control socket: the build's own (build_names.py: a slot clone, whose bundle id does
-# not end in its tag, gets /tmp/cmux-debug--<key hash>.sock); before per-build isolation it was
+# not end in its tag, gets cmux-debug--<key hash>.sock in ~/.local/state/cmux, then its /tmp
+# link); before per-build isolation it was
 # named from the build tag; capture-host also prints the one it set.
 printed=$(grep -o 'socket=[^ ]*' "$out/launch.txt" | head -1 | cut -d= -f2- || true)
 clone=$(sed -n 's/.* app=\(.*\.app\)$/\1/p' "$out/launch.txt" | head -1)
