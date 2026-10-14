@@ -10,32 +10,28 @@ import Testing
 /// strip as drawn, in the default and the compact strip. Behind the Debug Settings toggle
 /// `tabs.separators`, off by default.
 @MainActor @Suite(.serialized) struct TabSeparatorTests {
-    /// What the eye gets in the gap after each tab: the largest luminance step (0-255) from the
-    /// strip's background along the gap's middle row.
+    /// What the eye gets in the gap after each tab: the luminance step (0-255) a line there makes
+    /// over the strip's background, 0 with no visible line. A line is a sublayer of the tab at most
+    /// 1 pt wide, on the pixel grid, inside the gap after the pill, shown and colored.
     static func gapContrast(_ strip: TabStripView, tabs: Int) throws -> [Int] {
-        let scale: CGFloat = 2
-        let size = strip.bounds.size
-        let width = Int(size.width * scale), height = Int(size.height * scale)
-        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 4 * width,
-                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.scaleBy(x: scale, y: scale)
-        context.setFillColor(Palette.chromeBackground.cgColor)
-        context.fill(CGRect(origin: .zero, size: size))
-        try #require(strip.layer).render(in: context)
-        let pixels = try #require(context.data).assumingMemoryBound(to: UInt8.self)
-        // The strip's middle row and its edge rows (background around the tabs) are the same rows
-        // whichever way the bitmap counts them.
-        func luminance(_ x: Int, _ y: Int) -> Int {
-            let i = 4 * (y * width + x)
-            return (Int(pixels[i]) * 299 + Int(pixels[i + 1]) * 587 + Int(pixels[i + 2]) * 114) / 1000
-        }
+        let scale = strip.window?.backingScaleFactor ?? 2
+        let background = try #require(Palette.chromeBackground.usingColorSpace(.sRGB))
+        func luminance(_ color: NSColor) -> CGFloat { 0.299 * color.redComponent + 0.587 * color.greenComponent + 0.114 * color.blueComponent }
         return try (0..<tabs).map { index in
             let cell = try #require(strip.cells[TabID("tab\(index)")])
-            let frame = strip.convert(cell.frame, from: strip.tabsClip)
-            let pill = cell.metrics.pillFrame(slotWidth: frame.width, height: frame.height)
-            let xs = Int((frame.minX + pill.maxX) * scale)..<Int(frame.maxX * scale)
-            let mid = Int(frame.midY * scale)
-            return xs.map { abs(luminance($0, mid) - luminance($0, 1)) }.max() ?? 0
+            let slot = cell.layer.bounds
+            let pill = cell.metrics.pillFrame(slotWidth: slot.width, height: slot.height)
+            let lines = (cell.layer.sublayers ?? []).filter { line in
+                line.frame.width > 0 && line.frame.width <= 1 + 0.001 && line.frame.height > 2 && line.frame.minX >= pill.maxX - 0.001
+                    && line.frame.maxX <= slot.maxX + 0.001 && !line.isHidden && line.opacity > 0 && line.backgroundColor != nil
+            }
+            guard let line = lines.first, let cg = line.backgroundColor, let color = NSColor(cgColor: cg)?.usingColorSpace(.sRGB) else { return 0 }
+            #expect((line.frame.minX * scale).rounded() == line.frame.minX * scale, "the line at x \(line.frame.minX) is off the pixel grid")
+            #expect(line.frame.height >= slot.height * 0.4 && line.frame.height <= slot.height * 0.7,
+                    "the line is \(line.frame.height) pt of a \(slot.height) pt tab")
+            let alpha = color.alphaComponent * CGFloat(line.opacity)
+            let over = luminance(color) * alpha + luminance(background) * (1 - alpha)
+            return Int((abs(over - luminance(background)) * 255).rounded())
         }
     }
 
