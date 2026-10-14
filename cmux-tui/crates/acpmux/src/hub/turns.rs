@@ -292,11 +292,10 @@ impl Hub {
         });
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
-        self.append(
+        self.append_prompt(
             session,
-            "mux",
-            "user_message",
             json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id}),
+            &blocks,
         );
         if !waiting {
             accept(
