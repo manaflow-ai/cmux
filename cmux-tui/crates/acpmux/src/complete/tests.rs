@@ -4,7 +4,8 @@
 
 use super::codex_config::{CodexUserConfig, config_path};
 use super::model_pick::{self, ClaudeInputs, claude_model, newest_haiku, pick};
-use super::recipes::{self, Invocation, Recipe, invocation, recipe_for};
+use super::places::Places;
+use super::recipes::{self, Folders, Invocation, Recipe, invocation, recipe_for};
 use super::run::{self, RunDir, RunError};
 use super::*;
 use crate::config::{HarnessKind, HarnessProfile};
@@ -37,6 +38,12 @@ fn words(inv: &Invocation) -> Vec<&str> {
 }
 
 const DIR: &str = "/tmp/acpmux-complete-x";
+const CWD: &str = "/tmp/acpmux-oneshot/cwd";
+
+/// The fixed empty cwd and this run's own folder.
+fn folders() -> Folders<'static> {
+    Folders { cwd: Path::new(CWD), run: Path::new(DIR) }
+}
 
 // ------------------------------------------------------------- recipes
 
@@ -77,7 +84,7 @@ fn claude_argv_keeps_the_profile_prefix() {
     let none = |_: &str| -> Option<String> { None };
     let (program, prefix) = recipes::program(Recipe::Claude, &sr, &BTreeMap::new(), &none).unwrap();
     assert_eq!(program, "/bin/sr");
-    let inv = invocation(Recipe::Claude, program, prefix, Some("claude-haiku-5-5"), Path::new(DIR));
+    let inv = invocation(Recipe::Claude, program, prefix, Some("claude-haiku-5-5"), folders());
     assert_eq!(
         words(&inv),
         [
@@ -129,7 +136,7 @@ fn claude_drops_every_profile_flag() {
         (program.as_str(), prefix.clone()),
         ("/bin/sr", vec!["claude".to_owned(), "proxy".to_owned()])
     );
-    let inv = invocation(Recipe::Claude, program, prefix, Some("haiku"), Path::new(DIR));
+    let inv = invocation(Recipe::Claude, program, prefix, Some("haiku"), folders());
     let argv = words(&inv);
     for pinned in ["x.json", "--dangerously-skip-permissions", "json"] {
         assert!(!argv.contains(&pinned), "{pinned} leaked into {argv:?}");
@@ -157,7 +164,7 @@ fn codex_argv_is_ephemeral_tool_less_and_low_effort() {
     let none = |_: &str| -> Option<String> { None };
     let (program, prefix) = recipes::program(Recipe::Codex, &codex, &env, &none).unwrap();
     assert_eq!(program, "/opt/codex");
-    let inv = invocation(Recipe::Codex, program, prefix, Some("gpt-6-luna"), Path::new(DIR));
+    let inv = invocation(Recipe::Codex, program, prefix, Some("gpt-6-luna"), folders());
     let last = format!("{DIR}/last-message.txt");
     assert_eq!(
         words(&inv),
@@ -206,7 +213,7 @@ fn codex_without_codex_path_uses_codex_on_path() {
 
 #[test]
 fn file_recipes_argv() {
-    let dir = Path::new(DIR);
+    let dir = folders();
     let file = format!("{DIR}/prompt.txt");
     let opencode = invocation(Recipe::OpenCode, "/bin/opencode".into(), vec![], None, dir);
     assert_eq!(
@@ -217,7 +224,7 @@ fn file_recipes_argv() {
             "--format",
             "default",
             "--dir",
-            DIR,
+            CWD,
             "--file",
             file.as_str(),
             recipes::FILE_INSTRUCTION
@@ -315,7 +322,7 @@ fn codex_reapplies_the_users_model_provider_without_credentials() {
         assert!(!joined.contains(leaked), "{leaked} leaked: {joined}");
     }
 
-    let inv = invocation(Recipe::Codex, "/opt/codex".into(), vec![], None, Path::new(DIR))
+    let inv = invocation(Recipe::Codex, "/opt/codex".into(), vec![], None, folders())
         .with_codex_overrides(&cfg.overrides);
     let argv = words(&inv);
     assert_eq!(&argv[..3], ["exec", "-c", r#"model_provider="openrouter""#]);
@@ -629,4 +636,54 @@ fn run_dir_is_fresh_private_and_removed() {
     assert_eq!(std::fs::read(&file).unwrap(), b"secret prompt");
     drop(dir);
     assert!(!path.exists());
+}
+
+#[test]
+fn every_run_shares_one_fixed_empty_private_cwd() {
+    let root = RunDir::new().unwrap();
+    let places = Places::new(root.path().join("complete"));
+    places.ensure().unwrap();
+    places.ensure().unwrap();
+    let (cwd, runs) = (places.cwd(), places.runs());
+    assert_eq!(cwd, root.path().join("complete").join("cwd"));
+    assert!(!runs.starts_with(&cwd), "run folders must not sit in the cwd");
+    for dir in [&cwd, &runs] {
+        assert!(dir.is_dir(), "{dir:?}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(dir).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+    }
+    // A run's prompt and output go in its own folder under `runs`, never the cwd.
+    let run = RunDir::new_in(&runs).unwrap();
+    assert!(run.path().starts_with(&runs));
+    assert_eq!(std::fs::read_dir(&cwd).unwrap().count(), 0);
+    drop(run);
+    // The acpmux home's own folder, unless it is a guarded one.
+    assert_eq!(
+        Places::root_in(Path::new("/opt/acpmux-home"), None),
+        Path::new("/opt/acpmux-home/complete")
+    );
+}
+
+#[test]
+fn stale_run_folders_are_swept() {
+    let root = RunDir::new().unwrap();
+    let places = Places::new(root.path().join("complete"));
+    places.ensure().unwrap();
+    let runs = places.runs();
+    let left = RunDir::new_in(&runs).unwrap().path().to_path_buf();
+    // A crashed daemon left this one behind: Drop never ran.
+    std::fs::create_dir(&left).unwrap();
+    std::fs::write(left.join("prompt.txt"), b"x").unwrap();
+    let other = runs.join("not-a-run");
+    std::fs::create_dir(&other).unwrap();
+    // Younger than the limit: kept (a run may be starting now).
+    assert_eq!(places.sweep_stale_runs(Duration::from_secs(3600)), 0);
+    assert!(left.exists());
+    assert_eq!(places.sweep_stale_runs(Duration::ZERO), 1);
+    assert!(!left.exists(), "the stale run folder stayed");
+    assert!(other.exists(), "only run folders are swept");
+    assert!(places.cwd().exists());
 }

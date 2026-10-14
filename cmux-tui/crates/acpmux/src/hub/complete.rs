@@ -177,7 +177,8 @@ impl Hub {
             .map_err(|_| timed_out())?
             .map_err(|e| failed(e.to_string()))?;
         let dir = RunDir::new().map_err(|e| failed(format!("a run folder: {e}")))?;
-        let inv = recipes::invocation(recipe, program, prefix, model.as_deref(), dir.path())
+        let folders = recipes::Folders { cwd: dir.path(), run: dir.path() };
+        let inv = recipes::invocation(recipe, program, prefix, model.as_deref(), folders)
             .with_codex_overrides(&codex.overrides);
         if let Some(file) = &inv.prompt_file {
             dir.write_private(file, req.prompt.as_bytes())

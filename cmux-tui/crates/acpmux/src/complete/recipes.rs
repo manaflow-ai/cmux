@@ -137,16 +137,25 @@ fn strings(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| (*w).to_owned()).collect()
 }
 
+/// The folders of one run (`places.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Folders<'a> {
+    /// The fixed empty cwd every run shares.
+    pub cwd: &'a Path,
+    /// This run's own folder: the prompt and output files.
+    pub run: &'a Path,
+}
+
 /// The invocation of `recipe` with `program` and `prefix` (from
-/// [`program`]), `model` (None: the CLI's default), in `dir`, the run's own
-/// fresh folder.
+/// [`program`]), `model` (None: the CLI's default), in `folders`.
 pub fn invocation(
     recipe: Recipe,
     program: String,
     prefix: Vec<String>,
     model: Option<&str>,
-    dir: &Path,
+    folders: Folders<'_>,
 ) -> Invocation {
+    let dir = folders.run;
     let model = model.filter(|m| !m.is_empty() && *m != "default");
     let prompt_path = dir.join("prompt.txt");
     let prompt_arg = prompt_path.to_string_lossy().into_owned();

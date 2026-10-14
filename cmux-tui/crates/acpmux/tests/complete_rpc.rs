@@ -126,13 +126,17 @@ async fn complete_is_unix_socket_only_and_runs_headless() {
     assert_eq!(reply["text"], "FIX LOGIN BUG");
     assert_eq!(reply["harness"], "fake");
     assert!(reply["model"].as_str().is_some_and(|m| !m.is_empty()), "{reply}");
+    // One fixed empty cwd for every run, under the acpmux home; the run's
+    // own folder (prompt and output files) is gone.
     let cwd = std::fs::read_to_string(&cwd_file).unwrap();
-    let cwd = Path::new(cwd.trim());
-    assert!(
-        cwd.file_name().is_some_and(|n| n.to_string_lossy().starts_with("acpmux-complete-")),
+    let complete = root.join("acpmux-home").join("complete");
+    assert_eq!(
+        std::fs::canonicalize(cwd.trim()).unwrap(),
+        std::fs::canonicalize(complete.join("cwd")).unwrap(),
         "ran in {cwd:?}"
     );
-    assert!(!cwd.exists(), "the run folder {cwd:?} was left behind");
+    assert_eq!(std::fs::read_dir(complete.join("cwd")).unwrap().count(), 0, "the cwd was written");
+    assert_eq!(std::fs::read_dir(complete.join("runs")).unwrap().count(), 0, "a run folder stayed");
 
     let errors = [
         (json!({"prompt": "x", "harness": "nope"}), "complete.unknown_harness"),

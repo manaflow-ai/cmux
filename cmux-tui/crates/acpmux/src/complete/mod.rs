@@ -29,6 +29,7 @@
 
 pub mod codex_config;
 pub mod model_pick;
+pub mod places;
 pub mod recipes;
 pub mod run;
 
