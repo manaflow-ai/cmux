@@ -214,6 +214,12 @@ export default componentEntry<Props>({
     "pin-refused": {
       note: "The owner refuses the pin: the row goes back to its place and the page says why.",
       props: { select: "c-chief", refuseInbox: true },
+      checks: {
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "The refusal shows the error line above the timeline; the timeline moves down by its height.",
+        },
+      },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector('[data-list-row="c-design"]'));
         await ctx.contextMenu({ selector: '[data-list-row="c-design"]' });
