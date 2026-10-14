@@ -3936,7 +3936,7 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
-          [ -n "$APPLE_CERTIFICATE_BASE64" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] || { echo "Missing signing certificate secrets" >&2; exit 1; }
+          if [ -z "$APPLE_CERTIFICATE_BASE64" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then echo "Missing signing certificate secrets" >&2; exit 1; fi
           KEYCHAIN_PASSWORD="$(uuidgen)"
           echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
           security delete-keychain build.keychain >/dev/null 2>&1 || true
@@ -3979,8 +3979,10 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
-          [[ "$LEGACY_NOTARY_WAIT_MIN" =~ ^[0-9]+$ ]] && [ "$LEGACY_NOTARY_WAIT_MIN" -ge 10 ] && [ "$LEGACY_NOTARY_WAIT_MIN" -le 165 ] \
-            || { echo "NIGHTLY_LEGACY_NOTARY_WAIT_MIN must be 10..165 minutes (job limit 200; about 30 min of the job is not the wait), got '$LEGACY_NOTARY_WAIT_MIN'" >&2; exit 1; }
+          if ! [[ "$LEGACY_NOTARY_WAIT_MIN" =~ ^[0-9]+$ ]] || [ "$LEGACY_NOTARY_WAIT_MIN" -lt 10 ] || [ "$LEGACY_NOTARY_WAIT_MIN" -gt 165 ]; then
+            echo "NIGHTLY_LEGACY_NOTARY_WAIT_MIN must be 10..165 minutes (job limit 200; about 30 min of the job is not the wait), got '$LEGACY_NOTARY_WAIT_MIN'" >&2
+            exit 1
+          fi
           mkdir -p legacy-out
           : > "$RUNNER_TEMP/unused-helper-state"
           CMUX_CHANNEL=nightly \
