@@ -2,8 +2,7 @@
 // reads `--cmux-caret` (the cursor color, WebTheme.swift) and every selection
 // `--cmux-text-selection` (the config's `selection-background`, else the accent tint), so a
 // config edit reaches them in place. A caret in another themed color (the shell mode's accent)
-// carries a `caret-color: <reason>` comment on its line; a selection in a page color (the Chief
-// page's accent tint, cx-o3l8w) carries a `selection: <reason>` comment on its line.
+// carries a `caret-color: <reason>` comment on its line.
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -52,7 +51,7 @@ describe("carets and selections follow the Ghostty config", () => {
 
   test("every selection reads the config's selection color", () => {
     const wrong = declarations("background(?:-color)?", /::selection/)
-      .filter(({ value, line }) => value !== "transparent" && !/selection:\s*\S/.test(line.replace(/^[^/]*/, "")))
+      .filter(({ value }) => value !== "transparent")
       .filter(({ value }) => !value.includes("--cmux-text-selection") && value !== "var(--cmux-md-selection-color)")
       .map(({ at, value }) => `${at} ${value}`);
     expect(wrong).toEqual([]);

@@ -215,7 +215,7 @@ export default componentEntry<Props>({
       },
     },
     "selected-text": {
-      note: "Selected message text under the default theme, whose terminal selection is slate blue: the page tints it with its own accent instead.",
+      note: "Selected message text under the default theme: it takes the theme's terminal selection color (slate blue), like every page (cx-wqn5).",
       props: { select: "c-release", terminalSelection: "#3f638b" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-main .hc-msg.head .hc-md"));

@@ -29,13 +29,6 @@
   --cv-column: none;
 }
 
-/* Selected text takes a tint of the page accent (the text color under the default neutral accent),
-   like the gray selected row, not the theme's terminal selection color (a slate blue in the
-   default theme), which read as a stray blue in a gray page (Leo 2026-10-14, cx-o3l8w). */
-::selection {
-  background-color: color-mix(in srgb, var(--hc-accent) 24%, transparent); /* selection: the page accent, cx-o3l8w */
-}
-
 html,
 body,
 #root {
