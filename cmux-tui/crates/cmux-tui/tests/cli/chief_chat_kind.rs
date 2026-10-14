@@ -30,7 +30,7 @@ fn client_list(server: &HeadlessServer) -> Vec<Value> {
 }
 
 /// This test's own `cmux chief` child, ended on drop (also when an assertion fails).
-struct Chat(std::process::Child);
+struct Chat(Child);
 
 impl Drop for Chat {
     fn drop(&mut self) {
