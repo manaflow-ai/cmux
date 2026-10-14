@@ -30,6 +30,7 @@ final class PostHogAnalytics: @unchecked Sendable {
     private let now: @Sendable () -> Date
     private let capturePostHog: @Sendable (String, [String: Any]) -> Void
     private let flushPostHog: @Sendable () -> Void
+    private let contextCalls: PostHogContextCalls
     private let environment: [String: String]
     private let telemetryEnabled: @Sendable () -> Bool
     private let previousLaunchIdentity: [String: Any]
@@ -47,6 +48,7 @@ final class PostHogAnalytics: @unchecked Sendable {
             PostHogSDK.shared.capture(event, properties: properties)
         },
         flushPostHog: @escaping @Sendable () -> Void = { PostHogSDK.shared.flush() },
+        contextCalls: PostHogContextCalls = .live,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         telemetryEnabled: @escaping @Sendable () -> Bool = { TelemetrySettings.enabledForCurrentLaunch }
     ) {
@@ -56,6 +58,7 @@ final class PostHogAnalytics: @unchecked Sendable {
         self.now = now
         self.capturePostHog = capturePostHog
         self.flushPostHog = flushPostHog
+        self.contextCalls = contextCalls
         self.environment = environment
         self.telemetryEnabled = telemetryEnabled
         self.previousLaunchIdentity = userDefaults.dictionary(forKey: "posthog.previousLaunchIdentity") ?? [:]
@@ -115,6 +118,31 @@ final class PostHogAnalytics: @unchecked Sendable {
                 // On app focus we can capture both events; flush once to reduce extra work.
                 self.flushPostHog()
             }
+        }
+    }
+
+    /// Whether this launch sends analytics at all: telemetry on, not under
+    /// XCTest, and (in debug builds) explicitly enabled. Product analytics
+    /// uses the same answer so it never queues work that would be dropped.
+    var isCaptureEnabled: Bool { isEnabled }
+
+    /// Registers super properties sent with every later event.
+    func register(_ properties: [String: Any]) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            self.contextCalls.register(properties)
+        }
+    }
+
+    /// Associates later events with a group (`stack_team`).
+    func group(type: String, key: String) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            self.contextCalls.group(type, key)
         }
     }
 
