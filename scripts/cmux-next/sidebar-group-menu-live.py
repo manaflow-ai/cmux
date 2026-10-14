@@ -22,11 +22,10 @@ quits it. Window images come from `debug.window_snapshot` into --out.
 Usage: sidebar-group-menu-live.py --socket /tmp/cmux-debug-<tag>.sock --phase setup|verify --state FILE [--out DIR]
 Exit status 0 when every check passes.
 """
-import argparse, json, os, socket, subprocess, sys, time
+import argparse, json, os, socket, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
-parser.add_argument("--daemon-socket")
 parser.add_argument("--phase", choices=["setup", "verify"], required=True)
 parser.add_argument("--state", required=True)
 parser.add_argument("--out", default="/tmp")
@@ -70,27 +69,6 @@ def action(name, args=None, target=None, focus=True):
     if target:
         params["target"] = target
     return rpc("action.run", params)
-
-
-def daemon_socket():
-    if opts.daemon_socket:
-        return opts.daemon_socket
-    temp = os.environ.get("TMPDIR") or subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
-    session = os.path.basename(opts.socket).replace("cmux-debug-", "cmux-app-", 1)
-    return os.path.join(temp, f"cmux-tui-{os.getuid()}", session)
-
-
-def workspaces():
-    snapshot = line_json(daemon_socket(), {"id": 1, "cmd": "list-workspaces"}, 30)
-    return (snapshot.get("data") or {}).get("workspaces") or []
-
-
-def ids(entry):
-    return {v for k, v in entry.items() if isinstance(v, str) and ("id" in k or k == "key") and v}
-
-
-def known():
-    return set().union(*(ids(w) for w in workspaces()))
 
 
 def wait(check, seconds, step=0.5):
@@ -145,18 +123,20 @@ def snapshot(name):
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}.png")})
 
 
+def workspace_keys():
+    return {r["key"] for r in rows() if str(r.get("key", "")).startswith("workspace(")}
+
+
 def new_workspace():
-    before = known()
+    """A new workspace at the bottom of the list: its sidebar id (the row that was not there)."""
+    before = workspace_keys()
     action("workspace.newAtBottom")
-    made = wait(lambda: [w for w in workspaces() if not ids(w) & before], 20)
+    wait(lambda: workspace_keys() - before, 20)
+    time.sleep(1.5)  # test harness: a placeholder row takes the workspace's id once the daemon lists it
+    made = wait(lambda: workspace_keys() - before, 10)
     if not made:
-        sys.exit("no workspace opened")
-    entry = made[0]
-    found = wait(lambda: next((r for r in rows() if str(r.get("key", "")).startswith("workspace(")
-                               and any(i in str(r.get("key")) for i in ids(entry))), None), 10)
-    if not found:
-        sys.exit("the new workspace has no sidebar row")
-    return key_id(found["key"])
+        sys.exit("no new workspace row")
+    return key_id(sorted(made)[0])
 
 
 def setup():
