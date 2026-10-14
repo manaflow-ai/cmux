@@ -32,6 +32,11 @@ public final class BillingModel {
     public private(set) var offers: [BillingOffer] = []
     /// Why StoreKit products could not be loaded, when they could not.
     public private(set) var offersFailure: BillingFailure?
+    /// The product of the account's active App Store subscription on this
+    /// Apple Account, from StoreKit's current entitlements; nil when unknown.
+    /// It tells Pro Monthly from Pro Yearly, which the server's plan id
+    /// cannot.
+    public private(set) var currentAppleProductID: String?
     /// The current purchase attempt.
     public private(set) var purchase: BillingPurchasePhase = .idle
     /// The current restore attempt.
@@ -225,6 +230,7 @@ public final class BillingModel {
         accountGeneration += 1
         rejectedTransactions = [:]
         lastProductsEvent = nil
+        currentAppleProductID = nil
         account = .idle
         offers = []
         offersFailure = nil
@@ -289,6 +295,7 @@ public final class BillingModel {
         guard generation == accountGeneration else { return }
         account = .loaded(loaded)
         await loadOffers(for: loaded, generation: generation)
+        await loadCurrentAppleProduct(for: loaded, generation: generation)
     }
 
     private func loadOffers(for account: BillingAccount, generation: Int) async {
@@ -349,6 +356,22 @@ public final class BillingModel {
                 "billing_period": .string(periods),
             ])
         }
+    }
+
+    private func loadCurrentAppleProduct(for account: BillingAccount, generation: Int) async {
+        guard account.currentPlan.source == .apple else {
+            currentAppleProductID = nil
+            return
+        }
+        let sold = Set(account.products.filter { $0.planID == account.currentPlan.planID }.map(\.productID))
+        var productID: String?
+        for entitlement in await store.currentEntitlements() {
+            if case .verified(let transaction) = entitlement, sold.contains(transaction.productID) {
+                productID = transaction.productID
+            }
+        }
+        guard generation == accountGeneration else { return }
+        currentAppleProductID = productID
     }
 
     private func captureProductsFailed(reason: String, generation: Int) async {

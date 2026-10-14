@@ -152,7 +152,7 @@ public struct MobilePlansView: View {
                 Section {
                     MobilePlanOfferRow(
                         offer: offer,
-                        isCurrent: applePlan == offer.planID,
+                        isCurrent: isCurrent(offer, applePlan: applePlan),
                         isSwitch: applePlan != nil,
                         isBusy: billing.purchase.isPurchasing,
                         buy: { Task { await billing.buy(offer, entryPoint: entryPoint) } }
@@ -164,7 +164,17 @@ public struct MobilePlansView: View {
 
     /// True when at least one plan is sold both monthly and yearly.
     private var hasPeriodChoice: Bool {
-        Set(billing.offers.map(\.billingPeriod)).count > 1
+        Dictionary(grouping: billing.offers, by: \.planID).values.contains { offers in
+            Set(offers.map(\.billingPeriod)).count > 1
+        }
+    }
+
+    /// The offer is the active App Store subscription. With the active
+    /// product known, only that product is current, so the other period of
+    /// the same plan stays buyable as a switch; otherwise the plan decides.
+    private func isCurrent(_ offer: BillingOffer, applePlan: BillingPlanID?) -> Bool {
+        if let productID = billing.currentAppleProductID { return productID == offer.product.id }
+        return applePlan == offer.planID
     }
 
     /// One offer per plan: the chosen period when the plan has it, else the
