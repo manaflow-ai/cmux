@@ -49,12 +49,15 @@ import Testing
         // What the first committed frame shows: no observation turn has run yet.
         let pane = try #require(content.paneController(key: workspace.screens[0].panes[0].id))
         let first = pane.view.hidesStrip
-        let chrome = ChatDockChrome.hidesStrip(pane, tabCount: 1)
-        let screen = content.layoutModel.screen(containing: pane.layoutPaneID)
         // The settled state, after the pane's own observation has run.
         try await Task.sleep(for: .milliseconds(300))
-        let settled = pane.view.hidesStrip
-        #expect(settled, "the lone chat keeps its strip even once settled: chrome=\(chrome) kind=\(pane.tabBarKind) screen=\(String(describing: screen?.layout)) supports=\(services.daemon.supports(DaemonCapabilities.shared.dockColumnRole))")
-        #expect(first == settled, "the lone chat mounted with a tab strip that a later turn removes")
+        // Each input of the chat's no-strip rule, so a fixture that never hides the strip says why.
+        #expect(services.daemon.supports(DaemonCapabilities.shared.dockColumnRole))
+        #expect(content.layoutModel.screen(containing: pane.layoutPaneID)?.layout.columns.count == 1)
+        #expect(pane.tabBarKind == .agent)
+        #expect(services.paneTabBars.choice(for: pane.paneKey) == nil)
+        #expect(ChatDockChrome.hidesStrip(pane, tabCount: 1))
+        #expect(pane.view.hidesStrip)
+        #expect(first == pane.view.hidesStrip, "the lone chat mounted with a tab strip that a later turn removes")
     }
 }
