@@ -28,16 +28,25 @@ export function katexCss() {
   return inlined;
 }
 
-export const katexStylePlugin = {
-  name: "katex-style",
-  setup(build) {
-    build.onResolve({ filter: /^katex\/dist\/katex\.min\.css$/ }, () => ({
-      path: "katex-style.js",
-      namespace: "katex-style",
-    }));
-    build.onLoad({ filter: /.*/, namespace: "katex-style" }, () => ({
-      contents: `const style = document.createElement("style");\nstyle.dataset.katex = "";\nstyle.textContent = ${JSON.stringify(katexCss())};\ndocument.head.append(style);\n`,
-      loader: "js",
-    }));
-  },
-};
+/**
+ * With `split`, the stylesheet's module adds it to the page; KaTeX's chunk carries it. A bundle
+ * without chunks (the pages build-pages-web.sh writes) gets an empty module instead, so its one
+ * script does not carry ~350 KB of fonts for math those pages draw unstyled, as before.
+ */
+export function katexStylePlugin({ split }) {
+  return {
+    name: "katex-style",
+    setup(build) {
+      build.onResolve({ filter: /^katex\/dist\/katex\.min\.css$/ }, () => ({
+        path: "katex-style.js",
+        namespace: "katex-style",
+      }));
+      build.onLoad({ filter: /.*/, namespace: "katex-style" }, () => ({
+        contents: split
+          ? `const style = document.createElement("style");\nstyle.dataset.katex = "";\nstyle.textContent = ${JSON.stringify(katexCss())};\ndocument.head.append(style);\n`
+          : "",
+        loader: "js",
+      }));
+    },
+  };
+}

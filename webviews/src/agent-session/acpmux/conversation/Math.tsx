@@ -16,11 +16,16 @@ let katex: KaTeX | null = null;
 const listeners = new Set<() => void>();
 let loading: Promise<void> | null = null;
 function load() {
-  loading ??= Promise.all([import("katex"), import("./katexStyle")]).then(([module]) => {
-    katex = module.default;
-    installMathCopy();
-    for (const listener of listeners) listener();
-  });
+  loading ??= Promise.all([import("katex"), import("./katexStyle")])
+    .then(([module]) => {
+      katex = module.default;
+      installMathCopy();
+      for (const listener of listeners) listener();
+    })
+    .catch(() => {
+      // A chunk that failed to load is fetched again by the next equation drawn.
+      loading = null;
+    });
 }
 
 /** KaTeX once its chunk has run; components drawing math draw again then. */

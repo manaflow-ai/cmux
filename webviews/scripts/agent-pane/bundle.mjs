@@ -70,8 +70,8 @@ const result = await build({
       }
     : { outfile }),
   plugins: cssInputsOnly
-    ? [tailwindPlugin, jsonParsePlugin]
-    : [reactCompiler, tailwindPlugin, jsonParsePlugin, katexStylePlugin],
+    ? [tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
+    : [reactCompiler, tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
   metafile: Boolean(cssInputsFile),
 });
 if (cssInputsFile) {
