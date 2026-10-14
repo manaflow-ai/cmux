@@ -183,12 +183,12 @@ describe("localized pricing page", () => {
 
   test("keeps paid-plan copy flat: no metering, trials, or CodeRouter", () => {
     expect(enMessages.pricing.team.features).toEqual([
-      "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
+      "Up to 5 shared Cloud VMs, sharing 20 vCPUs and 40 GB RAM across the team",
       "Centralized billing for your whole team",
       "Priority support",
     ]);
     expect(jaMessages.pricing.team.features).toEqual([
-      "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
+      "最大 5 台の Cloud VM と、20 vCPU・40 GB RAM をチーム全体で共有",
       "チーム全体の一元請求",
       "優先サポート",
     ]);
@@ -215,7 +215,7 @@ describe("localized pricing page", () => {
       free: "false",
       pro: "5",
       max: "5",
-      team: "5 per paid seat",
+      team: "5",
       enterprise: "Custom",
     });
     expect(enMessages.dashboard.billing.free.upsellTitle).toBe(
@@ -274,8 +274,8 @@ describe("localized pricing page", () => {
     expect(html).not.toContain("/api/billing/portal");
     expect(html).not.toContain("Manage billing");
     expect(html).toContain("/mo");
-    expect(html).toContain("/user/mo");
-    expect(html).toContain("$60/user/mo");
+    expect(html).toContain("/team/mo");
+    expect(html).toContain("$60/team/mo");
     expect(html).toContain('href="/handler/sign-in?after_auth_return_to=');
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
@@ -399,12 +399,12 @@ describe("localized pricing page", () => {
     expect(html).toContain("/mo");
     expect(html).toContain("$50/mo");
     expect(html).toContain("$60");
-    expect(html).toContain("/user/mo");
+    expect(html).toContain("/team/mo");
     expect(html).not.toContain("/mo, billed yearly");
-    expect(html).not.toContain("/user/mo, billed yearly");
-    expect(html).toContain("$60/user/mo");
+    expect(html).not.toContain("/team/mo, billed yearly");
+    expect(html).toContain("$60/team/mo");
     expect(html).not.toContain("$480/year");
-    expect(html).not.toContain("$576/user/year");
+    expect(html).not.toContain("$576/team/year");
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
     expect(html).toContain("plan%253Dpro%2526cmux_external_browser");

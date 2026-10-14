@@ -739,8 +739,8 @@
         "fallbackName": "チーム",
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
-        "price": "${amount}/シート/月",
-        "annualPrice": "${monthly}/シート/月（年払い）",
+        "price": "${amount}/月",
+        "annualPrice": "${monthly}/月（年払い）",
         "createCta": "チームを作成"
       },
       "details": {
@@ -781,15 +781,12 @@
         "unavailable": "チームの請求情報を読み込めませんでした。しばらくしてからもう一度お試しください。",
         "welcome": "Team が有効になりました。チームのメンバーページからチームメイトを招待してください。",
         "freeBody": "{team} は Free プランです。Team では、すべてのメンバーがクラウドエージェントを利用でき、請求書は 1 つにまとまります。",
-        "personalPlanBody": "{team} is using your {plan} plan. Personal plans support up to 3 members. Team is $60 per accepted member per month and adds 5 shared Cloud VMs per paid seat. Pending invitations do not use seats. Cloud capacity belongs to this team; switching teams does not move or reset machines. A new team has its own team-scoped allowance.",
-        "planRules": "Pro or Max can power a team for up to 3 people and 5 shared Cloud VMs. Team has no seat cap: each accepted member costs $60 per month and adds 5 shared Cloud VMs to the team's shared pool. Pending invitations are free. Cloud capacity belongs to the selected team; switching teams does not move or reset machines. A new team has its own team-scoped allowance.",
+        "personalPlanBody": "{team} はあなたの {plan} プランを利用しています。 Pro または Max は、オーナーと招待中の人を含めて 3 人まで利用できます。チームを切り替えてもマシンは移動もリセットもされません。",
+        "planRules": "Team はチーム全体で月額 $60 です。メンバー数の上限はなく、5 台の Cloud VM を共有できます。招待やメンバーの追加で料金や VM の上限は変わりません。",
         "upgradeCta": "このチームをアップグレード",
         "askAdmin": "請求を変更できるのはチーム管理者のみです。{team} の管理者にアップグレードを依頼してください。",
         "memberReadOnly": "このプランを変更できるのはチーム管理者のみです。",
-        "grantedBody": "{team} には cmux チームから Team へのアクセスが付与されています。管理するサブスクリプションはありません。",
-        "seatsUsed": "{seats} シート中 {members} 使用",
-        "overSeat": "{team} にはメンバーが {members} 人いますが、有料シートは {seats} です。シート数はメンバー数に追従し、サブスクリプションは自動的に更新されます。",
-        "addSeats": "シートを追加"
+        "grantedBody": "{team} には cmux チームから Team へのアクセスが付与されています。管理するサブスクリプションはありません。"
       },
       "teamList": {
         "heading": "請求の対象",
@@ -811,7 +808,6 @@
         "renewsOn": "{date} に更新",
         "endsOn": "{date} に終了",
         "perMonth": "月額",
-        "perSeatMonth": "1 シートあたり月額",
         "paymentMethod": "支払い方法を管理",
         "invoices": "請求書",
         "heading": "プラン",
@@ -851,7 +847,7 @@
           ],
           "team": [
             "全メンバーに Pro のすべての機能",
-            "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
+            "最大 5 台の Cloud VM と、20 vCPU・40 GB RAM をチーム全体で共有",
             "チーム全体で 1 つの請求書",
             "優先サポート"
           ]
@@ -1335,18 +1331,18 @@
         "creating": "作成中…",
         "planTitle": "{team} のプランを選択",
         "planDescription": "プランは後でチームの請求ページから変更できます。",
-        "planRules": "Personal Pro or Max can power this team for up to 3 people. Team has no seat cap: each accepted member costs $60 per month and adds 5 shared Cloud VMs to the team's shared pool. Pending invitations are free. Cloud capacity belongs to the selected team; switching teams does not move or reset machines. A new team has its own team-scoped allowance.",
+        "planRules": "Pro または Max は、オーナーと招待中の人を含めて 3 人まで利用できます。チームを切り替えてもマシンは移動もリセットもされません。",
         "freeName": "Free",
         "freePrice": "$0",
         "teamName": "Team",
-        "teamPrice": "1 シートあたり月額 ${price}",
+        "teamPrice": "チーム全体で月額 ${price}",
         "featureMembers": "メンバー、ロール、招待",
         "featureProForEveryone": "すべてのメンバーに Pro の全機能",
         "featureCentralBilling": "チーム全体の請求を一元管理",
         "featurePrioritySupport": "優先サポート",
         "chooseFree": "Free で続ける",
-        "chooseTeam": "Team にアップグレード（${price}/シート/月）",
-        "upgradeLater": "シート数はメンバー数に追従します。メンバーごとに課金され、参加や退出のたびに合計が更新されます。",
+        "chooseTeam": "Team にアップグレード（月額 ${price}）",
+        "upgradeLater": "Team はチーム全体で月額 $60 です。メンバー数の上限はなく、5 台の Cloud VM を共有できます。招待やメンバーの追加で料金や VM の上限は変わりません。",
         "inviteTitle": "{team} にメンバーを招待",
         "inviteDescription": "任意です。チームのメンバーページから後で招待することもできます。",
         "inviteByEmail": "メールで招待",
@@ -1463,8 +1459,6 @@
         "revoke": "取り消す",
         "linksTitle": "招待リンク",
         "linksDescription": "誰でもメンバーとして参加できる、再利用可能なリンクです。",
-        "seatNudge": "メンバーまたは招待中の人が {used} 人いますが、プランのシートは {seats} です。招待は引き続き有効です。全員をカバーするには {over, plural, other {# シート}}を追加してください。",
-        "seatNudgeAction": "シートを管理",
         "actions": {
           "makeAdmin": "管理者にする",
           "makeMember": "メンバーにする",
@@ -1763,10 +1757,10 @@
     },
     "alreadyPaid": "購入済みですか？Founder's Edition を接続する",
     "perMonth": "/月",
-    "perUserMonth": "/ユーザー/月",
+    "perUserMonth": "/チーム/月",
     "billingPeriod": "請求期間",
     "monthly": "月払い",
-    "teamMonthlyComparePrice": "${monthly}/ユーザー/月",
+    "teamMonthlyComparePrice": "${monthly}/チーム/月",
     "currentPlan": "現在のプラン",
     "manageBilling": "請求を管理",
     "free": {
@@ -1832,7 +1826,7 @@
       "cta": "Teams を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
+        "最大 5 台の Cloud VM と、20 vCPU・40 GB RAM をチーム全体で共有",
         "チーム全体の一元請求",
         "優先サポート"
       ]
@@ -1925,7 +1919,7 @@
           "free": "false",
           "pro": "5",
           "max": "5",
-          "team": "有料シートごとに 5",
+          "team": "5",
           "enterprise": "カスタム",
           "go": "1"
         },
@@ -1934,7 +1928,7 @@
           "free": "false",
           "pro": "20 vCPU と 40 GB RAM（共有）",
           "max": "80 vCPU と 160 GB RAM（共有）",
-          "team": "有料シートごとに 20 vCPU と 40 GB RAM（チーム全体で共有）",
+          "team": "最大 5 台の Cloud VM と、20 vCPU・40 GB RAM をチーム全体で共有",
           "enterprise": "カスタム",
           "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
         },
@@ -2041,7 +2035,7 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 5 台の Cloud VM を利用でき、20 vCPU と 40 GB RAM を共有します。Team では有料シートごとに同じ枠が加わり、チーム全体で 1 つのプールを共有します。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 5 台の Cloud VM を利用でき、20 vCPU と 40 GB RAM を共有します。Team では最大 5 台の Cloud VM と、20 vCPU・40 GB RAM をチーム全体で共有します。"
         },
         {
           "q": "Max では何が追加されますか?",
@@ -2058,7 +2052,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月額 $50、または年払いで $480（月額 $40 相当）です。Max は月額 $200、または年払いで $1,920（月額 $160 相当）です。Team はユーザーあたり月額 $60 です。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月額 $50、または年払いで $480（月額 $40 相当）です。Max は月額 $200、または年払いで $1,920（月額 $160 相当）です。Team はチーム全体で月額 $60 です。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -2066,7 +2060,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team はユーザーあたり月額 $60 で、チーム全体の一元請求と優先サポートが含まれます。"
+          "a": "はい。Team はチーム全体で月額 $60 で、一元請求と優先サポートが含まれます。"
         }
       ]
     },
@@ -2090,7 +2084,7 @@
       "team": "チームとエンタープライズ"
     },
     "priceMonthlyNote": "月払いは${amount}/月",
-    "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
+    "priceMonthlyPerUserNote": "月払いは${amount}/チーム/月",
     "manageInAppStore": "App Store で管理",
     "resumePlan": "{plan} を再開"
   },
@@ -4430,7 +4424,7 @@
       "limitsDesc": "アクティブなマシンは、vCPUとメモリの1つのプールを共有します。大きなマシン1台でも、小さなマシン数台でも使えます。一時停止中のマシンはプールを使いません。ディスクはマシンごとに設定され、プールには含まれません。",
       "limitsFree": "無料アカウントではマシンを作成できません。",
       "limitsPaid": "ProおよびFounder's Editionアカウントでは、20 vCPUと40 GBのメモリを共有するアクティブなマシンを最大5台まで持てます。実行中または起動中のマシンがアクティブとして数えられます。",
-      "limitsTeam": "Teamアカウントでは、有料シート1つにつきアクティブなマシンを最大5台まで持てます。有料シート1つごとに、チームのプールに20 vCPUと40 GBのメモリが追加されます。",
+      "limitsTeam": "最大 5 台の Cloud VM と、20 vCPU・40 GB RAM をチーム全体で共有",
       "limitsMax": "Maxアカウントでは、80 vCPUと160 GBのメモリを共有するアクティブなマシンを最大5台まで持てます。Maxの1台のマシンは最大64 GB、32 vCPUまで使え、24 GB / 12 vCPUと32 GB / 16 vCPUのサイズも含まれます。ProとTeamは16 GB、8 vCPUまでです。",
       "limitsPoolFull": "新規作成、再開、サイズ変更、フォークでプールを超える場合、cmuxはリクエストを拒否し、プールの使用量を表示します。マシンを一時停止または削除してリソースを空けるか、Maxにアップグレードしてください。",
       "limitsOversize": "プランの上限より大きいマシンはロックされます。一覧表示と削除はできますが、アップグレードするまで開く、コマンドを実行する、再開する、サイズを変更することはできません。",

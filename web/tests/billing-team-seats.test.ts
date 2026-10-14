@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type Stripe from "stripe";
 import {
   billableSeats,
+  markActiveTeamSubscriptionsDirty,
   reconcileTeamSeats,
   seatDecision,
   type TeamSeatReconcileDependencies,
@@ -42,7 +43,7 @@ describe("Team quantity rule", () => {
 
   test("updates from an unknown quantity", () => {
     expect(seatDecision({ planId: null, hasTeamSubscription: true, memberCount: 2, quantity: null }))
-      .toEqual({ action: "update", from: null, to: 2 });
+      .toEqual({ action: "update", from: null, to: 1 });
   });
 
   test("ignores Pro and Max personal teams and teams without a Team subscription", () => {
@@ -141,14 +142,14 @@ describe("team seat reconciler", () => {
     expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastMemberCount: 3, lastStripeQuantity: 1, lastError: null });
   });
 
-  test("lowers the quantity after a removal and leaves the row clean", async () => {
+  test("normalizes an old quantity after a removal and leaves the row clean", async () => {
     const { stack, queue, stripe, deps } = harness({ quantity: 2 });
     stack.teams.get(TEAM_ID)!.members.delete(MEMBER_ID);
     await queue.markDirty(TEAM_ID);
 
     await reconcileTeamSeats({}, deps);
 
-    expect(stripe.updates.map((update) => update.quantity)).toEqual([]);
+    expect(stripe.updates.map((update) => update.quantity)).toEqual([1]);
     expect(queue.rows.get(TEAM_ID)!.dirtyAt).toBeNull();
   });
 
@@ -165,8 +166,8 @@ describe("team seat reconciler", () => {
     expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastMemberCount: 2, lastStripeQuantity: 1 });
   });
 
-  test("is a no-op when our row lags but Stripe already matches", async () => {
-    const { stack, queue, stripe, applied, deps } = harness({ quantity: 3, rowSeats: 2 });
+  test("repairs our stale row without charging when Stripe already matches", async () => {
+    const { stack, queue, stripe, applied, deps } = harness({ quantity: 1, rowSeats: 3 });
     stack.addMember(TEAM_ID, OUTSIDER_ID, MEMBER_GRANTS);
     await queue.markDirty(TEAM_ID);
 
@@ -174,8 +175,8 @@ describe("team seat reconciler", () => {
 
     expect(result.updated).toBe(0);
     expect(stripe.updates).toEqual([]);
-    expect(applied).toEqual([]);
-    expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastStripeQuantity: 3 });
+    expect(applied).toEqual([1]);
+    expect(queue.rows.get(TEAM_ID)!).toMatchObject({ dirtyAt: null, lastStripeQuantity: 1 });
   });
 
   test("skips personal-plan and unsubscribed teams but still clears them", async () => {
@@ -271,7 +272,27 @@ describe("team seat reconciler", () => {
     stack.addMember(TEAM_ID, OUTSIDER_ID, ADMIN_GRANTS);
     await queue.markDirty(TEAM_ID);
     await reconcileTeamSeats({}, deps);
-    expect(stripe.updates.map((update) => update.quantity)).toEqual([1]);
+    expect(stripe.updates.map((update) => update.quantity)).toEqual([]);
     expect(stack.teams.get(TEAM_ID)!.members.has(ADMIN_ID)).toBe(true);
   });
+});
+
+test("the periodic sweep queues old quantities without a new membership event", async () => {
+  const { queue, stripe, deps } = harness({ quantity: 8 });
+  const count = await markActiveTeamSubscriptionsDirty(queue, async () => [
+    { stackTeamId: TEAM_ID }, { stackTeamId: TEAM_ID }, { stackTeamId: null },
+  ]);
+  expect(count).toBe(1);
+  expect(queue.rows.get(TEAM_ID)?.dirtyAt).not.toBeNull();
+  expect(await reconcileTeamSeats({}, deps)).toMatchObject({ updated: 1, failed: 0 });
+  expect(stripe.quantity).toBe(1);
+});
+
+test("accepted members and invitations leave a flat subscription untouched", async () => {
+  const { stack, queue, stripe, deps } = harness({ quantity: 1 });
+  stack.addMember(TEAM_ID, OUTSIDER_ID, MEMBER_GRANTS);
+  stack.addInvitation(TEAM_ID, "next@example.com");
+  await queue.markDirty(TEAM_ID);
+  expect(await reconcileTeamSeats({}, deps)).toMatchObject({ updated: 0, failed: 0 });
+  expect(stripe.updates).toEqual([]);
 });

@@ -28,7 +28,12 @@ export const PERSONAL_PLAN_SWITCH_PORTAL_METADATA = {
   app: "cmux",
   purpose: "personal_plan_switch",
 } as const;
+export const TEAM_BILLING_PORTAL_METADATA = {
+  app: "cmux",
+  purpose: "team_billing",
+} as const;
 let resolvedPersonalPlanSwitchConfigurationId: string | null = null;
+let resolvedTeamBillingPortalConfigurationId: string | null = null;
 
 /**
  * The id of the portal configuration provisioned for Pro <-> Max switches,
@@ -57,6 +62,29 @@ export async function resolvePersonalPlanSwitchPortalConfiguration(): Promise<st
   }
   resolvedPersonalPlanSwitchConfigurationId = found.id;
   return found.id;
+}
+
+/**
+ * Team's portal configuration keeps payment methods, invoices, and
+ * cancellation available while omitting Stripe's quantity editor. Team is a
+ * flat subscription, so a member invite must never become a charge in the
+ * portal. The catalog script creates or updates this configuration.
+ */
+export async function resolveTeamBillingPortalConfiguration(): Promise<string> {
+  if (resolvedTeamBillingPortalConfigurationId) return resolvedTeamBillingPortalConfigurationId;
+  const overridden = env.STRIPE_TEAM_BILLING_PORTAL_CONFIGURATION_ID;
+  if (overridden) {
+    resolvedTeamBillingPortalConfigurationId = overridden;
+    return overridden;
+  }
+  const listed = await stripe().billingPortal.configurations.list({ active: true, limit: 100 });
+  const found = listed.data.find((configuration) =>
+    configuration.metadata?.app === TEAM_BILLING_PORTAL_METADATA.app &&
+    configuration.metadata?.purpose === TEAM_BILLING_PORTAL_METADATA.purpose,
+  );
+  if (!found) throw new Error("Team billing portal configuration is missing; run the Stripe catalog provisioner");
+  resolvedTeamBillingPortalConfigurationId = found.id;
+  return resolvedTeamBillingPortalConfigurationId;
 }
 
 export function isStripeBillingConfigured(): boolean {

@@ -512,7 +512,7 @@ function PricingContent({
       <PlanCard
         name={t("team.name")}
         price={`$${TEAM_PRICING_USD.month.billedAmount}`}
-        period={t("perUserMonth")}
+        period={t("perMonth")}
       >
         <PricingCheckoutButton
           href={teamCheckoutHref}

@@ -119,6 +119,7 @@ mock.module("../db/client", () => ({
 }));
 
 mock.module("../services/billing/stripe", () => ({
+  resolveTeamBillingPortalConfiguration: async () => "bpc_team",
   isStripeBillingConfigured: () => stripeConfigured,
   resolveMaxPrice,
   resolveGoPrice,
@@ -923,8 +924,7 @@ describe("billing checkout route", () => {
       line_items: [
         {
           price: "price_team_month",
-          quantity: 2,
-          adjustable_quantity: { enabled: true, minimum: 1 },
+          quantity: 1,
         },
       ],
       customer: "cus_team",

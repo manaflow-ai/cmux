@@ -39,14 +39,11 @@ export type ReadyTeamBillingView = {
   /** Team access granted by an operator, with no subscription. */
   readonly granted: boolean;
   readonly subscription: TeamBillingSubscription | null;
-  /** Paid seats: the live subscription quantity, else the synced metadata. */
+  /** Stored Stripe quantity, retained for existing subscription accounting. */
   readonly seats: number | null;
   /** Current members, or null when Stack could not list them. */
   readonly memberCount: number | null;
-  /**
-   * More members than paid seats: the reconciler has not caught up yet, or
-   * its last Stripe write failed. Joining is never blocked.
-   */
+  /** Retained for wire compatibility; Team membership is never over-seat. */
   readonly overSeat: boolean;
   readonly paymentPastDue: boolean;
 };
@@ -79,10 +76,10 @@ export async function loadTeamBillingView(
     latestActiveTeamSubscription(team.id),
     teamMemberCount(team),
   ]);
-  const seats = subscription?.seats ?? billingSeatsFromMetadata(team.clientReadOnlyMetadata);
   const teamPlanId = planStatus.planId === TEAM_PLAN_ID
     ? TEAM_PLAN_ID
     : billingPlanIdFromMetadata(team.clientReadOnlyMetadata);
+  const seats = subscription?.seats ?? billingSeatsFromMetadata(team.clientReadOnlyMetadata);
   return {
     status: "ready",
     team: { id: team.id, displayName: billingTeamFromUnknown(team)?.displayName ?? null },
@@ -98,7 +95,7 @@ export async function loadTeamBillingView(
     subscription,
     seats,
     memberCount,
-    overSeat: subscription !== null && seats !== null && memberCount !== null && memberCount > seats,
+    overSeat: false,
     paymentPastDue: subscription?.status === "past_due",
   };
 }
@@ -127,12 +124,13 @@ export async function latestActiveTeamSubscription(
     .limit(1);
   const row = rows[0];
   if (!row) return null;
+  const unitPrice = subscriptionPriceFromRaw(row.raw);
   return {
     status: row.status,
     seats: row.seats ?? null,
     currentPeriodEnd: row.currentPeriodEnd ?? null,
     cancelAtPeriodEnd: row.cancelAtPeriodEnd === true,
-    price: subscriptionPriceFromRaw(row.raw),
+    price: unitPrice ? { ...unitPrice, amountUsd: unitPrice.amountUsd * (row.seats ?? 1) } : null,
   };
 }
 

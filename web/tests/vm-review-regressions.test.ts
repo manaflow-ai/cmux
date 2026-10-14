@@ -126,7 +126,7 @@ describe("VM review regressions", () => {
         ));
         if (allowance === 20 || allowance === undefined) {
           expect(result._tag).toBe("Left");
-          // Without an explicit allowance, a Team row without seat data gets one seat's machines.
+          // Without an explicit allowance, a Team row without seat data gets the flat Team machine allowance.
           const limit = allowance ?? PAID_MAX_ACTIVE_VMS_DEFAULT;
           if (result._tag === "Left") expect(result.left).toMatchObject({ _tag: "VmLimitExceededError", limit });
           expect(resumes).toBe(0);

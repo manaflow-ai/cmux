@@ -3,10 +3,9 @@ import { reconcileTeamSeats } from "../billing/teamSeats";
 import { databaseTeamSeatQueue, type TeamSeatQueue } from "../billing/teamSeatQueue";
 
 /**
- * The membership fact that drives Team seat billing. The Stack membership
+ * The membership fact that schedules Team quantity normalization. The Stack membership
  * write has already succeeded when this runs, so it only records the fact
- * and never throws into the caller: billing follows membership, membership
- * never waits on billing. Tests pass a recording fake.
+ * and never throws into the caller: membership never waits on billing. Tests pass a recording fake.
  */
 export type TeamSeatSync = {
   membershipChanged(stackTeamId: string): Promise<void>;

@@ -38,6 +38,7 @@ mock.module("../db/client", () => ({
 }));
 mock.module("../services/billing/stripe", () => ({
   ...stripeModule,
+  resolveTeamBillingPortalConfiguration: async () => "bpc_team",
   isStripeBillingConfigured: () => true,
   resolveTeamPrice: async () => "price_team_month",
   stripe: () => ({
@@ -217,6 +218,7 @@ describe("explicit team checkout", () => {
     expect(createPortal).toHaveBeenCalledWith({
       customer: "cus_team_b",
       return_url: "https://cmux.test/dashboard/billing?team=team-b",
+      configuration: "bpc_team",
     });
   });
 });

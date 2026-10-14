@@ -114,7 +114,7 @@ const LIST_MONTHLY_USD: Readonly<Record<PickerPlanId, number>> = {
 
 export type PlanCardPrice = {
   readonly amount: string;
-  readonly unit: "perMonth" | "perSeatMonth";
+  readonly unit: "perMonth";
   readonly annual: boolean;
 };
 
@@ -129,10 +129,9 @@ export function planCardPrice(
   current: boolean,
   currentPrice: SubscriptionPrice | null | undefined,
 ): PlanCardPrice | null {
-  const unit = id === "team" ? "perSeatMonth" : "perMonth";
+  const unit = "perMonth" as const;
   if (!current || currentPrice === undefined) return { amount: `$${formatUsd(LIST_MONTHLY_USD[id])}`, unit, annual: false };
   if (currentPrice === null) return null;
   const annual = currentPrice.interval === "year";
   return { amount: `$${formatUsd(annual ? currentPrice.amountUsd / 12 : currentPrice.amountUsd)}`, unit, annual };
 }
-

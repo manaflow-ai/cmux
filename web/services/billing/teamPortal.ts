@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeCustomers } from "../../db/schema";
-import { stripe } from "./stripe";
+import { resolveTeamBillingPortalConfiguration, stripe } from "./stripe";
 
 export async function stripeCustomerIdForStackTeam(stackTeamId: string): Promise<string | null> {
   const rows = await cloudDb()
@@ -31,9 +31,11 @@ export async function teamPortalSession(input: {
 }): Promise<{ readonly url: string } | null> {
   const customerId = input.customerId ?? await stripeCustomerIdForStackTeam(input.teamId);
   if (!customerId) return null;
+  const configuration = await resolveTeamBillingPortalConfiguration();
   const session = await stripe().billingPortal.sessions.create({
     customer: customerId,
     return_url: teamBillingReturnURL(input.origin, input.teamId),
+    configuration,
   });
   if (!session.url) throw new Error("Stripe Billing Portal Session did not include a URL");
   return { url: session.url };
