@@ -74,6 +74,19 @@ pub(in crate::cli) fn resolve_socket_with_env(
         }
         return Ok((cmux_tui_core::server::try_default_socket_path(session)?, true));
     }
+    // A `cmux` bundled in another app than this terminal's: that app's daemon
+    // and Chief sockets are not this build's (per-build isolation S4).
+    let other_app = crate::app_identity::in_other_apps_terminal(
+        |name| env(name).and_then(|value| value.into_string().ok()),
+        std::env::current_exe().ok().as_deref(),
+    );
+    let env = |name: &str| {
+        if other_app && crate::app_identity::OTHER_APP_STATE_KEYS.contains(&name) {
+            None
+        } else {
+            env(name)
+        }
+    };
     // A Chief's call: the app's daemon while the app runs, else the Chief's
     // owner daemon (chief_target.rs).
     if let Some(path) = super::super::chief_target::daemon_socket(

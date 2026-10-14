@@ -37,7 +37,9 @@ OTHER_ACPMUX = os.path.join(OTHER, "acpmux")
 HARNESS_SOCKET = os.path.join(SCRATCH, "harness.sock")
 OWN_SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 ISOLATED_CHIEF = os.path.expanduser(f"~/.cmux/chief/isolated/{TAG}")
-BINARY = os.path.join(opts.app, "Contents/MacOS/cmux DEV")
+EXECUTABLE = subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleExecutable",
+                             os.path.join(opts.app, "Contents/Info.plist")], capture_output=True, text=True).stdout.strip()
+BINARY = os.path.join(opts.app, "Contents/MacOS", EXECUTABLE or "cmux DEV")
 CLI = os.path.join(opts.app, "Contents/Resources/bin/cmux")
 os.makedirs(OTHER, exist_ok=True)
 os.makedirs(opts.out, exist_ok=True)
@@ -94,11 +96,20 @@ def launch(extra, name):
 
 
 def quit_app(proc, path):
-    rpc(path, "action.run", {"id": "quitEndSessions"})
+    """Quits the app this run started (`proc`), through `path` when that is its
+    socket; a process that does not quit gets SIGTERM, then SIGKILL (its pid only)."""
+    if proc.poll() is None and path and answers(path):
+        rpc(path, "action.run", {"id": "quitEndSessions"})
     try:
         proc.wait(timeout=60)
     except subprocess.TimeoutExpired:
-        say(f"app pid {proc.pid} did not quit within 60 s")
+        say(f"app pid {proc.pid} did not quit within 60 s; ending it")
+        proc.terminate()
+        try:
+            proc.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=20)
 
 
 CLEAN_ENV = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_", "MUX_", "OPTCHAT_"))}
@@ -139,6 +150,13 @@ def found_under(root):
 failed = 0
 proc = None
 isolated_existed = os.path.exists(ISOLATED_CHIEF)
+# Only an app this run starts may answer these names: else a pass could be another
+# app's, and the quit at the end would stop it.
+for name in (OWN_SOCKET, HARNESS_SOCKET):
+    if answers(name):
+        sys.exit(f"refusing to run: an app already answers {name}; pick a fresh tag")
+if isolated_existed:
+    sys.exit(f"refusing to run: {ISOLATED_CHIEF} exists (another run of tag {TAG}); pick a fresh tag")
 try:
     # 1 and 2: started from another cmux's terminal
     open(os.path.join(OTHER, "token"), "w").write("not a token\n")
@@ -159,7 +177,7 @@ try:
     brain = wait(lambda: os.path.exists(os.path.join(ISOLATED_CHIEF, "state", "host.lock")), 180)
     leaked = found_under(OTHER)
     say(f"step 2: own isolated Chief {ISOLATED_CHIEF} has a brain lock: {bool(brain)}; files in the inherited roots: {leaked}")
-    if leaked:
+    if leaked or not brain:
         failed = failed or 2
     quit_app(proc, path)
     proc = None
@@ -175,12 +193,12 @@ try:
     proc = None
 except SystemExit:
     pass
+except Exception as error:  # a crash of this script is a failure, never a pass
+    say(f"error: {error!r}")
+    failed = failed or 9
 finally:
     if proc and proc.poll() is None:
-        for path in (OWN_SOCKET, OTHER_SOCKET, HARNESS_SOCKET):
-            if answers(path):
-                quit_app(proc, path)
-                break
+        quit_app(proc, next((p for p in (OWN_SOCKET, OTHER_SOCKET, HARNESS_SOCKET) if answers(p)), None))
     stop_isolated_chief()
     stop_inherited_roots()
     if not isolated_existed:

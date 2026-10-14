@@ -62,20 +62,19 @@ impl AppIdentity {
     }
 
     /// Whether the app-terminal identity `env` names another build than
-    /// this bundle: another bundle id, or another tag where both have one.
-    /// An environment with only `CMUX_SOCKET_PATH` (a Chief brain's turn)
-    /// names no build.
+    /// this bundle: another build key (`BuildIdentity`). An environment with
+    /// only `CMUX_SOCKET_PATH` (a Chief brain's turn) names no build; a DEV
+    /// tag under another spelling of its bundle id (`debug.a-b` for
+    /// reload.sh's `debug.a.b`) is the same build.
     fn names_other_build(&self, env: &Self) -> bool {
-        match (&env.bundle_id, &self.bundle_id) {
-            (Some(theirs), Some(ours)) if theirs != ours => return true,
-            (None, _) if env.tag.is_none() => return false,
-            _ => {}
+        if env.bundle_id.is_none() && env.tag.is_none() {
+            return false;
         }
-        match (&env.tag, &self.tag) {
-            (Some(theirs), Some(ours)) => theirs != ours,
-            (Some(_), None) => true,
-            _ => false,
+        if env.build().key() == self.build().key() {
+            return false;
         }
+        let dev = |identity: &Self| identity.bundle_id.as_deref().is_none_or(is_debug_bundle);
+        !(dev(env) && dev(self) && env.tag.is_some() && env.tag == self.tag)
     }
 
     /// The app bundle around `exe`, if it is a cmux app.
@@ -163,6 +162,48 @@ impl AppIdentity {
     }
 }
 
+/// Variables of an app terminal or agent that name that app's daemon, Chief
+/// or acpmux, beside `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID` and `CMUX_TAG`:
+/// ignored by a `cmux` bundled in another app (per-build isolation S4).
+pub(crate) const OTHER_APP_STATE_KEYS: [&str; 15] = [
+    "CMUX_TUI_SOCKET",
+    "CMUX_MUX_SOCKET",
+    "CMUX_APP_DAEMON_SOCKET",
+    "CMUX_CHIEF_OWNER_SOCKET",
+    "CMUX_CHIEF_HOME",
+    "CMUX_NEXT_CHIEF_HOME",
+    "CMUX_NEXT_CHIEF_ROOT",
+    "CMUX_NEXT_CHIEF_BUILD_ID",
+    "CMUX_NEXT_CHIEF_ACCOUNT",
+    "CMUX_NEXT_MUX_HOME",
+    "CMUX_NEXT_ACPMUX_ROOT",
+    "CMUX_NEXT_SOCKET_PATH",
+    "CMUX_NEXT_CONFIG_FILE",
+    "ACPMUX_HOME",
+    "ACPMUX_SOCKET",
+];
+
+/// Whether this process is a `cmux` bundled in one app, run in a terminal
+/// of another app (`env` names another build): then [`OTHER_APP_STATE_KEYS`]
+/// are that app's and [`AppIdentity::detect`] acts for the own bundle.
+pub(crate) fn in_other_apps_terminal(env: impl Fn(&str) -> Option<String>, exe: Option<&Path>) -> bool {
+    let non_empty = |key: &str| env(key).filter(|value| !value.trim().is_empty());
+    let socket_override = non_empty("CMUX_SOCKET_PATH").map(PathBuf::from);
+    let env_bundle = non_empty("CMUX_BUNDLE_ID");
+    let env_tag = non_empty("CMUX_TAG");
+    if socket_override.is_none() && env_bundle.is_none() && env_tag.is_none() {
+        return false;
+    }
+    let from_env = AppIdentity::new(env_bundle, env_tag.as_deref(), socket_override);
+    AppIdentity::from_bundle(exe).is_some_and(|own| own.names_other_build(&from_env))
+}
+
+/// [`in_other_apps_terminal`] of this process (its environment and executable).
+pub(crate) fn this_process_in_other_apps_terminal() -> bool {
+    let exe = std::env::current_exe().ok();
+    in_other_apps_terminal(|key| std::env::var(key).ok(), exe.as_deref())
+}
+
 /// One stderr line per process: this `cmux` belongs to `own` but runs in a
 /// terminal of `other`, and acts for its own app.
 fn warn_other_app_once(own: &AppIdentity, other: &AppIdentity) {
@@ -178,7 +219,7 @@ fn warn_other_app_once(own: &AppIdentity, other: &AppIdentity) {
         eprintln!(
             "cmux: warning: this cmux belongs to {}, but this terminal is of {}; it acts for its own app. \
              To act for {}, run that app's own cmux; to use this one without the warning, unset \
-             CMUX_BUNDLE_ID CMUX_TAG CMUX_SOCKET_PATH.",
+             CMUX_BUNDLE_ID CMUX_TAG CMUX_SOCKET_PATH CMUX_TUI_SOCKET CMUX_CHIEF_HOME.",
             name(own),
             name(other),
             name(other)
