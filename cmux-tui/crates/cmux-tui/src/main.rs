@@ -2824,6 +2824,7 @@ fn start_detached_owner_session(
         terminal_reap_grace: args.terminal_reap_grace,
         install_key: None,
         chief_tools_socket: None,
+        chief_brains: None,
         websocket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
