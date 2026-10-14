@@ -184,7 +184,7 @@ def start_ticks(terms, seconds):
 class Target:
     pid = window_id = None
     scale = 1.0
-    point = (0, 0)
+    point = screen_point = (0, 0)
 
     @classmethod
     def find(cls):
@@ -207,6 +207,7 @@ class Target:
         cls.scale = width / main["bounds"]["width"] if width else 1.0
         # The sidebar's row list: left column, below the window chrome.
         cls.point = (110 * cls.scale, 430 * cls.scale)
+        cls.screen_point = (main["bounds"]["x"] + 110, main["bounds"]["y"] + 430)
         # Front once, so every wheel call can go in the background (no activation per call).
         cua("bring_to_front", {"pid": pid})
         print(f"cua target pid={pid} window={cls.window_id} bounds={main['bounds']} scale={cls.scale:.3f}", flush=True)
@@ -231,7 +232,52 @@ def ground():
 WHEEL = {"by": "line"}  # the variant that moved the list (chosen by find_wheel)
 
 
+class HIDWheel:
+    """Real wheel events at the window server (CGEventPost to the HID tap, as a mouse wheel does), at the
+    sidebar point in screen coordinates; the window is in front (bring_to_front once), so no activation
+    per event. 60 events a second, `--notches` lines each."""
+    cg = None
+
+    @classmethod
+    def load(cls):
+        import ctypes, ctypes.util
+        cg = ctypes.CDLL(ctypes.util.find_library("CoreGraphics") or "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        cg.CGEventCreateScrollWheelEvent2.restype = ctypes.c_void_p
+        cg.CGEventCreateScrollWheelEvent2.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_int32,
+                                                      ctypes.c_int32, ctypes.c_int32]
+        cg.CGEventCreateMouseEvent.restype = ctypes.c_void_p
+
+        class Point(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+        cg.CGEventCreateMouseEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint32, Point, ctypes.c_uint32]
+        cg.CGEventSetLocation.argtypes = [ctypes.c_void_p, Point]
+        cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+        cls.cg, cls.Point = cg, Point
+        cls.CFRelease = ctypes.CDLL(ctypes.util.find_library("CoreFoundation")).CFRelease
+        cls.CFRelease.argtypes = [ctypes.c_void_p]
+
+    @classmethod
+    def sweep(cls, direction, events):
+        if cls.cg is None:
+            cls.load()
+        cg, at = cls.cg, cls.Point(*Target.screen_point)
+        move = cg.CGEventCreateMouseEvent(None, 5, at, 0)  # kCGEventMouseMoved: the pointer over the sidebar
+        cg.CGEventPost(0, move)
+        cls.CFRelease(move)
+        delta = opts.notches if direction == "up" else -opts.notches
+        for _ in range(events):
+            event = cg.CGEventCreateScrollWheelEvent2(None, 1, 1, delta, 0, 0)  # kCGScrollEventUnitLine
+            cg.CGEventSetLocation(event, at)
+            cg.CGEventPost(0, event)  # kCGHIDEventTap
+            cls.CFRelease(event)
+            time.sleep(1 / 60)  # harness: wheel event rate
+        return []
+
+
 def sweep(direction, steps=None):
+    if WHEEL.get("hid"):
+        return HIDWheel.sweep(direction, (steps or opts.steps) * 6)
     replies = []
     for _ in range(steps or opts.steps):
         r = cua("scroll", {"pid": Target.pid, "window_id": Target.window_id, "x": Target.point[0], "y": Target.point[1],
@@ -244,7 +290,7 @@ def sweep(direction, steps=None):
 def find_wheel():
     """The first wheel variant whose sweep changes the visible rows (background first: no activation per call)."""
     tried = []
-    for variant in ({"by": "line"}, {"by": "page"}, {"by": "line", "delivery_mode": "foreground"}):
+    for variant in ({"hid": True}, {"by": "line"}):
         WHEEL.clear()
         WHEEL.update(variant)
         before = row_titles()
@@ -347,6 +393,7 @@ def record(name, ticks, terms, profile):
         tick_end = time.monotonic() + TICK_RUN_S
         time.sleep(1)  # harness: the tick programs are running before the recorder attaches
     # The recorder's ktrace intermediates (1-12 GB each) go to a temp dir of this run, removed after the export.
+    attach_at = time.time()
     xct_tmp = os.path.join(SCRATCH, "xctrace-tmp")
     os.makedirs(xct_tmp, exist_ok=True)
     proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Animation Hitches", "--attach", str(Target.pid),
@@ -376,8 +423,16 @@ def record(name, ticks, terms, profile):
     # Report (never delete: other jobs' files) ktrace intermediates that still landed in the default temp dir.
     default_tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
     leaked = [f for f in (os.listdir(default_tmp) if os.path.isdir(default_tmp) else [])
-              if f.startswith("instruments") and f.endswith(".ktrace") and os.path.getmtime(os.path.join(default_tmp, f)) >= began - 10]
+              if f.startswith("instruments") and f.endswith(".ktrace") and os.path.getmtime(os.path.join(default_tmp, f)) >= attach_at - 5]
     result["default_tmp_ktrace_since_start"] = len(leaked)
+    # Those are this recording's (an input job runs alone in the GUI session): remove the ones no process holds open.
+    for name in leaked:
+        path_k = os.path.join(default_tmp, name)
+        if not subprocess.run(["lsof", "-t", path_k], capture_output=True, text=True).stdout.strip():
+            try:
+                os.unlink(path_k)
+            except OSError:
+                pass
     # Keep only the numbers: the trace and the recorder's intermediates are removed (host disk).
     shutil.rmtree(path, ignore_errors=True)
     shutil.rmtree(xct_tmp, ignore_errors=True)
