@@ -23,6 +23,9 @@ extension ChiefConversationOwner {
         guard launcher.configuration.installKey != nil, mayRestartForInstallKey(home: home),
               !(await connection.userOriginAllowed) else { return nil }
         let restart = IdleOwnerRestart(probe: OwnerIdleProbe(connection)) {
+            // Only the owner this connection found keyless: after a reconnect to another owner process the
+            // restart is moot (the pid fence would refuse it anyway, and it spends the launcher's one handoff).
+            guard await connection.identity?.pid == identity.pid else { return false }
             let started = await launcher.handOffForInstallKey(identity: identity, using: connection)
             logger.info("chief owner \(identity.pid) does not verify this app; restart with the install key: \(started ? "started" : "refused", privacy: .public)")
             return started

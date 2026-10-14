@@ -109,12 +109,25 @@ public final class ChiefConversationOwner {
                                                          identity: identity, logger: logger)
             if let prepare = self.prepare { await prepare(connection) }
             self.attach(connection, identity: identity)
+            // The waiting restart probes off this loop, so Home's events never wait for it; the newest
+            // busy-ending event is enough (each one probes the owner afresh).
+            let restartFeed = restart.map { restart in
+                let (events, feed) = AsyncStream<DaemonEvent>.makeStream(bufferingPolicy: .bufferingNewest(1))
+                // task-owner: this run task; ends when the feed finishes below or the restart is decided
+                Task {
+                    for await event in events {
+                        if await restart.note(event) != .waiting { break }
+                    }
+                }
+                return feed
+            }
             do {
                 for try await envelope in connection.events {
-                    if let restart { await restart.note(envelope.event) }
+                    if IdleOwnerRestart.mayEndBusy(envelope.event) { restartFeed?.yield(envelope.event) }
                     self.handle(envelope.event, connection: connection)
                 }
             } catch {}
+            restartFeed?.finish()
             self.connection = nil
         }
     }

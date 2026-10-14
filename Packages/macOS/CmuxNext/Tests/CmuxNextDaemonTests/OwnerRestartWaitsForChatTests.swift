@@ -21,16 +21,18 @@ struct OwnerRestartWaitsForChatTests {
             configuration: .init(binary: binary, session: "cnd-chat-\(id)", stateDirectory: root.appendingPathComponent("state"),
                                  installKey: FrontendInstallKey.generate()),
             environment: { environment })
-        _ = try await launcher.ensure()
         // The app's owner connection; it reconnects to the restarted owner by itself.
         let owner = DaemonConnection(endpointProvider: launcher.endpointProvider)
-        let old = try await owner.start()
-        let endpoint = try #require(await owner.endpoint)
-        // The chat: its own connection to the same socket, never `server ensure`.
-        let chat = DaemonConnection(endpoint: endpoint, configuration: .init(clientName: "cmux chief"))
+        var chat: DaemonConnection?
         do {
-            _ = try await chat.start()
-            let named = try await chat.resourceRequest({ id in
+            _ = try await launcher.ensure()
+            let old = try await owner.start()
+            let endpoint = try #require(await owner.endpoint)
+            // The chat: its own connection to the same socket, never `server ensure`.
+            let chatConnection = DaemonConnection(endpoint: endpoint, configuration: .init(clientName: "cmux chief"))
+            chat = chatConnection
+            _ = try await chatConnection.start()
+            let named = try await chatConnection.resourceRequest({ id in
                 ResourceRequestEnvelope(id: id, operation: "client.metadata.update",
                                         params: ["client": .string("current"), "name": .string("cmux chief"),
                                                  "kind": .string("chief-chat")])
@@ -45,7 +47,7 @@ struct OwnerRestartWaitsForChatTests {
             #expect(await owner.identity?.pid == old.pid, "the owner restarted under an open chat")
 
             // The chat ends; the owner's events run the restart (client-detached).
-            await chat.close()
+            await chatConnection.close()
             let outcome = try await Self.firstOutcome(of: restart, on: owner, timeout: .seconds(30))
             #expect(outcome == .started)
 
@@ -60,7 +62,7 @@ struct OwnerRestartWaitsForChatTests {
             #expect(current != nil && current?.pid != old.pid, "no new owner took over")
             #expect(current?.registryID == old.registryID)
         } catch {
-            await chat.close()
+            await chat?.close()
             await BranchDaemonHarness.shutDown(owner)
             throw error
         }
