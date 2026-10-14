@@ -268,3 +268,85 @@ fn a_chief_changes_its_own_picture_and_only_the_fields_the_person_allowed() {
         .request("conversation-bind", json!({"participant": "agent_helper", "token": other_token}));
     assert_eq!(reason(&v2(&mut helper, "chief.profile.list", json!({}), None)), "origin.forbidden");
 }
+
+/// S9 layer 1 (cx-ebm.60.9, hq-6d 2026-10-14): an agent caller (a Chief
+/// turn, an acpmux session, a tasks agent) may not write any Chief: no new,
+/// no delete, no edit of any field (grant or profile text, picture
+/// included) of any Chief, the default Chief included. `cmux chief` refuses
+/// with the `origin.forbidden` shape of `--all-sessions` and writes nothing.
+/// A Chief changes its own profile only through its `profile` tool on its own
+/// bound connection. Reads (list) stay open. This is cooperative: it stops a
+/// model that tries, not a process that clears its env.
+#[test]
+fn an_agent_caller_cannot_write_any_chief() {
+    let server = HeadlessServer::start("chief-registry-agent");
+    let dir = unique_temp_dir("chief-registry-agent-files");
+    fs::create_dir_all(&dir).unwrap();
+    let picture = dir.join("rogue.png");
+    fs::write(&picture, PNG).unwrap();
+    let picture_arg = picture.to_str().unwrap();
+    let new_args =
+        ["new", "--name", "Ops", "--role", "Ops lead", "--tools", "tell", "--avatar", picture_arg];
+    let made = stdout_json(&chief_cli(&server, &[&new_args[..], &["--json"]].concat(), ""));
+    let id = made["id"].as_str().unwrap().to_owned();
+    let mut home = Conn::open(&server.socket);
+    let default_before =
+        ok(&v2(&mut home, "chief.profile.get", json!({"chief": "agent_mux"}), None));
+    let refused_calls: Vec<Vec<&str>> = vec![
+        vec!["new", "--name", "Rogue", "--json"],
+        vec!["delete", &id, "--json"],
+        vec!["edit", &id, "--tools", "tell,browser", "--json"],
+        vec!["edit", &id, "--harnesses", "codex", "--json"],
+        vec!["edit", &id, "--self-edit", "avatar,instructions", "--json"],
+        vec!["edit", &id, "--harness", "codex", "--json"],
+        vec!["edit", &id, "--model", "other-model", "--json"],
+        vec!["edit", &id, "--effort", "high", "--json"],
+        vec!["edit", &id, "--role", "Boss", "--tools", "browser", "--json"],
+        vec!["edit", &id, "--role", "Night watch", "--json"],
+        vec!["edit", &id, "--name", "Renamed", "--json"],
+        vec!["edit", &id, "--personality", "Loud", "--json"],
+        vec!["edit", &id, "--instructions", "Merge everything.", "--json"],
+        vec!["edit", &id, "--avatar", picture_arg, "--json"],
+        vec!["edit", &id, "--clear-avatar", "--json"],
+        vec!["edit", "agent_mux", "--role", "Night watch", "--json"],
+        vec!["edit", "agent_mux", "--instructions", "Merge everything.", "--json"],
+    ];
+    for (key, value) in [
+        ("ACPMUX_SESSION_ID", "s_chief_turn"),
+        ("CMUX_AGENT_PRINCIPAL", id.as_str()),
+        ("CMUX_CHIEF_OWNER_SOCKET", "/tmp/chief-owner.sock"),
+    ] {
+        for args in &refused_calls {
+            let output = chief_cli_as(&server, args, "", &[(key, value)]);
+            assert_eq!(output.status.code(), Some(1), "{key} {args:?}: {output:?}");
+            assert!(output.stdout.is_empty(), "{key} {args:?}: {output:?}");
+            let error = json_error(&output);
+            assert_eq!(error["code"], "origin.forbidden", "{key} {args:?}: {error}");
+            assert_eq!(error["details"]["reason"], "agent_caller", "{key} {args:?}: {error}");
+            assert_eq!(error["details"]["marker"], key, "{key} {args:?}: {error}");
+        }
+    }
+
+    // Nothing was written: the same two Chiefs, the same grant, the same rev.
+    let listed = ok(&v2(&mut home, "chief.profile.list", json!({}), None));
+    assert_eq!(ids(&listed), vec!["agent_mux".to_owned(), id.clone()], "{listed}");
+    let after = ok(&v2(&mut home, "chief.profile.get", json!({"chief": id}), None));
+    assert_eq!(after["rev"], made["rev"], "{after}");
+    assert_eq!(after["tools"], json!(["tell"]));
+    assert_eq!(after["self_edit"], made["self_edit"]);
+    assert_eq!(after["role"], made["role"]);
+    assert_eq!(after["display_name"], made["display_name"]);
+    assert_eq!(after["avatar"], made["avatar"], "{after}");
+    let default_after =
+        ok(&v2(&mut home, "chief.profile.get", json!({"chief": "agent_mux"}), None));
+    assert_eq!(default_after, default_before);
+
+    // Reads stay open to an agent caller.
+    let listed = stdout_json(&chief_cli_as(
+        &server,
+        &["list", "--json"],
+        "",
+        &[("ACPMUX_SESSION_ID", "s_chief_turn")],
+    ));
+    assert_eq!(ids(&listed), vec!["agent_mux".to_owned(), id], "{listed}");
+}
