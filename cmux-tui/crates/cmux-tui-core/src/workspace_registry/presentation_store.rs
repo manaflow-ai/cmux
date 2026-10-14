@@ -39,6 +39,8 @@ pub(crate) use saved_tab_groups::{
 };
 
 mod frontend_browser_history;
+mod frontend_browser_profiles;
+pub(crate) use frontend_browser_profiles::clear_frontend_browser_profile;
 mod icon;
 pub use icon::{
     IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85. */
+/* cmux-tui mux protocol 12, IR 8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609. */
 
 
 import type * as T from "./types.js";
@@ -14,6 +14,8 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
   "agent"?: (string) | null;
   "session": (string) | null;
+  /** When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`. */
+  "since_ms"?: bigint;
   "source": T.AgentSource;
   "state": T.AgentState;
   "surface": T.Id;
@@ -507,6 +509,13 @@ export type TerminalClipboardReadCancelledEvent = { event: "terminal-clipboard-r
   "request_id": string;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalInputUnclaimedEvent = { event: "terminal-input-unclaimed" } & {
+  "bytes_base64": T.Base64;
+  "reason": string;
+  "terminal_id": string;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type TerminalReapedEvent = { event: "terminal-reaped" } & {
   "grace_ms": bigint;
@@ -684,6 +693,7 @@ export type KnownCmuxEvent =
   | TabRenamedEvent
   | TerminalClipboardReadEvent
   | TerminalClipboardReadCancelledEvent
+  | TerminalInputUnclaimedEvent
   | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent

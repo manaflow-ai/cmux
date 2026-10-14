@@ -68,7 +68,7 @@ enum BrowserProfileOpenHandlers {
             guard let (tab, pane) = context.daemonTab(invocation) else { return }
             try profiles.requireMovable(tab, to: record.id, allowSame: false)
             let notice = BrowserProfileAppStrings.movedNotice(to: record.name, from: profiles.displayName(profiles.profileID(ofTab: tab)))
-            profiles.reopen(tab, in: pane, profile: record.id, closingOriginal: true, notice: notice)
+            profiles.move(tab, in: pane, to: record.id, notice: notice)
         }
         bind("browserProfile.duplicateTab") { invocation in
             let record = try context.requiredBrowserProfile(invocation)
