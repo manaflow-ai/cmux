@@ -2854,6 +2854,7 @@ function AcpmuxPane() {
     snapshot.subagentViews,
     autoOpenSubagents,
     (id) => showSubagent(id, false),
+    snapshot.clockOffsetMs ?? 0,
   );
   /// The summary card's subagents: the shown one, and a row's click shows its view.
   const cardSubagents = useMemo(

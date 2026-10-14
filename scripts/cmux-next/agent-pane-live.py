@@ -386,6 +386,88 @@ try:
         report["subagents"] = {"spawned": text.count("subagent_spawned"), "children": len(children)}
         wire_dump("subagents")
         raise SystemExit(0 if children else 1)
+    if STAGE == "subagent-panes":
+        # cx-1933q: a turn that starts two subagents opens two agent panes right of the chat (stacked),
+        # focus stays in the chat; the summary card lists both with live status, stays after a click
+        # outside it, and a click on a row focuses that subagent's pane. Shots for the crops page.
+        cua = os.path.expanduser("~/.local/bin/cua-driver")
+        def shot(name):
+            path = os.path.join(OUT, f"sp-{name}.png")
+            r = subprocess.run([cua, "call", "get_desktop_state", json.dumps({"screenshot_out_file": path})],
+                               capture_output=True, text=True, timeout=60)
+            say("shot", name, os.path.exists(path), r.returncode)
+        def topo():
+            snap_ = rpc("snapshot.get")
+            return snap_.get("topology") or snap_
+        def conversation_panes():
+            found = []
+            for ws in topo().get("workspaces", []):
+                for screen in ws.get("screens", []):
+                    for p in screen.get("panes", []):
+                        if any(t.get("kind") == "conversation" for t in p.get("tabs", [])):
+                            found.append(p["id"])
+            return found
+        def card(pane_id=None):
+            s_ = pane("chat_state", pane=pane_id or PANE)
+            return (s_ or {}).get("summaryCard") if isinstance(s_, dict) else None
+        harness = os.environ.get("CMUX_LIVE_HARNESS", "claude")
+        say("sp new_chat", json.dumps(pane("new_chat", pane=PANE, harness=harness)))
+        time.sleep(5)
+        if os.environ.get("CMUX_LIVE_MODEL"):
+            say("sp set_model", json.dumps(pane("set_model", pane=PANE, model=os.environ["CMUX_LIVE_MODEL"])))
+            time.sleep(2)
+        before = conversation_panes()
+        say("SP panes before", before)
+        shot("before")
+        say("sp send", json.dumps(pane("send_prompt", pane=PANE, text=(
+            "Start two subagents in parallel with your Task tool (subagent_type general-purpose). The first "
+            "runs `sleep 40; echo alpha` in Bash and reports the output; the second runs `sleep 40; echo beta` "
+            "and reports it. Wait for both, then reply with one line combining their answers."))))
+        opened = wait(lambda: (lambda ps: ps if len(ps) >= len(before) + 2 else None)(conversation_panes()), 240, 1)
+        panes_now = conversation_panes()
+        say("SP panes after spawn", panes_now, "opened two:", bool(opened))
+        snap_after = rpc("snapshot.get")
+        with open(os.path.join(OUT, "sp-snapshot.json"), "w") as f:
+            json.dump(snap_after, f)
+        st_parent = pane("chat_state", pane=PANE)
+        say("SP parent focused:", (st_parent or {}).get("focused"), "card:", json.dumps((st_parent or {}).get("summaryCard")))
+        children = [p for p in panes_now if p not in before]
+        for child in children:
+            cs = pane("chat_state", pane=child)
+            say("SP child", child, "subagentOf:", (cs or {}).get("subagentOf"), "card:", json.dumps((cs or {}).get("summaryCard"))[:300])
+        live = wait(lambda: (lambda c: c if c and len(c.get("agents", [])) >= 2 else None)(card()), 60, 1)
+        say("SP card lists:", json.dumps(live))
+        shot("spawned")
+        # A click outside the card (the transcript) leaves it.
+        say("SP click outside", json.dumps(pane("click", pane=PANE, selector=".acpmux-scroll"))[:300])
+        time.sleep(1)
+        kept = card()
+        say("SP card after outside click:", json.dumps(kept))
+        shot("outside-click")
+        # A click on the first row focuses that subagent's pane.
+        name = (live or {}).get("agents", [{}])[0].get("name") if live else None
+        target = None
+        if name:
+            target = pane("click", pane=PANE, selector=".acpmux-summary-agent")
+            say("SP click row", name, json.dumps(target)[:300])
+            time.sleep(2)
+        snap_click = rpc("snapshot.get")
+        with open(os.path.join(OUT, "sp-snapshot-after-row.json"), "w") as f:
+            json.dump(snap_click, f)
+        focused_child = None
+        for child in children:
+            cs = pane("chat_state", pane=child)
+            if (cs or {}).get("focused"):
+                focused_child = child
+        say("SP focused child after row click:", focused_child)
+        shot("row-click")
+        done = wait(lambda: (lambda c: c if c and c.get("agents") and all(a.get("status") == "done" for a in c["agents"]) else None)(card()), 240, 2)
+        say("SP card at end:", json.dumps(done or card()))
+        shot("done")
+        report["subagent_panes"] = {"opened": len(children), "card": live, "kept_after_outside_click": bool(kept),
+                                    "focused_child": focused_child, "done": bool(done)}
+        say("SP REPORT", json.dumps(report["subagent_panes"]))
+        raise SystemExit(0 if len(children) >= 2 and kept and live else 1)
     if STAGE == "perm":
         marker = os.path.join(WORK, "perm-marker")
         say("perm new_chat", json.dumps(pane("new_chat", pane=PANE, harness="claude")))

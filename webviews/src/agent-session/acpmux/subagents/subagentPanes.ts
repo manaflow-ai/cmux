@@ -31,6 +31,16 @@ const read = () => {
   }
 };
 
+const setAutoOpen = (next: boolean) => {
+  try {
+    if (next) globalThis.localStorage?.removeItem(KEY);
+    else globalThis.localStorage?.setItem(KEY, "off");
+  } catch {
+    // No storage: the choice holds until the page reloads.
+  }
+  for (const listener of listeners) listener();
+};
+
 /// Whether new subagents open in panes of their own (on unless turned off).
 export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
   const on = useSyncExternalStore(
@@ -41,16 +51,7 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
     read,
     () => true,
   );
-  const set = (next: boolean) => {
-    try {
-      if (next) globalThis.localStorage?.removeItem(KEY);
-      else globalThis.localStorage?.setItem(KEY, "off");
-    } catch {
-      // No storage: the choice holds until the page reloads.
-    }
-    for (const listener of listeners) listener();
-  };
-  return [on, set];
+  return [on, setAutoOpen];
 }
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -73,6 +74,8 @@ export function useOpenNewSubagents(
   views: Record<string, AcpmuxRow[]> | undefined,
   enabled: boolean,
   open: (id: string) => void,
+  /// The snapshot's `clockOffsetMs`: this computer's clock minus the session's.
+  clockOffset = 0,
 ) {
   // Per chat: when this pane first showed it, and the subagents already handled. A subagent that
   // started before that is history (its rows can come after the first snapshot).
@@ -84,8 +87,9 @@ export function useOpenNewSubagents(
     for (const agent of subagentsIn(rows, views).values()) {
       if (chat.known.has(agent.id)) continue;
       chat.known.add(agent.id);
-      if (enabled && agent.parent === null && agent.state === "running" && agent.startedAt >= chat.since) open(agent.id);
+      if (enabled && agent.parent === null && agent.state === "running" && agent.startedAt + clockOffset >= chat.since)
+        open(agent.id);
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `open` changes each render; rows drive it
-  }, [sessionId, rows, views, enabled]);
+  }, [sessionId, rows, views, enabled, clockOffset]);
 }

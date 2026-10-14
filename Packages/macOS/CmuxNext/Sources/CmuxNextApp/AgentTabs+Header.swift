@@ -9,7 +9,7 @@ extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
                                           registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.lookup(self?.resolve(provisional) ?? provisional)?.record) }, local: { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true })
-        let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest(), subagents = AgentSubagentPanes()
+        let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
             let chat = resolve(provisional)
@@ -31,7 +31,7 @@ extension AgentTabStore {
             // The page reads the state when a chat opens; its changes are pushed.
             watch.read()
         }, openSide: { [weak self] in _ = self?.openSide($0, beside: provisional) }, openTab: { [weak self] in self?.openSide($0, beside: provisional, split: false) ?? false }, openSubagent: { [weak self] session, agent, focus in
-            self?.openSubagent(agent, of: session, focus: focus, beside: provisional, panes: subagents) ?? false
+            self?.openSubagent(agent, of: session, focus: focus, beside: provisional) ?? false
         }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional)
@@ -69,33 +69,44 @@ extension AgentTabStore {
     /// A subagent's pane (``AgentSubagentPanes``): the open one, focused with `focus`; else a tab on
     /// the chat's session that shows the subagent, in a new split right of the chat, or below the
     /// newest subagent pane. Without `focus` the move is not a view change: focus stays in the chat.
-    private func openSubagent(_ agent: String, of session: String, focus: Bool, beside provisional: String,
-                              panes: AgentSubagentPanes) -> Bool {
+    private func openSubagent(_ agent: String, of session: String, focus: Bool, beside provisional: String) -> Bool {
+        let panes = subagentPanes[session] ?? AgentSubagentPanes()
+        subagentPanes[session] = panes
         let isOpen = { [weak self] (key: String) in self?.locate(key) != nil }
         if let open = panes.tab(for: agent, isOpen: isOpen) {
             if focus { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: open))) }
             return true
         }
+        guard panes.begin(agent, focus: focus) else { return true }
+        let next: @MainActor () -> Void = { [weak self] in
+            if let request = panes.finish() { _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: provisional) }
+        }
         let stack = panes.stackAnchor(isOpen: isOpen)
-        return openBeside(stack ?? provisional, direction: stack == nil ? "right" : "down", origin: focus ? .user : .script,
-                          open: { pane, daemon in try self.open(in: pane, of: daemon, session: session) },
-                          created: { [weak self] key in
+        let opened = openBeside(stack ?? provisional, direction: stack == nil ? "right" : "down", origin: focus ? .user : .script,
+                                open: { pane, daemon in try self.open(in: pane, of: daemon, session: session) },
+                                created: { [weak self] key in
             panes.record(agent, tab: key)
             self?.revealTurn(AgentSubagentPanes.reveal(agent), in: key)
-        })
+        }, finished: next)
+        if !opened { next() }
+        return opened
     }
 
     @discardableResult
     private func openBeside(_ provisional: String, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user,
-                            open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil) -> Bool {
+                            open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil,
+                            finished: (@MainActor () -> Void)? = nil) -> Bool {
         guard let (pane, daemon) = locate(resolve(provisional)), let pending = try? open(pane, daemon) else { return false }
         guard split else { return true }
         // task-owner: one tab creation, then one move of that tab
         Task { [weak self] in
+            defer { finished?() }
             guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { return }
             created?(tab.key)
             _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(
                 target: ActionTargetRef(kind: .tab, id: tab.key), arguments: ["direction": .string(direction)], origin: origin))
+            // A later subagent pane stacks under this one: wait (bounded) until it left the anchor's pane.
+            if finished != nil { _ = await TabMirror.reaches(tab.key, in: locate) { $0 != pane } }
         }
         return true
     }
