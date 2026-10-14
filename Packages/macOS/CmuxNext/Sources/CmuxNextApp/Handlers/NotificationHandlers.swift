@@ -85,6 +85,7 @@ enum NotificationHandlers {
         })
         NotificationSettingsHandlers.bind(into: registry, context: context)
         AgentChatMuteHandlers.bind(into: registry, context: context)
+        AgentChatIdentifierHandlers.bind(into: registry, context: context)
     }
 
     /// Removes a panel row. The daemon clears by terminal, so this removes
