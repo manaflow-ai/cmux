@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import Foundation
 import CmuxNextActions
+import CmuxNextNowPlaying
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextUpdater
@@ -9,7 +10,8 @@ import Observation
 extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry)
+        let nowPlaying = model.followNowPlaying(services.cache.pageRequests.sidebarNowPlaying) { [weak services] in services?.settings?.snapshot.previewFeatures == true }
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry).cancelling(nowPlaying)
     }
 }
 

@@ -532,6 +532,7 @@
     "setting.terminal.fontFamily": null,
     "setting.terminal.fontSize": null,
     "setting.ui.animationSpeed": "fast",
+    "setting.ui.paneAnimations": false,
     "setting.updates.checkAutomatically": true,
     "setting.updates.checkIntervalSeconds": 3600,
     "setting.updates.downloadAutomatically": true,
