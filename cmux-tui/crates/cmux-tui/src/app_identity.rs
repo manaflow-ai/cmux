@@ -186,7 +186,10 @@ pub(crate) const OTHER_APP_STATE_KEYS: [&str; 15] = [
 /// Whether this process is a `cmux` bundled in one app, run in a terminal
 /// of another app (`env` names another build): then [`OTHER_APP_STATE_KEYS`]
 /// are that app's and [`AppIdentity::detect`] acts for the own bundle.
-pub(crate) fn in_other_apps_terminal(env: impl Fn(&str) -> Option<String>, exe: Option<&Path>) -> bool {
+pub(crate) fn in_other_apps_terminal(
+    env: impl Fn(&str) -> Option<String>,
+    exe: Option<&Path>,
+) -> bool {
     let non_empty = |key: &str| env(key).filter(|value| !value.trim().is_empty());
     let socket_override = non_empty("CMUX_SOCKET_PATH").map(PathBuf::from);
     let env_bundle = non_empty("CMUX_BUNDLE_ID");

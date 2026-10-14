@@ -117,7 +117,10 @@ fn a_bundled_cmux_in_another_apps_terminal_reaches_its_own_app() {
         !text.contains("other-app.sock") && !text.contains("other-daemon.sock"),
         "the CLI of {OWN_BUNDLE} tried the other app's socket: {text}"
     );
-    assert!(text.contains("cmux-debug-s4own.sock"), "the CLI did not try its own app's socket: {text}");
+    assert!(
+        text.contains("cmux-debug-s4own.sock"),
+        "the CLI did not try its own app's socket: {text}"
+    );
     assert!(warns_of_both(&text), "no warning naming both builds: {text}");
 }
 
@@ -133,7 +136,10 @@ fn a_bundled_cmux_in_another_apps_terminal_never_reaches_that_apps_daemon() {
     let text = text_of(&output);
     let _ = fs::remove_dir_all(&dir);
     assert!(!output.status.success(), "a daemon answered: {text}");
-    assert!(!text.contains("other-daemon.sock"), "the CLI of {OWN_BUNDLE} tried the other app's daemon: {text}");
+    assert!(
+        !text.contains("other-daemon.sock"),
+        "the CLI of {OWN_BUNDLE} tried the other app's daemon: {text}"
+    );
     assert!(warns_of_both(&text), "no warning naming both builds: {text}");
 }
 

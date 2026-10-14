@@ -80,6 +80,13 @@ pub(in crate::cli) fn resolve_socket_with_env(
         |name| env(name).and_then(|value| value.into_string().ok()),
         std::env::current_exe().ok().as_deref(),
     );
+    if other_app {
+        // Says so once on stderr, on every platform (the bundle lookup below is macOS only).
+        let _ = crate::app_identity::AppIdentity::detect(
+            |name| env(name).and_then(|value| value.into_string().ok()),
+            std::env::current_exe().ok().as_deref(),
+        );
+    }
     let env = |name: &str| {
         if other_app && crate::app_identity::OTHER_APP_STATE_KEYS.contains(&name) {
             None
@@ -105,9 +112,11 @@ pub(in crate::cli) fn resolve_socket_with_env(
     // `CMUX_SOCKET_PATH` names one app; its session is that app's own, never
     // a default session (cx-siev): with nothing that names the app's
     // session, the call fails instead of reaching `cmux-app` or `main`.
-    let app_socket_named = env("CMUX_SOCKET_PATH")
-        .and_then(|value| value.into_string().ok())
-        .is_some_and(|value| !value.trim().is_empty());
+    // (Another app's terminal names that app's socket, not this build's.)
+    let app_socket_named = !other_app
+        && env("CMUX_SOCKET_PATH")
+            .and_then(|value| value.into_string().ok())
+            .is_some_and(|value| !value.trim().is_empty());
     // The `cmux` bundled in a cmux app talks to that app's session.
     #[cfg(target_os = "macos")]
     if let Some(identity) = crate::app_identity::AppIdentity::detect(
