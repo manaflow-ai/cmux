@@ -61,7 +61,7 @@ final class CloudVMSyncSubscriber {
     /// The production subscriber. The machine list lives on the team's
     /// presence object, which the worker publishes into.
     nonisolated static let defaultSubscriber: SubscriberFactory = { url, collections, credentials in
-        DevicePresenceSubscriber(serviceBaseURL: url, collections: collections, credentials: credentials)
+        DevicePresenceSubscriber(serviceBaseURL: url, stream: .team, collections: collections, credentials: credentials)
     }
 
     nonisolated static let reconnectDelays: [Duration] = DeviceDirectory.reconnectDelays
