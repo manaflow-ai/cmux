@@ -236,3 +236,52 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     let _ = server.child.wait();
     wait_gone(restarted, "after daemon shutdown");
 }
+
+/// Each Chief's brain titles its conversation with the Chief's own name
+/// (hq-6d 2026-10-14): `MUX_CHIEF_TITLE` is the record's display_name for a
+/// Chief that is not the default (the brain's create request and DM title,
+/// optchat-chief daemon.rs `names_from_env`), not the app's "Chief", so two
+/// Chiefs never show as two "Chief" rows. A rename reaches the next start:
+/// the brain restarts with the new name.
+#[test]
+fn each_chief_brain_is_titled_with_its_own_name() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbt");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let _server = HeadlessServer::start_with_options(
+        "chief-brains-title",
+        None,
+        None,
+        &[("CMUX_TUI_CHIEF_BRAINS", brains.as_str())],
+    );
+    let server = &_server;
+    let scout = make_chief(server, "Scout", "Researcher");
+    let ops = make_chief(server, "Ops", "Release captain");
+    let scout_home = brain_dir(&chief_home, &scout);
+    let ops_home = brain_dir(&chief_home, &ops);
+    wait_file(&scout_home.join("pid.1"));
+    wait_file(&ops_home.join("pid.1"));
+    let title = |home: &std::path::Path, n: u32| {
+        env_of(&home.join(format!("env.{n}"))).get("MUX_CHIEF_TITLE").cloned()
+    };
+    assert_eq!(title(&scout_home, 1).as_deref(), Some("Scout"));
+    assert_eq!(title(&ops_home, 1).as_deref(), Some("Ops"));
+
+    let renamed = chief_cli(server, &["edit", &scout, "--name", "Scout Two", "--json"], "");
+    assert_success(&renamed);
+    wait_file(&scout_home.join("pid.2"));
+    assert_eq!(title(&scout_home, 2).as_deref(), Some("Scout Two"));
+}
