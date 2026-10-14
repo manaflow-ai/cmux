@@ -41,6 +41,8 @@ export function installImeKeyLayer(doc: Document = document): void {
     if (event.target instanceof Element && event.target.closest(OWN_COMPOSITION)) return;
     event.stopImmediatePropagation();
   };
+  // ui-allow: the IME key layer for every page, not a widget key handler
   view.addEventListener("keydown", stop, { capture: true });
+  // ui-allow: the IME key layer for every page, not a widget key handler
   view.addEventListener("keyup", stop, { capture: true });
 }
