@@ -121,7 +121,7 @@ public final class SidebarDocStore {
     /// Moves `items` to `target` as one change and one undo step titled `title`.
     public func move(_ items: [String], to target: SidebarDocTarget, title: String) {
         guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
-        send(.move(items, to: target, key: Self.newKey()), title: title) { remote, key in
+        send(.move(items, to: target, key: Self.newKey()), title: title) { remote, key, _ in
             try await remote.move(items, to: target, key: key)
         }
     }
@@ -129,7 +129,7 @@ public final class SidebarDocStore {
     /// Pin: the items move to the end of Pinned.
     public func pin(_ items: [String], title: String) {
         guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
-        send(.pin(items, key: Self.newKey()), title: title) { remote, key in
+        send(.pin(items, key: Self.newKey()), title: title) { remote, key, _ in
             try await remote.pin(items, key: key)
         }
     }
@@ -137,7 +137,7 @@ public final class SidebarDocStore {
     /// Unpin: each item moves to the end of its own machine section.
     public func unpin(_ items: [String], title: String) {
         guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
-        send(.unpin(items, key: Self.newKey()), title: title) { remote, key in
+        send(.unpin(items, key: Self.newKey()), title: title) { remote, key, _ in
             try await remote.unpin(items, key: key)
         }
     }
@@ -146,23 +146,24 @@ public final class SidebarDocStore {
     /// group edits, adopt-then-move. `undoable` false (a collapse) puts no undo step.
     public func send(ops: [[String: Any]], title: String, undoable: Bool = true) {
         guard !ops.isEmpty, let data = try? JSONSerialization.data(withJSONObject: ops) else { return }
-        send(.apply(data, key: Self.newKey()), title: title, undoable: undoable) { remote, key in
-            try await remote.apply(ops: data, key: key)
+        send(.apply(data, key: Self.newKey()), title: title, undoable: undoable) { remote, key, stamped in
+            try await remote.apply(ops: stamped ?? data, key: key)
         }
     }
 
     /// Applies ops the daemon returned as an inverse (undo, then redo).
     private func apply(_ ops: Data, title: String) {
-        send(.apply(ops, key: Self.newKey()), title: title) { remote, key in
-            try await remote.apply(ops: ops, key: key)
+        send(.apply(ops, key: Self.newKey()), title: title) { remote, key, stamped in
+            try await remote.apply(ops: stamped ?? ops, key: key)
         }
     }
 
     private func send(_ intent: SidebarMirrorIntent, title: String, undoable: Bool = true,
-                      _ body: @escaping @MainActor (any SidebarDocRemote, String) async throws -> SidebarDocReply) {
+                      _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) {
         guard isActive, let mirror, let remote else { return onRefused(SidebarDocStrings.unavailable) }
+        let stamped: Data?
         do {
-            try mirror.apply(intent: intent)
+            stamped = try mirror.apply(intent: intent)
         } catch let refusal as SidebarMirror.Refusal {
             return onRefused(SidebarDocStrings.refused(refusal.code))
         } catch {
@@ -173,7 +174,7 @@ public final class SidebarDocStore {
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in
             do {
-                let reply = try await body(remote, key)
+                let reply = try await body(remote, key, stamped)
                 guard let self else { return }
                 // A no-op change echoes no batch: its intent must not stay pending.
                 if !reply.hasInverse { self.drop(key) }

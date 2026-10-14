@@ -96,25 +96,29 @@ public final class SidebarMirror {
     }
 
     /// Applies an intent optimistically (the daemon's reply or batch
-    /// settles it). Throws the reducer's refusal.
-    public func apply(intent: SidebarMirrorIntent) throws {
+    /// settles it) and returns its ops as the mirror stamped them (the ids it
+    /// minted for added items: send these, so the echo and the inverse name
+    /// the same items). Throws the reducer's refusal.
+    @discardableResult
+    public func apply(intent: SidebarMirrorIntent) throws -> Data? {
         guard let request = try? JSONEncoder().encode(intent), let reply = applyIntent(raw: request) else {
             throw Refusal(code: "unavailable")
         }
         let decoded = Reply(reply)
         guard decoded.ok else { throw Refusal(code: decoded.refusal ?? "unavailable") }
+        return decoded.ops
     }
 
     /// The flat rows the sidebar draws, in order.
     public func rows(_ request: SidebarViewRequest) -> [SidebarDocRow]? {
         guard let body = try? JSONEncoder().encode(request), let reply = view(raw: body) else { return nil }
-        return (try? JSONDecoder().decode(RowsReply.self, from: reply))?.rows
+        return try? JSONDecoder().decode([SidebarDocRow].self, from: reply) // an array (CONTRACT amendments)
     }
 
     /// What a drop of `items` may do next to each row, by row key (one call per drag).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
         guard let body = try? JSONEncoder().encode(["items": items]), let reply = dragBegin(raw: body) else { return [:] }
-        return (try? JSONDecoder().decode(AcceptanceReply.self, from: reply))?.table ?? [:]
+        return (try? JSONDecoder().decode([String: SidebarDocAcceptance].self, from: reply)) ?? [:] // the table itself
     }
 
     /// A reply's common fields: `ok`, `stale`, `refetch`, `refusal`, `revision`, `error`.
@@ -122,9 +126,12 @@ public final class SidebarMirror {
         var ok = false, stale = false
         var refusal: String?
         var revision: UInt64?
+        /// `apply_intent`'s stamped ops (a JSON array).
+        var ops: Data?
 
         init(_ data: Data) {
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            ops = (object["ops"] as? [Any]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }
             ok = object["ok"] as? Bool == true && object["refetch"] as? Bool != true
             stale = object["stale"] as? Bool == true
             refusal = object["refusal"] as? String ?? (object["error"] != nil ? "error" : nil)
@@ -138,8 +145,6 @@ public final class SidebarMirror {
         enum CodingKeys: String, CodingKey { case rejected; case idempotencyKey = "idempotency_key" }
     }
 
-    private struct RowsReply: Decodable { var rows: [SidebarDocRow] }
-    private struct AcceptanceReply: Decodable { var table: [String: SidebarDocAcceptance] }
 }
 
 /// An optimistic intent for the mirror, `{idempotency_key, ops:[op]}`: a
