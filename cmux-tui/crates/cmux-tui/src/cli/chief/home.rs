@@ -31,6 +31,7 @@ pub(in crate::cli) struct ChiefHome {
 
 impl ChiefHome {
     /// [`Self::resolve_for`] outside any app (no bundle id).
+    #[cfg(test)]
     pub(super) fn resolve(
         explicit: Option<&Path>,
         env: impl Fn(&str) -> Option<String>,
