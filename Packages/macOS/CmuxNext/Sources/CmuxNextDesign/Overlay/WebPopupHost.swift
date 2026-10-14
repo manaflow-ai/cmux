@@ -181,16 +181,18 @@ public final class WebPopupPanel: ContentChildPanel {
     public var cardFrame: CGRect { PopupStyle.standard.cardFrame(inWindow: frame) }
 }
 
-/// The menu's rows: a check column, the title, the shortcut; separators as hairlines.
+/// The menu's rows, each a shared ``PopupRowView`` (a check column, the title, the shortcut);
+/// separators as hairlines. The page owns the one highlight: the pointer reports it (`onHover`).
 final class WebPopupRows: NSView {
     private let onPick: (String) -> Void
     private let onHover: (String) -> Void
     private var items: [WebPopupHost.Item] = []
+    private var rows: [(item: WebPopupHost.Item, view: NSView)] = []
     var itemCount: Int { items.filter { !$0.separator }.count }
     private var highlighted: String?
     /// No check column (a tooltip's text).
     var plain = false
-    private var tracking: NSTrackingArea?
+    private var builtPlain = false
     private let style = PopupStyle.standard
     private static let separatorHeight: CGFloat = 9
 
@@ -211,11 +213,45 @@ final class WebPopupRows: NSView {
     }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
-        self.items = items
+        if items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty { rebuild(items) }
         self.highlighted = highlighted
+        for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == highlighted }
         setFrameSize(NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight))
+        needsLayout = true
+        layoutSubtreeIfNeeded()
         scrollToHighlight()
-        needsDisplay = true
+    }
+
+    private func rebuild(_ items: [WebPopupHost.Item]) {
+        self.items = items
+        builtPlain = plain
+        rows.forEach { $0.view.removeFromSuperview() }
+        var layout = PopupRowView.Layout()
+        layout.leadingColumn = plain ? 1 : 15
+        layout.hoverFills = false
+        rows = items.map { item -> (item: WebPopupHost.Item, view: NSView) in
+            guard !item.separator else { return (item, WebPopupSeparator()) }
+            let row = PopupRowView(leading: PopupRowView.checkMark(item.checked), title: item.label,
+                                   trailing: item.shortcut.flatMap { $0.isEmpty ? nil : PopupRowView.shortcut($0) },
+                                   layout: layout, interactive: !plain)
+            row.isEnabled = !item.disabled
+            // The page keeps its own menu for accessibility.
+            row.hideFromAccessibility()
+            row.onHover = { [weak self] in self?.hovered(item.id) }
+            row.onActivate = { [weak self] in self?.onPick(item.id) }
+            return (item, row)
+        }
+        for (_, view) in rows {
+            view.translatesAutoresizingMaskIntoConstraints = true
+            addSubview(view)
+        }
+    }
+
+    private func hovered(_ id: String) {
+        guard id != highlighted else { return }
+        highlighted = id
+        for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == id }
+        onHover(id)
     }
 
     override func viewDidMoveToSuperview() {
@@ -223,80 +259,28 @@ final class WebPopupRows: NSView {
         autoresizingMask = [.width]
     }
 
-    private func rowFrames() -> [(WebPopupHost.Item, CGRect)] {
+    override func layout() {
+        super.layout()
         var y = style.padding
-        return items.map { item in
+        for (item, view) in rows {
             let height = item.separator ? Self.separatorHeight : style.rowHeight
-            defer { y += height }
-            return (item, CGRect(x: style.padding, y: y, width: bounds.width - 2 * style.padding, height: height))
+            view.frame = CGRect(x: style.padding, y: y, width: max(0, bounds.width - 2 * style.padding), height: height)
+            y += height
         }
     }
 
     private func scrollToHighlight() {
-        guard let highlighted, let frame = rowFrames().first(where: { $0.0.id == highlighted })?.1 else { return }
-        scrollToVisible(frame)
+        guard let highlighted, let row = rows.first(where: { $0.item.id == highlighted })?.view else { return }
+        scrollToVisible(row.frame)
     }
+}
 
+/// A hairline between groups of a page menu's rows.
+private final class WebPopupSeparator: NSView {
     override func draw(_ dirtyRect: NSRect) {
-        let font = Typography.body
-        let check = "✓" as NSString
-        let inset: CGFloat = plain ? 8 : 22
-        for (item, frame) in rowFrames() where frame.intersects(dirtyRect) {
-            if item.separator {
-                Palette.separator.setFill()
-                NSRect(x: frame.minX + 6, y: frame.midY.rounded(.down), width: frame.width - 12, height: 1).fill()
-                continue
-            }
-            if item.id == highlighted, !item.disabled {
-                Palette.hoverFill.setFill()
-                NSBezierPath(roundedRect: frame, xRadius: style.rowCornerRadius, yRadius: style.rowCornerRadius).fill()
-            }
-            let color = item.disabled ? Palette.textTertiary : Palette.textPrimary
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-            let lineHeight = font.ascender - font.descender
-            let y = frame.minY + (frame.height - lineHeight) / 2
-            if item.checked { check.draw(at: NSPoint(x: frame.minX + 7, y: y), withAttributes: attributes) }
-            var trailing = frame.maxX - 8
-            if let shortcut = item.shortcut, !shortcut.isEmpty {
-                let text = shortcut as NSString
-                let quiet: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Palette.textTertiary]
-                let width = text.size(withAttributes: quiet).width
-                trailing -= width
-                text.draw(at: NSPoint(x: trailing, y: y), withAttributes: quiet)
-                trailing -= 12
-            }
-            let label = NSRect(x: frame.minX + inset, y: y, width: max(0, trailing - frame.minX - inset), height: lineHeight)
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.lineBreakMode = .byTruncatingTail
-            (item.label as NSString).draw(with: label, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-                                          attributes: attributes.merging([.paragraphStyle: paragraph]) { $1 })
+        performWithTheme {
+            Palette.separator.setFill()
+            NSRect(x: 6, y: bounds.midY.rounded(.down), width: max(0, bounds.width - 12), height: 1).fill()
         }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    private func item(at event: NSEvent) -> WebPopupHost.Item? {
-        let point = convert(event.locationInWindow, from: nil)
-        return rowFrames().first { $0.1.contains(point) && !$0.0.separator && !$0.0.disabled }?.0
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        guard let item = item(at: event), item.id != highlighted else { return }
-        highlighted = item.id
-        needsDisplay = true
-        onHover(item.id)
-    }
-
-    override func mouseDown(with event: NSEvent) {}
-
-    override func mouseUp(with event: NSEvent) {
-        if let item = item(at: event) { onPick(item.id) }
     }
 }
