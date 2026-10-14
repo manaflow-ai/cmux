@@ -254,6 +254,26 @@ class Job:
         return 0 if ok else 1
 
 
+def drain_contexts(session):
+    """Isolated worlds (extension content scripts) named in Runtime.executionContextCreated
+    events: re-enabling Runtime replays one event per live context."""
+    session.call("Runtime.disable")
+    session._send(json.dumps({"id": 999999, "method": "Runtime.enable", "params": {}}))
+    names = []
+    session.sock.settimeout(5)
+    try:
+        while True:
+            message = session._recv()
+            if message.get("method") == "Runtime.executionContextCreated":
+                context = message["params"]["context"]
+                names.append([context.get("name"), (context.get("auxData") or {}).get("type"), context.get("origin")])
+            if message.get("id") == 999999:
+                break
+    except OSError:
+        pass
+    return names
+
+
 def poll(session, expression, timeout, interval=0.5):
     deadline = time.monotonic() + timeout
     value = None
@@ -483,8 +503,51 @@ def phase_ublock(args):
         job.row("ublock: MV2 background page runs", version == 2 and target is not None,
                 {"background": (target or {}).get("url"), "manifest_version": version})
 
+    def ready():
+        """uBlock Origin filters only after its lists are compiled (µBlock.readyToFilter)."""
+        bg = cdp.Session(ctx["bg"]["webSocketDebuggerUrl"])
+        try:
+            state = poll(bg, "self.µBlock && self.µBlock.readyToFilter === true && {lists: Object.entries(self.µBlock.availableFilterLists || {})"
+                             ".filter(([k, v]) => v.content === 'filters' && !v.off).map(([k]) => k)}", 90, interval=1)
+        finally:
+            bg.close()
+        job.row("ublock: filter lists ready (µBlock.readyToFilter)", bool(state), state or "not ready in 90 s")
+
+    def verdicts():
+        """One uncached load of the ad page; then uBlock Origin's own page store for
+        that tab (what it counted) and whether its content script runs in the page."""
+        session = job.open_tab("about:blank", match="about:blank")
+        contexts = []
+        try:
+            session.call("Network.enable")
+            session.call("Network.setCacheDisabled", {"cacheDisabled": True})
+            session.call("Runtime.enable")
+            session.call("Page.navigate", {"url": url + "?verdict=1"})
+            state = poll(session, "window.mv2 && window.mv2.done && window.mv2", 25) or {}
+            time.sleep(2)  # uBlock Origin commits its page journal about once a second
+            # executionContextCreated events arrived on this socket while we waited; read them.
+            contexts = drain_contexts(session)
+            tab_url = url + "?verdict=1"
+        finally:
+            session.close()
+        bg = cdp.Session(ctx["bg"]["webSocketDebuggerUrl"])
+        try:
+            store = bg.evaluate("""new Promise(r => chrome.tabs.query({}, tabs => {
+              const t = tabs.find(t => (t.url || '').includes('?verdict=1'));
+              const ps = t && self.µBlock.pageStoreFromTabId(t.id);
+              r({tab: t && t.id, found: !!ps, url: ps && ps.rawURL, netFiltering: ps && ps.getNetFilteringSwitch(),
+                 counts: ps && JSON.parse(JSON.stringify(ps.counts || null)),
+                 journal: ps && (ps.journal || []).length,
+                 hostnames: ps && ps.hostnameDetailsMap ? [...ps.hostnameDetailsMap.keys()] : null});
+            }))""")
+        finally:
+            bg.close()
+        job.row("diagnose: uncached ad page as the page sees it", True, state, gating=False)
+        job.row("diagnose: uBlock Origin page store for that tab", bool(store and store.get("found")), store, gating=False)
+        job.row("diagnose: extension worlds in the page (content scripts)", bool(contexts), contexts, gating=False)
+
     def blocking():
-        time.sleep(10)  # first start compiles the bundled filter lists
+        time.sleep(3)
         # Controls: the host reaches both scripts, so "blocked" in the page is uBlock Origin.
         for name, address in (("ad server", AD_BEACON), ("jQuery CDN", JQUERY)):
             status = host_reaches(address)
@@ -545,7 +608,8 @@ def phase_ublock(args):
         job.window_shot("ublock-window")
 
     return run_phase(job, [("ublock: loaded", loaded), ("ublock: background", background),
-                           ("ublock: diagnose", diagnose), ("ublock: blocking", blocking), ("ublock: popup", popup),
+                           ("ublock: ready", ready), ("ublock: diagnose", diagnose),
+                           ("ublock: verdicts", verdicts), ("ublock: blocking", blocking), ("ublock: popup", popup),
                            ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
                            ("ublock: score pages", lambda: score_pages(job, "ublock"))],
                      cleanup=[server.shutdown])
