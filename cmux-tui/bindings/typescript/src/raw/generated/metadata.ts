@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d0cd6b073142853e05872a82893772bcb5ed0cacca2cf14f0d093f119c9232b3. */
+/* cmux-tui mux protocol 12, IR 3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d0cd6b073142853e05872a82893772bcb5ed0cacca2cf14f0d093f119c9232b3" as const;
+export const SDK_IR_SHA256 = "3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -508,6 +508,36 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Provider-managed workspaces reject this ordinary mutation."
+    ]
+  },
+  "cloud-attachment-link": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-attachments-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The person's own clients with the app's lease. A local download link (GET /attachments/<token>, byte ranges) that reads the cloud owner's signed URL with the lease. See spec/commands.md."
+    ]
+  },
+  "cloud-attachment-read": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-attachments-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The person's own clients with the app's lease. Bytes of a cloud attachment variant through a signed URL the cloud owner mints; the same result as conversation-attachment-read (hash is the part's hash). See spec/commands.md."
+    ]
+  },
+  "cloud-attachment-upload": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-attachments-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The person's own clients with the app's lease (the verified app, an authenticated page), like every lease command. The same steps, fields, rules and refusals as conversation-attachment-upload; begin asks the cloud owner for an upload slot, commit sends the poster or preview then the file to the cloud owner and answers its record. Rejects: attachment_rejected, cloud_* errors. See spec/commands.md."
     ]
   },
   "cloud-conversation-history": {
@@ -2004,7 +2034,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "The verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. See spec/commands.md."
+      "Without page: the verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. With page: trusted local connections; the credential is bound to that page. See spec/commands.md."
     ]
   },
   "pairing-response": {
@@ -14323,6 +14353,458 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "WorkspaceMutationResult"
     }
   },
+  "cloud-attachment-link": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "hash": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "variant": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "expires_in_ms": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "path": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "cloud-attachment-read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "hash": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "length": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "offset": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "variant": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "byte_count": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "data": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "eof": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "hash": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mime_type": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "offset": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "cloud-attachment-upload": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "byte_count": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "data": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "duration_ms": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "height": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "mime_type": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "offset": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "op": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "piece": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "poster": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "preview": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "sha256": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "upload": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "width": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "needs": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "received": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "stored": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "additional_properties": false,
+            "fields": {
+              "byte_count": {
+                "nullable": false,
+                "presence": "required",
+                "type": {
+                  "kind": "scalar",
+                  "name": "uint64"
+                }
+              },
+              "hash": {
+                "nullable": false,
+                "presence": "required",
+                "type": {
+                  "kind": "scalar",
+                  "name": "string"
+                }
+              },
+              "mime_type": {
+                "nullable": false,
+                "presence": "required",
+                "type": {
+                  "kind": "scalar",
+                  "name": "string"
+                }
+              },
+              "poster": {
+                "default": null,
+                "nullable": true,
+                "presence": "optional",
+                "type": {
+                  "additional_properties": false,
+                  "fields": {
+                    "byte_count": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "uint64"
+                      }
+                    },
+                    "hash": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    },
+                    "mime_type": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "kind": "object"
+                }
+              },
+              "preview": {
+                "default": null,
+                "nullable": true,
+                "presence": "optional",
+                "type": {
+                  "additional_properties": false,
+                  "fields": {
+                    "byte_count": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "uint64"
+                      }
+                    },
+                    "hash": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    },
+                    "mime_type": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "kind": "object"
+                }
+              }
+            },
+            "kind": "object"
+          }
+        },
+        "upload": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "cloud-conversation-history": {
     "request": {
       "additional_properties": false,
@@ -20915,7 +21397,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "page-credential": {
     "request": {
       "additional_properties": false,
-      "fields": {},
+      "fields": {
+        "page": {
+          "constraints": [
+            "A page id of the page-router table (capability page-credential-scoped-v1): any trusted local connection gets a single-use credential that admits only a WebSocket handshake whose Origin names that page and never carries the Cloud lease."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
       "kind": "object"
     },
     "result": {

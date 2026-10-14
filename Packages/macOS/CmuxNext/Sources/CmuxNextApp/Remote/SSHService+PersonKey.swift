@@ -56,7 +56,54 @@ extension SSHService {
         }
     }
 
+    /// cx-oa6ah: the keyed restart before a new chat starts on `session`, only when nothing on
+    /// that machine's acpmux can be lost: none runs, or it is ready, keeps agent hosts across a
+    /// restart, and runs no live agent and no proxied peer session. Anything else (live agents,
+    /// an ssh error, a reply it cannot read) leaves the daemon as it is (fail closed); its Allow
+    /// then shows the restart notice, and only the person's click restarts it. One preparation
+    /// per machine at a time; a busy answer is kept for a minute. True once this app's key is
+    /// bound to the daemon that will run the chat.
+    func restartWithApprovalsIfIdle(_ session: SSHMachineSession) async -> Bool {
+        if AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID) != nil { return true }
+        return await RemoteApprovalPreparations.shared.run(machine: session.machineID) { [self] in
+            guard await idleAgentDaemon(session) else { return false }
+            return await restartWithApprovals(session) == nil
+        }
+    }
+
+    /// True only for an answer that shows nothing to lose (see ``restartWithApprovalsIfIdle``).
+    private func idleAgentDaemon(_ session: SSHMachineSession) async -> Bool {
+        guard let status = try? await SSHProcessRunner.run(
+            SSHCommandLine().command(session.host, "\(session.host.remoteBinary) acp --json daemon status </dev/null"),
+            environment: await Self.environment(), deadline: .seconds(10), label: "acpmux status \(session.host.destination)"),
+            status.status == 0,
+            let object = (try? JSONSerialization.jsonObject(with: Data(status.stdout.utf8))) as? [String: Any] else { return false }
+        if object["running"] as? Bool == false { return true }
+        return object["ready"] as? Bool == true && object["agentHosts"] as? Bool == true
+            && object["liveAgents"] as? Int == 0 && object["remoteSessions"] as? Int == 0
+    }
+
     private static func lastLine(_ text: String) -> String? {
         text.split(separator: "\n").last.map(String.init)
+    }
+}
+
+/// One keyed-restart preparation per machine at a time (two tabs starting at once share it), and
+/// a busy answer kept for a minute so a busy machine costs one status call per minute.
+actor RemoteApprovalPreparations {
+    static let shared = RemoteApprovalPreparations()
+    private var running: [String: Task<Bool, Never>] = [:]
+    private var busyUntil: [String: ContinuousClock.Instant] = [:]
+
+    func run(machine: String, _ work: @escaping @Sendable () async -> Bool) async -> Bool {
+        if let until = busyUntil[machine], ContinuousClock.now < until { return false }
+        if let task = running[machine] { return await task.value }
+        // task-owner: the machine's one preparation; every caller awaits it
+        let task = Task { await work() }
+        running[machine] = task
+        let bound = await task.value
+        running[machine] = nil
+        busyUntil[machine] = bound ? nil : ContinuousClock.now.advanced(by: .seconds(60))
+        return bound
     }
 }

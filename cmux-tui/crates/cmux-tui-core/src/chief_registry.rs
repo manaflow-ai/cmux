@@ -129,6 +129,8 @@ pub(crate) enum AvatarChange {
 #[derive(Default)]
 pub(crate) struct ChiefHost {
     pub(crate) store: Mutex<Option<ChiefStore>>,
+    /// The brain supervisor's inbox (chief_brains.rs), when it runs.
+    pub(crate) brains: crate::chief_brains::Slot,
 }
 
 pub(crate) struct ChiefStore {

@@ -466,6 +466,24 @@ final class RowCell: UICollectionViewCell {
     let fillMask = CAShapeLayer()
     /// The fill's mask for an outgoing text balloon on macOS 27: Messages' soft edge (SoftBalloon), else `fillMask`.
     let fillMaskImage = CALayer()
+    /// The row of a message I just sent (its send morph), until the message is delivered (or read, or failed): the
+    /// crisp shape mask, not the soft edge. Messages (macOS 27, lossless send-1line-take2, send-2line-take2,
+    /// send-typed-take1; tools/evidence/anim/softedge/flight.py) draws its new balloon with a crisp edge in the flight
+    /// and after it lands (one partly covered px per edge), and with its soft resting edge (.21 / .86 for 2 lines,
+    /// .12 / .89 for 1 line) from 1.05-1.08 s after the Return, with the Delivered update (cx-3cb soft-copies).
+    var crispEdge = false {
+        didSet {
+            guard crispEdge != oldValue, let s = spec else { return }
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            if TiledBubble.applies(s) {
+                // A long text row: its tiles' shape mask (TiledBody.set reads crispEdge).
+                if let t = tiled, t.isActive, case let .part(p) = s.kind, let l = t.layout { scoped { t.set(spec: s, row: p, layout: l, cell: self); t.update(self) } }
+            } else {
+                scoped { configureFill(s) }
+            }
+            CATransaction.commit()
+        }
+    }
     let bitmap = CALayer()
     let connector = CAShapeLayer()
     /// The connector's vertical stroke: its bottom moves with this cell, its top with the arc.
@@ -681,6 +699,9 @@ final class RowCell: UICollectionViewCell {
     /// resize keeps it for a later width with the same pixels at the same scale: `RowDraw.samePixels`).
     private var drawn: (spec: RowSpec, scale: CGFloat, image: AnyObject)?
     private func shown(_ spec: RowSpec, _ img: CGImage?, scale: CGFloat) { drawn = img.map { (spec, scale, $0 as AnyObject) } }
+    /// `bitmap.contents` no longer holds a row's drawn image (cleared, or the long-text placeholder): `drawn` lets go of
+    /// the old one, so it does not keep that bitmap alive (cmux Home review P3).
+    func bitmapCleared() { drawn = nil }
     /// A live window resize is on (MessagesWindowView.liveResizing; one at a time per process): a visible row whose
     /// new width draws the same pixels keeps its bitmap (moved, not drawn again), until `redrawKept` at the end.
     static var liveResizing = false
@@ -821,6 +842,7 @@ final class RowCell: UICollectionViewCell {
                 MediaPlaceholder.clear(bitmap)
                 bitmap.frame = bitmapFrame
                 bitmap.contents = nil
+                bitmapCleared()
                 tintTypingDiscs()
             } else if showingThisRow {
                 // The same row is on screen with its previous bitmap and its spec changed: a new
@@ -844,6 +866,7 @@ final class RowCell: UICollectionViewCell {
                 MediaPlaceholder.clear(bitmap)
                 bitmap.frame = bitmapFrame
                 bitmap.contents = nil
+                bitmapCleared()
                 // Media: the blurred thumbnail at the final size until the bitmap lands.
                 MediaPlaceholder.show(bitmap, spec)
                 tintTypingDiscs()
@@ -1164,7 +1187,7 @@ final class RowCell: UICollectionViewCell {
         fillContainer.isHidden = false
         let frame = RowDraw.bodyRect(spec), body = RowDraw.balloon(frame, row: p, scale: renderScale)
         fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
-        if let m = SoftBalloon.mask(frame: frame, row: p, scale: renderScale) {
+        if !crispEdge, let m = SoftBalloon.mask(frame: frame, row: p, scale: renderScale) {
             fillMaskImage.contents = m.image
             fillMaskImage.contentsCenter = m.center
             fillMaskImage.frame = m.frame

@@ -19,6 +19,12 @@ final class ControlSnapshotPublisher {
     private unowned let services: AppServices
     private let frames: any ControlFrameSource
     private var isScheduled = false
+    /// A model-change publish waits until then (`modelChanged`); nil publishes on the next frame.
+    private var notBefore: ContinuousClock.Instant?
+    private var lastPublish = ContinuousClock.now
+    /// Model changes (agent status ticks reach hundreds a second) publish at most this often:
+    /// each publish maps every workspace. A read waiting on a write barrier still publishes at once.
+    static let modelChangeInterval: Duration = .milliseconds(100)
     private var isStopped = false
     private var observers: [any NSObjectProtocol] = []
     /// Per-workspace control values kept between publishes (cx-9c8m).
@@ -53,13 +59,16 @@ final class ControlSnapshotPublisher {
         observers.removeAll()
     }
 
-    /// Schedules one publish on the next frame (coalesced).
-    func invalidate() {
+    /// Schedules one publish on the next frame (coalesced); with `notBefore`,
+    /// on the first frame from then on, unless a plain invalidate comes first.
+    func invalidate(notBefore: ContinuousClock.Instant? = nil) {
+        self.notBefore = notBefore.flatMap { new in isScheduled ? self.notBefore.map { min($0, new) } : new }
         guard !isScheduled, !isStopped else { return }
         isScheduled = true
         frames.scheduleFrame { [weak self] in
             guard let self else { return }
             self.isScheduled = false
+            if let wait = self.notBefore, ContinuousClock.now < wait, !self.router.snapshots.hasWaiters { return self.invalidate(notBefore: wait) }
             self.publishNow()
         }
     }
@@ -67,7 +76,7 @@ final class ControlSnapshotPublisher {
     /// A compat read waiting on the write barrier publishes on this turn
     /// (the store just applied a batch); otherwise the next frame does.
     private func modelChanged() {
-        if router.snapshots.hasWaiters { publishNow() } else { invalidate() }
+        if router.snapshots.hasWaiters { publishNow() } else { invalidate(notBefore: lastPublish + Self.modelChangeInterval) }
     }
 
     /// Publishes now. Compat intents call this so a CLI read that follows a
@@ -75,6 +84,7 @@ final class ControlSnapshotPublisher {
     func publishNow() {
         guard !isStopped else { return }
         let started = ContinuousClock.now
+        (lastPublish, notBefore) = (started, nil)
         let (topology, settings, tabSearch) = withObservationTracking {
             (Self.topology(services, cache: workspaceInfos), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services))
         } onChange: { [weak self] in

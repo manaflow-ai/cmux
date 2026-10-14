@@ -64,6 +64,15 @@ pub const CONVERSATION_INBOX_STATE_CAPABILITY: &str = "conversation-inbox-state-
 pub const WS_CONVERSATIONS_CAPABILITY: &str = "ws-conversations-v1";
 /// `link_preview` message parts on the local conversation owner.
 pub const LINK_PREVIEW_CAPABILITY: &str = "link-preview-v1";
+/// `conversation-agent-token` and `conversation-bind` also take a person
+/// (`user_<id>`, never `user_local` or a `remote_` device): a connection
+/// becomes that person for its lifetime, so the other people of a shared
+/// room (a team server, a seeded demo) reply in threads, react and type as
+/// themselves. It acts as a human participant (answers questions, resets
+/// the agent turn budget, wakes a Chief like an imported human message
+/// does) and never as the owner: it cannot mint, import or use owner-only
+/// commands, and only the owner's own connection mints the credential.
+pub const CONVERSATION_PERSON_CREDENTIALS_CAPABILITY: &str = "conversation-person-credentials-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -169,7 +178,8 @@ pub(super) struct DraftParams {
     harness: Option<String>,
 }
 
-/// `conversation-bind`: become agent `participant` for the rest of the
+/// `conversation-bind`: become `participant` (an agent, or with
+/// `conversation-person-credentials-v1` another person) for the rest of the
 /// connection, proven by the token the local user minted for it.
 #[derive(Deserialize)]
 pub(super) struct BindParams {
@@ -177,8 +187,8 @@ pub(super) struct BindParams {
     token: String,
 }
 
-/// `conversation-agent-token`: mint the credential of agent `participant`
-/// (local user connections only).
+/// `conversation-agent-token`: mint the credential of `participant`, an agent
+/// or another person (local user connections only).
 #[derive(Deserialize)]
 pub(super) struct AgentTokenParams {
     participant: String,
@@ -230,7 +240,7 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
 
 /// The agent-identity commands (`conversation-bind`, `conversation-agent-token`)
 /// and `conversation-import` stay on the Unix socket: a WebSocket client is
-/// the person, never an agent, and never rewrites history.
+/// the person, never an agent or another person, and never rewrites history.
 fn require_unix(mux: &Mux, client: u64) -> anyhow::Result<()> {
     anyhow::ensure!(
         mux.control_clients.is_unix(client),
@@ -557,7 +567,10 @@ pub(super) fn publish_typing(
 pub(super) fn bind(mux: &Mux, client: u64, params: BindParams) -> anyhow::Result<Value> {
     require_unix(mux, client)?;
     let BindParams { participant, token } = params;
-    anyhow::ensure!(participant.starts_with("agent_"), "only agent participants bind with a token");
+    anyhow::ensure!(
+        crate::conversation_store::credentialed(&participant),
+        "only agent participants and other people bind with a token"
+    );
     let valid = mux.with_conversations(|store| store.verify_agent_token(&participant, &token))?;
     anyhow::ensure!(valid, "conversation agent token is not valid for {participant}");
     mux.bind_conversation_principal(client, participant.clone())?;
@@ -575,8 +588,8 @@ pub(super) fn agent_token(
         "only the local user mints agent tokens"
     );
     anyhow::ensure!(
-        params.participant.starts_with("agent_"),
-        "agent tokens are only for agent participants"
+        crate::conversation_store::credentialed(&params.participant),
+        "participant tokens are only for agents and other people"
     );
     let token = mux.with_conversations(|store| store.mint_agent_token(&params.participant))?;
     // A replaced token also ends the connections bound with the old one.

@@ -137,15 +137,8 @@ pub(crate) fn all_rooms(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Val
         .collect())
 }
 
-/// The placements with `index` in `range`, as `workspace_placement` changes.
-pub(crate) fn placements_in(
-    transaction: &Transaction<'_>,
-    range: std::ops::RangeInclusive<usize>,
-) -> anyhow::Result<Vec<Value>> {
-    Ok(personal::placements_in(transaction, range)?.into_iter().map(placement_change).collect())
-}
-
-fn placement_change(placement: Value) -> Value {
+/// A placement snapshot as its `workspace_placement` change.
+pub(crate) fn placement_change(placement: Value) -> Value {
     let id = personal::placement_id(
         placement["workspace"]["session_id"].as_str().unwrap_or_default(),
         placement["workspace"]["workspace_ref"].as_str().unwrap_or_default(),
@@ -159,24 +152,8 @@ pub(crate) fn row_index(
     session: &str,
     key: &str,
 ) -> anyhow::Result<Option<usize>> {
-    use rusqlite::OptionalExtension;
-    let Some(position) = transaction
-        .query_row(
-            "SELECT position FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
-            rusqlite::params![session, key],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?
-    else {
-        return Ok(None);
-    };
-    let count: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM personal_workspaces
-         WHERE (position, session_id, workspace_key) < (?1, ?2, ?3)",
-        rusqlite::params![position, session, key],
-        |row| row.get(0),
-    )?;
-    Ok(Some(usize::try_from(count)?))
+    Ok(crate::workspace_registry::personal_store::read_workspace(transaction, session, key)?
+        .map(|row| row.index))
 }
 
 pub(crate) fn all_placements(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
@@ -379,15 +356,19 @@ fn apply_personal_change(
                 PersonalWorkspaceUpdate { index, group, ..PersonalWorkspaceUpdate::default() },
             )?;
             let value = personal::placement_snapshot(tx, session, key)?;
-            // Only the placements whose index (or group) changed: the rows
-            // between the old and the new index, or every row after a new
-            // one.
+            // The moved row changed. The rows between its old and new
+            // index (every row after a new one) only moved by one: they are
+            // a placement shift, restated only for connections without
+            // `sidebar-doc-v1` (state/placement_shift.rs).
             let after = row_index(tx, session, key)?.unwrap_or(0);
-            let range = match before {
-                Some(before) => before.min(after)..=before.max(after),
-                None => after..=usize::MAX,
-            };
-            Ok(StateChanges::new(value, placements_in(tx, range)?))
+            match before {
+                Some(before) if before != after => {
+                    super::placement_shift::queue(tx, before.min(after), Some(before.max(after)))?;
+                }
+                Some(_) => {}
+                None => super::placement_shift::queue(tx, after.saturating_add(1), None)?,
+            }
+            Ok(StateChanges::new(value.clone(), vec![placement_change(value)]))
         }
         PersonalChange::RoomCreate { name, color, icon, theme, index } => {
             let room = personal::create_room(

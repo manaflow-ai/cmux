@@ -150,6 +150,9 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
         v["sessions"].as_array().unwrap().iter().any(|x| x["name"] == "b/remote-one"),
         "peer session not listed after add_peer settled: {v}"
     );
+    // cx-v9k2f: a peer's session carries its lane like a local one.
+    let listed = v["sessions"].as_array().unwrap().iter().find(|x| x["name"] == "b/remote-one");
+    assert_eq!(listed.unwrap()["lane"]["state"], "idle", "{v}");
 
     // Prompt through A by the prefixed name; the reply streams to A's client.
     ca.call(method::MUX_ATTACH, json!({"session": "b/remote-one", "limit": 0})).await.unwrap();

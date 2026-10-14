@@ -6,8 +6,9 @@
 //! [`LegacyInput`] and stores the returned document; the old tables stay.
 //!
 //! Rules:
-//! - Layout sections keep their place, title, region, look, arrangement,
-//!   room and row limit. The `workspaces` section becomes one machine
+//! - Layout sections keep their place, title, region, look, arrangement
+//!   (layout, align, gap, columns), room, row limit and unknown keys (in
+//!   `extra`; an arrangement's unknown keys in `extra.arrangement`). The `workspaces` section becomes one machine
 //!   section per machine (this machine first); `sec_pinned` becomes Pinned;
 //!   an app section stays an app section; a built-in items section (Home,
 //!   App Store, the account band) becomes a built-in section; any other
@@ -268,7 +269,8 @@ impl Builder {
     }
 }
 
-fn section_from_layout(section: &sidebar_layout::Section, kind: SectionKind) -> Section {
+/// A document section from an old layout section (no items, no order).
+pub fn section_from_layout(section: &sidebar_layout::Section, kind: SectionKind) -> Section {
     let mut new = Section::new(&section.id, kind, section.region.clone());
     new.title = section.title.clone();
     new.shows_title = section.shows_title;
@@ -277,10 +279,28 @@ fn section_from_layout(section: &sidebar_layout::Section, kind: SectionKind) -> 
         ArrangementLayout::Tiles => ArrangementLayout::Grid,
         other => other.clone(),
     };
+    new.align = section.arrangement.align.clone();
+    new.gap = section.arrangement.gap;
     new.columns = section.arrangement.columns;
     new.max_rows = section.max_rows;
     new.room = section.room.clone();
+    new.extra = section.extra.clone();
+    if !section.arrangement.extra.is_empty() {
+        new.extra.insert("arrangement".into(), Value::Object(section.arrangement.extra.clone()));
+    }
     new
+}
+
+/// The document kind of an old layout section that holds items (`Items` or
+/// a newer content kind): Pinned, built-in (look `built_in`) or custom.
+pub fn kind_of_layout_items_section(section: &sidebar_layout::Section) -> SectionKind {
+    if section.id == PINNED_SECTION_ID {
+        SectionKind::Pinned
+    } else if section.look == Look::BuiltIn {
+        SectionKind::Builtin
+    } else {
+        SectionKind::Custom
+    }
 }
 
 /// The document the old stores describe (revision 0: the first change is 1).
@@ -314,6 +334,10 @@ pub fn migrate(input: &LegacyInput) -> Doc {
                     machine.region = section.region.clone();
                     machine.title = title_of(session);
                     machine.room = section.room.clone();
+                    machine.look = section.look.clone();
+                    machine.align = section.arrangement.align.clone();
+                    machine.gap = section.arrangement.gap;
+                    machine.max_rows = section.max_rows;
                     sections.push(machine);
                 }
             }
@@ -322,13 +346,7 @@ pub fn migrate(input: &LegacyInput) -> Doc {
                 sections.push(section_from_layout(section, SectionKind::App { contribution }));
             }
             Content::Items | Content::Other(_) => {
-                let kind = if section.id == PINNED_SECTION_ID {
-                    SectionKind::Pinned
-                } else if section.look == Look::BuiltIn {
-                    SectionKind::Builtin
-                } else {
-                    SectionKind::Custom
-                };
+                let kind = kind_of_layout_items_section(section);
                 let mut new = section_from_layout(section, kind);
                 new.keeps_closed = new.kind.keeps_closed_by_default();
                 if new.kind == SectionKind::Pinned {

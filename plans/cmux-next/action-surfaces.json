@@ -19132,6 +19132,35 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "clipboard",
+      "cli_name" : "action agent-chat-copy-identifier",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab",
+        "agentChat",
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.copyIdentifier",
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Agent Identifier",
+      "title_key" : "action.agentChat.copyIdentifier",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "agent add-harness",
       "context_menu" : "noObject",
@@ -27658,6 +27687,24 @@
                 "value" : "Vesper"
               },
               {
+                "title" : "Soft Blue",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Soft Blue"
+              },
+              {
+                "title" : "Clay Orange",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Clay Orange"
+              },
+              {
+                "title" : "Olive Grey",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Olive Grey"
+              },
+              {
                 "title" : "Rose Pine Dawn",
                 "title_key" : null,
                 "title_table" : null,
@@ -27674,6 +27721,18 @@
                 "title_key" : null,
                 "title_table" : null,
                 "value" : "GitHub Light Default"
+              },
+              {
+                "title" : "Soft Blue Light",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Soft Blue Light"
+              },
+              {
+                "title" : "Clay Orange Light",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Clay Orange Light"
               }
             ]
           },
@@ -27793,6 +27852,19 @@
           "id" : "agentPane.toggleInspector",
           "kind" : "action",
           "order" : 12,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentChat.copyIdentifier",
+          "kind" : "action",
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -30752,6 +30824,24 @@
                     "value" : "Vesper"
                   },
                   {
+                    "title" : "Soft Blue",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Soft Blue"
+                  },
+                  {
+                    "title" : "Clay Orange",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Clay Orange"
+                  },
+                  {
+                    "title" : "Olive Grey",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Olive Grey"
+                  },
+                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
@@ -30768,6 +30858,18 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "GitHub Light Default"
+                  },
+                  {
+                    "title" : "Soft Blue Light",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Soft Blue Light"
+                  },
+                  {
+                    "title" : "Clay Orange Light",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Clay Orange Light"
                   }
                 ]
               },
@@ -33201,6 +33303,24 @@
                         "value" : "Vesper"
                       },
                       {
+                        "title" : "Soft Blue",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue"
+                      },
+                      {
+                        "title" : "Clay Orange",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange"
+                      },
+                      {
+                        "title" : "Olive Grey",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Olive Grey"
+                      },
+                      {
                         "title" : "Rose Pine Dawn",
                         "title_key" : null,
                         "title_table" : null,
@@ -33217,6 +33337,18 @@
                         "title_key" : null,
                         "title_table" : null,
                         "value" : "GitHub Light Default"
+                      },
+                      {
+                        "title" : "Soft Blue Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue Light"
+                      },
+                      {
+                        "title" : "Clay Orange Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange Light"
                       }
                     ]
                   },
@@ -33677,6 +33809,19 @@
                   "id" : "palette.copyPaneLink",
                   "kind" : "action",
                   "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "agentChat.copyIdentifier",
+                  "kind" : "action",
+                  "order" : 5,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35417,6 +35562,24 @@
                         "value" : "Vesper"
                       },
                       {
+                        "title" : "Soft Blue",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue"
+                      },
+                      {
+                        "title" : "Clay Orange",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange"
+                      },
+                      {
+                        "title" : "Olive Grey",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Olive Grey"
+                      },
+                      {
                         "title" : "Rose Pine Dawn",
                         "title_key" : null,
                         "title_table" : null,
@@ -35433,6 +35596,18 @@
                         "title_key" : null,
                         "title_table" : null,
                         "value" : "GitHub Light Default"
+                      },
+                      {
+                        "title" : "Soft Blue Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue Light"
+                      },
+                      {
+                        "title" : "Clay Orange Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange Light"
                       }
                     ]
                   },
@@ -35933,6 +36108,19 @@
                   "id" : "copyWorkspaceSSHError",
                   "kind" : "action",
                   "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "agentChat.copyIdentifier",
+                  "kind" : "action",
+                  "order" : 5,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,

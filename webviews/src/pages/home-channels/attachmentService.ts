@@ -131,7 +131,8 @@ async function jpeg(source: CanvasImageSource, width: number, height: number, ed
     canvas.getContext("2d")?.drawImage(source, 0, 0, canvas.width, canvas.height);
     for (const quality of [0.82, 0.68, 0.5]) {
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-      if (blob && blob.size <= maxBytes) return { bytes: new Uint8Array(await blob.arrayBuffer()), mimeType: "image/jpeg" };
+      if (blob && blob.size <= maxBytes)
+        return { bytes: new Uint8Array(await blob.arrayBuffer()), mimeType: "image/jpeg" };
     }
     scale *= 0.6;
   }
@@ -231,7 +232,13 @@ export class AttachmentService {
     const kind = attachmentClass(mimeType);
     const facts: Facts = kind === "image" ? await imageFacts(file) : kind === "video" ? await videoFacts(file) : {};
     const derived = facts.preview ?? facts.poster;
-    const part: HomeAttachment = { type: "attachment", hash: await sha256(bytes), name: file.name, mimeType, byteCount: bytes.length };
+    const part: HomeAttachment = {
+      type: "attachment",
+      hash: await sha256(bytes),
+      name: file.name,
+      mimeType,
+      byteCount: bytes.length,
+    };
     if (facts.width) part.width = facts.width;
     if (facts.height) part.height = facts.height;
     if (facts.durationMs !== undefined) part.durationMs = facts.durationMs;
