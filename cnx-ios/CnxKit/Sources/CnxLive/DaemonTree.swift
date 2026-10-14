@@ -74,8 +74,10 @@ public struct DaemonTree: Sendable {
                         let state = agents[surface]
                         if state?.state == "working" { working = true }
                         if state?.state == "blocked" { blocked = true }
-                        if let seen = activity[surface] { observed = max(observed ?? seen, seen) }
-                        guard let mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending, bindings: &agentTabs) else { continue }
+                        // Activity: the Mac's last agent report, else what the phone saw (titles).
+                        for seen in [activity[surface], state?.updatedAt].compactMap(\.self) { observed = max(observed ?? seen, seen) }
+                        guard let mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
+                                                    waitingFor: agents.waitingFor, bindings: &agentTabs) else { continue }
                         tabs.append(mapped)
                     }
                 }
@@ -120,6 +122,7 @@ public struct DaemonTree: Sendable {
     /// `agent` is the surface's agent state; `pending` marks acpmux sessions
     /// with an open permission or question. Both set the tab's `agentStatus`.
     static func tab(_ tab: [String: Any], id: String, agent: AgentState?, pending: [String: Bool] = [:],
+                    waitingFor: [String: WorkspaceTab.WaitingFor] = [:],
                     bindings: inout [String: AgentBinding]) -> WorkspaceTab? {
         var status: WorkspaceTab.AgentStatus? = switch agent?.state {
         case "blocked": .waiting
@@ -141,10 +144,15 @@ public struct DaemonTree: Sendable {
             guard let session = (tab["conversation"] as? [String: Any])?["agent_session"] as? [String: Any] else { return nil }
             let binding = AgentBinding(session: session["session"] as? String, harness: session["harness"] as? String, host: session["host"] as? String)
             bindings[id] = binding
-            if let session = binding.session, pending[session] == true { status = .waiting }
+            var asks: WorkspaceTab.WaitingFor?
+            if let session = binding.session, pending[session] == true {
+                status = .waiting
+                asks = waitingFor[session]
+            }
             let harness = binding.harness ?? "agent"
             return WorkspaceTab(id: id, kind: .agent, title: title.isEmpty ? Self.agentName(harness) : title,
-                                subtitle: binding.session == nil ? "New chat" : nil, harness: harness, agentStatus: status)
+                                subtitle: binding.session == nil ? "New chat" : nil, harness: harness, agentStatus: status,
+                                waitingFor: status == .waiting ? asks : nil)
         default:
             return nil
         }
@@ -176,6 +184,9 @@ public struct AgentStates: Sendable {
     public var bySurface: [Int: AgentState] = [:]
     /// acpmux session id → has a pending permission or question.
     public var pending: [String: Bool] = [:]
+    /// acpmux session id → what its open ask is, when the phone has seen it
+    /// (a question wins over a permission). Absent: "is waiting".
+    public var waitingFor: [String: WorkspaceTab.WaitingFor] = [:]
 
     public init() {}
 
@@ -185,10 +196,26 @@ public struct AgentStates: Sendable {
 public struct AgentState: Hashable, Sendable {
     public var state: String
     public var agent: String?
+    /// The Mac's last report for this agent (`updated_at_ms`), when it sends one.
+    public var updatedAt: Date?
 
-    public init(state: String, agent: String?) {
+    public init(state: String, agent: String?, updatedAt: Date? = nil) {
         self.state = state
         self.agent = agent
+        self.updatedAt = updatedAt
+    }
+
+    /// An agent row of `list-agents` or an `agent-changed` event.
+    public init?(json: [String: Any]) {
+        guard json["surface"] is Int else { return nil }
+        self.init(state: json["state"] as? String ?? "unknown", agent: json["agent"] as? String,
+                  updatedAt: Self.date(json["updated_at_ms"]))
+    }
+
+    /// Epoch milliseconds (`updated_at_ms`) as a date; nil when absent (older Macs).
+    static func date(_ value: Any?) -> Date? {
+        guard let ms = (value as? NSNumber)?.doubleValue, ms > 0 else { return nil }
+        return Date(timeIntervalSince1970: ms / 1000)
     }
 }
 
@@ -208,7 +235,7 @@ public enum DaemonEvent: Equatable, Sendable {
     case treeChanged
     /// The subscription ended (`overflow`): subscribe again, then re-list.
     case resubscribe
-    case agentChanged(surface: Int, state: String, agent: String?)
+    case agentChanged(surface: Int, state: String, agent: String?, updatedAt: Date? = nil)
     case titleChanged(surface: Int, title: String)
     case other
 
@@ -220,7 +247,8 @@ public enum DaemonEvent: Equatable, Sendable {
             return .resubscribe
         case "agent-changed":
             guard let surface = object["surface"] as? Int else { return .other }
-            return .agentChanged(surface: surface, state: object["state"] as? String ?? "unknown", agent: object["agent"] as? String)
+            return .agentChanged(surface: surface, state: object["state"] as? String ?? "unknown", agent: object["agent"] as? String,
+                                 updatedAt: AgentState.date(object["updated_at_ms"]))
         case "title-changed":
             guard let surface = object["surface"] as? Int else { return .other }
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")

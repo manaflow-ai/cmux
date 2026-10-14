@@ -108,7 +108,7 @@ struct PairedMacsPage: View {
         ) { device in
             Button("Remove", role: .destructive) { Task { await remove(device) } }
         } message: { device in
-            Text(Self.removalExplanation(device, connected: isConnected(device)))
+            Text(Self.removalExplanation(device, connected: isConnected(device), honorsRemoval: honorsRemoval(device)))
         }
         .alert("Couldn't remove", isPresented: Binding(get: { removalError != nil }, set: { if !$0 { removalError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -167,14 +167,23 @@ struct PairedMacsPage: View {
         device.kind == .mac && device.ids.contains { store.macConnection[$0] != nil }
     }
 
+    /// Whether the Mac's host keeps itself off after a removal (`removal-v1`, said by its
+    /// `version` service when this phone linked to it). Unknown counts as no.
+    private func honorsRemoval(_ device: SettingsDevice) -> Bool {
+        device.ids.contains { store.macCapabilities[$0]?.contains("removal-v1") == true }
+    }
+
     /// The confirmation's message: what removal does, and how the device comes back.
-    static func removalExplanation(_ device: SettingsDevice, connected: Bool) -> String {
+    /// `honorsRemoval`: the Mac stays off once removed; an older Mac adds itself back.
+    static func removalExplanation(_ device: SettingsDevice, connected: Bool, honorsRemoval: Bool = false) -> String {
         guard device.kind == .mac else {
             return "It stops receiving notifications from your Macs and leaves this list. It comes back when cmux on it signs in again."
         }
         var parts = ["\(device.name) leaves the Mac list on all your devices, and this iPhone forgets its saved workspaces."]
         if connected { parts.append("This iPhone disconnects from it now.") }
-        if device.online == true {
+        if device.online == true, honorsRemoval {
+            parts.append("It's online, so it will disconnect now. It stays off until you choose Allow Again in Settings → Mobile on that Mac.")
+        } else if device.online == true {
             parts.append("It's online, so cmux on that Mac can add it back. To keep it off, turn off Settings → Mobile on that Mac.")
         } else {
             parts.append("To use it again, sign in to cmux on that Mac or turn on Settings → Mobile there.")

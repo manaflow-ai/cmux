@@ -97,17 +97,34 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// What the tab's agent is doing, when it runs one (an agent tab, or a
     /// terminal running Claude or Codex). Nil when idle or unknown.
     public var agentStatus: AgentStatus?
+    /// What a `.waiting` agent waits for, when the Mac's acpmux says (agent tabs).
+    /// Nil for a terminal agent, whose report says only that it is blocked.
+    public var waitingFor: WaitingFor?
 
-    /// An agent's state as the Mac reports it. The Mac does not say whether a
-    /// waiting agent asks for a permission or a question.
+    /// An agent's state as the Mac reports it.
     public enum AgentStatus: String, Hashable, Sendable, Codable {
         case working, waiting
     }
 
+    /// What a waiting agent asks the person for.
+    public enum WaitingFor: String, Hashable, Sendable, Codable {
+        case permission, question
+    }
+
+    /// "<Agent> is asking permission", "<Agent> has a question", else "<Agent> is waiting".
+    public var waitingPhrase: String {
+        switch waitingFor {
+        case .permission: "\(agentName) is asking permission"
+        case .question: "\(agentName) has a question"
+        case nil: "\(agentName) is waiting"
+        }
+    }
+
     public init(id: String, kind: Kind, title: String, subtitle: String? = nil, harness: String? = nil, url: URL? = nil,
-                agentStatus: AgentStatus? = nil) {
+                agentStatus: AgentStatus? = nil, waitingFor: WaitingFor? = nil) {
         self.url = url
         self.agentStatus = agentStatus
+        self.waitingFor = waitingFor
         self.id = id
         self.kind = kind
         self.title = title
