@@ -27,6 +27,9 @@ parser.add_argument("tag")
 parser.add_argument("app")
 parser.add_argument("--expect", choices=["bubble", "none"], required=True)
 parser.add_argument("--flips", type=int, default=8)
+parser.add_argument("--activate", action="store_true",
+                    help="let the app activate (Chromium shows a help bubble only in an active window); "
+                         "run in an `nx-remote --needs input` job, which owns the front app")
 args = parser.parse_args()
 
 out = os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="chrome-promos-")
@@ -140,10 +143,12 @@ if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""),
        "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-       "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_NO_ACTIVATE": "1",
+       "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800",
        "CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-user-education-rate-limiting"}
+if not args.activate:
+    env["CMUX_NEXT_NO_ACTIVATE"] = "1"
 for key in ("NX_JOB_ID",):
     if key in os.environ:
         env[key] = os.environ[key]
