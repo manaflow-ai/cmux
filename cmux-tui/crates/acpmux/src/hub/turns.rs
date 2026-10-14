@@ -253,6 +253,7 @@ impl Hub {
             control,
             trust_gate,
             interrupt: opts.interrupt,
+            provenance: opts.provenance.as_ref(),
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -292,12 +293,9 @@ impl Hub {
         });
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
-        self.append(
-            session,
-            "mux",
-            "user_message",
-            json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id}),
-        );
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
+        self.append(session, "mux", "user_message", msg);
         if !waiting {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),

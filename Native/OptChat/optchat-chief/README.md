@@ -296,8 +296,8 @@ For the bundled host in a tagged cmux-next DEV app, `MUX_HOME` is
    variable set, or `launchctl setenv CMUX_NEXT_MUX_HOST /abs/path/optchat-chief`
    before `open`). The app starts the host when Home first opens, as
    `optchat-chief host --daemon-socket <daemon socket> --mux-home ~/.cmux/mux/tags/<tag>`,
-   with `MUX_AGENT_TOKEN_FILE`, `CMUX_SOCKET_PATH`, `ACPMUX_*`, `MUX_HARNESS`
-   and `CMUX_MCP_COMMAND` set. Its stderr goes to `$MUX_HOME/host.log`.
+   with `MUX_AGENT_TOKEN_FILE`, `CMUX_SOCKET_PATH`, `ACPMUX_*` and `MUX_HARNESS`
+   set. Its stderr goes to `$MUX_HOME/host.log`.
 
 3. Open Home and write in the Chief conversation. The reply shows as the
    `mux` participant (the conversation is the same one mux/host creates).
@@ -381,7 +381,6 @@ replies).
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
 | `CMUX_SOCKET_PATH` | none | the app's control socket, passed to the turn's tools |
-| `CMUX_MCP_COMMAND` | none | cmux binary whose `mcp serve` is added as MCP server `cmux` |
 | `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the Messages API of the native engine, and of the compactor's `api` route (team subrouter) |
 | `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key`; else `ANTHROPIC_API_KEY` for any base URL but the subrouter; else `subrouter` |
 | `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
@@ -823,7 +822,7 @@ file. A sign-in kept in the keyring instead of auth.json is not linked. The node
 deleted when it ends (and a crash's leftovers before the next node in the
 slot). The start-up probe fails when the session lists any `$skill`
 command.
-acpmux gives codex no MCP servers, so the memory tools are the launcher's
+acpmux gives codex no `optchat` MCP server, so the memory tools are the launcher's
 `zoom` and `date` commands (`optchat-chief zoom ID N`, `optchat-chief date
 ID`), named by absolute path in AGENTS.md.
 
