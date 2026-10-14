@@ -3,30 +3,6 @@ import CnxDesign
 import SwiftUI
 import UIKit
 
-/// Viewer preferences shared by the file list and file screens (SPEC 12.1 `ellipsis` menu).
-@MainActor
-@Observable
-public final class DiffViewerState {
-    public enum Layout: String, CaseIterable, Sendable { case unified = "Unified", split = "Split" }
-
-    public var changeSet: DiffChangeSet
-    public var layout: Layout = .unified
-    /// Starts from Settings → Terminal → Wrap code and diff lines; the
-    /// viewer's menu changes it for this screen.
-    public var wrapLines = CnxPreferences.wrapCode()
-    public var hideWhitespace = false
-    public var showViewed = true
-    public var viewed: Set<String> = []
-
-    public init(changeSet: DiffChangeSet) {
-        self.changeSet = changeSet
-    }
-
-    public func toggleViewed(_ file: DiffFile) {
-        if viewed.contains(file.id) { viewed.remove(file.id) } else { viewed.insert(file.id) }
-    }
-}
-
 /// SPEC 12.1: the Changes file list (GitHub mobile style).
 public struct DiffChangesScreen: View {
     @State private var state: DiffViewerState

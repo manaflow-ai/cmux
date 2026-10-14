@@ -344,8 +344,11 @@ struct EditedFilesCard: View {
                     openDiff(changeSet, file: file.id)
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: file.status == .added ? "doc.badge.plus" : "doc.text")
-                            .font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 18)
+                        // Viewed (the shared `DiffViewedStore`): marked in Changes, Review or the file screen.
+                        let viewed = DiffViewedStore.shared.isViewed(file)
+                        Image(systemName: viewed ? "checkmark.circle.fill" : (file.status == .added ? "doc.badge.plus" : "doc.text"))
+                            .font(.system(size: 13)).foregroundStyle(viewed ? Color.cnxSuccess : .secondary).frame(width: 18)
+                            .accessibilityLabel(viewed ? Text("Viewed") : Text(""))
                         if typeSize.isAccessibilitySize {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(file.fileName).font(.subheadline.monospaced()).lineLimit(2).truncationMode(.middle)
