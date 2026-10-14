@@ -271,9 +271,24 @@ struct CloudWorkspaceCreationRevealTests {
             #expect(SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager) != nil)
             #expect(app.commitMainWindowClose(window))
         }
-        #expect(closed == nil, "A create in flight must not keep a closed window's manager alive")
+        // Name the holder when this fails: the create task, the shared
+        // controller/app state, or something that outlives both.
+        let leakedWhileInFlight = closed != nil
+        let heldByController = closed != nil
+            && TerminalController.shared.activeTabManagerForCallerNotification() === closed
+        let heldAsActive = closed != nil && AppDelegate.shared?.tabManager === closed
         release.continuation.yield(())
         await operations.waitForPendingOperations()
+        let leakedAfterCompletion = closed != nil
+        TerminalController.shared.setActiveTabManager(nil)
+        AppDelegate.shared = previousAppDelegate
+        let leakedAfterSharedReset = closed != nil
+        #expect(
+            !leakedWhileInFlight,
+            Comment(rawValue: "A create in flight must not keep a closed window's manager alive: "
+                + "controller=\(heldByController) active=\(heldAsActive) "
+                + "afterCompletion=\(leakedAfterCompletion) afterSharedReset=\(leakedAfterSharedReset)")
+        )
     }
 
     @Test("Device ⌘N reveals the workspace it selects, unless the user navigated first",
