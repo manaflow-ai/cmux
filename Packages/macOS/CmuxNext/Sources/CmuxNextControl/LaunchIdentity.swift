@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextProcessEnvironment
 public import Foundation
 
@@ -9,7 +10,8 @@ public import Foundation
 /// made cmux-next try to bind the user's release socket. So:
 ///
 /// - the socket path comes from the bundle id (and a tag written into the
-///   bundle's own `LSEnvironment` by `scripts/reload.sh`), or from the
+///   bundle's own `LSEnvironment` by `scripts/reload.sh`), through the
+///   build's ``BuildIdentity/controlSocket(userHome:)``, or from the
 ///   explicit ``socketOverrideKey``;
 /// - ``stripInheritedEnvironment()`` removes inherited cmux variables from
 ///   this process at launch, before anything reads them;
@@ -19,7 +21,8 @@ public struct LaunchIdentity: Sendable, Equatable {
     public static let socketOverrideKey = "CMUX_NEXT_SOCKET_PATH"
 
     public var bundleID: String?
-    /// Sanitized tag (`[a-z0-9-]`), nil for untagged builds.
+    /// Sanitized tag (`[a-z0-9-]`, ``BuildIdentity/tag``: the one the bundle
+    /// ships, else the bundle id's suffix), nil for untagged builds.
     public var tag: String?
     public var socketPath: String
 
@@ -28,6 +31,12 @@ public struct LaunchIdentity: Sendable, Equatable {
         self.tag = tag
         self.socketPath = socketPath
     }
+
+    /// The app's own build (bundle id and tag; never a DEBUG test override):
+    /// its daemon session and control socket (``BuildIdentity/appSession``).
+    /// The `cmux` CLI in this app's terminals gets the same pair through
+    /// `CMUX_BUNDLE_ID` and `CMUX_TAG`, so both resolve one build.
+    public var build: BuildIdentity { BuildIdentity(bundleID: bundleID, bundledTag: tag) }
 
     /// Variables every terminal of this app gets, so the `cmux` CLI inside
     /// it talks to this app and never to the cmux that launched it.
@@ -46,26 +55,19 @@ public struct LaunchIdentity: Sendable, Equatable {
         bundledEnvironment: [String: String],
         processEnvironment: [String: String],
         isDebugBuild: Bool,
-        bundleName: String? = nil,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> LaunchIdentity {
         let bundle = bundleID.flatMap { $0.isEmpty ? nil : $0 }
-        let tag = ControlSocketPath.shared.bundleTag(bundle)
-            ?? bundledEnvironment["CMUX_TAG"].flatMap(ControlSocketPath.shared.sanitize)
-            ?? taggedAppName(bundleName)
-        var path = ControlSocketPath.shared.resolve(bundleID: bundle, tag: tag, isDebugBuild: isDebugBuild, home: home)
+        // A copy named `cmux DEV <tag>.app` without `LSEnvironment` is the
+        // untagged DEV build (names of its key), as for the `cmux` CLI.
+        let build = BuildIdentity(bundleID: bundle, bundledTag: bundledEnvironment["CMUX_TAG"])
+        // A DEBUG compile under release's bundle id never takes release's socket.
+        var path = (isDebugBuild && build.kind == .release ? nil : build.controlSocket(userHome: home))
+            ?? ControlSocketPath.shared.resolve(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home)
         if let explicit = processEnvironment[socketOverrideKey]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
             path = explicit
         }
-        return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: path)
-    }
-
-    /// A fleet artifact is sometimes launched directly from its staged
-    /// `cmux DEV <tag>.app` path instead of through LaunchServices. Keep the
-    /// tag in that case even when the copied Info.plist lost LSEnvironment.
-    private static func taggedAppName(_ name: String?) -> String? {
-        guard let name, name.hasPrefix("cmux DEV ") else { return nil }
-        return ControlSocketPath.shared.sanitize(String(name.dropFirst("cmux DEV ".count)))
+        return LaunchIdentity(bundleID: bundle, tag: build.tag, socketPath: path)
     }
 
     /// Keys of cmux variables this process inherited rather than received
@@ -90,8 +92,7 @@ public struct LaunchIdentity: Sendable, Equatable {
             bundleID: bundle.bundleIdentifier,
             bundledEnvironment: bundledEnvironment(bundle),
             processEnvironment: ProcessInfo.processInfo.environment,
-            isDebugBuild: isDebugBuild,
-            bundleName: bundle.bundleURL.deletingPathExtension().lastPathComponent
+            isDebugBuild: isDebugBuild
         )
     }
 
