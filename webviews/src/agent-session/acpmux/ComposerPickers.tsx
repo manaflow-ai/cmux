@@ -458,6 +458,11 @@ export function ComposerPickers({
   const effortShown = effortChoice || ultracodeOn ? effortLabel : undefined;
   const modeLabel = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0])?.name : undefined;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
+  // level acpmux starts it on (`_acpmux/harnesses` start), so Reasoning never goes missing.
+  const startEffort = awaiting ? snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort : undefined;
+  const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
+  const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && (effortShown || modeLabel))
       rememberLastChips(chipHarness, { effort: effortShown, mode: modeLabel });
@@ -534,7 +539,7 @@ export function ComposerPickers({
           }}
         />
       )}
-      {!(effort && efforts.length > 1) && lastChips?.effort && <PendingChip kind="effort" label={lastChips.effort} />}
+      {!(effort && efforts.length > 1) && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />}
       <span className="acpmux-chips-spacer" aria-hidden="true" />
       {modes.length === 0 && lastChips?.mode && <PendingChip kind="mode" label={lastChips.mode} />}
       {modes.length > 0 && (
