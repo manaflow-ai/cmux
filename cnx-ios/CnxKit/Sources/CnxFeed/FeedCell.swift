@@ -139,18 +139,18 @@ struct FeedCell: View {
     @ViewBuilder
     private var menuItems: some View {
         Section(item.createdAt.formatted(.dateTime.weekday(.wide).hour().minute())) {
-            Button("Open tab", systemImage: "arrow.up.right.square", action: open)
+            Button("Open Tab", systemImage: "arrow.up.right.square", action: open)
             Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = item.markdown }
             // Everything the trailing swipe leaves out lives here (SPEC swipe rules).
             if item.isRead {
-                Button("Mark as unread", systemImage: "envelope.badge") { store.markUnread(item.id) }
+                Button("Mark as Unread", systemImage: "envelope.badge") { store.markUnread(item.id) }
             } else {
-                Button("Mark as read", systemImage: "envelope.open") { store.markRead(item.id) }
+                Button("Mark as Read", systemImage: "envelope.open") { store.markRead(item.id) }
             }
             Button("Done", systemImage: "checkmark") {
                 withAnimation(.cnxSmooth) { store.markDone(item.id) }
             }
-            Button("Mute this workspace", systemImage: "bell.slash") {
+            Button("Mute This Workspace", systemImage: "bell.slash") {
                 withAnimation(.cnxSmooth) { _ = store.mutedWorkspaces.insert(item.workspaceID) }
             }
         }

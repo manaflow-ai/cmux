@@ -300,8 +300,8 @@ struct DiffSnippet: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
         }
         .contextMenu {
-            Button("Open diff", systemImage: "arrow.up.right.square") { openDiff(changeSet, file: file.id) }
-            Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
+            Button("Open Diff", systemImage: "arrow.up.right.square") { openDiff(changeSet, file: file.id) }
+            Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
         }
     }
 
@@ -358,10 +358,10 @@ struct EditedFilesCard: View {
                             .accessibilityLabel(viewed ? Text("Viewed") : Text(""))
                         if typeSize.isAccessibilitySize {
                             VStack(alignment: .leading, spacing: 2) {
-                                // The whole name on one line, scaled down to fit (never split
-                                // mid-word); the folder goes under it and truncates first.
-                                Text(file.fileName).font(.subheadline.monospaced()).lineLimit(1)
-                                    .minimumScaleFactor(0.4).truncationMode(.middle)
+                                // The whole name at full size, wrapping when it must (every name
+                                // the same size); the smaller folder goes under it and truncates first.
+                                Text(file.fileName).font(.subheadline.monospaced()).lineLimit(3)
+                                    .truncationMode(.middle)
                                 if !file.directory.isEmpty {
                                     Text(file.directory).font(.footnote).foregroundStyle(.tertiary)
                                         .lineLimit(1).truncationMode(.head)
@@ -370,8 +370,14 @@ struct EditedFilesCard: View {
                             }
                             Spacer(minLength: 0)
                         } else {
-                            Text(file.fileName).font(.subheadline.monospaced()).lineLimit(1).layoutPriority(1)
-                            Text(file.directory).font(.footnote).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+                            // The folder gets only what the whole name leaves, or nothing (no sliver).
+                            FolderNameLayout(folderFirst: false, spacing: 10) {
+                                Text(file.fileName).font(.subheadline.monospaced()).lineLimit(1).truncationMode(.middle)
+                                Text(file.directory).font(.footnote).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+                                    .frame(minWidth: 0, alignment: .leading)
+                                    .clipped()
+                            }
+                            .layoutPriority(1)
                             Spacer(minLength: 4)
                             DiffCounts(additions: file.additions, deletions: file.deletions)
                                 .fixedSize()

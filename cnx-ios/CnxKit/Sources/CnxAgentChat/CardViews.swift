@@ -163,7 +163,7 @@ public struct PermissionActionBar: View {
                     HStack(spacing: 6) {
                         if option.id == approvingOptionID {
                             ProgressView().controlSize(.small).tint(option.kind == .allowOnce ? Color.cnxOnAccent : Color.primary).accessibilityHidden(true)
-                            Text(Self.waitingForFaceID).lineLimit(1)
+                            Text(Self.waitingForFaceID).lineLimit(2).multilineTextAlignment(.center)
                         } else {
                             if option.isAllow { Image(systemName: "faceid").accessibilityHidden(true) }
                             Text(option.name).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
