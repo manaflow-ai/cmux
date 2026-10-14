@@ -8,25 +8,19 @@ import CmuxNextSettings
 /// each window's role, where the overlay plane lives, and whether every app
 /// overlay (focus ring, dim, drop highlight) draws above content child
 /// windows (Chromium pages). WebKit pages are in-window views and never
-/// appear as child windows. DEBUG builds with `titlebar_band: true` add the
-/// first window's top-row press map (`NSWindow.titlebarBandMap`).
+/// appear as child windows. `titlebar_band: true` adds the first window's `NSWindow.titlebarBandMap`.
 enum DebugLayers {
     static func report(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
             guard let window = controller.window as? ShellWindow else { return nil }
             return report(controller: controller, window: window)
         }
-        var fields: [String: JSONValue] = [
+        let band = params["titlebar_band"]?.boolValue == true ? services.windows.controllers.first?.window?.titlebarBandMap() : nil
+        return .object([
             "windows": .array(windows),
             "consistent": .bool(windows.allSatisfy { $0["consistent"]?.boolValue == true }),
             "layout_passes": layoutPasses(),
-        ]
-        #if DEBUG
-        if params["titlebar_band"]?.boolValue == true, let window = services.windows.controllers.first?.window {
-            fields["titlebar_band"] = JSONValue(foundation: window.titlebarBandMap())
-        }
-        #endif
-        return .object(fields)
+        ].merging(band.flatMap { JSONValue(foundation: $0) }.map { ["titlebar_band": $0] } ?? [:]) { $1 })
     }
 
     /// `LayoutPassGuard`: the most layout calls one view had in one

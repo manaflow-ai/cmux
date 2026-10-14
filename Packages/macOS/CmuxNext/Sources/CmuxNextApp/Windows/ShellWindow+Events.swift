@@ -4,16 +4,13 @@ import CmuxNextDesign
 extension ShellWindow {
     /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
     /// mouse-down in the band is delivered as usual, then moves the window
-    /// only when the policy says so. A double-click there runs the user's
-    /// titlebar action here alone: delivered, it also reached AppKit's own
-    /// titlebar handling up the responder chain (and the sidebar header's),
-    /// so the window zoomed twice and ended where it started (Leo, cosmic-gray 2026-10-13).
+    /// only when the policy says so. A double-click runs only the titlebar action here: delivered, AppKit and
+    /// the sidebar header zoomed too, so the window bounced back (Leo, cosmic-gray 2026-10-13).
     /// A pane's cursor-rect policy (`cursorRectHold`) sees every event first. An Option-press on a
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
         cursorRectHold?.windowWillSend(event, in: self)
-        // A control-press is a right-click: AppKit opens the menu, the window stays.
-        guard event.type == .leftMouseDown, !event.modifierFlags.contains(.control),
+        guard event.type == .leftMouseDown, !event.modifierFlags.contains(.control), // control-press: a right-click
               TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow, !PaneSwapDrag.claims(event, in: self) else {
             return super.sendEvent(event)
         }
