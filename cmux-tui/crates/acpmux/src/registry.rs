@@ -610,9 +610,8 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
             .create(&dir)
             .map_err(|e| e.to_string())?;
     }
-    // Windows port: owner-only is an ACL there (a later landing).
-    #[cfg(not(unix))]
-    std::fs::DirBuilder::new().recursive(true).create(&dir).map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    crate::owner_only::create_dir_all(&dir).map_err(|e| e.to_string())?;
     crate::config::write_atomic(&path, body).map_err(|e| e.to_string())?;
     Ok(true)
 }

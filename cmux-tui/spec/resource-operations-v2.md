@@ -12,8 +12,8 @@ broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 83 | Reads state and forbids an idempotency key |
-| `mutation` | 181 | Requires an idempotency key and returns a mutation result |
+| `read` | 86 | Reads state and forbids an idempotency key |
+| `mutation` | 185 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -31,7 +31,7 @@ correlation, and idempotency metadata.
 | `agent` | 6 | `agent.list`, `agent.message.list`, `agent.message.mark`, `agent.message.send`, `agent.report`, `agent.runtime.list` |
 | `browser` | 15 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
 | `browser_device` | 3 | `browser.devices.add_custom`, `browser.devices.list`, `browser.devices.remove_custom` |
-| `chief` | 3 | `chief.engine.get`, `chief.engine.set`, `chief.stop` |
+| `chief` | 10 | `chief.engine.get`, `chief.engine.set`, `chief.profile.avatar.get`, `chief.profile.avatar.set`, `chief.profile.create`, `chief.profile.delete`, `chief.profile.get`, `chief.profile.list`, `chief.profile.update`, `chief.stop` |
 | `client` | 8 | `client.cell_pixels.set`, `client.detach`, `client.get`, `client.list`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue` |
 | `closed` | 3 | `closed.delete`, `closed.list`, `closed.reopen` |
 | `conversation` | 8 | `conversation.draft`, `conversation.events`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `conversation.send`, `conversation.typing` |
