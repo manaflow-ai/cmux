@@ -103,6 +103,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var refreshAfterTUI = false
     private var started = false
     private var fling: FlingAnimator?
+    /// When the key bar shows (SPEC M4) and the constraints that apply it.
+    private var keyBarRule = KeyBarVisibility()
+    private var keyBarHidden: NSLayoutConstraint!
+    private var keyBarPinned: NSLayoutConstraint!
+    /// A drag that began while following the prompt with the keyboard up:
+    /// a downward drag dismisses the keyboard and the content stays pinned
+    /// to the composer, row for row (SPEC M6).
+    private var dragPinsToComposer = false
+    private var pinningDrag = false
 
     init(model: TerminalModel, chrome: TerminalChrome = .standalone) {
         self.model = model
@@ -236,14 +245,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // chrome's line instead and the key bar folds away.
         guide.followsUndockedKeyboard = true
         guide.usesBottomSafeArea = false
+        // The key bar's height: 0 without focus; with focus, 44 pt clipped to
+        // the soft keyboard's height (so it folds with the keyboard), or 44 pt
+        // pinned when a hardware keyboard leaves no soft keyboard (SPEC M4).
+        keyBarHidden = keyBarClip.heightAnchor.constraint(equalToConstant: 0)
+        keyBarPinned = prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: 44), UILayoutPriority(950))
         guide.setConstraints([
             bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: guide.topAnchor),
             prioritized(bottomStack.bottomAnchor.constraint(equalTo: guide.topAnchor), .defaultHigh),
-            keyBarClip.heightAnchor.constraint(lessThanOrEqualTo: guide.heightAnchor),
+            prioritized(keyBarClip.heightAnchor.constraint(lessThanOrEqualTo: guide.heightAnchor), UILayoutPriority(900)),
         ], activeWhenNearEdge: .bottom)
-        guide.setConstraints([
-            keyBarClip.heightAnchor.constraint(equalToConstant: 0),
-        ], activeWhenAwayFrom: .bottom)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -273,6 +284,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             keyBarClip.heightAnchor.constraint(lessThanOrEqualToConstant: 44),
             keyBarClip.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
             prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: 44), .defaultHigh - 1),
+            keyBarHidden,
 
             tuiTop,
             tuiClip.bottomAnchor.constraint(equalTo: bottomStack.topAnchor),
@@ -319,6 +331,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         surface.onPresent = { [weak self] in self?.surfacePresented() }
         surface.onFocusChange = { [weak self] focused in
             guard let self else { return }
+            self.model.surfaceFocused = focused
+            self.inputFocusChanged()
             // Direct typing stays the keyboard target in TUI mode after the keyboard hides.
             self.model.directTyping = focused || self.model.isTUI
         }
@@ -328,7 +342,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         center.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidChange), name: UIResponder.keyboardDidShowNotification, object: nil)
-        center.addObserver(self, selector: #selector(keyboardDidChange), name: UIResponder.keyboardDidHideNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardDidHide), name: UIResponder.keyboardDidHideNotification, object: nil)
     }
 
     override func didMove(toParent parent: UIViewController?) {
@@ -421,6 +435,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if chrome == .embedded, let image = snapshot() { model.snapshot = image }
+    }
+
+    /// The terminal or the composer gained or lost focus.
+    func inputFocusChanged() {
+        keyBarRule.inputFocused = model.inputFocused
+        applyKeyBarMode()
+    }
+
+    private func applyKeyBarMode() {
+        guard keyBarHidden != nil else { return }
+        let mode = keyBarRule.mode
+        keyBarHidden.isActive = mode == .hidden
+        keyBarPinned.isActive = mode == .pinned
+        view.setNeedsLayout()
     }
 
     override func viewDidLayoutSubviews() {
@@ -632,7 +660,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let previousOffset = scrollView.contentOffset.y
             scrollView.contentInset = insets
             scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
-            if following, !scrollView.isTracking, !model.isTUI {
+            if following, !scrollView.isTracking || dragPinsToComposer, !model.isTUI {
                 // Rides the keyboard: the offset changes inside the keyboard's
                 // animation; the surface covers both ends of it.
                 let target = maxOffsetY
@@ -882,6 +910,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard !model.isTUI else { return }
+        if dragPinsToComposer, scrollView.isTracking, !pinningDrag,
+           scrollView.panGestureRecognizer.translation(in: view).y > 0 {
+            // Dismissing the keyboard: the prompt stays on the composer.
+            let target = maxOffsetY
+            if abs(scrollView.contentOffset.y - target) > 0.5 {
+                pinningDrag = true
+                scrollView.contentOffset.y = target
+                pinningDrag = false
+            }
+            updateViewport(visibleMinY: scrollView.contentOffset.y)
+            return
+        }
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         if scrollView.isTracking || scrollView.isDecelerating || fling != nil {
             follow.userScrolled(offsetY: scrollView.contentOffset.y, maxOffsetY: maxOffsetY, rowHeight: cell.height)
@@ -893,9 +933,23 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // A reader who already scrolled up keeps scrolling normally.
+        dragPinsToComposer = following && model.keyboardVisible && !model.isTUI
         placesFromReport = false
         fling?.stop()
         fling = nil
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard dragPinsToComposer else { return }
+        dragPinsToComposer = false
+        if following { scrollView.setContentOffset(CGPoint(x: 0, y: maxOffsetY), animated: false) }
+    }
+
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+                                   targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        // No fling away from the prompt after a pinned dismissal.
+        if dragPinsToComposer { targetContentOffset.pointee = scrollView.contentOffset }
     }
 
     private func setScrollButton(visible: Bool) {
@@ -936,11 +990,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func keyboardWillShow(_ note: Notification) {
-        setKeyBar(visible: true, note: note)
+        let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
+        let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
+        keyBarRule.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height))
+        applyKeyBarMode()
+        setKeyBar(visible: keyBarRule.softKeyboard == .shown, note: note)
     }
 
     @objc private func keyboardWillHide(_ note: Notification) {
+        keyBarRule.keyboardWillHide()
         setKeyBar(visible: false, note: note)
+    }
+
+    @objc private func keyboardDidHide() {
+        keyBarRule.keyboardDidHide()
+        applyKeyBarMode()
+        keyboardDidChange()
     }
 
     @objc private func keyboardDidChange() {

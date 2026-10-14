@@ -79,3 +79,38 @@ import Testing
         #expect(!end.fadesTrailing)
     }
 }
+
+/// SPEC M4: one key bar rule.
+@Suite struct KeyBarVisibilityTests {
+    @Test func hiddenAtRest() {
+        #expect(KeyBarVisibility().mode == .hidden)
+        var rule = KeyBarVisibility()
+        rule.keyboardWillShow(visibleHeight: 336)
+        #expect(rule.mode == .hidden)
+    }
+
+    @Test func ridesTheSoftKeyboardWhileFocused() {
+        var rule = KeyBarVisibility(inputFocused: true)
+        rule.keyboardWillShow(visibleHeight: 336)
+        #expect(rule.mode == .followsKeyboard)
+        // Interactive dismissal: still clipped to the keyboard until it is gone.
+        rule.keyboardWillHide()
+        #expect(rule.mode == .followsKeyboard)
+        rule.inputFocused = false
+        rule.keyboardDidHide()
+        #expect(rule.mode == .hidden)
+    }
+
+    @Test func pinnedWithAHardwareKeyboard() {
+        var rule = KeyBarVisibility(inputFocused: true)
+        // A hardware keyboard: no soft keyboard, or a 44 pt bar-sized frame.
+        #expect(rule.mode == .pinned)
+        rule.keyboardWillShow(visibleHeight: 44)
+        #expect(rule.mode == .pinned)
+        // The soft keyboard went away but focus stayed (keyboard connected).
+        rule.keyboardWillShow(visibleHeight: 336)
+        rule.keyboardWillHide()
+        rule.keyboardDidHide()
+        #expect(rule.mode == .pinned)
+    }
+}
