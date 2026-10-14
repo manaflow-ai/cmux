@@ -1,6 +1,8 @@
 import AppKit
+@testable import CmuxNextApp
 import CmuxNextBrowser
 @testable import CmuxNextMacScreen
+import CmuxNextSettings
 import CmuxScreenKit
 import Foundation
 import Testing
@@ -92,7 +94,11 @@ struct MacScreenStoreTests {
     @Test func forgetRemovesTheSecret() throws {
         let (store, _, secrets) = makeStore()
         let mac = try store.add(link: link().link.absoluteString).get()
+        var forgotten: [UUID] = []
+        store.onForgotten = { forgotten.append($0) }
         store.forget(mac.id)
+        // Open tabs of the Mac hear it and end their sessions (MacScreenPages).
+        #expect(forgotten == [mac.id])
         #expect(store.macs.isEmpty)
         #expect(secrets.pairing(for: mac.id.uuidString) == nil)
     }
@@ -157,5 +163,18 @@ struct MacScreenScrollTests {
         #expect(scroll.add(dx: 0, dy: 500, precise: true) == (0, 0))
         #expect(scroll.add(dx: 0, dy: 500, precise: true) == (0, 1))
         #expect(scroll.add(dx: 0, dy: 600, precise: true) == (0, 1))
+    }
+}
+
+/// Settings > Development exists only in DEV builds: every route to it (section, focused key)
+/// opens the default page elsewhere.
+struct MacScreenDevelopmentSettingsRouteTests {
+    @Test func developmentRoutesOnlyInDevBuilds() {
+        #expect(SettingsWindowService.route(section: .development, setting: nil, devBuild: true) == "#/settings/development")
+        #expect(SettingsWindowService.route(section: .development, setting: nil, devBuild: false) == nil)
+        #expect(SettingsWindowService.route(section: nil, setting: "macScreen.debug.relayOnly", devBuild: true)
+            == "#/settings/development?focus=macScreen.debug.relayOnly")
+        #expect(SettingsWindowService.route(section: nil, setting: "macScreen.debug.relayOnly", devBuild: false) == nil)
+        #expect(SettingsWindowService.route(section: .advanced, setting: nil, devBuild: false) == "#/settings/advanced")
     }
 }

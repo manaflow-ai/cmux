@@ -115,7 +115,11 @@ public final class MacScreenPane {
             self?.model.displays = sizes
             self?.model.currentDisplay = current
         }
-        view.input.onFocusChange = { [weak self] focused in self?.model.capturesKeyboard = focused }
+        // Only an open screen takes the keyboard (a confirm or missing card does not).
+        view.input.onFocusChange = { [weak self] focused in
+            guard let self else { return }
+            model.capturesKeyboard = focused && model.gate == .open
+        }
         let actions = view.chrome.actions
         actions.connect = { [weak self] in self?.reconnect() }
         actions.disconnect = { [weak self] in self?.disconnectByPerson() }
@@ -218,6 +222,15 @@ public final class MacScreenPane {
         if running, !stoppedByPerson { session.connect() }
     }
     #endif
+
+    /// The Mac was forgotten: the session ends and the tab says it is not paired.
+    public func forgotten() {
+        hideTimer.cancel()
+        session?.close()
+        model.gate = .missing
+        model.capturesKeyboard = false
+        view.input.releaseKeyboard()
+    }
 
     public func focus() {
         guard let window = view.window else { return }

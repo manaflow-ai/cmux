@@ -73,6 +73,12 @@ export function shownCategories(devBuild: boolean): readonly Category[] {
   return devBuild ? categories : categories.filter((category) => !category.devOnly);
 }
 
+/** The category a route shows in this build: a DEV-only one (a deep link, `app settings
+ * --section development`, a focused key) opens the default category outside DEV builds. */
+export function shownSection(section: string, devBuild: boolean): string {
+  return categoryById(section).devOnly && !devBuild ? defaultCategory : section;
+}
+
 /** Where each row lives: its category and group. */
 export const homes: ReadonlyMap<string, { category: string; group: string }> = built.homes;
 

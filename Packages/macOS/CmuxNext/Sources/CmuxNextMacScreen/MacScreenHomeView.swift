@@ -294,7 +294,11 @@ public struct MacScreenHomeView: View {
                 .buttonStyle(.bordered)
             }
         }
-        .onChange(of: link) { copied = false }
+        .onChange(of: link) {
+            // A new link (Reset Link) starts masked: it is never shown without Show.
+            copied = false
+            showLink = false
+        }
         .confirmationDialog(L.t("macScreen.home.resetTitle", "Reset this Mac’s link?"), isPresented: $confirmReset) {
             Button(L.t("macScreen.home.resetConfirm", "Reset Link"), role: .destructive) { host.resetLink() }
         } message: {

@@ -43,6 +43,9 @@ public final class MacScreenPages {
         store.onRenamed = { [weak self] id, name in
             for tab in self?.tabs.allObjects ?? [] where tab.record.macID == id { tab.rename(name) }
         }
+        store.onForgotten = { [weak self] id in
+            for tab in self?.tabs.allObjects ?? [] where tab.record.macID == id { tab.pane?.forgotten() }
+        }
         // Quitting ends every session now, so the other Mac stops showing a viewer at once.
         termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main

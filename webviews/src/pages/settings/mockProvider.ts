@@ -338,6 +338,8 @@ export class MockSettingsProvider {
 
   /** The app's live lists (spaces, machines, browser profiles) as the host serves them. */
   host: HostLists = {
+    // The mock stands in for a DEV build (gallery, tests): the Development category shows.
+    dev_build: true,
     rooms: [
       { id: "default", title: "Default", subtitle: null, active: true },
       { id: "work", title: "Work", subtitle: null, active: false },

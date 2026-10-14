@@ -128,6 +128,8 @@ public final class MacScreenStore {
     @ObservationIgnored public let secrets: any MacScreenSecrets
     /// A saved Mac was renamed (open tabs take the new name).
     @ObservationIgnored public var onRenamed: ((UUID, String) -> Void)?
+    /// A saved Mac was forgotten (its open tabs end their sessions).
+    @ObservationIgnored public var onForgotten: ((UUID) -> Void)?
 
     public init(file: URL, secrets: any MacScreenSecrets) {
         self.file = file
@@ -200,6 +202,7 @@ public final class MacScreenStore {
         macs.removeAll { $0.id == id }
         secrets.remove(id.uuidString)
         save()
+        onForgotten?(id)
     }
 
     public func rename(_ id: UUID, to name: String) {
