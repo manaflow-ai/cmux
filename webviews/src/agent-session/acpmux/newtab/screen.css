@@ -266,6 +266,9 @@
 .nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out),width var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out)}
 .nt-style-option{position:relative;padding:3px 8px;border-radius:5px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default;transition:color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out),background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
 .nt-style-option:hover,.nt-style-option:has(:checked){color:var(--agent-text)}
+/* The radio itself is for keys and VoiceOver only: the pane does not load ui.css's .ui-sr-only, so
+   without this the native circles drew over the switch (#20336 shipped them). */
+.nt-style-option input{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;opacity:0}
 .nt-style-option:has(:focus-visible){outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent));outline-offset:-1px}
 /* Dots (and hint), drawn as before #20127, like the sidebar's space dots: a 24px slot per style, a
    20px chip inset 2px under the pointer, the current style's chip in the accent tint, the dot at 70%,
