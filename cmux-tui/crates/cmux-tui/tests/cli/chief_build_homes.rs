@@ -67,19 +67,30 @@ fn only_nightly_stops_the_brain_on_the_default_chief_home() {
     let user_home = unique_temp_dir("chief-build-homes");
     let lock = user_home.join(".cmux/chief/default/state/host.lock");
     let mut brain = stand_in_brain(&lock);
+    let stop = |brain: &mut Child| {
+        let _ = brain.kill();
+        let _ = brain.wait();
+        let _ = fs::remove_dir_all(&user_home);
+    };
     for other in ["com.cmuxterm.app.nightly.cmux-next", "com.cmuxterm.app.rc", "com.cmuxterm.app"] {
         let output = shutdown_as(other, &user_home);
         let still_running = brain.try_wait().unwrap().is_none();
         if !still_running || !output.status.success() {
-            let _ = brain.kill();
-            let _ = brain.wait();
+            stop(&mut brain);
         }
         assert_success(&output);
         assert!(still_running, "the CLI of {other} stopped NIGHTLY's brain on the default home");
     }
     let output = shutdown_as("com.cmuxterm.app.nightly", &user_home);
-    let status = brain.wait().unwrap();
+    // The CLI returns once the lock is free; the brain has ended by then.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut status = brain.try_wait().unwrap();
+    while status.is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+        status = brain.try_wait().unwrap();
+    }
+    stop(&mut brain);
     assert_success(&output);
-    assert!(!status.success(), "NIGHTLY's own shutdown ends its brain by the signal: {status:?}");
-    let _ = fs::remove_dir_all(&user_home);
+    let status = status.expect("NIGHTLY's own shutdown ends its brain");
+    assert!(!status.success(), "the brain ended by the signal: {status:?}");
 }

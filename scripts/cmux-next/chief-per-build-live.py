@@ -9,9 +9,9 @@ a temp Chief root (CMUX_NEXT_CHIEF_ROOT), never ~/.cmux/chief.
      override) resolves ROOT/default: its brain holds that lock, the memory
      still holds M0 once and Home shows it.
   2. B, a copy of the app with bundle id com.cmuxterm.app.debug.<tag>b (ad-hoc
-     signed, its own tag and sockets), runs at the same time as cmux NEXT's
-     NIGHTLY identity (CMUX_NEXT_CHIEF_BUILD_ID=com.cmuxterm.app.nightly.cmux-next):
-     two NIGHTLY identities never share one Chief, so its home is
+     signed, its own tag and sockets), runs as cmux NEXT's NIGHTLY identity
+     (CMUX_NEXT_CHIEF_BUILD_ID=com.cmuxterm.app.nightly.cmux-next) at the same
+     time as A: two NIGHTLY identities never share one Chief, so its home is
      ROOT/com.cmuxterm.app.nightly.cmux-next, empty (no M0), with its own brain,
      tools socket and acpmux socket.
   3. B quits with quitEndSessions: A's brain is the same process, still alive,

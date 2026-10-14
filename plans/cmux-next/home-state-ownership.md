@@ -24,7 +24,12 @@ write his Chief. Now:
   `~/.cmux/chief/<account>` (`default`), where it is: nothing is moved or copied, so its memory,
   conversation owner session (the session name is the hash of the path) and backup repository stay
   the same. RC and release run no Chief; the `cmux chief` CLI in their terminals resolves their
-  own (empty) home, not NIGHTLY's.
+  own (empty) home, not NIGHTLY's, and starts a Chief there if asked (intended until the
+  per-build isolation slice that gives RC and release no Chief).
+- cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`) used `default` from 2026-10-12 until this
+  change. Its new home starts empty and does not import `default`; that history stays with
+  NIGHTLY. A build's own home has remote memory backup off unless configured (optchat-chief
+  `backup.rs` `is_dev_build_home`: every `com.cmuxterm.app*` home name but NIGHTLY's bundle id).
 - Every other build starts with an empty home and never imports the old per-tag Chiefs (section 7
   runs only for a shared home). Its remote memory backup stays off unless configured.
 - Builds from before this change still resolve `~/.cmux/chief/default`. They do not corrupt

@@ -59,7 +59,7 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// cmux NEXT's `com.cmuxterm.app.nightly.cmux-next`, RC, release) never
     /// share one Chief.
     public static func hasOwnHome(bundleID: String?) -> Bool {
-        guard let bundleID, !bundleID.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        guard let bundleID, !bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         return bundleID != nightlyBundleID
     }
 
