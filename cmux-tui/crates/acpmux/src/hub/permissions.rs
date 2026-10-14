@@ -68,6 +68,13 @@ impl Hub {
                     session.floor.harness_grant.store(false, Ordering::SeqCst);
                     session.floor.unsandboxed.store(false, Ordering::SeqCst);
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    // Its background shells ended with it (`idle.rs`).
+                    session
+                        .stream
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .background_running
+                        .clear();
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
