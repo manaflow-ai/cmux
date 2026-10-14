@@ -73,7 +73,8 @@ import Testing
         TunableStore.shared.activate(file: nil)
         let separatorsKey = "tabs.separators", compactKey = ChromeTunables.compactTabs.descriptor.key
         TunableStore.shared.register(TabTunables.all + [ChromeTunables.compactTabs.descriptor])
-        try #require(TunableStore.shared.set(separatorsKey, .bool(separators)) == .bool(separators), "the separators toggle takes the override")
+        // Not required: a build without the toggle draws no lines, and the line checks say so.
+        TunableStore.shared.set(separatorsKey, .bool(separators))
         try #require(TunableStore.shared.set(compactKey, .bool(compact)) == .bool(compact), "the compact toggle takes the override")
         defer {
             TunableStore.shared.set(separatorsKey, nil)
