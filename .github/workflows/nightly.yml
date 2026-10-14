@@ -4037,11 +4037,11 @@ jobs:
             *) echo "pending run $PENDING_RUN is not this repository's nightly.yml run on nightly-next: $origin" >&2; exit 1 ;;
           esac
           if ! gh run download "$PENDING_RUN" --repo "$GITHUB_REPOSITORY" -n cmux-nightly-identity-pending-bundle -D pending; then
-            # A meta artifact without its bundle can never continue: retire it so
-            # the next run submits anew instead of waiting out the 6-hour limit.
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PENDING_RUN/artifacts?name=cmux-nightly-identity-pending-meta" --jq '.artifacts[].id' \
-              | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
-            echo "pending run $PENDING_RUN has no bundle; its metadata was retired" >&2
+            # A meta artifact whose bundle is confirmed gone can never continue:
+            # retire it so the next run submits anew instead of waiting out the
+            # 6-hour limit. Any API error keeps it.
+            ./scripts/ci/nightly-next-legacy-orphan-meta.sh "$GITHUB_REPOSITORY" "$PENDING_RUN" >&2
+            echo "could not download the bundle of pending run $PENDING_RUN" >&2
             exit 1
           fi
           python3 -I -c 'import json, sys; m = json.load(open(sys.argv[1])); assert str(m["build"]) == sys.argv[2], (m["build"], sys.argv[2]); print("pending submission", m["submission_id"], "of build", m["build"])' pending/pending.json "$NIGHTLY_BUILD"
@@ -4676,6 +4676,65 @@ jobs:
             python3 scripts/ci/upload-r2-object.py --file "$file" --endpoint-url "$R2_ENDPOINT" \
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"
           done
+
+  # The nightly reel (scripts/cmux-next/media/reel.py): each pull request in this
+  # build's signed notes with its tour's "after" clip and a title card, joined
+  # into one video, and a page listing them, on the pr-media branch at
+  # nightly-next/<build>/. Evidence only: no job needs this one, and it never
+  # reports the nightly as failed.
+  publish-nightly-reel:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-release-notes]
+    if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-release-notes.result == 'success'"
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    # contents: write reaches the pr-media branch through scripts/pr-media.py.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-notes
+          path: notes
+      - name: Install ffmpeg
+        timeout-minutes: 6
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v fc-match >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg fontconfig fonts-dejavu-core >/dev/null
+          fi
+      - name: Build and publish the reel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+        run: |
+          set -euo pipefail
+          # The notes this run signed and published, checked against the content key.
+          python3 scripts/cmux-next/media/reel.py --build "$NIGHTLY_BUILD" --notes "notes/$NIGHTLY_BUILD.json" \
+            --out "$RUNNER_TEMP/reel" --publish | tee "$RUNNER_TEMP/reel.log"
+          # The page the reel lists its clips on: raw.githubusercontent.com shows
+          # index.html as text, so the summary carries the list itself.
+          python3 - "$RUNNER_TEMP/reel/reel.json" "$RUNNER_TEMP/reel.log" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1]))
+          urls = [line.strip() for line in open(sys.argv[2]) if line.startswith("https://")]
+          reel = next((url for url in urls if url.endswith("/reel.mp4")), None)
+          print(f"### cmux NEXT nightly reel, build {report['build']}\n")
+          print(f"[Reel (mp4)]({reel})\n" if reel else "No pull request in this build has a tour clip.\n")
+          print("| PR | Title | Clip |\n| --- | --- | --- |")
+          for pr in report["prs"]:
+              title = str(pr.get("title", "")).replace("|", "\\|").replace("\n", " ")
+              clip = pr.get("clip", "")
+              cell = f"[{pr.get('tour') or 'clip'}]({clip})" if clip.startswith("https://") else "no clip"
+              print(f"| #{pr['pr']} | {title} | {cell} |")
+          PY
 
   # A cancelled job (a timeout reports as cancelled) counts as a failure. On
   # nightly-next the signed release notes are part of the publication: a

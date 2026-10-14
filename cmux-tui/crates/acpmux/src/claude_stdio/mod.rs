@@ -329,6 +329,8 @@ struct BackgroundShell {
     command: String,
     task: Option<String>,
     background: bool,
+    /// Its `running` update went out (`inbound.rs` `running`).
+    announced: bool,
 }
 
 #[derive(Debug, Clone)]
