@@ -1498,6 +1498,8 @@ mod last_message;
 #[cfg(unix)]
 #[path = "hub_integration/session_list_order.rs"]
 mod session_list_order;
+#[path = "hub_integration/session_list_pages.rs"]
+mod session_list_pages;
 #[path = "hub_integration/transfer.rs"]
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]
