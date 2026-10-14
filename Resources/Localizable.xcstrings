@@ -652194,6 +652194,267 @@
           }
         }
       }
+    },
+    "account.signIn.copyErrorDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Error Details"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ تفاصيل الخطأ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlerdetails kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar detalles del error"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier les détails de l’erreur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーの詳細をコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 세부 정보 복사"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制错误详细信息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製錯誤詳細資訊"
+          }
+        }
+      }
+    },
+    "account.signIn.errorDetailsCopied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error Details Copied"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم نسخ تفاصيل الخطأ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlerdetails kopiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detalles del error copiados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détails de l’erreur copiés"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーの詳細をコピーしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 세부 정보 복사됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制错误详细信息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已複製錯誤詳細資訊"
+          }
+        }
+      }
+    },
+    "cloud.link.requestTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Cloud machine did not answer the request before its deadline. The connection will be checked before retrying." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Cloud-Maschine hat vor Ablauf der Frist nicht geantwortet. Die Verbindung wird vor dem erneuten Versuch geprüft." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La machine Cloud n’a pas répondu avant la date limite. La connexion sera vérifiée avant une nouvelle tentative." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لم تستجب آلة Cloud قبل الموعد النهائي للطلب. سيتم التحقق من الاتصال قبل إعادة المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La máquina Cloud no respondió antes del plazo. Se comprobará la conexión antes de volver a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Cloud 機器未在期限前回應要求。重試前會檢查連線。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Cloud 机器未在截止时间前响应请求。重试前将检查连接。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Cloud 머신이 기한 내에 요청에 응답하지 않았습니다. 다시 시도하기 전에 연결을 확인합니다." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cloud マシンは期限内に応答しませんでした。再試行する前に接続を確認します。" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Cloud mašina nije odgovorila prije isteka roka. Veza će biti provjerena prije ponovnog pokušaja." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Cloud-maskinen svarede ikke inden tidsfristen. Forbindelsen kontrolleres, før der prøves igen." } },
+        "it": { "stringUnit": { "state": "translated", "value": "La macchina Cloud non ha risposto entro il termine. La connessione verrà controllata prima di riprovare." } },
+        "km": { "stringUnit": { "state": "translated", "value": "ម៉ាស៊ីន Cloud មិនបានឆ្លើយតបមុនពេលកំណត់ទេ។ ការតភ្ជាប់នឹងត្រូវបានពិនិត្យមុនពេលព្យាយាមម្តងទៀត។" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Cloud-maskinen svarte ikke innen tidsfristen. Tilkoblingen blir kontrollert før nytt forsøk." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Maszyna Cloud nie odpowiedziała przed upływem limitu czasu. Połączenie zostanie sprawdzone przed ponowną próbą." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "A máquina Cloud não respondeu antes do prazo. A conexão será verificada antes de tentar novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Облачная машина не ответила до истечения срока. Перед повторной попыткой будет проверено подключение." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เครื่อง Cloud ไม่ตอบสนองก่อนถึงกำหนด จะตรวจสอบการเชื่อมต่อก่อนลองอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Cloud makinesi süre dolmadan isteğe yanıt vermedi. Yeniden denemeden önce bağlantı kontrol edilecek." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Хмарна машина не відповіла до завершення терміну. Перед повторною спробою з’єднання буде перевірено." } }
+      }
+    },
+    "cloud.welcome.note.teamAvailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud can be enabled through your team; machine access follows the team’s plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن تفعيل Cloud عبر فريقك؛ ويعتمد الوصول إلى الأجهزة على خطة الفريق."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud kann über Ihr Team aktiviert werden; der Maschinenzugriff richtet sich nach dem Teamplan."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud se puede activar a través de tu equipo; el acceso a las máquinas depende del plan del equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud peut être activé via votre équipe ; l’accès aux machines dépend du forfait de l’équipe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud はチームを通じて有効にできます。マシンへのアクセスはチームのプランに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀을 통해 Cloud를 활성화할 수 있으며 머신 사용 권한은 팀 요금제에 따라 결정됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可通过您的团队启用 Cloud；机器访问权限取决于团队方案。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 可透過您的團隊啟用；機器存取權限取決於團隊方案。"
+          }
+        }
+      }
+    },
+    "cloud.welcome.note.teamIncluded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Included through your team’s plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مضمّن في خطة فريقك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Teamplan enthalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluido en el plan de tu equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inclus dans le forfait de votre équipe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームのプランに含まれています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 요금제에 포함되어 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已包含在您团队的方案中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已包含在您團隊的方案中。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

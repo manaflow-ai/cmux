@@ -7,6 +7,10 @@ import Foundation
 
 @MainActor
 extension CmuxTuiSurfaceProvider {
+    nonisolated static func shouldShowRecoverableCloudFailure(observation: CloudVMStateObservation) -> Bool {
+        observation.freshness != .current
+    }
+
     /// Creates a native manual-I/O pane and attaches it to the remote PTY.
     ///
     /// The legacy tree lookup is only an identity bridge: public `term_…`
@@ -330,12 +334,25 @@ extension CmuxTuiSurfaceProvider {
         reservation.retry = { [weak self] in
             guard let self else { return }
             self.restoredAttachTasks[panelID]?.cancel()
+            Workspace.liveWorkspace(id: reservation.workspaceID)?.restartReservedCloudTerminalPane(reservation)
             self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
         }
         reservation.cancel = { [weak self] in
             guard let self else { return }
             self.restoredAttachTasks.removeValue(forKey: panelID)?.cancel()
             self.materializedPanels.remove(panelID)
+        }
+        if Self.shouldShowRecoverableCloudFailure(
+            observation: catalog.cloudStateObservations[machine] ?? .stale(reason: "missing")
+        ),
+           let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
+            restoredAttachTasks[panelID] = nil
+            materializedPanels.remove(panelID)
+            workspace.failReservedCloudTerminalPane(
+                reservation,
+                error: CloudDiagnosticFailure.network
+            )
+            return
         }
         restoredAttachTasks[panelID] = Task { @MainActor [weak self] in
             var failures = 0
@@ -395,6 +412,15 @@ extension CmuxTuiSurfaceProvider {
                         self.restoredAttachTasks[panelID] = nil
                         workspace.cancelReservedCloudTerminalPane(panelID: panelID)
                         SurfacePaneFactory.closeExited(panelID: panelID, in: reservation.workspaceID)
+                        return
+                    }
+                    let inventoryIsStale = Self.shouldShowRecoverableCloudFailure(
+                        observation: self.catalog.cloudStateObservations[self.machine] ?? .stale(reason: "missing")
+                    )
+                    if inventoryIsStale {
+                        self.restoredAttachTasks[panelID] = nil
+                        self.materializedPanels.remove(panelID)
+                        workspace.failReservedCloudTerminalPane(reservation, error: error)
                         return
                     }
                     failures += 1

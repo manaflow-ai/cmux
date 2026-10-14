@@ -4286,6 +4286,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configuration: config,
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.onTabBarRenderDiagnostic = { diagnostic in
+            Task { @MainActor in
+                sentryBreadcrumb(
+                    "tabbar.render.window",
+                    category: "performance",
+                    data: [
+                        "elapsedMs": Int((diagnostic.elapsed * 1_000).rounded()),
+                        "renderCount": diagnostic.renderCount,
+                        "tabCount": diagnostic.tabCount,
+                        "paneCount": diagnostic.paneCount
+                    ]
+                )
+            }
+        }
         self.bonsplitController.tabMiddleClickCapture = { onMiddleClick in
             AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
         }
@@ -9187,7 +9201,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        inheritStartupWork: Bool = true
     ) -> TerminalPanel? {
         return newTerminalSplitOutcome(
             from: panelId,
@@ -9201,7 +9216,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            inheritStartupWork: inheritStartupWork
         ).panel
     }
 
@@ -9222,7 +9238,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         allowTextBoxFocusDefault: Bool = true, autoLayout: Bool = false,
-        honorsGhosttySplitInheritance: Bool = false
+        honorsGhosttySplitInheritance: Bool = false,
+        inheritStartupWork: Bool = true
     ) -> TerminalPanelCreationOutcome {
         guard !isRetiredFromOwningTabManager else { return .failed }
         // In a remote tmux mirror workspace a split means "split the mirrored
@@ -9278,7 +9295,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault, autoLayout: autoLayout,
-            honorsGhosttySplitInheritance: honorsGhosttySplitInheritance
+            honorsGhosttySplitInheritance: honorsGhosttySplitInheritance,
+            inheritStartupWork: inheritStartupWork
         ) else { return .failed }
         return .created(panel)
     }
@@ -9296,7 +9314,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         allowTextBoxFocusDefault: Bool, autoLayout: Bool,
-        honorsGhosttySplitInheritance: Bool
+        honorsGhosttySplitInheritance: Bool,
+        inheritStartupWork: Bool
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -9319,6 +9338,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         guard let paneId = sourcePaneId else { return nil }
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        if !inheritStartupWork {
+            inheritedConfig = inheritedConfig?.withoutStartupWork()
+        }
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
@@ -9519,7 +9541,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        inheritStartupWork: Bool = true
     ) -> TerminalPanel? {
         return newTerminalSurfaceOutcome(
             inPane: paneId,
@@ -9540,7 +9563,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            inheritStartupWork: inheritStartupWork
         ).panel
     }
 
@@ -9566,7 +9590,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        inheritStartupWork: Bool = true
     ) -> TerminalPanelCreationOutcome {
         guard !isRetiredFromOwningTabManager else { return .failed }
         // In a remote tmux mirror, a new tab means "create a tmux window"; never
@@ -9633,7 +9658,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            inheritStartupWork: inheritStartupWork
         ) else { return .failed }
         return .created(panel)
     }
@@ -9657,7 +9683,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        inheritStartupWork: Bool
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -9670,6 +9697,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var inheritedConfig = terminalFontSizeCreationPolicy.applying(
             to: inheritedTerminalConfig(inPane: paneId)
         )
+        if !inheritStartupWork {
+            inheritedConfig = inheritedConfig?.withoutStartupWork()
+        }
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()

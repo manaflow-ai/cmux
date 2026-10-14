@@ -244,6 +244,10 @@ struct ClaudeHookSessionRecord: Codable {
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    /// True after a top-level prompt has ended and remains set through later
+    /// helper notifications until the next accepted UserPromptSubmit.
+    /// Optional so records written by older builds continue to decode.
+    var turnSettled: Bool? = nil
     /// The hook event that most recently established the persisted lifecycle.
     /// Optional so records written by older builds continue to decode.
     var hookEventName: String? = nil
@@ -1176,6 +1180,11 @@ final class ClaudeHookSessionStore {
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                 return (staleTerminalTurn: true, nested: false)
             }
+            // UserPromptSubmit is the lifecycle boundary that starts a new
+            // parent turn. Clear the settled-turn fence while holding the
+            // store lock so a concurrent helper PreToolUse cannot reopen the
+            // old turn between the prompt and its running update.
+            record.turnSettled = false
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1285,6 +1294,7 @@ final class ClaudeHookSessionStore {
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
             let settlesTurn = depthAfterStop == 0
+            record.turnSettled = settlesTurn
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1413,6 +1423,7 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
+        turnSettled: Bool? = nil,
         hookEventName: String? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
@@ -1472,6 +1483,7 @@ final class ClaudeHookSessionStore {
                 launchCommand: launchCommand,
                 isRestorable: isRestorable,
                 agentLifecycle: agentLifecycle,
+                turnSettled: turnSettled,
                 hookEventName: hookEventName,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
@@ -2028,6 +2040,7 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord?,
         isRestorable: Bool?,
         agentLifecycle: AgentHibernationLifecycleState?,
+        turnSettled: Bool? = nil,
         hookEventName: String? = nil,
         lastSubtitle: String?,
         lastBody: String?,
@@ -2123,6 +2136,9 @@ final class ClaudeHookSessionStore {
         }
         if let agentLifecycle {
             record.agentLifecycle = agentLifecycle
+        }
+        if let turnSettled {
+            record.turnSettled = turnSettled
         }
         if let hookEventName = normalizeOptional(hookEventName) {
             record.hookEventName = hookEventName
@@ -31324,6 +31340,7 @@ struct CMUXCLI {
                         sessionId: acceptedSessionId,
                         cwd: hookCwd,
                         launchCommand: launchCommand,
+                        transcriptPath: hookTranscriptPath,
                         observedPermissionMode: observedHookPermissionMode
                     )
                 }
@@ -31526,6 +31543,7 @@ struct CMUXCLI {
                         // hibernatable .idle state so the planner cannot SIGTERM
                         // a live task (mirrors the antigravity fullyIdle flip).
                         agentLifecycle: stopFailure != nil ? .needsInput : (hasUnsettledWork ? .backgroundWorkPending : .idle),
+                        turnSettled: true,
                         hookEventName: reportedHookEventName(from: parsedInput) ?? "Stop",
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
@@ -31542,6 +31560,7 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         cwd: hookCwd ?? mappedSession?.cwd,
                         launchCommand: mappedSession?.launchCommand,
+                        transcriptPath: hookTranscriptPath,
                         observedPermissionMode: observedHookPermissionMode
                             ?? mappedSession?.lastPermissionMode
                     )
@@ -31740,6 +31759,7 @@ struct CMUXCLI {
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
+                    turnSettled: false,
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
                     updateLastSummary: true,
                     markActive: true,
@@ -31754,6 +31774,7 @@ struct CMUXCLI {
                     sessionId: sessionId,
                     cwd: hookCwd ?? mappedSession?.cwd,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
+                    transcriptPath: hookTranscriptPath,
                     observedPermissionMode: observedHookPermissionMode
                         ?? mappedSession?.lastPermissionMode
                 )
@@ -32305,6 +32326,17 @@ struct CMUXCLI {
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            // A helper can invoke PreToolUse after the parent turn's Stop hook.
+            // That event belongs to the completed turn, so it must not reopen
+            // the parent session as Running. A new parent turn always passes
+            // through UserPromptSubmit first, which replaces this settled
+            // lifecycle and clears the guard.
+            let parentTurnAlreadyEnded = mappedSession?.turnSettled == true
+            guard !parentTurnAlreadyEnded else {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.after-stop")
+                printClaudeHookAck()
+                return
+            }
             let claudePid = localClaudePID(mapped: mappedSession)
             // One ancestry walk per hook event, shared by the suppression gate
             // and the notify payload's subagent tag.
@@ -35832,7 +35864,8 @@ struct CMUXCLI {
         let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: kind,
             runtimeCwd: cwd,
-            launchWorkingDirectory: launchCommand?.workingDirectory
+            launchWorkingDirectory: launchCommand?.workingDirectory,
+            transcriptPath: transcriptPath
         )
         guard let command = agentSurfaceResumeCommand(
             kind: kind,

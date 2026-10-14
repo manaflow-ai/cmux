@@ -21,6 +21,7 @@ type ReadStatsOptions = {
   readonly resourceOutput?: unknown;
 };
 
+/** Run the stats workflow with a controlled provider and optional guest sample. */
 async function readStats(
   state: string,
   sample: Record<string, unknown> | undefined,
@@ -188,6 +189,7 @@ describe("Freestyle live machine stats", () => {
   test.each([undefined, { ...gauges, receivedAt: 0, providerVmId: "vm-stats" },
     { ...gauges, receivedAt: Date.now(), providerVmId: "replaced-vm" }])("missing, stale, and replaced-VM samples remain unavailable", async (sample) => {
     const { result } = await readStats("running", sample);
+    expect(result.state).toBe("unknown");
     expect(result.cpuPercent).toBeUndefined();
     expect(result.diskTotalMb).toBe(16384);
   });
