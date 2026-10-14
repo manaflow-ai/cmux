@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import Observation
 import SwiftUI
 
 /// A folder choice in the edit bubble and editor sheets: indented by depth.
@@ -46,12 +47,20 @@ public final class BookmarkEditBubble: NSObject {
     private let onSave: (Result) -> Void
     private let onRemove: () -> Void
     private let onMore: () -> Void
+    /// The page's title now (observable): a new bookmark made before the page had a title takes
+    /// it when it arrives, unless the name was edited.
+    private let pageTitle: (() -> String?)?
+    /// The name the bubble filled in last (from the page); a different name is the user's.
+    private var filledTitle: String
     /// The open bubble, so a second press on the star closes it.
     public private(set) static var current: BookmarkEditBubble?
 
     public init(isNew: Bool, title: String, folder: String, folders: [BookmarkFolderChoice],
+                pageTitle: (() -> String?)? = nil,
                 onSave: @escaping (Result) -> Void, onRemove: @escaping () -> Void, onMore: @escaping () -> Void) {
         model = BookmarkEditModel(isNew: isNew, title: title, folder: folder, folders: folders)
+        self.pageTitle = isNew ? pageTitle : nil
+        filledTitle = title
         self.onSave = onSave
         self.onRemove = onRemove
         self.onMore = onMore
@@ -90,7 +99,20 @@ public final class BookmarkEditBubble: NSObject {
         if popup.show(size: CGSize(width: ceil(size.width), height: ceil(size.height)), anchor: rect, in: window,
                       preferred: .below, trailing: true, makeKey: true) != nil {
             BookmarkEditBubble.current = self
+            followPageTitle()
         }
+    }
+
+    /// While the bubble shows, a page title that arrives (or changes) becomes the name, unless the
+    /// user edited the name. The star saves the bookmark at once, often before the page has a title.
+    private func followPageTitle() {
+        guard let pageTitle, popup.isShown, !finished else { return }
+        let title = withObservationTracking { pageTitle() } onChange: { [weak self] in
+            Task { @MainActor in self?.followPageTitle() }
+        }
+        guard let title, !title.isEmpty, title != filledTitle, model.title == filledTitle else { return }
+        filledTitle = title
+        model.title = title
     }
 
     public func close() {
