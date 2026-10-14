@@ -9,7 +9,8 @@ use serde_json::{Value, json};
 
 use super::ParsedResourceRequest;
 use super::auxiliary::resolve_session;
-use crate::process_inventory::{MAX_INVENTORY_PROCESSES, scan};
+use crate::process_inventory::{MAX_INVENTORY_PROCESSES, ProcessInventory, scan};
+use crate::process_resources::Sampler;
 use crate::resource::{ResourceError, WireDecimal};
 use crate::runtime_inventory::{CmuxTerminal, Runtime, classify};
 use crate::{Mux, SurfaceKind};
@@ -33,14 +34,38 @@ pub(super) fn list_runtimes(
             })
             .collect::<Vec<_>>()
     });
+    let processes = scan(MAX_INVENTORY_PROCESSES);
+    let terminals = cmux_started(&processes, terminals);
     let home = std::env::var("HOME").ok();
-    let inventory = classify(&scan(MAX_INVENTORY_PROCESSES), &terminals, home.as_deref());
+    let inventory = classify(&processes, &terminals, home.as_deref());
     Ok(json!({
         "session_id": session_id.as_str(),
         "complete": inventory.complete,
         "scanned_processes": inventory.scanned_processes,
         "runtimes": inventory.runtimes.into_iter().map(runtime_json).collect::<Vec<_>>(),
     }))
+}
+
+/// The terminals whose child is still the process cmux started: its parent
+/// is this daemon (an in-daemon PTY) or runs this daemon's executable (a
+/// terminal host). A surface's pid outlives its child until the exit is
+/// noticed; a reused pid has some other parent, and its tree must not be
+/// attributed to the terminal. An adopted child whose parent cannot be
+/// shown is left out, so the error is a missing attribution, never a false
+/// one.
+fn cmux_started(processes: &ProcessInventory, terminals: Vec<CmuxTerminal>) -> Vec<CmuxTerminal> {
+    let sampler = Sampler::new();
+    let own = std::process::id();
+    terminals
+        .into_iter()
+        .filter(|terminal| {
+            processes.processes.iter().find(|process| process.pid == terminal.pid).is_some_and(
+                |child| {
+                    child.ppid == own || (child.ppid > 1 && sampler.runs_own_executable(child.ppid))
+                },
+            )
+        })
+        .collect()
 }
 
 fn runtime_json(runtime: Runtime) -> Value {

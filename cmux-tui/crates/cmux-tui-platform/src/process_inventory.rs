@@ -131,6 +131,7 @@ pub fn procargs2_args(data: &[u8]) -> Option<Vec<&[u8]>> {
 }
 
 /// The basename of an executable path.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
@@ -173,7 +174,10 @@ pub fn scan(limit: usize) -> ProcessInventory {
 mod imp {
     use std::os::unix::fs::MetadataExt;
 
-    use super::{InventoryProcess, basename, bounded_args, parse_linux_stat, split_cmdline};
+    use super::{
+        InventoryProcess, MAX_ARG_BYTES, MAX_ARGS, basename, bounded_args, parse_linux_stat,
+        split_cmdline,
+    };
 
     pub(super) enum Read {
         Process(InventoryProcess),
@@ -237,8 +241,21 @@ mod imp {
                 let text = link.to_string_lossy();
                 text.strip_suffix(" (deleted)").unwrap_or(&text).to_string()
             });
-            let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+            // Read only what the bound can keep (each argument ends in NUL).
+            let mut cmdline = Vec::new();
+            if let Ok(file) = std::fs::File::open(format!("/proc/{pid}/cmdline")) {
+                use std::io::Read as _;
+                let limit = u64::try_from(MAX_ARG_BYTES + MAX_ARGS + 1).unwrap_or(u64::MAX);
+                let _ = file.take(limit).read_to_end(&mut cmdline);
+            }
+            // A cut read ends inside an argument: drop that piece.
+            let cut = cmdline.len() == MAX_ARG_BYTES + MAX_ARGS + 1 && cmdline.last() != Some(&0);
+            if cut {
+                let end = cmdline.iter().rposition(|byte| *byte == 0).map_or(0, |end| end + 1);
+                cmdline.truncate(end);
+            }
             let (args, args_truncated) = bounded_args(split_cmdline(&cmdline));
+            let args_truncated = args_truncated || cut;
             let name = exe
                 .as_deref()
                 .map(basename)

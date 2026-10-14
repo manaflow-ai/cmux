@@ -12,20 +12,27 @@ const MAX_WORD: usize = 24;
 /// Most leading bare words kept as a subcommand path (`mcp serve`).
 const MAX_SUBCOMMAND_WORDS: usize = 2;
 
-/// Arguments with every value removed: argv[0] becomes its basename, a flag
-/// keeps its name (`--model=x` becomes `--model=<redacted>`), the leading
-/// subcommand words (`app-server`, `mcp serve`) stay, and anything else
-/// becomes `<redacted>`. A word after a flag or past the subcommand can be a
-/// flag value or part of a prompt, so it is removed.
+/// The subcommands the vendor adapters read. Any other bare word may be a
+/// prompt (`claude hello`), so it is removed.
+const SUBCOMMANDS: &[&str] =
+    &["app-server", "mcp-server", "mcp", "serve", "pid-update-loop", "exec", "e", "run", "acp"];
+
+/// Arguments with every value removed: argv[0] becomes its basename when
+/// that looks like a program name (a process can rewrite argv[0] into any
+/// text), a long flag keeps its name (`--model=x` becomes
+/// `--model=<redacted>`), a short flag stays only as one letter (`-p`; `-pX`
+/// may hold a value), the adapters' leading subcommands (`app-server`,
+/// `mcp serve`) stay, and anything else becomes `<redacted>`.
 pub fn redact_args(args: &[String]) -> Vec<String> {
     let mut redacted = Vec::with_capacity(args.len());
     let mut args = args.iter();
     if let Some(program) = args.next() {
-        redacted.push(program.rsplit('/').next().unwrap_or(program).to_string());
+        let name = program.rsplit('/').next().unwrap_or(program);
+        redacted.push(if is_program_name(name) { name.to_string() } else { REDACTED.to_string() });
     }
     let mut subcommand = true;
     for (index, arg) in args.enumerate() {
-        subcommand &= index < MAX_SUBCOMMAND_WORDS && is_word(arg);
+        subcommand &= index < MAX_SUBCOMMAND_WORDS && SUBCOMMANDS.contains(&arg.as_str());
         redacted.push(if arg.starts_with('-') {
             match arg.split_once('=') {
                 Some((flag, _)) if is_flag_name(flag) => format!("{flag}={REDACTED}"),
@@ -54,15 +61,17 @@ pub fn redact_path(path: &str, home: Option<&str>) -> String {
     }
 }
 
-fn is_flag_name(flag: &str) -> bool {
-    let name = flag.trim_start_matches('-');
+fn is_program_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= MAX_WORD
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
-fn is_word(arg: &str) -> bool {
-    arg.len() <= MAX_WORD
-        && arg.starts_with(|c: char| c.is_ascii_lowercase())
-        && arg.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+/// `--name` of any word length, or `-x` of one letter.
+fn is_flag_name(flag: &str) -> bool {
+    let (dashes, name) = flag.split_at(flag.len() - flag.trim_start_matches('-').len());
+    let valid = !name.is_empty()
+        && name.len() <= MAX_WORD
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    valid && (dashes == "--" || (dashes == "-" && name.len() == 1))
 }

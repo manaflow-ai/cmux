@@ -226,3 +226,21 @@ fn home_paths_lose_the_user_name() {
     assert_eq!(redact_path("/Users/adam/x", Some("/Users/ada")), "/Users/adam/x");
     assert_eq!(redact_path("/opt/x", None), "/opt/x");
 }
+
+#[test]
+fn rewritten_titles_short_flag_values_and_prompt_words_are_removed() {
+    let owned = |args: &[&str]| args.iter().map(|arg| (*arg).to_string()).collect::<Vec<_>>();
+    // A process that rewrote argv[0] into one string with a secret in it.
+    assert_eq!(redact_args(&owned(&["codex --api-key sk-secret"])), ["<redacted>"]);
+    // A short flag with its value attached.
+    assert_eq!(
+        redact_args(&owned(&["java", "-Xsecret", "-p", "-ckey=v"])),
+        ["java", "<redacted>", "-p", "<redacted>",]
+    );
+    // A one-word prompt is not a subcommand.
+    assert_eq!(redact_args(&owned(&["claude", "hello"])), ["claude", "<redacted>"]);
+    assert_eq!(
+        redact_args(&owned(&["opencode", "run", "deploy"])),
+        ["opencode", "run", "<redacted>",]
+    );
+}

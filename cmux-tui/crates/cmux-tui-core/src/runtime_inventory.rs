@@ -10,8 +10,7 @@
 //! - **verified**: the process descends from a live cmux terminal's child
 //!   through a chain of parents, each started before its child.
 //! - **probable**: the process was reparented out of that chain but is still
-//!   in the session of a live cmux terminal whose leader is the same process
-//!   generation that cmux started.
+//!   in the session a live cmux terminal's child leads.
 //! - **unattributed**: anything else. A shared controlling terminal is never
 //!   evidence on its own (#11004).
 //!
@@ -36,7 +35,9 @@ pub use vendor::{Role, Vendor, recognize};
 /// Clock granularity allowed between a parent's and a child's start times.
 const START_SLACK_MS: u64 = 1_000;
 
-/// A live cmux terminal: the PTY child cmux started for it.
+/// A live cmux terminal: the PTY child cmux started for it. The caller
+/// passes only a child it has shown is still that process (its parent is
+/// the daemon or a terminal host), so a reused pid is never a terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CmuxTerminal {
     /// The terminal's public resource id.
@@ -211,8 +212,8 @@ fn tree_owners<'t>(
 }
 
 /// A reparented process still in the session a live cmux terminal leads.
-/// The leader must be the terminal's child itself, alive and started
-/// before the process, so a reused session id never matches.
+/// The leader must be the terminal's child itself (see [`CmuxTerminal`]),
+/// alive and started before the process.
 fn session_owner(
     process: &InventoryProcess,
     terminals: &[CmuxTerminal],
