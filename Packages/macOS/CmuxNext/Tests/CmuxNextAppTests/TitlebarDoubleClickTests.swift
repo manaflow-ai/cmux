@@ -20,7 +20,11 @@ import Testing
         window.contentView = root
         let visible = screen.visibleFrame
         window.setFrame(NSRect(x: visible.minX + 40, y: visible.minY + 40, width: 900, height: 600), display: false)
+        // On screen (the app stays inactive): AppKit delivers a press only to a visible window's
+        // views, and the double zoom came from that delivery.
+        window.orderFrontRegardless()
         root.layoutSubtreeIfNeeded()
+        try #require(window.isVisible)
         return (window, root)
     }
 
