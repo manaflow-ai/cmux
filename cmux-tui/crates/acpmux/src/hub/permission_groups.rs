@@ -178,8 +178,9 @@ impl PermissionState {
 /// One agent `session/request_permission` on its way from the session's
 /// inbound loop, which reads the agent's requests in order, to its group.
 /// Dropped once the request joined a group or was decided without one.
-/// A burst the agent sent at once is counted before the first of it
-/// opens a group, so that group's timer waits for the rest (cx-nx5mb).
+/// A group's timer waits for every request counted when it fires, so a
+/// burst the inbound loop read together is shown together however late
+/// its request tasks run (cx-nx5mb).
 pub(super) struct AskInFlight(Arc<Session>);
 
 impl AskInFlight {

@@ -23,8 +23,11 @@ impl Hub {
                     let s = session.clone();
                     let epoch = session.permission_epoch.load(Ordering::SeqCst);
                     let turn_id = session.turn().map(|t| t.turn_id);
-                    // Counted here, in the agent's order, before any of
-                    // these request tasks runs (`AskInFlight`).
+                    // Counted here, in the agent's order, as this loop
+                    // reads it: a group's timer waits for every request
+                    // read so far (`AskInFlight`). One this loop has not
+                    // read within the group's 100 ms still forms a group
+                    // of its own.
                     let ask = (m == method::SESSION_REQUEST_PERMISSION)
                         .then(|| super::permission_groups::AskInFlight::new(&session));
                     tokio::spawn(async move {
