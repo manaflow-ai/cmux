@@ -1,0 +1,307 @@
+//! Streamed browser tabs (cnx-ios/verify/browser-stream.md): the phone side
+//! of the `browser` link service. The Mac's browser host speaks `cmux.rb/1`
+//! on `cmux.rd/1` over the rd stream carrier, spliced through the channel.
+//! This runs the shared rd viewer core (`cmux-rd-ffi`: reassembly, NACK and
+//! loss feedback, clock probes, exactly-once input) on the library runtime
+//! and hands Swift whole access units to decode with VideoToolbox.
+
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
+
+use cmux_rd_ffi::{Carrier, InputChannel, Session};
+use cmux_rd_proto::{InputEvent, STREAM_CONTROL, flags};
+use cnx_link::ChannelEvent;
+use cnx_link::link::{ChannelReceiver, ChannelSender};
+use serde_json::Value;
+use tokio::sync::mpsc;
+
+use crate::CnxError;
+
+/// How long a frame may wait for missing shards, and when to NACK one.
+const FRAME_DEADLINE_US: u64 = 500_000;
+const NACK_AFTER_US: u64 = 50_000;
+/// When an unacknowledged input event is sent again.
+const INPUT_RESEND_US: u64 = 50_000;
+
+/// One complete video frame.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct BrowserFrame {
+    /// 0 = the page; popups have their own streams.
+    pub stream: u16,
+    pub frame: u32,
+    pub keyframe: bool,
+    /// H.264 Annex-B access unit (SPS and PPS before each IDR).
+    pub access_unit: Vec<u8>,
+    /// The host's capture time (host monotonic microseconds).
+    pub capture_us: u64,
+    /// When the frame was complete, on this library's clock (`now_us`).
+    pub received_us: u64,
+    /// How long ago the host captured it, measured when it was complete:
+    /// network, reassembly and host encode. `None` until the clock probes
+    /// have an estimate.
+    pub age_us: Option<i64>,
+}
+
+/// Counters for the overlay and the logs.
+#[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
+pub struct BrowserStats {
+    pub frames: u64,
+    pub keyframes: u64,
+    pub bytes: u64,
+    pub frames_lost: u64,
+    /// `host = viewer + offset`, and the best probe's round trip.
+    pub clock_offset_us: Option<i64>,
+    pub clock_rtt_us: Option<u32>,
+}
+
+/// Receives a browser stream's frames and messages on a library thread.
+/// Implementations should hand off quickly (a decode queue).
+#[uniffi::export(with_foreign)]
+pub trait BrowserObserver: Send + Sync {
+    fn on_frame(&self, frame: BrowserFrame);
+    /// An rb message from the host (the `body` of an rd `service` message,
+    /// `t` starts with `rb.`), or an rd control message (`welcome`,
+    /// `started`, `refused`, `ended`).
+    fn on_message(&self, json: String);
+    fn on_closed(&self, code: String, reason: String);
+}
+
+enum Command {
+    Control(Value),
+    Input { event: Vec<u8>, must_deliver: bool },
+    Keyframe,
+    Decoded(u32),
+    Close,
+}
+
+/// One open browser tab stream.
+#[derive(uniffi::Object)]
+pub struct BrowserStream {
+    commands: mpsc::UnboundedSender<Command>,
+    stats: Arc<Mutex<BrowserStats>>,
+    epoch: Instant,
+}
+
+#[uniffi::export]
+impl BrowserStream {
+    /// Sends an rb control message (`rb.open`, `rb.screen`, `rb.navigate`,
+    /// `rb.history`, `rb.visibility`, ...), a JSON object with `t`.
+    pub fn send_message(&self, json: String) -> Result<(), CnxError> {
+        let body: Value = serde_json::from_str(&json)
+            .map_err(|e| CnxError::InvalidArgument { message: format!("message: {e}") })?;
+        if !body.get("t").and_then(Value::as_str).is_some_and(|t| t.starts_with("rb.")) {
+            return Err(CnxError::InvalidArgument { message: "message needs an rb. t".into() });
+        }
+        self.commands.send(Command::Control(body)).map_err(|_| closed())
+    }
+
+    /// Sends an rb input event (`{"e":"pointer",...}`, `wheel`, `key`,
+    /// `ime_commit`, ...). `must_deliver` events are repeated until the host
+    /// acknowledges them (presses and releases); moves need not be.
+    pub fn send_input(&self, json: String, must_deliver: bool) -> Result<(), CnxError> {
+        if json.len() > cmux_rd_proto::MAX_SERVICE_BYTES {
+            return Err(CnxError::InvalidArgument { message: "input event too large".into() });
+        }
+        let _: Value = serde_json::from_str(&json)
+            .map_err(|e| CnxError::InvalidArgument { message: format!("input: {e}") })?;
+        self.commands.send(Command::Input { event: json.into_bytes(), must_deliver }).map_err(|_| closed())
+    }
+
+    /// Asks the host for a keyframe (the decoder lost its state).
+    pub fn request_keyframe(&self) {
+        let _ = self.commands.send(Command::Keyframe);
+    }
+
+    /// Reports how long the last frame took to decode (feeds the host's rate control).
+    pub fn note_decode(&self, decode_us: u32) {
+        let _ = self.commands.send(Command::Decoded(decode_us));
+    }
+
+    pub fn stats(&self) -> BrowserStats {
+        self.stats.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Microseconds on the clock `BrowserFrame.received_us` uses.
+    pub fn now_us(&self) -> u64 {
+        u64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(u64::MAX)
+    }
+
+    pub fn close(&self) {
+        let _ = self.commands.send(Command::Close);
+    }
+}
+
+impl Drop for BrowserStream {
+    fn drop(&mut self) {
+        let _ = self.commands.send(Command::Close);
+    }
+}
+
+fn closed() -> CnxError {
+    CnxError::Closed { message: "the browser stream is closed".into() }
+}
+
+/// Starts the viewer loop on an open `browser` channel.
+pub(crate) fn start(
+    sender: Arc<ChannelSender>,
+    receiver: ChannelReceiver,
+    observer: Arc<dyn BrowserObserver>,
+) -> Arc<BrowserStream> {
+    let (commands, rx) = mpsc::unbounded_channel();
+    let stats = Arc::new(Mutex::new(BrowserStats::default()));
+    let epoch = Instant::now();
+    let viewer = Viewer {
+        session: Session::new(Carrier::Stream, FRAME_DEADLINE_US, NACK_AFTER_US),
+        input: InputChannel::new(Carrier::Stream, INPUT_RESEND_US),
+        input_granted: false,
+        observer,
+        stats: Arc::clone(&stats),
+        epoch,
+    };
+    tokio::spawn(viewer.run(sender, receiver, rx));
+    Arc::new(BrowserStream { commands, stats, epoch })
+}
+
+struct Viewer {
+    session: Session,
+    input: InputChannel,
+    input_granted: bool,
+    observer: Arc<dyn BrowserObserver>,
+    stats: Arc<Mutex<BrowserStats>>,
+    epoch: Instant,
+}
+
+impl Viewer {
+    fn now(&self) -> u64 {
+        u64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(u64::MAX)
+    }
+
+    async fn run(
+        mut self,
+        sender: Arc<ChannelSender>,
+        mut receiver: ChannelReceiver,
+        mut commands: mpsc::UnboundedReceiver<Command>,
+    ) {
+        // Clock probes (host = viewer + offset) give each frame its age; the
+        // engine answers them whatever caps the welcome lists.
+        self.session.enable_clock();
+        let (code, reason) = loop {
+            let deadline = self.deadline();
+            let sleep =
+                tokio::time::sleep(std::time::Duration::from_micros(deadline.saturating_sub(self.now())));
+            let mut out = Vec::new();
+            tokio::select! {
+                event = receiver.recv() => match event {
+                    Some(ChannelEvent::Data(bytes)) => {
+                        let now = self.now();
+                        if self.session.push_stream(&bytes, now).is_err() {
+                            break ("bad_stream".to_owned(), "the host sent an invalid rd stream".to_owned());
+                        }
+                    }
+                    Some(ChannelEvent::Closed(info)) => break (info.code, info.reason),
+                    None => break ("link_closed".to_owned(), String::new()),
+                },
+                command = commands.recv() => match command {
+                    Some(Command::Control(body)) => {
+                        let control = serde_json::json!({"t": "service", "service": "rb/1", "body": body});
+                        let _ = cmux_rd_proto::encode_stream_frame(
+                            STREAM_CONTROL, &serde_json::to_vec(&control).unwrap_or_default(), &mut out);
+                    }
+                    Some(Command::Input { event, must_deliver }) => {
+                        if self.input_granted {
+                            self.input.push(InputEvent::Service { must_deliver, bytes: event });
+                        }
+                    }
+                    Some(Command::Keyframe) => {
+                        let _ = self.session.request_keyframe(0);
+                    }
+                    Some(Command::Decoded(us)) => {
+                        let _ = self.session.note_decode(0, us);
+                    }
+                    Some(Command::Close) | None => {
+                        let _ = sender.close("eof", "closed by the app").await;
+                        break ("eof".to_owned(), "closed by the app".to_owned());
+                    }
+                },
+                () = sleep => {}
+            }
+            let now = self.now();
+            self.session.tick(now);
+            self.drain(now);
+            while let Some(bytes) = self.session.feedback(now) {
+                out.extend(bytes);
+            }
+            while let Some(bytes) = self.input.packet(now) {
+                out.extend(bytes);
+            }
+            if !out.is_empty() && sender.send(out.into()).await.is_err() {
+                break ("link_closed".to_owned(), String::new());
+            }
+        };
+        self.observer.on_closed(code, reason);
+    }
+
+    fn deadline(&self) -> u64 {
+        let session = self.session.next_deadline_us();
+        let input = self.input.next_deadline_us().unwrap_or(u64::MAX);
+        // At least every 100 ms (clock probes, stats).
+        session.min(input).min(self.now() + 100_000)
+    }
+
+    fn drain(&mut self, now: u64) {
+        while let Some(message) = self.session.pop_message() {
+            if message.kind != STREAM_CONTROL {
+                let _ = self.input.on_ack(&message.bytes);
+                continue;
+            }
+            let Ok(control) = serde_json::from_slice::<Value>(&message.bytes) else { continue };
+            let body = match control.get("t").and_then(Value::as_str) {
+                Some("service") => control.get("body").cloned().unwrap_or(Value::Null),
+                Some("welcome") => {
+                    self.input_granted = control
+                        .get("caps")
+                        .and_then(Value::as_array)
+                        .is_some_and(|caps| caps.iter().any(|c| c == "input.service"));
+                    control
+                }
+                _ => control,
+            };
+            if body.get("t").and_then(Value::as_str) == Some("rb.surface.show")
+                && let Some(stream) =
+                    body.get("stream").and_then(Value::as_u64).and_then(|s| u16::try_from(s).ok())
+            {
+                let _ = self.session.open_stream(stream);
+            }
+            self.observer.on_message(body.to_string());
+        }
+        let clock = self.session.clock();
+        while let Some((stream, complete)) = self.session.pop_frame() {
+            let keyframe = complete.flags & flags::KEYFRAME != 0;
+            let capture_us = complete.body.t_capture_us;
+            let age_us = clock.map(|c| {
+                let host_now = i128::from(now) + i128::from(c.offset_us);
+                i64::try_from(host_now - i128::from(capture_us)).unwrap_or(i64::MAX)
+            });
+            {
+                let mut stats = self.stats.lock().unwrap_or_else(PoisonError::into_inner);
+                stats.frames += 1;
+                stats.keyframes += u64::from(keyframe);
+                stats.bytes += complete.body.access_unit.len() as u64;
+                stats.clock_offset_us = clock.map(|c| c.offset_us);
+                stats.clock_rtt_us = clock.map(|c| c.rtt_us);
+                if let Ok(s) = self.session.stats(stream) {
+                    stats.frames_lost = s.frames_lost;
+                }
+            }
+            self.observer.on_frame(BrowserFrame {
+                stream,
+                frame: complete.frame,
+                keyframe,
+                access_unit: complete.body.access_unit,
+                capture_us,
+                received_us: now,
+                age_us,
+            });
+        }
+    }
+}

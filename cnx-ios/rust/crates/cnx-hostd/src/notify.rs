@@ -42,7 +42,8 @@ const SEEN_LIMIT: usize = 512;
 /// A printable label of at most `max` characters.
 pub fn label(text: &str, max: usize) -> String {
     let hidden = |c: char| {
-        c.is_control() || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+        c.is_control()
+            || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
     };
     let cleaned: String = text.chars().map(|c| if hidden(c) { ' ' } else { c }).collect();
     cleaned.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(max).collect()
@@ -90,10 +91,7 @@ pub fn is_question(request: &Value) -> bool {
     let tool_call = request.get("toolCall").unwrap_or(&Value::Null);
     tool_call.pointer("/_meta/acpmux/question").is_some()
         || tool_call.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("AskUserQuestion")
-        || tool_call
-            .pointer("/rawInput/questions")
-            .and_then(Value::as_array)
-            .is_some_and(|q| !q.is_empty())
+        || tool_call.pointer("/rawInput/questions").and_then(Value::as_array).is_some_and(|q| !q.is_empty())
 }
 
 impl Classifier {
@@ -130,7 +128,8 @@ impl Classifier {
                 if !self.first_time(&id) {
                     return None;
                 }
-                let kind = if params.get("request").is_some_and(is_question) { "question" } else { "permission" };
+                let kind =
+                    if params.get("request").is_some_and(is_question) { "question" } else { "permission" };
                 Some(self.event(id, kind, session_id))
             }
             "_acpmux/session_changed" => {
@@ -288,7 +287,10 @@ mod tests {
         let done = c
             .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","seq":9,"session":{"sessionId":"s1","harness":"claude-code","cwd":"/x/repo","lastTurn":{"turnId":"t9","status":"completed"},"preview":"secret output"}}}))
             .unwrap();
-        assert_eq!((done.kind.as_str(), done.event_id.as_str(), done.place.as_deref()), ("completed", "t-s1-t9", Some("repo")));
+        assert_eq!(
+            (done.kind.as_str(), done.event_id.as_str(), done.place.as_deref()),
+            ("completed", "t-s1-t9", Some("repo"))
+        );
         assert!(!serde_json::to_string(&done).unwrap().contains("secret output"));
         let failed = c
             .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{"sessionId":"s1","lastTurn":{"turnId":"t10","status":"failed"}}}}))

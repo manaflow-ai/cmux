@@ -1,4 +1,6 @@
 #if os(iOS)
+import AudioToolbox
+import CnxDesign
 import SwiftUI
 
 /// A key of the key bar (SPEC 10.2).
@@ -104,6 +106,7 @@ struct KeyCap: View {
     let key: KeyBarKey
     let model: TerminalModel
     @State private var taps = 0
+    @AppStorage(CnxPreferences.Key.keyClicks) private var keyClicks = CnxPreferences.defaultKeyClicks
 
     private var stickyState: TerminalStickyModifiers.State? {
         switch key {
@@ -119,6 +122,7 @@ struct KeyCap: View {
         let armed = if case .armed = state { true } else { false }
         Button {
             taps += 1
+            if keyClicks { KeyClick.play() }
             model.keyBar(key)
         } label: {
             Text(key.label)
@@ -131,6 +135,17 @@ struct KeyCap: View {
         .accessibilityLabel(key.accessibilityLabel)
         .accessibilityValue(locked ? "Locked" : armed ? "On for the next key" : "")
     }
+}
+
+/// The system keyboard's click (Settings → Terminal → Key clicks). The key
+/// bar is not the keyboard's input view, so `UIDevice.playInputClick` stays
+/// silent for it; this plays the same system sound, which follows the
+/// ring/silent switch.
+enum KeyClick {
+    /// `Tock`, the keyboard key click.
+    private static let sound: SystemSoundID = 1104
+
+    static func play() { AudioServicesPlaySystemSound(sound) }
 }
 
 struct KeyCapStyle: ButtonStyle {

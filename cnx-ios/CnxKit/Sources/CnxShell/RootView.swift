@@ -211,7 +211,10 @@ public struct RootView: View {
         live = nil
         setupPlan = nil
         store.resetForSignOut()
-        if !auth.isMock { DeviceIdentity.reset() }
+        if !auth.isMock {
+            DeviceIdentity.reset()
+            LiveCoordinator.forgetSnapshots()
+        }
         setupComplete = false
         handoffDone = false
         log.info("signed out: account state reset")
@@ -446,7 +449,8 @@ struct ShellTabs: View {
                     path: $shell.settingsPath,
                     scrollRequest: shell.settingsScrollTarget,
                     directory: shell.deviceDirectory,
-                    inviteToTeam: { shell.invite(to: $0) }
+                    inviteToTeam: { shell.invite(to: $0) },
+                    saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }

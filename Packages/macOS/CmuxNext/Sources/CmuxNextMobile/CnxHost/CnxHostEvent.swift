@@ -23,6 +23,11 @@ public enum CnxHostEvent: Sendable, Equatable {
     case pairRequest(CnxPairRequest)
     /// A paired phone signed out and asks this Mac to forget it.
     case unpaired(phoneDeviceID: String)
+    /// A phone opened a streamed browser tab: start a browser host for `tab`
+    /// on `url` and answer `request` (``CnxHostLaunch/browserLine(request:port:secret:)``).
+    case needBrowser(request: UInt64, tab: String, url: String)
+    /// hostd no longer needs the browser host of `tab`.
+    case browserStop(tab: String)
 
     /// Parses one stdout line; nil for anything that is not a known event.
     public init?(line: some StringProtocol) {
@@ -58,6 +63,12 @@ public enum CnxHostEvent: Sendable, Equatable {
         case "unpaired":
             guard let phone = wire.phoneDeviceId else { return nil }
             self = .unpaired(phoneDeviceID: phone)
+        case "need_browser":
+            guard let request = wire.request, let tab = wire.tab else { return nil }
+            self = .needBrowser(request: request, tab: tab, url: wire.url ?? "about:blank")
+        case "browser_stop":
+            guard let tab = wire.tab else { return nil }
+            self = .browserStop(tab: tab)
         default:
             return nil
         }
@@ -77,5 +88,8 @@ public enum CnxHostEvent: Sendable, Equatable {
         var name: String?
         var identityKey: String?
         var approvalKey: String?
+        var request: UInt64?
+        var tab: String?
+        var url: String?
     }
 }

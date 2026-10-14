@@ -916,7 +916,8 @@ let package = Package(
             name: "CmuxNextMobileHost",
             dependencies: [
                 "CmuxNextAgentPane", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService",
-                "CmuxNextDesign", "CmuxNextMobile", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups",
+                "CmuxNextDesign", "CmuxNextMobile", "CmuxNextPages", "CmuxNextRemoteBrowser", "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [
                 .process("Resources"),

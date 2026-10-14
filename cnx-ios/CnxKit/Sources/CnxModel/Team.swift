@@ -90,7 +90,7 @@ public struct TeamAppearance: Hashable, Sendable, Codable {
 }
 
 /// A Mac registered to a team.
-public struct MacDevice: Identifiable, Hashable, Sendable {
+public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     public let id: String
     public var name: String
     public var isOnline: Bool

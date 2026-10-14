@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -42,6 +42,7 @@ struct DemoDriver {
         case "workspaces-reopen": await workspacesReopen()
         case "chief": await chief()
         case "chief-parity": await chiefParity()
+        case "chief-settings": await chiefSettings()
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
             shell.tab = .home
@@ -533,6 +534,28 @@ struct DemoDriver {
     /// conversation over the already-connected shared store, which used to
     /// leave the header empty); the send-time drawer through its own pan
     /// steps, held, then released; a photo send; the Photos drawer; back.
+    /// Chief's settings in place of contact details (verify/chief-mac-parity.md):
+    /// opens Chief, its settings from the header, and flips Hide Alerts and
+    /// Send Read Receipts on and off the way a tap changes them.
+    private func chiefSettings() async {
+        let hook = ChiefDemoHook.shared
+        let session = ChiefSession.shared
+        shell.tab = .home
+        await pause(1.5)
+        shell.homePath.append(ChiefRoute())
+        await pause(2.0)
+        mark("header taken over: \(hook.headerTakenOver)")
+        hook.openSettings()
+        await pause(1.5)
+        for (label, change) in [("hide alerts on", { session.setMuted(true) }), ("hide alerts off", { session.setMuted(false) }),
+                                ("receipts off", { session.setSendsReadReceipts(false) }), ("receipts on", { session.setSendsReadReceipts(true) })] {
+            mark(label)
+            withAnimation { change() }
+            await pause(1.5)
+        }
+        mark("end")
+    }
+
     private func chiefParity() async {
         let hook = ChiefDemoHook.shared
         let open: (HomeConversationRoute) -> Void = { route in

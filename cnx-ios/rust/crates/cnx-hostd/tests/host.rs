@@ -17,6 +17,9 @@ use cnx_link::{
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+#[path = "support/fake_rb_host.rs"]
+mod fake_rb_host;
+
 struct Fixture {
     _server: FakeSignaling,
     _dirs: Vec<tempfile::TempDir>,
@@ -28,6 +31,8 @@ struct Fixture {
     mac_id: String,
     root: std::path::PathBuf,
     outside: std::path::PathBuf,
+    uploads: std::path::PathBuf,
+    browser_launches: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 fn options() -> DialOptions {
@@ -45,9 +50,49 @@ fn fake_daemon(dir: &std::path::Path) {
                 let mut lines = BufReader::new(read).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-                    let answer =
-                        serde_json::json!({"id": request["id"], "ok": true, "data": {"cmd": request["cmd"]}});
+                    let answer = serde_json::json!({"id": request["id"], "ok": true,
+                        "data": {"cmd": request["cmd"], "host": request["agent_session"]["host"]}});
                     write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                }
+            });
+        }
+    });
+}
+
+/// A stand-in Chief owner: lists the Chief, an owner-and-agents chat and a
+/// chat with a paired install; `subscribe` replies, then sends an event for
+/// each and a terminal event.
+fn fake_chief(dir: &std::path::Path) {
+    let listener = tokio::net::UnixListener::bind(dir.join("chief.sock")).unwrap();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = BufReader::new(read).lines();
+                let human = serde_json::json!({"id": "user_local", "kind": "human", "display_name": "A"});
+                let chief = serde_json::json!({"id": "agent_mux", "kind": "agent", "display_name": "Chief"});
+                let remote = serde_json::json!({"id": "remote_ab", "kind": "human", "display_name": "P"});
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    let mut out = Vec::new();
+                    match request["cmd"].as_str() {
+                        Some("conversation-list") => out.push(serde_json::json!({"id": request["id"], "ok": true, "data": {"conversations": [
+                            {"id": "conv_CHIEF", "participants": [human, chief]},
+                            {"id": "conv_REMOTE", "participants": [human, remote]},
+                        ]}})),
+                        Some("subscribe") => {
+                            out.push(serde_json::json!({"id": request["id"], "ok": true, "data": {}}));
+                            for conversation in ["conv_REMOTE", "conv_CHIEF"] {
+                                out.push(serde_json::json!({"event": "conversation-typing", "conversation": conversation,
+                                    "participant": "agent_mux", "on": true}));
+                            }
+                            out.push(serde_json::json!({"event": "terminal-registry-changed"}));
+                        }
+                        _ => out.push(serde_json::json!({"id": request["id"], "ok": true, "data": {"cmd": request["cmd"]}})),
+                    }
+                    for answer in out {
+                        write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                    }
                 }
             });
         }
@@ -93,16 +138,27 @@ async fn fixture_with(fake: FakeOptions, pairing: bool) -> Fixture {
     let sockets = tempfile::tempdir().unwrap();
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
+    let uploads = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("notes.md"), "# hello\n").unwrap();
     std::fs::write(outside.path().join("secret"), "nope").unwrap();
     fake_daemon(sockets.path());
+    fake_chief(sockets.path());
+    let browser_launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let services = ServiceConfig {
+        chief_socket: Some(sockets.path().join("chief.sock")),
         tui_socket_dir: sockets.path().to_path_buf(),
         default_session: "main".into(),
         default_socket: None,
         file_roots: vec![root.path().to_path_buf()],
         acpmux: AcpmuxTarget::Fixed { url: fake_acpmux().await, token: Some("acp-token".into()) },
         pairing: None,
+        agent_tab_host: Some("install:mac-test".into()),
+        uploads_dir: uploads.path().to_path_buf(),
+        upload_max_bytes: 1024 * 1024,
+        browser: cnx_hostd::browser::BrowserConfig::new(
+            Some(fake_rb_host::launcher(Arc::clone(&browser_launches))),
+            4,
+        ),
     };
     let mut services = services;
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -142,7 +198,9 @@ async fn fixture_with(fake: FakeOptions, pairing: bool) -> Fixture {
         mac_id,
         root: root.path().to_path_buf(),
         outside: outside.path().to_path_buf(),
-        _dirs: vec![sockets, root, outside],
+        uploads: uploads.path().to_path_buf(),
+        browser_launches,
+        _dirs: vec![sockets, root, outside, uploads],
     }
 }
 
@@ -175,6 +233,43 @@ async fn next_line(channel: &mut Channel, buffer: &mut Vec<u8>) -> serde_json::V
     }
 }
 
+/// Reads rd stream-carrier frames off a channel.
+#[derive(Default)]
+struct RdReader(cmux_rd_proto::StreamDeframer);
+
+impl RdReader {
+    async fn next(&mut self, channel: &mut Channel) -> (u8, Vec<u8>) {
+        loop {
+            if let Some(frame) = self.0.next_frame().unwrap() {
+                return frame;
+            }
+            match tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("in time") {
+                Some(ChannelEvent::Data(data)) => self.0.extend(&data),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+    }
+
+    /// The next control message, skipping datagrams.
+    async fn control(&mut self, channel: &mut Channel) -> serde_json::Value {
+        loop {
+            let (kind, payload) = self.next(channel).await;
+            if kind == cmux_rd_proto::STREAM_CONTROL {
+                return serde_json::from_slice(&payload).unwrap();
+            }
+        }
+    }
+
+    async fn datagram(&mut self, channel: &mut Channel) -> Vec<u8> {
+        loop {
+            let (kind, payload) = self.next(channel).await;
+            if kind == cmux_rd_proto::STREAM_DATAGRAM {
+                return payload;
+            }
+        }
+    }
+}
+
 async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     let connected = connect(fixture, kind).await.expect("dial");
     let link = &connected.link;
@@ -183,6 +278,14 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     let mut echo = link.open("echo", serde_json::json!({})).await.unwrap();
     echo.send(Bytes::from_static(b"ping")).await.unwrap();
     assert_eq!(echo.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"ping"))));
+
+    // version: what the Mac runs, so a phone can tell an outdated Mac.
+    let mut version = link.open("version", serde_json::json!({})).await.unwrap();
+    let (bytes, code) = drain(&mut version).await;
+    assert_eq!(code, "eof");
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["link"], 2);
+    assert!(value["hostd"].is_string());
 
     // daemon: allowed lines reach the socket, denied ones are answered locally,
     // and responses stay whole lines in order.
@@ -207,6 +310,46 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     let mut bad_session = link.open("daemon", serde_json::json!({"session": "../etc"})).await.unwrap();
     assert_eq!(drain(&mut bad_session).await.1, "bad_request");
 
+    // daemon never reaches the Chief owner's session.
+    for session in ["cmux-chief-c39c6f72", "CMUX-CHIEF-c39c6f72", "chief"] {
+        let mut owner = link.open("daemon", serde_json::json!({"session": session})).await.unwrap();
+        assert_eq!(drain(&mut owner).await.1, "bad_request", "{session}");
+    }
+
+    // chief: scoped to the owner's agent conversations, both ways.
+    let mut chief = link.open("chief", serde_json::json!({})).await.unwrap();
+    chief
+        .send(Bytes::from_static(
+            b"{\"id\":\"c1\",\"cmd\":\"conversation-list\"}\n{\"id\":\"c2\",\"cmd\":\"conversation-snapshot\",\"conversation\":\"conv_REMOTE\",\"tail\":1}\n",
+        ))
+        .await
+        .unwrap();
+    let mut chief_buffer = Vec::new();
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+        seen.push(next_line(&mut chief, &mut chief_buffer).await);
+    }
+    let list = seen.iter().find(|v| v["id"] == "c1").expect("list reply");
+    assert_eq!(list["data"]["conversations"].as_array().unwrap().len(), 1);
+    assert_eq!(list["data"]["conversations"][0]["id"], "conv_CHIEF");
+    let refused = seen.iter().find(|v| v["id"] == "c2").expect("refusal");
+    assert_eq!(refused["error_code"], "forbidden");
+    chief
+        .send(Bytes::from_static(
+            b"{\"id\":\"c3\",\"cmd\":\"conversation-snapshot\",\"conversation\":\"conv_CHIEF\",\"tail\":1}\n{\"id\":\"c4\",\"cmd\":\"subscribe\"}\n{\"id\":\"c5\",\"cmd\":\"conversation-agent-token\",\"participant\":\"agent_mux\"}\n",
+        ))
+        .await
+        .unwrap();
+    let mut rest = Vec::new();
+    for _ in 0..4 {
+        rest.push(next_line(&mut chief, &mut chief_buffer).await);
+    }
+    assert_eq!(rest.iter().find(|v| v["id"] == "c3").unwrap()["data"]["cmd"], "conversation-snapshot");
+    assert_eq!(rest.iter().find(|v| v["id"] == "c5").unwrap()["error_code"], "forbidden");
+    let events: Vec<_> = rest.iter().filter(|v| v.get("event").is_some()).collect();
+    assert_eq!(events.len(), 1, "{rest:?}");
+    assert_eq!(events[0]["conversation"], "conv_CHIEF");
+
     // file
     let mut file = link
         .open("file", serde_json::json!({"path": fixture.root.join("notes.md").to_str().unwrap()}))
@@ -229,6 +372,108 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
         }
         other => panic!("unexpected {other:?}"),
     }
+
+    // acpmux: a message the link splits (over 256 KiB) arrives whole.
+    let big = format!(
+        r#"{{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{{"data":"{}"}}}}"#,
+        "a".repeat(600_000)
+    );
+    acp.send(Bytes::from(big.clone())).await.unwrap();
+    let mut echoed = Vec::new();
+    while serde_json::from_slice::<serde_json::Value>(&echoed).is_err() {
+        match tokio::time::timeout(Duration::from_secs(10), acp.recv()).await.expect("in time") {
+            Some(ChannelEvent::Data(data)) => echoed.extend_from_slice(&data),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    let echoed: serde_json::Value = serde_json::from_slice(&echoed).unwrap();
+    assert_eq!(echoed["echo"]["params"]["data"].as_str().map(str::len), Some(600_000));
+
+    // daemon: a phone's agent tab gets this Mac's host.
+    daemon
+        .send(Bytes::from_static(
+            b"{\"id\":9,\"cmd\":\"new-conversation-tab\",\"pane\":1,\"agent_session\":{\"harness\":\"claude\"}}\n",
+        ))
+        .await
+        .unwrap();
+    let answer = next_line(&mut daemon, &mut buffer).await;
+    assert_eq!(answer["data"]["host"], "install:mac-test");
+
+    // upload: the bytes land in a new file, the reply names it.
+    let mut upload =
+        link.open("upload", serde_json::json!({"name": "../photo.jpg", "size": 5})).await.unwrap();
+    upload.send(Bytes::from_static(b"he")).await.unwrap();
+    upload.send(Bytes::from_static(b"llo")).await.unwrap();
+    let (reply, code) = drain(&mut upload).await;
+    assert_eq!(code, "eof");
+    let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
+    assert!(path.starts_with(&fixture.uploads), "{path:?}");
+    assert_eq!(path.file_name().unwrap(), "photo.jpg");
+    assert_eq!(std::fs::read(&path).unwrap(), b"hello");
+    // Into a workspace folder: next to acpmux's attachments.
+    let mut upload = link
+        .open(
+            "upload",
+            serde_json::json!({"name": "notes.txt", "size": 2, "cwd": fixture.root.to_str().unwrap()}),
+        )
+        .await
+        .unwrap();
+    upload.send(Bytes::from_static(b"hi")).await.unwrap();
+    let (reply, code) = drain(&mut upload).await;
+    assert_eq!(code, "eof");
+    let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
+    let root = std::fs::canonicalize(&fixture.root).unwrap();
+    assert!(path.starts_with(root.join(".cmux/attachments")), "{path:?}");
+    // A folder that is no tab's and outside the roots, or too large: refused.
+    let mut outside = link
+        .open("upload", serde_json::json!({"name": "x", "size": 1, "cwd": fixture.outside.to_str().unwrap()}))
+        .await
+        .unwrap();
+    assert_eq!(drain(&mut outside).await.1, "forbidden");
+    let mut large =
+        link.open("upload", serde_json::json!({"name": "x", "size": 2 * 1024 * 1024})).await.unwrap();
+    assert_eq!(drain(&mut large).await.1, "too_large");
+    // browser: hostd sends the hello, the phone reads the host's carrier.
+    let tab = format!("s{}", kind as u8);
+    let mut first =
+        link.open("browser", serde_json::json!({"tab": tab, "url": "https://example.com/"})).await.unwrap();
+    let mut rd = RdReader::default();
+    assert_eq!(rd.control(&mut first).await["t"], "welcome");
+    assert_eq!(rd.control(&mut first).await["t"], "started");
+    assert_eq!(rd.control(&mut first).await["body"]["t"], "rb.opened");
+    assert_eq!(rd.control(&mut first).await["body"]["url"], "https://example.com/");
+    // Video shards flow.
+    rd.datagram(&mut first).await;
+    // A file: address never reaches the host; a web one does.
+    let mut out = Vec::new();
+    for url in ["file:///etc/passwd", "https://example.org/"] {
+        let body =
+            serde_json::json!({"t": "service", "service": "rb/1", "body": {"t": "rb.navigate", "url": url}});
+        cmux_rd_proto::encode_stream_frame(
+            cmux_rd_proto::STREAM_CONTROL,
+            &serde_json::to_vec(&body).unwrap(),
+            &mut out,
+        )
+        .unwrap();
+    }
+    first.send(Bytes::from(out)).await.unwrap();
+    assert_eq!(rd.control(&mut first).await["body"]["url"], "https://example.org/");
+    // A second viewer of the same tab takes the host over, and the page stays.
+    let mut second = link.open("browser", serde_json::json!({"tab": tab})).await.unwrap();
+    let mut rd2 = RdReader::default();
+    assert_eq!(rd2.control(&mut second).await["t"], "welcome");
+    rd2.control(&mut second).await;
+    rd2.control(&mut second).await;
+    assert_eq!(rd2.control(&mut second).await["body"]["url"], "https://example.org/");
+    assert_eq!(drain(&mut first).await.1, "replaced");
+    assert_eq!(fixture.browser_launches.load(std::sync::atomic::Ordering::SeqCst), 1);
+    second.close("eof", "").await;
+    let mut refused = link.open("browser", serde_json::json!({"tab": "x", "url": "file:///"})).await.unwrap();
+    assert_eq!(drain(&mut refused).await.1, "forbidden");
+    let mut bad_tab = link.open("browser", serde_json::json!({"tab": "../x"})).await.unwrap();
+    assert_eq!(drain(&mut bad_tab).await.1, "bad_request");
 
     // default deny
     let mut shell = link.open("shell", serde_json::json!({})).await.unwrap();
@@ -430,5 +675,74 @@ async fn a_phone_the_user_refused_is_closed_denied() {
     assert_eq!(drain(&mut again).await.1, "denied");
     assert!(fixture.events.as_ref().unwrap().lock().await.try_recv().is_err());
     let mut daemon = connected.link.open("daemon", serde_json::json!({})).await.unwrap();
+    assert_eq!(drain(&mut daemon).await.1, "unpaired");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn channels_opened_after_auth_wait_for_it() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let link = &connected.link;
+    // The phone opens auth and, without waiting, its other channels.
+    let mut channel = link
+        .open(
+            "auth",
+            serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                               "name": "Test iPhone", "action": "pair"}),
+        )
+        .await
+        .unwrap();
+    let mut echo = link.open("echo", serde_json::json!({})).await.unwrap();
+    echo.send(Bytes::from_static(b"early")).await.unwrap();
+    let challenge = json_frame(channel.recv().await);
+    let message = challenge_message(
+        &fixture.mac_id,
+        &fixture.phone_id,
+        challenge["challenge"].as_str().unwrap(),
+        &keys.identity_hex,
+        &keys.approval_hex,
+        "pair",
+    );
+    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    let _ = fixture.events.as_ref().unwrap().lock().await.recv().await;
+    fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
+        devices: vec![TrustedDevice {
+            id: fixture.phone_id.clone(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: keys.approval_hex.clone(),
+        }],
+        denied: vec![],
+    }));
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+    // The echo opened before approval is served once the phone is paired.
+    assert_eq!(echo.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"early"))));
+
+    // On a link whose auth is refused, a channel opened behind it is refused too.
+    let other = connect(&fixture, TransportKind::WebRtc).await.expect("dial");
+    let mut forged = other
+        .link
+        .open(
+            "auth",
+            serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                               "name": "Test iPhone", "action": "pair"}),
+        )
+        .await
+        .unwrap();
+    let mut daemon = other.link.open("daemon", serde_json::json!({})).await.unwrap();
+    let challenge = json_frame(forged.recv().await);
+    let message = challenge_message(
+        &fixture.mac_id,
+        &fixture.phone_id,
+        challenge["challenge"].as_str().unwrap(),
+        &keys.identity_hex,
+        &keys.approval_hex,
+        "pair",
+    );
+    let signature = hex(p256().sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    forged.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    assert_eq!(drain(&mut forged).await.1, "unpaired");
     assert_eq!(drain(&mut daemon).await.1, "unpaired");
 }

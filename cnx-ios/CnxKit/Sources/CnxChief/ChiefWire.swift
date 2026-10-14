@@ -97,12 +97,32 @@ struct ChiefWire {
             unsentAt: retracted,
             reactions: reactions,
             attachments: retracted == nil ? parts.compactMap { attachment($0, bytes: ($0["hash"] as? String).flatMap { bytes[$0] }) } : [],
-            delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil
+            delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil,
+            mentions: retracted == nil ? mentions(parts: parts) : []
         )
     }
 
     func textParts(_ text: String) -> [[String: Any]] {
         [["type": "text", "text": text]]
+    }
+
+    /// A text part; each mention is a run naming its participant, as the
+    /// Mac's Home sends them (`HomeMentions.runs`, UTF-16 offsets).
+    func textPart(_ text: String, mentions: [ConversationMention]) -> [String: Any] {
+        var part: [String: Any] = ["type": "text", "text": text]
+        let runs = mentions.map { ["start": $0.location, "length": $0.length, "mention": $0.participantID] as [String: Any] }
+        if !runs.isEmpty { part["runs"] = runs }
+        return part
+    }
+
+    /// The mention runs of a message's first text part, as the model's mentions.
+    func mentions(parts: [[String: Any]]) -> [ConversationMention] {
+        guard let first = parts.first(where: { $0["type"] as? String == "text" }) else { return [] }
+        return (first["runs"] as? [[String: Any]] ?? []).compactMap { run in
+            guard let who = run["mention"] as? String, let start = (run["start"] as? NSNumber)?.intValue,
+                  let length = (run["length"] as? NSNumber)?.intValue else { return nil }
+            return ConversationMention(participantID: who, location: start, length: length)
+        }
     }
 
     // MARK: Conversations
@@ -126,6 +146,16 @@ struct ChiefWire {
     func isChief(_ summary: [String: Any]) -> Bool {
         let ids = (summary["participants"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
         return ids.contains(identity.chiefID) && ids.contains(identity.meID)
+    }
+
+    /// The conversation the Mac's Home shows as Chief (`HomeChiefName.select`):
+    /// the oldest one with Chief in it, by `created_at` then id.
+    func chiefConversation(in summaries: [[String: Any]]) -> String? {
+        summaries.filter(isChief)
+            .min { a, b in
+                let (ac, bc) = (a["created_at"] as? String ?? "", b["created_at"] as? String ?? "")
+                return ac != bc ? ac < bc : (a["id"] as? String ?? "") < (b["id"] as? String ?? "")
+            }?["id"] as? String
     }
 
     func readCursor(_ summary: [String: Any], of participant: String) -> Int {

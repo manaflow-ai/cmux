@@ -53,10 +53,16 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case status(AgentSessionSummary.Status)
     /// A call the source made for the person failed (refused allow, trust gate, link down).
     case clientError(String)
+    /// A prompt that never reached the agent (an attachment upload failed, the
+    /// link was down): the composer gets the draft back with the reason.
+    case promptNotSent(text: String, attachments: [AgentAttachment], reason: String)
     /// `_meta.acpmux.subagents`: a subagent started or changed state.
     case subagent(AgentSubagentChange)
     /// An update from a subagent's own session (`_meta.acpmux.subagent`).
     case subagentUpdate(subagentID: String, ACPSessionUpdate)
+    /// Several records applied as one change (a replayed history), so no
+    /// half-replayed state (a past turn still "Working") is ever on screen.
+    case batch([AgentSessionEvent])
 }
 
 /// A person's action in the chat, encoded by the source into acpmux calls:
@@ -113,6 +119,9 @@ public protocol AgentSessionSource: AnyObject {
     // ACP parity (web UI acpmux/checkpoints and acpmux/handoff). Sources
     // without a feature throw `AgentFeatureUnavailable` with the reason.
 
+    /// Whether `checkpoints()` and `restore(_:)` work for this session. The
+    /// chat shows Checkpoints only when they do.
+    var supportsCheckpoints: Bool { get }
     /// Repository checkpoints around this session's turns, newest first.
     func checkpoints() async throws -> [AgentCheckpoint]
     /// Restores the working tree to `checkpoint`; returns a one-line summary.
@@ -129,6 +138,10 @@ public protocol AgentSessionSource: AnyObject {
 }
 
 extension AgentSessionSource {
+    /// Off unless a source lists and restores checkpoints itself (the phone
+    /// link does not carry them yet).
+    public var supportsCheckpoints: Bool { false }
+
     public func checkpoints() async throws -> [AgentCheckpoint] {
         throw AgentFeatureUnavailable("This session has no checkpoints.")
     }

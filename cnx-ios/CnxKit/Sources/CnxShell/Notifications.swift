@@ -1,6 +1,7 @@
 #if os(iOS)
 import CnxAgentChat
 import CnxLive
+import CnxModel
 import CnxSettings
 import Foundation
 import Observation
@@ -55,7 +56,7 @@ public final class CnxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifi
         UNUserNotificationCenter.current().delegate = self
         Task {
             let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            if [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
+            if BuildCapabilities.current.push, [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
         }
         return true
     }
@@ -123,13 +124,47 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
     }
 
     func remove(_ device: SettingsDevice) async throws {
-        guard let live else { return }
-        for id in device.ids { try await live.removeDevice(id: id) }
+        guard let live else { throw NotSignedIn() }
+        do {
+            for id in device.ids { try await live.removeDevice(id: id) }
+        } catch {
+            throw LiveAPI.removalMessage(for: error)
+        }
     }
 
     func deleteAccountData() async throws {
         guard let live else { throw NotSignedIn() }
         try await live.deleteAccountData()
     }
+}
+#endif
+
+#if DEBUG && os(iOS)
+/// DEBUG mock mode only (Settings → Developer → Mock data): Settings →
+/// Paired Macs over the sample store, so the removal UI can be exercised
+/// and captured without a signed-in Mac. Compiled out of Production.
+@MainActor
+final class MockDeviceDirectory: SettingsDeviceDirectory {
+    private let store: AppStore
+
+    init(store: AppStore) {
+        self.store = store
+    }
+
+    var relayAvailable: Bool? { nil }
+
+    func devices() async throws -> [SettingsDevice] {
+        store.teams.flatMap(\.macs).reduce(into: [SettingsDevice]()) { out, mac in
+            guard !out.contains(where: { $0.id == mac.id }) else { return }
+            out.append(SettingsDevice(ids: [mac.id], kind: .mac, name: mac.name, online: mac.isOnline, lastSeenAt: mac.lastSeenAt,
+                                      isThisDevice: false, receivesNotifications: false))
+        }
+    }
+
+    func remove(_ device: SettingsDevice) async throws {
+        for id in device.ids { store.forgetMac(id) }
+    }
+
+    func deleteAccountData() async throws {}
 }
 #endif

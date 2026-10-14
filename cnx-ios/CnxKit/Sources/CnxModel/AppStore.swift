@@ -21,6 +21,13 @@ public final class AppStore {
     /// Live link status per Mac id ("Connected · WireGuard relay · 27 ms"),
     /// shown in the Workspaces Mac section header. Empty in mock mode.
     public var macLinkStatus: [String: String] = [:]
+    /// Live mode: where each Mac's workspaces came from (cached, live, ...).
+    /// Empty states read this, never `workspaces` alone (`macDataPhase`).
+    public var macData: [String: MacDataMachine] = [:]
+    /// Live mode: this phone's connection to each Mac it dials.
+    public var macConnection: [String: MacConnection] = [:]
+    /// True once live data drives the store (false in mock mode).
+    public var tracksMacData = false
     /// How many Macs the signed-in account has in any team or its personal
     /// space (`GET /v1/me/macs`); nil until discovery first answers, and in
     /// mock mode. Zero means the Mac, if any, is signed in to another account.
@@ -139,12 +146,24 @@ public final class AppStore {
         return workspaces.filter { macIDs.contains($0.macID) }
     }
 
-    /// The tab a workspace opens to: the last one used on this device, else its first tab.
+    /// The tab a workspace opens to: the last one used on this device, else
+    /// the tab on screen on the Mac, else its first tab.
     public func openingTab(for workspace: Workspace) -> WorkspaceTab? {
         if let id = lastTabByWorkspace[workspace.id], let tab = workspace.tabs.first(where: { $0.id == id }) {
             return tab
         }
+        if let id = workspace.activeTabID, let tab = workspace.tabs.first(where: { $0.id == id }) {
+            return tab
+        }
         return workspace.tabs.first
+    }
+
+    /// When this device last opened each workspace (this session): "Done"
+    /// stays cleared until the workspace has newer activity.
+    public private(set) var seenAt: [String: Date] = [:]
+
+    public func markSeen(_ workspaceID: String, at date: Date = Date()) {
+        seenAt[resolvedWorkspaceID(workspaceID)] = date
     }
 
     /// Records the tab on screen in a workspace (every activation).
@@ -245,6 +264,14 @@ public final class AppStore {
         guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
         workspaces[index].tabs.append(tab)
         workspaces[index].lastActivityAt = Date()
+    }
+
+    /// Puts back a tab whose close the Mac refused, at its old position.
+    public func insertTab(_ tab: WorkspaceTab, at position: Int, in workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              !workspaces[index].tabs.contains(where: { $0.id == tab.id }) else { return }
+        workspaces[index].tabs.insert(tab, at: min(position, workspaces[index].tabs.count))
     }
 
     /// Removes a tab. Returns the tab that should be on screen next when the

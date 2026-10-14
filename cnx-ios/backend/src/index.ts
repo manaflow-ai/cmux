@@ -5,6 +5,7 @@ import { sendTeamInvite, userTeams } from "./stack.ts"
 import { apnsConfig, apnsTopics, clean, sendApns } from "./push.ts"
 import { openStore, PUSH_KINDS, type Device, type PushKind, type Store } from "./store.ts"
 import type { Attachment } from "./team-hub.ts"
+import { Timing, timingFor } from "./timing.ts"
 
 export { TeamHub } from "./team-hub.ts"
 
@@ -92,7 +93,7 @@ export const locationHintFor = (cf: { continent?: unknown; longitude?: unknown; 
 }
 
 /** The caller's identity plus where a hub created by this request should live. */
-type Ctx = Caller & { readonly hint?: DurableObjectLocationHint }
+type Ctx = Caller & { readonly hint?: DurableObjectLocationHint; readonly t: Timing }
 const hub = (env: Env, caller: Ctx, teamId: string) =>
   env.TEAM_HUB.get(env.TEAM_HUB.idFromName(scoped(env, caller, teamId)), caller.hint ? { locationHint: caller.hint } : undefined)
 /**
@@ -115,7 +116,7 @@ const requireMember = async (env: Env, teamId: string, caller: Ctx) => {
   }
   let ok: boolean
   try {
-    ok = await hub(env, caller, teamId).isMember(teamId, caller)
+    ok = await caller.t.span("member", hub(env, caller, teamId).isMember(teamId, { userId: caller.userId, projectId: caller.projectId, token: caller.token }))
   } catch (e) {
     console.log(JSON.stringify({ msg: "membership check failed", error: String(e) }))
     throw new HttpError(502, "membership_unavailable", "could not check team membership")
@@ -124,9 +125,10 @@ const requireMember = async (env: Env, teamId: string, caller: Ctx) => {
 }
 
 const withStore = async <T>(env: Env, ctx: ExecutionContext, f: (s: Store) => Promise<T>): Promise<T> => {
-  const store = await openStore(env)
+  const t = timingFor(ctx)
+  const store = await t.span("db_connect", openStore(env))
   try {
-    return await f(store)
+    return await t.span("db", f(store))
   } finally {
     ctx.waitUntil(store.close().catch(() => {}))
   }
@@ -142,6 +144,60 @@ const colo = (req: Request): string | null => {
 
 const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b)
 
+/**
+ * Per-isolate caches for the launch path (Server-Timing showed each costs a round trip to Stack, the
+ * database in us-east-1 or Cloudflare's TURN API on every request):
+ * - devices the signal socket admits, for a minute (a registration refreshes it, a deletion drops it and
+ *   evicts the device's sockets, so a stale entry cannot outlive the device);
+ * - the caller's Stack teams for /me/macs, for a minute, one fetch in flight per user;
+ * - TURN credentials, for a tenth of their lifetime, one fetch in flight.
+ */
+const DEVICE_TTL_MS = 60_000
+const deviceCache = new Map<string, { device: Device; at: number }>()
+const rememberDevice = (device: Device) => deviceCache.set(device.deviceId, { device, at: Date.now() })
+const signalDevice = async (env: Env, ctx: ExecutionContext, deviceId: string): Promise<Device | undefined> => {
+  const hit = deviceCache.get(deviceId)
+  if (hit && Date.now() - hit.at < DEVICE_TTL_MS) {
+    timingFor(ctx).add("device_cached", 0)
+    return hit.device
+  }
+  const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
+  if (device) rememberDevice(device)
+  return device
+}
+
+const TEAMS_TTL_MS = 60_000
+const teamsCache = new Map<string, { at: number; teams: Promise<ReadonlyArray<string>> }>()
+const cachedUserTeams = (env: Env, caller: Caller): Promise<ReadonlyArray<string>> => {
+  const key = `${caller.projectId}\u0000${caller.userId}`
+  const hit = teamsCache.get(key)
+  if (hit && Date.now() - hit.at < TEAMS_TTL_MS) return hit.teams
+  const teams = userTeams(env, caller)
+  teamsCache.set(key, { at: Date.now(), teams })
+  teams.catch(() => teamsCache.delete(key))
+  return teams
+}
+
+let iceCache: { at: number; ttl: number; value: Promise<Awaited<ReturnType<typeof iceServers>>> } | undefined
+const cachedIceServers = (env: Env): Promise<Awaited<ReturnType<typeof iceServers>>> => {
+  const now = Date.now()
+  if (iceCache && now - iceCache.at < (iceCache.ttl * 1000) / 10) return iceCache.value
+  const value = iceServers(env)
+  const entry = { at: now, ttl: 300, value }
+  iceCache = entry
+  value.then(
+    (v) => {
+      // Only a TURN answer is worth keeping; STUN-only means TURN failed, so ask again next time.
+      if (v.turn) entry.ttl = v.ttl
+      else if (iceCache === entry) iceCache = undefined
+    },
+    () => {
+      if (iceCache === entry) iceCache = undefined
+    }
+  )
+  return value
+}
+
 const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Response> => {
   const url = new URL(req.url)
   const path = url.pathname.replace(/\/+$/, "") || "/"
@@ -152,17 +208,46 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   const bearer = bearerOf(req)
   if (!bearer) return fail(401, "unauthorized", "missing or invalid Stack access token")
-  const auth = await authenticate(env, bearer.token)
+  const t = timingFor(ctx)
+  const auth = await t.span("auth", authenticate(env, bearer.token))
   // The reason (expired, restricted, unknown_key, ...) names why without echoing the token.
   if (!("caller" in auth)) return fail(401, "unauthorized", `missing or invalid Stack access token (${auth.rejection})`)
-  const caller: Ctx = { ...auth.caller, hint: locationHintFor((req as { cf?: { continent?: unknown; longitude?: unknown; country?: unknown } }).cf) }
+  const caller: Ctx = { ...auth.caller, t, hint: locationHintFor((req as { cf?: { continent?: unknown; longitude?: unknown; country?: unknown } }).cf) }
   const me = ownerKey(env, caller)
-  await limit(env.USER_LIMIT, me, "requests")
+  await t.span("limit", limit(env.USER_LIMIT, me, "requests"))
 
   if (path === "/v1/ice" && method === "GET") {
     await limit(env.ICE_LIMIT, me, "ICE requests")
-    const { iceServers: list, ttl, turn } = await iceServers(env)
+    const { iceServers: list, ttl, turn } = await t.span("turn", cachedIceServers(env))
     return json({ iceServers: list, ttl, turn })
+  }
+
+  if (path === "/v1/me/bootstrap" && method === "POST") {
+    // The phone's launch in one round trip (PROTOCOL.md): register its devices in `teamId`, and return
+    // that team's Macs, the caller's own Macs everywhere, and ICE servers. Each part runs the same route
+    // as its own call, all at once; a part that fails carries its error instead of failing the rest.
+    const b = await readJson(req)
+    if (typeof b.teamId !== "string") throw new HttpError(400, "bad_request", "teamId is required")
+    const list = Array.isArray(b.devices) ? (b.devices as Array<Record<string, unknown>>).slice(0, 4) : []
+    const headers = { authorization: req.headers.get("authorization") ?? `Bearer ${bearer.token}`, "content-type": "application/json" }
+    const part = async (method: string, path: string, body?: unknown) => {
+      const sub = new Request(new URL(path, url), { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+      let res: Response
+      try {
+        res = await routes(sub, env, ctx)
+      } catch (e) {
+        res = e instanceof HttpError ? fail(e.status, e.code, e.message) : fail(500, "internal", "internal error")
+      }
+      return (await res.json()) as Record<string, unknown>
+    }
+    const team = encodeURIComponent(b.teamId)
+    const [devices, macs, myMacs, ice] = await Promise.all([
+      Promise.all(list.map((d) => part("POST", "/v1/devices", { ...d, teamId: b.teamId }))),
+      part("GET", `/v1/teams/${team}/macs`),
+      part("GET", "/v1/me/macs"),
+      part("GET", "/v1/ice")
+    ])
+    return json({ devices, macs, myMacs, ice })
   }
 
   if (path === "/v1/me/devices" && method === "GET") {
@@ -196,6 +281,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   if (path === "/v1/me" && method === "DELETE") {
     // Account deletion (PROTOCOL.md): purge everything stored for the caller and evict their sockets.
     const gone = await withStore(env, ctx, (s) => s.deleteOwner(me))
+    for (const d of gone) deviceCache.delete(d.deviceId)
     await Promise.all(gone.map((d) => hub(env, caller, d.teamId).forgetDevice(d.deviceId).catch(() => {})))
     console.log(JSON.stringify({ msg: "account data deleted", devices: gone.length }))
     return json({ deleted: { devices: gone.length } })
@@ -207,6 +293,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     const sub = dev[2]
     if (!sub && method === "DELETE") {
+      deviceCache.delete(deviceId)
       const r = await withStore(env, ctx, (s) => s.deleteDevice(deviceId, me))
       if (r === "not_owner") throw new HttpError(403, "not_owner", "this device belongs to another user")
       if (!r) throw new HttpError(404, "not_found", "no such device")
@@ -284,7 +371,12 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       s.upsertDevice({ deviceId: deviceId.toLowerCase(), ownerUserId: ownerKey(env, caller), teamId, kind, name: name.trim(), wgPublicKey: (wgPublicKey as string | null | undefined) ?? null })
     )
     if (r === "not_owner") throw new HttpError(403, "not_owner", "this deviceId belongs to another user")
-    if (r.previousTeamId) await hub(env, caller, r.previousTeamId).forgetMac(r.device.deviceId)
+    rememberDevice(r.device)
+    if (r.previousTeamId) {
+      await hub(env, caller, r.previousTeamId).forgetMac(r.device.deviceId)
+      await hub(env, caller, r.previousTeamId).forgetRegistration(r.device.deviceId)
+    }
+    await t.span("hub", hub(env, caller, teamId).rememberDevice({ deviceId: r.device.deviceId, ownerKey: r.device.ownerUserId, kind: r.device.kind, name: r.device.name }))
     if (r.device.kind === "mac")
       await hub(env, caller, teamId).registerMac({ deviceId: r.device.deviceId, name: r.device.name, ownerUserId: caller.userId, ownerProjectId: caller.projectId })
     return json({ device: publicDevice(env, r.device) })
@@ -299,14 +391,16 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     let stackTeams: ReadonlySet<string> = new Set()
     if (teamIds.some((t) => !t.startsWith(PERSONAL))) {
       try {
-        stackTeams = new Set(await userTeams(env, caller))
+        stackTeams = new Set(await t.span("stack", cachedUserTeams(env, caller)))
       } catch (e) {
         console.log(JSON.stringify({ msg: "membership check failed", error: String(e) }))
         throw new HttpError(502, "membership_unavailable", "could not check team membership")
       }
     }
     const reachable = teamIds.filter((t) => (t.startsWith(PERSONAL) ? t === personalTeamId(caller.userId) : stackTeams.has(t)))
-    const live = new Map(await Promise.all(reachable.map(async (t) => [t, new Map((await hub(env, caller, t).macs()).map((m) => [m.deviceId, m]))] as const)))
+    const live = new Map(
+      await t.span("hub", Promise.all(reachable.map(async (team) => [team, new Map((await hub(env, caller, team).macs()).map((m) => [m.deviceId, m]))] as const)))
+    )
     return json({
       macs: rows.flatMap((d) => {
         const presence = live.get(d.teamId)
@@ -327,14 +421,24 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     await requireMember(env, teamId, caller)
-    const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
+    // Echo only cnx.v1; the bearer subprotocol is never selected (it would echo the token back).
+    const subprotocol = bearer?.viaSubprotocol || (req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === "cnx.v1")
+    const teamHub = hub(env, caller, teamId)
+    // Fast path: the team's hub knows the devices registered in it, so no database round trip.
+    const claim = { userId: caller.userId, projectId: caller.projectId, deviceId, ownerKey: ownerKey(env, caller) }
+    const fast = new Headers({ upgrade: "websocket", "x-cnx-claim": JSON.stringify(claim) })
+    if (subprotocol) fast.set("x-cnx-subprotocol", "cnx.v1")
+    const res = await t.span("hub", teamHub.fetch("https://team-hub/signal", { headers: fast }))
+    if (res.status === 101) return res
+    if (res.status === 403) throw new HttpError(403, "not_owner", "register this device first")
+    // The hub has not seen this device (registered before hubs kept devices): check the database.
+    const device = await signalDevice(env, ctx, deviceId)
     if (!device || device.ownerUserId !== ownerKey(env, caller)) throw new HttpError(403, "not_owner", "register this device first")
     if (device.teamId !== teamId) throw new HttpError(403, "wrong_team", "device is registered in another team")
     const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, name: device.name }
-    const headers = new Headers({ upgrade: "websocket", "x-cnx-attachment": JSON.stringify(att) })
-    // Echo only cnx.v1; the bearer subprotocol is never selected (it would echo the token back).
-    if (bearer?.viaSubprotocol || (req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === "cnx.v1")) headers.set("x-cnx-subprotocol", "cnx.v1")
-    return hub(env, caller, teamId).fetch("https://team-hub/signal", { headers })
+    const headers = new Headers({ upgrade: "websocket", "x-cnx-attachment": JSON.stringify(att), "x-cnx-owner-key": device.ownerUserId })
+    if (subprotocol) headers.set("x-cnx-subprotocol", "cnx.v1")
+    return t.span("hub", teamHub.fetch("https://team-hub/signal", { headers }))
   }
 
   if (action === "hub" && method === "GET") {
@@ -346,7 +450,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   if (action === "macs" && method === "GET") {
     await requireMember(env, teamId, caller)
-    const [rows, live] = await Promise.all([withStore(env, ctx, (s) => s.listMacs(teamId)), hub(env, caller, teamId).macs()])
+    const [rows, live] = await Promise.all([withStore(env, ctx, (s) => s.listMacs(teamId)), t.span("hub", hub(env, caller, teamId).macs())])
     const byId = new Map(live.map((m) => [m.deviceId, m]))
     return json({
       // Only Macs of the caller's project: a team (and a personal space) never spans projects.
@@ -397,12 +501,32 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const t = timingFor(ctx)
+    let res: Response
     try {
-      return await routes(req, env, ctx)
+      res = await routes(req, env, ctx)
     } catch (e) {
-      if (e instanceof HttpError) return fail(e.status, e.code, e.message)
-      console.log(JSON.stringify({ msg: "unhandled", error: String(e) }))
-      return fail(500, "internal", "internal error")
+      if (e instanceof HttpError) res = fail(e.status, e.code, e.message)
+      else {
+        console.log(JSON.stringify({ msg: "unhandled", error: String(e) }))
+        res = fail(500, "internal", "internal error")
+      }
+    }
+    const route = new URL(req.url).pathname.replace(/[0-9a-f-]{36}|personal-[0-9a-f-]+|teams\/[^/]+/g, (m) => (m.startsWith("teams/") ? "teams/:id" : ":id"))
+    if (t.totalMs > 250) console.log(JSON.stringify({ msg: "timing", route, status: res.status, colo: colo(req), ...t.record() }))
+    // Server-Timing on every response; a WebSocket upgrade's headers are rebuilt around its socket.
+    if (res.status === 101 && res.webSocket) {
+      const headers = new Headers(res.headers)
+      headers.set("server-timing", t.header())
+      return new Response(null, { status: 101, webSocket: res.webSocket, headers })
+    }
+    try {
+      res.headers.set("server-timing", t.header())
+      return res
+    } catch {
+      const headers = new Headers(res.headers)
+      headers.set("server-timing", t.header())
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
     }
   }
 } satisfies ExportedHandler<Env>

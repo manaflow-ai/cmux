@@ -35,13 +35,16 @@ import Testing
     @Test func failuresBackOffAndRetry() {
         var machine = LinkMachine(transport: .webRTC)
         _ = machine.handle(.target(mac))
-        #expect(machine.handle(.dialFailed(generation: 1, reason: "ICE timed out")) == [.scheduleRetry(generation: 2, after: .seconds(1))])
-        #expect(machine.phase == .waiting(.webRTC, attempt: 1, reason: "ICE timed out", retryIn: .seconds(1)))
+        // The first failure retries at once and shows nothing (a reset signaling socket).
+        #expect(machine.handle(.dialFailed(generation: 1, reason: "signaling reset")) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.phase == .connecting(.webRTC, attempt: 2))
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
+        #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
         #expect(machine.phase.statusLine(macName: "Studio") == "WebRTC failed: ICE timed out · retrying in 1 s")
-        #expect(machine.handle(.retryDue(generation: 2)) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
-        #expect(machine.handle(.dialFailed(generation: 3, reason: "x")) == [.scheduleRetry(generation: 4, after: .seconds(2))])
+        #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
+        #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
         // A stale timer is ignored.
-        #expect(machine.handle(.retryDue(generation: 2)) == [])
+        #expect(machine.handle(.retryDue(generation: 3)) == [])
     }
 
     @Test func transportSwitchRedialsAndIgnoresLateResult() {
@@ -54,7 +57,8 @@ import Testing
         #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
         // Switching while waiting redials immediately with the new transport.
         _ = machine.handle(.dialFailed(generation: 2, reason: "x"))
-        #expect(machine.handle(.transport(.webRTC)) == [.close, .dial(generation: 4, macID: "m1", transport: .webRTC)])
+        _ = machine.handle(.dialFailed(generation: 3, reason: "x"))
+        #expect(machine.handle(.transport(.webRTC)) == [.close, .dial(generation: 5, macID: "m1", transport: .webRTC)])
     }
 
     @Test func relayOnlyChangeRedials() {
@@ -73,9 +77,12 @@ import Testing
         _ = machine.handle(.target(mac))
         _ = machine.handle(.dialSucceeded(generation: 1, path: .relay))
         #expect(machine.handle(.foreground) == [.probe(generation: 1)])
-        #expect(machine.handle(.probeFailed(generation: 1, reason: "closed")) == [.close, .scheduleRetry(generation: 2, after: .seconds(1))])
+        // A dead link redials at once.
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "closed")) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        _ = machine.handle(.dialFailed(generation: 2, reason: "x"))
+        _ = machine.handle(.dialFailed(generation: 3, reason: "x"))
         // Foreground while waiting dials now instead of waiting out the timer.
-        #expect(machine.handle(.foreground) == [.dial(generation: 3, macID: "m1", transport: .wireGuard)])
+        #expect(machine.handle(.foreground) == [.dial(generation: 5, macID: "m1", transport: .wireGuard)])
     }
 
     @Test func sameTargetKeepsLinkAndNilTargetCloses() {
@@ -130,7 +137,7 @@ struct MockDialer: MacLinkDialer {
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
         for _ in 0..<200 { if case .waiting = controller.phase { break }; await Task.yield() }
-        guard case .waiting(.webRTC, 1, let reason, _) = controller.phase else {
+        guard case .waiting(.webRTC, 2, let reason, _) = controller.phase else {
             Issue.record("expected waiting, got \(controller.phase)")
             return
         }
@@ -212,6 +219,41 @@ struct MockDialer: MacLinkDialer {
         #expect(second.workspaces[0].lastActivityAt == earlier)
     }
 
+    @Test func tabsCarryTheirAgentStateAndTheMacsActiveTab() throws {
+        var agents = AgentStates()
+        agents.bySurface[1] = AgentState(state: "working", agent: "claude")
+        agents.pending["sess-1"] = true
+        let tree = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
+        let ws = tree.workspaces[0]
+        // The terminal runs Claude; the conversation tab has an open permission.
+        #expect(ws.tabs.map(\.agentStatus) == [.working, .waiting, nil])
+        #expect(ws.tabs[0].harness == "claude")
+        // The active screen's active pane's tab.
+        #expect(ws.activeTabID == "s7")
+        #expect(tree.workspaces[1].activeTabID == nil)
+        var blocked = AgentStates()
+        blocked.bySurface[7] = AgentState(state: "blocked", agent: "claude")
+        #expect(try DaemonTree(reply: Self.reply, macID: "m", agents: blocked).workspaces[0].tabs[1].agentStatus == .waiting)
+    }
+
+    @Test func activityTimesComeOnlyFromEvents() throws {
+        let start = Date(timeIntervalSince1970: 1000)
+        let first = try DaemonTree(reply: Self.reply, macID: "m", now: start)
+        // First sight is not an activity time.
+        #expect(!first.workspaces[0].hasActivityTime)
+        #expect(first.workspaces[0].lastActivityAt == start)
+        let event = Date(timeIntervalSince1970: 2000)
+        let second = try DaemonTree(reply: Self.reply, macID: "m", previous: first.workspaces, activity: [9: event],
+                                    now: Date(timeIntervalSince1970: 3000))
+        #expect(second.workspaces[0].hasActivityTime)
+        #expect(second.workspaces[0].lastActivityAt == event)
+        #expect(!second.workspaces[1].hasActivityTime)
+        // A known time is kept when no newer event arrives.
+        let third = try DaemonTree(reply: Self.reply, macID: "m", previous: second.workspaces, now: Date(timeIntervalSince1970: 4000))
+        #expect(third.workspaces[0].hasActivityTime)
+        #expect(third.workspaces[0].lastActivityAt == event)
+    }
+
     @Test func errorReplyThrows() {
         let reply = Data(#"{"id":"m1","ok":false,"error":"list-workspaces is not available to a phone","error_code":"forbidden"}"#.utf8)
         #expect(throws: DaemonReplyError(message: "list-workspaces is not available to a phone", code: "forbidden")) {
@@ -237,10 +279,12 @@ struct MockDialer: MacLinkDialer {
     @Test func listsAfterSubscribeAndRelistsOnEvents() async throws {
         let lists = Counter()
         let link = MockMacLink { _, data in
-            let object = try! JSONSerialization.jsonObject(with: data.dropLast()) as! [String: Any]
+            // The setup arrives as one write of several lines.
+            var out: [Data] = []
+            for line in data.split(separator: 0x0A) {
+            let object = try! JSONSerialization.jsonObject(with: Data(line)) as! [String: Any]
             let id = object["id"] as! String
             let cmd = object["cmd"] as! String
-            var out: [Data] = []
             switch cmd {
             case "list-workspaces":
                 let n = lists.increment()
@@ -251,6 +295,7 @@ struct MockDialer: MacLinkDialer {
                 out.append(Data(#"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#.utf8))
             default:
                 out.append(Data(#"{"id":"\#(id)","ok":true,"data":{}}"#.utf8))
+            }
             }
             return out.map { $0 + Data([0x0A]) }
         }
@@ -273,7 +318,9 @@ struct MockDialer: MacLinkDialer {
     /// (surface 11), or refuses `new-workspace` like the phone policy.
     static func daemon(refuse: Bool, seen: CommandLog) -> MockMacLink {
         MockMacLink { _, data in
-            let object = try! JSONSerialization.jsonObject(with: data.dropLast()) as! [String: Any]
+            // The connect setup arrives as one write of several lines.
+            data.split(separator: 0x0A).map { request -> Data in
+            let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
             let id = object["id"] as! String
             let cmd = object["cmd"] as! String
             seen.append(cmd, object["name"] as? String)
@@ -296,7 +343,8 @@ struct MockDialer: MacLinkDialer {
             default:
                 line = #"{"id":"\#(id)","ok":true,"data":{}}"#
             }
-            return [Data(line.utf8) + Data([0x0A])]
+            return Data(line.utf8) + Data([0x0A])
+            }
         }
     }
 
@@ -569,6 +617,7 @@ final class ScriptedSource: AgentSessionSource {
     @Test @MainActor func imagesBecomeACPImageBlocks() {
         let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
         let image = AgentAttachment(kind: .image, name: "Photo", data: png)
+        // A file without an upload adds nothing.
         let blocks = AcpmuxSessionSource.promptBlocks(text: "look", attachments: [image, AgentAttachment(kind: .file, name: "a.txt")])
         #expect(blocks == [
             .object(["type": .string("text"), "text": .string("look")]),
@@ -581,6 +630,46 @@ final class ScriptedSource: AgentSessionSource {
         let blocks = AcpmuxSessionSource.promptBlocks(text: "", attachments: [AgentAttachment(kind: .image, name: "Photo", data: jpeg)])
         #expect(blocks.count == 1)
         #expect(blocks.first?["mimeType"]?.stringValue == "image/jpeg")
+    }
+
+    @Test @MainActor func uploadedFilesBecomeResources() {
+        let text = AgentAttachment(id: "t", kind: .file, name: "notes.md", data: Data("# hi\n".utf8))
+        let binary = AgentAttachment(id: "b", kind: .file, name: "a.zip", data: Data([0x50, 0x4B, 0x03, 0x04, 0]))
+        let blocks = AcpmuxSessionSource.promptBlocks(text: "see", attachments: [text, binary], uploaded: [
+            "t": "/w/.cmux/attachments/phone-1/notes.md", "b": "/w/.cmux/attachments/phone-1/a.zip",
+        ])
+        #expect(blocks.count == 3)
+        #expect(blocks[1]["type"]?.stringValue == "resource")
+        #expect(blocks[1]["resource"]?["uri"]?.stringValue == "file:///w/.cmux/attachments/phone-1/notes.md")
+        #expect(blocks[1]["resource"]?["text"]?.stringValue == "# hi\n")
+        #expect(blocks[2]["type"]?.stringValue == "resource_link")
+        #expect(blocks[2]["uri"]?.stringValue == "file:///w/.cmux/attachments/phone-1/a.zip")
+        #expect(blocks[2]["name"]?.stringValue == "a.zip")
+        #expect(blocks[2]["size"]?.numberValue == 5)
+        // A file the Mac never received is never sent as a reference.
+        #expect(AcpmuxSessionSource.promptBlocks(text: "x", attachments: [text]).count == 1)
+    }
+
+    @Test func uploadRepliesBecomePathsOrFailures() throws {
+        #expect(try LinkUpload.path(fromReply: Data(#"{"path":"/w/a.txt","size":2}"#.utf8)) == "/w/a.txt")
+        #expect(throws: LinkUpload.Failure(code: "too_large", message: "the file is larger than 100 MB")) {
+            try LinkUpload.path(fromReply: Data(#"{"error":"too_large","message":"the file is larger than 100 MB"}"#.utf8))
+        }
+        #expect(throws: LinkUpload.Failure.self) { try LinkUpload.path(fromReply: Data()) }
+        #expect(LinkUpload.folder("/w/x/") == "/w/x")
+        #expect(LinkUpload.folder("~/x") == nil)
+    }
+
+    @Test func splitAcpmuxMessagesJoin() {
+        var joiner = AcpmuxConnection.MessageJoiner()
+        let message = Data((#"{"method":"x","params":{"d":""# + String(repeating: "a", count: 300_000) + #""}}"#).utf8)
+        let first = message.prefix(AcpmuxConnection.MessageJoiner.fullFrame)
+        #expect(joiner.push(Data(first)) == nil)
+        #expect(joiner.push(Data(message.dropFirst(first.count)))?["method"]?.stringValue == "x")
+        #expect(joiner.push(Data(#"{"a":1}"#.utf8))?["a"]?.numberValue == 1)
+        // A short frame that does not parse is dropped, not kept.
+        #expect(joiner.push(Data("{".utf8)) == nil)
+        #expect(joiner.push(Data(#"{"b":2}"#.utf8))?["b"]?.numberValue == 2)
     }
 }
 

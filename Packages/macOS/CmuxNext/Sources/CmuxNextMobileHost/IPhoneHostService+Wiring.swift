@@ -29,9 +29,11 @@ extension IPhoneHostService {
     ///   - computerName: How phones list this Mac.
     ///   - processEnvironment: Read for the Debug-only overrides.
     ///   - acpmuxEnvironment: The app's acpmux, for the phones' approval keys (nil: none).
+    ///   - agentTabHost: This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
     public func wire(auth: CloudAuth, daemon: DaemonService,
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
                      acpmuxEnvironment: AcpmuxEnvironment? = nil,
+                     agentTabHost: @escaping @MainActor @Sendable () -> String? = { nil },
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -50,6 +52,13 @@ extension IPhoneHostService {
         let state = DaemonLauncher.applicationSupportDirectory()
             .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
             .appendingPathComponent("cnx-host", isDirectory: true)
+        #if DEBUG
+        // The phone's browser tabs stream from this build's own remote browser host.
+        let browserHosts: (any CnxBrowserHosting)? = IPhoneBrowserHosts.available()
+            ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
+        #else
+        let browserHosts: (any CnxBrowserHosting)? = nil
+        #endif
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
         dependencies = Dependencies(
@@ -76,8 +85,10 @@ extension IPhoneHostService {
                 let home = FileManager.default.homeDirectoryForCurrentUser.path
                 return (chats.roots + chats.managedRoots).map { $0.hasPrefix("~/") ? home + $0.dropFirst() : $0 }
             },
+            agentTabHost: agentTabHost,
             computerName: computerName,
-            acpmuxEnvironment: acpmuxEnvironment
+            acpmuxEnvironment: acpmuxEnvironment,
+            browserHosts: browserHosts
         )
     }
 

@@ -34,6 +34,11 @@ forbidden=(
   "Which channel should this build go to first?"
   ChiefMockBackend "Overnight: Codex finished the pricing page fix"
   MockArtifactSource MockWorkspaceCreationBackend
+  # Demo choreography, the mock terminal screen's "Mock session · local"
+  # label (strings stops at the middle dot), the mock sign-in
+  # user, and the old fake terminal placeholder page.
+  DemoDirector WorkspaceDemoDirector "Mock session" "aziz@example.com"
+  "Last login: Sun Oct 12" "Live terminal arrives with CnxTerminal"
 )
 
 # Every Mach-O in the bundle: the executable, Frameworks/, and the

@@ -1,3 +1,5 @@
+// DEBUG and Demo builds only: no demo plumbing ships in Production.
+#if DEBUG
 import Foundation
 import Observation
 
@@ -81,3 +83,4 @@ public final class DemoDirector {
         return match(command)
     }
 }
+#endif

@@ -14,6 +14,8 @@ public struct CodeCard: View {
     @State private var expanded = false
     @State private var copied = false
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
+    /// Settings → Terminal → Wrap code and diff lines.
+    @AppStorage(CnxPreferences.Key.wrapCode) private var wrapCode = CnxPreferences.defaultWrapCode
 
     public init(language: String?, code: String, title: String? = nil, maxHeight: CGFloat = 480) {
         self.language = language
@@ -33,10 +35,12 @@ public struct CodeCard: View {
                 Text(CodeHighlightCache.shared.highlighted(code, language: language))
                     .font(.system(size: codeSize, design: .monospaced))
                     .lineSpacing(codeSize * 0.46)
-                    .fixedSize()
+                    .fixedSize(horizontal: !wrapCode, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
                     .padding(.bottom, 16)
+                    // Wrapping: as wide as the card, so lines break instead of scrolling.
+                    .containerRelativeFrame(wrapCode ? .horizontal : [], alignment: .leading)
                     .textSelection(.enabled)
             }
             .scrollIndicators(.hidden)

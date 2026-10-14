@@ -184,3 +184,104 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
     }
     assert!(started.elapsed() < Duration::from_secs(10));
 }
+
+fn request(server: &FakeSignaling, device_id: &str, mac_id: &str) -> ConnectRequest {
+    ConnectRequest {
+        base_url: server.base_url.clone(),
+        token: "user:alice".into(),
+        team_id: "team".into(),
+        device_id: device_id.to_owned(),
+        mac_device_id: mac_id.to_owned(),
+        transport: Transport::WebRtc,
+        include_loopback: true,
+        relay_only: false,
+    }
+}
+
+fn names(marks: &[cnx_ffi::TimingMark]) -> Vec<&str> {
+    marks.iter().map(|m| m.name.as_str()).collect()
+}
+
+/// `prewarm` opens the signaling socket and fetches the ICE servers, so the
+/// dial that follows does neither; a redial after the link closed reuses
+/// the same socket and servers. Every dial records its steps.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prewarm_and_redial_reuse_the_socket_and_ice_servers() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let device = uuid::Uuid::new_v4().to_string();
+    let warmed =
+        cnx_ffi::prewarm(server.base_url.clone(), "user:alice".into(), "team".into(), device.clone()).await;
+    assert!(names(&warmed).contains(&"signaling_open"), "{warmed:?}");
+    assert!(names(&warmed).contains(&"ice_servers_fetched"), "{warmed:?}");
+
+    let first = connect_inner(request(&server, &device, &mac_id), None).await.expect("connect");
+    let marks = first.timings();
+    for step in [
+        "signaling_reused",
+        "ice_servers_cached",
+        "offer_sent",
+        "answer_received",
+        "channel_open",
+        "link_ready",
+    ] {
+        assert!(names(&marks).contains(&step), "missing {step}: {marks:?}");
+    }
+    assert!(!names(&marks).contains(&"signaling_open"), "{marks:?}");
+    first.close();
+    drop(first);
+
+    // The socket outlives the link: the next dial skips signaling again.
+    let second = connect_inner(request(&server, &device, &mac_id), None).await.expect("redial");
+    assert!(names(&second.timings()).contains(&"signaling_reused"), "{:?}", second.timings());
+    let channel = second.open_channel("echo".into(), String::new()).await.unwrap();
+    channel.send(b"warm".to_vec()).await.unwrap();
+    assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"warm".to_vec() });
+
+    // A second prewarm finds the socket alive.
+    let again = cnx_ffi::prewarm(server.base_url.clone(), "user:alice".into(), "team".into(), device).await;
+    assert!(names(&again).contains(&"signaling_alive"), "{again:?}");
+    assert!(names(&again).contains(&"ice_servers_cached"), "{again:?}");
+    second.close();
+    cnx_ffi::reset_warm_state().await;
+}
+
+/// A socket the backend dropped is not reused: the next dial opens a new one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_closed_warm_socket_is_replaced() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let device = uuid::Uuid::new_v4().to_string();
+    let first = connect_inner(request(&server, &device, &mac_id), None).await.expect("connect");
+    first.close();
+    drop(first);
+    // Another socket for the same device makes the backend close ours (4000 replaced).
+    let usurper = SignalingClient::connect(&server.base_url, "user:alice", "team", &device).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let second = connect_inner(request(&server, &device, &mac_id), None).await.expect("redial");
+    assert!(names(&second.timings()).contains(&"signaling_open"), "{:?}", second.timings());
+    second.close();
+    drop(usurper);
+}
+
+/// A dial that starts while `prewarm` is still opening the socket waits for
+/// that socket instead of opening a second one (the service keeps one per
+/// device and would close the first).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dial_during_prewarm_joins_its_socket() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let device = uuid::Uuid::new_v4().to_string();
+    let (warmed, handle) = tokio::join!(
+        cnx_ffi::prewarm(server.base_url.clone(), "user:alice".into(), "team".into(), device.clone()),
+        connect_inner(request(&server, &device, &mac_id), None),
+    );
+    let handle = handle.expect("connect");
+    let opened = names(&warmed).contains(&"signaling_open") as usize
+        + names(&handle.timings()).contains(&"signaling_open") as usize;
+    assert_eq!(opened, 1, "prewarm {warmed:?} dial {:?}", handle.timings());
+    handle.close();
+}

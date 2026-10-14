@@ -216,6 +216,8 @@ struct DiffSnippet: View {
     @Environment(\.openDiff) private var openDiff
     @State private var showAll = false
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
+    /// Settings → Terminal → Wrap code and diff lines.
+    @AppStorage(CnxPreferences.Key.wrapCode) private var wrapCode = CnxPreferences.defaultWrapCode
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -254,7 +256,7 @@ struct DiffSnippet: View {
             ScrollView(.horizontal) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(preview.lines.enumerated()), id: \.offset) { _, line in
-                        HStack(spacing: 0) {
+                        HStack(alignment: .firstTextBaseline, spacing: 0) {
                             Text(line.kind == .added ? "+" : (line.kind == .removed ? "−" : " "))
                                 .frame(width: 14, alignment: .leading)
                             Text(line.text.isEmpty ? " " : line.text)
@@ -264,9 +266,11 @@ struct DiffSnippet: View {
                 }
                 .font(.system(size: codeSize, design: .monospaced))
                 .lineSpacing(4)
-                .fixedSize()
+                .fixedSize(horizontal: !wrapCode, vertical: true)
                 .padding(.horizontal, 16)
                 .padding(.bottom, preview.remaining > 0 ? 4 : 16)
+                // Wrapping: as wide as the card, so lines break instead of scrolling.
+                .containerRelativeFrame(wrapCode ? .horizontal : [], alignment: .leading)
             }
             .scrollIndicators(.hidden)
             if preview.remaining > 0 {

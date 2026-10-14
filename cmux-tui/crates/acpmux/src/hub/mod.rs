@@ -52,10 +52,10 @@ pub use lifecycle::{
 };
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
+pub mod approvers;
 mod peers;
 mod permission_groups;
 mod permissions;
-pub mod approvers;
 pub mod person;
 mod questions;
 mod remote_floor;

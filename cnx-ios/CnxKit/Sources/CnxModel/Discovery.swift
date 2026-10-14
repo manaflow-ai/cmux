@@ -145,6 +145,8 @@ extension AppStore {
         activeTeamID = ""
         workspaces = []
         macLinkStatus = [:]
+        macData = [:]
+        macConnection = [:]
         accountMacCount = nil
         teamDataState = .loading
         for key in defaults.dictionaryRepresentation().keys where Self.isAccountPreference(key) {

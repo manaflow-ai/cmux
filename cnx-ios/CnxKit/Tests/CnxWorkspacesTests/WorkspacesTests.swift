@@ -27,9 +27,42 @@ import CmuxTabsKit
 import SwiftUI
 
 @MainActor @Suite struct WorkspaceTabsSourceTests {
-    func make(_ memory: [String: String] = [:]) -> (AppStore, WorkspaceTabsSource) {
+    func make(_ memory: [String: String] = [:], backend: (any WorkspaceCreationBackend)? = MockWorkspaceCreationBackend(latency: .zero))
+        -> (AppStore, WorkspaceTabsSource) {
         let store = AppStore.mock(tabMemory: .inMemory(memory))
-        return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux"))
+        let creator = backend.map { WorkspaceCreator(store: store, backend: $0) }
+        return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator))
+    }
+
+    @Test func closeTheMacRefusesPutsTheTabBack() async {
+        let refusing = MockWorkspaceCreationBackend(latency: .zero)
+        let (_, source) = make(backend: refusing)
+        refusing.failNext = "tab is busy"
+        source.close("t-zsh")
+        #expect(!source.tabs.contains { $0.id == "t-zsh" })
+        for _ in 0..<200 where !source.tabs.contains(where: { $0.id == "t-zsh" }) { await Task.yield() }
+        #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
+        #expect(source.notice?.contains("tab is busy") == true)
+    }
+
+    @Test func aRefusedNewTabAddsNothing() async {
+        let refusing = MockWorkspaceCreationBackend(latency: .zero)
+        let (_, source) = make(backend: refusing)
+        refusing.failNext = "no pane"
+        let id = await source.createTab(source.newTabOptions.first { $0.id == "terminal" }!)
+        #expect(id == nil)
+        #expect(source.tabs.count == 3)
+        #expect(source.notice?.contains("no pane") == true)
+    }
+
+    @Test func withoutAMacNoTabsAreMade() async {
+        let (_, source) = make(backend: nil)
+        #expect(source.newTabOptions.isEmpty)
+        let id = await source.createTab(TabsKitNewTabOption(id: "terminal", title: "New Terminal", systemImage: "apple.terminal", kind: .terminal))
+        #expect(id == nil)
+        #expect(source.tabs.count == 3)
+        source.close("t-zsh")
+        #expect(source.tabs.count == 3)
     }
 
     @Test func opensOnTheLastTabUsedOnThisDevice() {
@@ -132,7 +165,8 @@ import SwiftUI
         #expect(existing.surface("t-claude").composerFocused == false)
         // A workspace this phone just created opens focused (agent chat).
         store.requestFocusOnOpen("ws-cmux")
-        let created = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
+        let created = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content,
+                                          creator: WorkspaceCreator(store: store, backend: MockWorkspaceCreationBackend(latency: .zero)))
         created.pageAppeared("t-claude")
         #expect(created.surface("t-claude").composerFocused)
         // A new terminal tab raises the keyboard on its composer.

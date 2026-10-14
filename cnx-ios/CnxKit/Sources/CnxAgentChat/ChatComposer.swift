@@ -1,6 +1,7 @@
 #if os(iOS)
 import CnxArtifacts
 import CnxDesign
+import CnxTransport
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -57,7 +58,9 @@ struct ChatComposer: View {
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .images)
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
-                attachments += urls.map { AgentAttachment(kind: .file, name: $0.lastPathComponent) }
+                let (files, refused) = Self.readFiles(urls)
+                attachments += files
+                if let refused { store.clientError = refused }
             }
         }
         .fullScreenCover(isPresented: $showCamera) {
@@ -77,6 +80,13 @@ struct ChatComposer: View {
             if focused { expandRequested = false }
         }
         .onAppear { if expandOnAppear { expand() } }
+        // A prompt that never reached the agent comes back to the composer.
+        .onChange(of: store.returnedDraft) { _, draft in
+            guard let draft else { return }
+            store.returnedDraft = nil
+            if trimmed.isEmpty { text = draft.text }
+            attachments = draft.attachments + attachments.filter { own in !draft.attachments.contains { $0.id == own.id } }
+        }
         .onChange(of: collapsedTarget, initial: true) { _, target in
             guard shownCollapsed != target else { return }
             if shownCollapsed == nil {
@@ -85,6 +95,28 @@ struct ChatComposer: View {
                 withAnimation(.cnxSmooth) { shownCollapsed = target }
             }
         }
+    }
+
+    /// Picked files with their bytes (read through the picker's
+    /// security-scoped URLs), and the reason when one can't be attached.
+    static func readFiles(_ urls: [URL]) -> ([AgentAttachment], String?) {
+        var files: [AgentAttachment] = []
+        var refused: String?
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            guard size <= LinkUpload.maxBytes else {
+                refused = "\(url.lastPathComponent) is larger than \(LinkUpload.maxBytes >> 20) MB."
+                continue
+            }
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                refused = "Couldn't read \(url.lastPathComponent)."
+                continue
+            }
+            files.append(AgentAttachment(kind: .file, name: url.lastPathComponent, data: data))
+        }
+        return (files, refused)
     }
 
     private var card: some View {
@@ -164,10 +196,12 @@ struct ChatComposer: View {
                 }
             }
             Section {
-                Toggle("Plan mode", systemImage: "checklist", isOn: Binding(
-                    get: { store.currentModeID == "plan" },
-                    set: { store.setMode($0 ? "plan" : "default") }
-                ))
+                if let plan = store.planModeSwitch {
+                    Toggle("Plan mode", systemImage: "checklist", isOn: Binding(
+                        get: { plan.isOn(currentModeID: store.currentModeID) },
+                        set: { store.setMode(plan.mode(on: $0)) }
+                    ))
+                }
                 if !store.modes.isEmpty {
                     Menu {
                         Picker("Permission mode", selection: Binding(
@@ -277,7 +311,8 @@ struct ChatComposer: View {
         return Button {
             switch state {
             case .stop: store.cancel()
-            case .send, .queue: send(steer: false)
+            // A follow-up while the agent works queues, or steers it when Settings says so.
+            case .send, .queue: send(steer: state == .queue && CnxPreferences.steersFollowUps())
             case .empty: break
             }
         } label: {
@@ -311,7 +346,7 @@ struct ChatComposer: View {
         text = ""
         attachments = []
         sendCount += 1
-        focus.wrappedValue = false
+        if CnxPreferences.dismissKeyboardAfterSend() { focus.wrappedValue = false }
     }
 
     // MARK: Attachments, queue, slash commands

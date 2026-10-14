@@ -35,6 +35,15 @@ public final class TerminalModel {
     public internal(set) var attachments: [ComposerAttachment] = []
     var showPhotoPicker = false
     var showFileImporter = false
+    /// Sends one attachment to the Mac and returns its path there (the
+    /// link's `upload` service). Nil hides the attachment menu: without a
+    /// Mac to receive them there is nothing honest to attach.
+    public var uploader: (@MainActor (_ data: Data, _ name: String) async throws -> String)?
+    /// Attachments are being sent; the composer waits.
+    public internal(set) var isUploading = false
+    /// Why the last send with attachments failed (shown over the composer).
+    public internal(set) var attachmentError: String?
+    @ObservationIgnored private var uploadTask: Task<Void, Never>?
 
     // Artifacts
     public internal(set) var artifacts: [TerminalArtifact] = []
@@ -161,20 +170,74 @@ public final class TerminalModel {
     }
 
     /// The send button: text plus Return; empty is a bare Return (Enter).
+    /// With attachments, each is uploaded to the Mac first, then the real
+    /// paths (shell-quoted) and the text are typed without Return, so the
+    /// person finishes the command line before running it.
     public func send() {
-        let paths = attachments.map(\.remotePath)
-        var text = composerText
-        if !paths.isEmpty {
-            text = (paths.joined(separator: " ") + (text.isEmpty ? "" : " " + text))
+        guard attachments.isEmpty else {
+            sendAttachments()
+            return
         }
-        controller?.surface.sendText(text, pressReturn: true)
+        controller?.surface.sendText(composerText, pressReturn: true)
         composerText = ""
-        attachments.removeAll()
     }
 
     public func sendWithoutReturn() {
+        guard attachments.isEmpty else {
+            sendAttachments()
+            return
+        }
         controller?.surface.sendText(composerText, pressReturn: false)
         composerText = ""
+    }
+
+    private func sendAttachments() {
+        guard !isUploading else { return }
+        guard let uploader else {
+            attachmentError = "Connect to the Mac to send attachments."
+            return
+        }
+        let pending = attachments
+        isUploading = true
+        attachmentError = nil
+        uploadTask = Task { [weak self] in
+            var paths: [String] = []
+            for attachment in pending {
+                do {
+                    let data = try attachment.contents()
+                    paths.append(try await uploader(data, attachment.name))
+                } catch {
+                    guard let self else { return }
+                    self.isUploading = false
+                    self.attachmentError = "Couldn't send \(attachment.name): \(Self.message(error))"
+                    return
+                }
+            }
+            guard let self else { return }
+            self.isUploading = false
+            let line = Self.commandLine(paths: paths, text: self.composerText)
+            self.controller?.surface.sendText(line, pressReturn: false)
+            self.composerText = ""
+            self.attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
+        }
+    }
+
+    static func message(_ error: any Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+    }
+
+    /// The typed line: each path shell-quoted, then the text.
+    static func commandLine(paths: [String], text: String) -> String {
+        let quoted = paths.map(shellQuoted).joined(separator: " ")
+        guard !text.isEmpty else { return quoted + " " }
+        return quoted + " " + text
+    }
+
+    /// A path as one shell word: bare when it has only safe characters, else single-quoted.
+    static func shellQuoted(_ path: String) -> String {
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+,:@%")
+        if !path.isEmpty, path.unicodeScalars.allSatisfy({ safe.contains($0) }) { return path }
+        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     func addAttachment(_ attachment: ComposerAttachment) {
@@ -183,7 +246,10 @@ public final class TerminalModel {
 
     func removeAttachment(_ id: ComposerAttachment.ID) {
         attachments.removeAll { $0.id == id }
+        if attachments.isEmpty { attachmentError = nil }
     }
+
+    func clearAttachmentError() { attachmentError = nil }
 
     // MARK: Key bar
 
@@ -218,7 +284,8 @@ public final class TerminalModel {
     }
 }
 
-/// A photo, video or file waiting in the composer.
+/// A photo, video or file waiting in the composer, with its bytes (or the
+/// local file holding them) to upload.
 public struct ComposerAttachment: Identifiable, Sendable {
     public enum Kind: Sendable { case image, video, file }
     public let id = UUID()
@@ -226,17 +293,27 @@ public struct ComposerAttachment: Identifiable, Sendable {
     public var name: String
     public var thumbnail: UIImage?
     public var byteCount: Int?
+    public var data: Data?
+    /// A local copy (picked videos), read at send.
+    public var fileURL: URL?
 
-    public init(kind: Kind, name: String, thumbnail: UIImage? = nil, byteCount: Int? = nil) {
+    public init(kind: Kind, name: String, thumbnail: UIImage? = nil, byteCount: Int? = nil, data: Data? = nil, fileURL: URL? = nil) {
         self.kind = kind
         self.name = name
         self.thumbnail = thumbnail
-        self.byteCount = byteCount
+        self.byteCount = byteCount ?? data?.count
+        self.data = data
+        self.fileURL = fileURL
     }
 
-    /// Where the upload lands on the Mac (the mock does not upload).
-    var remotePath: String {
-        "~/.cnx/uploads/" + name.replacingOccurrences(of: " ", with: "_")
+    struct Unreadable: Error, LocalizedError {
+        var errorDescription: String? { "its contents couldn't be read on this iPhone" }
+    }
+
+    func contents() throws -> Data {
+        if let data { return data }
+        if let fileURL { return try Data(contentsOf: fileURL, options: .mappedIfSafe) }
+        throw Unreadable()
     }
 }
 #endif

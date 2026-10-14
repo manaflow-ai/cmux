@@ -38,14 +38,46 @@ public struct LinkPairing: Sendable {
         case refused(LinkError)
     }
 
-    /// Runs `auth` on `link`. `onWaiting` fires once if the Mac has to ask the user.
-    public func run(link: any MacLink, macID: String, onWaiting: @MainActor @Sendable () -> Void) async -> Outcome {
+    /// An `auth` channel this phone opened, before its challenge is answered.
+    public struct Opened: Sendable {
+        let channel: any LinkChannel
+        let identity: String
+        let approval: String
+    }
+
+    /// Opens `auth` on `link`. It costs no round trip, and the Mac holds the
+    /// channels the phone opens after it until it passes, so the rest of the
+    /// link opens right behind it.
+    public func open(link: any MacLink) async -> Result<Opened, LinkError> {
         do {
             let (identity, approval) = try keys.publicKeys()
             let channel = try await link.openChannel(service: "auth", args: [
                 "identityKey": identity, "approvalKey": approval, "name": String(name.prefix(64)), "action": "pair",
             ])
-            defer { Task { await channel.close(code: "eof", reason: "") } }
+            return .success(Opened(channel: channel, identity: identity, approval: approval))
+        } catch let error as LinkError {
+            return .failure(error)
+        } catch {
+            return .failure(LinkError(code: "pairing", message: String(describing: error)))
+        }
+    }
+
+    /// Runs `auth` on `link`. `onWaiting` fires once if the Mac has to ask the user.
+    public func run(link: any MacLink, macID: String, onWaiting: @MainActor @Sendable () -> Void) async -> Outcome {
+        await finish(await open(link: link), macID: macID, onWaiting: onWaiting)
+    }
+
+    /// Answers the challenge on an `auth` channel from ``open(link:)``.
+    public func finish(_ opened: Result<Opened, LinkError>, macID: String,
+                       onWaiting: @MainActor @Sendable () -> Void) async -> Outcome {
+        let opened: Opened
+        switch opened {
+        case .success(let value): opened = value
+        case .failure(let error): return .refused(error)
+        }
+        let (channel, identity, approval) = (opened.channel, opened.identity, opened.approval)
+        defer { Task { await channel.close(code: "eof", reason: "") } }
+        do {
             while true {
                 guard let frame = try await channel.receive() else {
                     let closed = channel.closedBy ?? LinkError(code: "closed", message: "The Mac closed pairing")

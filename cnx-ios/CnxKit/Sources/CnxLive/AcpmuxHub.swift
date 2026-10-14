@@ -5,6 +5,7 @@ import CnxTransport
 import Foundation
 import Observation
 import OSLog
+import UniformTypeIdentifiers
 
 private let log = Logger(subsystem: "dev.cmux.cnx", category: "acpmux")
 
@@ -286,16 +287,31 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             do {
                 switch intent {
                 case .prompt(let text, let attachments, let steer):
+                    let blocks: [JSONValue]
+                    do {
+                        blocks = try await self.promptBlocks(text: text, attachments: attachments, hub: hub)
+                    } catch {
+                        self.emit(.promptNotSent(text: text, attachments: attachments, reason: AcpmuxSessionSource.message(error)))
+                        return
+                    }
                     let meta: JSONValue = .object(["acpmux": .object(["promptId": .string(UUID().uuidString.lowercased()), "steer": .bool(steer)])])
-                    _ = try await hub.request("session/prompt", .object([
-                        "sessionId": session, "prompt": .array(Self.promptBlocks(text: text, attachments: attachments)), "_meta": meta,
-                    ]))
+                    do {
+                        _ = try await hub.request("session/prompt", .object([
+                            "sessionId": session, "prompt": .array(blocks), "_meta": meta,
+                        ]))
+                    } catch let error as LinkError {
+                        // Never reached the Mac: the draft comes back.
+                        self.emit(.promptNotSent(text: text, attachments: attachments, reason: AcpmuxSessionSource.message(error)))
+                    }
                 case .cancel:
                     try await hub.notify("session/cancel", .object(["sessionId": session]))
                 case .respondPermission(let permissionID, let optionID):
                     try await hub.respond(sessionID: sessionID, permissionID: permissionID, optionID: optionID)
                 case .answerQuestion(let questionID, let answer):
-                    guard let question = questions[questionID] else { return }
+                    guard let question = questions[questionID] else {
+                        self.emit(.clientError("This question is no longer open on \(self.summary.macName)."))
+                        return
+                    }
                     try await hub.answer(question, with: answer)
                 case .setModel(let id):
                     _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(id)]))
@@ -312,19 +328,67 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
     }
 
-    /// ACP prompt content: the text, then one `image` block (base64 data and
-    /// its MIME type) per attached image. File chips carry no contents yet,
-    /// so they are not sent.
-    static func promptBlocks(text: String, attachments: [AgentAttachment]) -> [JSONValue] {
+    /// ACP prompt content: the text, then per attachment
+    /// - an image: an `image` block (base64 data and its MIME type);
+    /// - a file: uploaded to the Mac over the link's `upload` service into the
+    ///   session's folder (`.cmux/attachments`, next to acpmux's own), then a
+    ///   `resource` block with its text when it is UTF-8 text up to 256 KiB, or
+    ///   a `resource_link` to the uploaded path (the agent reads it there).
+    /// A failed upload throws, so nothing is sent without its attachments.
+    func promptBlocks(text: String, attachments: [AgentAttachment], hub: AcpmuxHub) async throws -> [JSONValue] {
+        var uploaded: [String: String] = [:]
+        for attachment in attachments where attachment.imageMIMEType == nil {
+            guard let data = attachment.data else {
+                throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
+            }
+            guard let link = hub.macLink else { throw LinkError(code: "offline", message: "Connect to \(summary.macName) to send \(attachment.name).") }
+            uploaded[attachment.id] = try await Self.upload(data, name: attachment.name, cwd: baseDirectory, link: link, macName: summary.macName)
+        }
+        return Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded)
+    }
+
+    /// Uploads into the session's folder; a folder the Mac won't write to
+    /// (not one of its tabs' folders) falls back to its uploads folder.
+    static func upload(_ data: Data, name: String, cwd: String?, link: any MacLink, macName: String) async throws -> String {
+        do {
+            return try await LinkUpload.upload(data, name: name, cwd: LinkUpload.folder(cwd), over: link)
+        } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
+            return try await LinkUpload.upload(data, name: name, cwd: nil, over: link)
+        } catch let failure as LinkUpload.Failure {
+            throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
+        }
+    }
+
+    /// The blocks for `text` and `attachments`, with each file's path on the Mac.
+    static func promptBlocks(text: String, attachments: [AgentAttachment], uploaded: [String: String] = [:]) -> [JSONValue] {
         var blocks: [JSONValue] = []
         if !text.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string(text)])) }
         for attachment in attachments {
             if let mime = attachment.imageMIMEType, let data = attachment.data {
                 blocks.append(.object(["type": .string("image"), "mimeType": .string(mime), "data": .string(data.base64EncodedString())]))
+            } else if let path = uploaded[attachment.id] {
+                let uri = URL(fileURLWithPath: path).absoluteString
+                let mime = Self.mimeType(name: attachment.name)
+                if let data = attachment.data, data.count <= 256 << 10, let contents = String(data: data, encoding: .utf8),
+                   !contents.contains("\u{0}") {
+                    blocks.append(.object(["type": .string("resource"), "resource": .object([
+                        "uri": .string(uri), "mimeType": .string(mime), "text": .string(contents),
+                    ])]))
+                } else {
+                    var link: [String: JSONValue] = ["type": .string("resource_link"), "uri": .string(uri),
+                                                     "name": .string(attachment.name), "mimeType": .string(mime)]
+                    if let size = attachment.data?.count { link["size"] = .number(Double(size)) }
+                    blocks.append(.object(link))
+                }
             }
         }
         if blocks.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string("")])) }
         return blocks
+    }
+
+    static func mimeType(name: String) -> String {
+        let ext = (name as NSString).pathExtension
+        return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
     }
 
     // MARK: Parity
@@ -530,7 +594,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     private func emit(_ event: AgentSessionEvent) {
-        if case .clientError = event {} else { replay.append(event) }
+        switch event {
+        case .clientError, .promptNotSent: break
+        default: replay.append(event)
+        }
         for continuation in continuations { continuation.yield(event) }
     }
 }

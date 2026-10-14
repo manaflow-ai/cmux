@@ -5,10 +5,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use cnx_link::api::{ApiClient, DeviceRegistration, IceServer};
+use cnx_link::api::{ApiClient, DeviceRegistration, IceCache, IceServer};
 use cnx_link::dial::{self, SessionEvents};
 use cnx_link::signaling::{SignalEnvelope, SignalPayload};
-use cnx_link::{DialOptions, LinkConfig, SignalingClient, TransportKind};
+use cnx_link::{DialOptions, LinkConfig, SignalingClient, Timeline, TransportKind};
 
 use crate::auth::{Tokens, claims};
 use crate::config::{HostConfig, ServiceConfig};
@@ -30,35 +30,69 @@ pub struct AnswerContext {
 #[derive(Clone)]
 pub enum IceSource {
     Fixed(Vec<IceServer>),
-    /// `GET /v1/ice` with a current access token at each session (the
-    /// signaling socket outlives any one token).
+    /// `GET /v1/ice` with a current access token (the signaling socket
+    /// outlives any one token), cached while the credentials have half
+    /// their lifetime left and refreshed ahead of the next dial, so an
+    /// answer never waits on an HTTP round trip.
     Api {
         base_url: String,
         tokens: Arc<Tokens>,
+        cache: Arc<IceCache>,
     },
 }
 
+/// A signaling socket up at least this long reconnects after `QUICK_RECONNECT`.
+const LONG_LIVED: Duration = Duration::from_secs(20);
+const QUICK_RECONNECT: Duration = Duration::from_millis(150);
+
+/// How long an answer waits for `GET /v1/ice` when nothing is cached.
+const ICE_BUDGET: Duration = Duration::from_secs(5);
+
 impl IceSource {
-    async fn servers(&self) -> Vec<IceServer> {
+    pub fn api(base_url: String, tokens: Arc<Tokens>) -> Self {
+        Self::Api { base_url, tokens, cache: Arc::new(IceCache::new()) }
+    }
+
+    /// The servers and whether they came from the cache.
+    async fn servers(&self) -> (Vec<IceServer>, bool) {
         match self {
-            Self::Fixed(servers) => servers.clone(),
-            Self::Api { base_url, tokens } => {
+            Self::Fixed(servers) => (servers.clone(), true),
+            Self::Api { base_url, tokens, cache } => {
+                if let Some(servers) = cache.fresh() {
+                    return (servers, true);
+                }
                 let token = match tokens.access_token().await {
                     Ok(token) => token,
                     Err(error) => {
                         tracing::warn!("no access token for GET /v1/ice ({error:#}); host candidates only");
-                        return Vec::new();
+                        return (Vec::new(), false);
                     }
                 };
-                match ApiClient::new(base_url, &token).ice().await {
-                    Ok(config) => config.ice_servers,
-                    Err(error) => {
-                        tracing::warn!(%error, "GET /v1/ice failed; answering with host candidates only");
-                        Vec::new()
-                    }
-                }
+                cache.get(&ApiClient::new(base_url, &token), ICE_BUDGET).await
             }
         }
+    }
+
+    /// Measurement support (`CNX_BASELINE`): fetch per answer, as before the cache.
+    async fn servers_uncached(&self) -> (Vec<IceServer>, bool) {
+        if let Self::Api { cache, .. } = self {
+            cache.clear();
+        }
+        self.servers().await
+    }
+
+    /// Keep the cache filled while the host runs: fetch now, then again
+    /// whenever it is about to go stale.
+    fn keep_fresh(&self) -> Option<tokio::task::JoinHandle<()>> {
+        let Self::Api { .. } = self else { return None };
+        let source = self.clone();
+        Some(tokio::spawn(async move {
+            loop {
+                let (servers, _) = source.servers().await;
+                let wait = if servers.is_empty() { Duration::from_secs(30) } else { Duration::from_secs(60) };
+                tokio::time::sleep(wait).await;
+            }
+        }))
     }
 }
 
@@ -66,6 +100,8 @@ impl IceSource {
 pub async fn run(config: HostConfig) -> Result<()> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let services = Arc::new(config.services.clone());
+    // One ICE cache for the life of the process (reconnects keep it).
+    let ice = IceSource::api(config.base_url.clone(), Arc::clone(&tokens));
     if crate::notify::enabled() {
         tokio::spawn(crate::notify::run(
             config.base_url.clone(),
@@ -77,10 +113,15 @@ pub async fn run(config: HostConfig) -> Result<()> {
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);
-        let reason = match connect_once(&config, &tokens, &services).await {
+        let started = std::time::Instant::now();
+        let reason = match connect_once(&config, &tokens, &services, &ice).await {
             Ok(reason) => {
                 tracing::warn!(reason, "signaling ended; reconnecting");
-                backoff = Duration::from_secs(1);
+                // A socket that was up for a while and then reset (every Worker
+                // deploy resets all sockets) comes back at once, so a phone
+                // dialing now finds the Mac; quick repeated failures back off.
+                backoff =
+                    if started.elapsed() > LONG_LIVED { QUICK_RECONNECT } else { Duration::from_secs(1) };
                 reason
             }
             Err(error) => {
@@ -103,6 +144,7 @@ async fn connect_once(
     config: &HostConfig,
     tokens: &Arc<Tokens>,
     services: &Arc<ServiceConfig>,
+    ice: &IceSource,
 ) -> Result<String> {
     let token = tokens.access_token().await.context("access token")?;
     let owner = config
@@ -130,11 +172,16 @@ async fn connect_once(
     let context = AnswerContext {
         owner_user_id: owner,
         services: Arc::clone(services),
-        ice: IceSource::Api { base_url: config.base_url.clone(), tokens: Arc::clone(tokens) },
+        ice: ice.clone(),
         include_loopback: config.include_loopback,
         exclude_cgnat: config.exclude_cgnat,
     };
-    Ok(serve_signaling(signaling, context).await)
+    let refresher = if std::env::var_os("CNX_BASELINE").is_some() { None } else { ice.keep_fresh() };
+    let reason = serve_signaling(signaling, context).await;
+    if let Some(task) = refresher {
+        task.abort();
+    }
+    Ok(reason)
 }
 
 /// Whether `error` is the backend refusing the access token (HTTP 401 from the API or
@@ -209,23 +256,31 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let peer = Peer { device_id: first.from.clone() };
+    let peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone() };
     let session_id = first.session_id.clone();
+    let timeline = Timeline::new();
+    timeline.mark("offer_received");
+    let baseline = std::env::var_os("CNX_BASELINE").is_some();
+    let (ice_servers, cached) =
+        if baseline { context.ice.servers_uncached().await } else { context.ice.servers().await };
+    timeline.mark(if cached { "ice_servers_cached" } else { "ice_servers_fetched" });
     let options = DialOptions {
-        ice_servers: context.ice.servers().await,
+        ice_servers,
         include_loopback: context.include_loopback,
         exclude_cgnat: context.exclude_cgnat,
+        timeline: timeline.clone(),
+        stock_ice_waits: baseline,
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {
         Ok(connected) => connected,
         Err(error) => {
-            tracing::warn!(session_id, ?kind, %error, "answer failed");
+            tracing::warn!(session_id, ?kind, %error, timings = %timeline.summary(), "answer failed");
             return;
         }
     };
     let path = *connected.path.borrow();
-    tracing::info!(session_id, ?kind, ?path, phone = peer.device_id, "link up");
+    tracing::info!(session_id, ?kind, ?path, phone = peer.device_id, timings = %timeline.summary(), "link up");
     control::emit(&Event::PhoneUp {
         session_id: session_id.clone(),
         phone_device_id: peer.device_id.clone(),
@@ -260,7 +315,17 @@ async fn answer_session(
             }
         }
     });
+    let mut first = true;
     while let Some(incoming) = connected.link.accept().await {
+        if first {
+            first = false;
+            timeline.mark("first_channel");
+            tracing::info!(session_id, timings = %timeline.summary(), "first channel");
+        }
+        // In open order: a channel opened after `auth` waits for it.
+        if incoming.service == "auth" {
+            auth.begin();
+        }
         tokio::spawn(services::serve(
             Arc::clone(&context.services),
             peer.clone(),

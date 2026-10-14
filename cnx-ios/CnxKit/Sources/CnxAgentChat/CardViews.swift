@@ -185,7 +185,9 @@ public struct QuestionCard: View {
     @State private var forward = true
     @FocusState private var otherFocused: Bool
     @State private var submitted = 0
+    #if DEBUG
     private let director = DemoDirector.shared
+    #endif
 
     public init(question: AgentQuestion, showsHeader: Bool = true, submit: @escaping (AgentQuestionAnswer) -> Void) {
         self.question = question
@@ -208,7 +210,9 @@ public struct QuestionCard: View {
         .animation(.cnxSmooth, value: question.state)
         .onChange(of: question) { _, new in state.update(new) }
         .sensoryFeedback(.impact(weight: .light), trigger: submitted)
+        #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
+        #endif
     }
 
     private var card: some View {
@@ -369,6 +373,7 @@ public struct QuestionCard: View {
         }
     }
 
+    #if DEBUG
     private func runDemoCommand() {
         guard let (id, picks) = director.take({ command -> (String, [[String]])? in
             if case .answerQuestion(let id, let picks) = command { return (id, picks) }
@@ -395,6 +400,7 @@ public struct QuestionCard: View {
             }
         }
     }
+    #endif
 }
 
 /// "You answered" + the answer in a right-aligned bubble.

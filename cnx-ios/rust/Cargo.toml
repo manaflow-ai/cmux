@@ -20,6 +20,11 @@ redundant_clone = "warn"
 cnx-link = { path = "crates/cnx-link" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
+# cmux.rd/1 + cmux.rb/1 (streamed browser tabs, verify/browser-stream.md).
+cmux-rd-proto = { path = "../../cmux-tui/crates/cmux-rd-proto", features = ["serde"] }
+cmux-rd-core = { path = "../../cmux-tui/crates/cmux-rd-core" }
+cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
+cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"

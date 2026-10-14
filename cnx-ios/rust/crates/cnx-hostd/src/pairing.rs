@@ -5,8 +5,9 @@
 //!   signs without a prompt, and an approval key that needs Face ID.
 //! - The first channel of every link is `auth` with `{identityKey,
 //!   approvalKey, name}`. hostd sends a fresh challenge; the phone signs
-//!   [`challenge_message`] with its identity key. Until that succeeds, every
-//!   other service on the link is refused with `unpaired`.
+//!   [`challenge_message`] with its identity key. A channel the phone opens
+//!   after `auth` waits for its outcome (so a link opens its channels at
+//!   once); one opened with no `auth` before it is refused with `unpaired`.
 //! - A key pair the Mac already approved for this device id passes at once.
 //!   Otherwise hostd asks the app (`pair_request`), which asks the user ("Allow
 //!   <phone> to connect?"), and waits up to [`APPROVAL_WAIT`] for the app's
@@ -19,7 +20,6 @@
 //! pairing, as before.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -109,15 +109,75 @@ impl std::fmt::Debug for Pairing {
     }
 }
 
+/// Where a link's `auth` stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthState {
+    /// No `auth` channel yet.
+    None,
+    /// An `auth` channel is open and has not finished.
+    Running,
+    /// The phone proved keys the Mac approved.
+    Paired,
+    /// The last `auth` ended without pairing.
+    Failed,
+}
+
 /// Whether this link's phone proved an approved key.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct LinkAuth {
-    authenticated: AtomicBool,
+    state: watch::Sender<AuthState>,
+}
+
+impl Default for LinkAuth {
+    fn default() -> Self {
+        Self { state: watch::channel(AuthState::None).0 }
+    }
 }
 
 impl LinkAuth {
     pub fn is_authenticated(&self) -> bool {
-        self.authenticated.load(Ordering::SeqCst)
+        *self.state.borrow() == AuthState::Paired
+    }
+
+    /// The link's accept loop saw an `auth` channel open: channels opened
+    /// after it wait for its outcome ([`LinkAuth::paired`]).
+    pub fn begin(&self) {
+        self.state.send_if_modified(|state| {
+            if *state == AuthState::Paired {
+                return false;
+            }
+            *state = AuthState::Running;
+            true
+        });
+    }
+
+    fn finish(&self, paired: bool) {
+        self.state.send_if_modified(|state| {
+            if *state == AuthState::Paired {
+                return false;
+            }
+            *state = if paired { AuthState::Paired } else { AuthState::Failed };
+            true
+        });
+    }
+
+    /// Whether the link is paired, waiting while an `auth` opened before this
+    /// channel is still running (at most the signature and approval waits).
+    pub async fn paired(&self) -> bool {
+        let mut state = self.state.subscribe();
+        let wait = tokio::time::timeout(SIGNATURE_WAIT + APPROVAL_WAIT + Duration::from_secs(5), async {
+            loop {
+                match *state.borrow_and_update() {
+                    AuthState::Paired => return true,
+                    AuthState::None | AuthState::Failed => return false,
+                    AuthState::Running => {}
+                }
+                if state.changed().await.is_err() {
+                    return false;
+                }
+            }
+        });
+        wait.await.unwrap_or(false)
     }
 }
 
@@ -182,6 +242,21 @@ pub async fn serve(
     sender: &ChannelSender,
     receiver: &mut ChannelReceiver,
 ) -> Result<(), Refused> {
+    // Started here too, for a caller that did not mark the channel's open.
+    link.begin();
+    let result = authenticate(pairing, phone, link, args, sender, receiver).await;
+    link.finish(link.is_authenticated());
+    result
+}
+
+async fn authenticate(
+    pairing: Option<&Pairing>,
+    phone: &str,
+    link: &LinkAuth,
+    args: &Value,
+    sender: &ChannelSender,
+    receiver: &mut ChannelReceiver,
+) -> Result<(), Refused> {
     let text = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
     let identity_key = text("identityKey");
     let approval_key = text("approvalKey");
@@ -196,7 +271,7 @@ pub async fn serve(
     let name: String = text("name").chars().filter(|c| !c.is_control()).take(64).collect();
     let Some(pairing) = pairing else {
         // Unsupervised: no app to approve; every link is served as before.
-        link.authenticated.store(true, Ordering::SeqCst);
+        link.finish(true);
         send(sender, json!({"ok": true})).await;
         return Ok(());
     };
@@ -255,7 +330,7 @@ pub async fn serve(
     .await;
     match result {
         Ok(Ok(())) => {
-            link.authenticated.store(true, Ordering::SeqCst);
+            link.finish(true);
             send(sender, json!({"ok": true})).await;
             Ok(())
         }
