@@ -1384,6 +1384,11 @@ jobs:
     # A cold package build can exceed the 5-minute target; the job still runs
     # the entries so a cold mini reports, and the summary shows the time.
     timeout-minutes: 20
+    # cmux-tui-core's ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with zig,
+    # as in cmux-tui.yml (an empty CMUX_GHOSTTY_SRC overrides a runner-level one).
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -1427,6 +1432,12 @@ jobs:
 
       - name: Set up pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
+        run: git submodule update --init --depth 1 --filter=blob:none ghostty-next
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
 
       - name: Run the fast tier
         run: python3 -I scripts/cmux-next/fast-tier.py

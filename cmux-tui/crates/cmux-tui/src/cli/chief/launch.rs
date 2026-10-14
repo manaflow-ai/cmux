@@ -47,6 +47,7 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
         // An owner this call starts serves chief.engine.* and chief.stop
         // through the home's brain.
         chief_tools_socket: Some(home.root.join("optchat/tools.sock")),
+        websocket: None,
     };
     let progress = RestoreProgress::silent();
     match ensure_owner(&spec, Some(&session), Instant::now() + ENSURE_DEADLINE, &progress) {

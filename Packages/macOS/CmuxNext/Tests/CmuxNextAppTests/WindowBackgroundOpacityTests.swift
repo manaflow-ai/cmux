@@ -229,6 +229,9 @@ import Testing
         var reloads = 0
         let reload = harness.terminal.reload
         harness.terminal.reload = { reloads += 1; reload() }
+        // The app's 60 ms is a drag's pace: a loaded test host can take longer between two steps
+        // and reload mid-drag (cx-7l2nc, macOS 27). A second still coalesces and stays inside `wait`.
+        harness.terminal.reloadDelay = .seconds(1)
 
         _ = try await harness.page.call("cmux.settings.preview", params: ["key": .string(Self.opacityKey), "value": 0.5],
                                         context: Self.gesture)

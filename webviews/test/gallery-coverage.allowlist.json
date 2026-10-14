@@ -130,9 +130,6 @@
     "ui/Tooltip.tsx#TooltipProvider",
     "ui/UiProvider.tsx#UiProvider",
     "viewer-empty/DiffEmptyState.tsx#DiffEmptyState",
-    "viewer-empty/EmptyState.tsx#EmptyState",
-    "viewer-empty/EmptyState.tsx#RecentList",
-    "viewer-empty/EmptyState.tsx#TailPath",
     "viewer-empty/icons.tsx#EmptyIcon"
   ],
   "pages": []

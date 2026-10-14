@@ -155,6 +155,7 @@ final class ChatsOpenCoordinator {
         let placed = NewTabSlot.placing(after: slot, services: services) { [weak pane] (_: String) in
             pane?.close([StripTabID(page)])
         }
+        NewTabSuccession.begin(replacing: page, in: model, services: services) // the chat takes the page's tab in place
         return services.agentTabs.openTab(in: pane, seed: AgentPaneSeedSource(seed), then: placed)
     }
 
