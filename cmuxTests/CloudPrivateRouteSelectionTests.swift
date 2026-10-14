@@ -164,6 +164,58 @@ struct CloudPrivateRouteSelectionTests {
         #expect(route == "ws://10.16.0.2:1337/v1/link")
     }
 
+    @Test("Discovery reuses one snapshot for saved routes and legacy enrollments")
+    func discoverySnapshotSeedsRoutesWithoutRereadingStore() async throws {
+        let home = URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = CloudTuiClientPaths(home: home)
+        paths.saveAttachState(
+            deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker,
+            route: "ws://10.16.0.2:8080/custom/link", for: "saved"
+        )
+        paths.saveDeviceFingerprint("legacy-device", for: "legacy")
+        let links = CloudMachineLinkManager(paths: paths, clientURL: nil, hostThemeColors: { nil })
+        let snapshot = await links.persistedDeviceRecords()
+        try FileManager.default.removeItem(at: paths.devicesStoreURL)
+        // A record written after this batch began must not cause a per-machine
+        // read, including when that machine was absent from the snapshot.
+        paths.saveDeviceFingerprint("later-device", for: "later")
+
+        for id in ["saved", "legacy", "later"] {
+            await links.setPrivateAddresses(
+                [" 10.16.0.3 ", "10.16.0.3", ""], for: id, persistedDevice: snapshot[id]
+            )
+            #expect(await links.privateAddresses(for: id) == ["10.16.0.3"])
+        }
+        #expect(await links.privateRoute(for: "saved") == "ws://10.16.0.2:8080/custom/link")
+        #expect(await links.privateRoute(for: "legacy") == "ws://10.16.0.3:1337/v1/link")
+        #expect(await links.privateRoute(for: "later") == nil)
+    }
+
+    @Test("A new batch sees CLI updates and an old snapshot cannot replace a live route")
+    func discoverySnapshotsRefreshSharedStateAndPreserveLiveRoutes() async throws {
+        let home = URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = CloudTuiClientPaths(home: home)
+        let links = CloudMachineLinkManager(paths: paths, clientURL: nil, hostThemeColors: { nil })
+        let oldSnapshot = await links.persistedDeviceRecords()
+        paths.saveAttachState(
+            deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker,
+            route: "ws://10.16.0.2:8080/custom/link", for: "vm-test"
+        )
+        let freshSnapshot = await links.persistedDeviceRecords()
+        await links.setPrivateAddresses(
+            ["10.16.0.3"], for: "vm-test", persistedDevice: freshSnapshot["vm-test"]
+        )
+        #expect(await links.privateRoute(for: "vm-test") == "ws://10.16.0.2:8080/custom/link")
+
+        await links.setPrivateRoute("ws://10.16.0.3:9090/new/link", for: "vm-test")
+        await links.setPrivateAddresses(
+            ["10.16.0.4"], for: "vm-test", persistedDevice: oldSnapshot["vm-test"]
+        )
+        #expect(await links.privateRoute(for: "vm-test") == "ws://10.16.0.3:9090/new/link")
+    }
+
     @Test("Partial attach addresses retain the other discovered family", arguments: [false, true])
     func partialAddressesPreserveFallback(replacesIPv4: Bool) async throws {
         let path = "/tmp/cmux-route-\(UUID().uuidString).sock"

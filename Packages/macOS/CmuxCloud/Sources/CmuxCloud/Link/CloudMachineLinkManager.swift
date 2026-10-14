@@ -222,6 +222,25 @@ public actor CloudMachineLinkManager {
     }
 
     public func setPrivateAddresses(_ addresses: [String], for machineID: String) {
+        let persistedDevice = privateRoutes[machineID] == nil ? paths.loadDevices()[machineID] : nil
+        setPrivateAddresses(addresses, for: machineID, persistedDevice: persistedDevice)
+    }
+
+    /// Reads fresh shared app/CLI state once for an address-discovery batch.
+    /// Use keyed records from this snapshot rather than rereading the full store
+    /// for every machine. The next batch must request a new snapshot.
+    public func persistedDeviceRecords() -> [String: CloudTuiClientPaths.DeviceRecord] {
+        paths.loadDevices()
+    }
+
+    /// Updates addresses using a record from the current discovery snapshot.
+    /// A nil record means the machine was absent from that snapshot; it does not
+    /// trigger another file read. Routes learned in memory take precedence.
+    public func setPrivateAddresses(
+        _ addresses: [String],
+        for machineID: String,
+        persistedDevice: CloudTuiClientPaths.DeviceRecord?
+    ) {
         var seen = Set<String>()
         let addresses = addresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seen.insert($0).inserted }
@@ -230,9 +249,9 @@ public actor CloudMachineLinkManager {
             // A route learned from an attach response is durable shared state.
             // Older records have no route, so retain the one explicit migration
             // fallback needed for already-enrolled machines.
-            if let route = paths.route(for: machineID) {
+            if let route = persistedDevice?.route {
                 privateRoutes[machineID] = route
-            } else if paths.deviceFingerprint(for: machineID) != nil,
+            } else if persistedDevice != nil,
                       let address = addresses.first {
                 privateRoutes[machineID] = Self.route(host: address, port: Self.legacyPrivateRoutePort)
             }
