@@ -44,10 +44,9 @@ from ext_e2e.app import free_port  # noqa: E402
 STORE_EXTENSION = ("eimadpbcbfnmbkopoojfekhnkhdbieeh", "Dark Reader")  # MV3 on the store
 UBO_NAME = "uBlock Origin"
 # Public ad block score pages: informational only (third-party pages that can
-# change or stop running; d3ward's is archived). The gating checks are the
+# change or stop running; d3ward's is archived and shows no score). The gating checks are the
 # local ad page and dynamic filtering.
-SCORE_PAGES = (("d3ward", "https://d3ward.github.io/toolz/adblock.html", "d3ward.github.io"),
-               ("turtlecute", "https://adblock.turtlecute.org/", "adblock.turtlecute.org"))
+SCORE_PAGES = (("turtlecute", "https://adblock.turtlecute.org/", "adblock.turtlecute.org"),)
 AD_SCRIPT = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"
 AD_BEACON = "https://pagead2.googlesyndication.com/pagead/gen_204?id=mv2-proof"
 JQUERY = "https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"
@@ -428,11 +427,53 @@ def phase_ublock(args):
         ctx["id"] = ubo["id"]
         ctx["prefix"] = f"chrome-extension://{ubo['id']}/"
 
+    def diagnose():
+        """Raw extension APIs inside uBlock Origin's own MV2 background page: does a
+        blocking webRequest listener cancel a page's request, and which tab id do
+        the page's requests carry (uBlock Origin files requests with tab id -1
+        under "behind-the-scene", where it filters much less)."""
+        target = ctx.get("bg")
+        if not target:
+            job.row("diagnose: background page session", False, "no background page")
+            return
+        bg = cdp.Session(target["webSocketDebuggerUrl"])
+        try:
+            bg.evaluate("""(() => {
+              self.mv2probe = {requests: [], nav: [], updated: []};
+              chrome.webRequest.onBeforeRequest.addListener(d => {
+                if (self.mv2probe.requests.length < 80) self.mv2probe.requests.push([d.type, d.tabId, d.frameId, d.url.slice(0, 90)]);
+              }, {urls: ['<all_urls>']});
+              chrome.webRequest.onBeforeRequest.addListener(d => ({cancel: true}),
+                {urls: ['*://*/*mv2-cancel-probe*']}, ['blocking']);
+              chrome.webNavigation.onCommitted.addListener(d => self.mv2probe.nav.push([d.tabId, d.frameId, d.url.slice(0, 90)]));
+              chrome.tabs.onUpdated.addListener((id, info) => self.mv2probe.updated.push([id, info.status || '', (info.url || '').slice(0, 90)]));
+              return true; })()""")
+            page = job.open_tab(url + "?probe=1", match="/ads.html?probe=1")
+            try:
+                poll(page, "window.mv2 && window.mv2.done", 20)
+                probe = page.evaluate("fetch('" + JQUERY.replace("jquery.min.js", "package.json") + "?mv2-cancel-probe', {mode: 'no-cors', cache: 'no-store'})"
+                                      ".then(() => 'loaded', () => 'blocked')")
+            finally:
+                page.close()
+            time.sleep(1)
+            seen = bg.evaluate("""new Promise(r => chrome.tabs.query({}, tabs => r({
+              probe: self.mv2probe, tabs: tabs.map(t => [t.id, t.windowId, t.active, (t.url || '').slice(0, 90)])})))""")
+        finally:
+            bg.close()
+        job.row("ublock: webRequestBlocking cancels a page request (raw API, MV2)", probe == "blocked", {"probe": probe})
+        requests = (seen or {}).get("probe", {}).get("requests", [])
+        page_requests = [r for r in requests if "127.0.0.1" in r[3] or "googlesyndication" in r[3] or "jsdelivr" in r[3]]
+        job.row("diagnose: page requests seen by webRequest (type, tabId, frameId, url)", bool(page_requests),
+                {"requests": page_requests[:20], "tabs": (seen or {}).get("tabs"),
+                 "webNavigation.onCommitted": (seen or {}).get("probe", {}).get("nav", [])[:10],
+                 "tabs.onUpdated": (seen or {}).get("probe", {}).get("updated", [])[:10]}, gating=False)
+
     def background():
         prefix = ctx["prefix"]
         target = cdp.wait_target(job.port, lambda t: t.get("type") == "background_page"
                                  and t.get("url", "").startswith(prefix), 30)
         version = None
+        ctx["bg"] = target
         if target:
             bg = cdp.Session(target["webSocketDebuggerUrl"])
             try:
@@ -504,7 +545,7 @@ def phase_ublock(args):
         job.window_shot("ublock-window")
 
     return run_phase(job, [("ublock: loaded", loaded), ("ublock: background", background),
-                           ("ublock: blocking", blocking), ("ublock: popup", popup),
+                           ("ublock: diagnose", diagnose), ("ublock: blocking", blocking), ("ublock: popup", popup),
                            ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
                            ("ublock: score pages", lambda: score_pages(job, "ublock"))],
                      cleanup=[server.shutdown])
