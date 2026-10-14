@@ -1206,6 +1206,8 @@ export function Composer({
                   type="button"
                   className="acpmux-steer"
                   aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                  /* tooltip-allow: the button shows a verb; the tooltip says what it does and its shortcut */
+                  title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
                   onClick={() => {
                     send(false, true);
                     field.current?.focus();
