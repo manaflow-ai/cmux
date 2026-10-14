@@ -157,6 +157,8 @@ extension AgentTabStore {
                 then?(created.key)
                 return nil
             } catch {
+                // A chat bound for a dock that never came: the pane stops waiting for it (cx-ihyx2).
+                if hidden { pane.dockFinished(pending.key) }
                 daemon.logger.error("new-conversation-tab (agent) failed: \(String(describing: error), privacy: .public)")
                 failed?()
                 return "\(RefusalStrings.agentTabCreateFailed)"

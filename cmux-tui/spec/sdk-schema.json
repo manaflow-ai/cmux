@@ -4856,6 +4856,26 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "since_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`."
+    },
+    "agent": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports."
     }
    },
    "additional_properties": false
@@ -9363,8 +9383,19 @@
        "kind": "ref",
        "name": "Id"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-input-while-creating-v1"
      },
      "text": {
       "type": {
@@ -9402,15 +9433,30 @@
     },
     "additional_properties": false,
     "constraints": [
-     "When both are present, UTF-8 text bytes precede decoded bytes."
+     "When both are present, UTF-8 text bytes precede decoded bytes.",
+     "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write."
     ]
    },
    "result": {
-    "kind": "ref",
-    "name": "EmptyResult"
+    "kind": "object",
+    "fields": {
+     "queued": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "terminal-input-while-creating-v1"
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "With terminal_id, input for a terminal still being created is queued in one FIFO per id (at most 65536 bytes; over it the request fails with input.overflow and queues nothing) and written before any later input when the terminal is live; the result is {queued:true}. A failed, cancelled or expired (10 s after the first queued byte) creation writes nothing and gives each sending connection its bytes back in a terminal-input-unclaimed control event."
+   ]
   },
   "read-screen": {
    "authority": "control",
@@ -13125,6 +13171,17 @@
       "default": null,
       "capability": "close-reason-v1",
       "description": "With end_terminals: the close is not recorded in the closed history (session_end)."
+     },
+     "if_empty": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "close-workspace-if-empty-v1",
+      "description": "Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change."
      },
      "origin": {
       "type": {
@@ -22791,6 +22848,16 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "since_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`."
      }
     },
     "additional_properties": false
@@ -25000,6 +25067,52 @@
       "type": {
        "kind": "ref",
        "name": "Tab"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "terminal-input-unclaimed": {
+   "since": 12,
+   "capability": "terminal-input-while-creating-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "terminal-input-unclaimed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "bytes_base64": {
+      "type": {
+       "kind": "ref",
+       "name": "Base64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
       },
       "presence": "required",
       "nullable": false

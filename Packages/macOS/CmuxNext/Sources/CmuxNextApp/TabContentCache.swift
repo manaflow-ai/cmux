@@ -293,6 +293,15 @@ final class TabContentCache {
         }
     }
 
+    /// Move Tab to Browser Profile (data-model.md 5): an engine fixes a page's store when it makes it, so `key`'s page is
+    /// re-made in `profile` (its record already names it) and loads `url`; the old page closes now. History and form input
+    /// stay with the old profile. A page made later (deferred, asleep, none yet) takes the profile from the record.
+    func recreatePage(_ key: String, in profile: BrowserProfileID, url: URL) {
+        guard let old = browsers[key]?.tab, !(old is DeferredBrowserTab), !(old is HibernatedBrowserTab) else { return }
+        if old.engineKind == .cef { return reroute(key, to: url) }  // a new browser in the record's request context
+        swapPage(key, with: webKit.makeWebKitTab(id: old.id, profile: profile, initialURL: url, zoom: old.state.zoom))
+    }
+
     /// A WebKit page for a Chromium record, with the fallback recorded and
     /// the one-time notice shown when this is the first.
     private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {

@@ -461,7 +461,18 @@ impl Brain {
         // the subagents at work now (the reference client's line), before
         // the new messages. Never logged.
         let at_work = self.at_work_line();
-        let prompt_texts: Vec<String> = at_work.iter().chain(texts.iter()).cloned().collect();
+        // The person's Home workspace as it is now (home_view): after the view, never logged.
+        let home = self
+            .settings
+            .home_view
+            .as_ref()
+            .and_then(crate::home_view::HomeView::read);
+        let prompt_texts: Vec<String> = at_work
+            .iter()
+            .chain(home.iter())
+            .chain(texts.iter())
+            .cloned()
+            .collect();
         self.note_engine(&engine);
         let cached = cached.as_deref();
         let (blocks, system_prompt, preset) = match cached {
@@ -518,6 +529,9 @@ impl Brain {
         layout["images"] = serde_json::json!(image_count);
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
+        }
+        if let Some(block) = &home {
+            layout["home_workspace"] = serde_json::json!(block);
         }
         self.trace_start(
             &key,

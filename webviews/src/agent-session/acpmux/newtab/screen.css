@@ -43,7 +43,8 @@
 .nt-card-meta{display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:11.5px}
 .nt-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-text);font-size:13.5px;font-weight:500}
 .nt-card-message{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--acpmux-composer-dim);font-size:12.5px;line-height:1.35}
-.nt-card[data-state=error] .nt-card-message{color:var(--agent-danger)}
+.nt-card[data-state=error] .nt-card-message,.nt-card[data-state=failed] .nt-card-message{color:var(--agent-danger)}
+.nt-card-age{font-variant-numeric:tabular-nums}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
 /* Hover as Edge draws it (cx-f6i7): the fill eases in fast and clears at once (--agent-motion-hover-out, 0 by default). */
 @media (prefers-reduced-motion:no-preference){.nt-row,.nt-card,.nt-open-tab,.nt-tool,.nt-all-row{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-row:hover,.nt-card:hover,.nt-open-tab:hover,.nt-tool:hover,.nt-all-row:hover{transition-duration:var(--agent-motion-hover,.08s)}}
@@ -117,6 +118,8 @@
 .nt-cards[data-variant="list"] {
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
+  /* The rows' text on the title's and the composer's edges, their hover fill past them (Leo 2026-10-13). */
+  margin-inline: -10px;
 }
 .nt-cards[data-variant="list"] .nt-card {
   flex-direction: row;
@@ -134,6 +137,11 @@
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
 .nt-cards[data-variant="list"] .nt-card-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* Capped only to leave a preview its room: a title alone runs to the time column (Leo 2026-10-13). */
+.nt-cards[data-variant="list"] .nt-card-title:not(:last-child) {
   flex: none;
   max-width: 45%;
 }
@@ -144,6 +152,14 @@
 }
 .nt-cards[data-variant="list"] .nt-card-meta {
   order: 3;
+  margin-left: auto;
+}
+/* A fixed, right-aligned age column: "now", "9m" and "10m" keep the harness icon still (Leo 2026-10-13). */
+.nt-cards[data-variant="list"] .nt-card-age {
+  flex: none;
+  width: 3.2em;
+  text-align: right;
+  white-space: nowrap;
 }
 .nt-screen[data-template="console"] .nt-card-title,
 .nt-screen[data-template="console"] .nt-card-message {
@@ -210,7 +226,7 @@
 .nt-all-project{flex:0 10000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:var(--text-detail)}
 .nt-all-meta,.nt-all-state{flex:none;margin-left:auto;padding-left:12px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
-.nt-all-row[data-state=error] .nt-all-state{color:var(--agent-danger)}
+.nt-all-row[data-state=error] .nt-all-state,.nt-all-row[data-state=failed] .nt-all-state{color:var(--agent-danger)}
 /* A project's header in Projects: its folder and count; a click folds its chats. */
 .nt-all-group{display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 10px;box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:500;text-align:left;cursor:default;white-space:nowrap}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
@@ -233,3 +249,14 @@
   width: 24px;
   height: 24px;
 }
+/* The style switch (StyleSwitch.tsx): the style names in one quiet row under the page, the current
+   one on a small fill that slides to a new pick. Out of the flow, in the pages' bottom padding, so
+   the pages lay out (and scroll) as without it. */
+.nt-style{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);margin:0;padding:0;border:0;min-width:0;font-family:system-ui;-webkit-font-smoothing:antialiased}
+.nt-style-options{position:relative;display:flex;gap:2px}
+.nt-style-mark{position:absolute;top:0;left:0;height:100%;border-radius:5px;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent);pointer-events:none}
+.nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out),width var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out)}
+.nt-style-option{position:relative;padding:3px 8px;border-radius:5px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default;transition:color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
+.nt-style-option:hover,.nt-style-option:has(:checked){color:var(--agent-text)}
+.nt-style-option:has(:focus-visible){outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent));outline-offset:-1px}
+@media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option{transition:none}}

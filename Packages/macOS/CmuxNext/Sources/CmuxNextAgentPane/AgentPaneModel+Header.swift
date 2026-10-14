@@ -14,6 +14,9 @@ public struct AgentPaneHeaderHooks {
     /// Opens acpmux session `id` in a new tab beside the chat's (a fork, a started Continue in…), so
     /// the chat keeps its own tab and session; false when no tab opened.
     public var openTab: @MainActor (String) -> Bool
+    /// A started chat's New Chat Here: a New Tab page in folder `cwd`, in a tab beside the chat's;
+    /// false when none opened.
+    public var newChat: @MainActor (String) -> Bool
     /// [+] New tab / Hide tabs: opens, hides or shows the panes beside the chat; whether they show
     /// after it, nil when it could not run.
     public var sideTabs: @MainActor () -> Bool?
@@ -33,6 +36,7 @@ public struct AgentPaneHeaderHooks {
                 tabState: @escaping @MainActor () -> AgentPaneHeaderState,
                 openSide: @escaping @MainActor (String) -> Void = { _ in },
                 openTab: @escaping @MainActor (String) -> Bool = { _ in false },
+                newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
                 saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil,
@@ -43,6 +47,7 @@ public struct AgentPaneHeaderHooks {
         self.tabState = tabState
         self.openSide = openSide
         self.openTab = openTab
+        self.newChat = newChat
         self.sideTabs = sideTabs
         self.preview = preview
         self.saveQuickActions = saveQuickActions ?? { _ in false }
@@ -126,6 +131,11 @@ extension AgentPaneModel {
             guard let sessionId, newTab == nil, chat != sessionId, transport.sessions.contains(chat), let header,
                   header.openTab(chat) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.openTab")
+            }
+            return AgentPaneReply.success()
+        case .newChatHere(let cwd):
+            guard sessionId != nil, newTab == nil, let header, header.newChat(cwd) else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.newHere")
             }
             return AgentPaneReply.success()
         default:

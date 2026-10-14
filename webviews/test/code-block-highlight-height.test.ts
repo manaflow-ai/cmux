@@ -80,8 +80,11 @@ await requireBrowserLane("code-block-highlight-height.test.ts", async () => {
     const drawn = frames.filter((heights) => heights.length === 3);
     const first = drawn[0]!;
     const last = drawn.at(-1)!;
-    // Each card's lowest height while it highlights is the height it drew at first and ends at.
+    // Each card's lowest height while it highlights is the height it drew at first and ends at. A
+    // card is a fractional height (its 45.5px header), so a rounded one can read a pixel less where
+    // rows above it settle at another sub-pixel offset; a collapse is whole lines.
     const lowest = first.map((_, card) => Math.min(...drawn.map((heights) => heights[card]!)));
-    expect({ first, lowest, last }).toEqual({ first, lowest: first, last: first });
+    const collapsed = lowest.map((height, card) => first[card]! - height > 1);
+    expect({ first, collapsed, last }).toEqual({ first, collapsed: first.map(() => false), last: first });
   });
 });

@@ -46,6 +46,25 @@ export function parseNewTabTemplate(value: unknown): NewTabTemplate | undefined 
   return NEW_TAB_TEMPLATES.includes(value as NewTabTemplate) ? (value as NewTabTemplate) : undefined;
 }
 
+/// The styles the page's style switch offers, in its order (Leo 2026-10-13, cx-txe89). Terminal is
+/// not one: New Tab never opens a terminal by itself.
+export const PAGE_STYLES = ["default", "composer", "threads", "console", "classic"] as const;
+export type PageStyle = (typeof PAGE_STYLES)[number];
+
+/// The style the switch marks for a template (Terminal draws the default screen).
+export function pageStyle(template: NewTabTemplate): PageStyle {
+  return template === "terminal" ? "default" : template;
+}
+
+type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/// A style picked on the page: saved as `tabs.newTabTemplate` (the host checks the value), and
+/// shown in place at once.
+export function pickNewTabStyle(style: PageStyle, deps: { callNative: Native; show(style: PageStyle): void }): void {
+  void deps.callNative("newTab.setTemplate", { template: style }).catch(() => undefined);
+  deps.show(style);
+}
+
 /// The template to show: the saved one, else the Debug Settings design (`a` is Classic).
 export function shownTemplate(host: { template?: NewTabTemplate; layout: "a" | "b" }): NewTabTemplate {
   return host.template ?? (host.layout === "a" ? "classic" : "default");
