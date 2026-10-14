@@ -242,6 +242,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_build_only_keeps_tagged_app.sh
 
+      - name: Validate reload refuses DEV tags a shipped build owns
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_refuses_shipped_tags.sh
+
       - name: Validate reload --release builds the Release configuration
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_release_configuration.sh
