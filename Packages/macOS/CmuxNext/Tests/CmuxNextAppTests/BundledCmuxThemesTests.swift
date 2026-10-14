@@ -88,6 +88,11 @@ import Testing
             let bundled = try? Data(contentsOf: themes.appending(path: name))
             #expect(bundled == expected, "\(name) changed in the bundle")
         }
+        // The bundle phase never replaces a Ghostty theme, so a Ghostty theme with one of these
+        // names would ship instead of cmux's: rename ours before taking such a release.
+        for name in Self.pairs.flatMap({ [$0.key, $0.value] }) {
+            #expect(!FileManager.default.fileExists(atPath: shipped.appending(path: name).path), "Ghostty ships a theme named \(name)")
+        }
         for name in [GhosttyRuntime.defaultDarkThemeName, GhosttyRuntime.defaultLightThemeName] {
             #expect(FileManager.default.fileExists(atPath: themes.appending(path: name).path))
         }
