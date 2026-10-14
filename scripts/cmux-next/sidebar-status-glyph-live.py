@@ -298,8 +298,14 @@ def main():
     cpu("three rows working, window shown")
     shown = find_glyphs("glyph-working")
     print(f"after the shown window: animation {(shown[0] if shown else {}).get('animation')}", flush=True)
+    time.sleep(3)  # test script: a showMainWindow still in flight would restore the window after the minimize
     action("minimizeWindow")
     stopped = animation_on("glyph-working", window, None)
+    if stopped not in (None, "no glyph"):
+        action("minimizeWindow")  # once more, after any late restore
+        stopped = animation_on("glyph-working", window, None)
+    mains = [w for w in (rpc("debug.window_list") or {}).get("windows") or [] if w.get("kind") == "main"]
+    print(f"main windows after the minimize: {json.dumps([(w.get('id'), w.get('visible')) for w in mains])}", flush=True)
     # A minimized window may also drop its rows from the walk ("no glyph"): nothing spins then either.
     check(stopped in (None, "no glyph"), f"minimized: the spinner stops (animation {stopped})")
     cpu("three rows working, window minimized")
