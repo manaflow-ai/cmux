@@ -520,37 +520,33 @@ struct AttachmentThumb: View {
     }
 }
 /// UIImagePickerController's camera (SwiftUI has no camera picker).
-public struct CameraPicker: UIViewControllerRepresentable {
-    public static var isAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+struct CameraPicker: UIViewControllerRepresentable {
+    static var isAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
 
     let onImage: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    public init(onImage: @escaping (UIImage) -> Void) {
-        self.onImage = onImage
-    }
-
-    public func makeUIViewController(context: Context) -> UIImagePickerController {
+    func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
         picker.delegate = context.coordinator
         return picker
     }
 
-    public func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
 
-    public func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    public final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         let parent: CameraPicker
         init(_ parent: CameraPicker) { self.parent = parent }
 
-        public func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
             if let image = info[.originalImage] as? UIImage { parent.onImage(image) }
             parent.dismiss()
         }
 
-        public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
 #endif

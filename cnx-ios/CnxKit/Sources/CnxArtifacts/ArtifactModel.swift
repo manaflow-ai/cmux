@@ -80,6 +80,19 @@ public enum ArtifactContent: Sendable {
     case binary(description: String)
 }
 
+extension ArtifactContent {
+    /// The first line of an empty file's `binary` description.
+    public static let emptyFileLine = "Empty file"
+
+    /// A file with no bytes: nothing to preview (no Preview/Source toggle).
+    public var isEmptyFile: Bool {
+        if case .binary(let description) = self {
+            return description == Self.emptyFileLine || description.hasPrefix(Self.emptyFileLine + "\n")
+        }
+        return false
+    }
+}
+
 public typealias SessionArtifact = TerminalArtifact
 
 /// Loads artifact contents: from the Mac over the `file` link service

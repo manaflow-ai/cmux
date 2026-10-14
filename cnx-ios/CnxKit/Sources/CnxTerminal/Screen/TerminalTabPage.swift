@@ -81,6 +81,11 @@ public struct TerminalTabCard: View {
     let model: TerminalModel
     let insets: EdgeInsets
 
+    private var isReattaching: Bool {
+        if case .reattaching = model.connectionState { return true }
+        return false
+    }
+
     public init(model: TerminalModel, insets: EdgeInsets) {
         self.model = model
         self.insets = insets
@@ -91,7 +96,8 @@ public struct TerminalTabCard: View {
             ZStack(alignment: .top) {
                 Color(uiColor: CnxGhosttyApp.background)
                 if !model.connectionState.isAttached {
-                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot)
+                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot,
+                                           showsLabel: !isReattaching)
                 } else if let image = model.snapshot {
                     Image(uiImage: image)
                         .resizable()

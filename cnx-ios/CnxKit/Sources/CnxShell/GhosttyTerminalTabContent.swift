@@ -4,6 +4,7 @@ import CnxTerminal
 import CnxWorkspaces
 import SwiftUI
 import UIKit
+import Observation
 import OSLog
 
 private let warmLog = Logger(subsystem: "dev.cmux.cnx", category: "terminal")
@@ -28,6 +29,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// placeholder, or the mock in DEBUG mock mode).
     private var liveTabs: Set<String> = []
     private var workspaceOwner: [String: String] = [:]
+    /// Per tab: "Reattaching…" in the title pill after a slow reattach (P5),
+    /// fed from the host model's `connectionState` while the tab has a host.
+    private var indicators: [String: ReattachIndicator<ContinuousClock>] = [:]
+    private var feeds: [String: Task<Void, Never>] = [:]
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
     /// or nil while there is none yet (the tab then shows "Connecting…").
     var sessionProvider: (@MainActor (WorkspaceTab) -> (any TerminalSession)?)?
@@ -49,6 +54,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let open = Set(workspace.tabs.map(\.id))
         for (id, owner) in workspaceOwner where owner == workspace.id && !open.contains(id) {
             hosts[id] = nil
+            stopWatching(id)
+            indicators[id] = nil
             workspaceOwner[id] = nil
             liveTabs.remove(id)
             warm.remove(id)
@@ -71,12 +78,15 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.restoreLastFrame(lastFrames.removeValue(forKey: tab.id))
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
+        watchReattach(tab.id, model: model)
         workspaceOwner[tab.id] = workspace.id
         return host
     }
 
     /// Drops every host (another account or live data stopped).
     func reset() {
+        for id in Array(feeds.keys) { stopWatching(id) }
+        indicators = [:]
         hosts = [:]
         workspaceOwner = [:]
         liveTabs = []
@@ -97,8 +107,46 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         guard let host = hosts.removeValue(forKey: id) else { return }
         if let frame = host.model.snapshot { lastFrames[id] = frame }
         host.model.session.stop()
+        stopWatching(id)
         liveTabs.remove(id)
         warmLog.info("terminal tab \(id, privacy: .public) cooled (warm set of \(Self.warmLimit, privacy: .public)), last frame \(self.lastFrames[id] == nil ? "none" : "kept", privacy: .public)")
+    }
+
+    // MARK: Reattach indicator (design/terminal P5)
+
+    /// The tab's indicator, made on first read and kept, so the tab list
+    /// that read it observes it before the tab's host exists. Not observed
+    /// state itself: making one during a view update notifies nothing.
+    private func indicator(_ id: String) -> ReattachIndicator<ContinuousClock> {
+        if let indicator = indicators[id] { return indicator }
+        let indicator = ReattachIndicator()
+        indicators[id] = indicator
+        return indicator
+    }
+
+    /// Feeds the tab's indicator from its host model's connection state.
+    private func watchReattach(_ id: String, model: TerminalModel) {
+        stopWatching(id)
+        let indicator = indicator(id)
+        feeds[id] = Task { [weak indicator, model] in
+            for await state in Observations({ model.connectionState }) {
+                guard let indicator else { return }
+                if case .reattaching = state { indicator.update(reattaching: true) } else { indicator.update(reattaching: false) }
+            }
+        }
+    }
+
+    /// The host went away (closed or cooled). A cooled tab's next host feeds
+    /// the same indicator again.
+    private func stopWatching(_ id: String) {
+        feeds.removeValue(forKey: id)?.cancel()
+        indicators[id]?.cancel()
+    }
+
+    /// A read (no host is created): the tab's pill says "Reattaching…" while
+    /// its reattach has lasted 400 ms or more.
+    func statusSubtitle(for tab: WorkspaceTab) -> String? {
+        indicator(tab.id).isShown ? "Reattaching…" : nil
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
@@ -115,12 +163,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] {
         let model = host(for: tab, in: workspace).model
+        // The keyboard toggle and ^C live on the key bar, and Back leaves
+        // the workspace, so the menu does not repeat them (design/terminal P1).
         return [
-            TerminalTabAction(title: model.keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                              systemImage: model.keyboardVisible ? "keyboard.chevron.compact.down" : "keyboard") { model.toggleKeyboard() },
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
-            TerminalTabAction(title: "Send Ctrl-C", systemImage: "xmark.octagon") { model.sendControl("c") },
             TerminalTabAction(title: "Clear", systemImage: "clear") { model.sendControl("l") },
             TerminalTabAction(title: "Scroll to Bottom", systemImage: "arrow.down.to.line", isEnabled: model.isScrolledUp) { model.scrollToBottom() },
         ]

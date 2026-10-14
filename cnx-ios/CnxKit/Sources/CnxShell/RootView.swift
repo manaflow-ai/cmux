@@ -26,6 +26,9 @@ public struct ShellLaunchOptions: Sendable {
     public var setupPairDemo = false
     /// DEBUG: open Settings on this page (`SettingsRoute` case name).
     public var settingsPage: String?
+    /// A launch with no demo or forced page goes back to the workspace and
+    /// tab that were open (design/terminal P10). `-cnx-no-restore` opts out.
+    public var restoresLastLocation = true
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         func value(_ flag: String) -> String? {
@@ -41,7 +44,10 @@ public struct ShellLaunchOptions: Sendable {
         setupPairDemo = arguments.contains("-cnx-setup-pair")
         if setupPairDemo { forceSetup = true }
         settingsPage = value("-cnx-settings-page")
+        restoresLastLocation = initialTab == nil && settingsPage == nil && demo == nil && !sidebarOpen
+            && !arguments.contains("-CnxDemo") && DeveloperOptions.launchDemo == nil
         #endif
+        if arguments.contains("-cnx-no-restore") { restoresLastLocation = false }
     }
 }
 
@@ -242,6 +248,8 @@ public struct RootView: View {
         setupPlan = nil
         asksNotifications = nil
         store.resetForSignOut()
+        // The next account starts on Home, not in this one's workspace.
+        LastOpenMemory.standard.save(nil)
         if !auth.isMock {
             DeviceIdentity.reset()
             LiveCoordinator.forgetSnapshots()
@@ -369,6 +377,10 @@ struct ShellView: View {
             shell.tab = .settings
             shell.settingsPath = [page]
         }
+        // Back to the workspace and tab that were open (P10), before the
+        // first frame so Home does not flash. A tapped notification decides
+        // where the app opens instead.
+        if options.restoresLastLocation, NotificationRouter.shared.pending == nil { shell.beginRestore() }
         _shell = State(initialValue: shell)
         self.options = options
         self.live = live
@@ -420,6 +432,17 @@ struct ShellView: View {
         .onChange(of: NotificationRouter.shared.pending, initial: true) { _, route in
             guard let route else { return }
             if shell.open(route) { NotificationRouter.shared.pending = nil }
+        }
+        // Design/terminal P10: remember where the user is; finish a launch
+        // restore once the workspace is listed (or its Mac says it is gone).
+        .onChange(of: shell.lastOpenLocation) { _, location in
+            shell.locationChanged(location)
+        }
+        .onChange(of: shell.store.activeWorkspaces) { _, _ in
+            shell.continueRestore()
+        }
+        .onChange(of: shell.store.macData) { _, _ in
+            shell.continueRestore()
         }
         .onChange(of: shell.store.workspaces) { _, _ in
             guard let route = NotificationRouter.shared.pending else { return }

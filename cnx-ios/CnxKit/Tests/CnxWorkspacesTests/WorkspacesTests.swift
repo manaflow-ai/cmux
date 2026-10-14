@@ -137,8 +137,8 @@ import SwiftUI
     var focused: [String] = []
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) { focused.append(tab.id) }
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] {
-        [TerminalTabAction(title: "Show Keyboard", systemImage: "keyboard") { self.performed.append("keyboard") },
-         TerminalTabAction(title: "Files and Links", systemImage: "folder") { self.performed.append("files") }]
+        [TerminalTabAction(title: "Files and Links", systemImage: "folder") { self.performed.append("files") },
+         TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { self.performed.append("paste") }]
     }
 }
 
@@ -149,10 +149,10 @@ import SwiftUI
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
         let kit = try #require(source.tabs.first { $0.id == "t-zsh" })
         let groups = source.pageMenu(for: kit)
-        #expect(groups.first?.map(\.title) == ["Show Keyboard", "Files and Links"])
-        #expect(groups.dropFirst().first?.map(\.title) == ["Copy Directory", "All Workspaces"])
-        #expect(groups.last?.map(\.title) == ["Close Tab"])
-        groups.first?.last?.action()
+        #expect(groups.first?.map(\.title) == ["Files and Links", "Paste"])
+        // Design/terminal P1: Back leaves the workspace, so no "All Workspaces".
+        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Close Tab"]])
+        groups.first?.first?.action()
         #expect(content.performed == ["files"])
     }
 

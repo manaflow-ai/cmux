@@ -1,6 +1,5 @@
 #if os(iOS)
 import AVFoundation
-import CnxAgentChat
 import CnxTransport
 import PhotosUI
 import QuickLookThumbnailing
@@ -50,7 +49,7 @@ struct TerminalComposer: View {
             Task { await loadPhotos(items) }
         }
         .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { image in
+            TerminalCameraPicker { image in
                 guard let data = image.jpegData(compressionQuality: 0.85) else { return }
                 model.addAttachment(ComposerAttachment(kind: .image, name: "Camera \(Self.stamp()).jpg",
                                                        thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
@@ -72,7 +71,7 @@ struct TerminalComposer: View {
                 Section { pasteButton }
             }
             Section {
-                if CameraPicker.isAvailable {
+                if TerminalCameraPicker.isAvailable {
                     Button("Camera", systemImage: "camera") { showCamera = true }
                 } else {
                     Button {} label: {
@@ -318,6 +317,39 @@ struct AttachmentStrip: View {
             .frame(height: 56)
             .background(Color.primary.opacity(0.08), in: .rect(cornerRadius: 12, style: .continuous))
         }
+    }
+}
+#endif
+
+#if os(iOS)
+/// UIImagePickerController's camera for the composer's Camera item (SwiftUI has no camera picker).
+struct TerminalCameraPicker: UIViewControllerRepresentable {
+    static var isAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+
+    let onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: TerminalCameraPicker
+        init(_ parent: TerminalCameraPicker) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage { parent.onImage(image) }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
 #endif

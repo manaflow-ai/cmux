@@ -84,10 +84,10 @@ public struct ArtifactsBrowser: View {
                             ForEach(shown) { artifact in
                                 NavigationLink(value: artifact) { ArtifactRow(artifact: artifact) }
                                     .contextMenu {
-                                        Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
+                                        Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
                                     }
                                     .swipeActions(edge: .trailing) {
-                                        Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
+                                        Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
                                             .tint(Color(uiColor: .systemGray))
                                     }
                             }

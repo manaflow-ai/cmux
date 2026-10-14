@@ -41,6 +41,11 @@ public protocol TerminalTabContent: AnyObject {
     func overviewWillAppear(active tab: WorkspaceTab)
     /// A new terminal tab or workspace: put the keyboard up on its composer.
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace)
+    /// Replaces the title pill's subtitle (the working directory) while the
+    /// tab's state matters more, e.g. "Reattaching…" after a slow reattach
+    /// (design/terminal P5). Nil keeps the directory. Read during view
+    /// updates: must not create a tab's host or write state.
+    func statusSubtitle(for tab: WorkspaceTab) -> String?
 }
 
 extension TerminalTabContent {
@@ -48,6 +53,7 @@ extension TerminalTabContent {
     public func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] { [] }
     public func overviewWillAppear(active tab: WorkspaceTab) {}
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
+    public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
 }
 
 /// A page menu row a terminal tab adds.
