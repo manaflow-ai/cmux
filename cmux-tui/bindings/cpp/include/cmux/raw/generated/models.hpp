@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719";
+inline constexpr std::string_view kProtocolIrSha256 = "e91c9649daac926f7f92b0419f350228957c836a5946c9cbe9efe63386f52815";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -263,6 +263,7 @@ struct CloudConversationSubscribeRequest;
 struct CloudConversationThreadRequest;
 struct CloudConversationUnsubscribeRequest;
 struct CloudInboxListRequest;
+struct CloudInboxOpRequest;
 struct CloudInboxSubscribeRequest;
 struct CloudInboxUnsubscribeRequest;
 struct CloudMuxAckRequest;
@@ -287,6 +288,8 @@ struct ConversationHistoryRequest;
 struct ConversationHistoryResult;
 struct ConversationImportRequest;
 struct ConversationImportResult;
+struct ConversationInboxOpRequest;
+struct ConversationInboxOpResult;
 struct ConversationLinkResolveRequest;
 struct ConversationLinkResolveResult;
 struct ConversationListRequest;
@@ -533,6 +536,7 @@ struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
 struct ConversationChangedEvent;
 struct ConversationDraftEvent;
+struct ConversationInboxChangedEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
@@ -1530,6 +1534,13 @@ struct CloudInboxListRequest {
     friend bool operator==(const CloudInboxListRequest&, const CloudInboxListRequest&) = default;
 };
 
+struct CloudInboxOpRequest {
+    std::string conversation{};
+    std::string idempotency_key{};
+    std::optional<JsonValue> op{};
+    friend bool operator==(const CloudInboxOpRequest&, const CloudInboxOpRequest&) = default;
+};
+
 struct CloudInboxResetEvent {
     std::optional<std::string> account{};
     std::uint64_t seq{};
@@ -1825,8 +1836,11 @@ struct ConversationSummary {
     std::string id{};
     std::optional<ConversationMessage> last_message{};
     std::uint64_t last_seq{};
+    std::optional<bool> marked_unread{};
     std::string owner{};
     std::vector<ConversationParticipant> participants{};
+    std::optional<std::uint64_t> pin_position{};
+    std::optional<bool> pinned{};
     std::map<std::string, std::uint64_t, std::less<>> read_cursors{};
     std::uint64_t rev{};
     std::string title{};
@@ -1944,6 +1958,30 @@ struct ConversationImportResult {
     std::vector<std::uint64_t> imported{};
     std::uint64_t skipped{};
     friend bool operator==(const ConversationImportResult&, const ConversationImportResult&) = default;
+};
+
+struct ConversationInboxChangedEvent {
+    std::string conversation{};
+    bool marked_unread{};
+    std::string participant{};
+    std::optional<std::uint64_t> pin_position{};
+    bool pinned{};
+    friend bool operator==(const ConversationInboxChangedEvent&, const ConversationInboxChangedEvent&) = default;
+};
+
+struct ConversationInboxOpRequest {
+    std::string conversation{};
+    std::optional<JsonValue> op{};
+    friend bool operator==(const ConversationInboxOpRequest&, const ConversationInboxOpRequest&) = default;
+};
+
+struct ConversationInboxOpResult {
+    std::string conversation{};
+    bool marked_unread{};
+    std::string participant{};
+    std::optional<std::uint64_t> pin_position{};
+    bool pinned{};
+    friend bool operator==(const ConversationInboxOpResult&, const ConversationInboxOpResult&) = default;
 };
 
 struct ConversationLinkResolveRequest {
@@ -6874,6 +6912,12 @@ struct Codec<CloudInboxListRequest> {
 };
 
 template <>
+struct Codec<CloudInboxOpRequest> {
+    static Result<Json> encode(const CloudInboxOpRequest& value);
+    static Result<CloudInboxOpRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudInboxSubscribeRequest> {
     static Result<Json> encode(const CloudInboxSubscribeRequest& value);
     static Result<CloudInboxSubscribeRequest> decode(const Json& value);
@@ -7015,6 +7059,18 @@ template <>
 struct Codec<ConversationImportResult> {
     static Result<Json> encode(const ConversationImportResult& value);
     static Result<ConversationImportResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationInboxOpRequest> {
+    static Result<Json> encode(const ConversationInboxOpRequest& value);
+    static Result<ConversationInboxOpRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationInboxOpResult> {
+    static Result<Json> encode(const ConversationInboxOpResult& value);
+    static Result<ConversationInboxOpResult> decode(const Json& value);
 };
 
 template <>
@@ -8491,6 +8547,12 @@ template <>
 struct Codec<ConversationDraftEvent> {
     static Result<Json> encode(const ConversationDraftEvent& value);
     static Result<ConversationDraftEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationInboxChangedEvent> {
+    static Result<Json> encode(const ConversationInboxChangedEvent& value);
+    static Result<ConversationInboxChangedEvent> decode(const Json& value);
 };
 
 template <>

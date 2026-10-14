@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::CloudError;
 use super::contract::{
-    self, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data, mutation_data,
+    self, InboxOpRequest, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data, mutation_data,
     read_body, read_value, require_conversation, snapshot_data,
 };
 use super::session::{CloudSession, SessionParams};
@@ -483,6 +483,19 @@ impl CloudConversations {
     pub fn op(&self, request: &OpRequest) -> Result<Value, CloudError> {
         let body = contract::op_body(request)?;
         mutation_data(self.post("/v1/ops", &body)?)
+    }
+
+    /// `cloud-inbox-op`: the person's own pin or "marked unread" of one
+    /// conversation (UserDO `inbox.pin`, `inbox.mark_unread`); the reply's
+    /// `value` is the inbox entry. Never retried here.
+    pub fn inbox_op(&self, request: &InboxOpRequest) -> Result<Value, CloudError> {
+        let body = contract::inbox_op_body(request)?;
+        mutation_data(self.post("/v1/ops", &body)?)
+    }
+
+    /// Validates a `cloud-inbox-op` before it leaves the request loop.
+    pub fn check_inbox_op(&self, request: &InboxOpRequest) -> Result<(), CloudError> {
+        contract::inbox_op_body(request).map(|_| ())
     }
 
     /// Validates a command before it leaves the request loop, so shape

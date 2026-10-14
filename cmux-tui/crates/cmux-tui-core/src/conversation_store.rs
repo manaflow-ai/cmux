@@ -24,6 +24,8 @@ use sha2::{Digest, Sha256};
 
 #[path = "conversation_import.rs"]
 mod import;
+#[path = "conversation_inbox.rs"]
+pub(crate) mod inbox;
 pub(crate) use import::ImportedMessage;
 #[path = "conversation_links.rs"]
 pub(crate) mod links;
@@ -208,6 +210,7 @@ impl ConversationStore {
         )?;
         transaction.execute_batch(attachments::SCHEMA)?;
         transaction.execute_batch(threads::SCHEMA)?;
+        transaction.execute_batch(inbox::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -724,6 +727,12 @@ pub enum ConversationEvent {
     /// `conversation.events` item, delivered only on that stream (never on
     /// the raw subscribe stream or the remote relay). Never stored.
     Draft { conversation: String, participant: String, item: Value },
+    /// A participant's own list state of one conversation changed (a pin, a
+    /// "marked unread"; `conversation-inbox-state-v1`). Not conversation
+    /// state: no rev, and `subscribe` delivers it only to connections whose
+    /// principal is `participant` (never the remote relay or
+    /// `conversation.events`).
+    Inbox { conversation: String, participant: String, state: inbox::InboxState },
 }
 
 impl ConversationEvent {
@@ -744,6 +753,19 @@ impl ConversationEvent {
                 "on": on,
             }),
             Self::Draft { item, .. } => item.clone(),
+            Self::Inbox { conversation, participant, state } => {
+                let mut value = json!({
+                    "event": "conversation-inbox-changed",
+                    "conversation": conversation,
+                    "participant": participant,
+                });
+                if let (Value::Object(fields), Ok(Value::Object(state))) =
+                    (&mut value, serde_json::to_value(state))
+                {
+                    fields.extend(state);
+                }
+                value
+            }
         }
     }
 

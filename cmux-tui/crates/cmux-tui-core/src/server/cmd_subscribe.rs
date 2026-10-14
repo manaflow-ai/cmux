@@ -121,6 +121,17 @@ pub(super) fn subscribe_command(
                 MuxEvent::Conversation(_) if !conversation_client => {
                     continue;
                 }
+                // A participant's own list state (a pin, a "marked unread")
+                // goes only to connections that act as that participant.
+                MuxEvent::Conversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::conversation_store::ConversationEvent::Inbox { participant, .. }
+                            if *participant != event_mux.conversation_principal(client)
+                    ) =>
+                {
+                    continue;
+                }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
                 MuxEvent::CloudConversation(_) if !conversation_client => {

@@ -519,6 +519,7 @@
       "conversation-history",
       "conversation-thread",
       "conversation-link-resolve",
+      "conversation-inbox-op",
       "conversation-search",
       "history-search",
       "conversation-op",
@@ -539,6 +540,7 @@
       "cloud-conversation-history",
       "cloud-conversation-thread",
       "cloud-conversation-op",
+      "cloud-inbox-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
@@ -652,6 +654,12 @@
     },
     {
       "name": "conversation-draft",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-inbox-changed",
       "streams": [
         "subscribe"
       ]
