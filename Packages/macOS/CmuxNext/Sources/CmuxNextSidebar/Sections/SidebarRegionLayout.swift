@@ -99,7 +99,7 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         // An app section shows only with content (a height from its provider).
         let shown = sections.filter { section in
             switch section.content {
-            case .items: !section.items.isEmpty || header(section, look) != nil
+            case .items: !section.items.isEmpty || header(section, look) != nil || emptyTitle(section) != nil
             case .app: (appHeights[section.id] ?? 0) > 0
             default: false
             }
@@ -128,7 +128,7 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
             let top = y
             if carded { y += m.cardPadding }
             var sectionCapped: CGFloat = carded ? m.cardPadding * 2 : 0
-            let title = header(section, look)
+            let title = header(section, look) ?? emptyTitle(section)
             if title != nil {
                 result.rows.append(SidebarRegionRow(kind: .header(section.id), frame: CGRect(x: x, y: y, width: innerWidth, height: m.headerHeight)))
                 y += m.headerHeight
@@ -173,6 +173,12 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         result.height = y
         result.cappedHeight = min(capped, y)
         return result
+    }
+
+    /// An empty titled section's title: it draws it in every look, so the section stays in sight and takes a drop
+    /// there (an empty section with no title takes no space).
+    static func emptyTitle(_ section: LayoutSection) -> String? {
+        section.content == .items && section.items.isEmpty ? section.headerTitle : nil
     }
 
     /// The header a section draws in `look`, or nil.

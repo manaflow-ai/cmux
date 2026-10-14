@@ -193,7 +193,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if nodes.isEmpty {
                 if gapHere {
                     openGapIfNeeded(section: section.id, group: nil, index: 0)
-                } else if blockHeight == 0 {
+                } else if blockHeight == 0 || (emptyDropZone && docID.map(o.emptyDocSections.contains) == true) {
                     rows.append(SidebarRow(
                         key: .emptySection(section.id), y: y, height: m.emptySectionHeight, section: section.id,
                         group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,

@@ -229,6 +229,9 @@ final class SidebarListView: NSView {
         }
         o.blockHeights = blockHeights(includeGap: includeGap)
         o.collapsedDocSections = Set(model.collapsedLayoutSections.map(\.rawValue))
+        if let blocks, let moving = shownDrag?.docItems.map(Set.init) {
+            o.emptyDocSections = Set(blocks.sections.filter { $0.value.items.allSatisfy { moving.contains($0.id.rawValue) } }.keys)
+        }
         guard let drag = shownDrag else { return o }
         if drag.docItems != nil { o.showEmptyPinned = true } // an empty Pinned takes a drop on the document
         switch drag.payload {

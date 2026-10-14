@@ -81,6 +81,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var blockHeights: [String: CGFloat] = [:]
     /// Document sections folded by their header: their groups do not list.
     public var collapsedDocSections: Set<String> = []
+    /// Document sections whose block draws no item (at most a title): during a drag (`showEmptyPinned`)
+    /// each opens a one-row drop zone under its title, so an empty section always takes a drop.
+    public var emptyDocSections: Set<String> = []
     /// When set, only these workspaces show; containers force-expand.
     public var filterMatches: Set<WorkspaceID>?
     /// Show the drop zone for an empty pinned section.
