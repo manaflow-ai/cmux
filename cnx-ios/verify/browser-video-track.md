@@ -172,56 +172,65 @@ numbers but does not expose them.
 - We would revisit if field data shows the rd controller under-using
   cellular paths, where GCC's probing is stronger.
 
-## WireGuard carrier (on hold: the user is choosing the transport architecture)
+## WireGuard: media on the datagram lane vs a PeerConnection in the tunnel
 
-A WireGuard media lane must not lose smooth video. There are two candidate
-designs.
+The user has decided on WireGuard for everything, with WebRTC used only for
+media. Research is in `verify/transport-wireguard-everything.md` (branch
+`feat-cnx-ios-wgresearch`, `2ad07df5`). Nothing below is started. This is
+the comparison the decision needs.
 
-### Option 1 (preferred if built): the same peer connection over the tunnel
+Both options keep what this branch built:
 
-This option runs webrtc-rs with the WireGuard tunnel as its network, so
-video is the same code on both transports.
+- the `MediaLane` and `MediaCarrier` seam;
+- `SenderCore` (rtp-crate packetization, TWCC send times, the rd
+  controller, the ack window, PLI and FIR);
+- `ReceiverCore` (release on marker, give-up deadline, keyframe gating, PLI);
+- hostd's `TrackBridge` (rd to RTP, virtual bottleneck to the VideoToolbox
+  encoder);
+- the cnx-ffi viewer.
 
-Findings on feasibility:
+They differ only in what moves the RTP and RTCP packets.
 
-- `SettingEngine::set_udp_network(UDPNetwork::Muxed(UDPMuxDefault::new(
-  UDPMuxParams::new(conn))))` accepts any `webrtc_util::Conn`. The trait has
-  async `recv_from` and `send_to` plus `local_addr`.
-- A smoltcp UDP socket on the tunnel's overlay address can implement it.
-  The tunnel already runs smoltcp TCP streams.
-- ICE gathers host candidates from OS interfaces even when muxed, so the
-  setup needs:
-  - `set_nat_1to1_ips([overlay_ip], Host)`, to advertise the overlay
-    address;
-  - an interface filter that keeps one interface;
-  - no STUN or TURN servers.
-- WireGuard-via-TURN is unaffected: TURN stays at the outer layer.
-- The cost is double encryption (SRTP and DTLS inside WireGuard), which is
-  acceptable.
+| | A. RTP on the tunnel's datagram lane | B. PeerConnection inside the tunnel |
+| --- | --- | --- |
+| Carrier | `WgDatagramCarrier: MediaCarrier` over `WgDatagramSocket`. RTP goes as `Priority::Media` (50 ms stale drop) and RTCP as `Interactive`, on one port, demuxed by payload type (RFC 5761). | `WgUdpConn: webrtc::util::Conn` over the same socket, then `UDPNetwork::Muxed` with the overlay IP as the only host candidate. The track carrier from this branch is reused unchanged. |
+| NACK, TWCC, reports | The `interceptor` crate used as a library: the same `Registry` (generator, responder, TWCC receiver, reports) built with `Registry::build`, with its `bind_local_stream`, `bind_remote_stream` and `bind_rtcp_writer` writers pointed at the socket. No SRTP, because WireGuard encrypts. | The same interceptors inside the PeerConnection, as on WebRTC links today. |
+| Negotiation | No SDP. Fixed payload type 102, TWCC extension id 1 and the Mac's SSRC, announced on the `video` lane (link `lanes` or the version service). | SDP offer and answer over a link channel in the tunnel (no Worker), then ICE checks, DTLS and SRTP keying. |
+| Effort | About 3 to 4 days: carrier 1, interceptor wiring 1, lane negotiation 0.5, tests (loopback WireGuard pair, loss and reorder) 1. | About 3 to 4 days: `Conn` adapter, settings, in-link signaling and tests. The research's "1 to 2 weeks for media tracks" is mostly done in this branch. |
+| What we write that webrtc-rs has | Nothing protocol-level. We skip ICE, DTLS and SRTP, which WireGuard makes redundant. We write the about 100-line glue that webrtc-rs's `RTCRtpSender` and `TrackRemote` do internally (binding interceptors to a stream). | Nothing. |
+| Added per-packet cost | WireGuard only. | Also SRTP and DTLS, a second encryption layer, plus ICE consent checks. CPU not measured; likely more than WireGuard itself (research §2). |
+| First frame after link up | No extra handshake. | Plus about 1 RTT of ICE checks and 2 of DTLS before the first frame, on every link. |
+| Latency and quality | Same cores, so the same behavior: release on marker, NACK, TWCC to the rd controller, PLI. | Same. |
+| MTU | We packetize at 1100 B of payload, so RTP is about 1130 B against a 1232 B datagram limit: about 100 B spare. | About 1146 B with SRTP, so about 86 B spare. Data channels using webrtc-rs defaults have 4 B. |
+| Risks | The `interceptor` crate outside webrtc-rs is less used; its public API works, but no webrtc-rs code path exercises it that way. The Worker-relay fallback (TCP) loses unreliability, which applies to both. | A second connection state machine (ICE consent, DTLS) inside a tunnel that roams. The interface-enumeration plus `nat_1to1` trick to get a single overlay candidate. Tight data-channel margins. |
+| Roaming | Needs WireGuard roaming (not built: no `WgNet::rebind`; 2 to 3 days, research). Then the lane is unaffected. | Same dependency. The PeerConnection's single overlay pair survives WireGuard roaming without an ICE restart. |
 
-Effort is about 1 to 2 days:
+The research's own recommendation is a third option: carry the
+`cmux.rd/1` shards themselves on the datagram lane. That uses rd's FEC,
+NACK and controller, needs no RTP and no hostd bridge, and takes about 2 to
+3 days. It reimplements nothing either, because rd exists already. It does
+not reuse this branch's RTP core or the WebRTC track, and on WebRTC links it
+would need a second unreliable data channel to match.
 
-- a smoltcp UDP `Conn` adapter;
-- a second, media-only peer connection per WireGuard link, with signaling
-  over a link channel instead of the TeamHub DO (no backend change);
-- tests.
+### Recommendation
 
-### Option 2: RTP and RTCP in UDP inside the tunnel
+If the user wants standard RTP media, meaning one media path that WebRTC
+links have today and later screen viewing could share, choose A:
 
-This option uses the `MediaCarrier` seam with no SRTP. The cores are
-already transport-agnostic, but NACK and TWCC generation would have to move
-out of webrtc-rs's interceptors into the cores. That re-implements what
-webrtc-rs does, so it is not recommended.
+- it has the same cores;
+- the webrtc-rs `rtp`, `rtcp` and `interceptor` crates are used as
+  libraries;
+- there is no double encryption and no in-tunnel handshake.
 
-### Seam
+B costs about the same effort, adds a second encryption layer and a
+per-link handshake, and buys nothing A lacks.
 
-`MediaCarrier` (cnx-link `media/mod.rs`) has `send_rtp`, `recv_rtp`,
-`send_rtcp` and `recv_rtcp`. Today:
+If the user prefers the smallest change for browser tabs alone, the rd
+datagram lane is smaller, but browser video then has two media formats
+(RTP on WebRTC, rd on WireGuard) until the WebRTC transport is retired.
 
-- `media::wireguard::carrier()` returns `Unsupported`;
-- the WireGuard dialer never lists the lane;
-- the phone keeps the reliable path (test
-  `wireguard_links_keep_the_reliable_path_for_now`).
+The seam is in place for any of the three, and
+`media::wireguard::carrier()` answers `Unsupported` until one is chosen.
 
 ## Tests
 
