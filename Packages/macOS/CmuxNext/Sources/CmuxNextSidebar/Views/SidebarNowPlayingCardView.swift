@@ -158,6 +158,8 @@ final class SidebarNowPlayingScrubber: NSView {
     /// with no report (a source that ignored the seek): then it runs on from where it plays.
     private var dragged: TimeInterval?
     private let seekWait = DemandTimer(owner: "sidebar.now-playing.seek")
+    /// Bumped by each press and release, so a wait that fires as a new drag starts leaves that drag.
+    private var seekCount = 0
     static let seekWaitDelay: Duration = .seconds(2)
     /// Pins Reduce Motion for this scrubber only (tests), instead of the
     /// process-wide `Motion.reduceMotionOverride`, which leaks into every
@@ -262,6 +264,7 @@ final class SidebarNowPlayingScrubber: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let seconds = seconds(at: event) else { return }
         seekWait.cancel()
+        seekCount &+= 1
         dragged = seconds
         update()
     }
@@ -278,10 +281,13 @@ final class SidebarNowPlayingScrubber: NSView {
         let expected = nowPlaying?.position(at: Date())
         dragged = expected.map { abs($0 - seconds) < 1.5 } == true ? nil : seconds
         update()
+        seekCount &+= 1
         if dragged != nil {
+            let seek = seekCount
             seekWait.schedule(after: Self.seekWaitDelay) { @MainActor [weak self] in
-                self?.dragged = nil
-                self?.update()
+                guard let self, self.seekCount == seek else { return }
+                self.dragged = nil
+                self.update()
             }
         }
         onSeek?(seconds)

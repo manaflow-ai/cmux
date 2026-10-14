@@ -2,6 +2,7 @@ import AppKit
 public import CmuxNextBrowser
 public import CmuxNextSidebar
 public import Observation
+import CmuxNextWakeups
 
 /// The sidebar Now Playing card's source (cx-ouoxo): the browser tab that
 /// plays, in either engine, picked the way macOS Now Playing picks it
@@ -19,11 +20,13 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
     /// The shown tab's artwork, small PNG data once loaded (nil while loading or without art).
     private var artwork: (url: URL, data: Data?)?
     private static let artworkSide: CGFloat = 96
-    /// How long after a failed artwork fetch a read asks the tab again (tests shorten it).
-    @ObservationIgnored var artworkRetry: TimeInterval = 10
-    /// The artwork fetch that failed last, and when. Out of observation, so a failure triggers no
-    /// read and no refetch loop; a read ``artworkRetry`` later asks the tab again.
-    @ObservationIgnored private var failedArtwork: (url: URL, at: Date)?
+    /// How long after a failed artwork fetch the tab is asked again, doubling with each failure
+    /// up to ``artworkRetryLimit`` (tests shorten it).
+    @ObservationIgnored var artworkRetry: Duration = .seconds(10)
+    private static let artworkRetryLimit: Duration = .seconds(300)
+    /// The artwork URL whose fetches failed, and how many times in a row.
+    @ObservationIgnored private var artworkFailures: (url: URL, count: Int)?
+    @ObservationIgnored private let artworkWait = DemandTimer(owner: "now-playing.artwork-retry")
 
     public init() {}
 
@@ -62,29 +65,35 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
     /// after a fetch that failed (the tab was still loading, the network dropped).
     private func artworkData(_ url: URL?, tab id: BrowserTabID) -> Data? {
         guard let url else { return nil }
-        if let artwork, artwork.url == url, artwork.data != nil || !retryDue(url) { return artwork.data }
+        if let artwork, artwork.url == url { return artwork.data }
         // Loaded after this read returns, so the read never writes what it observes.
         Task { [weak self] in self?.loadArtwork(url, tab: id) }
         return nil
     }
 
-    private func retryDue(_ url: URL) -> Bool {
-        guard let failedArtwork, failedArtwork.url == url else { return false }
-        return Date().timeIntervalSince(failedArtwork.at) >= artworkRetry
-    }
-
     private func loadArtwork(_ url: URL, tab id: BrowserTabID) {
-        guard artwork?.url != url || retryDue(url), let tab = browserTab(id) else { return }
-        failedArtwork = nil
-        if artwork?.url != url { artwork = (url, nil) }
+        guard artwork?.url != url, let tab = browserTab(id) else { return }
+        artwork = (url, nil)
         Task { [weak self] in
             let image = await tab.fetchFavicon(url)
             guard let self, self.artwork?.url == url else { return }
             guard let data = image.flatMap(Self.png) else {
-                self.failedArtwork = (url, Date())
+                self.artworkFailed(url)
                 return
             }
+            self.artworkFailures = nil
             self.artwork = (url, data)
+        }
+    }
+
+    /// Forgets the failed fetch a while later: readers look again and the next read asks the tab anew.
+    private func artworkFailed(_ url: URL) {
+        let count = artworkFailures?.url == url ? (artworkFailures?.count ?? 0) + 1 : 1
+        artworkFailures = (url, count)
+        let delay = min(artworkRetry * (1 << min(count - 1, 16)), Self.artworkRetryLimit)
+        artworkWait.schedule(after: delay) { @MainActor [weak self] in
+            guard let self, self.artwork?.url == url, self.artwork?.data == nil else { return }
+            self.artwork = nil
         }
     }
 

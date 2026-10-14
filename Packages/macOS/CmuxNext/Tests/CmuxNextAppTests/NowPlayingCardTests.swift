@@ -171,7 +171,7 @@ import Testing
         let art = try #require(URL(string: "http://127.0.0.1:9/cover-\(UUID().uuidString).png"))
         let media = BrowserMediaState(title: "Weightless", artworkURL: art, isPlaying: true, position: 60, duration: 480)
         let source = BrowserTabsNowPlaying()
-        source.artworkRetry = 0.2
+        source.artworkRetry = .milliseconds(200)
         source.follow(sessions: { [NowPlayingSession(tab: tab.id, media: media)] }, tab: { _ in tab })
         // Read the way the card is fed: the model reads the source again only when it changes.
         let model = SidebarModel()
