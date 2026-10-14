@@ -108,6 +108,7 @@ import Testing
         let registry = harness.services.registry
         let previousMenu = NSApp.mainMenu, previousDispatching = registry.isDispatchingKeyDown
         let previousClaim = TerminalKeyEquivalent.menuMayClaim, previousAppAction = GhosttyRuntime.shared.appActionHandler
+        let previousOwns = TerminalKeyEquivalent.userKeybindOwns
         NSApp.mainMenu = menu
         registry.isDispatchingKeyDown = { true }
         TerminalHooks(services: harness.services).install()
@@ -115,6 +116,7 @@ import Testing
             NSApp.mainMenu = previousMenu
             registry.isDispatchingKeyDown = previousDispatching
             TerminalKeyEquivalent.menuMayClaim = previousClaim
+            TerminalKeyEquivalent.userKeybindOwns = previousOwns
             GhosttyRuntime.shared.appActionHandler = previousAppAction
         }
         try body()

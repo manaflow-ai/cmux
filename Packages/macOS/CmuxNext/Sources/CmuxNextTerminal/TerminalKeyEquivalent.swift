@@ -17,10 +17,11 @@ public struct TerminalKeyEquivalent {
     public static var menuMayClaim: ((NSEvent) -> Bool)?
 
     /// Whether the dispatcher gave `event` to this terminal for the user's
-    /// own Ghostty keybind (their config binds or unbinds a chord cmux has a
-    /// default on, or changes a routed keybind). Then no main-menu item takes
-    /// a Command chord before Ghostty. Ghostty's and cmux's default keybinds
-    /// never count, so Edit > Undo keeps Cmd-Z.
+    /// own Ghostty keybind (their config binds a chord cmux has a default on,
+    /// or binds a routed action). Then no main-menu item takes a Command
+    /// chord before Ghostty. Ghostty's and cmux's default keybinds never
+    /// count, so Edit > Undo keeps Cmd-Z. An unbind still lets AppKit offer
+    /// the menu after Ghostty declines the key.
     public static var userKeybindOwns: ((NSEvent) -> Bool)?
 
     /// Notes the path of a traced key (`debug.key`); nil otherwise.
