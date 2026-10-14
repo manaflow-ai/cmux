@@ -312,7 +312,10 @@ fn deleting_a_browser_profile_moves_its_tabs_to_the_default_profile() {
 
     ok(&server, &["browser", "profile", "delete", "--profile", "Work"]);
     let after = frontend_browser_tab(&profile_tree(&server)).clone();
-    assert!(after["browser_profile_id"].is_null(), "the tab still names the deleted profile: {after}");
+    assert!(
+        after["browser_profile_id"].is_null(),
+        "the tab still names the deleted profile: {after}"
+    );
 
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut seen = Vec::new();
