@@ -56,6 +56,20 @@ export function pageStyle(template: NewTabTemplate): PageStyle {
   return template === "terminal" ? "default" : template;
 }
 
+/// The style switch's looks (Debug Settings `newTab.styleSwitch`, sent as `styleSwitch`; Leo
+/// 2026-10-14 compares them before one ships): the dots as they were before #20127, the dots that
+/// name a pick for a moment, a strip of small layout glyphs, and the style names of #20336.
+export const STYLE_SWITCHES = ["dots", "hint", "strip", "names"] as const;
+export type StyleSwitchLook = (typeof STYLE_SWITCHES)[number];
+
+/// The look with no knob set: the dots, which name a pick for a moment.
+export const DEFAULT_STYLE_SWITCH: StyleSwitchLook = "hint";
+
+/// A look from the host, or undefined for anything else.
+export function parseStyleSwitch(value: unknown): StyleSwitchLook | undefined {
+  return STYLE_SWITCHES.includes(value as StyleSwitchLook) ? (value as StyleSwitchLook) : undefined;
+}
+
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 /// A style picked on the page: saved as `tabs.newTabTemplate` (the host checks the value), and
