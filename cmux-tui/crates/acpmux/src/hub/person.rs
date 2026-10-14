@@ -518,10 +518,17 @@ pub(crate) fn asking_policy_value(v: Option<&Value>) -> bool {
 
 impl Hub {
     /// The one person check (module docs). `person`: the connection
-    /// presented this launch's key.
+    /// presented this launch's key. `remote_authenticated`: a connection
+    /// held to the Web's rules (a Web connection, or a peer forwarding for its
+    /// Web client) that proved a credential (`server/conn_auth.rs`),
+    /// which may set any mode of the Codex bridge (Lawrence, 2026-10-13:
+    /// "remote connection must be authed, and should be able to pretty much
+    /// use yolo mode"; `Hub::any_mode_for_web`). The unix socket (the
+    /// CLI, scripts, agents) still needs the person for a mode that does not ask.
     pub async fn person_check(
         &self,
         person: bool,
+        remote_authenticated: bool,
         m: &str,
         params: &Value,
     ) -> Result<PersonVerdict, RpcError> {
@@ -535,11 +542,18 @@ impl Hub {
             // handler forwards it and never handles it here.
             return Ok(PersonVerdict::PeerOnly);
         }
-        self.person_check_local(m, params).await.map(|()| PersonVerdict::Handle)
+        self.person_check_local(remote_authenticated, m, params)
+            .await
+            .map(|()| PersonVerdict::Handle)
     }
 
     /// `person_check` for a request this daemon handles itself.
-    async fn person_check_local(&self, m: &str, params: &Value) -> Result<(), RpcError> {
+    async fn person_check_local(
+        &self,
+        remote_authenticated: bool,
+        m: &str,
+        params: &Value,
+    ) -> Result<(), RpcError> {
         match m {
             method::MUX_PERMISSION_RESPOND => {
                 let option = params.get("optionId").filter(|v| !v.is_null());
@@ -651,6 +665,9 @@ impl Hub {
                     return Ok(());
                 };
                 let family = crate::web_modes::family_of(&s.meta());
+                if remote_authenticated && self.any_mode_for_web(&s.meta()) {
+                    return Ok(());
+                }
                 if self.web_modes().config_value_asks(&family, id, value) {
                     Ok(())
                 } else {

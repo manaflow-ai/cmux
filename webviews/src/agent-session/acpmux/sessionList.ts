@@ -10,6 +10,8 @@ export type AcpmuxSessionEntry = {
   title?: string;
   name?: string;
   harness?: string;
+  /** The harness's own id for the chat (Claude Code's session id): the device chat index lists it too. */
+  agentSessionId?: string;
   status?: string;
   model?: string;
   cwd?: string;
@@ -105,6 +107,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     title: session.title,
     name: session.name,
     harness: session.harness,
+    agentSessionId: text(session.agentSessionId),
     status: session.status,
     model: session.model,
     cwd: typeof session.cwd === "string" ? session.cwd : undefined,
