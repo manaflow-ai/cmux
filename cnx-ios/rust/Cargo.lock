@@ -514,6 +514,7 @@ dependencies = [
  "futures-util",
  "libc",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "tempfile",
