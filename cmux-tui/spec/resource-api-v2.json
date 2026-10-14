@@ -53,6 +53,7 @@
         "agent.message.mark",
         "agent.message.send",
         "agent.report",
+        "agent.runtime.list",
         "browser.activate",
         "browser.attach",
         "browser.back",
@@ -335,6 +336,7 @@
         "read": [
           "agent.list",
           "agent.message.list",
+          "agent.runtime.list",
           "browser.devices.list",
           "browser.get",
           "browser.list",
