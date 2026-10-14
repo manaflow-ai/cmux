@@ -112,8 +112,13 @@ struct BrowserScreen: View {
     @State private var zoomDriver = TabZoomDriver()
     /// Tab the zoom shows: the active tab, a tapped card, or `newTabMarker`.
     @State private var zoomTabId: String?
-    /// Grid content origin in the screen's coordinate space, reported by the grid.
-    @State private var gridContentOrigin: CGPoint?
+    /// The grid's scroll offset and content origin, written on every scroll
+    /// frame. A reference (not `@State` values) so a scroll frame does not
+    /// re-evaluate this body and every card: only views that read it (the
+    /// zoom while it runs, the live terminal card's offset) update.
+    @State private var gridScroll = GridScrollTracker()
+    private var gridContentOrigin: CGPoint? { gridScroll.contentOrigin }
+    private var overviewScroll: CGFloat { gridScroll.offset }
     /// (+) pressed and the tab not created yet: the grid shows a placeholder card.
     @State private var newTabPending = false
     /// The pending (+) item is a terminal.
@@ -127,7 +132,6 @@ struct BrowserScreen: View {
     @State private var debugFingers: [CGPoint] = []
     private var debugPinchMode: String? { ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_PINCH"] }
     #endif
-    @State private var overviewScroll: CGFloat = 0
     @State private var overviewPosition = ScrollPosition(y: 0)
     @State private var menuExpanded = false
     @State private var menuContent = false
@@ -239,7 +243,7 @@ struct BrowserScreen: View {
                             hiddenTabId: zoomState.phase == .overview ? (tabs.activeTerminal != nil ? tabs.activeKey : nil) : zoomTabId,
                             gridInteractive: zoomState.gridInteractive,
                             controlsInteractive: overviewVisible && zoomState.headingToOverview,
-                            scrollOffset: $overviewScroll, position: $overviewPosition,
+                            scroll: gridScroll, position: $overviewPosition,
                             leadingItem: leadingItem,
                             onSelect: { closeOverview(selecting: $0) },
                             onClose: { id in await tabs.closeConfirmed(id, animation: motion.resolve(motion.reflow)) },
@@ -249,7 +253,7 @@ struct BrowserScreen: View {
                             onCloseAll: closeAll,
                             placeholderId: newTabPending ? Self.newTabMarker : nil,
                             placeholderTerminal: newTabIsTerminal,
-                            onContentOrigin: { origin in if gridContentOrigin != origin { gridContentOrigin = origin } })
+                            onScrolling: { tabs.setGridScrolling($0) })
                     .opacity(overviewVisible ? 1 : 0)
                     .allowsHitTesting(overviewVisible)
                     .accessibilityHidden(!zoomState.gridInteractive)
@@ -405,6 +409,8 @@ struct BrowserScreen: View {
         .task(id: model.activeFrame != nil) { await debugOverviewScript() }
         #endif
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
+        // Terminal cards render only while the grid shows.
+        .onChange(of: overviewVisible, initial: true) { _, visible in tabs.setGridVisible(visible) }
         .onAppear {
             zoomDriver.onSettle = { phase in
                 if phase == .page {
@@ -427,17 +433,22 @@ struct BrowserScreen: View {
 
     /// Where the active terminal is drawn: full screen on the page, the zoom's
     /// rect while it zooms, its card on the grid (following the grid's scroll).
-    private func terminalPlacement(_ key: String) -> (rect: CGRect, radius: CGFloat, close: Double) {
+    /// On the settled grid the rect is in the grid's content coordinates
+    /// (`followsGrid`): `GridFollowOffset` moves it with the scroll, so a
+    /// scroll frame does not re-evaluate this screen.
+    private func terminalPlacement(_ key: String) -> (rect: CGRect, radius: CGFloat, close: Double, followsGrid: Bool) {
         switch zoomState.phase {
         case .page:
-            return (fullRect, 0, 0)
+            return (fullRect, 0, 0, false)
         case .overview:
-            return (cardRect(key).offsetBy(dx: cardSwipes.offset(key), dy: 0), overviewLayout.cardRadius, zoomDriver.chrome.closeOpacity)
+            let index = tabs.items.firstIndex { $0.id == key } ?? 0
+            return (overviewLayout.card(index).offsetBy(dx: cardSwipes.offset(key), dy: 0), overviewLayout.cardRadius,
+                    zoomDriver.chrome.closeOpacity, true)
         case .animating, .interactive:
-            guard zoomTabId == key else { return (cardRect(key), overviewLayout.cardRadius, zoomDriver.chrome.closeOpacity) }
+            guard zoomTabId == key else { return (cardRect(key), overviewLayout.cardRadius, zoomDriver.chrome.closeOpacity, false) }
             let g = zoomGeometry()
             let heading = zoomState.phase == .interactive || zoomState.headingToOverview
-            return (g.rect, g.radius, CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: heading))
+            return (g.rect, g.radius, CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: heading), false)
         }
     }
 
@@ -490,7 +501,7 @@ struct BrowserScreen: View {
             .accessibilityHidden(zoomState.phase != .overview)
             .accessibilityLabel("Close \(tabs.activeItem?.title ?? "Terminal")")
         }
-        .offset(x: place.rect.minX, y: place.rect.minY)
+        .modifier(GridFollowOffset(origin: place.rect.origin, scroll: place.followsGrid ? gridScroll : nil))
         .opacity(chrome.swiping ? 0 : (zoomState.phase == .overview ? cardSwipes.opacity(key) : 1))
         .accessibilityHidden(!onPage)
     }
@@ -757,7 +768,7 @@ struct BrowserScreen: View {
             t.disablesAnimations = true
             withTransaction(t) { overviewPosition = ScrollPosition(y: offset) }
             // Until the scroll view reports it, the fallback endpoint uses it too.
-            overviewScroll = offset
+            gridScroll.offset = offset
         }
     }
 

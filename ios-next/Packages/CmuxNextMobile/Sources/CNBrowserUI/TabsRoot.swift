@@ -19,6 +19,8 @@ public struct TabsRoot: View {
         let terminals = TerminalTabs(connection: connection)
         model.terminalImage = { [weak terminals] id in terminals?.thumbnails.images[id] }
         model.showTerminalCards = { [weak terminals] ids in terminals?.showCards(ids) }
+        model.pauseTerminalCards = { [weak terminals] paused in terminals?.thumbnails.setPaused(paused) }
+        model.terminalCardsVisible = { [weak terminals] visible in terminals?.thumbnails.setVisible(visible) }
         _tabs = State(initialValue: model)
         _terminals = State(initialValue: terminals)
     }

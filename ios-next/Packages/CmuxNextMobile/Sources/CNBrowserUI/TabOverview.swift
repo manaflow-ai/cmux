@@ -25,6 +25,9 @@ struct TabCard: View {
     /// The zoom draws this card's snapshot and close button; its title row
     /// stays here and fades in with the others.
     var snapshotHidden = false
+    /// The card pre-composited at its pixel size (`CardBitmaps`); nil draws
+    /// the page live (start pages, or until the bitmap is baked).
+    var baked: UIImage?
     var onOpen: () -> Void = {}
     var onClose: () -> Void
 
@@ -32,11 +35,9 @@ struct TabCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScaledPage(image: image, topColor: topColor, startPage: startPage, tabs: tabs, pageSize: pageSize,
-                       safeTop: safeTop, strip: 0, terminal: item.isTerminal)
+            snapshot
                 .frame(width: width, height: height)
-                .clipShape(.rect(cornerRadius: radius, style: .continuous))
-                .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
+                .background { CardShadow(radius: radius) }
                 .overlay(alignment: .topTrailing) {
                     if showsClose {
                         Button(action: onClose) {
@@ -73,6 +74,16 @@ struct TabCard: View {
             Button("\(startPage ? "Start Page" : item.title), tab", action: onOpen)
                 .accessibilityAction(named: "Open", onOpen)
                 .accessibilityAction(named: "Close", onClose)
+        }
+    }
+
+    @ViewBuilder private var snapshot: some View {
+        if let baked {
+            Image(uiImage: baked).resizable()
+        } else {
+            ScaledPage(image: image, topColor: topColor, startPage: startPage, tabs: tabs, pageSize: pageSize,
+                       safeTop: safeTop, strip: 0, terminal: item.isTerminal)
+                .clipShape(.rect(cornerRadius: radius, style: .continuous))
         }
     }
 }
@@ -170,7 +181,9 @@ struct TabOverview: View {
     var gridInteractive: Bool
     /// The bottom bar takes taps (settled, or a zoom heading here: Done reverses it).
     var controlsInteractive: Bool
-    @Binding var scrollOffset: CGFloat
+    /// Scroll offset and content origin, written on every scroll frame
+    /// (never read by this body, so scrolling does not rebuild the cards).
+    var scroll: GridScrollTracker
     @Binding var position: ScrollPosition
     var leadingItem: AnyView?
     var onSelect: (String) -> Void
@@ -185,12 +198,24 @@ struct TabOverview: View {
     /// grid (at index tabs.count) so the zoom can land on its real frame.
     var placeholderId: String?
     var placeholderTerminal = false
-    /// Origin of the grid's scroll content in the screen's coordinate space
-    /// (moves with the scroll offset). A card's screen frame is its content
-    /// frame (`OverviewLayout.card`) offset by it.
-    var onContentOrigin: (CGPoint) -> Void = { _ in }
+    /// The grid started (true) or stopped (false) scrolling.
+    var onScrolling: (Bool) -> Void = { _ in }
 
     private let style = BrowserStyle.shared
+    @State private var bitmaps = CardBitmaps()
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// The card's pre-composited bitmap (nil: draw it live).
+    private func baked(_ tab: TabItem, image: UIImage?, topColor: UIColor, startPage: Bool, card: CGRect) -> UIImage? {
+        guard let image, !startPage else { return nil }
+        let uiStyle: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
+        let background = tab.isTerminal ? CNTheme.shared.palette.terminalBackground : topColor
+        let spec = CardBitmapSpec(size: card.size, scale: displayScale, radius: layout.cardRadius, pageSize: layout.size,
+                                  topInset: tab.isTerminal ? layout.safeTop : 0,
+                                  background: .init(background, style: uiStyle))
+        return bitmaps.image(for: tab.id, source: image, spec: spec)
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -201,12 +226,17 @@ struct TabOverview: View {
                     Color.clear.frame(width: layout.size.width, height: layout.contentHeight)
                     ForEach(Array(tabs.items.enumerated()), id: \.element.id) { index, tab in
                         let r = layout.card(index)
-                        TabCard(item: tab, image: tab.isTerminal ? (tabs.cardImage(tab.id) ?? images[tab.id]) : (images[tab.id] ?? tabs.cardImage(tab.id)),
-                                topColor: Color(uiColor: tabs.browser.frames[tab.id]?.topColor ?? .white),
-                                startPage: tabs.showsStartPage(tab.id), tabs: tabs.browser.tabs, pageSize: layout.size,
+                        let image = tab.isTerminal ? (tabs.cardImage(tab.id) ?? images[tab.id]) : (images[tab.id] ?? tabs.cardImage(tab.id))
+                        let top = tabs.browser.frames[tab.id]?.topColor ?? .white
+                        let startPage = tabs.showsStartPage(tab.id)
+                        TabCard(item: tab, image: image,
+                                topColor: Color(uiColor: top),
+                                startPage: startPage, tabs: tabs.browser.tabs, pageSize: layout.size,
                                 safeTop: layout.safeTop, width: r.width, height: r.height, radius: layout.cardRadius, showsClose: true,
                                 closeOpacity: chrome.closeOpacity, titleOpacity: chrome.titleOpacity,
-                                titleOffset: chrome.titleOffset, snapshotHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
+                                titleOffset: chrome.titleOffset, snapshotHidden: tab.id == hiddenTabId,
+                                baked: baked(tab, image: image, topColor: top, startPage: startPage, card: r),
+                                onOpen: { onSelect(tab.id) },
                                 onClose: { Task { _ = await onClose(tab.id) } })
                             .contentShape(.rect)
                             .onTapGesture { onSelect(tab.id) }
@@ -238,10 +268,16 @@ struct TabOverview: View {
                     }
                 }
                 .frame(width: layout.size.width, height: layout.contentHeight, alignment: .topLeading)
-                .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(browserScreenSpace)).origin }) { onContentOrigin($0) }
+                .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(browserScreenSpace)).origin }) { [scroll] origin in
+                    if scroll.contentOrigin != origin { scroll.contentOrigin = origin }
+                }
             }
             .scrollPosition($position)
-            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, y in scrollOffset = y }
+            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { [scroll] _, y in
+                if scroll.offset != y { scroll.offset = y }
+            }
+            .onScrollPhaseChange { _, phase in onScrolling(phase.isScrolling) }
+            .onChange(of: tabs.items.map(\.id)) { _, ids in bitmaps.retain(Set(ids)) }
             .scrollIndicators(.hidden)
             .ignoresSafeArea()
             .scaleEffect(1.06 - 0.06 * shown)
@@ -264,7 +300,11 @@ struct TabOverview: View {
 
     private var topControls: some View {
         let y = layout.safeTop + 4 + style.metrics.overviewTopControl / 2
-        return ZStack(alignment: .topLeading) {
+        // One container for the glass controls: they share one backdrop
+        // capture instead of one each, re-rendered on every scroll frame
+        // (spacing 0: they never blend into one shape).
+        return GlassEffectContainer(spacing: 0) {
+        ZStack(alignment: .topLeading) {
             if let leadingItem {
                 // Plain glass (an interactive glass shape over the button
                 // swallowed its taps) and a full-circle hit area.
@@ -287,12 +327,14 @@ struct TabOverview: View {
             .accessibilityLabel("More")
         }
         .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
+        }
     }
 
     private var bottomBar: some View {
         let bar = layout.barRect
         let count = tabs.items.count
-        return ZStack(alignment: .topLeading) {
+        // One glass container for the bar (see `topControls`).
+        return GlassEffectContainer(spacing: 0) {
             ZStack(alignment: .topLeading) {
                 Group {
                     if let onNewTerminal {

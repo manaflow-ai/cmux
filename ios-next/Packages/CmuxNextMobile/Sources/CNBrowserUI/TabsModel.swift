@@ -87,6 +87,22 @@ final class TabsModel {
     @ObservationIgnored var terminalImage: ((String) -> UIImage?)?
     /// Asks for live thumbnails of these terminal ids (the grid is about to show).
     @ObservationIgnored var showTerminalCards: (([String]) -> Void)?
+    /// Holds (true) or resumes (false) the terminal cards' live refresh.
+    @ObservationIgnored var pauseTerminalCards: ((Bool) -> Void)?
+    /// Tells the terminal cards whether the grid is on screen.
+    @ObservationIgnored var terminalCardsVisible: ((Bool) -> Void)?
+
+    /// The grid appeared or was covered by a page: hidden cards never render.
+    func setGridVisible(_ visible: Bool) {
+        terminalCardsVisible?(visible)
+    }
+
+    /// The grid started or stopped scrolling: live card refreshes (an
+    /// off-screen Ghostty draw, a GPU readback and a grid update each) wait
+    /// until it stops, so they do not land in scroll frames.
+    func setGridScrolling(_ scrolling: Bool) {
+        pauseTerminalCards?(scrolling)
+    }
 
     init(connection: HostConnection, includesTerminals: Bool) {
         browser = BrowserModel(connection: connection)
