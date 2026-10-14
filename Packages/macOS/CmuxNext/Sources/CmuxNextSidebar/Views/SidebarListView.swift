@@ -239,7 +239,9 @@ final class SidebarListView: NSView {
                     }
                 }
             }
-            if existing == nil { if view.superview !== self { addSubview(view, positioned: .above, relativeTo: decorations) }; rowViews[row.key] = view }
+            // A parked view (`recycle`) keeps its old place in the stack: put it at the bottom of the rows,
+            // as a new one, so it never draws over a block that a move raised (scroll realization skips this).
+            if existing == nil { addSubview(view, positioned: .above, relativeTo: decorations); rowViews[row.key] = view }
             if suppressed.contains(row.key) {
                 view.frame = target
                 view.alphaValue = 0
