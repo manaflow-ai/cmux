@@ -80,7 +80,11 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
     <FormDialog
       wide
       title={chief ? format("sheet.editChief.title", chief.name) : t("sheet.newChief.title")}
-      lead={!chief && locked ? `${t("sheet.newChief.lead")} ${t("chief.appOnly")}` : t(chief ? "sheet.editChief.lead" : "sheet.newChief.lead")}
+      lead={
+        !chief && locked
+          ? `${t("sheet.newChief.lead")} ${t("chief.appOnly")}`
+          : t(chief ? "sheet.editChief.lead" : "sheet.newChief.lead")
+      }
       onClose={() => sheets.close()}
       onSubmit={submit}
       busy={busy}

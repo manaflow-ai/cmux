@@ -715,7 +715,8 @@ export class MockHomeProvider implements PageClient {
       case "cmux.chief.profile.update": {
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         const old = this.chief(String(params.chief));
-        const text = (key: string, fallback: string) => (typeof params[key] === "string" ? String(params[key]) : fallback);
+        const text = (key: string, fallback: string) =>
+          typeof params[key] === "string" ? String(params[key]) : fallback;
         const changed = {
           ...old,
           personality: text("personality", old.personality),

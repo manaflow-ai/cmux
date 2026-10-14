@@ -25,7 +25,8 @@ export function FormDialog({ title, lead, onClose, onSubmit, actions, busy, wide
   // The first field takes focus (else the first action): the sheet's first decision.
   const first = useRef<HTMLElement | null>(null);
   const frame = (node: HTMLFormElement | null) => {
-    first.current = node?.querySelector<HTMLElement>("input:not([type=file]), textarea, .lg-form-actions button") ?? null;
+    first.current =
+      node?.querySelector<HTMLElement>("input:not([type=file]), textarea, .lg-form-actions button") ?? null;
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
