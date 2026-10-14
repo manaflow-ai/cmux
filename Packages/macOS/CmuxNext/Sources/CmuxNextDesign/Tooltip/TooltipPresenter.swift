@@ -105,8 +105,10 @@ public final class TooltipPresenter {
         inside.removeAll { $0.view == nil || $0.text == nil }
         guard !scrolling else { return }
         // The deepest tooltip under the pointer; when its control's label already names it, none
-        // (not an ancestor's instead, as pages do).
-        let target = inside.max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
+        // (not an ancestor's instead, as pages do). AppKit can report a view's visible rect past
+        // its bounds, so its area is entered far from the view (the sidebar's bottom item, over the
+        // whole sidebar): only those whose view is under the pointer compete, when it is known.
+        let target = Self.underPointer(inside).max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
         candidate = target
         if target != nil { watch() }
         let timing = self.timing ?? .current
@@ -185,6 +187,17 @@ public final class TooltipPresenter {
             guard let self, let tracker = current, shown != nil else { return }
             if Self.stillShows(tracker) { scheduleCheck() } else { exit(tracker) }
         }
+    }
+
+    /// The trackers whose view (or region) is under the pointer, or all of them when none is (the
+    /// pointer unknown, or a view that moved since its area was entered).
+    static func underPointer(_ trackers: [TooltipTracker]) -> [TooltipTracker] {
+        let under = trackers.filter { tracker in
+            guard let window = tracker.view?.window, let anchor = tracker.screenRect,
+                  let pointer = PointerHover.pointer(in: window) else { return false }
+            return anchor.insetBy(dx: -1, dy: -1).contains(window.convertPoint(toScreen: pointer))
+        }
+        return under.isEmpty ? trackers : under
     }
 
     static func stillShows(_ tracker: TooltipTracker) -> Bool {
