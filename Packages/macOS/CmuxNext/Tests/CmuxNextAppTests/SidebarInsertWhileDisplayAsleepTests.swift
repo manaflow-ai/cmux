@@ -59,12 +59,11 @@ struct SidebarInsertWhileDisplayAsleepTests {
         let (model, sidebar, window) = try Self.sidebar()
         defer { window.orderOut(nil) }
         try #require(window.screen != nil)
-        // Synchronous from the sleep to the wake: both notifications are process-wide.
-        let workspace = NSWorkspace.shared.notificationCenter
+        // Every display reads as asleep (Core Graphics decides in the app); synchronous to the reset.
         Motion.reduceMotionOverride = false
-        workspace.post(name: NSWorkspace.screensDidSleepNotification, object: NSWorkspace.shared)
+        DisplaySleep.asleepOverride = true
         defer {
-            workspace.post(name: NSWorkspace.screensDidWakeNotification, object: NSWorkspace.shared)
+            DisplaySleep.asleepOverride = nil
             Motion.reduceMotionOverride = nil
         }
 

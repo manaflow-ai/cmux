@@ -13,7 +13,7 @@ extension Motion {
     ///
     /// - Parameter view: The view the change animates. When its window has no
     ///   screen the change applies at once (``canAnimate(in:)``).
-    public static func animate(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
+    public static func animate(_ token: MotionSpring, in view: NSView? = nil, _ changes: @escaping () -> Void,
                                completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
@@ -23,11 +23,12 @@ extension Motion {
             // macOS 14 has no SwiftUI-animation NSAnimationContext: the timed curve, not retargetable.
             return runTimed(self.duration(token), changes, completion: traced("appkit.\(token.rawValue)", completion))
         }
-        NSAnimationContext.animate(animation, changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
+        let done = MotionInFlight.track(changes, seconds: self.duration(token), completion: traced("appkit.\(token.rawValue)", completion))
+        NSAnimationContext.animate(animation, changes: changes, completion: done)
     }
 
     /// Animates `NSView.animator()` opacity or color changes with a fade token.
-    public static func animate(_ token: MotionFade, in view: NSView? = nil, _ changes: () -> Void,
+    public static func animate(_ token: MotionFade, in view: NSView? = nil, _ changes: @escaping () -> Void,
                                completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
@@ -35,13 +36,14 @@ extension Motion {
         guard #available(macOS 15, *) else {
             return runTimed(duration, changes, completion: traced("appkit.\(token.rawValue)", completion))
         }
-        NSAnimationContext.animate(.easeOut(duration: duration), changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
+        let done = MotionInFlight.track(changes, seconds: duration, completion: traced("appkit.\(token.rawValue)", completion))
+        NSAnimationContext.animate(.easeOut(duration: duration), changes: changes, completion: done)
     }
 
     /// Timed animation for animators that do not take SwiftUI springs
     /// (NSWindow frame and alpha, implicit subview layout inside the block):
     /// `token`'s perceived duration with the fade curve.
-    public static func animateTimed(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
+    public static func animateTimed(_ token: MotionSpring, in view: NSView? = nil, _ changes: @escaping () -> Void,
                                     completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
@@ -50,7 +52,7 @@ extension Motion {
 
     /// An exit: `token`'s duration on a slow-start curve, so a change reversed soon after it
     /// started (the pointer passing over a hover region) barely moved (no timer, no hold).
-    public static func animateExit(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
+    public static func animateExit(_ token: MotionSpring, in view: NSView? = nil, _ changes: @escaping () -> Void,
                                    completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
@@ -59,7 +61,7 @@ extension Motion {
     }
 
     /// Timed animation with a fade token (NSWindow alpha).
-    public static func animateTimed(_ token: MotionFade, in view: NSView? = nil, _ changes: () -> Void,
+    public static func animateTimed(_ token: MotionFade, in view: NSView? = nil, _ changes: @escaping () -> Void,
                                     completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
@@ -72,7 +74,8 @@ extension Motion {
     /// animation, so its final value and its completion would wait for an
     /// indefinite time; such a change applies at once. Decided per animation,
     /// from the animated view's window. A view outside a window, or no view,
-    /// animates as before.
+    /// animates as before. One already running when the display goes to
+    /// sleep ends at once (``MotionInFlight``).
     public static func canAnimate(in view: NSView?) -> Bool {
         guard let window = view?.window else { return true }
         guard let screen = window.screen else { return false }
@@ -109,8 +112,9 @@ extension Motion {
         }
     }
 
-    private static func runTimed(_ duration: TimeInterval, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)?,
+    private static func runTimed(_ duration: TimeInterval, _ changes: @escaping () -> Void, completion: (@MainActor @Sendable () -> Void)?,
                                  curve: CAMediaTimingFunction? = nil) {
+        let completion = duration > 0 ? MotionInFlight.track(changes, seconds: duration, completion: completion) : completion
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = duration
             context.timingFunction = curve ?? fadeCurve
