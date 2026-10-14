@@ -169,7 +169,7 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
   # for the Vulkan loader's dlsym.
   for lib in "$fw/Versions/A/Libraries"/*.dylib; do
-    if [[ -f "$lib" ]]; then strip -S -x "$lib"; fi
+    if [[ -f "$lib" ]]; then /usr/bin/strip -S -x "$lib"; fi
   done
   # Chromium's CREDITS.html (license notices), before signing seals Resources:
   # the artifact's own file, else the INTERIM stock credits for the pinned
