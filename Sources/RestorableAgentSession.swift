@@ -2237,9 +2237,13 @@ struct RestorableAgentSessionIndex: Sendable {
                 let liveProcessID = processObservation.processID
                 let liveProcessIdentities: [Int: AgentPIDProcessIdentity]
                 if let liveProcessID,
-                   let recordedProcessIdentity,
-                   Int(recordedProcessIdentity.pid) == liveProcessID {
-                    liveProcessIdentities = [liveProcessID: recordedProcessIdentity]
+                   let currentProcessIdentity,
+                   Int(currentProcessIdentity.pid) == liveProcessID,
+                   (recordedProcessIdentity == nil || recordedProcessIdentity == currentProcessIdentity) {
+                    // Legacy hook records did not persist a process generation. Keep the
+                    // generation observed during this scan so a later PID reuse can be
+                    // rejected without treating an unrelated process as an uncertain owner.
+                    liveProcessIdentities = [liveProcessID: currentProcessIdentity]
                 } else {
                     liveProcessIdentities = [:]
                 }
@@ -3149,11 +3153,7 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     static func encodeClaudeProjectDir(_ path: String) -> String {
-        // Claude derives a project directory name by replacing both "/" and "." with "-"
-        // (e.g. "/Users/x/repo/.claude" -> "-Users-x-repo--claude"). Missing the "." case
-        // sent dotted paths to the wrong project directory.
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        ClaudeProjectSlug().slug(forWorkingDirectory: path)
     }
 
     private static func claudeProjectDirName(containingTranscriptPath path: String, configRoots: [String]) -> String? {
@@ -3645,30 +3645,37 @@ struct RestorableAgentSessionIndex: Sendable {
         validator: CachedAgentProcessIdentityValidator,
         hermesSessionValidation: CachedAgentProcessIdentityValidator.HermesSessionValidation = .cachedSnapshot
     ) -> RestorableAgentProcessMatch {
-        guard let recordedProcessIdentity,
-              Int(recordedProcessIdentity.pid) == processID else {
-            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
+        let process = processArgumentsProvider(processID)
+        let scopeMatches = process.map {
+            $0.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId)
         }
-        guard let currentProcessIdentity,
-              Int(currentProcessIdentity.pid) == processID else {
-            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
+        let matchesExpectedProcess = process.map {
+            validator.currentProcess(
+                $0,
+                matches: snapshot,
+                hermesSessionValidation: hermesSessionValidation
+            )
         }
-        guard currentProcessIdentity == recordedProcessIdentity else {
-            return .mismatches
+        var evidence = RestorableAgentProcessEvidence(
+            processID: processID,
+            recordedIdentity: recordedProcessIdentity,
+            currentIdentity: currentProcessIdentity,
+            presence: .unknown,
+            scopeMatches: scopeMatches,
+            expectedProcessMatches: matchesExpectedProcess
+        )
+        let matcher = RestorableAgentProcessMatcher()
+        let processMatch = matcher.match(evidence)
+        guard processMatch == .unknown else { return processMatch }
+
+        // Close fallbacks can load this index synchronously. Probe the process
+        // table only when the already-captured evidence cannot settle liveness.
+        evidence.presence = switch processPresenceProvider(processID) {
+        case .present: .present
+        case .absent: .absent
+        case .unknown: .unknown
         }
-        guard let process = processArgumentsProvider(processID) else {
-            // A present process may be temporarily uninspectable. Only ESRCH-grade
-            // absence proves that the recorded generation exited.
-            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
-        }
-        guard process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
-            return .mismatches
-        }
-        return validator.currentProcess(
-            process,
-            matches: snapshot,
-            hermesSessionValidation: hermesSessionValidation
-        ) ? .matches : .mismatches
+        return matcher.match(evidence)
     }
 
     private static func normalizedNonEmptyValue(_ value: String?) -> String? {
