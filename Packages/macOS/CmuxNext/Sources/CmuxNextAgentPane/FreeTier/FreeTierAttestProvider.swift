@@ -46,6 +46,9 @@ public actor FreeTierAttestProvider {
     private var refused = false
     /// Counts connections: a proof that finishes after a reconnect saves nothing.
     private var generation = 0
+    /// A key id store error (for example a denied Keychain access) stops all proofs until the
+    /// next launch or a settings change, so the store is not asked again (no repeated prompt).
+    private var storeFailed = false
     private let stateContinuation: AsyncStream<FreeTierState>.Continuation
 
     /// The relay's free-tier state, as it reports it (the Settings caption).
@@ -80,6 +83,7 @@ public actor FreeTierAttestProvider {
         self.managed = managed
         self.signedIn = signedIn
         refused = false
+        storeFailed = false
         connect()
     }
 
@@ -93,6 +97,7 @@ public actor FreeTierAttestProvider {
         self.enabled = enabled
         self.managed = managed
         self.signedIn = signedIn
+        storeFailed = false
         line?.send(Self.encode(["enabled": enabled, "managed": managed, "signed_in": signedIn]))
     }
 
@@ -197,7 +202,7 @@ public actor FreeTierAttestProvider {
         guard request["purpose"] as? String == Self.purpose,
               let encoded = request["client_data_hash"] as? String,
               let hash = Data(base64Encoded: encoded), hash.count == 32 else { return ["error": "refused"] }
-        guard enabled, !signedIn else { return ["error": "disabled"] }
+        guard enabled, !signedIn, !storeFailed else { return ["error": "disabled"] }
         guard attest.isSupported else { return ["error": "unsupported"] }
         do {
             switch request["req"] as? String {
@@ -234,10 +239,16 @@ public actor FreeTierAttestProvider {
                 logger.info("free tier: an App Attest call failed")
                 return ["error": "failed"]
             }
+        } catch let error as AttestKeyStoreError where error.isDamagedItem {
+            // A stored id that does not decode: the relay asks for one fresh key (fresh_key deletes it).
+            logger.error("free tier: the stored App Attest key id is damaged; asking for a fresh key")
+            return ["error": "invalid_key"]
         } catch let error as AttestKeyStoreError {
-            // The key id cannot be read or kept (a denied Keychain access): no new key, no proof.
-            logger.error("free tier: the App Attest key id store failed (status \(error.status, privacy: .public)); no new key")
-            return ["error": "failed"]
+            // The key id cannot be read or kept (a denied Keychain access): no new key, no proof,
+            // and no further store access until the next launch or a settings change.
+            storeFailed = true
+            logger.error("free tier: the App Attest key id store failed (status \(error.status, privacy: .public)); no new key, proofs paused")
+            return ["error": "disabled"]
         } catch {
             return ["error": "failed"]
         }
