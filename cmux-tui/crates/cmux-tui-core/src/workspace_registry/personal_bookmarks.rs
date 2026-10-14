@@ -234,6 +234,7 @@ pub enum BookmarkOp {
         bookmark: String,
     },
     Import(BookmarkImport),
+    Merge(BookmarkMerge),
 }
 
 impl BookmarkOp {
@@ -244,6 +245,7 @@ impl BookmarkOp {
             Self::Move { .. } => "move-bookmark",
             Self::Delete { .. } => "delete-bookmark",
             Self::Import(_) => "import-bookmarks",
+            Self::Merge(_) => "merge-bookmarks",
         }
     }
 }
@@ -736,4 +738,7 @@ fn now_ms() -> anyhow::Result<i64> {
 }
 
 // The ops come last: they use `ensure_valid!`, which must precede them.
+mod merge;
 mod ops;
+
+pub use merge::BookmarkMerge;

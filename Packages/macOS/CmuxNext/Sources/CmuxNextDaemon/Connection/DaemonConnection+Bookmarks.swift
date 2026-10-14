@@ -39,6 +39,15 @@ extension DaemonConnection {
         return try await request(DeleteBookmarkRequest(bookmark: id, mutation: mutation))
     }
 
+    /// Serves `merge-bookmarks` (the chrome.bookmarks bridge's first sync).
+    public var supportsBookmarkMerge: Bool { identity?.supports(DaemonCapabilities.shared.bookmarksMerge) == true }
+
+    @discardableResult
+    public func mergeBookmarks(_ request: MergeBookmarksRequest) async throws -> BookmarkMergeResult {
+        guard supportsBookmarkMerge else { throw DaemonError.missingCapabilities([DaemonCapabilities.shared.bookmarksMerge]) }
+        return try await self.request(request)
+    }
+
     @discardableResult
     public func importBookmarks(_ request: ImportBookmarksRequest) async throws -> BookmarkImportResult {
         try requireBookmarks()

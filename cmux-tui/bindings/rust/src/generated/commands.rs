@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85.
+// cmux-tui mux protocol 12, IR e00f425ee53d8255d8ca4751b2bfc949d194b3447ba2060dc93ab0dfb3fff36b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1680,6 +1680,34 @@ pub struct MarkWorkspacesProviderManagedRequest {
 
 #[rustfmt::skip]
 pub type MarkWorkspacesProviderManagedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MergeBookmarksRequest {
+    pub browser_profile_id: String,
+    /// The text of a Chromium Bookmarks file, at most 16 MiB.
+    pub chromium_bookmarks: String,
+    /// Once per (browser_profile_id, merge_key); the app uses chromium-store:\<store directory>.
+    pub merge_key: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MergeBookmarksResult {
+    /// Nodes written.
+    pub created: u64,
+    /// False when this merge_key was already merged for the profile: nothing changed.
+    pub merged: bool,
+    pub replayed: bool,
+    /// Chromium nodes cmux already had (same id, or same URL in the same folder), folders merged into one with the same title, and nodes refused by the limits.
+    pub skipped: u64,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4190,6 +4218,10 @@ impl CmuxClient {
 
     pub fn mark_workspaces_provider_managed(&mut self, request: MarkWorkspacesProviderManagedRequest) -> Result<MarkWorkspacesProviderManagedResult> {
         self.execute(&MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, &request)
+    }
+
+    pub fn merge_bookmarks(&mut self, request: MergeBookmarksRequest) -> Result<MergeBookmarksResult> {
+        self.execute(&MERGE_BOOKMARKS_METADATA, &request)
     }
 
     pub fn mint_terminal_renderer(&mut self, request: MintTerminalRendererRequest) -> Result<T::MintTerminalRendererResult> {

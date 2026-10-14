@@ -608,6 +608,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final MergeBookmarksResult mergeBookmarks(MergeBookmarksRequest request) throws CmuxException {
+        Object result = execute(Commands.MERGE_BOOKMARKS, request.toWire());
+        return MergeBookmarksResult.fromWire(result);
+    }
+
     public final MintTerminalRendererResult mintTerminalRenderer(MintTerminalRendererRequest request) throws CmuxException {
         Object result = execute(Commands.MINT_TERMINAL_RENDERER, request.toWire());
         return MintTerminalRendererResult.fromWire(result);

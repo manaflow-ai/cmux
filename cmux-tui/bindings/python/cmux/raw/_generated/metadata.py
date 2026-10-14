@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85'
+IR_SHA256 = 'e00f425ee53d8255d8ca4751b2bfc949d194b3447ba2060dc93ab0dfb3fff36b'
 
 
 @dataclass(frozen=True)
@@ -1567,6 +1567,21 @@ COMMANDS = {
         None,
         {
             'authority': CommandFieldMetadata(None, None),
+        },
+    ),
+    'merge-bookmarks': CommandMetadata(
+        'merge-bookmarks',
+        'control',
+        12,
+        'bookmarks-merge-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile_id': CommandFieldMetadata(None, None),
+            'chromium_bookmarks': CommandFieldMetadata(None, None),
+            'merge_key': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
         },
     ),
     'mint-terminal-renderer': CommandMetadata(

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85. */
+/* cmux-tui mux protocol 12, IR e00f425ee53d8255d8ca4751b2bfc949d194b3447ba2060dc93ab0dfb3fff36b. */
 
 
 import type * as T from "./types.js";
@@ -1177,6 +1177,28 @@ export interface MarkWorkspacesProviderManagedRequest extends CmuxRequestBase {
   "authority": string;
 }
 export type MarkWorkspacesProviderManagedResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface MergeBookmarksRequest extends CmuxRequestBase {
+  cmd: "merge-bookmarks";
+  "browser_profile_id": string;
+  /** The text of a Chromium Bookmarks file, at most 16 MiB. */
+  "chromium_bookmarks": string;
+  /** Once per (browser_profile_id, merge_key); the app uses chromium-store:<store directory>. */
+  "merge_key": string;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+}
+export type MergeBookmarksResult = {
+  /** Nodes written. */
+  "created": bigint;
+  /** False when this merge_key was already merged for the profile: nothing changed. */
+  "merged": boolean;
+  "replayed": boolean;
+  /** Chromium nodes cmux already had (same id, or same URL in the same folder), folders merged into one with the same title, and nodes refused by the limits. */
+  "skipped": bigint;
+  [key: string]: unknown;
+};
 
 /** Protocol v9; authority: frontend. */
 export interface MintTerminalRendererRequest extends CmuxRequestBase {
@@ -2650,6 +2672,7 @@ export type CmuxRequest =
   | MachineListeningTcpRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
+  | MergeBookmarksRequest
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
   | MoveBookmarkRequest
@@ -3740,6 +3763,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "provider-authority";
     since: 9;
     capability: "provider-managed-workspace-authority-v2";
+    stream: null;
+  };
+  "merge-bookmarks": {
+    request: MergeBookmarksRequest;
+    result: MergeBookmarksResult;
+    authority: "control";
+    since: 12;
+    capability: "bookmarks-merge-v1";
     stream: null;
   };
   "mint-terminal-renderer": {

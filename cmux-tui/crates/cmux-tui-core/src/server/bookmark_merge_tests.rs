@@ -136,7 +136,7 @@ fn merge_keeps_chromium_only_bookmarks_and_never_duplicates() {
             ),
             ("bar".into(), "folder".into(), "Reading".into(), None),
             (
-                "bm_7a0c0c3711114111811100000000000006".into(),
+                "bm_7a0c0c37111141118111000000000006".into(),
                 "url".into(),
                 "Paper".into(),
                 Some("https://example.com/paper".into())
@@ -154,7 +154,7 @@ fn merge_keeps_chromium_only_bookmarks_and_never_duplicates() {
     let listing =
         run(&mux, json!({"cmd":"list-bookmarks","browser_profile_id":"default"})).unwrap();
     let only = node(&listing, "Only Chromium");
-    assert_eq!(only["id"], "bm_7a0c0c3711114111811100000000000002");
+    assert_eq!(only["id"], "bm_7a0c0c37111141118111000000000002");
     assert_eq!(only["created_ms"], 13_370_000_000_000_000_u64 / 1000 - 11_644_473_600_000);
     let changed = events
         .try_iter()
@@ -165,7 +165,7 @@ fn merge_keeps_chromium_only_bookmarks_and_never_duplicates() {
 
     // The key is recorded: a later merge of the store changes nothing, so a
     // bookmark deleted in cmux stays deleted.
-    run(&mux, json!({"cmd":"delete-bookmark","bookmark":"bm_7a0c0c3711114111811100000000000002"}))
+    run(&mux, json!({"cmd":"delete-bookmark","bookmark":"bm_7a0c0c37111141118111000000000002"}))
         .unwrap();
     let before = tree(&mux);
     let again = merge(&mux, STORE, &file).unwrap();
@@ -184,6 +184,11 @@ fn a_refused_merge_writes_and_records_nothing() {
     );
     let error = bad.expect_err("malformed JSON is refused");
     assert_eq!(response_error_code(&error).as_deref(), Some("invalid_params"));
+    // Over 16 MiB: refused before it is parsed.
+    let padding = "x".repeat(16 * 1024 * 1024);
+    let big = merge(&mux, STORE, &json!({"roots":{}, "padding": padding}));
+    let error = big.expect_err("a file over 16 MiB is refused");
+    assert_eq!(response_error_code(&error).as_deref(), Some("invalid_params"));
     let no_roots = merge(&mux, STORE, &json!({"version":1}));
     assert!(no_roots.is_err());
     assert!(tree(&mux).is_empty());
@@ -198,6 +203,21 @@ fn a_refused_merge_writes_and_records_nothing() {
     );
     assert_eq!(merge(&mux, STORE, &file).unwrap()["merged"], true);
     assert_eq!(tree(&mux).len(), 1);
+}
+
+#[test]
+fn a_long_chromium_title_is_kept_cut_to_the_limit() {
+    let mux = bookmarks_mux();
+    let long = "é".repeat(3000);
+    let file = chromium_file(
+        json!([url(&long, "https://example.com/long", "7a0c0c37-1111-4111-8111-00000000000a")]),
+        json!([]),
+    );
+    assert_eq!(merge(&mux, STORE, &file).unwrap()["created"], 1);
+    let nodes = tree(&mux);
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].2.len(), 4096);
+    assert!(long.starts_with(&nodes[0].2));
 }
 
 fn bookmarks_mux() -> Arc<Mux> {

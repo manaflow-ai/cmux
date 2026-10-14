@@ -337,6 +337,7 @@
       "list-workspaces",
       "machine-listening-tcp",
       "machine-usage",
+      "merge-bookmarks",
       "move-bookmark",
       "move-browser-profile",
       "move-personal-group",

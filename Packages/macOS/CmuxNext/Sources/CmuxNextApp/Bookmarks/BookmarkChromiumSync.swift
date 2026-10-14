@@ -7,7 +7,10 @@ import CmuxNextWakeups
 
 /// Chromium's bookmark models follow cmux's trees: the chrome.bookmarks bridge
 /// (plans/cmux-next/bookmarks.md section 4). A Chromium store asks for its
-/// first sync when its model loads; every change of a profile's tree syncs
+/// first sync when its model loads; before that sync the home daemon merges
+/// the store's own bookmarks into cmux's tree (`merge-bookmarks`), so the
+/// bridge never replaces Chromium's bookmarks, and a store it cannot merge
+/// is never synced. Every change of a profile's tree syncs
 /// each store of that profile; an extension's change in Chromium is applied to
 /// cmux's tree as an ordinary operation, so the sync that follows finds
 /// nothing to change. cmux wins: a change cmux refuses is undone in Chromium
@@ -27,6 +30,10 @@ final class BookmarkChromiumSync {
     /// Store to its cmux profile, for stores whose sync waits for the tree to load.
     private var waiting: [String: String] = [:]
     private var scheduled: [String: DemandTimer] = [:]
+    /// Stores merged in this run; only these sync.
+    private var merged: Set<String> = []
+    /// Stores whose merge is in flight.
+    private var merging: Set<String> = []
     private var homeObservation: Task<Void, Never>?
 
     init(service: BookmarkService) {
@@ -144,6 +151,20 @@ final class BookmarkChromiumSync {
             return
         }
         waiting[store] = nil
+        guard merged.contains(store) else {
+            guard merging.insert(store).inserted else { return }
+            // task-owner: one merge-bookmarks request per store; a later tree change retries a failed one.
+            Task { @MainActor [weak self] in
+                let ok = await service.mergeChromiumStore(store, profile: profile)
+                guard let self else { return }
+                merging.remove(store)
+                if ok {
+                    merged.insert(store)
+                    schedule(store, profile: profile)
+                }
+            }
+            return
+        }
         if bridge.sync(store: store, treeJSON: Self.json(service.tree(profile))) < 0 {
             logger.error("chrome.bookmarks sync refused for a store of \(profile, privacy: .public)")
         }
