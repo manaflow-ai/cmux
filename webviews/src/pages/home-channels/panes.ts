@@ -54,9 +54,10 @@ export function useHashPane(): Pane {
   );
 }
 
-/** Whether the element is narrower than NARROW_PAGE (its own width, through a ResizeObserver). */
-export function useNarrow(element: RefObject<HTMLElement | null>): boolean {
-  const [narrow, setNarrow] = useState(false);
+/** Whether the element is narrower than NARROW_PAGE (its own width, through a ResizeObserver);
+ * undefined until the first measurement, so a first render is not taken for a pane change. */
+export function useNarrow(element: RefObject<HTMLElement | null>): boolean | undefined {
+  const [narrow, setNarrow] = useState<boolean | undefined>(undefined);
   useEffect(() => {
     const node = element.current;
     if (!node || typeof ResizeObserver === "undefined") return;

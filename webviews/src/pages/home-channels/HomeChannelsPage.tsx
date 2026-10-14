@@ -56,7 +56,8 @@ export function HomeChannelsPage({
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   // Below NARROW_PAGE of its own width the page shows one pane (panes.ts), the one the hash names.
   const shell = useRef<HTMLDivElement>(null);
-  const narrow = useNarrow(shell);
+  const measured = useNarrow(shell);
+  const narrow = measured === true;
   const hashPane = useHashPane();
   const pane = fixedPane ?? hashPane;
   const sheetState = useSyncExternalStore(store.sheets.subscribe, store.sheets.getSnapshot);
@@ -197,19 +198,21 @@ export function HomeChannelsPage({
   const canGoBack = narrow && pane === "conversation" && store.routed;
   const listShown = narrow && pane === "list";
   // A conversation behind the narrow page's list is not read; the keyboard follows the pane.
-  const lastPane = useRef(listShown);
+  const lastPane = useRef<boolean | undefined>(undefined);
   useEffect(() => {
+    if (measured === undefined) return;
     store.setShown(!listShown);
-    // Only a pane change moves focus (Back, a row), never the first render (the page may load
-    // in the background of the Home dock).
-    const changed = lastPane.current !== listShown;
+    // Only a pane change moves focus (Back, a row), never the first measured render (the page may
+    // load in the background of the Home dock).
+    const changed = lastPane.current !== undefined && lastPane.current !== listShown;
     lastPane.current = listShown;
     if (!narrow || !changed) return;
     const target = listShown
-      ? document.querySelector<HTMLElement>("[data-list-row][aria-current], [data-list-row]")
+      ? (document.querySelector<HTMLElement>("[data-list-row][aria-current]") ??
+        document.querySelector<HTMLElement>("[data-list-row]"))
       : document.querySelector<HTMLElement>(".lg-back");
     target?.focus({ preventScroll: true });
-  }, [store, narrow, listShown]);
+  }, [store, measured, narrow, listShown]);
   const openThread = (root: string | undefined) => {
     setEditing(undefined);
     void store.openThread(root);
