@@ -31,6 +31,19 @@ extension AppControl {
 /// the title.
 enum DebugMainMenu {
     static func perform(_ params: [String: JSONValue]) -> JSONValue {
+        // `{"action": "undo:", "window_number": N}`: the menu item's action sent up the responder chain of that window's
+        // focused responder, as Edit > Undo does in a key window (a test window is not key, so the menu has no target).
+        if let action = params["action"]?.stringValue {
+            let number = params["window_number"]?.doubleValue.map { Int($0) }
+            guard let window = number.flatMap({ NSApp.window(withWindowNumber: $0) })
+                    ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) else {
+                return .object(["error": .string("no window")])
+            }
+            let responder: NSResponder = window.firstResponder ?? window
+            let performed = responder.tryToPerform(NSSelectorFromString(action), with: nil)
+            return .object(["performed": .bool(performed), "window_number": .number(Double(window.windowNumber)),
+                            "responder": .string(String(describing: type(of: responder)))])
+        }
         guard let title = params["title"]?.stringValue, let menu = NSApp.mainMenu else {
             return .object(["error": .string("title is required")])
         }

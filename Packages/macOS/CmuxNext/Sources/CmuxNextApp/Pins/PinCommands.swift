@@ -78,8 +78,6 @@ final class PinUndoStep: NSObject {
     private static var held: Set<PinUndoStep> = []
     /// The step registered last (a newer one is the top of its stack, not this).
     static weak var newest: PinUndoStep?
-    /// The step an undo put last on the redo side.
-    static weak var newestRedo: PinUndoStep?
     /// The step an undo or redo of the stack put for the inverse running now (set only while it runs).
     static var filling: PinUndoStep?
     private var inverse: (() -> Void)?
@@ -128,11 +126,6 @@ final class PinUndoStep: NSObject {
         return manager.undoActionName == title
     }
 
-    /// Filled, the step an undo put last, and the redo top of `manager` (its action name).
-    func isRedoTop(of manager: UndoManager) -> Bool {
-        inverse != nil && Self.newestRedo === self && manager === undoManager && manager.canRedo && manager.redoActionName == title
-    }
-
     func run(fromToast: Bool) {
         guard let inverse else { return }
         defer { if self.inverse == nil { Self.held.remove(self) } }
@@ -152,7 +145,6 @@ final class PinUndoStep: NSObject {
             let next = PinUndoStep(title: title, nil)
             next.undoManager = undoManager
             next.register()
-            if undoManager.isUndoing { Self.newestRedo = next }
             Self.filling = next
             defer { Self.filling = nil }
             inverse()

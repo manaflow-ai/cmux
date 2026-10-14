@@ -206,21 +206,32 @@ def undo_toasts():
     return [t for w in toast().get("windows", []) for t in w.get("toasts", []) if t.get("undo")]
 
 
+def window_number():
+    windows = (rpc("debug.surfaces") or {}).get("windows") or []
+    first = windows[0] if windows else {}
+    number = first.get("window") if isinstance(first, dict) else None
+    try:
+        return int(number)
+    except (TypeError, ValueError):
+        return None
+
+
 def late_undo(label, undone, redone):
     """Cmd-Z after the undo toast has hidden still undoes the step (the window's undo stack keeps it, like any macOS
     undo); Shift-Cmd-Z redoes it, so the step's result stays for the next step."""
     gone = wait(lambda: not undo_toasts() or None, 20)  # the toast hides after its own time (6 s)
     time.sleep(10.0)  # test harness: Cmd-Z comes 10 s after the toast hid, not inside its time
-    key = rpc("debug.key", {"key": "z", "modifiers": ["cmd"]}) or {}
+    # Edit > Undo through the window's responder chain (the test window is not key, so the menu itself has no target).
+    key = rpc("debug.menu_item", {"action": "undo:", "window_number": window_number()}) or {}
     ok = wait(lambda: bool(undone()) or None, 5)
-    record(f"{label}: Cmd-Z 10 s after the toast hid restores", bool(gone) and bool(ok),
+    record(f"{label}: Edit > Undo 10 s after the toast hid restores", bool(gone) and bool(ok),
            f"toast hidden={bool(gone)} key={json.dumps(key)[:300]} list={list_titles()} "
            f"pinned={[i.get('ref') for i in section_items('sec_pinned')]}")
-    key = rpc("debug.key", {"key": "z", "modifiers": ["cmd", "shift"]}) or {}
+    key = rpc("debug.menu_item", {"action": "redo:", "window_number": window_number()}) or {}
     again = wait(lambda: (bool(redone()) and not bool(undone())) or None, 5) if ok else None
     if not again and undo_toasts():
         toast(undo=True)  # keep the next steps' state; the redo check above stays FAIL
-    record(f"{label}: Shift-Cmd-Z redoes the late undo", bool(again), f"key={json.dumps(key)[:300]} list={list_titles()}")
+    record(f"{label}: Edit > Redo redoes the late undo", bool(again), f"key={json.dumps(key)[:300]} list={list_titles()}")
 
 
 def launch():

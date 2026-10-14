@@ -165,10 +165,6 @@ final class KeyRouter: BrowserKeyRouting {
             trace?("undo toast: Cmd-Z ran the toast")
             return true
         }
-        if runsUndoStep(event, in: window) {
-            trace?("undo step: Cmd-Z or Shift-Cmd-Z ran the sidebar undo stack")
-            return true
-        }
         // The Keyboard Shortcuts page records keys: its window's keys go to the recorder.
         if let keyRecorder, keyRecorder(event, window) {
             cancelChord()
