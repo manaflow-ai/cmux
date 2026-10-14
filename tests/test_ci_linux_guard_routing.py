@@ -269,6 +269,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertEqual(set(inputs), set(detect_linux_guard_changes.GUARD_ROUTES))
         self.assertEqual(inputs["linux_guard_history"], frozenset({
             "scripts/check-package-resolved-policy.py",
+            "scripts/ci/init-submodule.sh",
             "tests/test_check_package_resolved_policy.py",
             "tests/test_cli_package_graph.py",
             "tests/test_package_resolved_policy_remote_inputs.py",
