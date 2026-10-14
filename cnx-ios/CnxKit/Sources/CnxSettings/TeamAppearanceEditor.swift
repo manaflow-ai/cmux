@@ -62,12 +62,16 @@ public struct TeamAppearanceEditor: View {
 
     public var body: some View {
         NavigationStack {
+            VStack(spacing: 0) {
+            // Pinned above the scrolling controls, so the color and the
+            // character stay in view while the keyboard is up (smaller then).
+            preview
+                .padding(.top, 12)
+                .padding(.bottom, 4)
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
-                        preview
-                            .padding(.top, 12)
-                        sectionHeader("Color").padding(.top, 20)
+                        sectionHeader("Color").padding(.top, 16)
                         colorGrid.padding(.top, 8)
                         iconSection.padding(.top, 24).padding(.bottom, 16)
                     }
@@ -79,6 +83,7 @@ public struct TeamAppearanceEditor: View {
                     guard focused else { return }
                     withAnimation(theme.motion.smooth.animation) { proxy.scrollTo("character", anchor: .bottom) }
                 }
+            }
             }
             // Done docks only while the keyboard is down: it never sits over
             // the grid. With the keyboard up, picking a character (or the
@@ -132,9 +137,11 @@ public struct TeamAppearanceEditor: View {
     /// shows Automatic's letter as if it were chosen.
     private var preview: some View {
         let emoji = mode == .custom && customText.isEmpty ? "" : appearance.emoji
-        return TeamAvatar(name: team.name, colorHex: appearance.colorHex, emoji: emoji, size: 72)
-            .clipShape(.rect(cornerRadius: 20, style: .continuous))
+        let size: CGFloat = customFocused ? 48 : 72
+        return TeamAvatar(name: team.name, colorHex: appearance.colorHex, emoji: emoji, size: size)
+            .clipShape(.rect(cornerRadius: size * 20 / 72, style: .continuous))
             .animation(theme.motion.snap.animation, value: appearance)
+            .animation(theme.motion.smooth.animation, value: customFocused)
     }
 
     /// 13 swatches in 7 columns of 44 pt (7 x 44 + 6 x 6 = 344 pt).

@@ -34,31 +34,25 @@ public struct MacNameDisambiguation: Sendable, Equatable {
     /// The Mac's tag ("3F2A") when its name collides; nil otherwise.
     public func tag(for id: String) -> String? { tags[id] }
 
-    /// "Aziz's MacBook Pro (3F2A)" for a colliding name, else the name.
+    /// The account's Macs: every team's, so a Mac carries the same tag on
+    /// every surface (Workspaces, Settings → Devices), whichever team it is in.
+    /// `extra` adds Macs only the device service lists.
+    public init(account teams: [Team], extra: [(id: String, name: String)] = []) {
+        self.init(teams.flatMap(\.macs).map { (id: $0.id, name: $0.name) } + extra)
+    }
+
+    /// "Aziz's MacBook Pro 3F2A" for a colliding name, else the name: the
+    /// text form of the name plus its tag capsule (`MacNameTag`), the one
+    /// spelling every alert, menu, subtitle and accessibility value uses.
     public func displayName(id: String, name: String) -> String {
-        guard let tag = tags[id] else { return name }
-        return "\(name) (\(tag))"
-    }
-
-    public func displayName(_ mac: MacDevice) -> String { displayName(id: mac.id, name: mac.name) }
-
-    /// "ID 3F2A" (and "Added Oct 13" when known) for a subtitle; nil for a
-    /// unique name.
-    public func detail(for id: String, addedAt: Date? = nil) -> String? {
-        guard let tag = tags[id] else { return nil }
-        guard let addedAt else { return "ID \(tag)" }
-        return "Added \(addedAt.formatted(.dateTime.month(.abbreviated).day())) · ID \(tag)"
-    }
-
-    /// "Aziz's MacBook Pro 3F2A": the name followed by the same tag the
-    /// Devices row shows in its capsule (Settings). The name alone when unique.
-    public func taggedName(id: String, name: String) -> String {
         guard let tag = tags[id] else { return name }
         return "\(name) \(tag)"
     }
 
+    public func displayName(_ mac: MacDevice) -> String { displayName(id: mac.id, name: mac.name) }
+
     /// "Added Oct 13" for a Mac whose name collides and whose added date is
-    /// known; nil otherwise (the tag itself shows next to the name).
+    /// known; nil otherwise (the tag itself goes next to the name).
     public func added(for id: String, addedAt: Date?) -> String? {
         guard tags[id] != nil, let addedAt else { return nil }
         return "Added \(addedAt.formatted(.dateTime.month(.abbreviated).day()))"
