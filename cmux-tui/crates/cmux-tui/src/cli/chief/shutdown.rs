@@ -117,8 +117,8 @@ fn holder(lock: &Path) -> Option<i32> {
 /// Whether process `pid` still runs.
 fn alive(pid: i32) -> bool {
     // SAFETY: signal 0 only checks that the process exists.
-    unsafe { libc::kill(pid, 0) == 0 }
-    || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    let found = unsafe { libc::kill(pid, 0) } == 0;
+    found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 fn timeout(pid: i32, limit: Duration) -> String {
