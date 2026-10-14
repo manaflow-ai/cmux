@@ -23,7 +23,7 @@
 
 use super::{Hub, Session};
 use crate::rpc::RpcError;
-use crate::store::{EventRecord, Store};
+use crate::store::EventRecord;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
