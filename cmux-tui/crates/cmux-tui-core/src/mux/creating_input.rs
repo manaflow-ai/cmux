@@ -152,6 +152,14 @@ impl Mux {
             drop(terminals);
             return give_back(terminal_id, creating.queued, failure.unwrap_or("failed"));
         };
+        // Test hook (fault injection): the flush starts this long after the commit.
+        if let Some(delay) = std::env::var("CMUX_TUI_TEST_CREATING_INPUT_FLUSH_DELAY_MS")
+            .ok()
+            .and_then(|ms| ms.parse().ok())
+            .map(Duration::from_millis)
+        {
+            std::thread::sleep(delay);
+        }
         let mut clients = Vec::new();
         for (index, input) in creating.queued.iter().enumerate() {
             let written = if input.paste {

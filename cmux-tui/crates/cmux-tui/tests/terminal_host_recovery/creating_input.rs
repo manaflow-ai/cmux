@@ -242,3 +242,31 @@ fn more_than_64_kib_for_a_creating_terminal_is_refused() {
     let created = split.recv_timeout(test_timeout(Duration::from_secs(20))).unwrap();
     assert_eq!(created["ok"], true, "{created}");
 }
+
+#[test]
+fn queued_input_precedes_input_sent_to_the_new_surface() {
+    // The flush starts half a second after the commit, so input by surface id arrives first.
+    let mut harness = RecoveryHarness::start_unstarted("creating-input-mixed");
+    harness.host_ready_delay_ms = Some(1_000);
+    harness.extra_env.push(("CMUX_TUI_TEST_CREATING_INPUT_FLUSH_DELAY_MS".into(), "500".into()));
+    harness.restart();
+    let pane = first_pane(&harness, "creating-mixed");
+    let terminal_id = creating_terminal(5);
+    let split = spawn_request(
+        &harness.socket,
+        serde_json::json!({"id": 10, "cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal_id}),
+    );
+    let mut sender = Connection::open(&harness.socket);
+    queue(&mut sender, 20, &terminal_id, "QUEUED");
+    let created = split.recv_timeout(test_timeout(Duration::from_secs(20))).unwrap();
+    assert_eq!(created["ok"], true, "{created}");
+    let surface = created["data"]["surface"].as_u64().unwrap();
+    // Another connection types into the new surface by its id as soon as the reply names it.
+    let mut other = Connection::open(&harness.socket);
+    let live = other.call(serde_json::json!({
+        "id": 30, "cmd": "send", "surface": surface, "text": "-LIVE",
+    }));
+    assert_eq!(live["ok"], true, "{live}");
+    let screen = wait_for_screen(&harness.socket, surface, "QUEUED-LIVE");
+    assert_eq!(screen.matches("QUEUED-LIVE").count(), 1, "queued input ran first, once: {screen}");
+}
