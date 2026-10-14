@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxCloud
 import CmuxFoundation
 import CmuxSettingsUI
 import CmuxSidebar

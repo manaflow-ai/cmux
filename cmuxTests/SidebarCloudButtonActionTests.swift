@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -64,6 +65,19 @@ struct SidebarCloudButtonActionTests {
         #expect(revealed == 2)
         #expect(nextSteps.isEmpty)
         #expect(CloudWelcomeWindowController.hasSeenWelcome(in: defaults))
+    }
+
+    @Test("an explicit introduction records the seen marker so launch does not repeat it")
+    func introductionMarksWelcomeSeen() throws {
+        let suite = "SidebarCloudButtonActionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let welcome = CloudWelcomeWindowController(defaults: defaults)
+        defer { welcome.dismiss() }
+        #expect(!CloudWelcomeWindowController.hasSeenWelcome(in: defaults))
+        welcome.presentIntroduction(over: nil)
+        #expect(CloudWelcomeWindowController.hasSeenWelcome(in: defaults))
+        #expect(!welcome.claimLaunchPresentation(appVersion: "0.65.1", policy: ManagedDevicePolicy(defaults: defaults)))
     }
 
     @Test("managed Cloud restrictions do not reveal or introduce Cloud")
