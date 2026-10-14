@@ -878,3 +878,34 @@ terminal layer, follows the same offset. Verified on the mock: a slow
 −100 pt release sprang back, a −145 pt release closed a browser tab
 (5 → 4 tabs, reflow), and a fling closed a terminal card (4 → 3).
 `CardSwipeTests` checks the commit rule against the Safari trials.
+
+## Round 15: V1 verifier fixes (§6 / §6A / §8)
+
+- **A8 / 6.23, refused close.** Closes now wait for the host:
+  `TabsModel.closeConfirmed` calls `browser.close` / `term.close` first and
+  removes the card, inside the reflow, only when the host confirms. If the host
+  refuses, the card springs back to its slot with the toast; the count and the
+  layout don't change. The mock refuses closes with
+  `CMUX_NEXT_MOCK_CLOSE_FAIL=browser|terminal|all`. Checked on the simulator:
+  a refused fling on "Hacker News" came back, the toast showed, and the grid
+  still had 5 tabs.
+- **A7, reflow timing.** The fly-off is now 0.04 s (Safari's card is gone in
+  2–3 frames: `saf-swipe-135`, `saf-flick`), and the close starts at release
+  instead of waiting for the animation to finish. On the mock the neighbour
+  starts moving into the slot on the frame after the swiped card disappears.
+  Against a real host it starts after the close round trip.
+- **A10, Reduce Motion.** Nothing slides after release. A closed card fades
+  out where it is (0.18 s); a snap-back or refused close fades the card in at
+  its slot.
+- **A13, accessibility.** Each card is one element: a "<title>, tab" button
+  framed to the card and its title row (177 × 274 pt), with Open and Close
+  actions. The page toolbar leaves the hierarchy on the settled grid, and the
+  page's 1 pt keyboard proxy field is no longer an element. `axe describe-ui`
+  on the grid now lists only the cards, More, New Tab, the tab count and Done.
+- **6.13, toolbar touches.** The toolbar's whole row takes touches. Taps at
+  (85–87, 701) and (316, 701) in the Tabs shell left the page unchanged.
+- **6.4, pill-tap expand.** The only code path is
+  `chrome.expand(tap: true)` → `motion.expandTap` (0.39 / 0.88); nothing else
+  animates `bar`. I recorded 3 pill taps but could not fit them: the pill sits
+  over a dark code block on the mock page, which corrupts the label track. A
+  clean recapture needs a page with a plain background behind the pill.
