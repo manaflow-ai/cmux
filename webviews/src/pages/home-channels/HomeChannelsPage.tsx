@@ -152,9 +152,9 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const toggleStatus = (rootId: string) => {
     const root = threadSource.find((m) => m.id === rootId) ?? shown.find((m) => m.id === rootId);
     if (!root) return;
-    const shown = threadFor(root).status;
+    const seen = threadFor(root).status;
     const pendingAsk = asked.current.get(rootId);
-    const current = pendingAsk && pendingAsk !== shown ? pendingAsk : shown;
+    const current = pendingAsk && pendingAsk !== seen ? pendingAsk : seen;
     const status = current === "resolved" ? "open" : "resolved";
     asked.current.set(rootId, status);
     void store.updateThread(root, { status }).then((done) => {
