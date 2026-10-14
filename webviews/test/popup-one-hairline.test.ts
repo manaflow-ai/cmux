@@ -24,7 +24,9 @@ const css = sheets(source).map((file) => ({
   text: fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, ""),
 }));
 
-const POPUP_TOKENS = ["--ui-popup-shadow", "--acpmux-popup-elevation"];
+// The elevations that carry the popup hairline, and the drop shadow alone (no hairline).
+const RIM_TOKENS = ["--ui-popup-shadow", "--acpmux-popup-elevation"];
+const POPUP_TOKENS = [...RIM_TOKENS, "--ui-popup-drop"];
 
 // Every definition of a popup token, across every sheet.
 const definitions = new Map<string, string[]>();
@@ -108,8 +110,8 @@ const uses = css.flatMap(({ file, text }) =>
 );
 
 describe("web popups draw one hairline edge", () => {
-  test("every popup token definition holds exactly one hairline", () => {
-    for (const token of POPUP_TOKENS) {
+  test("every popup elevation definition holds exactly one hairline", () => {
+    for (const token of RIM_TOKENS) {
       for (const definition of definitions.get(token) ?? []) {
         expect({ token, definition, hairlines: hairlines(definition).length }).toEqual({
           token,
