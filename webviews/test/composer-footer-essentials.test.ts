@@ -81,7 +81,7 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     expect(access?.title).toContain("Default");
     expect(access?.text).toContain("Default");
     expect(await page.locator(".acpmux-context").count()).toBe(0);
-    const computer = await read(page, 'button[aria-label^="Computer: "]');
+    const computer = await read(page, '.acpmux-location-button[title^="Computer: "]');
     expect(computer?.visible).not.toContain("This Mac");
     expect(computer?.title).toContain("This Mac");
     expect(computer?.text).toContain("This Mac");
