@@ -444,6 +444,54 @@ pub fn user_instructions(path: &std::path::Path) -> Option<String> {
         .filter(|t| !t.trim().is_empty())
 }
 
+/// The person profile a Chief home starts with (`optchat/person.md`,
+/// written once when missing; the user edits or empties it). The Chief
+/// runs with no user CLAUDE.md or settings, so without it the Chief knows
+/// nothing of how the user wants work done.
+pub const DEFAULT_PERSON: &str = "# The user
+
+This is the user's profile (optchat/person.md); they may edit it.
+
+- Act without asking for safe operations: reading, searching, read-only
+  commands, edits in a worktree or scratch folder, starting subagents. When
+  the user asked for the work, do not ask \"Should I...?\"; do it and report.
+- Ask first only for money, legal matters, physical actions and destructive
+  actions (deleting data, force pushes, production changes).
+- Never run builds or tests on this Mac. Use the fleet or remote routes the
+  user's repositories document, and give that work to a subagent.
+";
+
+/// The person profile at `path`: the default, written once when the file is
+/// missing (never over an existing file); None when the user emptied it or
+/// it cannot be read.
+pub fn person_profile(path: &std::path::Path) -> Option<String> {
+    use std::io::Write;
+    match std::fs::read_to_string(path) {
+        Ok(text) => Some(text).filter(|t| !t.trim().is_empty()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let _ = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .and_then(|mut f| f.write_all(DEFAULT_PERSON.as_bytes()));
+            Some(DEFAULT_PERSON.to_owned())
+        }
+        Err(_) => None,
+    }
+}
+
+/// The user's part of the system prompt: the person profile, then the
+/// user's instructions file. Read once per host start, so every turn's
+/// prompt stays byte-identical until the host restarts.
+pub fn chief_instructions(person: &std::path::Path, user: &std::path::Path) -> Option<String> {
+    let parts: Vec<String> = [person_profile(person), user_instructions(user)]
+        .into_iter()
+        .flatten()
+        .map(|t| t.trim().to_owned())
+        .collect();
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
+}
+
 /// Tool descriptions, verbatim from section 7.1.
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";
 /// What zoom adds for subagents (the MCP tool; the native engine has none).
