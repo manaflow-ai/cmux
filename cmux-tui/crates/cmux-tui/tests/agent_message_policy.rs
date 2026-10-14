@@ -215,22 +215,22 @@ mod agent_message_policy {
     }
 
     #[test]
-    fn the_person_releases_or_declines_a_held_delivery() {
-        let daemon = Daemon::start("release", &[]);
-        let (_, alpha) = daemon.workspace("alpha");
-        let (_, beta) = daemon.workspace("beta");
-        daemon.place_session("a", &alpha);
-        daemon.place_session("b", &beta);
-        daemon.place_session("c", &beta);
+    fn only_the_app_releases_or_declines_a_held_delivery() {
+        let daemon = Daemon::start_owner("release");
+        // No acpmux: the session's workspace is unknown, so both are held.
         let a = daemon.acp_credential("a");
         let first = id(&daemon.sent(
             Some(&a),
             json!({"recipients": ["acp:b", "acp:c"],
-        "body": "across"}),
+            "body": "held twice"}),
         ));
+        let release = |recipient: &str, decision: &str| json!({"message_id": first, "recipient": recipient, "decision": decision});
 
-        // Approve through the CLI.
-        let approved = daemon.cli(&[
+        // A plain local connection may be an agent that left out its launch
+        // credential: it is refused, over the protocol and through the CLI.
+        let plain = daemon.mutate("agent.message.release", release("acp:b", "approve"), None);
+        assert_eq!(refusal(&plain), ("operation.failed".into(), "release_needs_app".into()));
+        let cli = daemon.cli(&[
             "agent",
             "message",
             "release",
@@ -239,56 +239,36 @@ mod agent_message_policy {
             "acp:b",
             "--approve",
         ]);
-        assert!(approved.status.success(), "{}", String::from_utf8_lossy(&approved.stderr));
+        assert!(!cli.status.success(), "the CLI released a held delivery");
+        let stderr = String::from_utf8_lossy(&cli.stderr);
+        assert!(stderr.contains("release_needs_app"), "{stderr}");
+        let agent = daemon.mutate("agent.message.release", release("acp:b", "approve"), Some(&a));
+        assert_eq!(refusal(&agent), ("operation.failed".into(), "release_needs_app".into()));
+        assert_eq!(state_and_reason(&listed(&daemon, &first), "acp:b").0, "held");
+
+        // The app approves and declines.
+        let mut app = daemon.app();
+        let approved = app.mutate("agent.message.release", release("acp:b", "approve"));
+        assert_eq!(approved["ok"], true, "{approved}");
         let message = listed(&daemon, &first);
         assert_eq!(state_and_reason(&message, "acp:b"), ("queued".into(), json!("approved")));
         assert!(delivery(&message, "acp:b")["held_until_ms"].is_null(), "{message}");
         assert!(delivery(&message, "acp:b")["queued_at_ms"].is_string(), "{message}");
-
-        // Decline over the protocol.
-        let declined = daemon.mutate(
-            "agent.message.release",
-            json!({"message_id": first,
-        "recipient": "acp:c", "decision": "decline"}),
-            None,
-        );
+        let declined = app.mutate("agent.message.release", release("acp:c", "decline"));
         assert_eq!(declined["ok"], true, "{declined}");
         let message = listed(&daemon, &first);
         assert_eq!(state_and_reason(&message, "acp:c"), ("declined".into(), json!("declined")));
 
         // Only a held delivery takes a decision.
-        let again = daemon.mutate(
-            "agent.message.release",
-            json!({"message_id": first,
-        "recipient": "acp:b", "decision": "decline"}),
-            None,
-        );
+        let again = app.mutate("agent.message.release", release("acp:b", "decline"));
         assert_eq!(refusal(&again), ("operation.failed".into(), "not_held".into()));
-        let missing = daemon.mutate(
-            "agent.message.release",
-            json!({"message_id": first,
-        "recipient": "acp:z", "decision": "approve"}),
-            None,
-        );
+        let missing = app.mutate("agent.message.release", release("acp:z", "approve"));
         assert_eq!(missing["ok"], false, "{missing}");
-
-        // An agent never decides, not even on its own message.
-        let second = id(&daemon.sent(Some(&a), to("acp:b", "another")));
-        let by_agent = daemon.mutate(
-            "agent.message.release",
-            json!({"message_id": second,
-        "recipient": "acp:b", "decision": "approve"}),
-            Some(&a),
-        );
-        assert_eq!(refusal(&by_agent), ("operation.failed".into(), "agent_release".into()));
-        assert_eq!(state_and_reason(&listed(&daemon, &second), "acp:b").0, "held");
     }
 
     #[test]
     fn a_held_delivery_expires_after_a_day() {
-        let daemon = Daemon::start("expiry", &[]);
-        let (_, alpha) = daemon.workspace("alpha");
-        daemon.place_session("a", &alpha);
+        let daemon = Daemon::start_owner("expiry");
         let a = daemon.acp_credential("a");
         let message = id(&daemon.sent(Some(&a), to("acp:elsewhere", "waiting")));
         daemon.set_clock_offset(DAY_MS - 1_000);
@@ -301,11 +281,10 @@ mod agent_message_policy {
             ("declined".into(), json!("expired"))
         );
         assert_eq!(daemon.list(json!({"state": "held"})).len(), 0);
-        let late = daemon.mutate(
+        let late = daemon.app().mutate(
             "agent.message.release",
             json!({"message_id": message,
-        "recipient": "acp:elsewhere", "decision": "approve"}),
-            None,
+            "recipient": "acp:elsewhere", "decision": "approve"}),
         );
         assert_eq!(refusal(&late), ("operation.failed".into(), "expired".into()));
         // The refused release stored nothing; the delivery still reads expired.
@@ -313,6 +292,69 @@ mod agent_message_policy {
         assert_eq!(
             state_and_reason(&stored, "acp:elsewhere"),
             ("declined".into(), json!("expired"))
+        );
+    }
+
+    #[test]
+    fn a_refused_send_never_asks_acpmux() {
+        let daemon = Daemon::start("lookups", &[]);
+        let (_, alpha) = daemon.workspace("alpha");
+        daemon.place_session("a", &alpha);
+        let a = daemon.acp_credential("a");
+        for index in 0..5 {
+            daemon.sent(Some(&a), to(&format!("acp:r{index}"), "hello"));
+        }
+        let asked = daemon.acpmux_lookups();
+        let burst = daemon.send(Some(&a), to("acp:r5", "hello"));
+        assert_eq!(refusal(&burst), ("operation.failed".into(), "rate_limited".into()));
+        let address = daemon.send(Some(&a), to("not-an-agent", "hello"));
+        assert_eq!(address["ok"], false, "{address}");
+        let large = daemon.send(Some(&a), to("acp:r6", &"x".repeat(32 * 1024 + 1)));
+        assert_eq!(refusal(&large), ("validation.invalid".into(), "body_too_large".into()));
+        assert_eq!(daemon.acpmux_lookups(), asked, "a refused send asked acpmux");
+    }
+
+    #[test]
+    fn a_sender_joins_only_a_thread_it_is_part_of() {
+        let daemon = Daemon::start("join", &[]);
+        let (_, alpha) = daemon.workspace("alpha");
+        for session in ["a", "b", "c"] {
+            daemon.place_session(session, &alpha);
+        }
+        let a = daemon.acp_credential("a");
+        let b = daemon.acp_credential("b");
+        let c = daemon.acp_credential("c");
+        let first = id(&daemon.sent(
+            Some(&a),
+            json!({"recipients": ["acp:b"], "body": "start",
+            "thread_id": "plan"}),
+        ));
+
+        // An outsider can neither start a message in the thread nor reply in it.
+        let joined = daemon.send(
+            Some(&c),
+            json!({"recipients": ["acp:a"], "body": "me too",
+            "thread_id": "plan"}),
+        );
+        assert_eq!(refusal(&joined), ("operation.failed".into(), "thread_not_joined".into()));
+        let replied = daemon.send(
+            Some(&c),
+            json!({"recipients": ["acp:a"], "body": "me too",
+            "in_reply_to": first}),
+        );
+        assert_eq!(refusal(&replied), ("operation.failed".into(), "thread_not_joined".into()));
+
+        // Its sender and its recipients take part.
+        daemon.sent(Some(&b), json!({"recipients": ["acp:a"], "body": "ok", "thread_id": "plan"}));
+        daemon.sent(
+            Some(&a),
+            json!({"recipients": ["acp:c"], "body": "join us",
+            "thread_id": "plan"}),
+        );
+        daemon.sent(
+            Some(&c),
+            json!({"recipients": ["acp:a"], "body": "joined",
+            "thread_id": "plan"}),
         );
     }
 

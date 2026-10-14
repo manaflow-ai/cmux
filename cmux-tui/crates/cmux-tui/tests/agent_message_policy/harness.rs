@@ -14,7 +14,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cmux_tui_core::server::frontend_proof::{NONCE_LEN, hello_proof, unhex};
 use serde_json::{Value, json};
+
+/// The install key an owner daemon gets on `server ensure`, so one
+/// connection can prove itself the cmux app (the `frontend` actor).
+const KEY_HEX: &str = "4b1d2c3e5f60718293a4b5c6d7e8f901122334455667788990aabbccddeeff00";
+const INSTALL: &str = "inst_agent_message_app";
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
@@ -28,12 +34,17 @@ type Sessions = Arc<Mutex<HashMap<String, String>>>;
 
 pub struct Daemon {
     child: Option<Child>,
+    /// The session name of a daemon `server ensure` started with an install
+    /// key; `None` for a plain `--headless` daemon.
+    owner: Option<String>,
     pub socket: PathBuf,
     pub state: PathBuf,
     pub dir: PathBuf,
     clock: PathBuf,
     env: Vec<(String, String)>,
     sessions: Sessions,
+    /// `_acpmux/info` requests the fake acpmux has answered.
+    lookups: Arc<AtomicU64>,
 }
 
 impl Daemon {
@@ -48,36 +59,65 @@ impl Daemon {
         Self::start_with(name, env, false)
     }
 
+    /// A daemon `server ensure` starts with an install key, so [`Self::app`]
+    /// can prove a connection as the cmux app. No acpmux listens.
+    pub fn start_owner(name: &str) -> Self {
+        let mut daemon = Self::prepare(name, &[], false);
+        daemon.owner = Some(unique("amp-owner"));
+        daemon.spawn();
+        daemon
+    }
+
     fn start_with(name: &str, env: &[(&str, &str)], acpmux: bool) -> Self {
+        let mut daemon = Self::prepare(name, env, acpmux);
+        daemon.spawn();
+        daemon
+    }
+
+    fn prepare(name: &str, env: &[(&str, &str)], acpmux: bool) -> Self {
         let dir = PathBuf::from("/tmp").join(unique(&format!("cmux-amp-{name}")));
         fs::create_dir_all(&dir).unwrap();
         let clock = dir.join("clock");
         fs::write(&clock, "0").unwrap();
         let sessions: Sessions = Arc::default();
+        let lookups = Arc::new(AtomicU64::new(0));
         if acpmux {
-            serve_fake_acpmux(&dir.join("acpmux.sock"), sessions.clone());
+            serve_fake_acpmux(&dir.join("acpmux.sock"), sessions.clone(), lookups.clone());
         }
-        let mut daemon = Self {
+        Self {
             child: None,
+            owner: None,
             socket: dir.join("mux.sock"),
             state: dir.join("state"),
             clock,
             env: env.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect(),
             sessions,
+            lookups,
             dir,
-        };
-        daemon.spawn();
-        daemon
+        }
     }
 
     fn spawn(&mut self) {
         let _ = fs::remove_file(&self.socket);
         let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        match &self.owner {
+            Some(session) => {
+                command
+                    .args(["server", "ensure", "--json", "--install-key-stdin", "--session"])
+                    .arg(session)
+                    .arg("--socket")
+                    .arg(&self.socket)
+                    .env("CMUX_TUI_STATE_DIR", &self.state);
+            }
+            None => {
+                command
+                    .args(["--headless", "--socket"])
+                    .arg(&self.socket)
+                    .arg("--state")
+                    .arg(&self.state);
+            }
+        }
         command
-            .args(["--headless", "--socket"])
-            .arg(&self.socket)
-            .arg("--state")
-            .arg(&self.state)
             .env("HOME", &self.dir)
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .env("ACPMUX_SOCKET", self.dir.join("acpmux.sock"))
@@ -90,7 +130,14 @@ impl Daemon {
             .envs(self.env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        self.child = Some(command.spawn().unwrap());
+        if self.owner.is_some() {
+            let mut child = command.stdin(Stdio::piped()).spawn().unwrap();
+            let key = format!("cmuxik1 {INSTALL} {KEY_HEX}\n");
+            child.stdin.take().unwrap().write_all(key.as_bytes()).unwrap();
+            assert!(child.wait().unwrap().success(), "server ensure failed");
+        } else {
+            self.child = Some(command.spawn().unwrap());
+        }
         let deadline = Instant::now() + Duration::from_secs(20);
         while UnixStream::connect(&self.socket).is_err() {
             assert!(
@@ -111,6 +158,14 @@ impl Daemon {
 
     /// Ends the daemon process this test started.
     pub fn stop(&mut self) {
+        if let Some(session) = &self.owner {
+            let _ = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+                .args(["server", "stop", "--json", "--session", session, "--socket"])
+                .arg(&self.socket)
+                .env("CMUX_TUI_STATE_DIR", &self.state)
+                .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+                .output();
+        }
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -125,6 +180,11 @@ impl Daemon {
     /// The fake acpmux reports `session` as running in `workspace_key`.
     pub fn place_session(&self, session: &str, workspace_key: &str) {
         self.sessions.lock().unwrap().insert(session.to_owned(), uuid_form(workspace_key));
+    }
+
+    /// How many `_acpmux/info` requests the fake acpmux has answered.
+    pub fn acpmux_lookups(&self) -> u64 {
+        self.lookups.load(Ordering::SeqCst)
     }
 
     /// One `cmux.protocol/2` request on a new connection; `extra` adds
@@ -156,6 +216,21 @@ impl Daemon {
                 return value;
             }
         }
+    }
+
+    /// A connection proven as the cmux app (an owner daemon only).
+    pub fn app(&self) -> App {
+        let stream = UnixStream::connect(&self.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+        let mut app = App { reader: BufReader::new(stream) };
+        let challenge = app.request(json!({"cmd": "client-hello", "role": "main",
+            "install_id": INSTALL}));
+        let nonce = unhex::<NONCE_LEN>(challenge["data"]["nonce"].as_str().unwrap()).unwrap();
+        let proof = hello_proof(&unhex::<32>(KEY_HEX).unwrap(), INSTALL, &nonce);
+        let proved =
+            app.request(json!({"cmd": "client-hello", "install_id": INSTALL, "proof": proof}));
+        assert_eq!(proved["data"]["verified"], true, "{proved}");
+        app
     }
 
     /// A mutation with a fresh idempotency key, as `credential`'s holder
@@ -342,24 +417,28 @@ fn uuid_form(key: &str) -> String {
 
 /// A unix socket that answers `_acpmux/info` for the sessions in
 /// `sessions` and an error for anything else.
-fn serve_fake_acpmux(socket: &Path, sessions: Sessions) {
+fn serve_fake_acpmux(socket: &Path, sessions: Sessions, lookups: Arc<AtomicU64>) {
     let listener = UnixListener::bind(socket).unwrap();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { return };
             let sessions = sessions.clone();
-            std::thread::spawn(move || answer(stream, &sessions));
+            let lookups = lookups.clone();
+            std::thread::spawn(move || answer(stream, &sessions, &lookups));
         }
     });
 }
 
-fn answer(stream: UnixStream, sessions: &Sessions) {
+fn answer(stream: UnixStream, sessions: &Sessions, lookups: &AtomicU64) {
     let Ok(mut writer) = stream.try_clone() else { return };
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let Ok(line) = line else { return };
         let Ok(request) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = request.get("id").cloned() else { continue };
+        if request["method"] == "_acpmux/info" {
+            lookups.fetch_add(1, Ordering::SeqCst);
+        }
         let session = request["params"]["sessionId"].as_str().unwrap_or_default();
         let workspace = sessions.lock().unwrap().get(session).cloned();
         let reply = match (request["method"].as_str(), workspace) {
@@ -391,4 +470,39 @@ pub fn refusal(reply: &Value) -> (String, String) {
         reply["error"]["code"].as_str().unwrap_or_default().to_owned(),
         reply["error"]["details"]["reason"].as_str().unwrap_or_default().to_owned(),
     )
+}
+
+/// One connection proven as the cmux app (the `frontend` actor).
+pub struct App {
+    reader: BufReader<UnixStream>,
+}
+
+impl App {
+    /// One request (legacy or `cmux.protocol/2`) and its response.
+    fn request(&mut self, mut request: Value) -> Value {
+        let id = format!("app{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        request["id"] = json!(id);
+        writeln!(self.reader.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "closed before {id}");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value.get("event").is_none() && value["id"] == id {
+                return value;
+            }
+        }
+    }
+
+    /// A `cmux.protocol/2` mutation with a fresh idempotency key.
+    pub fn mutate(&mut self, operation: &str, mut params: Value) -> Value {
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        self.request(json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "operation": operation,
+            "params": params,
+            "idempotency_key": unique("key"),
+        }))
+    }
 }
