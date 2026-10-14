@@ -340,9 +340,10 @@ try:
     added = cli("action", "run", "sidebar.item.add", "--item", "https://github.com", "--section", "sec_pinned")
     print("link add:", added[:400], flush=True)
     link = wait(lambda: next((i for i in section_items("sec_pinned") if i.get("ref_kind") == "url"), None), 10)
-    # The drop goes above the list's first row (Alpha is a Pinned tile by now: live11 found no Alpha row).
-    titles = list_titles()
-    anchor = by_title(titles[0]) if titles else None
+    # The drop goes above the first workspace row of the machine list: not Alpha (a Pinned tile by now, live11) and not a
+    # group member (a Pinned group lists its members in the list too: live12 dropped the link into that group).
+    anchor = next((r for r in window().get("rows", []) if r.get("in_list") and str(r.get("key", "")).startswith("workspace")
+                   and not r.get("group")), None)
     if link and anchor:
         drag(center(link["window_frame"]), (anchor["window_frame"]["x"] + 40, anchor["window_frame"]["y"] + 2), "v2-5-link-into-list",
              indicator="gap")
