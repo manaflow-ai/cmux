@@ -48,9 +48,10 @@ struct NewMachineSheetLayoutTests {
                         diskByMemoryMb: ["4096": 16384, "8192": 32768]
                     )
                 ),
-                memoryOptionsMb: [4096, 8192], defaultMemoryMb: 4096,
+                memoryOptionsMb: [4096, 8192],
                 vcpusByMemoryMb: ["4096": 2, "8192": 4],
                 diskByMemoryMb: ["4096": 16384, "8192": 32768],
+                defaultMemoryMb: 4096,
                 sourceMachines: machines,
                 baseImage: forked ? .machine(machines[2]) : .defaultImage,
                 defaults: UserDefaults(suiteName: "NewMachineSheetLayoutTests-\(UUID().uuidString)")!,
@@ -122,9 +123,9 @@ struct NewMachineSheetLayoutTests {
                 planId: "pro",
                 freeAccessWindowDays: 0,
                 memoryOptionsMb: [4096, 8192, 16384],
+                defaultMemoryMb: 4096,
                 lockedMemoryOptionsMb: [32768, 65536],
                 memoryUpgradePlanId: "max",
-                defaultMemoryMb: 4096,
                 vcpusByMemoryMb: ["4096": 2, "8192": 4, "16384": 8],
                 diskByMemoryMb: ["4096": 16384, "8192": 32768, "16384": 65536],
                 resourcePool: pool
@@ -167,9 +168,9 @@ struct NewMachineSheetLayoutTests {
                 )
             ),
             memoryOptionsMb: [8192, 16384],
-            defaultMemoryMb: 8192,
             vcpusByMemoryMb: ["8192": 4, "16384": 8],
             diskByMemoryMb: ["8192": 32768, "16384": 65536],
+            defaultMemoryMb: 8192,
             sourceMachines: machines,
             defaults: UserDefaults(suiteName: "NewMachineSheetLayoutTests-\(UUID().uuidString)")!,
             submit: { _ in true }
