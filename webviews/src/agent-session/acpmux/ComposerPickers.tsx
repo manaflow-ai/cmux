@@ -431,12 +431,18 @@ export function ComposerPickers({
         ? t("picker.reasoning")
         : effortChoice.name
       : undefined;
-  const modeLabel = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0])?.name : undefined;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  // The access chip names the mode acpmux will start the chat in, not the mode this harness's last
+  // chat showed (harnessProfiles.ts `startMode`); nothing when the pane cannot know.
+  const startMode = awaiting && chipHarness ? harnessProfiles.startMode(chipHarness) : undefined;
+  const startModeName = startMode
+    ? harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode)?.name ||
+      startMode
+    : undefined;
   useEffect(() => {
-    if (!awaiting && chipHarness && summary?.sessionId && (effortLabel || modeLabel))
-      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel });
-  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel]);
+    if (!awaiting && chipHarness && summary?.sessionId && effortLabel)
+      rememberLastChips(chipHarness, { effort: effortLabel });
+  }, [awaiting, chipHarness, summary?.sessionId, effortLabel]);
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -505,7 +511,7 @@ export function ComposerPickers({
       )}
       {!(effort && efforts.length > 1) && lastChips?.effort && <PendingChip kind="effort" label={lastChips.effort} />}
       <span className="acpmux-chips-spacer" aria-hidden="true" />
-      {modes.length === 0 && lastChips?.mode && <PendingChip kind="mode" label={lastChips.mode} />}
+      {modes.length === 0 && startModeName && <PendingChip kind="mode" label={startModeName} />}
       {modes.length > 0 && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
@@ -597,14 +603,15 @@ function AccessMenu({
   }, [current, optimistic, sessionId]);
   const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
   const value = optimisticMode ?? current ?? modes[0]?.id ?? "";
-  const currentMode = modes.find((choice) => choice.id === value);
+  // A chat that has not reported its mode (one acpmux has not started) names none, not the first.
+  const currentMode = modes.find((choice) => choice.id === (optimisticMode ?? current));
   const pick = (next: string) => {
     setOptimistic({ sessionId, modeId: next });
     onMode(next);
     setOpen(false);
   };
   return (
-    <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}>
+    <span className={`acpmux-mode acpmux-access${unrestricted(currentMode?.id ?? "") ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
           <LockIcon />

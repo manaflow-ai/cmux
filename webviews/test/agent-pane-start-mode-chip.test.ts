@@ -82,7 +82,7 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
   );
   const [PICKED, OTHER] = [...chats.keys()];
   const calls: { method: string; params: Record<string, any> }[] = [];
-  const sockets = new Set<ServerWebSocket<undefined>>();
+  const sockets = new Set<ServerWebSocket<unknown>>();
 
   /// The answer to one request; `undefined` holds it (a new chat acpmux has not started yet).
   function answer(method: string, params: Record<string, any>): unknown {
