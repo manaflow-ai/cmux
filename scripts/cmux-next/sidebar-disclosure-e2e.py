@@ -4,9 +4,9 @@
 Group headers and workspace rows use the same chevron: open points down (`disclosure.expanded`),
 collapsed points right (`disclosure.collapsed`), at the same size and in the same place. A
 workspace row shows its chevron only on hover or when selected. A group header is a solid
-colored chip (cx-qno.22): `fill` reports only a state step on it, which shows on hover and not
-when its collapsed group holds the selection; only the selected workspace row paints the
-selection fill.
+colored chip (cx-qno.22): `fill` reports a state step on it, which shows on hover and when its
+collapsed group holds the selection (the selected row's background over the chip, cx-im75u, so
+the user finds the active workspace).
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. It turns on `sidebar.showWorkspaceTabs` (so workspace
@@ -207,8 +207,8 @@ def main():
     collapsed = wait(lambda: (lambda r: r if r and disclosure(r).get("icon") != DOWN else None)(header_of(group)), 5) or header_of(group)
     row("A collapsed group header points right", f"icon {RIGHT}", f"icon {disclosure(collapsed).get('icon')}",
         disclosure(collapsed).get("icon") == RIGHT)
-    row("A collapsed group holding the selection paints no fill", "fill false", f"fill {(collapsed or {}).get('fill')}",
-        (collapsed or {}).get("fill") is False)
+    row("A collapsed group holding the selection paints the selected row's background", "fill true",
+        f"fill {(collapsed or {}).get('fill')}", (collapsed or {}).get("fill") is True)
     action("workspaceGroup.expand", target="workspace-group:" + group)
 
 
