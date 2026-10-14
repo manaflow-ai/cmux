@@ -10,7 +10,8 @@ public nonisolated struct SidebarWorkspaceDetail: Hashable, Sendable {
     public var activitySince: Date?
     /// The model of the row's agent chat (acpmux), nil when unknown.
     public var model: String?
-    /// The running turn's prompt of the row's agent chat: what the agent works on.
+    /// What the row works on: the running turn's prompt of its agent chat, else a working
+    /// program's own words (OSC 7501 title and message).
     public var task: String?
     /// Why the row waits for the user: the blocked program's own words, else the newest unread
     /// notification. Nil unless the row waits.

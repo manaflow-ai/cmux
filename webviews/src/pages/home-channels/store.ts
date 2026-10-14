@@ -6,7 +6,7 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { DraftBook, type HomeDraft } from "./drafts";
-import { mergeMessages, threadOf } from "./model";
+import { hashLink, mergeMessages, threadOf } from "./model";
 import {
   HomeOps,
   type HomeConversation,
@@ -16,11 +16,16 @@ import {
   type HomeMessage,
   type HomePage,
   type HomeParticipant,
+  type HomeResolvedLink,
   type HomeThreadPage,
   type HomeThreadStats,
+  type HomeThreadStatus,
+  type HomeThreadUpdate,
 } from "./types";
 
 export const PAGE = 100;
+/** Most pages a link loads to reach its message (older history, or later thread replies). */
+const LINK_PAGES = 20;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
@@ -34,6 +39,25 @@ export interface ThreadView {
   /** More replies follow the last loaded one. */
   hasMore: boolean;
   loading: boolean;
+}
+
+/** A message I sent that the owner has not shown yet (optimistic): it shows at once, marked
+ * sending; the owner's event with the same client message id replaces it. A failed send stays,
+ * marked, until it is retried (same idempotency key) or discarded. */
+export interface PendingSend {
+  key: string;
+  conversation: string;
+  text: string;
+  threadRoot?: string;
+  replyTo?: string;
+  createdAt: number;
+  failed: boolean;
+}
+
+/** Pending sends that outlive one store: the page makes a new store on every reconnect, and a
+ * send that failed with the old connection keeps its "Not sent" row and Retry in the new one. */
+export class PendingCarry {
+  entries: readonly PendingSend[] = [];
 }
 
 export interface HomeSnapshot {
@@ -61,6 +85,13 @@ export interface HomeSnapshot {
   threadsSeen: ReadonlySet<string>;
   /** The open conversation's running agent reply (shown until the reply posts). */
   draft?: HomeDraft;
+  /** The message a link opened: the timeline or thread panel scrolls to it and marks it. */
+  highlight?: string;
+  /** My sends the owner has not shown yet, oldest first. */
+  pending: readonly PendingSend[];
+  /** Participants typing or writing a reply, by conversation (every conversation, not only the
+   * open one): a Chief's row shows it as working. */
+  activity: ReadonlyMap<string, ReadonlySet<string>>;
   error?: string;
 }
 
@@ -76,8 +107,13 @@ export class HomeChannelsStore {
   /** The read cursor this page last sent per conversation (one read per new seq). */
   private readonly readSeq = new Map<string, number>();
   private readonly drafts = new DraftBook();
+  /** Who types in each conversation (typing events); activity adds the running drafts. */
+  private readonly typingBy = new Map<string, Set<string>>();
 
-  constructor(private readonly client: PageClient | null) {
+  constructor(
+    private readonly client: PageClient | null,
+    private readonly carry: PendingCarry = new PendingCarry(),
+  ) {
     this.snapshot = {
       connection: client ? "connecting" : "offline",
       loading: client !== null,
@@ -88,7 +124,12 @@ export class HomeChannelsStore {
       typing: [],
       threadsSeen: new Set(),
       threadStats: new Map(),
+      // A send still in flight on the old connection did not reach the owner as far as this
+      // store knows: it shows as failed, with Retry (the same idempotency key, never twice).
+      pending: carry.entries.map((entry) => ({ ...entry, failed: true })),
+      activity: new Map(),
     };
+    carry.entries = this.snapshot.pending;
   }
 
   getSnapshot = (): HomeSnapshot => this.snapshot;
@@ -129,6 +170,74 @@ export class HomeChannelsStore {
       this.set({ error: describe(error), loading: false });
     }
     await this.reloadInbox();
+    this.followHash();
+  }
+
+  /** Opens the link in the page URL's hash (`#/conversation/<id>[/message/<id>]`) now and on every
+   * change, so a host (the Messages Home's switch, a pasted URL) opens the page at one message. */
+  private followHash(): void {
+    if (typeof window === "undefined") return;
+    const open = () => {
+      const link = hashLink(window.location.hash);
+      if (link) void this.openLink(link);
+    };
+    window.addEventListener("hashchange", open);
+    this.stops.push(() => window.removeEventListener("hashchange", open));
+    open();
+  }
+
+  /** Opens a conversation or message link (`cmux://conversation/<id>[/message/<id>]`): the
+   * conversation, the message's thread, and the message marked. Resolves true when it opened. */
+  async openLink(url: string): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      const link = await this.client.call<HomeResolvedLink>(HomeOps.resolveLink, { url });
+      if (!this.snapshot.conversations.has(link.conversation)) await this.reloadInbox();
+      await this.select(link.conversation);
+      const target = link.message;
+      // A reply from before threads has no owner root; the page shows it in its reply_to thread.
+      const root = link.threadRoot ?? (target ? threadOf(target) : undefined);
+      if (target && root) {
+        await this.openThread(root);
+        await this.pageTo(
+          () => this.snapshot.threadView?.messages,
+          target,
+          async () => {
+            const view = this.snapshot.threadView;
+            if (!view?.hasMore || view.root !== root) return false;
+            await this.loadThread(root, view.messages.at(-1)?.seq ?? 0);
+            return true;
+          },
+        );
+      } else if (target) {
+        await this.pageTo(
+          () => this.snapshot.messages,
+          target,
+          async () => {
+            if (!this.snapshot.hasOlder || this.snapshot.selected !== link.conversation) return false;
+            await this.loadOlder();
+            return true;
+          },
+        );
+      }
+      this.set({ highlight: target?.id });
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Loads more pages (at most LINK_PAGES) until `target` is in `loaded()`. */
+  private async pageTo(
+    loaded: () => readonly HomeMessage[] | undefined,
+    target: HomeMessage,
+    more: () => Promise<boolean>,
+  ): Promise<void> {
+    for (let page = 0; page < LINK_PAGES; page += 1) {
+      if (loaded()?.some((message) => message.id === target.id)) return;
+      if (!(await more())) return;
+    }
   }
 
   private stop(): void {
@@ -168,6 +277,7 @@ export class HomeChannelsStore {
       unseen: undefined,
       threadsSeen: new Set(),
       draft: this.drafts.draft(id),
+      highlight: undefined,
     });
     await this.reloadPage(id);
   }
@@ -195,9 +305,11 @@ export class HomeChannelsStore {
       const live = this.drafts.draft(id);
       const reply = live && messages.find((m) => m.clientMessageId === live.turn && m.author === live.participant);
       if (reply) this.drafts.posted(reply);
+      if (reply) this.set({ activity: this.currentActivity() });
       this.set({
         conversations,
         messages,
+        pending: this.settled(messages) ?? this.snapshot.pending,
         hasOlder: (messages[0]?.seq ?? 1) > 1,
         unseen,
         draft: this.drafts.draft(id),
@@ -235,11 +347,12 @@ export class HomeChannelsStore {
     }
   }
 
-  openThread(root: string | undefined): void {
+  /** Opens (or closes) a thread; resolves when its first replies are loaded. */
+  openThread(root: string | undefined): Promise<void> {
     const threadView = root ? { root, messages: [], hasMore: false, loading: true } : undefined;
     if (!root || this.snapshot.threadsSeen.has(root)) this.set({ thread: root, threadView });
     else this.set({ thread: root, threadView, threadsSeen: new Set(this.snapshot.threadsSeen).add(root) });
-    if (root) void this.loadThread(root, 0);
+    return root ? this.loadThread(root, 0) : Promise.resolve();
   }
 
   /** The next page of the open thread's replies (the owner's thread read). */
@@ -276,23 +389,71 @@ export class HomeChannelsStore {
     }
   }
 
-  /** Sends text to the open conversation (or the open thread). The owner's event shows it. */
-  async send(text: string, thread?: string): Promise<boolean> {
+  /** Sends text to the open conversation, or in the open thread as a reply to `parent` (the root
+   * or any reply: threads nest without a limit). Optimistic: the message shows at once as pending
+   * and the composer clears; the owner's event replaces it. Resolves false only when nothing was
+   * sent (no conversation, empty text). */
+  async send(text: string, thread?: string, parent?: string): Promise<boolean> {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
     if (!this.client || !conversation || !trimmed) return false;
+    const pending: PendingSend = {
+      key: this.key("send"),
+      conversation,
+      text: trimmed,
+      createdAt: Date.now(),
+      failed: false,
+      ...(thread ? { threadRoot: thread } : {}),
+      ...(parent ? { replyTo: parent } : {}),
+    };
+    this.set({ pending: [...this.snapshot.pending, pending] });
+    void this.deliver(pending);
+    return true;
+  }
+
+  /** Sends a failed pending message again with its own idempotency key (never twice). */
+  retry(key: string): void {
+    const pending = this.snapshot.pending.find((entry) => entry.key === key);
+    if (!pending) return;
+    const again = { ...pending, failed: false };
+    this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === key ? again : entry)) });
+    void this.deliver(again);
+  }
+
+  discard(key: string): void {
+    this.set({ pending: this.snapshot.pending.filter((entry) => entry.key !== key) });
+  }
+
+  private async deliver(pending: PendingSend): Promise<void> {
+    if (!this.client) return;
     try {
       await this.client.call(HomeOps.send, {
-        conversation,
-        text: trimmed,
-        threadRoot: thread,
-        idempotencyKey: this.key("send"),
+        conversation: pending.conversation,
+        text: pending.text,
+        threadRoot: pending.threadRoot,
+        replyTo: pending.replyTo,
+        idempotencyKey: pending.key,
       });
-      return true;
+      // The owner's event may have come first (or a retry was a replay of a message already in
+      // the window): settle from what the page holds now.
+      const held = [...this.snapshot.messages, ...(this.snapshot.threadView?.messages ?? [])];
+      const left = this.settled(held);
+      if (left) this.set({ pending: left });
     } catch (error) {
-      this.set({ error: describe(error) });
-      return false;
+      if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return;
+      this.set({
+        error: describe(error),
+        pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? { ...entry, failed: true } : entry)),
+      });
     }
+  }
+
+  /** Drops the pending sends these owner messages show (same client message id). */
+  private settled(messages: readonly HomeMessage[]): readonly PendingSend[] | undefined {
+    if (this.snapshot.pending.length === 0 || messages.length === 0) return undefined;
+    const keys = new Set(messages.map((message) => message.clientMessageId).filter(Boolean));
+    const left = this.snapshot.pending.filter((entry) => !keys.has(entry.key));
+    return left.length === this.snapshot.pending.length ? undefined : left;
   }
 
   /** Creates a channel (a titled group) with these members and opens it. Resolves true when the
@@ -345,6 +506,27 @@ export class HomeChannelsStore {
         text: trimmed,
         idempotencyKey: this.key("edit"),
       });
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Sets a thread's title, status or owner (any participant; an empty title or owner clears it).
+   * The owner answers with the root's message-updated event. Resolves true when the owner took it. */
+  async updateThread(
+    root: HomeMessage,
+    fields: { title?: string; status?: HomeThreadStatus; owner?: string },
+  ): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      await this.client.call(HomeOps.updateThread, {
+        conversation: root.conversation,
+        root: root.id,
+        ...fields,
+        idempotencyKey: this.key("thread"),
+      } satisfies HomeThreadUpdate);
       return true;
     } catch (error) {
       this.set({ error: describe(error) });
@@ -413,6 +595,10 @@ export class HomeChannelsStore {
     const selected = this.snapshot.selected;
     const incoming = (batch.messages ?? []).filter((message) => message.conversation === selected);
     if (incoming.length > 0) patch.messages = mergeMessages(this.snapshot.messages, incoming, WINDOW);
+    const left = this.settled(batch.messages ?? []);
+    if (left) patch.pending = left;
+    const activity = this.activityAfter(batch);
+    if (activity) patch.activity = activity;
     // The open thread's view takes its root and replies from events too (a reply, an edit).
     const view = this.snapshot.threadView;
     const threadIncoming = view ? incoming.filter((m) => m.id === view.root || threadOf(m) === view.root) : [];
@@ -445,12 +631,46 @@ export class HomeChannelsStore {
     else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);
   }
 
+  /** Who types or writes a reply in each conversation after this batch (undefined: no change).
+   * Rebuilt from the typing map and the live drafts each time, so a draft that ends with no
+   * posted message, or a reply that ends its draft through a page reload, clears it too. */
+  private activityAfter(batch: HomeEventBatch): ReadonlyMap<string, ReadonlySet<string>> | undefined {
+    // A reconnect or an inbox refetch ends every indicator (typing is ephemeral).
+    if (batch.connection || batch.inboxStale) this.typingBy.clear();
+    for (const entry of batch.typing ?? []) {
+      const people = this.typingBy.get(entry.conversation) ?? new Set<string>();
+      if (entry.on) people.add(entry.participant);
+      else people.delete(entry.participant);
+      if (people.size > 0) this.typingBy.set(entry.conversation, people);
+      else this.typingBy.delete(entry.conversation);
+    }
+    // A posted message ends its author's typing.
+    for (const message of batch.messages ?? []) this.typingBy.get(message.conversation)?.delete(message.author);
+    const touched =
+      batch.connection || batch.inboxStale || batch.typing?.length || batch.drafts?.length || batch.messages?.length;
+    return touched ? this.currentActivity() : undefined;
+  }
+
+  /** Typing plus the running drafts, by conversation. */
+  private currentActivity(): ReadonlyMap<string, ReadonlySet<string>> {
+    const next = new Map<string, ReadonlySet<string>>();
+    const conversations = new Set([...this.typingBy.keys(), ...this.snapshot.conversations.keys()]);
+    for (const conversation of conversations) {
+      const people = new Set(this.typingBy.get(conversation) ?? []);
+      const draft = this.drafts.draft(conversation);
+      if (draft) people.add(draft.participant);
+      if (people.size > 0) next.set(conversation, people);
+    }
+    return next;
+  }
+
   private key(kind: string): string {
     return `home-channels-${kind}-${Date.now().toString(36)}-${(this.nextKey++).toString(36)}`;
   }
 
   private set(patch: Partial<HomeSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
+    if (patch.pending) this.carry.entries = patch.pending;
     for (const listener of this.listeners) listener();
   }
 }

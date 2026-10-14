@@ -41,10 +41,11 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
         }
     }
 
-    /// Whether a square of `pixels` takes the 1x-hinted drawing: its pixel grid is the hinted 10-unit
-    /// grid's (10 pt at 1x), not the master's 20 (10 pt at 2x).
+    /// Whether a square of `pixels` takes the 1x-hinted drawing: exactly the hinted 10-unit grid
+    /// (10 pt at 1x). Every other size, 2x, 3x and 5x included, draws the master's curves; the
+    /// 10-unit art blown up to 30 or 50 pixels drew coarse blocks.
     public static func usesHinting(pixels: CGFloat) -> Bool {
-        pixels.rounded() == pixels && pixels.truncatingRemainder(dividingBy: 20) == 10
+        pixels == 10
     }
 
     /// The glyph filling `rect` (y-up, as CG draws), to fill with the even-odd rule.

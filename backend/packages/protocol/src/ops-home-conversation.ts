@@ -17,6 +17,7 @@ import {
   Parts,
   ReactionKind,
   Seq,
+  ThreadStatus,
   ThreadSummary
 } from "./ops-home-schemas.ts"
 
@@ -178,6 +179,28 @@ export const TitleSet = def({
   errors: [...conversationErrors, "invalid_title"],
   docs: "Rename a group conversation (not a dm or chief thread).",
   cli: cli("title"),
+  mcp: { expose: "opt_in", group: "home" }
+})
+
+export const ThreadUpdate = def({
+  name: "thread.update",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "message",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    ...conv,
+    root: MessageId,
+    title: Schema.optionalKey(Title),
+    status: Schema.optionalKey(ThreadStatus),
+    // A participant id, or "" to clear the owner (the owner checks it is a current participant).
+    owner: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(128)))
+  }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_message", "invalid_thread_root", "invalid_thread_update", "invalid_thread_owner", "invalid_title"],
+  docs: "Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread.",
+  cli: cli("thread update"),
   mcp: { expose: "opt_in", group: "home" }
 })
 
@@ -408,6 +431,7 @@ export const homeConversationOps = [
   ReactionRemove,
   ReadCursorSet,
   TitleSet,
+  ThreadUpdate,
   ParticipantsAdd,
   ParticipantsRemove,
   InviteCreate,

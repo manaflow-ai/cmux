@@ -305,6 +305,7 @@ impl Mux {
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             agent_presence: Mutex::new(HashMap::new()),
+            agent_prompts: Mutex::new(HashMap::new()),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
             placement_notifications: Mutex::new(HashMap::new()),
@@ -320,6 +321,7 @@ impl Mux {
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
+            journal_maintenance: Mutex::new(None),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
@@ -440,6 +442,8 @@ impl Mux {
         mux.respawn_lost_terminals_at_start();
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
+        mux.start_journal_maintenance()?;
+        crate::state::project_watch::start(&mux);
         Ok(mux)
     }
 

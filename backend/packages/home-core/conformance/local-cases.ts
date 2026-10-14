@@ -94,6 +94,10 @@ export const localCases = (c: Corpus): void => {
   c.op(threads, "thread: a human behind the last seq replies and keeps its cursor", ALICE, "th2", send("th2", parts("me too"), undefined, root.id), "commit")
   c.op(threads, "thread: read_cursor.set catches the human up", ALICE, "th3", { kind: "read_cursor.set", seq: threads.head.last_seq }, "commit")
   c.op(threads, "thread: reply_to and thread_root together; the caught-up sender's cursor moves", ALICE, "th4", send("th4", parts("quoting"), { message_id: reply.id, part_index: 0 }, root.id), "commit")
+  // Nested threads (conversation-tree-v1): a parent in a thread passes its root on; a named root must be the parent's own.
+  c.op(threads, "thread: a reply to a thread reply with no root joins the parent's thread", ALICE, "th9", send("th9", parts("nested"), { message_id: reply.id, part_index: 0 }), "commit")
+  c.op(threads, "thread: a named root that is not the parent's own is refused", ALICE, "th5", send("th5", parts("x"), { message_id: reply.id, part_index: 0 }, "msg_other"), "invalid_thread_root", { thread_target: { ...root, id: "msg_other" } })
+  c.op(threads, "thread: the parent itself as the root", ALICE, "th10", send("th10", parts("to the root"), { message_id: root.id, part_index: 0 }, root.id), "commit")
   c.op(threads, "thread: an unknown root", ALICE, "th5", send("th5", parts("x"), undefined, "msg_nope"), "invalid_thread_root")
   c.op(threads, "thread: a root that is itself in a thread", ALICE, "th5", send("th5", parts("x"), undefined, reply.id), "invalid_thread_root")
   c.op(threads, "thread: a root of another conversation", ALICE, "th5", send("th5", parts("x"), undefined, root.id), "invalid_thread_root", {
@@ -146,6 +150,40 @@ export const localCases = (c: Corpus): void => {
   c.op(host, "participants.add: a control character in the name", ALICE, "p3", { kind: "participants.add", participant: human("user_zed", "a\u0007") }, "invalid_participant")
   c.op(host, "title.set: empty", EVE, "t1", { kind: "title.set", title: "" }, "invalid_title")
   c.op(host, "title.set: by a new participant", EVE, "t2", { kind: "title.set", title: "Team" }, "commit")
+
+  // Thread objects (conversation-thread-objects-v1): a title, a status and an owner on the root.
+  // Any participant sets them, the Chief too; the change is message-updated with the root, and
+  // updated_at and the loop guard stay. A resolution stamps the head's last_seq; readers derive
+  // the status (a later live reply reopens the thread), so the reducer never writes on a reply.
+  const objects = new CoreHost()
+  const top = objects.send(ALICE, "o0", "root")
+  // Later than the send, so a commit that moved updated_at would differ from the head's.
+  objects.advance(60_000)
+  const update = (fields: Record<string, unknown>, root = top.id): Op => ({ kind: "thread.update", root, ...fields }) as never
+  c.op(objects, "thread.update: a message with no replies becomes a titled thread", ALICE, "o1", update({ title: "Ship 1.0" }), "commit")
+  c.op(objects, "thread.update: the Chief replies in the thread", MUX, "o2", send("o2", parts("on it"), undefined, top.id), "commit")
+  const inThread = objects.messages[1]!
+  c.op(objects, "thread.update: the Chief takes ownership", MUX, "o3", update({ owner: MUX }), "commit")
+  c.op(objects, "thread.update: the Chief resolves at the head's last seq", MUX, "o4", update({ status: "resolved" }), "commit")
+  c.op(objects, "thread.update: a reply after the resolution leaves the root as it is", ALICE, "o5", send("o5", parts("one more"), undefined, top.id), "commit")
+  c.op(objects, "thread.update: a human resolves again, title and owner stay", ALICE, "o6", update({ status: "resolved", owner: ALICE }), "commit")
+  c.op(objects, "thread.update: reopen clears the resolution", ALICE, "o7", update({ status: "open" }), "commit")
+  c.op(objects, "thread.update: 200 non-ASCII characters fit", ALICE, "o8", update({ title: "é".repeat(200) }), "commit")
+  c.op(objects, "thread.update: null fields are absent", ALICE, "o9", update({ title: null, status: null, owner: "" }), "commit")
+  c.op(objects, "thread.update: an empty title clears the object", ALICE, "o10", update({ title: "" }), "commit")
+  c.op(objects, "thread.update: a thread reply is no root", ALICE, "o11", update({ title: "x" }, inThread.id), "invalid_thread_root")
+  c.op(objects, "thread.update: an unknown root", ALICE, "o11", update({ title: "x" }, "msg_nope"), "unknown_message")
+  c.op(objects, "thread.update: a root of another conversation", ALICE, "o11", update({ title: "x" }), "unknown_message", { target: { ...top, conversation: "conv_OTHER" } })
+  c.op(objects, "thread.update: nothing to set", ALICE, "o11", update({}), "invalid_thread_update")
+  c.op(objects, "thread.update: only null fields", ALICE, "o11", update({ title: null, owner: null }), "invalid_thread_update")
+  c.op(objects, "thread.update: an owner who is no participant", ALICE, "o11", update({ owner: EVE }), "invalid_thread_owner")
+  c.op(objects, "thread.update: a 201 character title", ALICE, "o11", update({ title: "x".repeat(201) }), "invalid_title")
+  c.op(objects, "thread.update: a control character in the title", ALICE, "o11", update({ title: "a\u0007" }), "invalid_title")
+  c.op(objects, "thread.update: an outsider is refused before the root", EVE, "o11", update({ title: "x" }, "msg_nope"), "not_participant")
+  c.op(objects, "thread.update: title the root again", ALICE, "o12", update({ title: "Ship 1.0" }), "commit")
+  c.op(objects, "thread.update: an edit of the root keeps the thread object", ALICE, "o13", { kind: "message.edit", message_id: top.id, parts: parts("root, edited") }, "commit")
+  c.op(objects, "thread.update: retract the root", ALICE, "o14", { kind: "message.retract", message_id: top.id }, "commit")
+  c.op(objects, "thread.update: a retracted root may still be resolved", MUX, "o15", update({ status: "resolved" }), "commit")
 
   // Agent budget: the head's counters (agent_text_streak, last_agent_text_at), no row window.
   const budget = new CoreHost()

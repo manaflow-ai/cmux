@@ -25,6 +25,8 @@ use sha2::{Digest, Sha256};
 #[path = "conversation_import.rs"]
 mod import;
 pub(crate) use import::ImportedMessage;
+#[path = "conversation_links.rs"]
+pub(crate) mod links;
 #[path = "conversation_threads.rs"]
 pub(crate) mod threads;
 

@@ -186,6 +186,7 @@ fn the_reply_streams_to_the_conversation_before_it_is_posted() {
             token_file: Some(token_file),
             display_name: "Ada".into(),
             title: "Chief".into(),
+            participant: "agent_mux".into(),
         },
         Arc::new(move |event| {
             let _ = events_tx.lock().unwrap().send(event);
