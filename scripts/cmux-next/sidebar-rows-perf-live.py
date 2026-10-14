@@ -226,8 +226,8 @@ def scroll_phase():
     if not rows:
         check(False, "scroll: a realized workspace row to scroll over")
         return
-    x, y, w, h = rows[len(rows) // 2]["window_frame"]
-    point = {"x": x + w / 2, "y": y + h / 2}
+    frame = rows[len(rows) // 2]["window_frame"]  # {x, y, width, height}, window points from the top left
+    point = {"x": frame["x"] + frame["width"] / 2, "y": frame["y"] + frame["height"] / 2}
     counters(reset=True)
     durations = []
     for direction in (-3, 3):
