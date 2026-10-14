@@ -94,3 +94,9 @@ export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, 
   const r = await read(async (s) => (await s.getTeam(stackTeam))?.plan ?? null)
   return r.ok ? { ok: true, paid: teamPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan } : { ok: false, reason: "unavailable" }
 }
+
+/** The stored plan copy, without a Stack read (team.ai_limit.get's team line); null when there is none yet. */
+export const storedPlan = (sql: SqlStorage): string | null => {
+  ensure(sql)
+  return sql.exec<{ plan: string | null }>(`SELECT plan FROM inference_plan WHERE id = 1`).toArray()[0]?.plan ?? null
+}
