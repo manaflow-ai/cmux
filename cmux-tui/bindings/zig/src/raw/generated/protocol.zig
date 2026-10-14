@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b18c74d45c19743aac182ef9d622608ac8b17ac47c2bc5e18a08fd000fa6b90f";
+pub const ir_sha256 = "2aa331c20b3e6ca393f281f5bf1ff219ba1c48d5e9ffceb4cca2b82ef05e14f5";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4224,6 +4224,7 @@ pub fn cloudMuxUnsubscribe(client: anytype, request: CloudMuxUnsubscribeRequest)
 }
 
 pub const CloudParticipantAvatarGetRequest = struct {
+    conversation: wire.Field([]const u8) = .absent,
     participant_id: []const u8,
 };
 
