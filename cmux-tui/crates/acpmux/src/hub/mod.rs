@@ -45,6 +45,7 @@ mod shutdown;
 use shutdown::ShutdownPlan;
 mod spawn;
 mod start_defaults;
+pub(crate) mod start_mode;
 mod steer_end;
 mod stream;
 mod tap;

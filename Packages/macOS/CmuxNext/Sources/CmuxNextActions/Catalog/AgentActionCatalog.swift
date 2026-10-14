@@ -151,8 +151,10 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "chat", "archive", "hide", "close", "done"],
                 defaultShortcut: Shortcut("a", modifiers: [.command, .control]),
                 category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+                // A script names the chat's pane (`--target pane:…`); the target brings its own
+                // agentPaneFocused fact (`ActionRegistry.targetContext`).
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent archive-chat",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "agentPane.git.commit",

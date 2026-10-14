@@ -124,8 +124,8 @@ mod admission;
 mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
-    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost,
-    AgentStartHostSource,
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -261,6 +261,7 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_inspect;
+mod chief_registry_resource;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
