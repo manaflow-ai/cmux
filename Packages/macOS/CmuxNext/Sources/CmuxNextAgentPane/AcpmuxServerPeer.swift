@@ -16,7 +16,9 @@ import CmuxNextWakeups
 ///
 /// Another install of cmux (lead decision 2026-10-10): NIGHTLY and Release share `~/.acpmux`, so
 /// the daemon there may be the other app's. A Team-signed build accepts such a daemon only when
-/// all of these hold, and in DEV (ad hoc) the path check alone decides:
+/// all of these hold. In DEV (ad hoc) the path check decides, and rule 1 is instead "another cmux
+/// app's bundled acpmux" (``otherBuildsBundledAcpmux(peerPath:ownExecutable:)``: tagged builds
+/// share the Chief home's daemon):
 /// 1. the peer's code satisfies `identifier "<the code-signing identifier of this app's own
 ///    acpmux binary>" and anchor apple generic and certificate leaf[subject.OU] = "<team>"`
 ///    (not any team-signed binary: another team tool, or an old cmux binary, is refused);
@@ -246,14 +248,45 @@ nonisolated enum AcpmuxServerPeer {
         // The peer's facts on this very descriptor (UnixSocketPeer, shared with the CUA client).
         guard let peer = UnixSocketPeer(descriptor: descriptor) else { return .failure(.noPeer) }
         let own = peer.runs(executable)
-        // DEV (ad hoc): the path alone decides; another install is never accepted.
-        guard let team = ownTeam else { return own ? .success(.own) : .failure(.otherExecutable(peer.executablePath)) }
+        // DEV (ad hoc): the path decides. Another DEV build's bundled acpmux is accepted only where
+        // the caller allows another install (the shared Chief home's daemon), under rules 2 and 3.
+        guard let team = ownTeam else {
+            if own { return .success(.own) }
+            if allowForeign, peer.uid == getuid(),
+               otherBuildsBundledAcpmux(peerPath: peer.executablePath, ownExecutable: executable) {
+                return .success(.foreign)
+            }
+            return .failure(.otherExecutable(peer.executablePath))
+        }
         guard own || allowForeign else { return .failure(.otherExecutable(peer.executablePath)) }
         // Another install: rule 1, the exact identifier of this app's own acpmux.
         let identifier = own ? nil : ownIdentifier(executable)
         if !own, identifier == nil { return .failure(.notTeamSigned) }
         guard peer.signed(team: team, identifier: identifier) else { return .failure(.notTeamSigned) }
         return .success(own ? .own : .foreign)
+    }
+
+    /// DEV rule 1 (ad hoc, no team to check): `peerPath` is the acpmux bundled in another cmux app
+    /// (`<cmux…>.app/Contents/Resources/bin/acpmux`), and this app runs its own bundled acpmux.
+    /// Tagged DEV builds share the account's Chief home (`ChiefHome`), whose daemon one of them
+    /// started; without this rule every other build said "acpmux did not start". Like the DEV
+    /// path rule, a same-uid process could pass it; rule 3 still keeps the person key away.
+    static func otherBuildsBundledAcpmux(peerPath: String, ownExecutable: URL) -> Bool {
+        func bundledApp(_ path: String) -> String? {
+            let parts = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+            guard parts.count >= 6, parts.suffix(4) == ["Contents", "Resources", "bin", "acpmux"] else { return nil }
+            let app = parts[parts.count - 5]
+            return app.hasSuffix(".app") && app.lowercased().hasPrefix("cmux") ? app : nil
+        }
+        guard bundledApp(ownExecutable.resolvingSymlinksInPath().path) != nil else { return false }
+        return bundledApp(peerPath) != nil
+    }
+
+    /// The cmux app whose bundled acpmux runs at `path` (`cmux DEV nxdog98-v1`), else the path.
+    static func holderName(executablePath path: String) -> String {
+        let parts = URL(fileURLWithPath: path).pathComponents
+        guard let app = parts.last(where: { $0.hasSuffix(".app") }) else { return path }
+        return String(app.dropLast(".app".count))
     }
 
     /// This app's team when it is Team-signed; nil for an ad-hoc DEV build.
