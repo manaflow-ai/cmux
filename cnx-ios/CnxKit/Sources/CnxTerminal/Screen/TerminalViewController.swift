@@ -237,6 +237,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         scrollToBottomButton.alpha = 0
         scrollToBottomButton.translatesAutoresizingMaskIntoConstraints = false
         scrollToBottomButton.addAction(UIAction { [weak self] _ in self?.scrollToBottom(animated: true) }, for: .primaryActionTriggered)
+        // Jump to bottom is a row of the composer card now (Codex QA F3): a
+        // button floating over the rows hid the end of the lines under it.
+        scrollToBottomButton.isHidden = true
         view.addSubview(scrollToBottomButton)
 
         // Everything below derives from the keyboard layout guide alone, so
@@ -377,6 +380,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let tuiTap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
         tuiClip.addGestureRecognizer(tuiTap)
 
+        surface.configurePasteControlTarget()
         surface.onInput = { [weak self] data in self?.model.session.send(data) }
         // Every input path (keyboard, key bar, composer, paste) goes through
         // the surface's `perform`: typing brings the prompt into view, like Terminal.
@@ -386,6 +390,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         surface.onFocusChange = { [weak self] focused in
             guard let self else { return }
             self.model.surfaceFocused = focused
+            // Redraw at once: a focus change can come with a new composer
+            // height and the frame must follow it (Codex QA F4).
+            self.surface.drawNow()
             self.inputFocusChanged()
             // Direct typing stays the keyboard target in TUI mode after the keyboard hides.
             self.model.directTyping = focused || self.model.isTUI
@@ -768,6 +775,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 laidOutSize = bounds.size
                 pinToBottomIfFollowing()
             }
+            // Never rest past the document's end (Codex QA F4: a taller
+            // composer and a focus change in one pass left the offset below
+            // the last row, a black page until the keyboard moved again).
+            if !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating, cell.height > 0,
+               scrollView.contentOffset.y > maxOffsetY + 0.5 {
+                scrollView.contentOffset.y = maxOffsetY
+                following = true
+                updateViewport(visibleMinY: maxOffsetY)
+            }
         }
         #if DEBUG
         if CommandLine.arguments.contains("-CnxTermLog") {
@@ -1132,7 +1148,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func setScrollButton(visible: Bool) {
         guard model.isScrolledUp != visible else { return }
         model.isScrolledUp = visible
-        UIView.animate(withDuration: 0.2) { self.scrollToBottomButton.alpha = visible ? 1 : 0 }
+        // The composer shows its Jump to bottom row (`TerminalComposer`).
     }
 
     func scrollToBottom(animated: Bool) {
