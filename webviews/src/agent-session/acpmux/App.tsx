@@ -2954,7 +2954,7 @@ function AcpmuxPane() {
   const stopSubagent = useMemo(
     () =>
       stopsSubagents
-        ? (id: string) => directClient.current?.stopSubagent(id) ?? Promise.reject(new Error("no acpmux connection"))
+        ? (id: string) => directClient.current?.stopSubagent(id) ?? Promise.reject(new Error())
         : undefined,
     [stopsSubagents],
   );
