@@ -130,6 +130,7 @@ Yesterday, Previous 7 Days, Previous 30 Days, then months, by last activity).
 | Light mode: chips, rows, red swipe action | Yes | `light/*.png` |
 | `accessibility-large`: rows and headers scale, chips scroll | Yes | `ax/*.png` |
 | Recording | Yes | `ios26-dark/walk.mp4`, `ios26-dark/frames/` |
+| After merging `origin/feat-cnx-ios` (swipe tint fix landed there too): list and red Close, tests 17/40/44 passed | Yes | `merged/swipe.png` |
 
 Side by side with `chatgpt-03-sidebar` and `chatgpt-23`: the same one-line
 `body` rows at the same rhythm (46 pt here, about 44 pt there), the same text
