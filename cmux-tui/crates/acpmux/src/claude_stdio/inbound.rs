@@ -54,6 +54,25 @@ impl Translator {
                 }
                 out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model"), "version": line.get("claude_code_version")}}})));
                 out.push(upd(json!({"sessionUpdate": "config_option_update", "configOptions": self.config_options_value().await})));
+                // Claude Code names its skills only here (every turn): their
+                // commands are sent again, tagged, when that changes the list.
+                if let Some(skills) = line.get("skills").and_then(Value::as_array) {
+                    *self.skills.lock().await =
+                        skills.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                    if let Some(u) = self.commands_update(false).await {
+                        out.push(upd(u));
+                    }
+                }
+            }
+            // Claude Code's whole command list after a change mid-session
+            // (skills found in a subdirectory, a reload): it replaces ours.
+            "system" if sub == "commands_changed" => {
+                if let Some(cmds) = line.get("commands").and_then(Value::as_array) {
+                    *self.slash_commands.lock().await = cmds.clone();
+                    if let Some(u) = self.commands_update(false).await {
+                        out.push(upd(u));
+                    }
+                }
             }
             "stream_event" => {
                 let ev = line.get("event").cloned().unwrap_or(Value::Null);
@@ -350,9 +369,10 @@ impl Translator {
                         "authMethods": [],
                         "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
                     })));
-                    if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
-                        let list: Vec<Value> = cmds.iter().map(|c| json!({"name": c.get("name"), "description": c.get("description")})).collect();
-                        out.push(upd(json!({"sessionUpdate": "available_commands_update", "availableCommands": list})));
+                    if inner.get("commands").is_some_and(Value::is_array)
+                        && let Some(u) = self.commands_update(true).await
+                    {
+                        out.push(upd(u));
                     }
                 } else if let Some(acp) = rid.strip_prefix("ctl-") {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
