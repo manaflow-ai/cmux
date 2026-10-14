@@ -1,0 +1,131 @@
+// The composer card and the permission cards draw one quiet hairline and no glass (hq#1957, the
+// border hunt). #20303 gave the card a 0 8px 24px drop shadow and an inset text-color rim that
+// ignored appearance.borders = none, and the permission cards a .5px border plus a shadow:
+//   - neither surface casts a drop shadow (every box-shadow layer is inset);
+//   - the composer card's edge is the --acpmux-composer-edge hairline, focused or not;
+//   - under appearance.borders = none (`data-borders="none"` on the root) neither surface draws
+//     a visible edge: every shadow layer and border is clear.
+//
+// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+type Edge = { shadows: { inset: boolean; alpha: number }[]; border: { width: number; alpha: number } };
+
+await requireBrowserLane("composer-edges.test.ts", async () => {
+  /** Runs in the page: the edges `selector` draws. */
+  function edges(selector: string): Edge {
+    const element = document.querySelector(selector)!;
+    const style = getComputedStyle(element);
+    const alpha = (color: string) => {
+      const match = /rgba?\(([^)]*)\)/.exec(color);
+      if (!match) return color === "transparent" ? 0 : 1;
+      const parts = match[1]!.split(/[ ,/]+/).filter(Boolean);
+      return parts.length > 3 ? parseFloat(parts[3]!) : 1;
+    };
+    const layers: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const char of style.boxShadow === "none" ? "" : style.boxShadow) {
+      if (char === "(") depth++;
+      if (char === ")") depth--;
+      if (char === "," && depth === 0) {
+        layers.push(current);
+        current = "";
+      } else current += char;
+    }
+    if (current.trim()) layers.push(current);
+    return {
+      shadows: layers.map((layer) => ({ inset: /\binset\b/.test(layer), alpha: alpha(layer) })),
+      border: { width: parseFloat(style.borderTopWidth) || 0, alpha: alpha(style.borderTopColor) },
+    };
+  }
+
+  setDefaultTimeout(180_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("composer-edges: skipping (run `bunx playwright install chromium`)");
+    describe.skip("composer edges", () => test("chromium", () => {}));
+    return;
+  }
+  const webviews = path.resolve(import.meta.dir, "..");
+  const { createServer } = await import("vite");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  const url = (entry: string, variant: string) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+
+  const open = async (entry: string, variant: string, ready: string): Promise<Page> => {
+    const page = await browser!.newPage({ viewport: { width: 720, height: 420 } });
+    for (;;) {
+      try {
+        await page.goto(url(entry, variant));
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+          timeout: 60_000,
+        });
+        break;
+      } catch (error) {
+        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+      }
+    }
+    await page.locator(ready).first().waitFor();
+    return page;
+  };
+
+  beforeAll(async () => {
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  const surfaces = [
+    { name: "composer card", entry: "agent-pane.composer-row", variant: "claude-auto", selector: ".acpmux-composer-box" },
+    {
+      name: "permission card",
+      entry: "agent-pane.permission-panel",
+      variant: "pending",
+      selector: ".acpmux-permission-surface",
+    },
+  ];
+
+  for (const surface of surfaces) {
+    test(`${surface.name}: no drop shadow, focused or not`, async () => {
+      const page = await open(surface.entry, surface.variant, surface.selector);
+      const resting = await page.evaluate(edges, surface.selector);
+      await page.locator(`${surface.selector} textarea, ${surface.selector} button`).first().focus();
+      const focused = await page.evaluate(edges, surface.selector);
+      await page.close();
+      expect(resting.shadows.filter((layer) => !layer.inset)).toEqual([]);
+      expect(focused.shadows.filter((layer) => !layer.inset)).toEqual([]);
+    });
+
+    test(`${surface.name}: appearance.borders = none draws no edge`, async () => {
+      const page = await open(surface.entry, surface.variant, surface.selector);
+      await page.evaluate(() => (document.documentElement.dataset.borders = "none"));
+      const measured = await page.evaluate(edges, surface.selector);
+      await page.close();
+      expect(measured.shadows.filter((layer) => layer.alpha > 0)).toEqual([]);
+      expect(measured.border.width === 0 || measured.border.alpha === 0).toBe(true);
+    });
+  }
+
+  test("composer card: one hairline edge by default", async () => {
+    const page = await open("agent-pane.composer-row", "claude-auto", ".acpmux-composer-box");
+    const measured = await page.evaluate(edges, ".acpmux-composer-box");
+    await page.close();
+    expect(measured.shadows).toHaveLength(1);
+    expect(measured.shadows[0]!.inset).toBe(true);
+    expect(measured.shadows[0]!.alpha).toBeGreaterThan(0);
+  });
+});
