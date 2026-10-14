@@ -449,8 +449,16 @@ pub fn terminate_unadoptable(
         return Ok(true);
     }
     if liveness(dir, session_id, nonce) == Liveness::Live {
+        // A host that does not end on SIGTERM (wedged or stopped) cannot end
+        // its harness: take the processes under it (by pid and start time)
+        // while the lock still proves `pid` is the host, and end them after
+        // it, so no harness runs on without an owner.
+        let under = tree::descendants(&[host_pid.unwrap_or_default()]);
         // SAFETY: as above, re-proven just now.
         unsafe { libc::kill(pid, libc::SIGKILL) };
+        let dead = dead_within(TERM_GRACE);
+        tree::kill_still_running(&under);
+        return Ok(dead);
     }
     Ok(dead_within(TERM_GRACE))
 }
@@ -484,15 +492,18 @@ pub fn names_this_host(path: &Path, nonce: &str) -> bool {
     }
 }
 
-/// A host's own exit: its lock, and its record and socket only while the
-/// record still names it (a newer host of the same session owns them then).
+/// A host's own exit: its record and socket only while the record still
+/// names it (a newer host of the same session owns them then), and its lock
+/// last. A daemon takes the missing lock file as the death proof
+/// (`terminate_unadoptable`) and may then start a fresh host under the same
+/// session id at once: by then this host touches none of its files.
 pub fn remove_own_artifacts(dir: &Path, record: &HostRecord) {
-    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
     let path = record_path(dir, &record.session_id);
     if names_this_host(&path, &record.start_nonce) && path.exists() {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&record.socket);
     }
+    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
 }
 
 /// Hosts of pooled sessions (hidden sessions nobody took yet,
