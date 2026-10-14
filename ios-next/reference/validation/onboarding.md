@@ -105,3 +105,19 @@ the spring fits above use real timestamps and are the figure to trust.
 - `onboarding/03-illustration.png`: the illustration at 1 s steps.
 - `onboarding/04-screens-light.png`, `04-screens-dark.png`.
 - `onboarding/05-code-error-shake.png`.
+
+## V1 verifier fixes (2026-10-13)
+
+Re-measured on `mini-cmux8s-mac-mini`, iPhone 17 Pro Max, iOS 26.5, slot
+`onboarding` (the verifier's host family; its footer line height is 18 pt,
+2 pt less than the first capture Mac, which is what moved the rows before).
+
+| ID | fix | measured after |
+|---|---|---|
+| 1.1 | The first frame is drawn in the launch screen's (system) appearance and cross-fades to the app's Light/Dark setting immediately; `SignInView` resolves its colours in the setting from the first frame (`appearance:` from `AppRoot`) instead of waiting for the window override. | System light, app dark: launch screen white until the app's first frame (status bar change at 4.27 s), then 4.27 → 4.47 s fade to `#1E1E1E`; no hold of white inside the app. The launch screen itself cannot follow the app setting (UILaunchScreen uses the system appearance). |
+| 1.9 | `AppRoot` paints the app background under the phase cross-fade, so the window's black never shows through. | Test login (real backend, dark): background luma 23–28 through sign-in → shell (was 2–5). Mock exit: 26–28. |
+| 1.5 | "Send code" stays loading from the tap until the code step replaces it. | Button luma 125–130 (loading, disabled) from 13.37 s until the step's exit fade at 14.40 s; no return to white. |
+| 1.3 | The footer has a fixed 70.7 pt slot under the rows, and its type is 13.6 pt with 2.4 pt line spacing, so rows no longer depend on the footer's line height. | headline 509.0–536.3, rows 635.3 / 691.3 / 747.3 / 803.3–851.3, footer glyphs 874.3–906.3 (ref 874.3–906.0), lockup 70.3–93.7; light identical. |
+| 1.12 | Reduce Motion cross-fades the whole column between steps; each layer keeps the step it was built for. | Options → email: Apple row fades 212 → 28 over 9.30–9.53 s while the email field row fades in at the top; no element moves. |
+| 1.13 | The lockup is a single header element (`accessibilityRepresentation`), the mark is decorative; the email field is labelled "Email address". | AX: `Heading 'cmux'` with no children; `TextField 'Email address'`. |
+| 1.E | Accessibility text sizes drop the illustration, wrap the headline and scroll the column below the header. | `onboarding/06-dynamic-type-axxxl.png`: AX-XXXL top and scrolled to the end; nothing clipped, the footer is reachable. |
