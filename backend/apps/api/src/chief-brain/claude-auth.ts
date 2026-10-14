@@ -109,7 +109,7 @@ export const holderAuth = async (env: Env, sql: SqlStorage, now = Date.now()): P
 export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<void>): typeof fetch =>
   (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers)
-    for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version"]) headers.delete(h)
+    for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version", "content-length"]) headers.delete(h)
     headers.set("X-Stack-Auth", await auth())
     headers.set("x-coderouter-client", "cmux-cloud-chief")
     const body = typeof init?.body === "string" ? bedrockBody(init.body) : init?.body

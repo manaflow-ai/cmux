@@ -3,7 +3,8 @@
  * is, and answers Bedrock's binary event stream. The Anthropic client speaks the Messages API over
  * server-sent events, so the signed fetch converts both ways:
  *
- * - request: Bedrock's body keys only (no `model`, no `metadata`), `anthropic_version`
+ * - request: Bedrock's body keys only (no `model`, no `metadata`; the effort level `output_config` has
+ *   no Bedrock field, so a thinking level has no effect here), `anthropic_version`
  *   bedrock-2023-05-31, and no Anthropic beta headers (Bedrock refuses unknown ones);
  * - response: each event-stream frame's payload is `{"bytes": base64(<Messages stream event JSON>)}`,
  *   written out as `event: <type>\ndata: <json>\n\n`.
@@ -65,6 +66,9 @@ export const eventStreamToSse = (body: ReadableStream<Uint8Array>): ReadableStre
             out.enqueue(enc.encode(`event: error\ndata: ${JSON.stringify({ type: "error", error: { type: "api_error", message: "unreadable model stream frame" } })}\n\n`))
           }
         }
+      },
+      flush(out) {
+        if (buf.length > 0) out.enqueue(enc.encode(`event: error\ndata: ${JSON.stringify({ type: "error", error: { type: "api_error", message: "model stream ended inside a frame" } })}\n\n`))
       }
     })
   )
