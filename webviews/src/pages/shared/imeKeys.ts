@@ -22,6 +22,14 @@ export function isImeKeyEvent(event: Pick<KeyboardEvent, "isComposing" | "keyCod
 
 const INSTALLED = "data-cmux-ime-keys";
 
+/**
+ * Editors that run their own composition handling and read the IME keys for it: ProseMirror
+ * clears its Safari after-composition guard on the 229 keydown, Monaco tracks it for the
+ * press-and-hold accent menu (and stops it itself). Their keys reach them; their own submit
+ * checks must test `isImeKeyEvent`.
+ */
+const OWN_COMPOSITION = ".ProseMirror, .monaco-editor";
+
 /** Installs the IME key layer on `doc`'s window once. */
 export function installImeKeyLayer(doc: Document = document): void {
   const root = doc.documentElement;
@@ -29,7 +37,9 @@ export function installImeKeyLayer(doc: Document = document): void {
   if (!view || root.hasAttribute(INSTALLED)) return;
   root.setAttribute(INSTALLED, "");
   const stop = (event: KeyboardEvent) => {
-    if (isImeKeyEvent(event)) event.stopImmediatePropagation();
+    if (!isImeKeyEvent(event)) return;
+    if (event.target instanceof Element && event.target.closest(OWN_COMPOSITION)) return;
+    event.stopImmediatePropagation();
   };
   view.addEventListener("keydown", stop, { capture: true });
   view.addEventListener("keyup", stop, { capture: true });

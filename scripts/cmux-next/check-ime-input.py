@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IME-INPUT guard (cx-dd5b4, plans: .cmux-scratch/ime/DESIGN.md in cmuxterm-hq).
+"""IME-INPUT guard (bead cx-dd5b4).
 
 cmux-classic had about 120 IME and keyboard-layout bugs. Most came from code that made key
 events out of characters, re-derived keys from text, or let a page handler act on a key that
@@ -11,8 +11,10 @@ an input method was using. This guard blocks new code paths of those kinds:
    text: NSTextInputClient.insertText, `ghostty_surface_key` with `text` from the terminal's own
    keyDown, the page's DOM, or the daemon's `terminal send` (bytes).
 2. Terminal text enters libghostty only through the terminal's NSTextInputClient files:
-   `ghostty_surface_key(`, `ghostty_surface_text_input(` and `ghostty_surface_preedit(` are
-   called only from CmuxNextTerminal's keyboard, text-input and key-equivalent files.
+   `ghostty_surface_key(` and `ghostty_surface_preedit(` are called only from CmuxNextTerminal's
+   keyboard and text-input files (key equivalents go through the view's keyDown). Committed
+   text is a key event with text, as upstream Ghostty: `ghostty_surface_text_input(` (the fork's
+   paste-like committed-text call) is refused everywhere.
 3. Every web page entry (webviews/src/**/main.tsx) loads the shared desktop layer, which
    installs the IME key layer (webviews/src/pages/shared/imeKeys.ts): no page handler sees a
    key an input method is using.
@@ -60,7 +62,8 @@ KEY_SYNTHESIS_ALLOWED: dict[str, tuple[int, str]] = {
     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/MessagesLabHomeView.swift": (1, "MessagesLab lab harness"),
 }
 
-TERMINAL_ENTRY = re.compile(r"\bghostty_surface_(key|text_input|preedit)\(")
+TERMINAL_ENTRY = re.compile(r"\bghostty_surface_(key|preedit)\(")
+TEXT_INPUT = re.compile(r"\bghostty_surface_text_input\(")
 TERMINAL_ENTRY_ALLOWED = {
     "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView+TextInput.swift",
@@ -100,6 +103,11 @@ def main() -> int:
                     "`terminal send` bytes), never as made-up keys; a key the user typed is moved, never rebuilt "
                     "(DESIGN.md rule K1). If this is debug-only or automation of a named page, add it to "
                     "KEY_SYNTHESIS_ALLOWED with the reason.")
+        for n, line in code_lines(text):
+            if TEXT_INPUT.search(line):
+                errors.append(
+                    f"{rel}:{n}: ghostty_surface_text_input is not a terminal input path: committed text is a key "
+                    "event with text and no physical key (upstream Ghostty committedTextAction, DESIGN.md rule T1).")
         if rel not in TERMINAL_ENTRY_ALLOWED:
             for n, line in code_lines(text):
                 if TERMINAL_ENTRY.search(line):

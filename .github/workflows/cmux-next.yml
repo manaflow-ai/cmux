@@ -119,6 +119,7 @@ on:
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
+      - scripts/cmux-next/check-ime-input.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -253,6 +254,7 @@ on:
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
+      - scripts/cmux-next/check-ime-input.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
