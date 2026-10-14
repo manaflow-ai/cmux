@@ -3,8 +3,8 @@ import CmuxNextDesign
 
 /// UPDATE-CARD + BOTTOM-LEFT-CARDS K1 + cx-7py7: one card slot directly
 /// above the footer (the spaces dots and the account row below it), under
-/// the R114 card stack: the staged update card first, else the "cmux
-/// Updated!" card, else the shared notice card (the update status or the
+/// the R114 card stack: the staged update card first, else the Now Playing
+/// card (cx-ouoxo), else the "cmux Updated!" card, else the shared notice card (the update status or the
 /// "Did you know" tip; the App picks one), never two. They are
 /// the sidebar's own views, not band items, so minimal mode's band fade
 /// never hides them. Without a card the slot takes no room; the footer
@@ -12,6 +12,7 @@ import CmuxNextDesign
 /// may appear and disappear).
 struct SidebarBottomCardSlot {
     let update: SidebarUpdateCardView
+    let nowPlaying: SidebarNowPlayingCardView
     let updated: SidebarUpdatedCardHost
     let notice: SidebarNoticeCardView
 
@@ -23,7 +24,9 @@ struct SidebarBottomCardSlot {
         update.onCloseAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         notice.onAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }
+        nowPlaying.onCommand = { [weak sidebar] command in sidebar?.model.send(.nowPlaying(command)) }
         sidebar.addSubview(update)
+        sidebar.addSubview(nowPlaying)
         sidebar.addSubview(updated)
         sidebar.addSubview(notice)
     }
@@ -31,15 +34,17 @@ struct SidebarBottomCardSlot {
     /// Shows the cards the model holds (the slot picks one).
     func show(_ cards: SidebarBottomCards) {
         update.configure(cards.update)
+        nowPlaying.configure(cards.nowPlaying)
         updated.configure(cards.updated)
         notice.configure(cards.notice)
     }
 
-    private enum Shown { case update, updated, notice }
+    private enum Shown { case update, nowPlaying, updated, notice }
 
-    /// The card that has the slot: update, then updated, then the notice.
+    /// The card that has the slot: update, then Now Playing, then updated, then the notice.
     private var shown: Shown? {
         if update.card != nil { return .update }
+        if nowPlaying.nowPlaying != nil { return .nowPlaying }
         // The React card's actions go to the App through its page; it shows once it has drawn.
         if updated.card != nil, updated.height > 0 { return .updated }
         return notice.notice != nil ? .notice : nil
@@ -53,6 +58,7 @@ struct SidebarBottomCardSlot {
     var height: CGFloat {
         switch shown {
         case .update: (update.card.map(SidebarUpdateCardView.height(for:)) ?? 0) + 2 * Metrics.space2
+        case .nowPlaying: (nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case .updated: updated.height + 2 * Metrics.space2
         case .notice: (notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case nil: 0
@@ -68,6 +74,8 @@ struct SidebarBottomCardSlot {
             shown == which ? NSRect(x: inset, y: bottom - Metrics.space2 - height, width: width, height: height).integral : .zero
         }
         notice.isHidden = shown != .notice
+        nowPlaying.isHidden = shown != .nowPlaying
+        nowPlaying.frame = frame(.nowPlaying, height: nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0)
         updated.isHidden = shown != .updated
         update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
         updated.frame = frame(.updated, height: updated.height)

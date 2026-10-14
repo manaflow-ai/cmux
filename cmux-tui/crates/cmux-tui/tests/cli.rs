@@ -3683,6 +3683,9 @@ mod cloud_lease_gate;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]
+#[path = "cli/conversation_thread_objects.rs"]
+mod conversation_thread_objects;
+#[cfg(unix)]
 #[path = "cli/conversation_threads.rs"]
 mod conversation_threads;
 #[cfg(unix)]
@@ -3721,6 +3724,9 @@ mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
+#[cfg(unix)]
+#[path = "cli/workspace_open_url.rs"]
+mod workspace_open_url;
 #[cfg(unix)]
 #[path = "cli/ws_conversations.rs"]
 mod ws_conversations;

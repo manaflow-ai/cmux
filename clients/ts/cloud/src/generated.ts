@@ -525,6 +525,7 @@ export type HomeMessage = {
   readonly parts: ReadonlyArray<HomePart>
   readonly reply_to?: HomePartRef
   readonly thread_root?: MessageId
+  readonly thread?: HomeThreadState
   readonly created_at: Timestamp
   readonly edited_at?: Timestamp
   readonly retracted_at?: Timestamp
@@ -610,12 +611,31 @@ export type HomeTextRun = {
   readonly link?: string
 }
 
+/** title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it. */
+export type HomeThreadState = {
+  readonly title?: string
+  readonly owner?: ParticipantId
+  readonly resolved?: {
+    readonly by: ParticipantId
+    readonly at: Timestamp
+    readonly seq: number
+  }
+}
+
+export type HomeThreadStatus = "open" | "resolved"
+
+/** status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved. */
 export type HomeThreadSummary = {
   readonly root: MessageId
   readonly reply_count: number
   readonly last_reply_seq: number | null
   readonly last_reply_at: Timestamp | null
   readonly authors: ReadonlyArray<ParticipantId>
+  readonly status?: HomeThreadStatus
+  readonly title?: string
+  readonly owner?: ParticipantId
+  readonly resolved_by?: ParticipantId
+  readonly resolved_at?: Timestamp
 }
 
 export type Host = {
@@ -3177,6 +3197,17 @@ export interface CloudOps {
     }
     readonly result: TeamPolicy
   }
+  /** Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread. */
+  readonly "thread.update": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly root: MessageId
+      readonly title?: string
+      readonly status?: HomeThreadStatus
+      readonly owner?: string
+    }
+    readonly result: HomeConversationCommit
+  }
   /** Rename a group conversation (not a dm or chief thread). */
   readonly "title.set": {
     readonly params: {
@@ -3466,6 +3497,7 @@ export const cloudOpMeta = {
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.policy.update": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "thread.update": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "title.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "tunnel.attach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
