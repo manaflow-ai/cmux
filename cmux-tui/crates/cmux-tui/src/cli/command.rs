@@ -1176,7 +1176,7 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
             }
             params.insert("body".into(), Value::String(flags.required("body")?));
             if let Some(level) = flags.take("level") {
-                validate_one_of("--level", &level, &["info", "success", "warning", "error"])?;
+                validate_one_of("--level", &level, &["info", "warning", "error"])?;
                 params.insert("level".into(), Value::String(level));
             }
             if let Some(terminal) = flags.take("terminal") {
