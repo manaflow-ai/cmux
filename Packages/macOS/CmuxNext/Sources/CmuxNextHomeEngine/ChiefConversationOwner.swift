@@ -47,10 +47,10 @@ public final class ChiefConversationOwner {
     /// values the owner needs to run the other Chiefs' brains
     /// (`brainsValue`). An owner that another build already started keeps
     /// its environment until it restarts.
-    static func ownerEnvironment(home: ChiefHome, process: [String: String]) -> [String: String] {
+    static func ownerEnvironment(home: ChiefHome, process: [String: String], bundle: Bundle = .main) -> [String: String] {
         var environment = process
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
-        environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process)
+        environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, bundle: bundle)
         return environment
     }
 
@@ -69,7 +69,7 @@ public final class ChiefConversationOwner {
         let launcher: DaemonLauncher
         do {
             launcher = try DaemonLauncher.forChief(session: home.session, stateDirectory: home.daemonStateDirectory,
-                                                   bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment))
+                                                   bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment, bundle: bundle))
         } catch {
             lastError = String(describing: error)
             logger.error("chief owner: \(String(describing: error), privacy: .public)")

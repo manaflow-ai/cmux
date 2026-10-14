@@ -196,6 +196,10 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     as_scout.request("conversation-typing", json!({"conversation": scout_dm, "on": true}));
     let edited = chief_cli(&server, &["edit", &scout, "--role", "Night watch", "--json"], "");
     assert_success(&edited);
+    // After the edit the brain still runs its turn.
+    let _ = v2(&mut home, "chief.profile.list", json!({}));
+    assert!(alive(scout_pid), "the brain was stopped in its turn");
+    assert!(!scout_home.join("pid.2").exists(), "the brain restarted in its turn");
     as_scout.request("conversation-typing", json!({"conversation": scout_dm, "on": false}));
     let restarted: i32 = wait_file(&scout_home.join("pid.2")).parse().unwrap();
     wait_gone(scout_pid, "after the prompt change");

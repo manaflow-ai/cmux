@@ -30,7 +30,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
@@ -198,6 +197,7 @@ enum Signal {
     Created(Box<ChiefRecord>),
     Updated(Box<ChiefRecord>),
     Deleted(String),
+    #[cfg_attr(not(unix), allow(dead_code))]
     Exited {
         chief: String,
         pid: u32,
@@ -220,35 +220,26 @@ impl Slot {
         }
     }
 
-    fn running(&self) -> bool {
-        self.sender.lock().unwrap_or_else(PoisonError::into_inner).is_some()
-    }
-
     /// A mux event: committed messages and typing go to the supervisor.
     pub(crate) fn observe(&self, event: &ConversationEvent) {
-        if !self.running() {
-            return;
-        }
-        match event {
+        let signal = match event {
             ConversationEvent::Changed { conversation, change, .. }
                 if change.get("kind").and_then(|k| k.as_str()) == Some("message") =>
             {
-                if let Some(author) = change.pointer("/message/author").and_then(|a| a.as_str()) {
-                    self.send(Signal::Message {
-                        conversation: conversation.clone(),
-                        author: author.to_owned(),
-                    });
-                }
+                let Some(author) = change.pointer("/message/author").and_then(|a| a.as_str())
+                else {
+                    return;
+                };
+                Signal::Message { conversation: conversation.clone(), author: author.to_owned() }
             }
-            ConversationEvent::Typing { conversation, participant, on } => {
-                self.send(Signal::Typing {
-                    conversation: conversation.clone(),
-                    participant: participant.clone(),
-                    on: *on,
-                });
-            }
-            _ => {}
-        }
+            ConversationEvent::Typing { conversation, participant, on } => Signal::Typing {
+                conversation: conversation.clone(),
+                participant: participant.clone(),
+                on: *on,
+            },
+            _ => return,
+        };
+        self.send(signal);
     }
 
     /// A committed registry write (not a replay).
@@ -271,8 +262,8 @@ pub struct ChiefBrains {
 }
 
 impl ChiefBrains {
-    /// Stops every brain (SIGTERM, then up to 5 s for them to end) and the
-    /// supervisor.
+    /// Stops every brain (SIGTERM, up to 5 s for them to end, then SIGKILL)
+    /// and the supervisor.
     pub fn stop(mut self) {
         if let Some(mux) = self.mux.upgrade() {
             mux.chiefs().brains.sender.lock().unwrap_or_else(PoisonError::into_inner).take();
@@ -322,9 +313,41 @@ fn prompt_key(record: &ChiefRecord) -> String {
     .to_string()
 }
 
+#[cfg(unix)]
+const SIGTERM: i32 = libc::SIGTERM;
+#[cfg(not(unix))]
+const SIGTERM: i32 = 15;
+#[cfg(unix)]
+const SIGKILL: i32 = libc::SIGKILL;
+#[cfg(not(unix))]
+const SIGKILL: i32 = 9;
+
+/// A brain process this supervisor started: the leader of its own process
+/// group. `reaped` turns true (under its lock) only after the last signal
+/// the supervisor may send: the waiter takes the lock, marks it, and only
+/// then reaps the zombie, so a signalled group id is never a reused one.
+struct Process {
+    pid: u32,
+    reaped: Arc<Mutex<bool>>,
+}
+
+impl Process {
+    #[cfg(not(unix))]
+    fn signal(&self, _: i32) {}
+
+    #[cfg(unix)]
+    fn signal(&self, signal: i32) {
+        let reaped = self.reaped.lock().unwrap_or_else(PoisonError::into_inner);
+        if !*reaped && let Ok(group) = i32::try_from(self.pid) {
+            // SAFETY: kill has no memory preconditions; the group's leader is
+            // not reaped (checked under the lock), so its id is still ours.
+            unsafe { libc::kill(-group, signal) };
+        }
+    }
+}
+
 struct Brain {
-    /// The running process (its own process group) and whether it was reaped.
-    process: Option<(u32, Arc<AtomicBool>)>,
+    process: Option<Process>,
     started_at: Instant,
     /// The prompt fields the running process started with.
     prompt: String,
@@ -335,6 +358,11 @@ struct Brain {
     stopping: bool,
     /// Start again once the process ended (a prompt change).
     restart: bool,
+    /// A message came while the process ran: if it ends anyway (exit 0, or
+    /// an idle stop), start it again for that message.
+    pending_wake: bool,
+    /// The held-lock note was logged.
+    lock_noted: bool,
     typing: BTreeSet<String>,
 }
 
@@ -350,32 +378,33 @@ impl Brain {
             retry_at: None,
             stopping: false,
             restart: false,
+            pending_wake: false,
+            lock_noted: false,
             typing: BTreeSet::new(),
         }
     }
 
-    #[cfg(not(unix))]
-    fn terminate(&mut self) {}
-
-    #[cfg(unix)]
     fn terminate(&mut self) {
-        if let Some((pid, reaped)) = &self.process
-            && !reaped.load(Ordering::Acquire)
-            && let Ok(group) = i32::try_from(*pid)
-        {
+        if let Some(process) = &self.process {
             self.stopping = true;
-            // SAFETY: kill has no memory preconditions; the group is this
-            // supervisor's own child's (not reaped, so not reused).
-            unsafe { libc::kill(-group, libc::SIGTERM) };
+            process.signal(SIGTERM);
         }
+    }
+
+    fn back_off(&mut self) {
+        let backoff = BACKOFF_MIN.saturating_mul(1 << self.failures.min(6)).min(BACKOFF_MAX);
+        self.failures += 1;
+        self.retry_at = Some(Instant::now() + backoff);
     }
 }
 
 struct Supervisor {
     mux: Weak<Mux>,
+    #[cfg_attr(not(unix), allow(dead_code))]
     socket: PathBuf,
     config: BrainsConfig,
     brains: BTreeMap<String, Brain>,
+    #[cfg_attr(not(unix), allow(dead_code))]
     sender: mpsc::Sender<Signal>,
 }
 
@@ -445,7 +474,11 @@ impl Supervisor {
             }
             Signal::Updated(record) => {
                 let Some(brain) = self.brains.get_mut(&record.id) else { return };
-                if brain.process.is_none() || brain.prompt == prompt_key(&record) {
+                // Not running, unchanged, or already stopping for good.
+                if brain.process.is_none()
+                    || brain.prompt == prompt_key(&record)
+                    || (brain.stopping && !brain.restart)
+                {
                     return;
                 }
                 brain.restart = true;
@@ -456,9 +489,14 @@ impl Supervisor {
             Signal::Deleted(chief) => {
                 if let Some(brain) = self.brains.get_mut(&chief) {
                     brain.restart = false;
+                    brain.pending_wake = false;
                     brain.retry_at = None;
                     brain.terminate();
+                    if brain.process.is_some() {
+                        return;
+                    }
                 }
+                stop_lock_holder(&brain_home(&self.config.home, &chief).join("state/host.lock"));
             }
             Signal::Exited { chief, pid, success } => self.exited(&chief, pid, success),
             Signal::Shutdown(_) => {}
@@ -493,6 +531,11 @@ impl Supervisor {
         let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
         brain.last_activity = Instant::now();
         if brain.process.is_some() {
+            brain.pending_wake = true;
+            return;
+        }
+        // A brain that failed starts again at its retry time, not per message.
+        if brain.retry_at.is_some_and(|at| at > Instant::now()) {
             return;
         }
         brain.retry_at = None;
@@ -501,13 +544,14 @@ impl Supervisor {
 
     fn exited(&mut self, chief: &str, pid: u32, success: bool) {
         let Some(brain) = self.brains.get_mut(chief) else { return };
-        if brain.process.as_ref().map(|(p, _)| *p) != Some(pid) {
+        if brain.process.as_ref().map(|p| p.pid) != Some(pid) {
             return;
         }
         brain.process = None;
         brain.typing.clear();
         let expected = std::mem::take(&mut brain.stopping);
-        if std::mem::take(&mut brain.restart) {
+        let woken = std::mem::take(&mut brain.pending_wake);
+        if std::mem::take(&mut brain.restart) || (woken && (expected || success)) {
             brain.failures = 0;
             self.spawn(chief);
             return;
@@ -519,9 +563,7 @@ impl Supervisor {
         if brain.started_at.elapsed() >= HEALTHY_RUN {
             brain.failures = 0;
         }
-        let backoff = BACKOFF_MIN.saturating_mul(1 << brain.failures.min(6)).min(BACKOFF_MAX);
-        brain.failures += 1;
-        brain.retry_at = Some(Instant::now() + backoff);
+        brain.back_off();
     }
 
     fn on_time(&mut self) {
@@ -540,6 +582,7 @@ impl Supervisor {
                 && brain.last_activity + IDLE <= now
             {
                 brain.restart = false;
+                brain.pending_wake = false;
                 brain.terminate();
             }
         }
@@ -560,34 +603,34 @@ impl Supervisor {
         // A brain this daemon did not start (one an earlier owner left)
         // holds the lock: keep it; a new token would only end its binding.
         if lock_held(&brain_home(&self.config.home, chief).join("state/host.lock")) {
-            eprintln!("cmux-tui: Chief brain {chief} already runs (its lock is held)");
+            let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
+            if !std::mem::replace(&mut brain.lock_noted, true) {
+                eprintln!("cmux-tui: Chief brain {chief} already runs (its lock is held)");
+            }
             return;
         }
         match self.launch(&mux, &record) {
-            Ok((pid, reaped)) => {
+            Ok(process) => {
                 let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
-                brain.process = Some((pid, reaped));
+                brain.process = Some(process);
+                brain.lock_noted = false;
                 brain.started_at = Instant::now();
                 brain.prompt = prompt_key(&record);
             }
             Err(error) => {
                 eprintln!("cmux-tui: Chief brain {chief} did not start: {error:#}");
-                let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
-                let backoff =
-                    BACKOFF_MIN.saturating_mul(1 << brain.failures.min(6)).min(BACKOFF_MAX);
-                brain.failures += 1;
-                brain.retry_at = Some(Instant::now() + backoff);
+                self.brains.entry(chief.to_owned()).or_insert_with(Brain::new).back_off();
             }
         }
     }
 
     #[cfg(not(unix))]
-    fn launch(&self, _: &Mux, _: &ChiefRecord) -> anyhow::Result<(u32, Arc<AtomicBool>)> {
+    fn launch(&self, _: &Mux, _: &ChiefRecord) -> anyhow::Result<Process> {
         anyhow::bail!("Chief brains run on unix only")
     }
 
     #[cfg(unix)]
-    fn launch(&self, mux: &Mux, record: &ChiefRecord) -> anyhow::Result<(u32, Arc<AtomicBool>)> {
+    fn launch(&self, mux: &Mux, record: &ChiefRecord) -> anyhow::Result<Process> {
         use std::io::Write as _;
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
         use std::os::unix::process::CommandExt;
@@ -626,20 +669,33 @@ impl Supervisor {
             .process_group(0);
         let mut child = command.spawn()?;
         let pid = child.id();
-        let reaped = Arc::new(AtomicBool::new(false));
+        let reaped = Arc::new(Mutex::new(false));
         let (sender, chief, flag) = (self.sender.clone(), record.id.clone(), reaped.clone());
         std::thread::Builder::new().name("chief-brain-wait".into()).spawn(move || {
+            wait_exited(pid);
+            {
+                // The leader is a zombie now (its id is still taken): end what
+                // is left of its group (a crashed host's acpmux), then mark it
+                // reaped before the reap frees the id.
+                let mut reaped = flag.lock().unwrap_or_else(PoisonError::into_inner);
+                if let Ok(group) = i32::try_from(pid) {
+                    // SAFETY: as Process::signal; the leader is not reaped yet.
+                    unsafe { libc::kill(-group, libc::SIGTERM) };
+                }
+                *reaped = true;
+            }
             let success = child.wait().is_ok_and(|status| status.success());
-            flag.store(true, Ordering::Release);
             let _ = sender.send(Signal::Exited { chief, pid, success });
         })?;
-        Ok((pid, reaped))
+        Ok(Process { pid, reaped })
     }
 
-    /// SIGTERM every brain, then wait (bounded) for their exits.
+    /// SIGTERM every brain, wait (bounded) for their exits, then SIGKILL
+    /// what is left: a brain must not outlive its owner unseen.
     fn shutdown(&mut self, inbox: &mpsc::Receiver<Signal>) {
         for brain in self.brains.values_mut() {
             brain.restart = false;
+            brain.pending_wake = false;
             brain.retry_at = None;
             brain.terminate();
         }
@@ -648,14 +704,36 @@ impl Supervisor {
             match inbox.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                 Ok(Signal::Exited { chief, pid, .. }) => {
                     if let Some(brain) = self.brains.get_mut(&chief)
-                        && brain.process.as_ref().map(|(p, _)| *p) == Some(pid)
+                        && brain.process.as_ref().map(|p| p.pid) == Some(pid)
                     {
                         brain.process = None;
                     }
                 }
                 Ok(_) => {}
-                Err(_) => return,
+                Err(_) => break,
             }
+        }
+        for brain in self.brains.values() {
+            if let Some(process) = &brain.process {
+                process.signal(SIGKILL);
+            }
+        }
+    }
+}
+
+/// Blocks until child `pid` has exited, without reaping it (`WNOWAIT`).
+#[cfg(unix)]
+fn wait_exited(pid: u32) {
+    let Ok(id) = libc::id_t::try_from(pid) else { return };
+    loop {
+        // SAFETY: a zeroed siginfo_t is a valid out buffer for waitid.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        // SAFETY: waitid writes only into `info`; WNOWAIT leaves the child
+        // waitable for Child::wait.
+        let done =
+            unsafe { libc::waitid(libc::P_PID, id, &mut info, libc::WEXITED | libc::WNOWAIT) };
+        if done == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            return;
         }
     }
 }
@@ -676,6 +754,24 @@ fn lock_held(lock: &Path) -> bool {
         let _ = lock;
         false
     }
+}
+
+/// SIGTERM to the process that holds `lock` (a brain an earlier owner left),
+/// by the pid optchat-chief writes in it.
+fn stop_lock_holder(lock: &Path) {
+    #[cfg(unix)]
+    if lock_held(lock)
+        && let Some(pid) = std::fs::read_to_string(lock)
+            .ok()
+            .and_then(|text| text.split_whitespace().next()?.parse::<i32>().ok())
+            .filter(|pid| *pid > 1)
+    {
+        // SAFETY: kill has no memory preconditions; the lock is held, so its
+        // recorded holder is alive.
+        unsafe { libc::kill(pid, libc::SIGTERM) };
+    }
+    #[cfg(not(unix))]
+    let _ = lock;
 }
 
 fn is_default(record: &ChiefRecord) -> bool {

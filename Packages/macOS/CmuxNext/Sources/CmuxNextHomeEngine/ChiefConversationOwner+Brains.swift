@@ -10,17 +10,17 @@ extension ChiefConversationOwner {
     /// person's name, the localized Chief title, the bundled CLI and acpmux,
     /// and the MCP command and harness of its own environment. The default
     /// Chief's brain stays with Home (ChiefBrainKeeper), unchanged.
-    static func brainsValue(home: ChiefHome, process: [String: String]) -> String? {
-        guard let host = HomeBrainHost.resolve(daemonSocket: "", controlSocket: "", home: home, environment: process) else {
+    static func brainsValue(home: ChiefHome, process: [String: String], bundle: Bundle) -> String? {
+        let bin = bundle.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        guard let host = HomeBrainHost.resolve(daemonSocket: "", controlSocket: "", home: home, environment: process,
+                                               bundledBinDirectory: bin) else {
             return nil
         }
         var app: [String: String] = [
             "user_name": HomeChiefName.localUserName,
             "chief_title": HomeStrings.chiefName,
         ]
-        if let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true).path {
-            app["bin_dir"] = bin
-        }
+        if let bin { app["bin_dir"] = bin.path }
         if let acpmux = host.acpmux {
             app["acpmux_bin"] = acpmux.executable.path
             if let cli = acpmux.childEnvironment["CMUX_BUNDLED_CLI_PATH"] { app["bundled_cli"] = cli }
