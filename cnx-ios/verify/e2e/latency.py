@@ -142,11 +142,32 @@ def summarize(samples):
 
 
 class Latency:
-    def __init__(self, journey, out_dir, log, samples=20):
+    def __init__(self, journey, out_dir, log, samples=20, max_load=None):
         self.j, self.sim, self.mac = journey, journey.sim, journey.mac
         self.out, self.log, self.n = out_dir, log, samples
+        self.max_load = max_load
         os.makedirs(out_dir, exist_ok=True)
         self.metrics = {}
+        self.loads = []
+
+    def gate(self, limit_s=300):
+        """Load gate: before a sample, wait (at most `limit_s`) until this Mac's
+        1-minute load average is at or under `max_load`, so before/after runs
+        compare at matched load. Records the load each sample ran at."""
+        waited = 0
+        while self.max_load is not None and os.getloadavg()[0] > self.max_load and waited < limit_s:
+            if waited == 0:
+                self.log(f"    load {os.getloadavg()[0]:.1f} > {self.max_load}: waiting")
+            time.sleep(5); waited += 5
+        load = round(os.getloadavg()[0], 1)
+        self.loads.append(load)
+        return load
+
+    def load_summary(self, start):
+        loads = self.loads[start:]
+        if not loads:
+            return {}
+        return {"load_1min_median": statistics.median(loads), "load_1min_max": max(loads), "max_load_gate": self.max_load}
 
     def video(self, name):
         return os.path.join(self.out, f"{name}.mp4")
@@ -235,7 +256,9 @@ class Latency:
         dlog = DeviceLog(self.sim.udid)
         t_rec = self.sim.record_start(vid)
         launches, terms = [], []
+        load0 = len(self.loads)
         for i in range(self.n):
+            self.gate()
             terms.append(time.time() - t_rec)
             self.sim.terminate("dev.cmux.cnx")
             time.sleep(1.0)
@@ -287,7 +310,7 @@ class Latency:
                 t1 = max(t1, live[0][0] - t_rec)
             samples.append((t1 - t0) if t1 else None)
         self.metrics["cold_connect_to_list"] = summarize(samples) | {"video": os.path.basename(vid), "load_1min": round(os.getloadavg()[0], 1),
-            "raw_ms": [None if x is None else round(x * 1000) for x in samples],
+            "raw_ms": [None if x is None else round(x * 1000) for x in samples], **self.load_summary(load0),
             "note": "process start (the app's timing line) to the list region settled with the Mac's live rows (video, and never before the app's workspace_row_live mark); window ends at the next terminate"}
         self.metrics["cold_app_live"] = summarize(lives) | {"note": "app mark: process start to the first live workspace row on screen"}
         self.metrics["cold_app_cached"] = summarize(cached) | {"note": "app mark: process start to the first cached workspace row on screen"}
@@ -335,8 +358,10 @@ class Latency:
         dlog = DeviceLog(self.sim.udid)
         t_rec = self.sim.record_start(vid)
         taps, grid_taps = [], []
+        load0 = len(self.loads)
         for i in range(self.n):
             name = "e2e-t2" if i % 2 == 0 else "e2e-t1"
+            self.gate()
             grid_taps.append(time.time() - t_rec)
             self.sim.tap_q(label="Tabs", kind="Button")
             cand = self.sim.wait(contains=name, timeout=8)
@@ -365,7 +390,7 @@ class Latency:
             tc = first_change(fr, t0 - 0.001, threshold=1.0)
             first.append((tc - t0) if tc is not None and tc < end else None)
         self.metrics["tab_switch"] = summarize(samples) | {"video": os.path.basename(vid), "load_1min": round(os.getloadavg()[0], 1),
-            "raw_ms": [None if x is None else round(x * 1000) for x in samples],
+            "raw_ms": [None if x is None else round(x * 1000) for x in samples], **self.load_summary(load0),
             "note": "touch (app's tab_activate event) on a tab card in the grid to the terminal page settled (includes TabsKit's zoom)"}
         self.metrics["tab_switch_first_frame"] = summarize(first) | {
             "note": "touch to the first changed frame (the zoom starts)"}
