@@ -24,7 +24,7 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
-    static func npSignals(_ tag: String) {
+    nonisolated static func npSignals(_ tag: String) {
         var text = "NPDIAG signals \(tag):"
         for sig in [SIGTERM, SIGINT, SIGHUP, SIGQUIT, SIGUSR1, SIGUSR2, SIGPIPE] {
             var old = sigaction()
