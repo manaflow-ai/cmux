@@ -58,9 +58,102 @@ pub struct ProcessInventory {
     pub processes: Vec<InventoryProcess>,
     /// More of this user's processes existed than were reported.
     pub truncated: bool,
-    /// Processes that were listed but could not be read (exited during the
-    /// scan, or denied). The inventory is incomplete when this is nonzero.
+    /// Processes that were listed but could not be read (denied, or a
+    /// failed read). The inventory is incomplete when this is nonzero. A
+    /// process that exited while the scan read it is not counted.
     pub unreadable: usize,
+    /// See [`LinkInventory::listed`].
+    pub listed: Option<Vec<u32>>,
+}
+
+/// One process generation: a pid and its start time. A reused pid starts
+/// later, so it is a different key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ProcessKey {
+    pub pid: u32,
+    pub started_ms: u64,
+}
+
+/// The parent link of one process generation; nothing else about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessLink {
+    pub pid: u32,
+    pub ppid: u32,
+    /// As [`InventoryProcess::started_ms`].
+    pub started_ms: u64,
+}
+
+impl ProcessLink {
+    pub fn of(process: &InventoryProcess) -> Self {
+        Self { pid: process.pid, ppid: process.ppid, started_ms: process.started_ms }
+    }
+
+    pub fn key(&self) -> ProcessKey {
+        ProcessKey { pid: self.pid, started_ms: self.started_ms }
+    }
+}
+
+/// The result of a links-only scan ([`scan_links`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinkInventory {
+    /// This user's processes in ascending pid order.
+    pub links: Vec<ProcessLink>,
+    /// As [`ProcessInventory::truncated`].
+    pub truncated: bool,
+    /// As [`ProcessInventory::unreadable`].
+    pub unreadable: usize,
+    /// Every pid the scan listed, of any user, ascending, without those that
+    /// exited while it read them (macOS: also zombies); `None` when the
+    /// listing itself may have been cut. A process alive when the scan
+    /// started is missing here only if it exited.
+    pub listed: Option<Vec<u32>>,
+}
+
+/// What reading one listed pid found.
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+enum Read<T> {
+    Found(T),
+    OtherUser,
+    /// It exited between the listing and the read.
+    Gone,
+    Unreadable,
+}
+
+/// Read every listed pid with `read`, keeping at most `limit` found ones.
+fn walk<T>(
+    limit: usize,
+    mut read: impl FnMut(u32) -> Read<T>,
+) -> (Vec<T>, bool, usize, Option<Vec<u32>>) {
+    let (mut pids, listing_complete) = imp::all_pids();
+    pids.sort_unstable();
+    pids.dedup();
+    let mut found = Vec::new();
+    let mut gone = Vec::new();
+    let mut truncated = false;
+    let mut unreadable = 0;
+    for &pid in &pids {
+        if pid == 0 {
+            continue;
+        }
+        match read(pid) {
+            Read::Found(item) => {
+                if found.len() == limit {
+                    truncated = true;
+                    break;
+                }
+                found.push(item);
+            }
+            Read::OtherUser => {}
+            Read::Gone => gone.push(pid),
+            Read::Unreadable => unreadable += 1,
+        }
+    }
+    let listed = listing_complete.then(|| {
+        // `gone` is ascending, like `pids`.
+        pids.retain(|pid| gone.binary_search(pid).is_err());
+        pids
+    });
+    (found, truncated, unreadable, listed)
 }
 
 /// Fields of one `/proc/<pid>/stat` line the inventory uses.
@@ -139,35 +232,23 @@ fn basename(path: &str) -> &str {
 /// Read this user's processes once, at most `limit` of them.
 pub fn scan(limit: usize) -> ProcessInventory {
     let sampler = Sampler::new();
-    let mut pids = imp::all_pids();
-    pids.sort_unstable();
-    pids.dedup();
-    let mut inventory = ProcessInventory::default();
     let mut reader = imp::Reader::new();
-    for pid in pids {
-        if pid == 0 {
-            continue;
-        }
-        let process = match reader.read(pid) {
-            imp::Read::Process(process) => process,
-            imp::Read::OtherUser => continue,
-            imp::Read::Unreadable => {
-                inventory.unreadable += 1;
-                continue;
-            }
-        };
-        if inventory.processes.len() == limit {
-            inventory.truncated = true;
-            break;
-        }
-        let sample = sampler.sample(pid);
-        inventory.processes.push(InventoryProcess {
-            cpu_ns: sample.as_ref().map(|sample| sample.cpu_ns),
-            memory_bytes: sample.map(|sample| sample.memory_bytes),
-            ..process
-        });
+    let (mut processes, truncated, unreadable, listed) = walk(limit, |pid| reader.read(pid));
+    for process in &mut processes {
+        let sample = sampler.sample(process.pid);
+        process.cpu_ns = sample.as_ref().map(|sample| sample.cpu_ns);
+        process.memory_bytes = sample.map(|sample| sample.memory_bytes);
     }
-    inventory
+    ProcessInventory { processes, truncated, unreadable, listed }
+}
+
+/// Read only the parent links of this user's processes, at most `limit` of
+/// them: no arguments, executable or resource figures. Linux reads
+/// `/proc/<pid>/stat`; macOS the BSD info.
+pub fn scan_links(limit: usize) -> LinkInventory {
+    let reader = imp::Reader::links_only();
+    let (links, truncated, unreadable, listed) = walk(limit, |pid| reader.link(pid));
+    LinkInventory { links, truncated, unreadable, listed }
 }
 
 #[cfg(target_os = "linux")]
@@ -175,23 +256,31 @@ mod imp {
     use std::os::unix::fs::MetadataExt;
 
     use super::{
-        InventoryProcess, MAX_ARG_BYTES, MAX_ARGS, basename, bounded_args, parse_linux_stat,
-        split_cmdline,
+        InventoryProcess, LinuxStat, MAX_ARG_BYTES, MAX_ARGS, ProcessLink, Read, basename,
+        bounded_args, parse_linux_stat, split_cmdline,
     };
 
-    pub(super) enum Read {
-        Process(InventoryProcess),
-        OtherUser,
-        Unreadable,
+    /// Every pid in /proc, and whether the whole directory was read.
+    pub(super) fn all_pids() -> (Vec<u32>, bool) {
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return (Vec::new(), false);
+        };
+        let mut complete = true;
+        let mut pids = Vec::new();
+        for entry in entries {
+            let Ok(entry) = entry else {
+                complete = false;
+                continue;
+            };
+            pids.extend(entry.file_name().to_str().and_then(|name| name.parse::<u32>().ok()));
+        }
+        (pids, complete)
     }
 
-    pub(super) fn all_pids() -> Vec<u32> {
-        std::fs::read_dir("/proc")
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|entry| entry.file_name().to_str()?.parse().ok())
-            .collect()
+    /// The process is gone: its /proc directory vanished, or it is being
+    /// reaped.
+    fn gone(error: &std::io::Error) -> bool {
+        error.kind() == std::io::ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH)
     }
 
     pub(super) struct Reader {
@@ -221,21 +310,50 @@ mod imp {
             }
         }
 
-        pub(super) fn read(&mut self, pid: u32) -> Read {
+        pub(super) fn links_only() -> Self {
+            Self::new()
+        }
+
+        /// The stat line of one process of this user and its start time.
+        fn stat(&self, pid: u32) -> Read<(LinuxStat, u64)> {
             // /proc/<pid> is owned by the process's effective user.
-            let Ok(meta) = std::fs::metadata(format!("/proc/{pid}")) else {
-                return Read::Unreadable;
+            let meta = match std::fs::metadata(format!("/proc/{pid}")) {
+                Ok(meta) => meta,
+                Err(error) if gone(&error) => return Read::Gone,
+                Err(_) => return Read::Unreadable,
             };
             if meta.uid() != self.uid {
                 return Read::OtherUser;
             }
-            let (Some(stat), Some(boot_ms)) = (
-                std::fs::read_to_string(format!("/proc/{pid}/stat"))
-                    .ok()
-                    .and_then(|stat| parse_linux_stat(&stat)),
-                self.boot_ms,
-            ) else {
+            let text = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                Ok(text) => text,
+                Err(error) if gone(&error) => return Read::Gone,
+                Err(_) => return Read::Unreadable,
+            };
+            let (Some(stat), Some(boot_ms)) = (parse_linux_stat(&text), self.boot_ms) else {
                 return Read::Unreadable;
+            };
+            let since_boot_ms = stat.start_ticks.saturating_mul(1000) / self.ticks_per_second;
+            Read::Found((stat, boot_ms.saturating_add(since_boot_ms)))
+        }
+
+        pub(super) fn link(&self, pid: u32) -> Read<ProcessLink> {
+            match self.stat(pid) {
+                Read::Found((stat, started_ms)) => {
+                    Read::Found(ProcessLink { pid, ppid: stat.ppid, started_ms })
+                }
+                Read::OtherUser => Read::OtherUser,
+                Read::Gone => Read::Gone,
+                Read::Unreadable => Read::Unreadable,
+            }
+        }
+
+        pub(super) fn read(&mut self, pid: u32) -> Read<InventoryProcess> {
+            let (stat, started_ms) = match self.stat(pid) {
+                Read::Found(found) => found,
+                Read::OtherUser => return Read::OtherUser,
+                Read::Gone => return Read::Gone,
+                Read::Unreadable => return Read::Unreadable,
             };
             let exe = std::fs::read_link(format!("/proc/{pid}/exe")).ok().map(|link| {
                 let text = link.to_string_lossy();
@@ -261,14 +379,13 @@ mod imp {
                 .map(basename)
                 .filter(|name| !name.is_empty())
                 .map_or_else(|| stat.name.clone(), str::to_string);
-            Read::Process(InventoryProcess {
+            Read::Found(InventoryProcess {
                 pid,
                 ppid: stat.ppid,
                 pgid: stat.pgid,
                 sid: stat.sid,
                 tty: (stat.tty_nr != 0).then_some(stat.tty_nr),
-                started_ms: boot_ms
-                    .saturating_add(stat.start_ticks.saturating_mul(1000) / self.ticks_per_second),
+                started_ms,
                 exe,
                 name,
                 args,
@@ -282,36 +399,33 @@ mod imp {
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use super::{InventoryProcess, basename, bounded_args, procargs2_args};
-
-    pub(super) enum Read {
-        Process(InventoryProcess),
-        OtherUser,
-        Unreadable,
-    }
+    use super::{InventoryProcess, ProcessLink, Read, basename, bounded_args, procargs2_args};
 
     /// Kernel `NODEV`: no controlling terminal.
     const NO_DEVICE: u32 = u32::MAX;
 
-    pub(super) fn all_pids() -> Vec<u32> {
+    /// Every pid, and whether the listing fit its buffer.
+    pub(super) fn all_pids() -> (Vec<u32>, bool) {
         // SAFETY: a null buffer asks for the process count only.
         let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
         let Ok(count) = usize::try_from(count) else {
-            return Vec::new();
+            return (Vec::new(), false);
         };
         // Room for processes started between the two calls.
         let mut pids = vec![0 as libc::pid_t; count + 64];
         let Ok(bytes) = libc::c_int::try_from(pids.len().saturating_mul(size_of::<libc::pid_t>()))
         else {
-            return Vec::new();
+            return (Vec::new(), false);
         };
         // SAFETY: `pids` owns a writable buffer of exactly `bytes` bytes.
         let written = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
         let Ok(written) = usize::try_from(written) else {
-            return Vec::new();
+            return (Vec::new(), false);
         };
+        // A full buffer may have cut the listing.
+        let complete = written < pids.len();
         pids.truncate(written.min(pids.len()));
-        pids.into_iter().filter_map(|pid| u32::try_from(pid).ok()).collect()
+        (pids.into_iter().filter_map(|pid| u32::try_from(pid).ok()).collect(), complete)
     }
 
     pub(super) struct Reader {
@@ -326,10 +440,14 @@ mod imp {
             Self { uid: unsafe { libc::geteuid() }, args: argmax_buffer().unwrap_or_default() }
         }
 
-        pub(super) fn read(&mut self, pid: u32) -> Read {
-            let Ok(raw) = libc::c_int::try_from(pid) else {
-                return Read::Unreadable;
-            };
+        /// A reader for [`Self::link`] only: no argument buffer.
+        pub(super) fn links_only() -> Self {
+            // SAFETY: geteuid has no preconditions and cannot fail.
+            Self { uid: unsafe { libc::geteuid() }, args: Vec::new() }
+        }
+
+        /// The BSD info of one process of this user.
+        fn bsdinfo(&self, raw: libc::c_int) -> Read<libc::proc_bsdinfo> {
             // SAFETY: proc_bsdinfo is plain old data; all-zero is valid.
             let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
             let Ok(size) = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()) else {
@@ -340,11 +458,43 @@ mod imp {
                 libc::proc_pidinfo(raw, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
             };
             if written != size {
-                return Read::Unreadable;
+                // ESRCH: it exited (a zombie has no BSD info either).
+                let gone = written <= 0
+                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+                return if gone { Read::Gone } else { Read::Unreadable };
             }
             if info.pbi_uid != self.uid {
                 return Read::OtherUser;
             }
+            Read::Found(info)
+        }
+
+        pub(super) fn link(&self, pid: u32) -> Read<ProcessLink> {
+            let Ok(raw) = libc::c_int::try_from(pid) else {
+                return Read::Unreadable;
+            };
+            match self.bsdinfo(raw) {
+                Read::Found(info) => Read::Found(ProcessLink {
+                    pid,
+                    ppid: info.pbi_ppid,
+                    started_ms: started_ms(&info),
+                }),
+                Read::OtherUser => Read::OtherUser,
+                Read::Gone => Read::Gone,
+                Read::Unreadable => Read::Unreadable,
+            }
+        }
+
+        pub(super) fn read(&mut self, pid: u32) -> Read<InventoryProcess> {
+            let Ok(raw) = libc::c_int::try_from(pid) else {
+                return Read::Unreadable;
+            };
+            let info = match self.bsdinfo(raw) {
+                Read::Found(info) => info,
+                Read::OtherUser => return Read::OtherUser,
+                Read::Gone => return Read::Gone,
+                Read::Unreadable => return Read::Unreadable,
+            };
             // SAFETY: getsid has no memory preconditions; -1 when gone.
             let sid = u32::try_from(unsafe { libc::getsid(raw) }).unwrap_or(0);
             let exe = pid_path(raw);
@@ -359,16 +509,13 @@ mod imp {
                 Some(data) => procargs2_args(data).map(bounded_args).unwrap_or_default(),
                 None => (Vec::new(), false),
             };
-            Read::Process(InventoryProcess {
+            Read::Found(InventoryProcess {
                 pid,
                 ppid: info.pbi_ppid,
                 pgid: info.pbi_pgid,
                 sid,
                 tty: (info.e_tdev != NO_DEVICE).then_some(u64::from(info.e_tdev)),
-                started_ms: info
-                    .pbi_start_tvsec
-                    .saturating_mul(1000)
-                    .saturating_add(info.pbi_start_tvusec / 1000),
+                started_ms: started_ms(&info),
                 exe,
                 name,
                 args,
@@ -397,6 +544,10 @@ mod imp {
             };
             (status == 0).then(|| &self.args[..size.min(self.args.len())])
         }
+    }
+
+    fn started_ms(info: &libc::proc_bsdinfo) -> u64 {
+        info.pbi_start_tvsec.saturating_mul(1000).saturating_add(info.pbi_start_tvusec / 1000)
     }
 
     fn argmax_buffer() -> Option<Vec<u8>> {
@@ -432,18 +583,10 @@ mod imp {
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod imp {
-    use super::InventoryProcess;
+    use super::{InventoryProcess, ProcessLink, Read};
 
-    pub(super) enum Read {
-        #[allow(dead_code)]
-        Process(InventoryProcess),
-        #[allow(dead_code)]
-        OtherUser,
-        Unreadable,
-    }
-
-    pub(super) fn all_pids() -> Vec<u32> {
-        Vec::new()
+    pub(super) fn all_pids() -> (Vec<u32>, bool) {
+        (Vec::new(), false)
     }
 
     pub(super) struct Reader;
@@ -453,7 +596,15 @@ mod imp {
             Self
         }
 
-        pub(super) fn read(&mut self, _pid: u32) -> Read {
+        pub(super) fn links_only() -> Self {
+            Self
+        }
+
+        pub(super) fn link(&self, _pid: u32) -> Read<ProcessLink> {
+            Read::Unreadable
+        }
+
+        pub(super) fn read(&mut self, _pid: u32) -> Read<InventoryProcess> {
             Read::Unreadable
         }
     }

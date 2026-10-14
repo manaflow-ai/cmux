@@ -32,7 +32,7 @@ fn shell(pid: u32, started: u64) -> InventoryProcess {
 }
 
 fn scan(processes: Vec<InventoryProcess>) -> ProcessInventory {
-    ProcessInventory { processes, truncated: false, unreadable: 0 }
+    ProcessInventory { processes, truncated: false, unreadable: 0, listed: None }
 }
 
 /// [`super::classify`] with an empty launch ledger.
