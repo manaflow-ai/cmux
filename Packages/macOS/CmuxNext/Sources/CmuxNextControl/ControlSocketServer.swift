@@ -38,6 +38,9 @@ public final class ControlSocketServer: Sendable {
         public var maxQueuedLinesPerConnection: Int
         /// Unsent response bytes per connection before the client is dropped.
         public var maxOutboxBytesPerConnection: Int
+        /// A symlink to `path` kept at the socket's old name, for tools that
+        /// still use it; made only where nothing is, removed on stop.
+        public var compatibilityLink: String?
 
         public init(
             path: String,
@@ -47,7 +50,8 @@ public final class ControlSocketServer: Sendable {
             trustedExecutables: Set<String> = [],
             maxLineBytes: Int = 4 << 20,
             maxQueuedLinesPerConnection: Int = 64,
-            maxOutboxBytesPerConnection: Int = 8 << 20
+            maxOutboxBytesPerConnection: Int = 8 << 20,
+            compatibilityLink: String? = nil
         ) {
             self.path = path
             self.accessMode = accessMode
@@ -57,6 +61,7 @@ public final class ControlSocketServer: Sendable {
             self.maxLineBytes = maxLineBytes
             self.maxQueuedLinesPerConnection = maxQueuedLinesPerConnection
             self.maxOutboxBytesPerConnection = maxOutboxBytesPerConnection
+            self.compatibilityLink = compatibilityLink
         }
     }
 
@@ -103,7 +108,7 @@ public final class ControlSocketServer: Sendable {
     let bindCall: BindCall
     private let acceptRetry = DemandTimer(owner: "ControlSocketServer.acceptRetry")
     /// Puts the socket file back when something deletes it (``ControlSocketPathWatch``).
-    private let pathWatch = Mutex<ControlSocketPathWatch?>(nil)
+    private let pathWatch = Mutex<[ControlSocketPathWatch]>([])
 
     public convenience init(configuration: Configuration, router: ControlRouter) {
         self.init(configuration: configuration, router: router, accept: { accept($0, nil, nil) })
@@ -131,6 +136,7 @@ public final class ControlSocketServer: Sendable {
         guard configuration.accessMode != .off else { throw StartError.disabled }
         guard !isRunning else { return }
         let path = configuration.path
+        Self.makeStateDirectory(for: path)
         try Self.reclaimStalePath(path)
         let (source, identity) = try makeListener()
         state.withLock {
@@ -139,9 +145,13 @@ public final class ControlSocketServer: Sendable {
         }
         router.setTransportInfo(socketPath: path, accessMode: configuration.accessMode.rawValue)
         source.resume()
-        let watch = ControlSocketPathWatch(path: path, queue: acceptQueue) { [weak self] in self?.restoreSocket() ?? true }
-        pathWatch.withLock { $0 = watch }
-        watch.start()
+        var watches = [ControlSocketPathWatch(path: path, queue: acceptQueue) { [weak self] in self?.restoreSocket() ?? true }]
+        if let link = configuration.compatibilityLink {
+            Self.makeLink(link, to: path)
+            watches.append(ControlSocketPathWatch(path: link, queue: acceptQueue) { Self.makeLink(link, to: path) })
+        }
+        pathWatch.withLock { $0 = watches }
+        watches.forEach { $0.start() }
     }
 
     /// A listening socket bound at the configured path, its read source not yet resumed, and the
@@ -211,9 +221,9 @@ public final class ControlSocketServer: Sendable {
     /// if it is still the one this server created.
     public func stop() {
         acceptRetry.cancel()
-        pathWatch.withLock { watch in
-            watch?.stop()
-            watch = nil
+        pathWatch.withLock { watches in
+            watches.forEach { $0.stop() }
+            watches = []
         }
         let (listener, identity, connections) = state.withLock { state in
             let result = (state.listener, state.socketIdentity, Array(state.connections.values))
@@ -229,6 +239,7 @@ public final class ControlSocketServer: Sendable {
         listener?.cancel()
         connections.forEach { $0.close() }
         Self.unlinkIfOwn(configuration.path, identity)
+        if let link = configuration.compatibilityLink { Self.unlinkLink(link, to: configuration.path) }
     }
 
     // MARK: - Accepting
