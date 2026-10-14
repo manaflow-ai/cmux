@@ -48,7 +48,8 @@
             "maxPx": 0,
             "score": 0
           }
-        ]
+        ],
+        "composerOverlaps": []
       },
       "galleryPath": "/live/agent-pane-visual/streaming-dark-narrow"
     },
@@ -96,7 +97,8 @@
             "maxPx": 0,
             "score": 0
           }
-        ]
+        ],
+        "composerOverlaps": []
       },
       "galleryPath": "/live/agent-pane-visual/streaming-dark-normal"
     },
@@ -144,7 +146,8 @@
             "maxPx": 0,
             "score": 0
           }
-        ]
+        ],
+        "composerOverlaps": []
       },
       "galleryPath": "/live/agent-pane-visual/streaming-dark-wide"
     },
@@ -164,18 +167,18 @@
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,
-        "cls": 0.00477,
-        "maxFrameJumpPx": 7.25,
+        "cls": 0.00363,
+        "maxFrameJumpPx": 3,
         "perFrameJumps": [
           {
             "frame": 1,
-            "maxPx": 0.25,
-            "score": 0.0003
+            "maxPx": 0,
+            "score": 0
           },
           {
             "frame": 2,
-            "maxPx": 7.25,
-            "score": 0.00447
+            "maxPx": 3,
+            "score": 0.00363
           },
           {
             "frame": 3,
@@ -196,9 +199,9 @@
         "composerOverlaps": [
           {
             "left": "composer",
-            "right": "assistant-98",
+            "right": "queue",
             "width": 707,
-            "height": 16.25
+            "height": 38
           }
         ]
       },
@@ -252,9 +255,9 @@
         "composerOverlaps": [
           {
             "left": "composer",
-            "right": "summary-15",
+            "right": "summary-78",
             "width": 707,
-            "height": 15.75
+            "height": 15.5
           }
         ]
       },
@@ -304,7 +307,8 @@
             "maxPx": 0,
             "score": 0
           }
-        ]
+        ],
+        "composerOverlaps": []
       },
       "galleryPath": "/live/agent-pane-visual/permission-dark-narrow"
     },
@@ -352,7 +356,8 @@
             "maxPx": 0,
             "score": 0
           }
-        ]
+        ],
+        "composerOverlaps": []
       },
       "galleryPath": "/live/agent-pane-visual/permission-light-wide"
     },
@@ -399,6 +404,14 @@
             "frame": 5,
             "maxPx": 0,
             "score": 0
+          }
+        ],
+        "composerOverlaps": [
+          {
+            "left": "composer",
+            "right": "summary-78",
+            "width": 707,
+            "height": 15.5
           }
         ]
       },
@@ -452,9 +465,9 @@
         "composerOverlaps": [
           {
             "left": "composer",
-            "right": "summary-15",
-            "width": 720,
-            "height": 15.75
+            "right": "summary-78",
+            "width": 1147,
+            "height": 15.5
           }
         ]
       },
