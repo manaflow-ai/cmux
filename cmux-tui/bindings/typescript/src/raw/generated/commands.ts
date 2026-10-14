@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 63b0df7a776267c3d7bddccc9c36fd5efc7ad0a9122bdbb7882dbbfe3d20e8eb. */
+/* cmux-tui mux protocol 12, IR d0cd6b073142853e05872a82893772bcb5ed0cacca2cf14f0d093f119c9232b3. */
 
 
 import type * as T from "./types.js";
@@ -432,6 +432,15 @@ export interface CloudInboxListRequest extends CmuxRequestBase {
 export type CloudInboxListResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudInboxOpRequest extends CmuxRequestBase {
+  cmd: "cloud-inbox-op";
+  "conversation": string;
+  "idempotency_key": string;
+  "op": (T.JsonValue) | null;
+}
+export type CloudInboxOpResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudInboxSubscribeRequest extends CmuxRequestBase {
   cmd: "cloud-inbox-subscribe";
 }
@@ -629,6 +638,20 @@ export type ConversationImportResult = {
   "conversation": T.ConversationSummary;
   "imported": Array<bigint>;
   "skipped": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationInboxOpRequest extends CmuxRequestBase {
+  cmd: "conversation-inbox-op";
+  "conversation": string;
+  "op": (T.JsonValue) | null;
+}
+export type ConversationInboxOpResult = {
+  "conversation": string;
+  "marked_unread": boolean;
+  "participant": string;
+  "pin_position"?: bigint;
+  "pinned": boolean;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -2667,6 +2690,7 @@ export type CmuxRequest =
   | CloudConversationThreadRequest
   | CloudConversationUnsubscribeRequest
   | CloudInboxListRequest
+  | CloudInboxOpRequest
   | CloudInboxSubscribeRequest
   | CloudInboxUnsubscribeRequest
   | CloudMuxAckRequest
@@ -2684,6 +2708,7 @@ export type CmuxRequest =
   | ConversationDraftRequest
   | ConversationHistoryRequest
   | ConversationImportRequest
+  | ConversationInboxOpRequest
   | ConversationLinkResolveRequest
   | ConversationListRequest
   | ConversationOpRequest
@@ -3227,6 +3252,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "cloud-conversations-v1";
     stream: null;
   };
+  "cloud-inbox-op": {
+    request: CloudInboxOpRequest;
+    result: CloudInboxOpResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-inbox-state-v1";
+    stream: null;
+  };
   "cloud-inbox-subscribe": {
     request: CloudInboxSubscribeRequest;
     result: CloudInboxSubscribeResult;
@@ -3361,6 +3394,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-inbox-op": {
+    request: ConversationInboxOpRequest;
+    result: ConversationInboxOpResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-inbox-state-v1";
     stream: null;
   };
   "conversation-link-resolve": {

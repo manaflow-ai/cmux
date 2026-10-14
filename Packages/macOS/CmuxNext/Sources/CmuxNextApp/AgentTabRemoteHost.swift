@@ -57,7 +57,11 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
             route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint] in
-                RemoteAcpmuxWire(start: { cwd, harness in
+                RemoteAcpmuxWire(start: { [approvals = approvals] cwd, harness in
+                    // The chat's Allow needs this app's key on that machine's agent daemon
+                    // (cx-oa6ah): an idle daemon gets it before the start; a busy one waits for
+                    // the person's restart click on the Allow notice.
+                    if let prepare = approvals?.prepare { _ = await prepare() }
                     let started: AgentTabRemoteStart.Started
                     do {
                         started = try await start(cwd, harness)
