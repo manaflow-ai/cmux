@@ -4972,3 +4972,32 @@ fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
 
 #[path = "terminal_host_recovery/idle_template.rs"]
 mod idle_template;
+
+#[test]
+fn successive_hosted_terminal_creates_do_not_stall_on_kitty_quota() {
+    let harness = RecoveryHarness::start("successive-creates");
+    let started = Instant::now();
+    let first = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let mut timings = vec![started.elapsed()];
+    let pane = first["pane"].as_u64().unwrap();
+    for id in 2..=6_u64 {
+        let started = Instant::now();
+        request(
+            &harness.socket,
+            serde_json::json!({
+                "id":id,"cmd":"run","argv":["/bin/cat"],"pane":pane,
+                "cols":80,"rows":24,
+            }),
+        );
+        timings.push(started.elapsed());
+    }
+    eprintln!("successive hosted terminal create timings: {timings:?}");
+    let slow = timings.iter().filter(|elapsed| **elapsed >= Duration::from_secs(1)).count();
+    assert_eq!(slow, 0, "a terminal create stalled: {timings:?}");
+}
