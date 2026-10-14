@@ -96,9 +96,10 @@ export const SUBMENU_ROOM = 250;
 /// harness rail and the model list scroll inside it.
 export const MODEL_PICKER_MAX_HEIGHT = 480;
 /// The shortest the open picker gets: the search field and about six model rows. A list that loads
-/// after the menu opened never collapses the menu to its search field (Lawrence 2026-10-13). A chip
-/// with less room than this gives the menu all of its room, never more: past the room the menu
-/// would run off the page (the New Tab chip's menu ran 94 px above the window).
+/// after the menu opened never collapses the menu to its search field (Lawrence 2026-10-13). The
+/// menu opens on the side of the chip that has this much room (`useUiAnchor` `minHeight`). Only when
+/// neither side has it does the menu take the larger room, scrolling inside, never more: past the
+/// room it would run off the page (the New Tab chip's menu ran 94 px above the window).
 export const MODEL_PICKER_MIN_HEIGHT = 220;
 
 /// The open picker's height bounds: at most the anchor's room (`room`, when known) and

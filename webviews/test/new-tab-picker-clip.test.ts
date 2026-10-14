@@ -56,13 +56,22 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
       const node = document.querySelector<HTMLElement>(".acpmux-mp[role=dialog]");
       return !!node && getComputedStyle(node).visibility === "visible";
     });
-    const { menuBottom, screenBottom, menuTop, screenTop } = await page.evaluate(() => {
+    const { menuBottom, screenBottom, menuTop, screenTop, menuHeight } = await page.evaluate(() => {
       const menu = document.querySelector(".acpmux-mp[role=dialog]")!.getBoundingClientRect();
       const screen = document.querySelector(".nt-screen")!.getBoundingClientRect();
-      return { menuBottom: menu.bottom, screenBottom: screen.bottom, menuTop: menu.top, screenTop: screen.top };
+      return {
+        menuBottom: menu.bottom,
+        screenBottom: screen.bottom,
+        menuTop: menu.top,
+        screenTop: screen.top,
+        menuHeight: menu.height,
+      };
     });
+    // Inside the page: it opens on the side of the chip with room for its floor (above, else below).
     expect(menuTop).toBeGreaterThanOrEqual(screenTop);
     expect(menuBottom).toBeLessThanOrEqual(screenBottom);
+    // And never collapsed: this window has room for the picker's 220 px floor on one side (d9ce210e).
+    expect(menuHeight).toBeGreaterThanOrEqual(219);
     await page.close();
   });
 });
