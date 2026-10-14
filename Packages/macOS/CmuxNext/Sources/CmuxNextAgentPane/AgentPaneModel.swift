@@ -134,6 +134,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSaveFile: (@MainActor (AgentPaneSave) async throws -> Bool)?
     /// Add Files to Project's open panel: the files the user picked, none when they cancelled.
     @ObservationIgnored public var onChooseFiles: (@MainActor () async -> [URL])?
+    /// Attach files or folders' open panel: what the user picked, none when they cancelled.
+    @ObservationIgnored public var onChooseAttachments: (@MainActor () async -> [URL])?
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     /// Diff Colors (`diff.colors`) as the page last got it: "theme", "muted" or "standard".
     @ObservationIgnored public internal(set) var diffColors = "theme"
@@ -258,6 +260,9 @@ public final class AgentPaneModel {
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
+        // The panel picks this Mac's files: never for a chat on another machine (cx-k21v).
+        case .chooseAttachments where remoteChat: return Self.unsupported("chat.attach.choose")
+        case .chooseAttachments: return await chooseAttachments()
         case .useFolder(let cwd, let confirm) where remoteChat:
             // A folder of that machine: its store answers as this Mac's does (cx-1bhjj), its acpmux
             // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).
