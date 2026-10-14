@@ -96,3 +96,22 @@ struct FeedUnwrapTests {
         #expect(FeedTextParser.unwrap(rows, columns: 54) == [String(repeating: "a", count: 53) + "bc", "short"])
     }
 }
+
+struct FeedAnswerMemoryTests {
+    @Test func remembersAndForgetsTheOldest() {
+        var memory = FeedAnswerMemory(limit: 2)
+        memory.record("Yes", for: "n-1")
+        memory.record("No", for: "n-2")
+        memory.record("ok", for: "n-3")
+        #expect(memory.answer(for: "n-1") == nil)
+        #expect(memory.answer(for: "n-2") == "No")
+        #expect(memory.answer(for: "n-3") == "ok")
+    }
+
+    @Test func roundTripsThroughData() throws {
+        var memory = FeedAnswerMemory(limit: 10)
+        memory.record("Yes", for: "n-7")
+        let restored = FeedAnswerMemory(data: try memory.encoded(), limit: 10)
+        #expect(restored.answer(for: "n-7") == "Yes")
+    }
+}
