@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::api::IceServer;
 use crate::link::{Link, LinkConfig, Role};
@@ -81,6 +81,10 @@ pub struct DialOptions {
     /// Network privacy answers for LAN peers).
     #[doc(hidden)]
     pub refuse_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Offer and accept the input lane (PROTOCOL.md "Lanes"): a second
+    /// stream for keystrokes and resizes. Off only to measure or test the
+    /// single-stream behavior of older peers.
+    pub input_lane: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
 }
@@ -94,6 +98,7 @@ impl Default for DialOptions {
             relay_only: false,
             drop_outbound_udp: false,
             refuse_udp_to: None,
+            input_lane: true,
             timeout: Duration::from_secs(25),
         }
     }
@@ -130,6 +135,35 @@ pub struct Dialed {
     pub path: watch::Receiver<LinkPath>,
     /// Holds the peer connection or tunnel open.
     pub guard: Box<dyn Any + Send>,
+    /// The input lane's stream, when both sides negotiated one. It may open
+    /// after the main stream; a dropped sender means it failed.
+    pub lane: Option<oneshot::Receiver<Box<dyn LinkStream>>>,
+}
+
+/// The lanes this side offers in its first signal or answer.
+pub(crate) fn offered_lanes(options: &DialOptions) -> Vec<String> {
+    if options.input_lane { vec![crate::link::INPUT_LANE.to_owned()] } else { Vec::new() }
+}
+
+/// Whether both sides support the input lane.
+pub(crate) fn input_lane_agreed(options: &DialOptions, peer_lanes: &[String]) -> bool {
+    options.input_lane && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+}
+
+/// Attach the lane to `link` when it opens, or fall back when it fails.
+fn follow_lane(link: &Link, lane: Option<oneshot::Receiver<Box<dyn LinkStream>>>) {
+    let Some(lane) = lane else { return };
+    link.expect_input_lane();
+    let link = link.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            stream = lane => match stream {
+                Ok(stream) => link.attach_input_lane(stream),
+                Err(_) => link.input_lane_failed("the lane's stream did not open"),
+            },
+            _ = link.closed() => {}
+        }
+    });
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
@@ -259,6 +293,7 @@ pub async fn connect(
         }
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    follow_lane(&link, dialed.lane);
     Ok(Connected { link, transport: kind, path: dialed.path, session_id })
 }
 
@@ -291,6 +326,7 @@ pub async fn answer(
         }
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
+    follow_lane(&link, dialed.lane);
     Ok(Connected { link, transport: kind, path: dialed.path, session_id })
 }
 

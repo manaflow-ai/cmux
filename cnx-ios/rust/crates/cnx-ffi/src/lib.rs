@@ -156,15 +156,12 @@ impl Drop for LinkHandle {
     }
 }
 
-#[uniffi::export]
 impl LinkHandle {
-    /// Open a channel to `service` (`echo`, `daemon`, `acpmux`, `file`) with
-    /// `args_json`, a JSON object (empty string means `{}`). A refusal
-    /// arrives as the first `recv`: `Closed { code: "unknown_service" … }`.
-    pub async fn open_channel(
+    async fn open(
         &self,
         service: String,
         args_json: String,
+        lane: cnx_link::Lane,
     ) -> Result<Arc<ChannelHandle>, CnxError> {
         let args: serde_json::Value = if args_json.trim().is_empty() {
             serde_json::json!({})
@@ -176,7 +173,7 @@ impl LinkHandle {
             return Err(CnxError::InvalidArgument { message: "args_json must be a JSON object".into() });
         }
         let link = self.link.clone();
-        let channel = on_runtime(async move { link.open(&service, args).await }).await?;
+        let channel = on_runtime(async move { link.open_on(&service, args, lane).await }).await?;
         let id = channel.id();
         let (sender, receiver) = channel.split();
         Ok(Arc::new(ChannelHandle {
@@ -185,6 +182,37 @@ impl LinkHandle {
             receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
             closed: Arc::new(Mutex::new(None)),
         }))
+    }
+}
+
+#[uniffi::export]
+impl LinkHandle {
+    /// Open a channel to `service` (`echo`, `daemon`, `acpmux`, `file`) with
+    /// `args_json`, a JSON object (empty string means `{}`). A refusal
+    /// arrives as the first `recv`: `Closed { code: "unknown_service" … }`.
+    pub async fn open_channel(
+        &self,
+        service: String,
+        args_json: String,
+    ) -> Result<Arc<ChannelHandle>, CnxError> {
+        self.open(service, args_json, cnx_link::Lane::Bulk).await
+    }
+
+    /// `open_channel` on the input lane (PROTOCOL.md "Lanes"): for terminal
+    /// keystrokes, resizes and their replies, which then never wait behind
+    /// bulk output. With a Mac that has no input lane the channel rides the
+    /// main stream at input priority.
+    pub async fn open_input_channel(
+        &self,
+        service: String,
+        args_json: String,
+    ) -> Result<Arc<ChannelHandle>, CnxError> {
+        self.open(service, args_json, cnx_link::Lane::Input).await
+    }
+
+    /// Whether the link has its own input-lane stream now.
+    pub fn has_input_lane(&self) -> bool {
+        self.link.input_lane() == cnx_link::LaneState::Ready
     }
 
     /// Round-trip one ping; milliseconds.

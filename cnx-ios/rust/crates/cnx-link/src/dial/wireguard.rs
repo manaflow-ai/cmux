@@ -21,7 +21,7 @@ use cmux_transport::PathId;
 use cmux_wg::{InterfaceAddress, IpNetwork, Origin, Received, Underlay, WgConfig, WgNet};
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use uuid::Uuid;
@@ -34,6 +34,9 @@ use crate::signaling::{RelayFrame, SessionEvent, SignalEnvelope, SignalPayload, 
 
 /// The link's TCP port inside the tunnel (PROTOCOL.md).
 pub const LINK_PORT: u16 = 7420;
+/// How long the input lane's second connection may take before input stays
+/// on the main stream.
+const LANE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// Overlay addresses: each tunnel is its own userspace network, so fixed
 /// addresses never collide across sessions.
 const DIALER_OVERLAY: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 2);
@@ -758,17 +761,20 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&public_key),
                         endpoints,
                         overlay_ip: DIALER_OVERLAY.to_string(),
+                        lanes: super::offered_lanes(options),
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             let mut early_relay = Vec::new();
+            let agreed;
             let (peer_key, peer_endpoints, peer_ip) = loop {
                 match events.next().await? {
                     SessionEvent::Signal(envelope) => match envelope.payload {
-                        SignalPayload::WgResp { public_key, endpoints, overlay_ip } => {
+                        SignalPayload::WgResp { public_key, endpoints, overlay_ip, lanes } => {
                             let ip: Ipv4Addr = overlay_ip
                                 .parse()
                                 .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
+                            agreed = super::input_lane_agreed(options, &lanes);
                             break (parse_key(&public_key)?, endpoints, ip);
                         }
                         SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
@@ -806,12 +812,26 @@ impl Dialer for WireGuardDialer {
                 peer: mac.to_owned(),
             };
             let net = running(&tunnel.net)?;
-            let stream = net
-                .connect(SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT))
-                .await
-                .map_err(transport_error)?;
-            drop(net);
-            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard) })
+            let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
+            let stream = net.connect(link_addr).await.map_err(transport_error)?;
+            // The input lane: a second TCP stream to the same port, opened
+            // after the main one so the Mac tells them apart by order. Its
+            // own socket buffers keep keystrokes out of the main stream's
+            // 256 KiB send buffer.
+            let lane = agreed.then(|| {
+                let (tx, rx) = oneshot::channel();
+                tokio::spawn(async move {
+                    match tokio::time::timeout(LANE_TIMEOUT, net.connect(link_addr)).await {
+                        Ok(Ok(stream)) => {
+                            let _ = tx.send(Box::new(stream) as Box<dyn super::LinkStream>);
+                        }
+                        Ok(Err(error)) => tracing::info!(%error, "input lane did not connect"),
+                        Err(_) => tracing::info!("input lane did not connect in time"),
+                    }
+                });
+                rx
+            });
+            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane })
         })
     }
 
@@ -823,10 +843,12 @@ impl Dialer for WireGuardDialer {
         options: &'a DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
-            let SignalPayload::WgInit { public_key, endpoints: peer_endpoints, overlay_ip } = first.payload
+            let SignalPayload::WgInit { public_key, endpoints: peer_endpoints, overlay_ip, lanes } =
+                first.payload
             else {
                 return Err(DialError::Unexpected("expected wg-init".into()));
             };
+            let agreed = super::input_lane_agreed(options, &lanes);
             let peer_key = parse_key(&public_key)?;
             let peer_ip: Ipv4Addr = overlay_ip
                 .parse()
@@ -867,12 +889,25 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&own_public),
                         endpoints,
                         overlay_ip: own_ip.to_string(),
+                        lanes: super::offered_lanes(options),
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             let stream =
                 listener.accept().await.ok_or_else(|| DialError::Transport("tunnel closed".into()))?;
-            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard) })
+            // The phone's second connection is the input lane.
+            let lane = agreed.then(|| {
+                let (tx, rx) = oneshot::channel();
+                tokio::spawn(async move {
+                    if let Ok(Some(stream)) = tokio::time::timeout(LANE_TIMEOUT, listener.accept()).await {
+                        let _ = tx.send(Box::new(stream) as Box<dyn super::LinkStream>);
+                    } else {
+                        tracing::info!("input lane was not opened in time");
+                    }
+                });
+                rx
+            });
+            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane })
         })
     }
 }

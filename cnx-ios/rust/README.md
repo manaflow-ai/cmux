@@ -30,7 +30,14 @@ The tests need no network: they start a fake signaling server on loopback.
   and a Mac whose OS refuses UDP to the phone's LAN address settles on the
   phone's relayed address without the path flapping.
 - `cnx-link` `link::tests`: a ping overtakes 4 MiB of queued data on a slow
-  stream, and the keepalive counts any inbound frame as life.
+  stream, and the keepalive counts any inbound frame as life. During an
+  8 MiB flood on a 1.6 MB/s stream, an input-lane echo and another bulk
+  channel's echo return in about 45 ms on the same stream (round robin and
+  input priority) and at once on an attached lane; writes are split into
+  16 KiB frames; the `open` frame names the lane only for input.
+- `cnx-link/tests/loopback.rs` (input lane): over WebRTC and WireGuard an
+  input channel rides its own data channel or TCP stream, and with a Mac
+  without the lane it rides the main stream and still works.
 - `cnx-hostd/tests/host.rs`: hostd over all three paths with every service
   (`echo`, `daemon` against a fake cmux-tui socket with allowed and denied
   lines, `file` inside and outside the roots, `acpmux` against a fake
@@ -75,6 +82,9 @@ restores `Cargo.lock` afterwards. Host builds use stock nix.
 ### Swift API (module `CnxFFI`)
 
 ```swift
+// LinkHandle also has:
+//   func openInputChannel(service: String, argsJson: String) async throws -> ChannelHandle
+//   func hasInputLane() -> Bool
 func connect(baseUrl: String, token: String, teamId: String, deviceId: String,
              macDeviceId: String, transport: Transport,
              observer: LinkObserver?) async throws -> LinkHandle   // throws CnxError
@@ -239,6 +249,14 @@ Services (default deny, `unknown_service` otherwise):
 - Link keepalive: a ping every 15 s; pings and pongs go ahead of queued
   channel data, and the link closes only after 20 s with no inbound frame
   at all.
+- Input lane (PROTOCOL.md "Lanes"): WebRTC opens a second data channel
+  `cnx-input`, WireGuard a second TCP stream to `overlayIP:7420`, when both
+  sides list `lanes: ["input"]` in signaling. `Link::open_on(service, args,
+  Lane::Input)` (FFI `open_input_channel`) puts a channel on it; without a
+  lane it rides the main stream at input priority. Each stream's writer
+  sends control, then input, then bulk round robin in 16 KiB frames.
+  `DialOptions::input_lane = false` (cnx-dial `--no-input-lane`) turns it
+  off, as an older peer would.
 
 ## Test binaries (cnx-hostd)
 
@@ -260,8 +278,9 @@ Services (default deny, `unknown_service` otherwise):
 
 ## Limits (v1)
 
-- One slow channel consumer stalls the whole link (per-channel queues of 1024
-  frames, then the reader waits).
+- One slow channel consumer stalls its stream (per-channel queues of 1024
+  frames, then the reader waits). Input-lane channels on their own stream
+  are not held by a slow bulk consumer.
 - No ICE restart or WireGuard re-dial after a network change; the app redials.
 - A backend `error` message without a `sessionId` fails every dial in
   progress on that socket; one naming a session fails only that session's

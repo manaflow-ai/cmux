@@ -16,7 +16,9 @@ pub mod signaling;
 pub mod testing;
 
 pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind};
-pub use link::{Channel, ChannelEvent, CloseInfo, IncomingChannel, Link, LinkConfig, LinkError, Role};
+pub use link::{
+    Channel, ChannelEvent, CloseInfo, IncomingChannel, Lane, LaneState, Link, LinkConfig, LinkError, Role,
+};
 pub use signaling::SignalingClient;
 
 /// Install rustls's ring provider once (HTTP and WebSocket TLS).

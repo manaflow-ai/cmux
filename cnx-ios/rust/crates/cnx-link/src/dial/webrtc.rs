@@ -28,6 +28,9 @@ use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingCli
 
 /// The data channel label (PROTOCOL.md).
 pub const LABEL: &str = "cnx-link";
+/// The input lane's data channel: ordered and reliable, its own SCTP stream
+/// (PROTOCOL.md "Lanes").
+pub const INPUT_LABEL: &str = "cnx-input";
 /// Largest message written to the data channel; the link is a byte stream,
 /// so message boundaries carry no meaning.
 const MAX_MESSAGE: usize = 16 * 1024;
@@ -211,9 +214,30 @@ fn follow(
     })
 }
 
+/// The lane's stream once its data channel opens.
+fn lane_stream(
+    opened: oneshot::Receiver<Arc<RTCDataChannel>>,
+) -> oneshot::Receiver<Box<dyn super::LinkStream>> {
+    let (tx, rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let Ok(channel) = opened.await else { return };
+        match channel.detach().await {
+            Ok(raw) => {
+                let mut stream = PollDataChannel::new(raw);
+                stream.set_read_buf_capacity(64 * 1024);
+                let _ = tx.send(Box::new(DataChannelStream { inner: stream }) as Box<dyn super::LinkStream>);
+            }
+            Err(error) => tracing::info!(%error, "input lane data channel did not detach"),
+        }
+    });
+    rx
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn finish(
     pc: Arc<RTCPeerConnection>,
     channel: Arc<RTCDataChannel>,
+    lane: Option<oneshot::Receiver<Arc<RTCDataChannel>>>,
     events: SessionEvents,
     remote: RemoteCandidates,
     signaling: &SignalingClient,
@@ -256,6 +280,7 @@ async fn finish(
             signaling: signaling.clone(),
             session_id: session_id.to_owned(),
         }),
+        lane: lane.map(lane_stream),
     })
 }
 
@@ -278,11 +303,26 @@ impl Dialer for WebRtcDialer {
             let channel = pc.create_data_channel(LABEL, Some(init)).await.map_err(transport_error)?;
             let (open_tx, mut open_rx) = oneshot::channel();
             on_open(&channel, Arc::new(Mutex::new(Some(open_tx))));
+            // The input lane's channel opens with the main one; it carries
+            // frames only when the Mac's answer lists the lane.
+            let mut lane = None;
+            if options.input_lane {
+                let init = RTCDataChannelInit { ordered: Some(true), ..Default::default() };
+                let input = pc.create_data_channel(INPUT_LABEL, Some(init)).await.map_err(transport_error)?;
+                let (lane_tx, lane_rx) = oneshot::channel();
+                on_open(&input, Arc::new(Mutex::new(Some(lane_tx))));
+                lane = Some(lane_rx);
+            }
+            let mut agreed = false;
             trickle(&pc, signaling, mac, session_id);
             let offer = pc.create_offer(None).await.map_err(transport_error)?;
             pc.set_local_description(offer.clone()).await.map_err(transport_error)?;
             signaling
-                .send_signal(mac, session_id, SignalPayload::WebrtcOffer { sdp: offer.sdp })
+                .send_signal(
+                    mac,
+                    session_id,
+                    SignalPayload::WebrtcOffer { sdp: offer.sdp, lanes: super::offered_lanes(options) },
+                )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             let mut remote =
                 RemoteCandidates { exclude_cgnat: options.exclude_cgnat, ready: false, pending: Vec::new() };
@@ -291,7 +331,8 @@ impl Dialer for WebRtcDialer {
                     opened = &mut open_rx => break opened.map_err(|_| DialError::Transport("data channel never opened".into()))?,
                     event = events.next() => match event? {
                         SessionEvent::Signal(envelope) => match envelope.payload {
-                            SignalPayload::WebrtcAnswer { sdp } => {
+                            SignalPayload::WebrtcAnswer { sdp, lanes } => {
+                                agreed = super::input_lane_agreed(options, &lanes);
                                 let answer = RTCSessionDescription::answer(sdp).map_err(transport_error)?;
                                 pc.set_remote_description(answer).await.map_err(transport_error)?;
                                 remote.ready(&pc).await;
@@ -307,7 +348,8 @@ impl Dialer for WebRtcDialer {
                     },
                 }
             };
-            finish(pc, opened, events, remote, signaling, session_id).await
+            let lane = lane.filter(|_| agreed);
+            finish(pc, opened, lane, events, remote, signaling, session_id).await
         })
     }
 
@@ -319,15 +361,20 @@ impl Dialer for WebRtcDialer {
         options: &'a super::DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
-            let SignalPayload::WebrtcOffer { sdp } = first.payload else {
+            let SignalPayload::WebrtcOffer { sdp, lanes } = first.payload else {
                 return Err(DialError::Unexpected("expected webrtc-offer".into()));
             };
+            let agreed = super::input_lane_agreed(options, &lanes);
             let pc = new_peer_connection(options).await?;
             let (open_tx, mut open_rx) = oneshot::channel();
             let opened_slot = Arc::new(Mutex::new(Some(open_tx)));
+            let (lane_tx, lane_rx) = oneshot::channel();
+            let lane_slot = Arc::new(Mutex::new(Some(lane_tx)));
             pc.on_data_channel(Box::new(move |channel: Arc<RTCDataChannel>| {
-                if channel.label() == LABEL {
-                    on_open(&channel, Arc::clone(&opened_slot));
+                match channel.label() {
+                    LABEL => on_open(&channel, Arc::clone(&opened_slot)),
+                    INPUT_LABEL => on_open(&channel, Arc::clone(&lane_slot)),
+                    _ => {}
                 }
                 Box::pin(async {})
             }));
@@ -339,7 +386,11 @@ impl Dialer for WebRtcDialer {
             let answer = pc.create_answer(None).await.map_err(transport_error)?;
             pc.set_local_description(answer.clone()).await.map_err(transport_error)?;
             signaling
-                .send_signal(&first.from, &first.session_id, SignalPayload::WebrtcAnswer { sdp: answer.sdp })
+                .send_signal(
+                    &first.from,
+                    &first.session_id,
+                    SignalPayload::WebrtcAnswer { sdp: answer.sdp, lanes: super::offered_lanes(options) },
+                )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             let opened = loop {
                 tokio::select! {
@@ -357,7 +408,8 @@ impl Dialer for WebRtcDialer {
                     },
                 }
             };
-            finish(pc, opened, events, remote, signaling, &first.session_id).await
+            let lane = agreed.then_some(lane_rx);
+            finish(pc, opened, lane, events, remote, signaling, &first.session_id).await
         })
     }
 }
