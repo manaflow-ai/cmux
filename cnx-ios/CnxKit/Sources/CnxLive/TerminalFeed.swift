@@ -115,14 +115,18 @@ public final class TerminalFeed {
                 guard let surface = tree.surfaces[tab.id] else { continue }
                 if let harness = tab.harness { harnesses[surface] = harness }
                 // Only a change seen here counts: a first sight of "working" may predate the ask.
-                if let before = statuses[surface], before != .working, tab.agentStatus == .working { resumed.insert(surface) }
+                // Back at work, or no longer waiting (answered, declined, or the agent quit).
+                if let before = statuses[surface],
+                   (before != .working && tab.agentStatus == .working) || (before == .waiting && tab.agentStatus != .waiting) {
+                    resumed.insert(surface)
+                }
                 statuses[surface] = .some(tab.agentStatus)
             }
         }
         let changed = tree.notificationMarkers != markers
         markers = tree.notificationMarkers
         apply()
-        // Back at work: the asks shown on that terminal were answered there.
+        // Back at work or no longer waiting: the asks shown on that terminal were answered there.
         // An ask that arrives later waits again.
         for entry in entries {
             guard let surface = entry.surface, resumed.contains(surface) else { continue }

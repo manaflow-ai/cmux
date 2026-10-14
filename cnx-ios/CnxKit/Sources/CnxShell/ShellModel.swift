@@ -109,7 +109,6 @@ final class ShellModel {
             theme.haptics.error()
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
         }
-        FeedRouting.shared.openTerminal = { [weak self] item in self?.openTerminal(item) }
     }
 
     /// A terminal agent's Feed event: its workspace on Workspaces, at that

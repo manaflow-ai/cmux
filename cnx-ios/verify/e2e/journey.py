@@ -1368,25 +1368,37 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
         self.sim.record_start(video)
         notes = []
         try:
-            # `untrusted`: Codex asks before running a command, as a person's setup may.
-            self.mac_write(term, f"clear; cd {proj} && codex --ask-for-approval untrusted\n")
+            # A read-only sandbox with on-request approvals: writing a file needs the
+            # person's approval in the TUI, as a person's cautious setup does.
+            # --no-daemon: Codex 0.162's shared app-server daemon runs hooks outside
+            # the terminal (no CMUX_TUI_HOOK/SOCKET), so its events never reach the
+            # daemon; in-process hooks do (verify notes, feat-cnx-ios-feedterm).
+            self.mac_write(term, f"clear; cd {proj} && codex --no-daemon --sandbox read-only --ask-for-approval on-request\n")
             self.codex_ready(term)
             t = time.time()
             self.codex_prompt(term, "Reply with exactly one word: ready")
             done = self.sim.wait(label="Codex", timeout=150)
-            check(done, "no Codex item in the Feed 150 s after Codex's turn")
+            if not done:
+                ledger = self.mac.cmux("notification", "list", check=False, timeout=20)
+                screen = self.mac_screen(term).get("text", "")
+                raise Fail(f"no Codex item in the Feed 150 s after Codex's turn; Mac ledger: "
+                           f"{(ledger.stdout or ledger.stderr)[-400:]!r}; screen tail: {screen[-300:]!r}")
             notes.append(f"finished turn in the Feed after {time.time()-t:.1f} s")
             self.sim.shot(f"feed-terminal-finished-{self.run_id}")
             t = time.time()
-            self.codex_prompt(term, "Run this exact shell command now: touch feedterm-probe.txt")
+            self.codex_prompt(term, "Create the file feedterm-probe.txt in this folder by running: touch feedterm-probe.txt (ask me for approval if the sandbox blocks it)")
             ask = self.sim.wait(label="Needs input", timeout=150)
             screen = self.mac_screen(term).get("text", "")
             check(ask, f"no Needs input item 150 s after asking Codex to run a command; Mac screen tail: {screen[-300:]!r}")
             notes.append(f"approval as Needs input after {time.time()-t:.1f} s")
             self.sim.shot(f"feed-terminal-needs-input-{self.run_id}")
             time.sleep(2)
-            self.sim.tap_q(ident="feed.terminal.open")
-            opened = self.sim.wait(ident="terminal.composer.field", timeout=20)
+            opened = None
+            for _ in range(3):  # a tap while the list still settles can be dropped
+                self.sim.tap_q(ident="feed.terminal.open")
+                opened = self.sim.wait(ident="terminal.composer.field", timeout=8)
+                if opened:
+                    break
             check(opened, "Answer in Terminal did not open the terminal tab")
             time.sleep(3)
             self.sim.shot(f"feed-terminal-opened-{self.run_id}")

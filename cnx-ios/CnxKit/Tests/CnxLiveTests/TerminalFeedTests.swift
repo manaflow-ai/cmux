@@ -194,6 +194,18 @@ import Testing
         #expect(store.needsYouCount == 0)
     }
 
+    /// The person declined in the terminal, or quit the agent: no longer waiting.
+    @Test func aQuitTerminalNoLongerWaits() async {
+        let daemon = FakeDaemon()
+        daemon.rows = [Self.row("ntf_1", "Codex needs approval", level: "warning", surface: 1, at: 1_000_000)]
+        let (store, feed) = Self.make(daemon)
+        feed.treeChanged(Self.tree(codex: "blocked"), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+        #expect(store.needsYouCount == 1)
+        feed.treeChanged(Self.tree(codex: "done"), macID: "mac", connection: Self.connection)
+        #expect(store.item(id: "term-mac-ntf_1")?.resolution == "Answered in the terminal")
+    }
+
     @Test func aNewConnectionHydratesAgainWithoutDuplicates() async {
         let daemon = FakeDaemon()
         daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
