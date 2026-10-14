@@ -23,8 +23,11 @@ public final class HomeDock {
     /// The page the dock shows (hq-ec's page contract, COORD.md; a rename is announced there first).
     public static let page = "home-channels"
     /// Classic Home for one release (`labs.classicHome`): the top page, with the Chief tab in the
-    /// hidden home workspace.
-    public static var classic: Bool { DesignSettings.shared.classicHome }
+    /// hidden home workspace. `CMUX_NEXT_CLASSIC_HOME=1` at launch selects it too (GUI tests of the
+    /// native Home, until the setting lands).
+    public static var classic: Bool { DesignSettings.shared.classicHome || classicAtLaunch }
+    /// `CMUX_NEXT_CLASSIC_HOME=1` in the app's launch environment, read once.
+    static let classicAtLaunch = ProcessInfo.processInfo.environment["CMUX_NEXT_CLASSIC_HOME"] == "1"
     public var isClassic: Bool { Self.classic }
     /// The origin of the page tab's creation key.
     static let origin = "cmux-next-home-dock"
@@ -44,7 +47,7 @@ public final class HomeDock {
     public init() {}
 
     /// The page tab of `home` and where it is, if any.
-    static func pageTab(in home: WorkspaceModel) -> (tab: TabModel, pane: PaneModel, screen: ScreenModel)? {
+    public static func pageTab(in home: WorkspaceModel) -> (tab: TabModel, pane: PaneModel, screen: ScreenModel)? {
         for screen in home.screens {
             for pane in screen.panes {
                 if let tab = pane.tabs.first(where: { $0.page == page }) { return (tab, pane, screen) }
