@@ -552,9 +552,11 @@ export default agentPaneEntry({
       play: async (ctx) => {
         const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
         await ctx.waitFor(() => row()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
+        // Hovering the thought used to pop its full text as a tooltip.
+        await ctx.hover({ selector: ".cv-thought__text" });
         if (row()!.matches("button") || row()!.hasAttribute("aria-expanded"))
           throw new Error("a thought is a row of text, not a toggle");
-        if (row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
+        if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
       },
     },
     "thought-find": {
