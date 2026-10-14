@@ -1220,14 +1220,14 @@ struct BrowserScreen: View {
             zoomDriver.beginInteraction()
         }
         guard zoomState.phase == .interactive else { return }
-        zoomDriver.updateInteraction(progress: BarSwipe.progress(up: max(0, up)), velocity: BarSwipe.velocity(up: velocity))
+        zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up), velocity: BarSwipe.velocity(up: up, velocity: velocity))
     }
 
     /// Release: on to the grid, or back to the page (past half way or with
     /// the finger's velocity), on the release spring.
     private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
         guard zoomState.phase == .interactive, !zoomPinchActive else { return }
-        zoomDriver.endInteraction(velocity: BarSwipe.velocity(up: velocity), startedFromOverview: false)
+        zoomDriver.endInteraction(velocity: BarSwipe.velocity(up: up, velocity: velocity), startedFromOverview: false)
     }
 
     private func swipeChanged(_ dx: CGFloat) {
