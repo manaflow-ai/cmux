@@ -23,7 +23,7 @@ final class ImportProfileRow: NSView {
     static let height: CGFloat = 44
     private var toggle: (() -> Void)?
     private let box = ThemedCheckbox(checkboxWithTitle: "", target: nil, action: nil)
-    /// The shared themed spinner, in phase with every other one (cx-qtgj2).
+    /// The shared themed spinner, in phase with every other one (cx-qtgj2); still under Reduce Motion (cx-sya4n).
     private let spinner = StatusIndicatorView.spinner()
     private let detail = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
     private let mark = NSImageView()

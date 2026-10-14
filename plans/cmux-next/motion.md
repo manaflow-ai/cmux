@@ -42,7 +42,10 @@ shown or hidden; tab animations must be fast and smooth.
 7. Reduce Motion (`NSWorkspace.accessibilityDisplayShouldReduceMotion`):
    movement (position, size, scale, scroll) is instant; opacity changes stay
    as a crossfade of at most 0.1 s, and hover and pressed fills are
-   instant; spinners and pulses stop and show a static glyph.
+   instant; spinners and pulses stop and show a static glyph. Status
+   indicators take the static look (`appearance.statusIndicator.animation`:
+   a distinct still shape per state and a short label), and the vendored
+   Home transcript and list hold their caret and typing dots still.
 8. `ui.animationSpeed` in cmux.json: `"fast"` (default), `"normal"` (every
    time constant x1.5, about Apple's system pacing), `"off"` (every change in
    one frame, no crossfade, no loops). Palette actions: Use Fast Animations,
@@ -111,8 +114,15 @@ nxmot (MacBook Pro, 120 Hz).
 | Loop | Period | Used by |
 | --- | --- | --- |
 | `spinner` | 0.9 s | busy tab spinner, sidebar agent spinner |
-| `pulse` | 1.8 s | sidebar agent-waiting pulse |
-| `flash` | 0.6 s | pane attention flash (two blinks; one 0.3 s fade under Reduce Motion) |
+| `pulse` | 1.8 s (at least 0.5 s) | sidebar agent-waiting pulse |
+| `flash` | 1.0 s (at least 1.0 s) | pane attention flash (two blinks half a period apart; the attention ring's blinks take half a period each; one 0.5 s fade under Reduce Motion) |
+
+The 2 Hz cap (cx-sya4n): nothing flashes faster than twice a second, in any
+mode. Every on-off-on cycle of an opacity loop lasts at least 0.5 s
+(`MotionLoop.shortestFlashCycle`), so the `pulse` period is at least 0.5 s and
+the `flash` period at least 1.0 s, Debug Settings overrides included
+(`MotionLoop.minimumPeriod`); `normal` speed only slows them.
+`BlinkRateCapTests` checks every flash at the fastest settings.
 
 | Marquee (`MotionMarquee`) | Value | Used by |
 | --- | --- | --- |
@@ -126,6 +136,23 @@ scroll and hold by 1.5; Reduce Motion and `off` never start it.
 
 "normal" multiplies every response and fade duration by 1.5; damping does
 not change. Loops keep their period (they show state, not transitions).
+
+## Late content (cx-sya4n, Leo 2026-10-14)
+
+Motion is small and local: grow, fade, settle, hover, as short as still feels comfortable, never
+whole panes travelling. Big or debatable motion ships only behind a Debug toggle, off by default.
+Content that arrives late (a reply, a list that loads, a card filled in) settles in instead of
+popping, with these helpers only; they add no tokens.
+
+| Helper | Native (CmuxNextDesign) | Web (webviews/src/ui/motion.ts, motion.css) |
+| --- | --- | --- |
+| Reveal: fade from clear plus a 3 pt/px rise | `Motion.reveal(layer, index:)`: `fadeIn` opacity with the `appear` spring cut at its 95% time | `reveal(element, index)` or `.ui-reveal` (`--ui-reveal-index`), 167 ms on `--motion-ease-appear` |
+| Crossfade in place | `Motion.crossfadeInPlace(layer)` | `.ui-crossfade`, leaving child `data-leaving` |
+| Stagger | `Motion.stagger(index:)`: 25 ms per item, first 4 items | `stagger(i)`, same numbers |
+| Reduce Motion | reveal fades only, stagger 0 | reveal fades only, no rise, stagger 0 |
+
+The web easings (`--motion-ease-move|appear|settle`) are the native springs sampled as CSS
+`linear()`. A live resize should also skip the stagger once `Motion.isLiveResizing` lands (#20467).
 
 ## Why these values
 
@@ -197,7 +224,7 @@ rest).
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |
 | Focus ring and inactive dim | CATransaction 0.16 s | `focus` | 160 ms | 100 ms | - |
 | Divider hover | CATransaction 0.12 s | `hover` | 120 ms | 80 ms | - |
-| Pane attention flash | keyframes 0.9 s (0.35 s fade reduced) | `flash` 0.6 s (0.3 s reduced; none when off) | 900 ms | 600 ms | - |
+| Pane attention flash | keyframes 0.9 s (0.35 s fade reduced) | `flash` 1.0 s (0.5 s reduced; none when off) | 900 ms | 1000 ms | - |
 | Programmatic window close | window fade 0.18 s ease-in | instant (the windows work on this branch made it close in the same turn as the transition) | 180 ms | 0 | - |
 | Notifications and bubbles | no dedicated animation; tab badge color changes with the tab fill fade | `hover` | 140 ms | 80 ms | - |
 
