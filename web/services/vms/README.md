@@ -206,7 +206,7 @@ The Freestyle devbox image is defined in
 (chatmux devbox
 parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
 agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
-baked at `/root/.cmux/bin/cmux-tui` from the files.cmux.com artifacts manifest pin
+baked at `/home/cmux/.cmux/bin/cmux-tui` from the files.cmux.com artifacts manifest pin
 current at bake time (recorded as `cmuxTuiCommit` in the manifest entry). Its identity
 is bound to the machine's instance id by `cmux-devbox-boot`, so create runs no guest
 bootstrap. See the devbox README for the bake + verify + manifest flow. The legacy cmuxd-remote image builder
@@ -543,17 +543,20 @@ Freestyle machines boot the shared devbox snapshot (definition in
 the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/python/bun,
 uv, gh, devtools, pinned coding agents, ble.sh, half-life prompt, seeded history). Machines
 run no cmuxd-remote: the **cmux-tui remote daemon is the machine's only session daemon**,
-and the bake installs the pinned static-musl build at `/root/.cmux/bin/cmux-tui` with
+and the bake installs the pinned static-musl build at `/home/cmux/.cmux/bin/cmux-tui` with
 `sha256sum -c` verification. A create is one `vms.create` (firewall, VPC, and the coderouter
 TLS rule inline); a size-less image also gets the grow-only resize. Nothing is written into
 the guest: the model-plane env is baked (see "Model plane"). The baked supervisor starts the
 daemon with a fresh identity
 within a second of resume (the snapshot is a memory image, so the identity is keyed on
 the platform instance id). Attach heals a daemon that is not listening, reinstalling only
-when the binary is missing or behind the manifest pin. The daemon runs as root with
-`HOME=/root`; the build and its digest come from the artifacts manifest published by
-`.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new pin
-reaches new machines through a rebake. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` +
+when the binary is missing or behind the manifest pin. The daemon runs as the image work user `cmux` (uid 1000, `HOME=/home/cmux`) with
+passwordless `sudo`; the build and its digest come from the artifacts manifest
+published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand,
+and a new pin reaches new machines through a rebake. Public `vm exec` commands use
+that same account and resolve its passwd home before running, so snapshots with the
+former `/home/ubuntu` uid-1000 home do not leak a stale `HOME`; use `sudo` when a
+command intentionally needs root. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` +
 `FREESTYLE_TEAM_ID`); optionally `FREESTYLE_API_URL` to point
 at a non-default edge and `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a deployment to one
 commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling
@@ -596,10 +599,11 @@ no create-time env; the guest's model-plane env is the same for every machine an
 per-home file exist. It carries alias base URLs and a placeholder key only; the credential is
 edge-injected (see "Model plane" below).
 
-Every guest command is run with `linuxUser: "root"`. The 0.2 API's default is *not* root but
-"the account holding uid 1000, or root in an image with no such account", and the devbox image
-ships a uid-1000 user — leaving it unset would silently move the daemon and its install off
-the root layout they are baked around.
+Driver maintenance commands run with `linuxUser: "root"`. Public `vm exec` leaves the
+provider account unset so Freestyle selects uid 1000 (the `cmux` work user on current
+images, with its legacy root fallback), then derives `HOME` from that account's passwd
+entry. This keeps exec credentials and paths aligned with Cloud terminals while
+preserving an explicit root boundary for maintenance.
 
 `POST /api/vm/[id]/attach-endpoint` with
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns
