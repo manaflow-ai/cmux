@@ -19,10 +19,10 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: webviews/package.json
       - run: bun install --frozen-lockfile --ignore-scripts
@@ -41,7 +41,7 @@ jobs:
         working-directory: webviews
         env:
           CASE_GROUP: ${{ matrix.case_group }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-pane-visual-${{ matrix.case_group }}
           path: artifacts/agent-pane-visual/${{ matrix.case_group }}
