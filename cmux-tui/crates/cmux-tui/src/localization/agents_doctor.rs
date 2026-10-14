@@ -31,6 +31,9 @@ pub(crate) struct AgentsDoctorMessages {
     pub configured: &'static str,
     pub injected_in_cmux_chats: &'static str,
     pub start_from_cmux_chat: &'static str,
+    /// `{location}`: the project's `.mcp.json`.
+    pub pending_approval: &'static str,
+    pub approve_in_claude: &'static str,
     /// `{location}`, `{error}`.
     pub config_unreadable: &'static str,
     /// `{location}`.
@@ -80,6 +83,8 @@ pub(super) const ENGLISH: AgentsDoctorMessages = AgentsDoctorMessages {
     configured: "configured in {location}",
     injected_in_cmux_chats: "chats cmux starts get cmux-cua automatically; sessions started elsewhere do not",
     start_from_cmux_chat: "start the agent from a cmux chat to use cmux computer use",
+    pending_approval: "{location} names cmux-cua, pending approval in Claude Code",
+    approve_in_claude: "start Claude Code in this folder and approve the cmux-cua server when it asks",
     config_unreadable: "{location} could not be read: {error}",
     fix_config: "fix the syntax of {location}",
     granted: "granted to cmux Computer Use",
@@ -126,6 +131,8 @@ pub(super) const JAPANESE: AgentsDoctorMessages = AgentsDoctorMessages {
     configured: "{location} で設定済み",
     injected_in_cmux_chats: "cmux が開始したチャットには cmux-cua が自動で追加されます。それ以外で開始したセッションには追加されません",
     start_from_cmux_chat: "cmux のコンピューター操作を使うには、cmux のチャットからエージェントを開始してください",
+    pending_approval: "{location} に cmux-cua があります。Claude Code での承認待ちです",
+    approve_in_claude: "このフォルダで Claude Code を開始し、確認されたら cmux-cua サーバーを承認してください",
     config_unreadable: "{location} を読み取れませんでした: {error}",
     fix_config: "{location} の構文を修正してください",
     granted: "cmux Computer Use に許可済み",

@@ -18,7 +18,7 @@ use serde_json::{Map, Value, json};
 use super::{GlobalArgs, OutputMode, wire};
 use crate::localization::AgentsDoctorMessages;
 
-const HELP: &str = "Usage: cmux agents doctor [--json]\n\nReports whether this machine is ready for agents: Claude Code and Codex on PATH, their cmux-cua computer use wiring, and the macOS grants of cmux Computer Use (Accessibility, Screen Recording, capture consent). Read-only: it never changes a config and never asks for a grant. Always exits 0; --json prints one row per check with the stable keys id, status (ok, missing, unknown, not_applicable, cmux_only), reason, detail, fix and fix_url.\n";
+const HELP: &str = "Usage: cmux agents doctor [--json]\n\nReports whether this machine is ready for agents: Claude Code and Codex on PATH, their cmux-cua computer use wiring, and the macOS grants of cmux Computer Use (Accessibility, Screen Recording, capture consent). Read-only: it never changes a config and never asks for a grant. Exits 0 for every report; 2 on a usage error. --json prints {\"schema_version\":1,\"checks\":[...]}; every row has exactly the keys id, status (ok, missing, unknown, not_applicable, cmux_only), reason, detail, fix and fix_url (null when there is none).\n";
 
 /// The app method that reports Computer Use Setup's grants.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -71,21 +71,11 @@ struct Check {
     detail: String,
     fix: Option<String>,
     fix_url: Option<&'static str>,
-    extra: Map<String, Value>,
 }
 
 impl Check {
     fn new(id: &'static str, label: &'static str, status: Status, reason: &'static str) -> Self {
-        Self {
-            id,
-            label,
-            status,
-            reason,
-            detail: String::new(),
-            fix: None,
-            fix_url: None,
-            extra: Map::new(),
-        }
+        Self { id, label, status, reason, detail: String::new(), fix: None, fix_url: None }
     }
 
     fn detail(mut self, detail: impl Into<String>) -> Self {
@@ -98,11 +88,6 @@ impl Check {
         self
     }
 
-    fn with(mut self, key: &str, value: Value) -> Self {
-        self.extra.insert(key.into(), value);
-        self
-    }
-
     fn json(&self) -> Value {
         let mut row = Map::new();
         row.insert("id".into(), json!(self.id));
@@ -111,7 +96,6 @@ impl Check {
         row.insert("detail".into(), json!(self.detail));
         row.insert("fix".into(), json!(self.fix));
         row.insert("fix_url".into(), json!(self.fix_url));
-        row.extend(self.extra.clone());
         Value::Object(row)
     }
 }
@@ -240,15 +224,11 @@ fn harness_check(
 ) -> Check {
     match found {
         Some(path) => {
-            let shown = path.display().to_string();
-            Check::new(id, label, Status::Ok, "on_path")
-                .detail(shown.clone())
-                .with("path", json!(shown))
+            Check::new(id, label, Status::Ok, "on_path").detail(path.display().to_string())
         }
         None => Check::new(id, label, Status::Missing, "not_on_path")
             .detail(messages.not_on_path)
-            .fix(messages.install_harness.replace("{harness}", harness))
-            .with("path", Value::Null),
+            .fix(messages.install_harness.replace("{harness}", harness)),
     }
 }
 
@@ -256,9 +236,19 @@ fn harness_check(
 
 /// Where a harness config names cmux-cua.
 enum Wiring {
-    Configured { scope: &'static str, location: PathBuf },
+    Configured {
+        location: PathBuf,
+    },
+    /// Claude Code's project `.mcp.json` names it, but this project has not
+    /// approved it (`projects.<cwd>.enabledMcpjsonServers`).
+    PendingApproval {
+        location: PathBuf,
+    },
     Absent,
-    Unreadable { location: PathBuf, error: String },
+    Unreadable {
+        location: PathBuf,
+        error: String,
+    },
 }
 
 fn mcp_check(
@@ -274,18 +264,20 @@ fn mcp_check(
             .detail(messages.harness_missing.replace("{harness}", harness));
     }
     match wiring() {
-        Wiring::Configured { scope, location } => {
-            let shown = location.display().to_string();
-            Check::new(id, label, Status::Ok, "configured")
-                .detail(messages.configured.replace("{location}", &shown))
-                .with("scope", json!(scope))
-                .with("location", json!(shown))
+        Wiring::Configured { location } => Check::new(id, label, Status::Ok, "configured")
+            .detail(messages.configured.replace("{location}", &location.display().to_string())),
+        Wiring::PendingApproval { location } => {
+            Check::new(id, label, Status::CmuxOnly, "pending_approval")
+                .detail(
+                    messages
+                        .pending_approval
+                        .replace("{location}", &location.display().to_string()),
+                )
+                .fix(messages.approve_in_claude)
         }
         Wiring::Absent => Check::new(id, label, Status::CmuxOnly, "injected_in_cmux_chats")
             .detail(messages.injected_in_cmux_chats)
-            .fix(messages.start_from_cmux_chat)
-            .with("scope", Value::Null)
-            .with("location", Value::Null),
+            .fix(messages.start_from_cmux_chat),
         Wiring::Unreadable { location, error } => {
             let shown = location.display().to_string();
             Check::new(id, label, Status::Unknown, "config_unreadable")
@@ -296,8 +288,6 @@ fn mcp_check(
                         .replace("{error}", &error),
                 )
                 .fix(messages.fix_config.replace("{location}", &shown))
-                .with("scope", Value::Null)
-                .with("location", json!(shown))
         }
     }
 }
@@ -318,39 +308,57 @@ fn read_text(path: &Path) -> Result<Option<String>, String> {
     }
 }
 
-fn json_servers_have_cua(servers: Option<&Value>) -> bool {
-    servers.and_then(Value::as_object).is_some_and(|servers| {
-        servers
-            .iter()
-            .any(|(name, server)| is_cua(name, server.get("command").and_then(Value::as_str)))
-    })
+/// A JSON config, `None` when the file does not exist.
+fn read_json(path: &Path) -> Result<Option<Value>, String> {
+    read_text(path)?
+        .map(|text| serde_json::from_str::<Value>(&text).map_err(|error| error.to_string()))
+        .transpose()
+}
+
+/// The names of the cmux-cua entries of an `mcpServers` object.
+fn cua_server_names(servers: Option<&Value>) -> Vec<&str> {
+    servers
+        .and_then(Value::as_object)
+        .map(|servers| {
+            servers
+                .iter()
+                .filter(|(name, server)| {
+                    is_cua(name, server.get("command").and_then(Value::as_str))
+                })
+                .map(|(name, _)| name.as_str())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Claude Code: user scope (`mcpServers` of `~/.claude.json`, or of
 /// `$CLAUDE_CONFIG_DIR/.claude.json`), local scope (its `projects.<cwd>`),
-/// and project scope (`.mcp.json` in the working directory).
+/// and project scope (`.mcp.json` in the working directory), which counts
+/// only once `projects.<cwd>.enabledMcpjsonServers` approves it.
 fn claude_cua(environment: &Environment) -> Wiring {
     let user_file = environment
         .claude_config_dir
         .as_ref()
         .or(environment.home.as_ref())
         .map(|dir| dir.join(".claude.json"));
+    let mut project_entry: Option<Value> = None;
     if let Some(file) = user_file {
-        match read_text(&file).and_then(|text| {
-            text.map(|text| serde_json::from_str::<Value>(&text).map_err(|error| error.to_string()))
-                .transpose()
-        }) {
+        match read_json(&file) {
             Ok(Some(config)) => {
-                if json_servers_have_cua(config.get("mcpServers")) {
-                    return Wiring::Configured { scope: "user", location: file };
+                if !cua_server_names(config.get("mcpServers")).is_empty() {
+                    return Wiring::Configured { location: file };
                 }
-                let local = environment
+                let project = environment
                     .cwd
                     .as_ref()
-                    .and_then(|cwd| config.get("projects")?.get(cwd.to_str()?)?.get("mcpServers"));
-                if json_servers_have_cua(local) {
-                    return Wiring::Configured { scope: "local", location: file };
+                    .and_then(|cwd| config.get("projects")?.get(cwd.to_str()?))
+                    .cloned();
+                if !cua_server_names(project.as_ref().and_then(|entry| entry.get("mcpServers")))
+                    .is_empty()
+                {
+                    return Wiring::Configured { location: file };
                 }
+                project_entry = project;
             }
             Ok(None) => {}
             Err(error) => return Wiring::Unreadable { location: file, error },
@@ -359,15 +367,26 @@ fn claude_cua(environment: &Environment) -> Wiring {
     let Some(project) = environment.cwd.as_ref().map(|cwd| cwd.join(".mcp.json")) else {
         return Wiring::Absent;
     };
-    match read_text(&project).and_then(|text| {
-        text.map(|text| serde_json::from_str::<Value>(&text).map_err(|error| error.to_string()))
-            .transpose()
-    }) {
-        Ok(Some(config)) if json_servers_have_cua(config.get("mcpServers")) => {
-            Wiring::Configured { scope: "project", location: project }
-        }
-        Ok(_) => Wiring::Absent,
-        Err(error) => Wiring::Unreadable { location: project, error },
+    let config = match read_json(&project) {
+        Ok(Some(config)) => config,
+        Ok(None) => return Wiring::Absent,
+        Err(error) => return Wiring::Unreadable { location: project, error },
+    };
+    let names = cua_server_names(config.get("mcpServers"));
+    if names.is_empty() {
+        return Wiring::Absent;
+    }
+    let approved = project_entry
+        .as_ref()
+        .and_then(|entry| entry.get("enabledMcpjsonServers"))
+        .and_then(Value::as_array)
+        .is_some_and(|enabled| {
+            enabled.iter().filter_map(Value::as_str).any(|name| names.contains(&name))
+        });
+    if approved {
+        Wiring::Configured { location: project }
+    } else {
+        Wiring::PendingApproval { location: project }
     }
 }
 
@@ -380,7 +399,7 @@ fn codex_cua(environment: &Environment) -> Wiring {
         .or_else(|| environment.home.as_ref().map(|home| home.join(".codex")))
         .map(|dir| dir.join("config.toml"));
     let project_file = environment.cwd.as_ref().map(|cwd| cwd.join(".codex").join("config.toml"));
-    for (scope, file) in [("user", user_file), ("project", project_file)] {
+    for file in [user_file, project_file] {
         let Some(file) = file else { continue };
         let config = match read_text(&file).and_then(|text| {
             text.map(|text| text.parse::<toml::Table>().map_err(|error| error.to_string()))
@@ -397,7 +416,7 @@ fn codex_cua(environment: &Environment) -> Wiring {
                 })
             });
         if configured {
-            return Wiring::Configured { scope, location: file };
+            return Wiring::Configured { location: file };
         }
     }
     Wiring::Absent
@@ -496,11 +515,7 @@ fn grants_from_app(reply: Result<Value, Value>, messages: &AgentsDoctorMessages)
         ),
         _ => ("app_no_report", messages.app_no_report, Some(messages.update_cmux)),
     };
-    let mut checks = grants_unknown(Status::Unknown, reason, detail, fix, messages);
-    for check in &mut checks {
-        check.extra.insert("phase".into(), json!(phase));
-    }
-    checks
+    grants_unknown(Status::Unknown, reason, detail, fix, messages)
 }
 
 /// The helper answered: each grant is held or missing (with its System
@@ -508,7 +523,7 @@ fn grants_from_app(reply: Result<Value, Value>, messages: &AgentsDoctorMessages)
 fn ready_grants(status: &Value, messages: &AgentsDoctorMessages) -> Vec<Check> {
     let grant = |id: &'static str, key: &str, url: &'static str| {
         let label = grant_label(id, messages);
-        let check = match status.get(key).and_then(Value::as_bool) {
+        match status.get(key).and_then(Value::as_bool) {
             Some(true) => Check::new(id, label, Status::Ok, "granted").detail(messages.granted),
             Some(false) => {
                 let mut check = Check::new(id, label, Status::Missing, "not_granted")
@@ -520,15 +535,11 @@ fn ready_grants(status: &Value, messages: &AgentsDoctorMessages) -> Vec<Check> {
             None => Check::new(id, label, Status::Unknown, "app_no_report")
                 .detail(messages.app_no_report)
                 .fix(messages.update_cmux),
-        };
-        check.with("phase", json!("ready"))
+        }
     };
-    let helper = status.get("helper").cloned().unwrap_or(Value::Null);
     vec![
-        grant("grant.accessibility", "accessibility", ACCESSIBILITY_URL)
-            .with("helper", helper.clone()),
-        grant("grant.screen_recording", "screen_recording", SCREEN_RECORDING_URL)
-            .with("helper", helper),
+        grant("grant.accessibility", "accessibility", ACCESSIBILITY_URL),
+        grant("grant.screen_recording", "screen_recording", SCREEN_RECORDING_URL),
         Check::new(
             "grant.capture_consent",
             messages.check_capture_consent,
@@ -536,8 +547,7 @@ fn ready_grants(status: &Value, messages: &AgentsDoctorMessages) -> Vec<Check> {
             "not_reported",
         )
         .detail(messages.capture_consent_not_reported)
-        .fix(messages.allow_capture_prompt)
-        .with("phase", json!("ready")),
+        .fix(messages.allow_capture_prompt),
     ]
 }
 
