@@ -607,6 +607,8 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
+  /// A prompt carrying the workspace context is on its way (send).
+  private contextInFlight = false;
 
   private constructor(
     host: AcpmuxHostConfig,
@@ -1848,8 +1850,10 @@ export class AcpmuxDirectClient {
     if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
     let taken = false;
-    // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it.
-    const context = this.host.workspaceContext ? WORKSPACE_CONTEXT : undefined;
+    // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
+    // and a prompt sent while one carrying it is in flight goes without it.
+    const context = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
+    if (context) this.contextInFlight = true;
     const accept = () => {
       this.promptAccepts.delete(promptId);
       if (taken) return;
@@ -1874,6 +1878,8 @@ export class AcpmuxDirectClient {
       this.optimisticPromptAttachments.delete(promptId);
     } catch (error) {
       this.promptAccepts.delete(promptId);
+      // A refused prompt did not use the context: the next send carries it.
+      if (context && !taken) this.contextInFlight = false;
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
       const queued = this.queuedSends.delete(promptId);
       if (queued) {
