@@ -628,6 +628,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_frame_pacing_app_rpc.py
 
+      - name: Validate the golden interactions judge
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_frame_pacing_golden.py
+
       - name: Validate the dispatch runner pool's auto pick
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_e2e_runner_pool_auto.py

@@ -1201,6 +1201,10 @@ path = "tests/test_ci_frame_pacing_app_rpc.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_frame_pacing_golden.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_republish_delta_guard.py"
 lane = "linux-guard"
 

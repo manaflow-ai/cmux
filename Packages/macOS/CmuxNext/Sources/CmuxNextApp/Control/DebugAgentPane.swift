@@ -276,7 +276,7 @@ enum DebugAgentPane {
         case "stream":
             // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
             var options: [String: Any] = [:]
-            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms"] {
+            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms", "trace"] {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]

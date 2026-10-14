@@ -13,6 +13,8 @@ export type StreamOptions = {
   chunk_chars?: number;
   chunk_ms?: number;
   nominal_ms?: number;
+  /** Non-zero: also return the transcript's scrollTop and scrollHeight on every frame (golden.py). */
+  trace?: number;
 };
 
 const SAMPLE = [
@@ -68,6 +70,8 @@ export async function runStream(
   // The reply's visible characters per frame: text that lands in bursts shows on few frames in
   // big steps; flowing text shows on most frames in small steps.
   const steps: number[] = [];
+  const scrollTops: number[] = [];
+  const scrollHeights: number[] = [];
   let shown = 0;
   let lastHeight = scroller.scrollHeight;
   const end = performance.now() + seconds * 1000;
@@ -80,6 +84,10 @@ export async function runStream(
     const height = scroller.scrollHeight;
     growth.push(Math.max(0, height - lastHeight));
     lastHeight = height;
+    if (options.trace) {
+      scrollTops.push(round2(scroller.scrollTop));
+      scrollHeights.push(height);
+    }
     const gap = height - scroller.clientHeight - scroller.scrollTop;
     gaps.push(gap);
     if (gap > 2) detached += 1;
@@ -117,5 +125,8 @@ export async function runStream(
     layout_ms: stats.layout,
     react_ms: stats.react,
     other_ms: stats.other,
+    ...(options.trace
+      ? { frame_ms: timestamps.map(round2), scroll_top: scrollTops, scroll_height: scrollHeights }
+      : {}),
   };
 }
