@@ -84,30 +84,51 @@ export function isReadOnlyGit(args: readonly string[]): boolean {
 
 type GitRun = { stdout: string; code: number };
 
+type Setting = readonly [key: string, value: string];
+
 /// The environment git runs with, as cmux-git's run.rs: none of the dev's GIT_* variables (a
-/// GIT_DIR would redirect the read), no prompt, no optional index write, literal pathspecs.
-function gitEnvironment(): NodeJS.ProcessEnv {
+/// GIT_DIR would redirect the read), no prompt, no optional index write, literal pathspecs, no
+/// lazy fetch of a partial clone's missing objects and no transport at all. `settings` go in as
+/// GIT_CONFIG_KEY_n/VALUE_n, which outrank the repository's config and, unlike `-c key=value`,
+/// keep a key containing "=" whole.
+function gitEnvironment(settings: readonly Setting[]): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(process.env)) if (!name.startsWith("GIT_")) env[name] = value;
+  settings.forEach(([key, value], index) => {
+    env[`GIT_CONFIG_KEY_${index}`] = key;
+    env[`GIT_CONFIG_VALUE_${index}`] = value;
+  });
   return {
     ...env,
+    GIT_CONFIG_COUNT: String(settings.length),
     GIT_TERMINAL_PROMPT: "0",
     GIT_OPTIONAL_LOCKS: "0",
     GIT_PAGER: "cat",
     GIT_LITERAL_PATHSPECS: "1",
+    GIT_NO_LAZY_FETCH: "1",
+    // A list naming no protocol: every transport is refused, whatever the config allows.
+    GIT_ALLOW_PROTOCOL: "cmux-dev-none",
     LC_ALL: "C",
   };
 }
 
-/// Settings every run passes, as run.rs: the repository's fsmonitor command never runs.
-const BASE_SETTINGS = ["core.fsmonitor=false", "core.quotePath=false", "log.showSignature=false"];
+/// Settings every run passes, as run.rs: the repository's fsmonitor command never runs, a
+/// submodule's change is a one-line summary (never a child `git diff` with its own drivers), and
+/// no transport is allowed.
+const BASE_SETTINGS: readonly Setting[] = [
+  ["core.fsmonitor", "false"],
+  ["core.quotePath", "false"],
+  ["log.showSignature", "false"],
+  ["diff.submodule", "short"],
+  ["protocol.allow", "never"],
+];
 
-function runGit(cwd: string, args: readonly string[]): Promise<GitRun> {
+function runGit(cwd: string, args: readonly string[], settings: readonly Setting[] = BASE_SETTINGS): Promise<GitRun> {
   return new Promise((resolve, reject) => {
     execFile(
       "git",
       ["--no-optional-locks", "-C", cwd, ...args],
-      { encoding: "utf8", maxBuffer: MAX_GIT_OUTPUT, timeout: 15_000, env: gitEnvironment() },
+      { encoding: "utf8", maxBuffer: MAX_GIT_OUTPUT, timeout: 15_000, env: gitEnvironment(settings) },
       (error, stdout, stderr) => {
         if (!error) return resolve({ stdout, code: 0 });
         const code = (error as { code?: unknown }).code;
@@ -121,16 +142,9 @@ function runGit(cwd: string, args: readonly string[]): Promise<GitRun> {
 /// A filter driver runs a program on file contents, and reading the working tree would run it.
 /// Every driver the repository's config names is blanked (cmux-git repository.rs
 /// filter_overrides): an empty command is no filter, and none is required.
-export async function filterOverrides(cwd: string): Promise<string[]> {
+export async function filterOverrides(cwd: string): Promise<Setting[]> {
   const pattern = String.raw`^filter\..*\.(clean|smudge|process|required)$`;
-  const listed = await runGit(cwd, [
-    ...BASE_SETTINGS.flatMap((setting) => ["-c", setting]),
-    "config",
-    "--null",
-    "--name-only",
-    "--get-regexp",
-    pattern,
-  ]);
+  const listed = await runGit(cwd, ["config", "--null", "--name-only", "--get-regexp", pattern]);
   // `--get-regexp` exits 1 when nothing matches.
   if (listed.code === 1 && !listed.stdout) return [];
   if (listed.code !== 0) throw new AgentReadError("operation.failed", "could not read the repository's filter drivers");
@@ -139,19 +153,18 @@ export async function filterOverrides(cwd: string): Promise<string[]> {
     const match = key.match(/^filter\.(.*)\.[^.]+$/s);
     if (match) drivers.add(match[1]!);
   }
-  return [...drivers].flatMap((driver) => [
-    `filter.${driver}.clean=`,
-    `filter.${driver}.smudge=`,
-    `filter.${driver}.process=`,
-    `filter.${driver}.required=false`,
+  return [...drivers].flatMap((driver): Setting[] => [
+    [`filter.${driver}.clean`, ""],
+    [`filter.${driver}.smudge`, ""],
+    [`filter.${driver}.process`, ""],
+    [`filter.${driver}.required`, "false"],
   ]);
 }
 
 /** Runs a read-only git command in `cwd`; refuses anything off the read list. */
 export async function readOnlyGit(cwd: string, args: readonly string[]): Promise<GitRun> {
   if (!isReadOnlyGit(args)) throw new Error(`refused git ${args[0] ?? ""}: not a read`);
-  const settings = [...BASE_SETTINGS, ...(await filterOverrides(cwd))];
-  return runGit(cwd, [...settings.flatMap((setting) => ["-c", setting]), ...args]);
+  return runGit(cwd, args, [...BASE_SETTINGS, ...(await filterOverrides(cwd))]);
 }
 
 async function gitText(cwd: string, args: string[]): Promise<string | undefined> {
@@ -306,6 +319,7 @@ function diffArgs(compared: Comparison, mode: string[], paths: string[]): string
     "--no-textconv",
     "--no-relative",
     "--ignore-submodules=dirty",
+    "--submodule=short",
     "-M",
     "--src-prefix=a/",
     "--dst-prefix=b/",
