@@ -534,6 +534,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
+        // The overlay scroller sits above the thread view's blur; real Messages blurs it
+        // with the transcript, so it hides while a thread or reply view is open (Host.swift).
+        let threadOpen = store?.state.ui.openThread != nil
+        if let sc = host.scrollView.verticalScroller, (sc.alphaValue == 0) != threadOpen {
+            NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.28; sc.animator().alphaValue = threadOpen ? 0 : 1 }
+        }
         scheduleWake()
     }
 
