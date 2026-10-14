@@ -316,6 +316,9 @@ fn repo_identity(dir: &Path) -> Option<(String, PathBuf)> {
             .arg("-C")
             .arg(dir)
             .args(args)
+            // An inherited repository would answer for every folder.
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
             .stderr(std::process::Stdio::null())
             .output()
             .ok()?;
@@ -487,7 +490,15 @@ mod tests {
     fn checkout(dir: &Path, remote: &str) {
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         for args in [&["init", "-q"][..], &["remote", "add", "origin", remote]] {
-            let ok = Command::new("git").arg("-C").arg(dir).args(args).status().unwrap().success();
+            let ok = Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(args)
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .status()
+                .unwrap()
+                .success();
             assert!(ok, "git {args:?}");
         }
     }
