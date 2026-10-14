@@ -202,6 +202,7 @@ let package = Package(
                 "CmuxNextBrowserAutomation",
                 "CmuxNextBrowserHost",
                 "CmuxNextRemoteLocalhost",
+                "CmuxNextRemoteLocalhostService",
                 "CmuxNextBridge",
                 "CmuxNextControl",
                 "CmuxNextSettings",
@@ -856,6 +857,18 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: daemonSwiftSettings
         ),
+        // Browser tabs' remote localhost (routes, the proxy's daemon tunnels,
+        // badges) and Set Workspace Localhost. The App gives it its machines
+        // (RemoteLocalhostMachines) and the approval sheet.
+        .target(
+            name: "CmuxNextRemoteLocalhostService",
+            dependencies: [
+                "CmuxNextActions", "CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService",
+                "CmuxNextRemoteLocalhost", "CmuxNextSettings", "CmuxNextWakeups",
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextSettings",
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
@@ -893,7 +906,7 @@ let package = Package(
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                            // GhosttyGlassMinimumContrastTests builds a Ghostty config.

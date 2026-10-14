@@ -1,12 +1,14 @@
-import CmuxNextDaemon
-import CmuxNextRemoteLocalhost
-import Foundation
+public import CmuxNextDaemon
+public import CmuxNextRemoteLocalhost
+public import Foundation
 
 /// Opens proxy tunnels on one machine's `LoopbackForwardClient`.
-struct DaemonLoopbackOpener: LoopbackTunnelOpening {
-    let client: LoopbackForwardClient
+public struct DaemonLoopbackOpener: LoopbackTunnelOpening {
+    public let client: LoopbackForwardClient
 
-    func openTunnel(host: String, port: UInt16) async throws(LoopbackTunnelFailure) -> any LoopbackTunnel {
+    public init(client: LoopbackForwardClient) { self.client = client }
+
+    public func openTunnel(host: String, port: UInt16) async throws(LoopbackTunnelFailure) -> any LoopbackTunnel {
         do {
             return DaemonLoopbackTunnel(stream: try await client.open(host: host, port: port))
         } catch let error as LoopbackForwardError {
@@ -16,7 +18,7 @@ struct DaemonLoopbackOpener: LoopbackTunnelOpening {
         }
     }
 
-    static func failure(_ error: LoopbackForwardError) -> LoopbackTunnelFailure {
+    public static func failure(_ error: LoopbackForwardError) -> LoopbackTunnelFailure {
         switch error {
         case .unsupported: .unsupported
         case .disabled: .disabled
@@ -29,11 +31,11 @@ struct DaemonLoopbackOpener: LoopbackTunnelOpening {
 }
 
 /// A daemon `LoopbackStream` as the proxy's `LoopbackTunnel`.
-struct DaemonLoopbackTunnel: LoopbackTunnel {
-    let stream: LoopbackStream
-    let events: AsyncStream<LoopbackTunnelEvent>
+public struct DaemonLoopbackTunnel: LoopbackTunnel {
+    public let stream: LoopbackStream
+    public let events: AsyncStream<LoopbackTunnelEvent>
 
-    init(stream: LoopbackStream) {
+    public init(stream: LoopbackStream) {
         self.stream = stream
         let source = stream.events
         // concurrency-allow: a pass-through of a stream already bounded by the credit window
@@ -53,8 +55,8 @@ struct DaemonLoopbackTunnel: LoopbackTunnel {
         }
     }
 
-    func write(_ data: Data) async throws { try await stream.write(data) }
-    func consumed(_ count: Int) { stream.consumed(count) }
-    func shutdownWrite() { stream.shutdownWrite() }
-    func close() { stream.close() }
+    public func write(_ data: Data) async throws { try await stream.write(data) }
+    public func consumed(_ count: Int) { stream.consumed(count) }
+    public func shutdownWrite() { stream.shutdownWrite() }
+    public func close() { stream.close() }
 }
