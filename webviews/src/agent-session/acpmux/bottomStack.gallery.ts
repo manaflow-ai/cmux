@@ -139,7 +139,7 @@ const trusted: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   ctx.find({
     role: "button",
-    name: Boolean(ctx.document.querySelector(".acpmux-permission-ask"))
+    name: ctx.document.querySelector(".acpmux-permission-ask")
       ? "Yes, and don't ask again"
       : "Allow for this chat",
   });
