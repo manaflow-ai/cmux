@@ -441,19 +441,20 @@ describe("the console's team usage line (cx-y79zh S5)", () => {
   it("shows the team's usage against its included amount, the stop, and the billing period once it is billable", async () => {
     const stackUser = "usage-line-pro"
     const { t, team } = await paidPerson(stackUser)
-    const stopOn = { ...(env as object), USAGE_HARD_STOP_UNBILLED: "1" }
+    // TeamDO answers with its own env, where the stop is off in this pool: the line says so (stop_applies false).
     const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
     fakeBoundaries(stripe, 0)
     const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
     await meter.record(team, [{ key: `line:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 12.5, source: "coderouter", observed_at: Date.now() }])
-    const before = await aiLimits(t, stopOn)
-    expect(before.value.team_usage).toMatchObject({ billed: false, included_usd: 20, per_seat: false, spent_usd: 12.5, stop_applies: true, stopped: false })
+    const before = await aiLimits(t, env)
+    expect(before.value.team_usage).toMatchObject({ billed: false, included_usd: 20, per_seat: false, seats: 1, spent_usd: 12.5, stop_applies: false, stopped: false })
+    expect(before.value.team_usage.period_end).toBe(before.value.resets_at)
     await meter.record(team, [{ key: `line:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 7.5, source: "coderouter", observed_at: Date.now() }])
-    expect((await aiLimits(t, stopOn)).value.team_usage).toMatchObject({ spent_usd: 20, stopped: true })
+    expect((await aiLimits(t, env)).value.team_usage).toMatchObject({ spent_usd: 20, stopped: false })
     // Billable: the billing period, the amount the bill uses, and no stop.
     stripe.addSub("sub_line1", "cus_line1", { plan: "pro", stackUserId: stackUser }, "cmux-pro-monthly-50")
     await sync()
-    const billed = (await aiLimits(t, stopOn)).value.team_usage
+    const billed = (await aiLimits(t, env)).value.team_usage
     expect(billed).toMatchObject({ billed: true, included_usd: 20, per_seat: false, seats: 1, spent_usd: 20, period_start: stripe.period.start * 1000, period_end: stripe.period.end * 1000, stop_applies: false, stopped: false })
   })
 })
