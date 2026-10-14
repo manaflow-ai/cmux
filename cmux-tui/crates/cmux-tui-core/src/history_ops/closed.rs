@@ -28,15 +28,25 @@ pub(super) const PREFIX: &str = "closed:daemon:";
 const ORIGIN: &str = "cmux-history";
 
 /// Deletes the closed groups `ids` name (`closed:daemon:<closed id>`, other
-/// ids ignored). A group that is already gone (reopened, deleted, aged out)
-/// counts nothing. Answers how many groups it deleted.
+/// ids ignored), a page's row with every other close of that page (the list
+/// shows a page once). A group that is already gone (reopened, deleted, aged
+/// out) counts nothing. Answers how many groups it deleted.
 pub(super) fn remove(
     mux: &Arc<Mux>,
     key: &str,
     actor: &Actor,
     ids: &[&str],
 ) -> Result<u64, ResourceError> {
-    let mut groups: Vec<&str> = ids.iter().filter_map(|id| id.strip_prefix(PREFIX)).collect();
+    let ids: Vec<&str> = ids.iter().copied().filter(|id| id.starts_with(PREFIX)).collect();
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let items = mux
+        .read_registry_state(crate::state::closed_history_query::closed_items)
+        .map_err(resource_operation_error)?;
+    let rows: Vec<String> =
+        ids.iter().flat_map(|id| super::sources::closed_ids_of(&items, id)).collect();
+    let mut groups: Vec<&str> = rows.iter().filter_map(|id| id.strip_prefix(PREFIX)).collect();
     groups.sort_unstable();
     groups.dedup();
     let mut deleted = 0;
