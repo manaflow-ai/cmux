@@ -110,22 +110,36 @@ struct MacScreenToolbar: View {
     var body: some View {
         HStack(spacing: 10) {
             Circle().fill(statusColor).frame(width: 7, height: 7)
-            Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
-            // In a narrow pane the controls keep their size; the stats, then
-            // the release hint, give way before the name.
-            Text(model.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                .layoutPriority(1)
+            // In a narrow pane the controls keep their size. The stats and the
+            // release hint show whole or not at all, then the icon goes, so the
+            // name keeps the room that is left.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
+                    name
+                }
+                name
+            }
+            .layoutPriority(1)
             if let session = model.session, model.isLive, session.preferences.showStats {
-                Text(statsLine(session)).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
-                    .layoutPriority(-1)
-                    .accessibilityIdentifier("macScreen.stats")
+                ViewThatFits(in: .horizontal) {
+                    Text(statsLine(session)).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                        .fixedSize()
+                        .accessibilityIdentifier("macScreen.stats")
+                    Color.clear.frame(width: 0, height: 0)
+                }
+                .layoutPriority(-1)
             }
             Spacer(minLength: 8)
             if model.capturesKeyboard, model.isLive {
-                Label(L.t("macScreen.toolbar.releaseHint", "⌃⌥⎋ releases the keyboard"), systemImage: "keyboard")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                    .layoutPriority(-2)
-                    .help(L.t("macScreen.toolbar.keyboardHint", "Keyboard goes to this Mac · ⌃⌥⎋ to release"))
+                ViewThatFits(in: .horizontal) {
+                    Label(L.t("macScreen.toolbar.releaseHint", "⌃⌥⎋ releases the keyboard"), systemImage: "keyboard")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        .fixedSize()
+                    Color.clear.frame(width: 0, height: 0)
+                }
+                .layoutPriority(-2)
+                .help(L.t("macScreen.toolbar.keyboardHint", "Keyboard goes to this Mac · ⌃⌥⎋ to release"))
             }
             if let session = model.session, model.gate == .open {
                 HStack(spacing: 10) { controls(session) }
@@ -136,6 +150,11 @@ struct MacScreenToolbar: View {
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.bar)
+    }
+
+    private var name: some View {
+        Text(model.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+            .frame(minWidth: 24, alignment: .leading)
     }
 
     @ViewBuilder
