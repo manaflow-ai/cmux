@@ -171,6 +171,13 @@ import Testing
         #expect((out.toValue as? NSNumber)?.doubleValue == 0)
         #expect(abs(try Self.value(of: out, at: out.duration * 1000)) < 0.01)
         #expect(presenter.panel.isFadingOut)
+
+        // A click puts it away at once, as AppKit's: no fade over the menu the click opens.
+        presenter.enter(try Self.tracker(buttons[2]))
+        #expect(presenter.shown?.text == "Reload", "a tooltip within the warm time waited")
+        presenter.dismiss()
+        #expect(!presenter.panel.isVisible, "a dismissed tooltip lingered")
+        #expect(!presenter.panel.isFadingOut)
     }
 
     @Test func underReduceMotionTheTooltipFadesWithNoRise() async throws {

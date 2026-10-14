@@ -133,6 +133,17 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     await page.waitForFunction(() => document.querySelector<HTMLElement>(".ui-title-tooltip")!.hidden, null, {
       timeout: 2000,
     });
+
+    // A click puts a shown tooltip away at once, with no fade over the menu it opens.
+    await hoverAndWait(page, "b2");
+    await page.mouse.down();
+    expect(
+      await page.$eval(".ui-title-tooltip", (tip) => ({
+        hidden: (tip as HTMLElement).hidden,
+        ending: tip.hasAttribute("data-ending-style"),
+      })),
+    ).toEqual({ hidden: true, ending: false });
+    await page.mouse.up();
     await page.close();
   });
 
