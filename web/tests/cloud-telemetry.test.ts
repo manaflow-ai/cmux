@@ -212,6 +212,89 @@ describe("Cloud diagnostic boundary", () => {
   });
 });
 
+describe("one span outside the contract never costs the rest of the upload", () => {
+  const exportConfiguration = {
+    origin: "https://us-east-1.aws.edge.axiom.co", token: "test-only",
+    identityKey: "test-only-identity-key".repeat(2), tracesDataset: "test-traces",
+    errorsDataset: "test-errors", environment: "production", revision: "abcdef123",
+  } as const;
+  async function exportingHandler() {
+    const { exportCloudDiagnostics } = await import("../services/observability/cloudTelemetryExport");
+    const sent: { url: string; body: any }[] = [];
+    const stored: string[] = [];
+    const handler = makeCloudTelemetryHandler({
+      authenticate: async () => ({ id: "synthetic-owner" }),
+      checkIngress: async () => true,
+      accept: async (userId, value) => {
+        stored.push(...value.spans.map((item) => item.eventId));
+        await exportCloudDiagnostics(value.spans.map((item) => ({
+          userId, eventId: item.eventId, attempts: 1, payload: { client: value.client, span: item },
+        })), exportConfiguration, (async (url, init) => {
+          sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+          return new Response("{}");
+        }) as typeof fetch);
+        return value.spans.length;
+      },
+      scheduleDrain: () => {}, now: () => now,
+    });
+    const exportedNames = () => sent.filter((item) => item.url.endsWith("/v1/traces"))
+      .flatMap((item) => item.body.resourceSpans.map((resourceSpan: any) => resourceSpan.scopeSpans[0].spans[0].name));
+    return { handler, sent, stored, exportedNames };
+  }
+  const ids = [
+    "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444",
+    "55555555-5555-4555-8555-555555555555",
+  ];
+
+  test("accepts and exports the operations shipped Mac builds send, beside a sign-in rate-limit record", async () => {
+    const { handler, stored, exportedNames } = await exportingHandler();
+    const payload = batch([
+      span({ eventId: ids[0], operation: "network", phase: "request", failure: "server", httpStatus: 500 }),
+      span({ eventId: ids[1], operation: "agentUpdates", phase: "operation" }),
+      span({
+        eventId: ids[2], operation: "session", phase: "authentication", failure: "rate_limit", httpStatus: 429, parentSpanId: undefined,
+        auth: { event: "stack_rate_limited", phase: "token_refresh", retryAfterS: 60, backoffS: 60, bodyKind: "json", endpoint: "/api/v1/auth/oauth/token" },
+      }),
+    ], "production");
+    const response = await handler(request(payload));
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ accepted: 3, rejected: 0, eventIds: ids.slice(0, 3), rejectedEventIds: [] });
+    expect(stored).toEqual(ids.slice(0, 3));
+    expect(exportedNames()).toEqual(["cmux.cloud.network.request", "cmux.cloud.agent_updates.operation", "cmux.auth.stack_rate_limited"]);
+  });
+
+  test("stores an unknown future operation as unknown and drops only the span that breaks the contract", async () => {
+    const { handler, sent, stored, exportedNames } = await exportingHandler();
+    const payload = batch([
+      span({ eventId: ids[0], operation: "teleport", phase: "request" }),
+      span({ eventId: ids[1], phase: "terminal-content" }),
+      span({ eventId: ids[2], operation: "terminal", phase: "connect", failure: "my-secret-key" }),
+      span({ eventId: ids[3], operation: "create", phase: "provider", failure: "placement" }),
+      span({ eventId: ids[4], operation: "open", phase: "ready", message: "user content" }),
+    ], "production");
+    const response = await handler(request(payload));
+    expect(response.status).toBe(202);
+    // Every submitted id is acknowledged, so a shipped client neither retries nor resends a rejected span.
+    expect(await response.json()).toEqual({ accepted: 2, rejected: 3, eventIds: ids, rejectedEventIds: [ids[1], ids[2], ids[4]] });
+    expect(stored).toEqual([ids[0], ids[3]]);
+    expect(exportedNames()).toEqual(["cmux.cloud.unknown.request", "cmux.cloud.create.provider"]);
+    expect(JSON.stringify(sent)).not.toContain("teleport");
+    expect(JSON.stringify(sent)).not.toContain("secret");
+    expect(JSON.stringify(sent)).not.toContain("user content");
+  });
+
+  test("refuses an upload with no valid span, an unacknowledgeable id or a repeated id, and stores nothing", async () => {
+    const { handler, stored } = await exportingHandler();
+    for (const refused of [
+      batch([span({ phase: "terminal-content" })]),
+      batch([span({ eventId: ids[0] }), span({ eventId: "not-an-id" })]),
+      batch([span({ eventId: ids[0] }), span({ eventId: ids[0] })]),
+    ]) expect((await handler(request(refused))).status).toBe(400);
+    expect(stored).toEqual([]);
+  });
+});
+
 describe("shared development error destination", () => {
   test("routes client and server errors to the dev dataset with backend identity", async () => {
     const { cloudAxiomConfiguration, exportCloudDiagnostics } = await import("../services/observability/cloudTelemetryExport");
