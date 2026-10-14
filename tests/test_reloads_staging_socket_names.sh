@@ -33,8 +33,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if pgrep -f "cmux STAGING ${TAG}.app/Contents/MacOS/" >/dev/null 2>&1; then
-  fail "a cmux STAGING ${TAG} app runs on this host; the test would stop it"
+# reloads.sh stops a running app of the bundle id and removes its socket.
+if pgrep -f "cmux STAGING ${TAG}.app/Contents/MacOS/" >/dev/null 2>&1 \
+  || [[ -n "$(/usr/bin/lsappinfo find "bundleid=${BUNDLE_ID}" 2>/dev/null)" ]]; then
+  fail "a ${BUNDLE_ID} app runs on this host; the test would stop it"
 fi
 
 # The socket the app uses: the vector's pre-move name, moved into the state
@@ -47,7 +49,7 @@ print(case["app_daemon"]["control_socket"])
 PY
 )"
 expected="$ACCOUNT_HOME/.local/state/cmux/${old#/tmp/}"
-if (( ${#expected} > 103 )); then expected="$old"; fi
+if (( $(printf '%s' "$expected" | LC_ALL=C wc -c) > 103 )); then expected="$old"; fi
 
 # Stubs: xcodebuild leaves a fake product, open records its environment.
 STUBS="$TMP_DIR/bin"

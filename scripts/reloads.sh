@@ -187,13 +187,10 @@ fi
 
 # staging_control_socket knows only staging identities; another bundle id
 # would get a socket name its app never uses.
-case "$BUNDLE_ID" in
-  com.cmuxterm.app.staging | com.cmuxterm.app.staging.*) ;;
-  *)
-    echo "error: --bundle-id must be com.cmuxterm.app.staging or com.cmuxterm.app.staging.<tag> (got '$BUNDLE_ID')" >&2
-    exit 1
-    ;;
-esac
+if [[ ! "$BUNDLE_ID" =~ ^com\.cmuxterm\.app\.staging(\.[A-Za-z0-9._-]+)?$ ]]; then
+  echo "error: --bundle-id must be com.cmuxterm.app.staging or com.cmuxterm.app.staging.<tag> (got '$BUNDLE_ID')" >&2
+  exit 1
+fi
 
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
@@ -337,8 +334,8 @@ OPEN_CLEAN_ENV=(
   -u XDG_DATA_DIRS
 )
 
-# Always inject staging socket paths via env to ensure they take effect
-# (LSEnvironment requires app restart to pick up plist changes).
+# The launch environment names the staging build's own socket for tools in
+# it; the app picks its socket from its bundle id and ignores this value.
 "${OPEN_CLEAN_ENV[@]}" CMUX_BUNDLE_ID="$BUNDLE_ID" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
 
 # Safety: ensure only one instance is running.

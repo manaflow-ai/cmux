@@ -33,6 +33,16 @@ for tag in nightly rc staging cmux-next Cmux.Next NIGHTLY; do
   echo "PASS: reload.sh refuses --tag $tag"
 done
 
+# An explicit DEV bundle id with an owned suffix is refused the same way.
+set +e
+HOME="$TMP_DIR/home" bash "$ROOT_DIR/scripts/reload.sh" --tag hq6dpbisoprobe --bundle-id com.cmuxterm.app.debug.cmux.next \
+  --build-only --name "cmux DEV" >"$TMP_DIR/out" 2>"$TMP_DIR/err" </dev/null
+status=$?
+set -e
+[[ "$status" -ne 0 ]] && grep -q "is the name of a shipped cmux build" "$TMP_DIR/err" \
+  || fail "reload.sh kept --bundle-id com.cmuxterm.app.debug.cmux.next: $(cat "$TMP_DIR/err")"
+echo "PASS: reload.sh refuses --bundle-id com.cmuxterm.app.debug.cmux.next"
+
 for tag in hq6dpbisoprobe nightly2 cmux-next-x; do
   status="$(run_reload "$tag")"
   [[ "$status" -ne 0 ]] || fail "reload.sh --tag $tag probe exited 0"

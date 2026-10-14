@@ -1190,12 +1190,18 @@ fi
 # with such a tag gets names of its build key instead (CmuxNextCompat
 # BuildIdentity+AppNames.swift), so the socket and markers this script writes
 # for the tag would name no app. Refuse the tag before anything is cleaned or built.
-case "$(cmux_attach__slug_raw "$TAG")" in
-  nightly | rc | staging | cmux-next)
-    echo "error: --tag '$TAG' is the name of a shipped cmux build (nightly, rc, staging, cmux-next); pick another tag" >&2
-    exit 1
-    ;;
-esac
+owned_tag_names=("$TAG")
+if [[ "$BUNDLE_SET" -eq 1 && "$BUNDLE_ID" == com.cmuxterm.app.debug.* ]]; then
+  owned_tag_names+=("${BUNDLE_ID#com.cmuxterm.app.debug.}")
+fi
+for owned_tag_name in "${owned_tag_names[@]}"; do
+  case "$(cmux_attach__slug_raw "$owned_tag_name")" in
+    nightly | rc | staging | cmux-next)
+      echo "error: --tag or --bundle-id '$owned_tag_name' is the name of a shipped cmux build (nightly, rc, staging, cmux-next); pick another tag" >&2
+      exit 1
+      ;;
+  esac
+done
 
 # Release's product is cmux.app, which the tag step stages as the tagged app. It
 # bundles the pinned cmux-tui by default; dogfood the checkout's own instead. Its
