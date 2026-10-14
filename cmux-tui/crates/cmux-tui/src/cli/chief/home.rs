@@ -7,16 +7,20 @@
 //!
 //! One Chief per build (2026-10-14): the CLI resolves the home of the app it
 //! belongs to, by bundle id (`CMUX_BUNDLE_ID` in the app's terminals, else
-//! the bundle around this executable). NIGHTLY keeps the shared home of
-//! older builds, `~/.cmux/chief/<account>`; every other build has
-//! `~/.cmux/chief/<bundle id>[.<account>]`. A CLI outside any app resolves
-//! `~/.cmux/chief/<account>` as before. The app's terminals also get the
+//! the bundle around this executable). A DEV or staging build has
+//! `~/.cmux/chief/<bundle id>[.<account>]`; NIGHTLY (and every other app,
+//! and a CLI outside any app) keeps the shared home of older builds,
+//! `~/.cmux/chief/<account>`. The app's terminals and its brain also get the
 //! exact home as `CMUX_CHIEF_HOME`, which wins.
 
 use std::path::{Component, Path, PathBuf};
 
-/// The build that keeps the shared home of older builds (ChiefHome.swift).
-const SHARED_HOME_BUILD_ID: &str = "com.cmuxterm.app.nightly";
+/// The builds with a Chief home of their own (ChiefHome.hasOwnHome).
+fn has_own_home(bundle_id: &str) -> bool {
+    ["com.cmuxterm.app.debug", "com.cmuxterm.app.staging"]
+        .iter()
+        .any(|base| bundle_id == *base || bundle_id.starts_with(&format!("{base}.")))
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) struct ChiefHome {
@@ -41,9 +45,9 @@ impl ChiefHome {
     /// `CMUX_NEXT_CHIEF_ROOT` (isolation markers ignored) or `~/.cmux/chief`:
     /// an isolated launch (`CMUX_NEXT_CHIEF_ISOLATED=1` and the app's other
     /// isolation markers) at `isolated/<CMUX_TAG or untagged>`, else the
-    /// build's home: `<account>` for NIGHTLY and outside any app,
-    /// `<bundle id>[.<account>]` for any other build. A DEV bundle may name
-    /// another build in `CMUX_NEXT_CHIEF_BUILD_ID` (tests only).
+    /// build's home: `<bundle id>[.<account>]` for a DEV or staging build,
+    /// `<account>` for any other (NIGHTLY) and outside any app. A DEV bundle
+    /// may name another build in `CMUX_NEXT_CHIEF_BUILD_ID` (tests only).
     pub(super) fn resolve_for(
         explicit: Option<&Path>,
         env: impl Fn(&str) -> Option<String>,
@@ -82,12 +86,10 @@ impl ChiefHome {
             .filter(|id| crate::app_identity::is_debug_bundle(id))
             .and_then(|_| value("CMUX_NEXT_CHIEF_BUILD_ID"))
             .or_else(|| bundle_id.map(str::to_owned));
-        let name = match build.as_deref() {
-            None | Some(SHARED_HOME_BUILD_ID) => account,
-            Some(id) => {
-                let id = component(id).unwrap_or("unbundled".into());
-                if account == "default" { id } else { format!("{id}.{account}") }
-            }
+        let name = match build.as_deref().filter(|id| has_own_home(id)).and_then(component) {
+            None => account,
+            Some(id) if account == "default" => id,
+            Some(id) => format!("{id}.{account}"),
         };
         Self { root: standardized(&base.join(name)), isolated: false }
     }

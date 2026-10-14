@@ -179,6 +179,13 @@ b = None
 failed = 0
 m0 = f"per-build check {TAG}: M0 on the shared home, reply with only the word ok."
 m1 = f"per-build check {TAG}: M1 after B quit, reply with only the word ok."
+# The temp homes never push a memory backup and never take in this host's
+# old per-tag Chiefs (~/.cmux/mux/tags): a backup setting and a done
+# migration record before the first launch.
+for home in (NIGHTLY_HOME, B_HOME):
+    os.makedirs(os.path.join(home, "optchat"), exist_ok=True)
+    open(os.path.join(home, "optchat", "settings.json"), "w").write('{"backup": {"remote": false}}\n')
+open(os.path.join(NIGHTLY_HOME, "migration.json"), "w").write('{"status": "test home: nothing to import"}\n')
 try:
     # 0. the shared home of older builds
     a.launch({"CMUX_NEXT_CHIEF_HOME": NIGHTLY_HOME})
@@ -193,7 +200,7 @@ try:
     a_brain = wait(lambda: brain_pid(NIGHTLY_HOME), 180)
     shown_m0 = wait(lambda: any(t == m0 for _, t in a.shown()), 60)
     count = memory_count(NIGHTLY_HOME, m0)
-    others = sorted(n for n in os.listdir(ROOT) if n != "default")
+    others = sorted(n for n in os.listdir(ROOT) if n not in ("default", BUNDLE_B))
     say(f"step 1: NIGHTLY brain {a_brain} on default; Home shows M0: {bool(shown_m0)}; memory has M0 {count}x; other homes {others}")
     if not (a_brain and shown_m0 and count == 1 and not others):
         failed = failed or 1
@@ -223,6 +230,7 @@ finally:
         a.quit(NIGHTLY_HOME)
     if b and b.proc and b.proc.poll() is None:
         b.quit(B_HOME)
-    shutil.rmtree(os.path.join(SCRATCH, "B.app"), ignore_errors=True)
+    # Nothing of the run stays: the B copy and the temp homes with their memory.
+    shutil.rmtree(SCRATCH, ignore_errors=True)
     say("result", "PASS" if failed == 0 else f"FAIL {failed}")
 sys.exit(failed)

@@ -71,8 +71,8 @@ public nonisolated struct HomeBrainHost: Sendable {
                              acpmux: AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
     }
 
-    /// The Chief home's mux home (`ChiefHome`), the same for every build of
-    /// one account; the engine bar, sidebar and files read it.
+    /// This build's Chief home's mux home (`ChiefHome`); the engine bar,
+    /// sidebar and files read it.
     public static func muxHome(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
                         userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         ChiefHome.resolve(tag: tag, environment: environment, userHome: userHome).muxHome
@@ -92,6 +92,9 @@ public nonisolated struct HomeBrainHost: Sendable {
             "MUX_AGENT_TOKEN_FILE": tokenFile.path,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
+            // `cmux chief` in the brain's turns and subagents opens this Chief
+            // (one Chief per build), never the shared home by default.
+            "CMUX_CHIEF_HOME": muxHome.path,
             // The host's chief create request must equal the app's (the owner
             // refuses a different request under the same key).
             "MUX_USER_NAME": HomeChiefName.localUserName,
