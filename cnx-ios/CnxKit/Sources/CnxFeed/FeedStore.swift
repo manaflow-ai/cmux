@@ -114,7 +114,8 @@ public final class FeedStore {
     @ObservationIgnored public weak var actions: (any FeedActions)?
     public static let shared = FeedStore(
         items: FeedStore.initialItems(mockContentEnabled: DeveloperOptions.mockContentEnabled),
-        answersLocally: DeveloperOptions.mockContentEnabled
+        answersLocally: DeveloperOptions.mockContentEnabled,
+        readMarks: .standard
     )
     /// DEBUG mock content only: with no Mac behind the Feed, answers apply
     /// locally. Otherwise an answer with no `actions` fails on the item.
@@ -134,7 +135,35 @@ public final class FeedStore {
     }
 
     public private(set) var items: [FeedItem] {
-        didSet { if items != oldValue { onItemsChange?(items) } }
+        didSet {
+            guard items != oldValue else { return }
+            // Events read before (this launch or an earlier one) stay read when the Mac
+            // reports them again.
+            if items.contains(where: { !$0.isRead && readIDs.contains($0.id) }) {
+                items = items.map { item in
+                    var item = item
+                    if readIDs.contains(item.id) { item.isRead = true }
+                    return item
+                }
+                return
+            }
+            recordReadMarks()
+            onItemsChange?(items)
+        }
+    }
+    /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).
+    @ObservationIgnored private let readMarks: FeedReadMarks?
+    @ObservationIgnored private var readIDs: [String] = []
+
+    private func recordReadMarks() {
+        let read = items.filter(\.isRead).map(\.id)
+        let unread = Set(items.filter { !$0.isRead }.map(\.id))
+        var next = readIDs.filter { !unread.contains($0) }
+        let known = Set(next)
+        next += read.filter { !known.contains($0) }
+        guard next != readIDs else { return }
+        readIDs = next
+        readMarks?.save(next)
     }
     /// Called after every change (live mode saves the Feed with `FeedArchive`).
     @ObservationIgnored public var onItemsChange: (@MainActor ([FeedItem]) -> Void)?
@@ -149,8 +178,16 @@ public final class FeedStore {
     public private(set) var unseenNewIDs: [String] = []
     private var liveIndex = 0
 
-    public init(items: [FeedItem], answersLocally: Bool = false) {
-        self.items = items.sorted { $0.createdAt > $1.createdAt }
+    public init(items: [FeedItem], answersLocally: Bool = false, readMarks: FeedReadMarks? = nil) {
+        self.readMarks = readMarks
+        let readIDs = readMarks?.load() ?? []
+        self.readIDs = readIDs
+        let read = Set(readIDs)
+        self.items = items.sorted { $0.createdAt > $1.createdAt }.map { item in
+            var item = item
+            if read.contains(item.id) { item.isRead = true }
+            return item
+        }
         self.answersLocally = answersLocally
     }
 
@@ -193,7 +230,11 @@ public final class FeedStore {
     public func clearUnseen() { unseenNewIDs = [] }
 
     public func markRead(_ id: String) { mutate(id) { $0.isRead = true } }
-    public func markUnread(_ id: String) { mutate(id) { $0.isRead = false } }
+    public func markUnread(_ id: String) {
+        readIDs.removeAll { $0 == id }
+        readMarks?.save(readIDs)
+        mutate(id) { $0.isRead = false }
+    }
 
     /// Marks an event done (swipe): it leaves the Feed; `undoDone` brings it back.
     public func markDone(_ id: String) {

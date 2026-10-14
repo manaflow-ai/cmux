@@ -126,7 +126,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     func kitTab(_ tab: WorkspaceTab, in workspace: Workspace) -> TabsKitTab {
         switch tab.kind {
         case .agent:
-            let session = tab.subtitle ?? tab.title
+            // A new session takes its title from the agent, or its first prompt, after a turn.
+            let session = AgentSessionDirectory.shared.existingStore(id: tab.id)?.displayTitle ?? tab.subtitle ?? tab.title
             return TabsKitTab(
                 id: tab.id, kind: TabsKitTabKind("agent"), title: session, subtitle: "\(tab.title) · \(workspace.title)",
                 systemImage: "sparkle",

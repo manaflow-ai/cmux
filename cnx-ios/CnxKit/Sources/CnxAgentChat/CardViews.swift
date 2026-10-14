@@ -193,7 +193,9 @@ public struct QuestionCard: View {
         self.question = question
         self.submit = submit
         self.showsHeader = showsHeader
-        _state = State(initialValue: AgentQuestionCardState(question: question))
+        // A relaunch brings back a partly answered question where the person left it.
+        let draft = QuestionDraftStore.shared.draft(for: question.id)
+        _state = State(initialValue: draft?.restore(into: question) ?? AgentQuestionCardState(question: question))
     }
 
     public var body: some View {
@@ -208,7 +210,13 @@ public struct QuestionCard: View {
             }
         }
         .animation(.cnxSmooth, value: question.state)
-        .onChange(of: question) { _, new in state.update(new) }
+        .onChange(of: question) { _, new in
+            state.update(new)
+            if !new.isPending { QuestionDraftStore.shared.clear(new.id) }
+        }
+        .onChange(of: state) { _, new in
+            if question.isPending { QuestionDraftStore.shared.save(QuestionDraft(new), for: question.id) }
+        }
         .sensoryFeedback(.impact(weight: .light), trigger: submitted)
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
@@ -260,9 +268,13 @@ public struct QuestionCard: View {
                     Button("Back") { page(-1) }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(.rect)
                 }
                 Spacer()
-                if state.activeItem < count - 1 {
+                // One rule: a single-choice step advances when an option is tapped, so it has
+                // no Next. Multi-select steps (and Other text) need Next to finish the step.
+                if state.activeItem < count - 1, needsNext(item) {
                     Button("Next") { page(1) }
                         .buttonStyle(CnxCapsuleButtonStyle(.secondary))
                         .disabled(state.answer.selections[item.id]?.isEmpty != false)
@@ -280,6 +292,10 @@ public struct QuestionCard: View {
         .clipShape(.rect(cornerRadius: 20, style: .continuous))
     }
 
+    private func needsNext(_ item: AgentQuestion.Item) -> Bool {
+        item.multiSelect || state.editingOther || !(state.otherDrafts[item.id] ?? "").isEmpty
+    }
+
     private func optionRow(_ option: AgentQuestion.Option, item: AgentQuestion.Item, row: Int) -> some View {
         let chosen = state.isChosen(option, in: item)
         return Button {
@@ -293,13 +309,13 @@ public struct QuestionCard: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if item.multiSelect {
-                    Image(systemName: chosen ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(chosen ? Color.primary : Color.secondary)
-                        .contentTransition(.symbolEffect(.replace))
-                } else if chosen {
-                    Image(systemName: "checkmark").fontWeight(.semibold).transition(.scale.combined(with: .opacity))
-                }
+                // Any-of: rounded-square checkboxes. One-of: circles.
+                Image(systemName: item.multiSelect
+                      ? (chosen ? "checkmark.square.fill" : "square")
+                      : (chosen ? "checkmark.circle.fill" : "circle"))
+                    .font(.system(size: 20))
+                    .foregroundStyle(chosen ? Color.primary : Color.secondary)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -362,6 +378,7 @@ public struct QuestionCard: View {
         switch effect {
         case .submit(let answer):
             submitted += 1
+            QuestionDraftStore.shared.clear(question.id)
             otherFocused = false
             submit(answer)
         case .beginOtherEditing:

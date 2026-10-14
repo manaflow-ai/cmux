@@ -124,6 +124,30 @@ public final class AgentChatStore {
     public private(set) var modes: [ACPMode] = []
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
+    /// The title the agent gave the session (`session_info_update`).
+    public private(set) var sessionTitle: String?
+
+    /// The chat's title: the agent's session title, else the session's name, else (a new
+    /// session) the first prompt trimmed to 40 characters, as ChatGPT and Claude do.
+    public var displayTitle: String {
+        Self.chatTitle(sessionTitle: sessionTitle, name: summary.name, firstPrompt: turns.first?.prompt)
+    }
+
+    public nonisolated static let untitledName = "New session"
+
+    public nonisolated static func chatTitle(sessionTitle: String?, name: String, firstPrompt: String?) -> String {
+        if let sessionTitle, !sessionTitle.isEmpty { return sessionTitle }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty, trimmedName != untitledName { return trimmedName }
+        let prompt = (firstPrompt ?? "").split(whereSeparator: \.isNewline).first.map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        guard !prompt.isEmpty else { return trimmedName.isEmpty ? untitledName : trimmedName }
+        guard prompt.count > 40 else { return prompt }
+        let cut = prompt.prefix(40)
+        // Cut at a word boundary when one is close, then add an ellipsis.
+        let word = cut.lastIndex(of: " ").map { cut[..<$0] } ?? cut
+        return (word.count >= 24 ? String(word) : String(cut)).trimmingCharacters(in: .whitespaces) + "…"
+    }
     /// Every subagent seen, nested ones included, in start order.
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
@@ -418,6 +442,8 @@ public final class AgentChatStore {
             configOptions = options
         case .usage(let used, let size):
             usage = (used, size)
+        case .sessionInfo(let title):
+            if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
         }
     }
 

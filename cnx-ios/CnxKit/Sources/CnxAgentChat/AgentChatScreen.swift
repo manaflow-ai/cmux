@@ -255,7 +255,8 @@ public struct AgentChatScreen: View {
                 }
             } label: {
                 VStack(spacing: 1) {
-                    Text(store.summary.name).font(.headline).lineLimit(1).truncationMode(.middle)
+                    Text(store.displayTitle).font(.headline).lineLimit(1).truncationMode(.tail)
+                        .contentTransition(.opacity)
                     HStack(spacing: 5) {
                         Circle().fill(statusColor).frame(width: 6, height: 6)
                         Text("\(store.summary.agentName) · \(store.summary.workspaceTitle)").font(.footnote).foregroundStyle(.secondary)
@@ -264,7 +265,7 @@ public struct AgentChatScreen: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: 240)
             }
-            .accessibilityLabel(Text("\(store.summary.name), \(store.summary.agentName) in \(store.summary.workspaceTitle)"))
+            .accessibilityLabel(Text("\(store.displayTitle), \(store.summary.agentName) in \(store.summary.workspaceTitle)"))
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
             Menu {
