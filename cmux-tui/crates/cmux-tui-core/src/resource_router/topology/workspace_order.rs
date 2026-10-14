@@ -1,15 +1,9 @@
-//! `workspace.list {order}` (`personal-mixed-order-v1`): `personal`, the
-//! default, is the personal sidebar order (loose workspaces and each
-//! group's members at the group's slot), then this session's workspaces
-//! without a personal row, in session order; `session` is the session order
-//! (creation order unless a workspace was moved). With the sidebar document
-//! (`sidebar-doc-v1`) the personal order is the document's order of this
-//! machine's workspaces.
-//!
-//! The default is the order the person sees and reorders in the sidebar, so
-//! a client that lists workspaces (`cmux workspace list`, an agent's MCP
-//! `workspace_list`) shows them in that order. Each row's `index` stays its
-//! session index.
+//! `workspace.list {order}` (`personal-mixed-order-v1`): `session`, the
+//! default, is the session order; `personal` is the personal sidebar order
+//! (loose workspaces and each group's members at the group's slot), then
+//! this session's workspaces without a personal row, in session order.
+//! With the sidebar document (`sidebar-doc-v1`) the personal order is the
+//! document's order of this machine's workspaces.
 
 use super::*;
 
@@ -25,8 +19,8 @@ pub(super) fn list_workspaces(
         "workspace.list",
     )?;
     match optional_string(&request.fields, "order")?.as_deref() {
-        Some("session") => Ok(listed),
-        None | Some("personal") => {
+        None | Some("session") => Ok(listed),
+        Some("personal") => {
             let order =
                 mux.personal_state_read(crate::state::sidebar_doc_legacy::workspace_order)?;
             let rank = order

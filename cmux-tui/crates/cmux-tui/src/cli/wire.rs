@@ -624,15 +624,14 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
     i32::from(unmatched_wait)
 }
 
-/// What the human table shows for a result. `workspace list` in the
-/// sidebar order (the default, or `--order personal`) adds an ORDER column
-/// (the row's place in the returned order), because INDEX stays the session
-/// order.
+/// What the human table shows for a result. `workspace list --order
+/// personal` adds an ORDER column (the row's place in the returned order),
+/// because INDEX stays the session order.
 fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
     let personal = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
-    ) && plan.params.get("order").and_then(Value::as_str) != Some("session");
+    ) && plan.params.get("order").and_then(Value::as_str) == Some("personal");
     match result.as_array() {
         Some(rows) if personal => std::borrow::Cow::Owned(Value::Array(
             rows.iter()
