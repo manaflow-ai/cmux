@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import Foundation
 
 extension ChiefConversationOwner {
@@ -7,7 +8,7 @@ extension ChiefConversationOwner {
     /// its environment itself. The app gives only what the daemon cannot
     /// know: the brain executable (the same rule as Home's, so Release and
     /// RC give none and start no brain), this home, its bundle `bin`, the
-    /// person's name, the localized Chief title, the bundled CLI and acpmux,
+    /// person's name, its login PATH, the localized Chief title, the bundled CLI and acpmux,
     /// and the harness of its own environment (no MCP command: acpmux gives
     /// each agent chat its own cmux MCP server). The default
     /// Chief's brain stays with Home (ChiefBrainKeeper), unchanged.
@@ -22,6 +23,10 @@ extension ChiefConversationOwner {
             "chief_title": HomeStrings.chiefName,
         ]
         if let bin { app["bin_dir"] = bin.path }
+        // The person's login PATH: a claude outside the fixed tool
+        // directories (Homebrew elsewhere, nvm) is found by the brain and
+        // its acpmux too.
+        if let path = LoginEnvironment.shared.rememberedPath(), !path.isEmpty { app["path"] = path }
         if let acpmux = host.acpmux {
             app["acpmux_bin"] = acpmux.executable.path
             if let cli = acpmux.childEnvironment["CMUX_BUNDLED_CLI_PATH"] { app["bundled_cli"] = cli }

@@ -106,8 +106,11 @@ fn ensure_error(error: &EnsureError) -> &'static str {
 fn brains_value(home: &ChiefHome) -> Option<String> {
     let executable = std::path::absolute(brain_binary()?).ok()?;
     let bin_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
+    // The person's PATH (a login shell's): the brains find the harnesses
+    // this terminal finds.
+    let path = std::env::var("PATH").ok().filter(|p| !p.is_empty());
     let value = serde_json::json!({"executable": executable, "home": home.root,
-                                   "app": {"bin_dir": bin_dir}});
+                                   "app": {"bin_dir": bin_dir, "path": path}});
     Some(value.to_string())
 }
 

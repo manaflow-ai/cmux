@@ -69,6 +69,11 @@ pub struct BrainsConfig {
 pub struct AppValues {
     /// The bundle's `bin` (first on `PATH`).
     pub bin_dir: Option<PathBuf>,
+    /// The person's login-shell `PATH` (the app's login environment
+    /// capture; the `cmux chief` CLI's own `PATH`): after `bin_dir`, before
+    /// the fixed tool directories, so the brain and its acpmux find the
+    /// harnesses a terminal finds (claude under Homebrew, nvm, ...).
+    pub path: Option<String>,
     /// The person's name (`MUX_USER_NAME`).
     pub user_name: Option<String>,
     /// The localized Chief title (`MUX_CHIEF_TITLE` when the record has no
@@ -159,12 +164,17 @@ pub fn brain_environment(
     };
     let mut path: Vec<String> = app.bin_dir.iter().map(|d| d.display().to_string()).collect();
     path.extend(
+        app.path.iter().flat_map(|p| p.split(':')).filter(|d| !d.is_empty()).map(str::to_owned),
+    );
+    path.extend(
         ["bin", ".local/bin", ".bun/bin", ".cargo/bin"].map(|d| format!("{user_home}/{d}")),
     );
     path.extend(
         ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
             .map(str::to_owned),
     );
+    let mut seen = std::collections::BTreeSet::new();
+    path.retain(|d| seen.insert(d.clone()));
     put("PATH", path.join(":"));
     put("HOME", user_home);
     put("MUX_HOME", mux_home.display().to_string());
