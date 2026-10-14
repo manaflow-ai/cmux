@@ -1,9 +1,48 @@
 import Darwin
 import Foundation
+import os
 
 /// The socket file: created with its mode, reclaimed when stale, and removed
 /// only while it is still this server's.
 extension ControlSocketServer {
+    /// Creates the socket's folder (0700, only this user) when it is missing,
+    /// so a first launch can bind under `~/.local/state/cmux`. A folder that
+    /// cannot be made fails the bind that follows, with its error.
+    static func makeStateDirectory(for path: String) {
+        let parent = (path as NSString).deletingLastPathComponent
+        guard !parent.isEmpty, access(parent, F_OK) != 0 else { return }
+        try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
+    }
+
+    /// Creates `link` to `target` when nothing is at `link`, or when a stale socket
+    /// of this user is (a pre-move app that crashed: nothing listens, the same rule
+    /// as ``reclaimStalePath(_:)``). Anything else at `link` stays, logged once per
+    /// call. True unless the symlink call failed.
+    @discardableResult
+    static func makeLink(_ link: String, to target: String) -> Bool {
+        var info = stat()
+        if lstat(link, &info) == 0 {
+            let isStaleSocket = info.st_mode & S_IFMT == S_IFSOCK && info.st_uid == getuid() && probe(link) == .refused
+            guard isStaleSocket else {
+                if (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) != target {
+                    socketFileLog.notice("compatibility link not made: something else is at \(link, privacy: .public)")
+                }
+                return true
+            }
+            unlink(link)
+        } else if errno != ENOENT {
+            return true
+        }
+        return symlink(target, link) == 0 || errno == EEXIST
+    }
+
+    /// Removes `link` only while it is this server's symlink to `target`.
+    static func unlinkLink(_ link: String, to target: String) {
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) == target else { return }
+        unlink(link)
+    }
+
     static func unlinkIfOwn(_ path: String, _ identity: (dev: dev_t, ino: ino_t)?) {
         var info = stat()
         if let identity, lstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
@@ -124,3 +163,5 @@ extension ControlSocketServer {
         return code == ECONNREFUSED ? .refused : .inconclusive(code)
     }
 }
+
+private let socketFileLog = Logger(subsystem: "com.cmuxterm.app.next", category: "control-socket")

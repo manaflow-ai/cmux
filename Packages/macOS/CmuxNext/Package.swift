@@ -64,6 +64,8 @@ import PackageDescription
 //     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
+//   CmuxNextAgentLanes -> AgentActivity, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
+//     states and lanes, and the sidebar's Lanes item; cx-v9k2f)
 //   CmuxNextApps -> Design, Icons, Wakeups (app platform: manifest model, scene store + native renderer, JavaScriptCore
 //     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
@@ -206,6 +208,7 @@ let package = Package(
                 "CmuxNextBrowserAutomation",
                 "CmuxNextBrowserHost",
                 "CmuxNextRemoteLocalhost",
+                "CmuxNextRemoteLocalhostService",
                 "CmuxNextBridge",
                 "CmuxNextControl",
                 "CmuxNextSettings",
@@ -226,6 +229,7 @@ let package = Package(
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
+                "CmuxNextAgentLanes",
                 "CmuxNextAgentCursor",
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
@@ -247,7 +251,7 @@ let package = Package(
         // the pick it shares with macOS Now Playing, and the card's feed. Wiring stays in the App.
         .target(
             name: "CmuxNextNowPlaying",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
@@ -494,6 +498,12 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // The acpmux watch feed (turn states and lanes) and the sidebar's Lanes item (cx-v9k2f).
+        .target(
+            name: "CmuxNextAgentLanes",
+            dependencies: ["CmuxNextAgentActivity", "CmuxNextBridge", "CmuxNextSidebar", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
         // App platform (plans/cmux-next/app-platform.md): the cmux-app.json
         // model, the scene store and native renderer, the JavaScriptCore
         // prototype engine (DEV) that runs the engine-neutral runtime synced
@@ -722,6 +732,7 @@ let package = Package(
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),
                 .process("HistoryActions.xcstrings"),
+                .process("MusicActions.xcstrings"),
                 .process("LayoutActions.xcstrings"),
                 .process("NewTabActions.xcstrings"),
                 .process("Localizable.xcstrings"),
@@ -863,6 +874,18 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: daemonSwiftSettings
         ),
+        // Browser tabs' remote localhost (routes, the proxy's daemon tunnels,
+        // badges) and Set Workspace Localhost. The App gives it its machines
+        // (RemoteLocalhostMachines) and the approval sheet.
+        .target(
+            name: "CmuxNextRemoteLocalhostService",
+            dependencies: [
+                "CmuxNextActions", "CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService",
+                "CmuxNextRemoteLocalhost", "CmuxNextSettings", "CmuxNextWakeups",
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextSettings",
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
@@ -899,8 +922,8 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+            dependencies: ["CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                            // GhosttyGlassMinimumContrastTests builds a Ghostty config.

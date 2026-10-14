@@ -68,8 +68,11 @@ fn sidebar_layout_ops_commit_replay_and_reject() {
         json!({"kind": "item.add", "item": same, "section": "sec_bottom", "index": 0}),
     )
     .unwrap();
-    assert_eq!(noop["value"]["revision"], "2");
-    assert_eq!(read(&mux, "sidebar_layout.get", json!({}))["revision"], "2");
+    // The gap also changed the sidebar document's sec_bottom (sidebar-doc-v1
+    // follows an old align/gap write), and the layout's revision is the
+    // stored layout's plus the document's: 2 + 1.
+    assert_eq!(noop["value"]["revision"], "3");
+    assert_eq!(read(&mux, "sidebar_layout.get", json!({}))["revision"], "3");
     let changes = changes_after(&mux, before)
         .into_iter()
         .filter(|change| change["resource"] == "sidebar_layout")
@@ -85,10 +88,10 @@ fn sidebar_layout_ops_commit_replay_and_reject() {
         changes,
         [
             ("state_upsert".to_string(), json!("user"), json!("1")),
-            ("state_upsert".to_string(), json!("user"), json!("2"))
+            ("state_upsert".to_string(), json!("user"), json!("3"))
         ]
     );
-    assert_eq!(snapshot(&mux)["extra"]["state"]["sidebar_layout"]["revision"], "2");
+    assert_eq!(snapshot(&mux)["extra"]["state"]["sidebar_layout"]["revision"], "3");
     let personal = mux.personal_snapshot().unwrap().personal_revision;
     update(&mux, "s-6", json!({"kind": "item.remove", "id": "itm_app_store"})).unwrap();
     assert_eq!(mux.personal_snapshot().unwrap().personal_revision, personal + 1);
