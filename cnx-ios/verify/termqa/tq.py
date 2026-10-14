@@ -294,3 +294,15 @@ def lag_probe(samples=12, gap=1.5):
         out.append((round(t0 % 1000, 1), mac, phone, round(t1 - t0, 2), round(t2 - t1, 2)))
         time.sleep(gap)
     return out
+
+
+def compare_bottom(n=8):
+    """The phone's last n terminal text rows (OCR, above the composer) vs the Mac screen's last n non-blank rows."""
+    s = Sim(load()["udid"])
+    comp = s.find(ident="terminal.composer.field")
+    ymax = comp[0].frame[1] - 8 if comp else 760
+    rows = [o for o in s.ocr() if 60 < o[1] < ymax]
+    rows.sort(key=lambda o: o[1])
+    phone = [o[4].strip() for o in rows][-n:]
+    mac = [l.strip() for l in mac_screen().splitlines() if l.strip()][-n:]
+    return phone, mac
