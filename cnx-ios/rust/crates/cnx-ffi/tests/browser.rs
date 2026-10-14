@@ -52,7 +52,7 @@ impl Recorder {
     }
 }
 
-async fn stream_over(transport: Transport) {
+async fn stream_over(transport: Transport, video_lane: bool) {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let sockets = tempfile::tempdir().unwrap();
     let launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -91,6 +91,7 @@ async fn stream_over(transport: Transport) {
             transport,
             include_loopback: true,
             relay_only: false,
+            video_lane,
         },
         None,
     )
@@ -124,10 +125,16 @@ async fn stream_over(transport: Transport) {
     recorder
         .until("frames with an age", |r| r.frames.lock().unwrap().iter().any(|f| f.age_us.is_some()))
         .await;
+    recorder.until("a P-frame", |r| r.frames.lock().unwrap().iter().any(|f| !f.keyframe)).await;
     {
         let frames = recorder.frames.lock().unwrap();
         assert!(frames[0].keyframe);
-        assert_eq!(frames[0].access_unit.len(), 2500);
+        // SPS, PPS and the IDR slice of the stand-in host, byte for byte
+        // whichever way they came.
+        assert_eq!(&frames[0].access_unit[..5], &[0, 0, 0, 1, 0x67]);
+        assert_eq!(frames[0].access_unit.len(), 18 + 5 + 4 + 2500);
+        let p = frames.iter().find(|f| !f.keyframe).unwrap();
+        assert_eq!(p.access_unit.len(), 5 + 4 + 2500, "{:?}", &p.access_unit[..12]);
         let aged = frames.iter().find_map(|f| f.age_us).unwrap();
         assert!((0..2_000_000).contains(&aged), "age {aged}");
     }
@@ -148,16 +155,28 @@ async fn stream_over(transport: Transport) {
     assert!(stream.send_message(r#"{"t":"welcome"}"#.into()).is_err());
     let stats = stream.stats();
     assert!(stats.frames >= 1 && stats.bytes >= 2500 && stats.clock_offset_us.is_some());
+    // The media lane exists on WebRTC only (WireGuard keeps the channel).
+    assert_eq!(stats.video_track, video_lane && transport == Transport::WebRtc, "{stats:?}");
     stream.close();
     recorder.until("closed", |r| r.closed.lock().unwrap().is_some()).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn browser_stream_over_webrtc() {
-    stream_over(Transport::WebRtc).await;
+    stream_over(Transport::WebRtc, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn browser_stream_over_the_webrtc_video_track() {
+    stream_over(Transport::WebRtc, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn browser_stream_over_wireguard_with_the_lane_offered_falls_back_to_the_channel() {
+    stream_over(Transport::WireGuard, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn browser_stream_over_wireguard() {
-    stream_over(Transport::WireGuard).await;
+    stream_over(Transport::WireGuard, false).await;
 }
