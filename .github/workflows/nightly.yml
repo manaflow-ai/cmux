@@ -797,9 +797,13 @@ jobs:
             const minHours = Number(process.env.MIN_INTERVAL_HOURS);
             if (process.env.DEBOUNCE === 'true' && Number.isFinite(minHours) && minHours > 0) {
               const { data } = await github.rest.actions.listWorkflowRuns({
-                owner, repo, workflow_id: 'nightly.yml', branch: target, per_page: 1,
+                owner, repo, workflow_id: 'nightly.yml', branch: target, per_page: 20,
               });
-              const last = data.workflow_runs[0];
+              // A failed or cancelled publication must not consume the floor:
+              // the next green feat-cmux-next tip retries it. Use the newest
+              // completed successful run as the last real publication marker.
+              const last = data.workflow_runs.find((run) =>
+                run.status === 'completed' && run.conclusion === 'success');
               if (last) {
                 const ageHours = (Date.now() - Date.parse(last.created_at)) / 3_600_000;
                 if (ageHours < minHours) {

@@ -402,6 +402,17 @@ def test_default_interval_is_two_hours_and_overridable() -> None:
     )
 
 
+def test_failed_nightly_next_publication_does_not_consume_the_floor() -> None:
+    """Promotion admission must measure the last successful publish, not a red run."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    start = text.index("  promote-nightly-next:\n")
+    end = text.index("\n  probe-nightly-tag-permission:\n", start)
+    promote = text[start:end]
+    assert "per_page: 20" in promote
+    assert "run.status === 'completed' && run.conclusion === 'success'" in promote
+    assert "const last = data.workflow_runs.find" in promote
+
+
 def test_push_to_main_skips_while_published_commit_is_young() -> None:
     result = run_decide(event="push", tag_age_hours=0.5)
     assert not should_build(result)
