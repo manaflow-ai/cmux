@@ -1754,7 +1754,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             window.displayIfNeeded()
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
-            await startAndWaitForLiveSurface(terminalPanel.surface)
+            let surfaceReady = await startAndWaitForLiveSurface(terminalPanel.surface)
+            XCTAssertTrue(surfaceReady, "Expected the terminal surface to become live before focusing it")
             let terminalFocused = await appDelegate.focusTerminalForTesting(
                 terminalPanel,
                 workspace: workspace,
@@ -1814,19 +1815,12 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
-    private func startAndWaitForLiveSurface(_ surface: TerminalSurface) async {
-        guard !surface.hasLiveSurface else { return }
-        let previousOnRuntimeReady = surface.onRuntimeReady
-        defer { surface.onRuntimeReady = previousOnRuntimeReady }
-        let readiness = AsyncStream<Void> { continuation in
-            surface.onRuntimeReady = {
-                previousOnRuntimeReady?()
-                continuation.yield()
-                continuation.finish()
-            }
-        }
+    private func startAndWaitForLiveSurface(_ surface: TerminalSurface) async -> Bool {
+        guard !surface.hasLiveSurface else { return true }
         surface.requestInputDemandSurfaceStartIfNeeded()
-        for await _ in readiness { break }
+        return await AppKitTestEventPump().waitUntil(timeout: .seconds(30)) {
+            surface.hasLiveSurface
+        }
     }
 
     @MainActor
