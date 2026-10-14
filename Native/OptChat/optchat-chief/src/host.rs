@@ -26,13 +26,12 @@ use crate::session_dir::{self, SessionSetup};
 use crate::state::StateFile;
 
 /// Env passed through to the turn's tools, as mux/host passes it.
-const PASSTHROUGH: [&str; 6] = [
+const PASSTHROUGH: [&str; 5] = [
     "CMUX_SOCKET_PATH",
     crate::cmux_env::APP_DAEMON_KEY,
     "ACPMUX_SOCKET",
     "ACPMUX_HOME",
     "ACPMUX_BIN",
-    "CMUX_MCP_COMMAND",
 ];
 
 /// A turn longer than this is stopped (minutes; `OPTCHAT_CHIEF_TURN_LIMIT_MIN`,
@@ -737,7 +736,6 @@ fn start(
     };
     let setup = SessionSetup {
         exe: exe.display().to_string(),
-        cmux_mcp: env("CMUX_MCP_COMMAND"),
         env: session_env,
         instructions: instructions.clone(),
         tools,
