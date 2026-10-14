@@ -13,6 +13,10 @@
 //
 // The engine comes from `playwright install webkit`; where it is not installed, the cases are
 // skipped and say so.
+//
+// Starting Vite, warming the gallery (every entry, about 2,300 modules) and 22 page loads took
+// about 115 s on the CI runner (run-webviews-tests.sh):
+// cmux-web-test-timeout: 240
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
