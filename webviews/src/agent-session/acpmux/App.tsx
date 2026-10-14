@@ -718,16 +718,18 @@ type ReportDrawn = (id: string, version: number, height: number) => void;
 type TranscriptRange = { anchorId: string; focusId: string };
 
 /// Assistant and summary rows already expose the turn's copy action in TurnFooter. Keep the
-/// floating action for prompts and tool rows where no adjacent copy control exists. The child
-/// view's "Subagent of" pill is navigation, with nothing to copy.
+/// floating action for prompts and tool rows; it shows only for keyboard focus and a selected
+/// range (a prompt's hover shows the Copy under its bubble). The child view's "Subagent of" pill
+/// is navigation, with nothing to copy.
 const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== "assistant" &&
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
   transcriptCopyText(row).length > 0;
 
-/// Slides the thread from `step` px below to its place over 180 ms, so content that grew at the
-/// latest row glides in. Glides stack (`composite: "add"`). None under Reduce Motion.
+/// Slides the thread from `step` px below (above, when negative) to its place over 180 ms, so
+/// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
+/// before one paint move the text by their sum. None under Reduce Motion.
 function glide(node: HTMLElement | null, step: number): void {
   if (!node || typeof node.animate !== "function") return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
@@ -1552,9 +1554,12 @@ export function VirtualTranscript({
           followTrace.set(latest);
         }
         // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
-        // resized viewport only moves the offset.
+        // resized viewport only moves the offset. A row that grew is placed by its estimate, then
+        // again by its drawn height, both before the frame paints: each step glides, and the
+        // glides add up, so the text moves by what it grew. Gliding only the first step drew the
+        // text an estimate's error too low, then slid it past its place, at every token.
         const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
-        if (step > 0.5 && step < node.clientHeight && !resized) glide(thread.current, step);
+        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized) glide(thread.current, step);
       } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -4191,9 +4196,11 @@ function AcpmuxPane() {
     [],
   );
   const [directProjects, setDirectProjects] = useState<{ cwd: string; label: string }[]>([]);
+  const onNewTab = Boolean(newTab);
   useEffect(() => {
-    // Start Agent's folder picker lists them too (cx-hkat).
-    if (!freshChat || newTab) return;
+    // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
+    // daemon's project list, where the user's renames and removals win (cx-m0p7).
+    if (!freshChat && !onNewTab) return;
     let active = true;
     void loadNewTabProjects()
       .then((projects) => {
@@ -4203,7 +4210,8 @@ function AcpmuxPane() {
     return () => {
       active = false;
     };
-  }, [freshChat, newTab, loadNewTabProjects]);
+    // A prewarmed spare page asks again when Cmd-T adopts it: before that its model is not wired.
+  }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
   const newTabProjects = useMemo(() => {
