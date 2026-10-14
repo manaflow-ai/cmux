@@ -421,6 +421,43 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(feedEvent?["error"] as? String, "Model not found: unknown/foo")
     }
 
+    func testOpenCodeRawFailureEventFeedEventRetainsErrorState() throws {
+        let context = try makeClaudeHookContext(name: "opencode-raw-failure-feed")
+        defer {
+            Darwin.close(context.listenerFD)
+            unlink(context.socketPath)
+            try? FileManager.default.removeItem(at: context.root)
+        }
+        startAgentHookMockServerAccepting(context: context)
+
+        let result = runAgentHook(
+            context: context,
+            agent: "opencode",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"opencode-raw-error-feed","cwd":"/tmp/opencode","hook_event_name":"session.error","error":{"name":"UnknownError","data":{"message":"Model not found: unknown/foo"}}}"#
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let deadline = Date().addingTimeInterval(5)
+        var feedEvent: [String: Any]?
+        while Date() < deadline, feedEvent == nil {
+            feedEvent = context.state.snapshot().compactMap { command -> [String: Any]? in
+                guard let payload = jsonObject(command),
+                      payload["method"] as? String == "feed.push",
+                      let params = payload["params"] as? [String: Any] else { return nil }
+                return params["event"] as? [String: Any]
+            }.first
+            if feedEvent == nil {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            }
+        }
+
+        XCTAssertEqual(feedEvent?["hook_event_name"] as? String, "Stop")
+        XCTAssertEqual(feedEvent?["is_error"] as? Bool, true)
+        XCTAssertEqual(feedEvent?["error"] as? String, "Model not found: unknown/foo")
+    }
+
     func testOpenCodeStopFailureFeedEventRedactsCredentials() throws {
         let context = try makeClaudeHookContext(name: "opencode-stop-failure-redact")
         defer {
