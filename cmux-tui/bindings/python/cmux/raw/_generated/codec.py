@@ -243,6 +243,8 @@ MODEL_BY_PATH = {
     'commands/cloud-session-status/request': models.CloudSessionStatusRequest,
     'commands/conversation-agent-token/request': models.ConversationAgentTokenRequest,
     'commands/conversation-agent-token/result': models.ConversationAgentTokenResult,
+    'commands/conversation-attachment-link/request': models.ConversationAttachmentLinkRequest,
+    'commands/conversation-attachment-link/result': models.ConversationAttachmentLinkResult,
     'commands/conversation-attachment-read/request': models.ConversationAttachmentReadRequest,
     'commands/conversation-attachment-read/result': models.ConversationAttachmentReadResult,
     'commands/conversation-attachment-upload/request': models.ConversationAttachmentUploadRequest,
