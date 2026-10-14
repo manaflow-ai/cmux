@@ -24,6 +24,9 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// Sanitized tag (`[a-z0-9-]`), nil for untagged builds.
     public var tag: String?
     public var socketPath: String
+    /// The socket's old `/tmp` name, kept as a symlink to ``socketPath`` for
+    /// tools that still use it (``ControlSocketPath``); nil with an explicit path.
+    public var compatibilityLink: String?
     /// The app's own build (bundle id and the tag its bundle ships; never a
     /// DEBUG test override): its daemon session, state and control socket
     /// (``BuildIdentity/appSession``). The `cmux` CLI in this app's terminals
@@ -31,10 +34,12 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// (``terminalEnvironment``), so both resolve one build.
     public var build: BuildIdentity
 
-    public init(bundleID: String?, tag: String?, socketPath: String, build: BuildIdentity? = nil) {
+    public init(bundleID: String?, tag: String?, socketPath: String, compatibilityLink: String? = nil,
+                build: BuildIdentity? = nil) {
         self.bundleID = bundleID
         self.tag = tag
         self.socketPath = socketPath
+        self.compatibilityLink = compatibilityLink
         self.build = build ?? BuildIdentity(bundleID: bundleID, bundledTag: tag)
     }
 
@@ -67,13 +72,18 @@ public struct LaunchIdentity: Sendable, Equatable {
         let shipped = bundledEnvironment["CMUX_TAG"].flatMap(ControlSocketPath.shared.sanitize) ?? taggedAppName(bundleName)
         let tag = ControlSocketPath.shared.bundleTag(bundle) ?? shipped
         let build = BuildIdentity(bundleID: bundle, bundledTag: shipped)
-        // A DEBUG compile under release's bundle id never takes release's socket.
-        var path = (isDebugBuild && build.kind == .release ? nil : build.controlSocket(userHome: home))
-            ?? ControlSocketPath.shared.resolve(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home)
         if let explicit = processEnvironment[socketOverrideKey]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
-            path = explicit
+            return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: explicit, build: build)
         }
-        return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: path, build: build)
+        let paths = ControlSocketPath.shared
+        // The build's own socket name (per-build isolation S3), in the state
+        // folder with its old /tmp name as a link. A DEBUG compile under
+        // release's bundle id never takes release's socket.
+        let named = isDebugBuild && build.kind == .release ? nil : build.controlSocket(userHome: home)
+        let socket = named.map { paths.moved($0, home: home) }
+            ?? (path: paths.resolve(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home),
+                link: paths.compatibilityLink(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home))
+        return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: socket.path, compatibilityLink: socket.link, build: build)
     }
 
     /// A fleet artifact is sometimes launched directly from its staged

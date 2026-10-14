@@ -112,6 +112,17 @@ fn refuse_real_name(name: &str) {
     );
 }
 
+/// Whether `text` names the socket `want` (a vectors path, its pre-move name):
+/// in the user's `~/.local/state/cmux` (hq#1870), or at its `/tmp` name when
+/// the moved path does not fit `sun_path`.
+fn names_socket(text: &str, want: &Path, user_home: &Path) -> bool {
+    let moved = want
+        .strip_prefix("/tmp")
+        .map(|name| user_home.join(".local/state/cmux").join(name))
+        .unwrap_or_else(|_| want.to_path_buf());
+    text.contains(moved.to_str().unwrap()) || text.contains(want.to_str().unwrap())
+}
+
 /// `cmux --json identify` (an app command) by `cli`: no app runs, so it
 /// fails and names the control socket it tried.
 fn tried_socket(output: &Output) -> String {
@@ -121,7 +132,8 @@ fn tried_socket(output: &Output) -> String {
 
 /// Every test build of the shared vectors (every DEV, unknown and tagged RC
 /// or staging bundle; no real build): `cmux identify` tries the vector's
-/// control socket and no other. The untagged DEV build reaches its own
+/// control socket and no other (its pre-move name in the vectors; the app
+/// keeps it in `~/.local/state/cmux` with a `/tmp` link, hq#1870). The untagged DEV build reaches its own
 /// key's socket, never release's or `/tmp/cmux-debug.sock`, and builds of
 /// different DEV tags never share one.
 #[test]
@@ -149,7 +161,7 @@ fn cmux_reaches_the_control_socket_of_its_own_build() {
         let output =
             cmux_as(bundle_id, case["bundled_tag"].as_str(), &user_home, &["--json", "identify"]);
         let text = tried_socket(&output);
-        if !text.contains(want.to_str().unwrap()) {
+        if !names_socket(&text, &want, &user_home) {
             wrong.push(format!("{}: {} (want {})", case["name"], text.trim(), want.display()));
         } else if let Some(other) = reached.insert(want.clone(), tag.to_owned())
             && other != tag
@@ -207,7 +219,7 @@ fn the_bundled_cli_reads_its_build_from_the_bundle_as_the_app_does() {
             command.env_remove(key);
         }
         let text = tried_socket(&command.stdin(Stdio::null()).output().unwrap());
-        if !text.contains(want) {
+        if !names_socket(&text, Path::new(want), &user_home) {
             wrong.push(format!("{name}: {} (want {want})", text.trim()));
         }
     }

@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use cmux_tui_core::Mux;
 use cmux_tui_core::cloud_conversations::{
-    CloudBackend, CloudWire, ConnectError, HttpReply, TransportError, WireRecv,
+    CloudBackend, CloudWire, ConnectError, HttpReply, RangeReply, TransportError, WireRecv,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -32,6 +32,10 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// A Home read returns at most 200 messages of at most 64 KiB text each.
 const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 const CLIENT_VERSION_HEADER: &str = "x-cmux-client-version";
+/// An attachment upload (up to 100 MB) may take longer than a JSON call.
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// One ranged attachment read (at most 4 MiB).
+const RANGE_TIMEOUT: Duration = Duration::from_secs(60);
 /// A Worker that reads the upgrade's Authorization header names it on every wire 401.
 const WIRE_AUTH_HEADER: &str = "x-cmux-wire-auth";
 
@@ -45,6 +49,9 @@ enum WireAuth {
 pub(crate) struct RemoteCloudBackend {
     runtime: tokio::runtime::Runtime,
     http: reqwest::Client,
+    /// Attachment slot and signed URLs: never follows a redirect (the URL
+    /// the daemon checked is the one it talks to).
+    files: reqwest::Client,
 }
 
 impl RemoteCloudBackend {
@@ -62,7 +69,12 @@ impl RemoteCloudBackend {
             .connect_timeout(CONNECT_TIMEOUT)
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
-        Ok(Self { runtime, http })
+        let files = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
+            .build()?;
+        Ok(Self { runtime, http, files })
     }
 }
 
@@ -122,6 +134,74 @@ impl CloudBackend for RemoteCloudBackend {
                 )));
             }
             Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
+        })
+    }
+
+    fn put(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: Vec<u8>,
+    ) -> Result<HttpReply, TransportError> {
+        let mut request = self.files.put(url).timeout(UPLOAD_TIMEOUT).body(body);
+        for (name, value) in headers {
+            request = request.header(name.as_str(), value.as_str());
+        }
+        self.runtime.block_on(async move {
+            let response = request.send().await.map_err(|error| transport(&error))?;
+            let status = response.status().as_u16();
+            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
+            if bytes.len() > MAX_BODY_BYTES {
+                return Err(TransportError(format!(
+                    "reply of {} bytes exceeds the limit",
+                    bytes.len()
+                )));
+            }
+            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
+        })
+    }
+
+    fn get_range(&self, url: &str, offset: u64, length: u64) -> Result<RangeReply, TransportError> {
+        let last = offset + length.max(1) - 1;
+        let request = self
+            .files
+            .get(url)
+            .timeout(RANGE_TIMEOUT)
+            .header(reqwest::header::RANGE, format!("bytes={offset}-{last}"));
+        self.runtime.block_on(async move {
+            let response = request.send().await.map_err(|error| transport(&error))?;
+            let status = response.status().as_u16();
+            let header = |name: reqwest::header::HeaderName| {
+                response
+                    .headers()
+                    .get(name)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string)
+            };
+            let content_type = header(reqwest::header::CONTENT_TYPE);
+            // `bytes a-b/total` on a 206; the whole length on a 200.
+            let total = match header(reqwest::header::CONTENT_RANGE) {
+                Some(range) => range.rsplit('/').next().and_then(|total| total.trim().parse().ok()),
+                None if status == 200 => response.content_length(),
+                None => None,
+            };
+            // A server that ignores the range answers 200 with everything: only
+            // a read from the start can use it, and only its first `length` bytes.
+            if status == 200 && offset > 0 {
+                return Err(TransportError("the attachment server ignored the byte range".into()));
+            }
+            let limit = usize::try_from(length).unwrap_or(usize::MAX);
+            let mut response = response;
+            let mut body = Vec::with_capacity(limit.min(1 << 20));
+            while body.len() < limit {
+                match response.chunk().await.map_err(|error| transport(&error))? {
+                    Some(chunk) => {
+                        body.extend_from_slice(&chunk[..chunk.len().min(limit - body.len())]);
+                    }
+                    None => break,
+                }
+            }
+            Ok(RangeReply { status, content_type, total, body })
         })
     }
 

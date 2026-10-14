@@ -19,7 +19,7 @@ mod launch;
 mod link;
 mod messages;
 mod pipe;
-mod registry;
+pub(in crate::cli) mod registry;
 mod render;
 mod shutdown;
 #[cfg(test)]
@@ -154,6 +154,17 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     if args.help {
         println!("{}", m.usage);
         return 0;
+    }
+    let word = match &args.control {
+        _ if args.shutdown => Some("shutdown"),
+        Some(control::Control::Engine(changes)) if !changes.is_empty() => Some("engine"),
+        Some(control::Control::Stop(_)) => Some("stop"),
+        _ => None,
+    };
+    if let Some(refusal) =
+        word.and_then(|word| registry::agent_control_refusal(&format!("cmux chief {word}"), word))
+    {
+        return super::wire::print_operation_error(&refusal, global.output);
     }
     if args.shutdown {
         return shutdown::run(&global, args.chief_home.as_deref());

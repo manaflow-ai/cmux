@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use cmux_agent_pane_policy::build_identity::BuildIdentity;
 
 const DEBUG_BUNDLE_ID: &str = "com.cmuxterm.app.debug";
+/// `sockaddr_un.sun_path` on macOS (104 bytes) less its terminating NUL.
+const MAX_SOCKET_PATH_BYTES: usize = 103;
 /// `action.list`'s per-action surface plan key (where the app offers the
 /// action: palette, CLI, right-click, MCP). App control vocabulary for UI
 /// surfaces, not a daemon resource word; `cmux mcp` reads its `mcp` entry.
@@ -93,16 +95,26 @@ impl AppIdentity {
         }
     }
 
-    /// The app control socket (`ControlSocketPath.resolve` of the build,
-    /// [`BuildIdentity::control_socket`]): the path an app terminal names,
-    /// else its build's own.
+    /// The app control socket (`ControlSocketPath.resolve` of the build:
+    /// [`BuildIdentity::control_socket`], per-build isolation S3) in the
+    /// user's `~/.local/state/cmux`, since a host's /tmp cleaner deleted a
+    /// running app's `/tmp` socket (hq#1870). A path too long for `sun_path`
+    /// keeps its old `/tmp` name, and so does an app from before the move:
+    /// when only the old name exists, that is where it listens.
     pub(crate) fn control_socket(&self, home: &Path) -> PathBuf {
         if let Some(path) = &self.socket_override {
             return path.clone();
         }
-        self.build()
+        let old = self
+            .build()
             .control_socket(home)
-            .unwrap_or_else(|| home.join(".local/state/cmux/cmux.sock"))
+            .unwrap_or_else(|| home.join(".local/state/cmux/cmux.sock"));
+        let Ok(name) = old.strip_prefix("/tmp") else { return old };
+        let moved = home.join(".local/state/cmux").join(name);
+        if moved.as_os_str().len() > MAX_SOCKET_PATH_BYTES || (!moved.exists() && old.exists()) {
+            return old;
+        }
+        moved
     }
 
     /// The app's cmux-tui session (`DaemonLauncher.sessionName` of the build,
@@ -205,12 +217,32 @@ mod tests {
         let cases = [
             // Not the reload.sh form, the untagged DEV build and a tagged RC
             // build: names of their build key (S3).
-            (Some("com.cmuxterm.app.debug.Feat_X"), None, "/tmp/cmux-debug--ec0e7410.sock"),
-            (Some("com.cmuxterm.app.debug"), Some("clic"), "/tmp/cmux-debug-clic.sock"),
-            (Some("com.cmuxterm.app.debug"), None, "/tmp/cmux-debug--650e93e3.sock"),
-            (None, Some("nx9"), "/tmp/cmux-debug-nx9.sock"),
-            (Some("com.cmuxterm.app.nightly"), None, "/tmp/cmux-nightly.sock"),
-            (Some("com.cmuxterm.app.rc.try2"), None, "/tmp/cmux-rc--36529c0e.sock"),
+            (
+                Some("com.cmuxterm.app.debug.Feat_X"),
+                None,
+                "/Users/a/.local/state/cmux/cmux-debug--ec0e7410.sock",
+            ),
+            (
+                Some("com.cmuxterm.app.debug"),
+                Some("clic"),
+                "/Users/a/.local/state/cmux/cmux-debug-clic.sock",
+            ),
+            (
+                Some("com.cmuxterm.app.debug"),
+                None,
+                "/Users/a/.local/state/cmux/cmux-debug--650e93e3.sock",
+            ),
+            (None, Some("nx9"), "/Users/a/.local/state/cmux/cmux-debug-nx9.sock"),
+            (
+                Some("com.cmuxterm.app.nightly"),
+                None,
+                "/Users/a/.local/state/cmux/cmux-nightly.sock",
+            ),
+            (
+                Some("com.cmuxterm.app.rc.try2"),
+                None,
+                "/Users/a/.local/state/cmux/cmux-rc--36529c0e.sock",
+            ),
             (Some("com.cmuxterm.app"), None, "/Users/a/.local/state/cmux/cmux.sock"),
         ];
         for (bundle, tag, expected) in cases {
