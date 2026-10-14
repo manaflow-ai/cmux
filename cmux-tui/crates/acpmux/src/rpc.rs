@@ -303,6 +303,9 @@ pub mod method {
     /// To watchers when a harness profile source changed and the catalog
     /// reloaded: `{harnesses: string[], diagnostics}`.
     pub const MUX_HARNESSES_CHANGED: &str = "_acpmux/harnesses_changed";
+    /// To local watchers when a new chat's start mode may have changed (a
+    /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
+    pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";

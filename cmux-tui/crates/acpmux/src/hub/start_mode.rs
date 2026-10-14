@@ -295,6 +295,16 @@ impl Hub {
         cwd: Option<std::path::PathBuf>,
         remote: bool,
     ) -> Result<Value, RpcError> {
+        // A remote-origin connection's chats get no start mode: it is told so
+        // before its cwd, preset or harness is resolved, so the answer never
+        // reveals this Mac's folders, profiles or settings.
+        if remote {
+            return Ok(
+                json!({"harness": null, "modeId": null, "name": null, "level": null, "source": null}),
+            );
+        }
+        // As session/new: harness discovery and launcher checks finish first.
+        self.wait_startup().await;
         let (agent, profile, eligible) = {
             let cfg = self.config.read().await;
             let r = self.resolve_new(&cfg, harness, &preset, None, remote, cwd.as_deref())?;
@@ -393,5 +403,18 @@ impl Hub {
         if let Err(e) = cfg.save() {
             tracing::warn!("mode pick not saved to config.json: {e}");
         }
+        drop(cfg);
+        self.start_mode_changed();
+    }
+
+    /// Tells local watchers a new chat's start mode may have changed
+    /// (`_acpmux/start_mode_changed`), so a pending chat asks again.
+    pub(super) fn start_mode_changed(&self) {
+        let _ = self.start_mode_changes.send(());
+    }
+
+    /// The feed behind `_acpmux/start_mode_changed`.
+    pub fn subscribe_start_mode_changes(&self) -> broadcast::Receiver<()> {
+        self.start_mode_changes.subscribe()
     }
 }

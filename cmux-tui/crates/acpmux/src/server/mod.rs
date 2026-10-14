@@ -695,10 +695,25 @@ async fn serve_connection_from(
         let mut rx = hub.subscribe();
         let mut harnesses = hub.subscribe_harness_changes();
         let mut catalog = hub.catalog.subscribe();
+        let mut start_modes = hub.subscribe_start_mode_changes();
         tokio::spawn(async move {
             loop {
                 let ev = tokio::select! {
                     ev = rx.recv() => ev,
+                    // Local watchers only: a remote-origin connection's chats
+                    // get no start mode (`_acpmux/start_mode`).
+                    note = start_modes.recv() => {
+                        match note {
+                            Ok(()) | Err(broadcast::error::RecvError::Lagged(_))
+                                if conn.watch_all.load(Ordering::SeqCst) && !conn.origin.web_class() =>
+                            {
+                                conn.send(&Message::notification(method::MUX_START_MODE_CHANGED, json!({})));
+                            }
+                            Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                        continue;
+                    }
                     note = harnesses.recv() => {
                         match note {
                             Ok(note) if conn.watch_all.load(Ordering::SeqCst) => conn.send(
