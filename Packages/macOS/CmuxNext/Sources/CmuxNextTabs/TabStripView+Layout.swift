@@ -62,17 +62,26 @@ extension TabStripView {
             metrics: metrics,
             closingModeWidth: closingModeWidth
         )
+        // Where the strip shows the previous slot ending now (its springs' values, not targets).
+        var boundary: CGFloat?
         for slot in result.slots where slot.id != Self.placeholderID {
             guard var m = motion[slot.id] else { continue }
             if added.contains(slot.id) {
                 if let pendingDrop, pendingDrop.id == slot.id {
                     m = TabMotion(x: pendingDrop.x, width: pendingDrop.width, alpha: 1)
                     self.pendingDrop = nil
+                } else if animated {
+                    // A new tab grows in from zero width at the seam it opens, on the same spring
+                    // as the tabs making room, so its edges and theirs share one progress and every
+                    // seam stays closed (Leo 2026-10-13: 0 to its final width as the others shrink,
+                    // in one animation).
+                    m = TabMotion(x: boundary ?? slot.x, width: 0, alpha: 0)
+                    m.width.token = .move
                 } else {
-                    // New tabs grow in from zero width at their slot.
-                    m = TabMotion(x: slot.x, width: animated ? 0 : slot.width, alpha: animated ? 0 : 1)
+                    m = TabMotion(x: slot.x, width: slot.width, alpha: 1)
                 }
             }
+            boundary = m.x.value + max(0, m.width.value)
             if drag?.id != slot.id { m.x.target = groupDragX(for: slot) ?? slot.x }
             if groups.isDragged(slot.id) { m.x.snap() }
             m.width.target = slot.width

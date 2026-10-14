@@ -2,7 +2,8 @@ import CmuxNextDesign
 import CoreGraphics
 
 /// One tab's layout springs in `TabStripView` (`motion`). A tab that grows
-/// in from zero width uses the `appear` spring; a width or opacity moving to
+/// in from zero width uses the `appear` spring (a new tab's strip switches it
+/// to `move`, the spring of the tabs making room); a width or opacity moving to
 /// zero (close, collapse) uses `disappear`; x is a position spring and never
 /// does.
 struct TabMotion {
