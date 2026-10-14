@@ -4,6 +4,31 @@ import Foundation
 /// The socket file: created with its mode, reclaimed when stale, and removed
 /// only while it is still this server's.
 extension ControlSocketServer {
+    /// Creates the socket's folder (0700, only this user) when it is missing,
+    /// so a first launch can bind under `~/.local/state/cmux`. A folder that
+    /// cannot be made fails the bind that follows, with its error.
+    static func makeStateDirectory(for path: String) {
+        let parent = (path as NSString).deletingLastPathComponent
+        guard !parent.isEmpty, access(parent, F_OK) != 0 else { return }
+        try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
+    }
+
+    /// Points `link` at `target` when nothing is at `link`; never replaces anything.
+    /// Creates `link` to `target` when nothing is at `link`; true unless the symlink call failed.
+    @discardableResult
+    static func makeLink(_ link: String, to target: String) -> Bool {
+        var info = stat()
+        guard lstat(link, &info) != 0, errno == ENOENT else { return true }
+        return symlink(target, link) == 0 || errno == EEXIST
+    }
+
+    /// Removes `link` only while it is this server's symlink to `target`.
+    static func unlinkLink(_ link: String, to target: String) {
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) == target else { return }
+        unlink(link)
+    }
+
     static func unlinkIfOwn(_ path: String, _ identity: (dev: dev_t, ino: ino_t)?) {
         var info = stat()
         if let identity, lstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
