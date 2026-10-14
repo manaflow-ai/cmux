@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import ImageIO
 import UniformTypeIdentifiers
 
-/// DEBUG ONLY. `debug.window_record` {dir, seconds (at most 8), window?}:
+/// DEBUG ONLY. `debug.window_record` {dir, seconds (at most 12), window?}:
 /// the window as the window server composited it (`compositedSnapshot`,
 /// as `debug.window_snapshot`, plus the app's panels over it that are not
 /// its children, such as the palette opened with no key window), once per display frame of its screen (a
@@ -26,7 +26,7 @@ enum DebugWindowRecord {
         guard let dir = params["dir"]?.stringValue.map({ ($0 as NSString).expandingTildeInPath }) else {
             return .object(["error": .string("dir is required")])
         }
-        let seconds = min(8, max(0.1, params["seconds"]?.doubleValue ?? 3))
+        let seconds = min(12, max(0.1, params["seconds"]?.doubleValue ?? 3))
         do { try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true) } catch {
             return .object(["error": .string("cannot create \(dir)")])
         }

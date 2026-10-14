@@ -49,6 +49,7 @@ enum DebugSidebarRows {
                 "window": .string(controller.state.id),
                 "selection": .array(selection.map(JSONValue.string)),
                 "dragging": .array(dragging.map(JSONValue.string)),
+                "drag_active": .bool(sidebar.debugDragActive()),
                 "drop": sidebar.debugDropProbe().map(probe) ?? .null,
                 "paging": .object(sidebar.debugPaging().mapValues(JSONValue.string)),
                 "items": .array(items(of: controller)),

@@ -131,6 +131,9 @@ extension SidebarView {
         model.layout.sections.map { ($0.id.rawValue, $0.title, $0.arrangement.align.rawValue, $0.arrangement.gap, $0.items.count) }
     }
 
+    /// Whether a drag is active now (a tile drag hides no list row, so `dragging` can be empty while it runs).
+    public func debugDragActive() -> Bool { list.drag != nil }
+
     /// The new-workspace button (+) in window points from the top-left, so a
     /// proof clicks it (`debug.mouse`); nil while it is hidden.
     public func debugNewButtonFrame() -> CGRect? {

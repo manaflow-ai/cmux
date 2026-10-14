@@ -162,21 +162,29 @@ def mouse(action, x, y):
         rpc("debug.mouse", {"x": x, "y": y, "action": action})
 
 
+def fail_harness(message):
+    """Stops the run: a dead harness must not record a still sidebar as data (CHECKS.json says why)."""
+    CHECKS["harness"] = {"ok": False, "error": message}
+    sys.exit(f"FAIL real drag: {message}")
+
+
 def gesture(path, hold=0.35, seconds=1.2, escape_at=None):
     """Press at path[0], move through the path in `seconds`, hold, release; `escape_at` (s): Escape mid-drag."""
     if opts.real_pointer:
         # cua-driver moves along one straight line and releases at its end (no hold). Its call can return
         # before the gesture runs, and fronting the window takes a while (job 1014-082101-bac11c: every scenario
         # recorded a still sidebar), so time the scenario from the drag the app reports, not from the call.
+        if window().get("drag_active"):
+            fail_harness("a drag from the previous scenario is still active before the cua-driver call")
         reply = {}
         worker = threading.Thread(target=lambda: reply.update(value=real_drag(path[0], path[-1], seconds)))
         called = time.monotonic()
         worker.start()
-        began = wait(lambda: window().get("dragging"), 5)
+        began = wait(lambda: window().get("drag_active"), 5)
         if not began:
             # A dead harness must not record a still sidebar as data: stop the run here.
             worker.join(seconds + 70)
-            sys.exit(f"FAIL real drag: the app reported no drag within 5 s of the cua-driver call (reply: {json.dumps(reply.get('value'))[:500]})")
+            fail_harness(f"the app reported no drag within 5 s of the cua-driver call (reply: {json.dumps(reply.get('value'))[:500]})")
         print(f"real drag: began {time.monotonic() - called:.2f}s after the call", flush=True)
         if escape_at is not None:
             threading.Timer(max(0.0, escape_at - 0.2), lambda: rpc("debug.key", {"key": "escape"})).start()
@@ -184,8 +192,8 @@ def gesture(path, hold=0.35, seconds=1.2, escape_at=None):
         value = reply.get("value")
         failed = not isinstance(value, dict) or value.get("error") or value.get("isError")
         print(f"cua drag {'FAILED' if failed else 'reply'}: {json.dumps(value)[:500]}", flush=True)
-        if not wait(lambda: not window().get("dragging"), 10):
-            print("real drag: still dragging 10 s after the gesture", flush=True)
+        if not wait(lambda: not window().get("drag_active"), 10):
+            fail_harness("the drag was still active 10 s after the cua-driver gesture ended")
         return
     if escape_at is not None:
         threading.Timer(escape_at, lambda: rpc("debug.key", {"key": "escape"})).start()
@@ -299,7 +307,7 @@ def record(name, path, dragged, dropped_key=None, refused=False, **kwargs):
     shutil.rmtree(folder, ignore_errors=True)
     rpc("debug.sidebar_rows", {"motion": "start"})
     # A real-pointer gesture starts late (the window is fronted first): record the longest window.
-    seconds = 8 if opts.real_pointer else min(8, kwargs.get("seconds", 1.2) + kwargs.get("hold", 0.35) + 1.6)
+    seconds = 10 if opts.real_pointer else min(8, kwargs.get("seconds", 1.2) + kwargs.get("hold", 0.35) + 1.6)
     rpc("debug.window_record", {"dir": folder, "seconds": seconds})
     gesture(path, **kwargs)
     time.sleep(1.2)  # test harness: let the drop settle on screen
