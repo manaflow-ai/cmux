@@ -9,8 +9,11 @@ a temp Chief root (CMUX_NEXT_CHIEF_ROOT), never ~/.cmux/chief.
      override) resolves ROOT/default: its brain holds that lock, the memory
      still holds M0 once and Home shows it.
   2. B, a copy of the app with bundle id com.cmuxterm.app.debug.<tag>b (ad-hoc
-     signed), runs at the same time: its home is ROOT/com.cmuxterm.app.debug.<tag>b,
-     empty (no M0), with its own brain, tools socket and acpmux socket.
+     signed, its own tag and sockets), runs as cmux NEXT's NIGHTLY identity
+     (CMUX_NEXT_CHIEF_BUILD_ID=com.cmuxterm.app.nightly.cmux-next) at the same
+     time as A: two NIGHTLY identities never share one Chief, so its home is
+     ROOT/com.cmuxterm.app.nightly.cmux-next, empty (no M0), with its own brain,
+     tools socket and acpmux socket.
   3. B quits with quitEndSessions: A's brain is the same process, still alive,
      and A answers a new message.
 
@@ -34,7 +37,8 @@ ROOT = os.path.join(SCRATCH, "chief")
 NIGHTLY_HOME = os.path.join(ROOT, "default")
 TAG_B = f"{TAG}b"
 BUNDLE_B = f"com.cmuxterm.app.debug.{TAG_B}"
-B_HOME = os.path.join(ROOT, BUNDLE_B)
+NEXT_NIGHTLY = "com.cmuxterm.app.nightly.cmux-next"
+B_HOME = os.path.join(ROOT, NEXT_NIGHTLY)
 os.makedirs(opts.out, exist_ok=True)
 
 
@@ -202,13 +206,13 @@ try:
     a_brain = wait(lambda: brain_pid(NIGHTLY_HOME), 180)
     shown_m0 = wait(lambda: any(t == m0 for _, t in a.shown()), 60)
     count = memory_count(NIGHTLY_HOME, m0)
-    others = sorted(n for n in os.listdir(ROOT) if n not in ("default", BUNDLE_B))
+    others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY))
     say(f"step 1: NIGHTLY brain {a_brain} on default; Home shows M0: {bool(shown_m0)}; memory has M0 {count}x; other homes {others}")
     if not (a_brain and shown_m0 and count == 1 and not others):
         failed = failed or 1
     # 2. B at the same time: its own empty home and brain
     b = App("B", copy_as_b(opts.app), TAG_B)
-    b.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT})
+    b.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": NEXT_NIGHTLY})
     b_brain = wait(lambda: brain_pid(B_HOME), 180)
     wait(lambda: b.chief_row(), 60)
     b_shown = b.shown()

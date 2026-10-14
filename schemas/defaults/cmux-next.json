@@ -245,6 +245,7 @@
     "setting.appearance.backgroundBlur": null,
     "setting.appearance.backgroundOpacity": null,
     "setting.appearance.borders": "default",
+    "setting.appearance.chromeStyle": "default",
     "setting.appearance.density": "compact",
     "setting.appearance.experimentalControls": false,
     "setting.appearance.focusIndicator": "both",

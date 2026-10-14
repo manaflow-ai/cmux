@@ -143,7 +143,9 @@ function ListRow({
       onClick={() => onSelect(row.id)}
     >
       {unread && <span className="lg-unread-dot" aria-hidden="true" />}
-      <span className="lg-row-mark">{channel ? <ChannelMark /> : <Avatar participant={other} size={20} state={state} />}</span>
+      <span className="lg-row-mark">
+        {channel ? <ChannelMark /> : <Avatar participant={other} size={20} state={state} />}
+      </span>
       <span className="lg-row-name">
         {channel && <span className="lg-visually-hidden">#</span>}
         {name}
