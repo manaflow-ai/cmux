@@ -72,7 +72,7 @@ import { acpmuxPerf, type MountedSpan } from "./perf";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { Composer, type ComposerHandle } from "./Composer";
+import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
@@ -93,6 +93,7 @@ import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
+import { PermissionStatus } from "./PermissionStatus";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import type { DiffFindHandle } from "./changes/diffFind";
@@ -389,6 +390,33 @@ const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { s
     ? { sessionId, rowId: anchor.rowId, offset: anchor.offset }
     : undefined;
 };
+
+/// The handshake's `wake` (AgentPaneWakeState.swift): what a released page held that acpmux does not.
+/// `scrollAnchor`: the transcript's place, null at its latest message, undefined when unknown.
+function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: ScrollAnchor | null } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const wake = value as {
+    attachments?: unknown;
+    shell?: unknown;
+    shellText?: unknown;
+    scrollAnchor?: unknown;
+    atLatest?: unknown;
+  };
+  const anchor = wake.scrollAnchor as { rowId?: unknown; offset?: unknown } | null | undefined;
+  return {
+    composer: {
+      attachments: Array.isArray(wake.attachments) ? (wake.attachments as ComposerAttachment[]) : undefined,
+      shell: wake.shell === true,
+      shellText: typeof wake.shellText === "string" ? wake.shellText : undefined,
+    },
+    scrollAnchor:
+      typeof anchor?.rowId === "string" && typeof anchor.offset === "number"
+        ? { rowId: anchor.rowId, offset: anchor.offset }
+        : wake.atLatest === true
+          ? null
+          : undefined,
+  };
+}
 
 /// Asks the host to show the Quick Composer's chat in a window.
 const postOpenInWindow = (sessionId: string) =>
@@ -912,6 +940,18 @@ export const SCROLL_ANCHOR_SETTLE_MS = 400;
 /// latest message, which a reopened chat follows anyway.
 export type ScrollAnchor = { rowId: string; offset: number };
 
+/// Where a transcript scrolled to `top` rests: null at its latest message.
+function restingAnchor(
+  top: number,
+  atLatest: boolean,
+  placed: Parameters<typeof visibleLayoutRange>[0],
+  shown: readonly { id: string }[],
+): ScrollAnchor | null {
+  const index = visibleLayoutRange(placed, top, 0, 0).first;
+  const row = shown[index];
+  return atLatest || !row ? null : { rowId: row.id, offset: top - placed.tops[index] };
+}
+
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
 /// from the latest message (ChatGPT and Codex style). Its dots say a reply is streaming below. It stays
 /// mounted while hidden (inert) so it fades out as it fades in (conversation.css).
@@ -968,6 +1008,7 @@ export function VirtualTranscript({
   focusComposer,
   openAt,
   onAnchor,
+  anchorNow,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -975,6 +1016,9 @@ export function VirtualTranscript({
   openAt?: ScrollAnchor;
   /// Where it rests after each settled scroll (null at the latest message).
   onAnchor?: (anchor: ScrollAnchor | null) => void;
+  /// Filled with where it last rested in view (null at the latest message, undefined when it was
+  /// never in view), for a page about to let go.
+  anchorNow?: React.MutableRefObject<(() => ScrollAnchor | null | undefined) | undefined>;
   /// A reply is streaming: Jump to latest shows its dots while the reader is scrolled up.
   working?: boolean;
   /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
@@ -999,6 +1043,14 @@ export function VirtualTranscript({
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
   /// so a reply growing below or a session switch updates it without a scroll.
   const [following, setFollowing] = useState(true);
+  // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
+  // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
+  // stack changes height.
+  const followingRef = useRef(true);
+  const follow = (next: boolean) => {
+    followingRef.current = next;
+    setFollowing(next);
+  };
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [height, setHeight] = useState(600);
   const ref = useRef<HTMLDivElement>(null);
@@ -1204,6 +1256,8 @@ export function VirtualTranscript({
     };
   }, []);
   const scrolledTo = useRef({ top: 0, atLatest: false });
+  /// Where the reader last saw it rest, measured in view; undefined until it is.
+  const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// Whether a move off the latest row, to `top` against `latest`, is a stray rather than the reader's.
@@ -1453,10 +1507,11 @@ export function VirtualTranscript({
       previousLayout.current = null;
       previousRows.current = rows;
       scrolledTo.current = { top: 0, atLatest: false };
+      seenAnchor.current = undefined;
       clearTimeout(settle.current);
       settle.current = undefined;
       setScroll({ top: 0, delta: 0 });
-      setFollowing(true);
+      follow(true);
     }
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
@@ -1472,8 +1527,9 @@ export function VirtualTranscript({
       // then; a shorter viewport alone would otherwise read as scrolled up.
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
       const top = clamped ? scrolledTo.current.top : live;
-      const atLatest =
-        clamped || unmoved
+      const atLatest = followingRef.current
+        ? true
+        : clamped || unmoved
           ? scrolledTo.current.atLatest
           : top >= old.totalHeight - node.clientHeight - 1 ||
             (scrolledTo.current.atLatest && strayFrom(top, old.totalHeight - node.clientHeight));
@@ -1514,13 +1570,16 @@ export function VirtualTranscript({
       node.scrollTop = top;
       followTrace.set(top);
       setScroll({ top, delta: 0 });
-      setFollowing(top >= latest - 1);
+      follow(top >= latest - 1);
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
-    if (node && node.clientHeight > 0) scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    if (node && node.clientHeight > 0) {
+      scrolledTo.current = scrollPosition(node, layout.totalHeight);
+      seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
+    }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, sessionId]);
@@ -1644,6 +1703,15 @@ export function VirtualTranscript({
   useEffect(() => {
     if (height > 0 && anchorDeferred.current) reportAnchor();
   });
+  // A page about to let go (pane.wakeState) is hidden: it has no viewport, so its place is where
+  // the reader last saw it.
+  useEffect(() => {
+    if (!anchorNow) return;
+    anchorNow.current = () => seenAnchor.current;
+    return () => {
+      anchorNow.current = undefined;
+    };
+  }, [anchorNow]);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
@@ -1651,12 +1719,30 @@ export function VirtualTranscript({
     if (event.currentTarget.clientHeight === 0) return;
     const node = event.currentTarget;
     const next = node.scrollTop;
+    const programmatic = performance.now() - readerAt.current > READER_SCROLL_MS;
+    // ResizeObserver/layout work can emit a scroll event after the stack below the transcript
+    // changes. While the reader is following, keep the viewport at the new end and do not let
+    // that synthetic event clear the follow state. A real wheel/touch/key event marks itself first.
+    // A layout-driven scroll keeps the previous offset; a reader scroll changes it. The latter is
+    // also what the jsdom behavior tests dispatch without a wheel event, so do not classify every
+    // programmatic-looking event as layout work.
+    const layoutDriven = followingRef.current && programmatic && Math.abs(next - scrolledTo.current.top) <= 0.5;
+    if (layoutDriven) {
+      const latest = Math.max(0, layout.totalHeight - node.clientHeight);
+      if (Math.abs(next - latest) > 0.5) node.scrollTop = latest;
+      scrolledTo.current = { top: latest, atLatest: true };
+      followTrace.set(latest);
+      follow(true);
+      setScroll((current) => ({ top: latest, delta: latest - current.top }));
+      return;
+    }
     const was = scrolledTo.current;
     scrolledTo.current = scrollPosition(node, layout.totalHeight);
     const latest = Math.max(0, layout.totalHeight - node.clientHeight);
     if (was.atLatest && !scrolledTo.current.atLatest && strayFrom(next, latest)) {
       // Not the reader's scroll: the view keeps following the reply.
       scrolledTo.current = { top: latest, atLatest: true };
+      seenAnchor.current = null;
       node.scrollTop = latest;
       followTrace.set(latest);
       return;
@@ -1670,10 +1756,11 @@ export function VirtualTranscript({
         clientHeight: node.clientHeight,
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
+    seenAnchor.current = restingAnchor(next, scrolledTo.current.atLatest, layout, rows);
     acpmuxPerf.timed("flush.scroll", () =>
       flushSync(() => {
         setScroll((current) => ({ top: next, delta: next - current.top }));
-        setFollowing(scrolledTo.current.atLatest);
+        follow(scrolledTo.current.atLatest);
       }),
     );
     if (onAnchor) {
@@ -1686,6 +1773,7 @@ export function VirtualTranscript({
   const jumpToLatest = (focused: boolean) => {
     const node = ref.current;
     if (!node) return;
+    follow(true);
     if (focused) focusComposer?.();
     const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const target = Math.max(0, layout.totalHeight - node.clientHeight);
@@ -1843,10 +1931,11 @@ function DefaultComposerChips({
     if (!startsChat || !harness || snapshot.summary?.sessionId) return;
     void callNative("chat.new", { harness, ...inFolder }).catch(() => undefined);
   };
-  const picker = usePickerCatalog(snapshot.catalog, {
-    harness: snapshot.summary?.harness,
-    configOptions: snapshot.summary?.configOptions,
-  });
+  const picker = usePickerCatalog(
+    snapshot.catalog,
+    { harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions },
+    snapshot.sessions,
+  );
   const [refreshStatus, setRefreshStatus] = useState<"idle" | "fetching" | "updated" | "error">("idle");
   const refreshCatalog = useCallback(async () => {
     setRefreshStatus("fetching");
@@ -2264,10 +2353,14 @@ function AcpmuxPane() {
       ? snapshot.rows.filter(
           (row) =>
             row.kind !== "permission" ||
-            (!row.permission?.groupId && !groupedIds.has(row.permission?.permissionId ?? "")),
+            (!row.permission?.groupId &&
+              !groupedIds.has(row.permission?.permissionId ?? "") &&
+              row.permission?.permissionId !== individualPermission?.permissionId),
         )
-      : snapshot.rows;
-  }, [snapshot.rows, snapshot.permissionGroups]);
+      : individualPermission
+        ? snapshot.rows.filter((row) => row.permission?.permissionId !== individualPermission.permissionId)
+        : snapshot.rows;
+  }, [snapshot.rows, snapshot.permissionGroups, individualPermission]);
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   const transcriptRows = useMemo(() => {
@@ -2461,7 +2554,7 @@ function AcpmuxPane() {
     () => ({ harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions }),
     [snapshot.summary?.harness, snapshot.summary?.configOptions],
   );
-  const pickerState = usePickerCatalog(snapshot.catalog, pickerSession);
+  const pickerState = usePickerCatalog(snapshot.catalog, pickerSession, snapshot.sessions);
   const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
@@ -2793,8 +2886,16 @@ function AcpmuxPane() {
   /// while it is not mounted (a handoff review) go in when it mounts.
   const composerHandle = useRef<ComposerHandle | null>(null);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
+  /// What a released page's composer held (the handshake's `wake`), for the composer once it mounts.
+  const pendingWake = useRef<ComposerWake | undefined>(undefined);
+  /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
+  const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
+    if (handle && pendingWake.current) {
+      handle.wake(pendingWake.current);
+      pendingWake.current = undefined;
+    }
     const waiting = heldBack.current;
     if (!handle || !waiting) return;
     heldBack.current = undefined;
@@ -3152,6 +3253,7 @@ function AcpmuxPane() {
           linkScheme?: unknown;
           sessionMustExist?: boolean;
           revealTurn?: unknown;
+          wake?: unknown;
           chooseFolder?: boolean;
           folderNeeded?: { reason?: unknown };
           pastTurns?: unknown;
@@ -3183,8 +3285,22 @@ function AcpmuxPane() {
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
+        // A woken page (its last one let go while hidden) comes back as it was left.
+        const wake = !reconnect ? readWake(host.wake) : undefined;
+        if (wake) {
+          if (composerHandle.current) composerHandle.current.wake(wake.composer);
+          else pendingWake.current = wake.composer;
+        }
         if (!reconnect && host.sessionId) {
-          const anchor = await fetchScrollAnchor(host.sessionId);
+          // The released page's place is newer than the kept one: a scroll that settled while
+          // hidden was never reported. Keep it for a relaunch too.
+          const woken = wake?.scrollAnchor;
+          if (woken !== undefined) postScrollAnchor(host.sessionId, woken);
+          const anchor = woken
+            ? { sessionId: host.sessionId, ...woken }
+            : woken === null
+              ? undefined
+              : await fetchScrollAnchor(host.sessionId);
           if (cancelled) return;
           setScrollAnchor(anchor);
         }
@@ -3301,6 +3417,14 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
+        /// Opens a chat this one made in a tab of its own (`chat.openTab`); false when the host opens none.
+        const openOwnTab = (sessionId: string) =>
+          mock
+            ? Promise.resolve(false)
+            : callNative("chat.openTab", { sessionId }).then(
+                () => true,
+                () => false,
+              );
         /// Settles when the turn ends. `accepted` runs once acpmux took the prompt; a sender that
         /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
         /// Without it a refused prompt goes back into the composer.
@@ -3511,9 +3635,15 @@ function AcpmuxPane() {
           "chat.menu.openImage": async () => openReportedImage(),
           // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
           "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
+          // A fork and a started Continue in… open in a tab of their own, so the chat keeps its tab
+          // and stays in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the
+          // floating chat) gets the new chat in this tab, as before.
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
-            return persistSession(await client.fork(Number(throughSeq)));
+            const chat = client.selectedSession;
+            const forked = await client.fork(Number(throughSeq), undefined, true);
+            if (!forked || (await openOwnTab(forked)) || client.selectedSession !== chat) return forked;
+            return persistSession(await client.select(forked));
           },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
           // edited text with the prompt's attachments; the original chat stays as it was.
@@ -3539,16 +3669,32 @@ function AcpmuxPane() {
           },
           "chat.ask": ({ question }) => client.ask(String(question ?? "")),
           "chat.side": async ({ throughSeq }) => {
+            // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
+            const chat = client.selectedSession;
             const sessionId = await client.forkAside(Number(throughSeq));
-            if (sessionId) await postNative("chat.sideChat", { sessionId });
+            if (!sessionId || !chat) return;
+            // acpmux marks it the chat's side chat; the app only opens it beside the chat.
+            await client.markSide(sessionId, chat);
+            await postNative("chat.sideChat", { sessionId });
           },
+          // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
+          // its own tab and brings this one back to the chat.
           "chat.handoff.prepare": async ({ harness }) => {
             harnessSwitch.cancel();
-            return persistSession(await client.continueIn(String(harness)));
+            return client.continueIn(String(harness));
           },
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
-          "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
+          "chat.handoff.start": async ({ review }) => {
+            const receipt = await client.startHandoff(review as HandoffReviewInput);
+            const source = client.handoff.state.record?.source.sessionId;
+            const target = receipt?.targetSessionId;
+            if (!target || !source || client.selectedSession !== target) return receipt;
+            if (await openOwnTab(target)) {
+              if (client.selectedSession === target) await persistSession(await client.select(source));
+            } else await persistSession(target);
+            return receipt;
+          },
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope, paths, context_lines }) =>
             client.gitDiff(String(scope), {
@@ -3578,6 +3724,17 @@ function AcpmuxPane() {
                 : client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
+          // What this page holds that acpmux does not, kept by the host when a hidden chat's page
+          // lets go and handed back with the next page's handshake (`wake`).
+          // The transcript's place: an anchor, at its latest message, or left out when unknown
+          // (never in view, or a subagent's view open) so the chat's kept anchor stands.
+          "pane.wakeState": async () => {
+            const anchor = transcriptAnchor.current?.();
+            return {
+              ...composerHandle.current?.wakeState(),
+              ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
+            };
+          },
         };
         // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
         setMessageMenuSource((rowId) =>
@@ -4147,6 +4304,7 @@ function AcpmuxPane() {
                                 ? scrollAnchor
                                 : undefined
                             }
+                            anchorNow={quick || childRows ? undefined : transcriptAnchor}
                             onAnchor={
                               quick || childRows || !shownSessionId
                                 ? undefined
@@ -4172,9 +4330,30 @@ function AcpmuxPane() {
     </ArtifactContext.Provider>
   );
   const toolCards = useToolCards();
-  const asks = (
-    <>
-      {snapshot.permissionGroups?.supported && (
+  // Folder trust is the first gate in the bottom stack. While it is being read or answered,
+  // permission and secret cards stay out of the tree so the user never has two different asks
+  // competing for the same answer. A trusted receipt is not blocked and can sit above the next ask.
+  const trustPending = Boolean(trustAsk.blocked);
+  const hasPermissionGroups = Boolean(
+    snapshot.permissionGroups?.supported &&
+    (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
+  );
+  const hasBottomAsk = Boolean(
+    (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
+    (!trustPending && (hasPermissionGroups || individualPermission || snapshot.secret || toolCards.length > 0)),
+  );
+  const asks = hasBottomAsk ? (
+    <div className="acpmux-permission acpmux-asks-stack">
+      {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
+        <TrustAsk
+          ask={trustAsk.ask}
+          agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+          onTrust={trustAsk.trust}
+          onDistrust={trustAsk.distrust}
+          onUndo={trustAsk.undo}
+        />
+      )}
+      {!trustPending && hasPermissionGroups && snapshot.permissionGroups && (
         <PermissionPanel
           state={snapshot.permissionGroups}
           working={snapshot.isWorking}
@@ -4192,8 +4371,8 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {(individualPermission || trustAsk.ask || snapshot.secret || toolCards.length > 0) && (
-        <div className="acpmux-permission">
+      {!trustPending && (individualPermission || snapshot.secret || toolCards.length > 0) && (
+        <>
           <ToolCards
             cards={toolCards}
             onAnswer={(id, action, value) =>
@@ -4203,15 +4382,6 @@ function AcpmuxPane() {
               ).catch(() => undefined)
             }
           />
-          {trustAsk.ask && (
-            <TrustAsk
-              ask={trustAsk.ask}
-              agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-              onTrust={trustAsk.trust}
-              onDistrust={trustAsk.distrust}
-              onUndo={trustAsk.undo}
-            />
-          )}
           {individualPermission && <PermissionAsk permission={individualPermission} />}
           {snapshot.secret && (
             <SecretCard
@@ -4221,9 +4391,27 @@ function AcpmuxPane() {
               onAnswer={answerSecret(snapshot.secret)}
             />
           )}
-        </div>
+        </>
       )}
-    </>
+    </div>
+  ) : null;
+  const permissionStatus = (
+    <PermissionStatus
+      trusted={trustAsk.trusted}
+      chatAllowed={snapshot.permissionGroups?.chatAllowance === true}
+      trustLabel={
+        trustAsk.ask?.state === "decided" && trustAsk.ask.level === "trusted"
+          ? isAgentHome(trustAsk.ask.cwd)
+            ? t("trust.trustedPrivate")
+            : t("trust.trusted", { folder: projectName(trustAsk.ask.cwd) ?? trustAsk.ask.cwd })
+          : undefined
+      }
+      recentTrust={trustAsk.justTrusted}
+      onUndoTrust={trustAsk.undo}
+      onRevoke={
+        snapshot.permissionGroups?.chatAllowance ? () => void callNative("chat.permission_chat.revoke", {}) : undefined
+      }
+    />
   );
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
@@ -4373,6 +4561,7 @@ function AcpmuxPane() {
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           chips={ComposerChips}
+          permissionStatus={permissionStatus}
           draft={draft}
           onUnsentDraft={quick ? undefined : postUnsentDraft}
           onCmuxCommand={(command, args) => {
@@ -4649,6 +4838,7 @@ function AcpmuxPane() {
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
               harnessesListed={harnessesListed}
+              {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
               {...(newTab.harnessHintDismissed ? { harnessHintDismissed: true } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>

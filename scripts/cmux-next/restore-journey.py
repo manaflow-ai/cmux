@@ -21,7 +21,17 @@ Variants:
           default is pressed, as Return does, and the row records whether that keeps sessions);
   update  what Sparkle does before it relaunches into an update
           (`debug.updater {action: "relaunch"}`: the updater's relaunch hook, then terminate);
-  crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs.
+  crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs;
+  slow    the quit path, then a relaunch against a slow daemon (cx-wwtam; debug builds only):
+          `CMUX_NEXT_DEBUG_SLOW_ATTACH=SLOW_ATTACH` makes every terminal attach wait, and the
+          first ones of each terminal fail, as before a late daemon answers. With no input, every
+          shown terminal must still attach (restore settles), and a terminal still attaching must
+          say "Restoring…" (`debug.surfaces` link `restoring`).
+  wedged  Quit and Keep Sessions over the socket (`action.run quitKeepSessions`) while the quit's
+          engine stop blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn;
+          `debug.quit {wedge_engine_stop: true}`, debug builds only): the app must still end within
+          WEDGED_QUIT_BOUND seconds, by its quit deadline. If it never ends, its exact pid is
+          killed so the restore rows still run.
 Each relaunch reuses the app's own launch environment (read from the running process), so a
 capture slot keeps its HOME, TMPDIR, socket and config file. It never runs `defaults delete`:
 UserDefaults survive, as on a person's Mac. If the slot's app copy is gone after the quit,
@@ -74,6 +84,9 @@ parser.add_argument("--activate", action="store_true",
                     help="relaunch as a person's launch does (activating, without CMUX_NEXT_NO_ACTIVATE), so window order and focus follow real key windows")
 parser.add_argument("--hist-file", action="store_true",
                     help="serve the history pages as file:// pages (as a person opens a local .html), reporting to the local server")
+parser.add_argument("--engine", choices=["webkit", "chromium"],
+                    help="browser engine for the seeded pages: written to the capture slot's own settings file "
+                         "(CMUX_NEXT_CONFIG_FILE under the slot, never a shared one) and put back at the end")
 parser.add_argument("--allow-non-slot", action="store_true",
                     help="drive a tagged DEV build that is not in a capture slot (it closes rj-* workspaces, quits and relaunches it)")
 opts = parser.parse_args()
@@ -137,6 +150,12 @@ def dump(name, value):
 
 
 # ---- the app process: identity, environment, quit, relaunch -----------------------------
+
+# The slow variant's daemon: each terminal's first 3 attaches fail, every attach waits 1 s.
+SLOW_ATTACH = "3:1000"
+# The quit deadline (QuitDeadline.engineStopLimit, 15 s) plus margin for a loaded mini.
+WEDGED_QUIT_BOUND = 30
+
 
 class App:
     def __init__(self):
@@ -208,6 +227,32 @@ class App:
             except OSError as error:
                 say(f"  crash: kill failed: {error}")
                 return False
+        elif variant == "wedged":
+            armed = rpc("debug.quit", {"wedge_engine_stop": True}, timeout=10)
+            say(f"  debug.quit wedge_engine_stop -> {json.dumps(armed)[:200]}")
+            if not (isinstance(armed, dict) and armed.get("wedges_engine_stop") is True):
+                # A build without the seam (not a debug build) would quit normally and pass falsely.
+                RESULTS.append((f"{variant}: the engine-stop wedge is armed", False, "debug.quit has no wedge_engine_stop (not a debug build?)", "harness"))
+                return False
+            started = time.time()
+            say(f"  action.run quitKeepSessions -> {json.dumps(rpc('action.run', {'action': 'quitKeepSessions'}, timeout=30))[:200]}")
+            ended = wait(lambda: not self.alive(), 60, 0.25)
+            took = time.time() - started
+            in_bound = bool(ended) and took <= WEDGED_QUIT_BOUND
+            say(f"  app pid {self.pid} {f'exited {took:.1f} s after its quit' if ended else 'is STILL RUNNING after 60 s'}")
+            RESULTS.append((f"{variant}: app ends within {WEDGED_QUIT_BOUND} s with its engine stop wedged", in_bound,
+                            f"exited after {took:.1f} s" if ended else "still running after 60 s", "app quit"))
+            if ended:
+                return True
+            # The red case: action.run is wedged too (the main thread never runs it).
+            answer = rpc("action.run", {"action": "equalizeSplits"}, timeout=10)
+            RESULTS.append((f"{variant}: action.run still runs while the quit hangs", isinstance(answer, dict) and "error" not in answer,
+                            json.dumps(answer)[:160], "app quit"))
+            identity = rpc("system.identify", timeout=5)
+            if isinstance(identity, dict) and int(identity.get("pid") or 0) == self.pid and self.alive():
+                say(f"  wedged: SIGKILL pid {self.pid} so the restore rows still run")
+                os.kill(self.pid, signal.SIGKILL)
+            return bool(wait(lambda: not self.alive(), 20, 0.25))
         elif variant == "update":
             say(f"  debug.updater relaunch -> {json.dumps(rpc('debug.updater', {'action': 'relaunch'}, timeout=30))[:200]}")
         else:
@@ -244,7 +289,7 @@ class App:
         subprocess.run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", self.bundle], capture_output=True)
         return True
 
-    def relaunch(self):
+    def relaunch(self, extra_env=None):
         if not self.ensure_bundle():
             return False
         # The updater's hook may relaunch the app itself: never start a second copy beside it.
@@ -259,6 +304,8 @@ class App:
         for key, value in self.env.items():
             if opts.activate and key == "CMUX_NEXT_NO_ACTIVATE":
                 continue
+            args += ["--env", f"{key}={value}"]
+        for key, value in (extra_env or {}).items():
             args += ["--env", f"{key}={value}"]
         subprocess.run(args, check=True)
         up = wait(lambda: os.path.exists(opts.socket) and (lambda r: isinstance(r, dict) and r.get("pid"))(rpc("system.identify", timeout=5)), 60, 0.5)
@@ -405,9 +452,22 @@ def restore_acpmux_config():
 # ---- the local web server: pages that report their own path and scroll ---------------------
 
 REPORTS = {}  # page name -> latest {path, scrollY, at}
-SINCE = 0.0  # when the last quit started: reports older than this are stale
+SINCE = 0.0  # when the last quit ended: reports older than this are stale
 SERVED = set()
+REPORT_LOG = []  # (page name, time) of every report: when each page first reported after a relaunch
+PAGE_LOADS = []  # (page name, time) of every page the server sent: a reopened page loads once
 LOCK = threading.Lock()
+
+
+def outside_image():
+    """A 1x1 PNG next to the local history pages' folder, not in it."""
+    path = os.path.join(opts.out, "outside", "dot.png")
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+                                  "0000000d49444154789c63f8cfc0f01f00050001ff89993d1d0000000049454e44ae426082"))
+    return path
 
 
 def page_html(name, base=""):
@@ -422,13 +482,18 @@ def page_html(name, base=""):
     nxt = {"hist-a": "hist-b", "hist-b": "hist-c"}.get(name)
     href = f"{nxt}.html" if opts.hist_file else f"/{nxt}"
     link = f"<a id='next' href='{href}'>next</a>" if nxt else ""
+    # A local history page also tries to show an image from outside its folder: a page loaded
+    # with access to its own folder cannot (`ext` 0), after a reopen too.
+    if opts.hist_file and name.startswith("hist"):
+        link += f"<img id='probe' src='file://{outside_image()}' style='width:1px;height:1px'>"
     # Both history pages report as one tab ("hist").
     tab = "hist" if name.startswith("hist") else name
     return f"""<!doctype html><html><head><title>rj {name}</title></head><body>
 <h1>rj {name}</h1>{link}{body}
 <script>
 function report(){{var p=location.pathname.replace(/^.*\\//,'/').replace(/\\.html$/,'');
-new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&t='+Date.now();}}
+var probe=document.getElementById('probe'),ext=probe?(probe.complete&&probe.naturalWidth>0?1:0):-1;
+new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&ext='+ext+'&t='+Date.now();}}
 {act}
 setInterval(report,1000); window.addEventListener('scroll',report); window.addEventListener('pageshow',report); report();
 </script></body></html>"""
@@ -443,11 +508,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if url.path == "/report":
             q = parse_qs(url.query)
             with LOCK:
+                REPORT_LOG.append((q.get("page", [""])[0], time.time()))
                 REPORTS[q.get("page", [""])[0]] = {"path": q.get("path", [""])[0], "scrollY": int(q.get("y", ["0"])[0]),
-                                                   "history": int(q.get("h", ["0"])[0]), "at": time.time()}
+                                                   "history": int(q.get("h", ["0"])[0]), "ext": int(q.get("ext", ["-1"])[0]),
+                                                   "at": time.time()}
             self.send_response(204)
             self.end_headers()
             return
+        with LOCK:
+            PAGE_LOADS.append((url.path.strip("/") or "index", time.time()))
         data = page_html(url.path.strip("/") or "index").encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
@@ -1045,8 +1114,12 @@ def back_walk(label):
             step = time.time()
             reply = rpc("debug.toast", {"perform": action_id, **target})
             ok = bool(wait(lambda: reached(path, step), 15, 0.3))
-            RESULTS.append((f"{label}: {action_id} reaches {path}", ok,
-                            f"performed {reply.get('performed') if isinstance(reply, dict) else reply}; at {hist().get('path')}", "browser"))
+            detail = f"performed {reply.get('performed') if isinstance(reply, dict) else reply}; at {hist().get('path')}"
+            if not ok:
+                status = rpc("debug.browser.page_status", {"tab": HIST["tab"]})
+                status = status if isinstance(status, dict) else {}
+                detail += f"; history_start {status.get('history_start')!r} ({time.time() - start:.1f} s after the focus), can_go_back {status.get('can_go_back')!r}"
+            RESULTS.append((f"{label}: {action_id} reaches {path}", ok, detail, "browser"))
             if not ok:
                 break
         if hist().get("path") != "/hist-c":
@@ -1060,6 +1133,41 @@ def back_walk(label):
                 wait(lambda: hist().get("path") == "/hist-c" and hist().get("at", 0) > start, 10, 0.3)
                 RESULTS.append((f"{label}: page put back on /hist-c by its address", False,
                                 "Forward could not return; the next variant's history length counts from here", "browser"))
+
+
+def load_rows(variant, launched):
+    """How long each page took to report after the relaunch (restore time per tab, compared
+    before and after a change), and that the reopened history page loaded once."""
+    with LOCK:
+        first = {}
+        for page, at in REPORT_LOG:
+            if at > launched and page not in first:
+                first[page] = at - launched
+        hist_loads = sum(1 for page, at in PAGE_LOADS if page == "hist-c" and at > launched)
+    timings = ", ".join(f"{page} {first[page]:.2f} s" for page in sorted(first))
+    say(f"  pages reported after the relaunch: {timings or 'none'}")
+    RESULTS.append((f"{variant}: pages report after the relaunch", bool(first), timings or "no page reported", "browser"))
+    if not opts.hist_file:
+        # WebKit's own restore may show the page from its cache (0 requests): still one load.
+        # A restored Chromium page in a workspace nobody shows loads when it is shown, after this row.
+        RESULTS.append((f"{variant}: page[hist] loads once after the reopen", hist_loads <= 1,
+                        f"the server sent /hist-c {hist_loads} times" + ("" if "hist" in first else " (not shown yet)"), "browser"))
+    def page_status():
+        status = rpc("debug.browser.page_status", {"tab": HIST.get("tab")}) if HIST.get("tab") else {}
+        return status if isinstance(status, dict) else {}
+    status = page_status()
+    if HIST.get("tab") and status.get("error") == "no browser tab":
+        # A tab in a workspace not shown yet has no page until it is shown.
+        with visiting("rj-web"):
+            wait(lambda: page_status().get("history_start") not in (None, "", "engine-waiting-file"), 15, 0.3)
+            status = page_status()
+    RESULTS.append((f"{variant}: page[hist] reopens through the engine's own history", status.get("history_start") == "engine",
+                    f"history_start {status.get('history_start')!r}, engine_state_saved {status.get('engine_state_saved')!r}, "
+                    f"can_go_back {status.get('can_go_back')!r}" + ("" if "history_start" in status else f"; {json.dumps(status)[:160]}"), "browser"))
+    if opts.hist_file:
+        ext = (REPORTS.get("hist") or {}).get("ext")
+        RESULTS.append((f"{variant}: page[hist] cannot show a file outside its folder", ext == 0,
+                        f"probe {ext} (1 shown, 0 refused, -1 no probe)", "browser"))
 
 
 def journey(base):
@@ -1080,9 +1188,25 @@ def journey(base):
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))
             return
-        if not APP.relaunch():
+        # Reports count from here: the old app's pages keep reporting until its process ends, and
+        # one of those would pass for a reopened page that has not reported yet (cx-p1xs5).
+        launched = SINCE = time.time()
+        if not APP.relaunch({"CMUX_NEXT_DEBUG_SLOW_ATTACH": SLOW_ATTACH} if variant == "slow" else None):
             RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
             return
+        if variant == "slow":
+            # No input from here on: the terminals must come back by themselves.
+            links = set()
+            def restoring_seen():
+                report = rpc("debug.surfaces", timeout=10)
+                for window in report.get("windows", []) if isinstance(report, dict) else []:
+                    for pane in window.get("panes", []):
+                        if pane.get("kind") == "terminal" and pane.get("presence") == "visible":
+                            links.add(str(pane.get("link")))
+                return "restoring" in links
+            seen = wait(restoring_seen, 15, 0.25)
+            RESULTS.append((f"{variant}: a terminal still attaching says Restoring…", bool(seen),
+                            f"links seen: {sorted(links)}", "terminal"))
         ok = wait(lambda: settled(expected), opts.settle, 1)
         took = time.time() - started
         say(f"  restore {'settled' if ok else 'did NOT settle'} {took:.1f} s after the quit")
@@ -1091,12 +1215,52 @@ def journey(base):
         if isinstance(before.get("counter.tick_in_view"), int):
             wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)
         compare(variant, before, snapshot(f"{variant}-after"))
+        load_rows(variant, launched)
         back_walk(f"{variant} after the reopen")
+
+
+ENGINE_CONFIG = {}  # the slot settings file --engine changed: {"path", "text"} to put back
+
+
+def use_engine(engine):
+    """Points browser.defaultEngine at `engine` in the slot's own settings file and waits for the
+    app to read it. Only a capture slot's file (its launch sets CMUX_NEXT_CONFIG_FILE and
+    CMUX_CAPTURE_SLOT): a mini's shared settings are never written."""
+    path = APP.env.get("CMUX_NEXT_CONFIG_FILE")
+    if not path or not APP.env.get("CMUX_CAPTURE_SLOT"):
+        sys.exit("--engine needs a capture slot's own settings file (CMUX_NEXT_CONFIG_FILE and CMUX_CAPTURE_SLOT)")
+    text = open(path).read() if os.path.exists(path) else None
+    ENGINE_CONFIG.update(path=path, text=text)
+    config = json.loads(text) if text and text.strip() else {}
+    config.setdefault("browser", {})["defaultEngine"] = engine
+    with open(path, "w") as f:
+        json.dump(config, f, indent=2)
+    read = lambda: (rpc("settings.get", {"path": "browser.defaultEngine"}) or {}).get("value") == engine
+    if not wait(read, 20, 0.5):
+        sys.exit(f"the app never read browser.defaultEngine {engine} from {path}")
+    say(f"  browser.defaultEngine {engine} in {path}")
+
+
+def restore_engine_config():
+    path = ENGINE_CONFIG.pop("path", None)
+    if not path:
+        return
+    text = ENGINE_CONFIG.pop("text", None)
+    if text is None:
+        os.unlink(path)
+    else:
+        with open(path, "w") as f:
+            f.write(text)
+
+
+atexit.register(restore_engine_config)
 
 
 def main():
     global APP
     APP = App()
+    if opts.engine:
+        use_engine(opts.engine)
     server, base = start_server()
     say(f"local pages at {base}; daemon {daemon_socket()}")
     try:
@@ -1105,6 +1269,7 @@ def main():
         RESULTS.append(("journey finished", False, f"stopped early: {stop.code}", "harness"))
     finally:
         restore_acpmux_config()
+        restore_engine_config()
         server.shutdown()
     width = max((len(r[0]) for r in RESULTS), default=10)
     print("\n" + "-" * (width + 40))

@@ -35,8 +35,6 @@ export interface UpdateHighlights {
 export interface UpdateSurfaceActions {
   /** "See What's New" / "See all changes": `updates.openChangelog` (ChangelogPageTab.open(from, to)). */
   openChangelog(): void;
-  /** "Share cmux" (the Updated card only): the Share cmux modal. */
-  share?(): void;
   /** The card's x: hides the card for this version. */
   dismiss?(): void;
 }

@@ -161,7 +161,8 @@ await requireBrowserLane("agent-pane-secret.test.ts", async () => {
       live = true;
       history = [];
       const page = await openChat();
-      await page.getByText("Create the test webhook").waitFor({ timeout: 10_000 });
+      // The file's first page loads the pane's modules cold; on a busy runner that took over 10 s.
+      await page.getByText("Create the test webhook").waitFor({ timeout: 60_000 });
       await provide(page);
       await page.locator(".acpmux-secret-card").waitFor({ state: "detached" });
       expect(submits).toEqual([{ sessionId: SESSION, secretId: "card-1", value: VALUE }]);

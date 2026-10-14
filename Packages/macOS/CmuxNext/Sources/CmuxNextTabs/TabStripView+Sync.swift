@@ -3,7 +3,7 @@ import CmuxNextDesign
 import QuartzCore
 // Model sync: diffs `TabStripModel` into tab cells and spring targets.
 extension TabStripView {
-    // MARK: - Model sync (`animating: false`: Cmd-T's tab at full width now, one commit with its page)
+    // MARK: - Model sync (`animating: false`: every tab at its place now, no springs)
 
     public func sync(fromModel: Bool, animating: Bool = true) {
         let modelOrdered = model.orderedTabs
@@ -17,10 +17,7 @@ extension TabStripView {
                 groups.membershipOverride = [:]
                 if let detachedID, !order.contains(detachedID) { self.detachedID = nil }
                 if let detached = groups.detachedGroupID, !membership.contains(detached) { groups.detachedGroupID = nil }
-                if let pendingDrop, !order.contains(pendingDrop.id) {
-                    self.pendingDrop = nil
-                    dropPlaceholderIndex = nil
-                }
+                if let pendingDrop, !order.contains(pendingDrop.id) { (self.pendingDrop, dropPlaceholderIndex) = (nil, nil) }
                 lastModelOrder = order
                 groups.lastMembership = membership
             }
@@ -47,7 +44,9 @@ extension TabStripView {
         let animated = hasSynced && !reduceMotion && animating
         let ids = Set(ordered.map(\.id))
         if hasSynced { TabStripCrossfade.run(in: tabsClip, shown: Set(cells.keys), next: ids) }
-        for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) {
+        // A tab taking another's place (`TabStripModel.successors`) gets its cell's place; that cell goes now.
+        let handed = model.takeSuccessions(shown: Set(cells.keys), next: ids)
+        for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
             if animated {
                 dying.insert(id)
                 motion[id]?.width.target = 0
@@ -65,6 +64,10 @@ extension TabStripView {
                 cell.update(item: item)
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
+            } else if let from = handed[item.id], let place = motion[from] {
+                _ = makeCell(item, animated: false)
+                motion[item.id] = place
+                removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: animated))
             }
@@ -72,10 +75,7 @@ extension TabStripView {
         added.formUnion(syncChips(ordered, animated: animated))
         if hasSynced, !added.isEmpty { closingModeWidth = nil }
 
-        if pendingDrop.map({ ids.contains($0.id) }) == true {
-            dropPlaceholderIndex = nil
-            dropPlaceholderGroup = nil
-        }
+        if pendingDrop.map({ ids.contains($0.id) }) == true { (dropPlaceholderIndex, dropPlaceholderGroup) = (nil, nil) }
 
         displayed = ordered
         let styleChanged = lastStyle != nil && lastStyle != model.style

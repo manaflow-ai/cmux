@@ -151,6 +151,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
       id: String(option.optionId ?? option.id),
       name: String(option.name ?? option.optionId),
       allow: String(option.kind ?? "").startsWith("allow"),
+      kind: typeof option.kind === "string" ? option.kind : undefined,
     })),
   };
 }
@@ -1986,6 +1987,11 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     await this.request("_acpmux/markUnread", { sessionId });
   }
+  /// New side chat: acpmux tags the fork `sessionId` as a side chat of `chat` (the `side` tag),
+  /// which keeps it off the lists (cx-jlzsf).
+  async markSide(sessionId: string, chat: string): Promise<void> {
+    await this.request("_acpmux/side", { sessionId, chat });
+  }
   /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
   /// install from the Harnesses page).
@@ -2258,14 +2264,15 @@ export class AcpmuxDirectClient {
   /// Forks the open session (or `from`, the chat it was forked from) through the turn whose summary
   /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
-  /// stays there.
-  async fork(throughSeq: number, from?: string): Promise<string | undefined> {
+  /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
+  async fork(throughSeq: number, from?: string, stay = false): Promise<string | undefined> {
     if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
       const result = await this.request(FORK_OP, { sessionId: from ?? this.selectedSessionId, throughSeq });
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
+      if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (generation === this.selectionGeneration) {
