@@ -113,6 +113,19 @@ def run_check(api, repo, script, event, ref, sha, extra=None):
     return values.get("stale")
 
 
+def commit(sha, parents, message):
+    """GET commits/<sha>: the pin check reads parents and subject from here."""
+    return (200, {"sha": sha, "parents": [{"sha": p} for p in parents], "commit": {"message": message}})
+
+
+def shallow_clone(source, branch, into):
+    """A depth-1 checkout of BRANCH, as actions/checkout leaves it: no parents."""
+    subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", branch, f"file://{source}", into],
+                   check=True, capture_output=True)
+    os.symlink(os.path.join(ROOT, "scripts"), os.path.join(into, "scripts"))
+    return into
+
+
 def pull(number, head, state="open", repo=REPO):
     return {"number": number, "state": state, "head": {"sha": head, "repo": {"full_name": repo}}}
 
@@ -129,6 +142,8 @@ def check_verdicts():
         ref_path = "git/ref/heads/codex/some-lane"
         pulls_path = f"commits/{head}/pulls"
         deferred_path = "actions/artifacts"
+        merge_path = f"commits/{merge}"
+        merge_commit = {merge_path: commit(merge, [base, head], f"Merge {head} into {base}")}
         script = preflight_step["run"]
         cases = [
             ("a lane push whose branch moved is superseded", "push", lane, head,
@@ -139,18 +154,22 @@ def check_verdicts():
             ("a lane push runs when the API fails", "push", lane, head,
              {ref_path: (500, {"message": "boom"})}, "false"),
             ("a pin whose pull request has a newer head is superseded", "push", pin, merge,
-             {pulls_path: (200, [pull(7, newer)])}, "true"),
+             dict(merge_commit, **{pulls_path: (200, [pull(7, newer)])}), "true"),
             ("a pin of the pull request's current head runs", "push", pin, merge,
-             {pulls_path: (200, [pull(7, head)])}, "false"),
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head)])}), "false"),
             ("a pin of a merged pull request's final head runs", "push", pin, merge,
-             {pulls_path: (200, [pull(7, head, state="closed")])}, "false"),
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed")])}), "false"),
             ("a pin of a commit no pull request has runs", "push", pin, merge,
-             {pulls_path: (200, [])}, "false"),
+             dict(merge_commit, **{pulls_path: (200, [])}), "false"),
             ("a pin of a non-merge commit (pin-cmux-tui.sh) runs", "push", f"refs/heads/cmux-tui-pin-{head[:12]}", head,
-             {}, "false"),
+             {f"commits/{head}": commit(head, [base], "lane head"), pulls_path: (200, [pull(7, newer)])}, "false"),
             ("a pin of a merge that is not GitHub's pull request merge (next_batch.py) runs", "push",
-             f"refs/heads/cmux-tui-pin-{other[:12]}", other, {pulls_path: (200, [pull(7, newer)])}, "false"),
-            ("a pin runs when the API fails", "push", pin, merge, {pulls_path: (502, {})}, "false"),
+             f"refs/heads/cmux-tui-pin-{other[:12]}", other,
+             {f"commits/{other}": commit(other, [base, head], "next-batch: stack 3 PRs"),
+              pulls_path: (200, [pull(7, newer)])}, "false"),
+            ("a pin runs when the API fails", "push", pin, merge, dict(merge_commit, **{pulls_path: (502, {})}), "false"),
+            ("a pin runs when its commit lookup fails", "push", pin, merge,
+             {merge_path: (502, {}), pulls_path: (200, [pull(7, newer)])}, "false"),
             ("a feat-cmux-next push is never superseded here", "push", "refs/heads/feat-cmux-next", head,
              {"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})}, "false"),
             ("a main push is never superseded here", "push", "refs/heads/main", head,
@@ -169,8 +188,30 @@ def check_verdicts():
             if ref in ("refs/heads/feat-cmux-next", "refs/heads/main") or event != "push":
                 _check(api.requests == [], f"tree-preflight: {why} without asking the API ({api.requests})")
 
+        # actions/checkout fetches depth 1 in both jobs, so the pin commit is a
+        # shallow boundary and git shows it without parents (run 38608893139
+        # kept a superseded pin that way). The verdict must come from the API.
+        git(repo, "branch", "pin", merge)
+        git(repo, "branch", "batch", other)
+        with tempfile.TemporaryDirectory() as tmp:
+            shallow = shallow_clone(repo, "pin", os.path.join(tmp, "pin"))
+            _check(git(shallow, "log", "-1", "--format=%P", merge) == "",
+                   "the shallow checkout shows the pin commit without parents")
+            api.reset(dict(merge_commit, **{pulls_path: (200, [pull(7, newer)])}))
+            got = run_check(api, shallow, script, "push", pin, merge)
+            _check(got == "true", f"tree-preflight: a superseded pin in a depth-1 checkout is superseded ({got!r}, want 'true')")
+            api.reset(dict(merge_commit, **{pulls_path: (200, [pull(7, newer)]),
+                                            deferred_path: (200, {"artifacts": []})}))
+            got = run_check(api, shallow, daemon_step["run"], "push", pin, merge, {"KEY": KEY, "RUN_ID": "100"})
+            _check(got == "true", f"daemon tests: a superseded pin in a depth-1 checkout skips ({got!r}, want 'true')")
+            batch = shallow_clone(repo, "batch", os.path.join(tmp, "batch"))
+            api.reset({f"commits/{other}": commit(other, [base, head], "next-batch: stack 3 PRs"),
+                       pulls_path: (200, [pull(7, newer)])})
+            got = run_check(api, batch, script, "push", f"refs/heads/cmux-tui-pin-{other[:12]}", other)
+            _check(got == "false", f"tree-preflight: a depth-1 pin whose API subject is not a pull request merge runs ({got!r})")
+
         # The daemon-test job re-checks when it gets a Mac, with the run's key.
-        moved = {pulls_path: (200, [pull(7, newer)])}
+        moved = dict(merge_commit, **{pulls_path: (200, [pull(7, newer)])})
         other_run = {"artifacts": [{"expired": False, "workflow_run": {"id": 200}}]}
         own_run = {"artifacts": [{"expired": False, "workflow_run": {"id": 100}}]}
         daemon_cases = [
@@ -179,7 +220,7 @@ def check_verdicts():
              dict(moved, **{deferred_path: (200, other_run)}), "false"),
             ("this run's own deferral marker does not keep it", dict(moved, **{deferred_path: (200, own_run)}), "true"),
             ("the daemon tests run when the deferral lookup fails", dict(moved, **{deferred_path: (500, {})}), "false"),
-            ("the daemon tests of a current pin run", {pulls_path: (200, [pull(7, head)])}, "false"),
+            ("the daemon tests of a current pin run", dict(merge_commit, **{pulls_path: (200, [pull(7, head)])}), "false"),
         ]
         for why, routes, want in daemon_cases:
             api.reset(routes)
