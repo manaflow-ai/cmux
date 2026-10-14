@@ -75,6 +75,10 @@ class ClientTransport(str, Enum):
 class CloseReason(str, Enum):
     SESSION_END = 'session_end'
 
+class ConversationThreadStatus(str, Enum):
+    OPEN = 'open'
+    RESOLVED = 'resolved'
+
 class CursorStyle(str, Enum):
     BLOCK = 'block'
     UNDERLINE = 'underline'
@@ -558,6 +562,7 @@ class ConversationMessage:
     edited_at: Union[str, MissingType] = field(default=MISSING)
     reply_to: Union[ConversationPartRef, MissingType] = field(default=MISSING)
     retracted_at: Union[str, MissingType] = field(default=MISSING)
+    thread: Union[ConversationThreadState, MissingType] = field(default=MISSING)
     thread_root: Union[str, MissingType] = field(default=MISSING)
 
 
@@ -655,6 +660,22 @@ class ConversationTextRun:
 
 
 @dataclass(frozen=True)
+class ConversationThreadResolution:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationThreadResolution'
+    at: str
+    by: str
+    seq: int
+
+
+@dataclass(frozen=True)
+class ConversationThreadState:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationThreadState'
+    owner: Union[str, MissingType] = field(default=MISSING)
+    resolved: Union[ConversationThreadResolution, MissingType] = field(default=MISSING)
+    title: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ConversationThreadSummary:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationThreadSummary'
     authors: List[str]
@@ -662,6 +683,11 @@ class ConversationThreadSummary:
     last_reply_seq: Union[int, None]
     reply_count: int
     root: str
+    owner: Union[str, MissingType] = field(default=MISSING)
+    resolved_at: Union[str, MissingType] = field(default=MISSING)
+    resolved_by: Union[str, MissingType] = field(default=MISSING)
+    status: Union[ConversationThreadStatus, MissingType] = field(default=MISSING)
+    title: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2571,6 +2597,23 @@ class ConversationImportResult:
     conversation: ConversationSummary
     imported: List[int]
     skipped: int
+
+
+@dataclass(frozen=True)
+class ConversationLinkResolveRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-link-resolve/request'
+    url: str
+
+
+@dataclass(frozen=True)
+class ConversationLinkResolveResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-link-resolve/result'
+    conversation: ConversationSummary
+    path: List[str]
+    url: str
+    message: Union[ConversationMessage, MissingType] = field(default=MISSING)
+    thread_root: Union[str, MissingType] = field(default=MISSING)
+    truncated: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5310,6 +5353,7 @@ __all__ = [
     'BrowserProviderAuthentication',
     'ClientTransport',
     'CloseReason',
+    'ConversationThreadStatus',
     'CursorStyle',
     'DetachReason',
     'FrontendFocusTarget',
@@ -5366,6 +5410,8 @@ __all__ = [
     'ConversationSummary',
     'ConversationTabRecord',
     'ConversationTextRun',
+    'ConversationThreadResolution',
+    'ConversationThreadState',
     'ConversationThreadSummary',
     'CopyResult',
     'DeadPane',
@@ -5572,6 +5618,8 @@ __all__ = [
     'ConversationHistoryResult',
     'ConversationImportRequest',
     'ConversationImportResult',
+    'ConversationLinkResolveRequest',
+    'ConversationLinkResolveResult',
     'ConversationListRequest',
     'ConversationListResult',
     'ConversationOpRequest',

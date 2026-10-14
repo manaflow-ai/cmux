@@ -95,6 +95,7 @@ extension SettingsSchema {
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
+        "ui.paneAnimations",
         "layout.panePadding",
         "layout.paneCornerRadius",
         "layout.paneBorder",

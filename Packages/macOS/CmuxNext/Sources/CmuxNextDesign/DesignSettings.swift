@@ -39,6 +39,9 @@ public final class DesignSettings {
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`).
     public var animationSpeed: MotionSpeed = .fast
+    /// `ui.paneAnimations`: pane layout changes spring when true (see
+    /// `Motion.animatesPaneLayout`); off by default.
+    public var paneAnimations = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
