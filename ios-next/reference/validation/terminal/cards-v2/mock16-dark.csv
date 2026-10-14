@@ -1,0 +1,17 @@
+label,card_index,title,bg,content_frac,colour_frac,glyph_px_colour_share,verdict,capture
+mock-dark,3,zsh — cmux, tab,dark,12.80%,4.335%,33.9%,content,c00.png
+mock-dark,4,top, tab,dark,11.20%,0.167%,1.5%,content,c01.png
+mock-dark,5,zsh, tab,dark,3.35%,1.412%,42.2%,content,c01.png
+mock-dark,6,zsh, tab,dark,3.34%,1.415%,42.3%,content,c02.png
+mock-dark,7,zsh, tab,dark,3.36%,1.415%,42.2%,content,c02.png
+mock-dark,8,zsh, tab,dark,4.61%,1.951%,42.3%,content,c02.png
+mock-dark,9,zsh, tab,dark,4.65%,1.951%,42.0%,content,c02.png
+mock-dark,10,zsh, tab,dark,3.35%,1.414%,42.3%,content,c03.png
+mock-dark,11,zsh, tab,dark,2.75%,1.231%,44.7%,content,c03.png
+mock-dark,12,zsh, tab,dark,2.76%,1.231%,44.7%,content,c04.png
+mock-dark,13,zsh, tab,dark,2.75%,1.231%,44.8%,content,c04.png
+mock-dark,14,zsh, tab,dark,2.75%,1.231%,44.7%,content,c05.png
+mock-dark,15,zsh, tab,dark,2.75%,1.231%,44.7%,content,c05.png
+mock-dark,16,zsh, tab,dark,3.46%,1.544%,44.7%,content,c05.png
+mock-dark,17,zsh, tab,dark,3.46%,1.544%,44.7%,content,c05.png
+mock-dark,18,zsh, tab,dark,2.62%,1.257%,48.0%,content,c06.png
