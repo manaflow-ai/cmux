@@ -21,7 +21,7 @@ workspace rail, left columns); the daemon's document from `sidebar.get`.
    that ends its `session.events` stream and every stream it opens again;
    the TUI logs each end. A CLI sidebar.move after that still reaches the
    drawn order (the idle-tick fallback read), with no tree change to carry it.
-7. Doc slice 3: the TUI echoes sidebar-doc-v1, and a new top workspace
+7. Doc slice 3: the TUI echoes sidebar-doc-v1 and placement-shift-v1, and a new top workspace
    sends its event stream the new placement only (no restatement).
 
 Usage: sidebar-tui-doc-live.py --binary path/to/cmux-tui [--workdir DIR]
@@ -377,10 +377,12 @@ def main() -> int:
               {"tui": tui.order(), "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
 
         # Doc slice 3: the TUI reads the order from the document, so it
-        # echoes sidebar-doc-v1 and a new top workspace sends its stream only
-        # the new placement, not a restatement of every row it shifted.
-        check("the TUI echoes sidebar-doc-v1 in set-client-info",
-              any("sidebar-doc-v1" in caps for caps in proxy.echoed), proxy.echoed)
+        # echoes sidebar-doc-v1 and placement-shift-v1, and a new top workspace
+        # sends its stream only the new placement, not a restatement of every
+        # row it shifted.
+        check("the TUI echoes sidebar-doc-v1 and placement-shift-v1 in set-client-info",
+              any("sidebar-doc-v1" in caps and "placement-shift-v1" in caps for caps in proxy.echoed),
+              proxy.echoed)
         with proxy.lock:
             proxy.placement_deltas.clear()
         known = {(r["session_id"], r["workspace_key"]) for r in daemon.raw({"cmd": "list-personal"})["workspaces"]}

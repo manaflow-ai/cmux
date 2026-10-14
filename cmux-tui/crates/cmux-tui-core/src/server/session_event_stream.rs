@@ -16,8 +16,8 @@ use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
 use crate::resource::StreamPublicId;
 use crate::resource::WireDecimal;
+use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
 use crate::state::placement_shift::PlacementShift;
-use crate::state::sidebar_doc_store::CAPABILITY as SIDEBAR_DOC_CAPABILITY;
 use crate::stream_interrupt::StreamInterrupt;
 use serde_json::Value;
 use serde_json::json;
@@ -406,8 +406,8 @@ pub(super) fn run_session_event_stream(
 /// One journal batch as the `session.events` delta item `client` reads. A
 /// batch with a placement shift (`crate::state::placement_shift`) restates
 /// the shifted placements, from the current state, for a connection that
-/// did not echo `sidebar-doc-v1`; a connection that did reads the order
-/// from the sidebar document and gets the batch as stored.
+/// did not echo `placement-shift-v1`; a connection that did gets the batch
+/// as stored.
 fn delta_item(
     mux: &Mux,
     client: u64,
@@ -417,7 +417,7 @@ fn delta_item(
 ) -> anyhow::Result<Value> {
     let mut changes = batch.changes;
     if let Some(shift) = batch.placement_shift.as_ref().and_then(PlacementShift::from_value)
-        && !mux.control_clients.supports_capability(client, SIDEBAR_DOC_CAPABILITY)
+        && !mux.control_clients.supports_capability(client, PLACEMENT_SHIFT_CAPABILITY)
         && let Some(array) = changes.as_array_mut()
     {
         let all = current_placements(mux, generation)?;

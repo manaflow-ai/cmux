@@ -13,10 +13,12 @@
 //! (with its date and environment lines), the user's other settings and
 //! any machine-wide managed settings.
 //!
-//! Deviation: acpmux drops `mcpServers` from `session/new` (it always starts
-//! the agent with `[]`), so mux/host's way of passing MCP servers reaches no
-//! harness. The servers go in the directory's `.mcp.json` instead, enabled
-//! by the project settings, which Claude Code harnesses read.
+//! Deviation: acpmux ignores the client's `mcpServers` in `session/new` and
+//! gives every agent chat its own agent tools instead (cmux, cmux-cua,
+//! secrets: acpmux agent_tools.rs, cx-wx93i), so mux/host's way of passing
+//! MCP servers reaches no harness. The Chief's own `optchat` server, which
+//! acpmux does not know, goes in the directory's `.mcp.json`, enabled by the
+//! project settings, which Claude Code harnesses read.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -33,8 +35,6 @@ use crate::prompt::{Tools, chief_system_text, system_text};
 pub struct SessionSetup {
     /// This executable (absolute), which serves `mcp` and the `chief` launcher.
     pub exe: String,
-    /// `CMUX_MCP_COMMAND`: the cmux binary whose `mcp serve` is the cmux MCP server.
-    pub cmux_mcp: Option<String>,
     /// Env the turn's tools see (MUX_HOME, CMUX_SOCKET_PATH, ACPMUX_*, PATH).
     pub env: BTreeMap<String, String>,
     /// The user's instructions file, read at host start (section 7.2).
@@ -126,12 +126,10 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
         "optchat".into(),
         json!({"type": "stdio", "command": setup.exe, "args": args, "env": {}, "alwaysLoad": true}),
     );
-    if let Some(cmux) = &setup.cmux_mcp {
-        servers.insert(
-            "cmux".into(),
-            json!({"type": "stdio", "command": cmux, "args": ["mcp", "serve"], "env": {}}),
-        );
-    }
+    // No `cmux` server here: acpmux gives every agent chat its own `cmux mcp
+    // serve` (cx-wx93i, acpmux agent_tools.rs), the Chief's turns and
+    // subagents included, so a second one only doubled the tool list
+    // (hq-6d 2026-10-14: one cmux MCP server per turn).
     json!({"mcpServers": servers})
 }
 
@@ -139,10 +137,7 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
 /// the launcher directory first on PATH, and `deny` (Claude Code's
 /// subagents always) denied, which takes those tools out of the list.
 pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Value {
-    let mut names = vec!["optchat"];
-    if setup.cmux_mcp.is_some() {
-        names.push("cmux");
-    }
+    let names = ["optchat"];
     // The user's settings env first (a session that loads no user setting
     // source keeps the user's API route), the session's own over it.
     let mut env: serde_json::Map<String, Value> = setup
@@ -235,7 +230,8 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
 /// take no env from the host): tool search on, so every MCP tool but the
 /// Chief's own (`optchat`, `alwaysLoad` in `.mcp.json`) waits behind
 /// ToolSearch. The cmux MCP server that acpmux gives every agent chat
-/// (cx-wx93i) and the app's `CMUX_MCP_COMMAND` server list 165 tools, 100.8k
+/// (cx-wx93i; the only cmux server of a turn, `mcp_json_for`) and the app's
+/// old `CMUX_MCP_COMMAND` server listed 165 tools, 100.8k
 /// tokens without the app's actions (count_tokens, 2026-10-14); loaded with
 /// the turn they made a one-word reply write a 274k-token cache ($2.75,
 /// cx-l0vf8). `true`, not `auto`: Claude Code turns `auto` off for a base URL

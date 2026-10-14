@@ -173,6 +173,8 @@ pub struct PromptOptions {
     /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
     /// running turn and run this next" instead of waiting behind the queue.
     pub interrupt: bool,
+    /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
+    pub provenance: Option<Value>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -597,6 +599,7 @@ impl Hub {
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
+            input_since: AtomicU64::new(0),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
@@ -937,7 +940,7 @@ impl Hub {
             }
             if let Some((seq, turn_id)) = open {
                 let error = "the daemon restarted before this turn settled";
-                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+                self.append_unknown_outcome(&session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
                 self.save_meta(&session);
             }
         }
@@ -959,6 +962,7 @@ impl Hub {
             changed
         };
         if changed {
+            session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
         }

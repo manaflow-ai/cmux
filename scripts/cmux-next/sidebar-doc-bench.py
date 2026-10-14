@@ -11,7 +11,7 @@ Prints median and p95 in ms for each. Compare two binaries with the same N.
 
 `--subscriber old|doc` keeps one `session.events` stream open during the
 timed requests (read on a thread): `old` echoes nothing (it gets the
-placement restatement), `doc` echoes sidebar-doc-v1.
+placement restatement), `doc` echoes sidebar-doc-v1 and placement-shift-v1.
 
 Usage: sidebar-doc-bench.py --binary path/to/cmux-tui [--count 2000] [--samples 40]
                             [--subscriber none|old|doc]
@@ -73,7 +73,7 @@ def main() -> int:
         for index, workspace in enumerate(ids[:20]):
             daemon.ok("workspace.place", {"workspace": workspace, "group": groups[index % 2]}, mutate=True)
         if args.subscriber != "none":
-            stream = live.EventStream(daemon, ["sidebar-doc-v1"] if args.subscriber == "doc" else None)
+            stream = live.EventStream(daemon, ["sidebar-doc-v1", "placement-shift-v1"] if args.subscriber == "doc" else None)
             threading.Thread(target=lambda: [None for _ in stream.lines(3600.0)], daemon=True).start()
             print(f"subscriber: {args.subscriber}", flush=True)
         creates, places, renames, moves = [], [], [], []
