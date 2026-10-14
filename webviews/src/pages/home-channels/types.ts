@@ -17,6 +17,16 @@ export const HomeOps = {
   createGroup: "cmux.home.createGroup",
   resolveLink: "cmux.home.resolveLink",
   updateThread: "cmux.home.updateThread",
+  /** What this host can do with attachments ({local, cloud}); absent op: nothing. */
+  attachmentSupport: "cmux.home.attachmentSupport",
+  /** One step of an attachment upload (begin, chunk, commit, cancel), the owner's chunked upload. */
+  attachmentUpload: "cmux.home.attachmentUpload",
+  /** Bytes of one attachment variant, base64 (images: shown as data URLs, any page CSP). */
+  attachmentRead: "cmux.home.attachmentRead",
+  /** A short-lived URL of one attachment variant (video playback with seeking, downloads). */
+  attachmentUrl: "cmux.home.attachmentUrl",
+  runs: "cmux.home.runs",
+  run: "cmux.home.run",
   events: "cmux.home.events",
 } as const;
 
@@ -69,8 +79,35 @@ export interface HomeMention {
 export type HomePart =
   | { type: "text"; text: string; mentions: HomeMention[] }
   | { type: "work"; title: string; status: "running" | "waiting" | "done" | "failed"; preview?: string }
-  | { type: "attachment"; name: string; mimeType: string; byteCount: number; hash: string }
+  | HomeAttachment
   | { type: "other"; text: string };
+
+/** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP. */
+export interface HomeDerivedImage {
+  hash: string;
+  mimeType: string;
+  byteCount: number;
+}
+
+/** An `attachment` part (home-messaging.md section 2): a file the owner stores by SHA-256. */
+export interface HomeAttachment {
+  type: "attachment";
+  hash: string;
+  name: string;
+  mimeType: string;
+  byteCount: number;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+  poster?: HomeDerivedImage;
+  preview?: HomeDerivedImage;
+}
+
+/** `cmux.home.attachmentSupport`: which owners take attachments through this host. */
+export interface HomeAttachmentSupport {
+  local: boolean;
+  cloud: boolean;
+}
 
 export interface HomeReaction {
   author: string;
@@ -198,6 +235,8 @@ export interface HomeEventBatch {
   typing?: { conversation: string; participant: string; on: boolean }[];
   /** Running replies, in order (applied before this batch's messages). */
   drafts?: HomeDraftItem[];
+  /** Agent runs that changed: each run after the change and the steps it wrote. */
+  runs?: HomeRunChange[];
 }
 
 export interface HomeSearchHit {
@@ -212,4 +251,98 @@ export interface HomeResolvedLink {
   message?: HomeMessage;
   threadRoot?: string;
   path: string[];
+}
+
+export type HomeRunStatus = "running" | "done" | "failed" | "cancelled";
+export type HomeRunStepKind = "talk" | "thought" | "tool" | "note";
+
+/** A file a tool call changed or read: texts when they were small enough to keep. */
+export interface HomeRunFile {
+  path: string;
+  oldText?: string;
+  newText?: string;
+  added?: number;
+  removed?: number;
+  line?: number;
+}
+
+/** A picture or recording a step made: an attachment record of the conversation. */
+export interface HomeRunAttachment {
+  hash: string;
+  name: string;
+  mimeType: string;
+  byteCount: number;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+}
+
+/** One step of an agent run (`conversation-runs-v1`): a reply segment, a thought summary, a tool
+ * call with its input and output, or a note. `seq` is its place; `rev` grows with each write. */
+export interface HomeRunStep {
+  id: string;
+  seq: number;
+  at: number;
+  rev: number;
+  kind: HomeRunStepKind;
+  status?: "running" | "done" | "failed";
+  text?: string;
+  truncated?: boolean;
+  tool?: {
+    name: string;
+    kind?: string;
+    title?: string;
+    input?: unknown;
+    output?: string;
+    outputTruncated?: boolean;
+    exitCode?: number;
+    startedAt?: number;
+    endedAt?: number;
+    files: HomeRunFile[];
+  };
+  attachments: HomeRunAttachment[];
+  links: { label: string; url: string }[];
+}
+
+/** An agent run: the trajectory of one agent turn. `turn` is the `clientMessageId` of the reply the
+ * run ends with, so the run shows on that reply; a running run with no reply shows as live work. */
+export interface HomeRun {
+  id: string;
+  conversation: string;
+  author: string;
+  status: HomeRunStatus;
+  startedAt: number;
+  endedAt?: number;
+  updatedAt: number;
+  rev: number;
+  stepCount: number;
+  turn?: string;
+  answers: string[];
+  threadRoot?: string;
+  title?: string;
+  usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  costUsd?: number;
+  model?: string;
+  harness?: string;
+  error?: string;
+  session?: { kind: string; id: string; host?: string };
+  workspace?: string;
+}
+
+export interface HomeRunChange {
+  run: HomeRun;
+  steps: HomeRunStep[];
+}
+
+/** `cmux.home.runs`: the newest runs of a conversation, or the runs of these reply keys. */
+export interface HomeRunList {
+  runs: HomeRun[];
+  hasMore: boolean;
+}
+
+/** `cmux.home.run`: one run and its steps written after `afterRev`, oldest write first. */
+export interface HomeRunPage {
+  run: HomeRun;
+  steps: HomeRunStep[];
+  hasMore: boolean;
 }

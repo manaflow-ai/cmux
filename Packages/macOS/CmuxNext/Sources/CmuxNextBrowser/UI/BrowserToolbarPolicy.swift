@@ -10,6 +10,26 @@ public nonisolated struct BrowserToolbarPolicy {
     public nonisolated init() {}
     public static func state(_ button: BrowserToolbarButton, _ facts: BrowserToolbarFacts,
                              shortcut: String? = nil) -> BrowserToolbarButtonState {
+        var state = labeledState(button, facts, shortcut: shortcut)
+        state.showsToolTip = toolTipInforms(button, state, shortcut: shortcut)
+        return state
+    }
+
+    /// A hover tooltip only where it says more than the icon (Lawrence 2026-10-13: none on
+    /// back, forward, refresh "etc"): the zoom level, the profile's name, the current theme, a
+    /// disabled button's reason, a shortcut. A bare name (More, Downloads) shows none; the
+    /// accessibility label keeps it.
+    static func toolTipInforms(_ button: BrowserToolbarButton, _ state: BrowserToolbarButtonState, shortcut: String?) -> Bool {
+        guard state.isEnabled else { return true }
+        switch button {
+        case .zoom, .profile, .theme: return true
+        case .overflow: return false
+        case .media, .favorites, .downloads, .designMode, .devTools: return shortcut != nil
+        }
+    }
+
+    private static func labeledState(_ button: BrowserToolbarButton, _ facts: BrowserToolbarFacts,
+                                     shortcut: String?) -> BrowserToolbarButtonState {
         func hinted(_ text: String) -> String { shortcut.map { "\(text) (\($0))" } ?? text }
         switch button {
         case .media:
