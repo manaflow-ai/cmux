@@ -100,7 +100,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         Err(error) => return print_usage(&global, &error.0),
     };
     let backend = mcp::cli_backend(global.clone());
-    match execute(&backend, None, &command, global.idempotency_key.as_deref()) {
+    match execute(&backend, None, &command, global.idempotency_key.as_deref(), "agents") {
         Ok(value) => wire::print_local_success(&value, global.output),
         Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
         Err(AgentFailure::Owner(failure)) => {
@@ -232,15 +232,18 @@ fn run_snapshot(global: &GlobalArgs) -> i32 {
 
 /// Runs one agent action for `cmux agents` and the `agents_<verb>` MCP
 /// tools alike: the owner's request, the app focus a select implies, then a
-/// receipt with a fresh composed snapshot. `session` routes daemon requests;
-/// the CLI routes with its global options and passes `None`.
+/// receipt with a fresh composed snapshot and the idempotency key a change
+/// carried. `session` routes daemon requests; the CLI routes with its global
+/// options and passes `None`. `origin` names the caller in app runs
+/// (`agents` for the CLI, `mcp` for tools).
 pub(super) fn execute<B: Backend>(
     backend: &B,
     session: Option<&str>,
     command: &AgentCommand,
     idempotency_key: Option<&str>,
+    origin: &str,
 ) -> Result<Value, AgentFailure> {
-    let (action, result) = match command {
+    let (action, (result, key)) = match command {
         AgentCommand::Snapshot => {
             return Err(AgentFailure::Usage("snapshot is a read, not an action".into()));
         }
@@ -248,10 +251,19 @@ pub(super) fn execute<B: Backend>(
             (action, run_resource(backend, session, action, args, idempotency_key)?)
         }
         AgentCommand::App { action, args } => {
-            (action, run_app(backend, action, args, idempotency_key)?)
+            (action, run_app(backend, action, args, idempotency_key, origin)?)
         }
     };
-    Ok(receipt(backend, session, action, result))
+    Ok(receipt(backend, session, action, result, key))
+}
+
+/// The key a change carries: the caller's, else a new one, so the receipt
+/// and a failure can both name it.
+fn change_key(given: Option<&str>) -> Result<String, AgentFailure> {
+    match given {
+        Some(key) => Ok(key.to_owned()),
+        None => wire::random_idempotency_key().map_err(|error| AgentFailure::Usage(error.0)),
+    }
 }
 
 fn run_resource<B: Backend>(
@@ -260,7 +272,7 @@ fn run_resource<B: Backend>(
     action: &str,
     args: &[String],
     idempotency_key: Option<&str>,
-) -> Result<Value, AgentFailure> {
+) -> Result<(Value, Option<String>), AgentFailure> {
     let mut plan = match super::command::parse(args, Surface::CmuxTui) {
         Ok(CommandPlan::Protocol(plan)) => *plan,
         Ok(_) => {
@@ -271,10 +283,11 @@ fn run_resource<B: Backend>(
         Err(error) => return Err(AgentFailure::Usage(error.0)),
     };
     if plan.operation.class() == OperationClass::Mutation {
-        plan.idempotency_key = idempotency_key.map(str::to_owned);
+        plan.idempotency_key = Some(change_key(idempotency_key)?);
     }
+    let key = plan.idempotency_key.clone();
     let result = backend.resource(session, plan, &[]).map_err(AgentFailure::Owner)?;
-    follow_app_focus(backend, action, result)
+    Ok((follow_app_focus(backend, action, result)?, key))
 }
 
 /// A select or focus also shows its object in the app's window, as
@@ -313,10 +326,11 @@ fn run_app<B: Backend>(
     action: &str,
     args: &[String],
     idempotency_key: Option<&str>,
-) -> Result<Value, AgentFailure> {
+    origin: &str,
+) -> Result<(Value, Option<String>), AgentFailure> {
     let (method, params, timeout) = match action {
         "palette.open" => {
-            let mut params = app::action_run_params("palette.open", ActionName::Any, "agents");
+            let mut params = app::action_run_params("palette.open", ActionName::Any, origin);
             params.insert("focus".into(), json!(true));
             ("action.run", Value::Object(params), app::WAITING_RUN_TIMEOUT)
         }
@@ -327,7 +341,13 @@ fn run_app<B: Backend>(
         "dialog.answer" => dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?,
         _ => return Err(AgentFailure::Usage("unknown app action".into())),
     };
-    backend.app(method, params, timeout, idempotency_key, false).map_err(AgentFailure::Owner)
+    // Feed replies change the app but take no key; only `action.run` does.
+    let mutation = method != "feed.list";
+    let key = if method == "action.run" { Some(change_key(idempotency_key)?) } else { None };
+    let result = backend
+        .app(method, params, timeout, key.as_deref(), mutation)
+        .map_err(AgentFailure::Owner)?;
+    Ok((result, key))
 }
 
 fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), UsageError> {
@@ -384,14 +404,25 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
     Ok((method, Value::Object(params), app::WAITING_RUN_TIMEOUT))
 }
 
-fn receipt<B: Backend>(backend: &B, session: Option<&str>, action: &str, result: Value) -> Value {
+fn receipt<B: Backend>(
+    backend: &B,
+    session: Option<&str>,
+    action: &str,
+    result: Value,
+    idempotency_key: Option<String>,
+) -> Value {
     let state = compose_snapshot(
         backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
         backend
             .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
             .map_err(mcp::agent_failure_value),
     );
-    json!({"schema_version": 1, "action": action, "result": result, "state": state})
+    let mut receipt =
+        json!({"schema_version": 1, "action": action, "result": result, "state": state});
+    if let Some(key) = idempotency_key {
+        receipt["idempotency_key"] = Value::String(key);
+    }
+    receipt
 }
 
 fn print_usage(global: &GlobalArgs, message: &str) -> i32 {

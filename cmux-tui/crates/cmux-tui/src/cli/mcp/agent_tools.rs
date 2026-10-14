@@ -80,16 +80,19 @@ pub(super) const TOOLS: &[AgentTool] = &[
         name: "agents_dialog_list",
         verb: Verb::DialogList,
         title: "List dialogs",
-        description: "List the agent permission and question dialogs waiting for an answer \
-            (`cmux agents dialog list`); all includes answered ones. Changes nothing.",
+        description: "List the permission and question dialogs that other agents in cmux are \
+            waiting on (`cmux agents dialog list`). They show other agents' pending tool \
+            inputs, such as commands and file edits. all includes answered ones. Changes \
+            nothing.",
     },
     AgentTool {
         name: "agents_dialog_answer",
         verb: Verb::DialogAnswer,
         title: "Answer dialog",
-        description: "Answer a dialog from agents_dialog_list (`cmux agents dialog answer`): \
-            a permission dialog with mode, a question with one or more selections. Give \
-            exactly one of mode or selections.",
+        description: "Reply to another agent's dialog from agents_dialog_list (`cmux agents \
+            dialog answer`): deny a permission request with mode \"deny\", or answer a \
+            question with one or more selections. Give exactly one of mode or selections. \
+            Permissions can only be denied here; a person approves them in cmux.",
     },
 ];
 
@@ -134,7 +137,7 @@ impl AgentTool {
             "inputSchema": self.input_schema(),
             "annotations": {
                 "readOnlyHint": self.read_only(),
-                "destructiveHint": false,
+                "destructiveHint": self.verb == Verb::DialogAnswer,
                 "idempotentHint": idempotent,
                 "openWorldHint": false,
             },
@@ -194,7 +197,12 @@ impl AgentTool {
                 );
                 properties.insert(
                     "mode".into(),
-                    id_schema("The permission answer, one of the dialog's modes."),
+                    json!({
+                        "type": "string",
+                        "enum": ["deny"],
+                        "description": "Deny the permission request. Approving is not offered \
+                            over MCP.",
+                    }),
                 );
                 properties.insert(
                     "selections".into(),
@@ -245,8 +253,8 @@ impl AgentTool {
             Ok(call) => call,
             Err(message) => return not_run(message),
         };
-        match agents::execute(backend, session.as_deref(), &command, key.as_deref()) {
-            Ok(receipt) => success(receipt, !self.read_only()),
+        match agents::execute(backend, session.as_deref(), &command, key.as_deref(), "mcp") {
+            Ok(receipt) => success(fit_receipt(receipt), !self.read_only()),
             Err(AgentFailure::Usage(message)) => not_run(message),
             Err(AgentFailure::Owner(failure)) => failure_result(failure),
         }
@@ -305,7 +313,17 @@ impl AgentTool {
             Verb::DialogAnswer => {
                 words.extend(["dialog".into(), "answer".into(), args.word("request_id")?]);
                 if args.values.contains_key("mode") {
-                    words.extend(["--mode".into(), args.word("mode")?]);
+                    let mode = args.word("mode")?;
+                    // A chat agent must not approve its own request or switch another
+                    // session's permissions; a person approves in cmux.
+                    if mode != "deny" {
+                        return Err(format!(
+                            "{}: approve permissions in cmux, not over MCP; only mode \"deny\" \
+                             is accepted",
+                            self.name
+                        ));
+                    }
+                    words.extend(["--mode".into(), mode]);
                 }
                 for selection in args.words("selections")? {
                     words.extend(["--selection".into(), selection]);
@@ -373,6 +391,17 @@ impl Arguments<'_> {
             Some(_) => Err(format!("{}: {name} must be true or false", self.tool)),
         }
     }
+}
+
+/// A receipt that fits the result limit: when the snapshot makes it too
+/// large, `state` alone gives way, so the action, its result (the new ids)
+/// and the idempotency key survive.
+fn fit_receipt(mut receipt: Value) -> Value {
+    let size = serde_json::to_vec(&receipt).map(|bytes| bytes.len()).unwrap_or(usize::MAX);
+    if size > super::MAX_RESULT_BYTES {
+        receipt["state"] = json!({"truncated": true, "hint": "call agents_snapshot"});
+    }
+    receipt
 }
 
 fn checked_word(tool: &str, name: &str, value: String) -> Result<String, String> {

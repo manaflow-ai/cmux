@@ -66,7 +66,12 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     (`cli/mcp/agent_tools.rs`), so it answers the CLI's receipt `{action, result, state}`,
     where `state` is a fresh `agents_snapshot`-shaped snapshot. Selects and focus show
     the object in the app's window (their purpose is focus); create and split leave the
-    user's focus alone. All but the dialog tools take `idempotency_key`;
+    user's focus alone. All but the dialog tools take `idempotency_key`, and the receipt
+    names the key a change carried. A receipt over the result limit keeps `action`,
+    `result` and the key and replaces `state` with `{truncated, hint}`. The dialog tools
+    reach other agents' pending tool inputs: `agents_dialog_answer` only denies a
+    permission (`mode: "deny"`; a person approves in cmux) or answers a question, and a
+    reply whose transport drops after sending reports `in_progress`;
   - one tool per app action that `action.list` offers to the CLI and to MCP
     (`surfaces.cli` and `surfaces.mcp` are `offered`), named `app_` plus its
     CLI name (`app_new_window`, `app_workspace_move_to_window`), with the action's
