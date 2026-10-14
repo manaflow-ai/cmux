@@ -190,13 +190,14 @@ function telemetrySpan(overrides: Partial<CloudTelemetrySpan> = {}): CloudTeleme
 const routine = (count: number) => Array.from({ length: count }, () => telemetrySpan());
 const failures = (count: number) => Array.from({ length: count }, () => telemetrySpan({ outcome: "failure", failure: "network" }));
 const instanceId = randomUUID();
-async function upload(owner: string, spans: CloudTelemetrySpan[], ingress: boolean | { rateLimitRule: string } = true) {
+async function upload(owner: string, spans: CloudTelemetrySpan[], ingress: boolean | { rateLimitRule: string } = true, nowMs = Date.now()) {
+  let drains = 0;
   const handler = makeCloudTelemetryHandler({
     authenticate: async () => ({ id: owner }),
     checkIngress: async () => ingress,
     accept: (userId, batch, sampleWeights) => acceptCloudTelemetry(userId, batch, { sampleWeights }),
-    scheduleDrain: () => {},
-    now: Date.now,
+    scheduleDrain: () => { drains += 1; },
+    now: () => nowMs,
   });
   const body = { version: 1, client: { channel: "production", version: "0.65.0", build: "110", revision: "abcdef123", osVersion: "26.0", architecture: "arm64", instanceId }, spans };
   exporter.reset();
@@ -209,7 +210,7 @@ async function upload(owner: string, spans: CloudTelemetrySpan[], ingress: boole
   });
   const exported = exporter.getFinishedSpans();
   return {
-    status: response.status,
+    status: response.status, drains,
     refusals: exported.filter((finished) => finished.name === CLOUD_TELEMETRY_REFUSAL_SPAN).map((finished) => finished.attributes as Attributes),
     routeSpanExported: exported.some((finished) => finished.name === "POST /api/observability/cloud"),
   };
@@ -257,7 +258,11 @@ describe("Cloud diagnostic ingest refusals", () => {
         if (refusedMixed.status === 429) break;
       }
       expect(refusedMixed.status).toBe(429);
-      expect(refusedMixed.refusals[0]).toMatchObject({ "cmux.telemetry.refusal": "account_byte_budget", "cmux.telemetry.accepted_spans": 2 });
+      expect(refusedMixed.refusals[0]).toMatchObject({
+        "cmux.telemetry.refusal": "account_byte_budget", "cmux.telemetry.accepted_spans": 0, "cmux.telemetry.stored_spans": 2,
+      });
+      // The kept evidence is delivered now, not at the next cron drain.
+      expect(refusedMixed.drains).toBe(1);
       let stored = await storedEventIds(owner);
       expect([stored.has(failure.eventId), stored.has(signIn.eventId), stored.has(mixed[0]!.eventId)]).toEqual([true, true, false]);
       // The client's retry of the same batch is deduplicated, never a conflict.
@@ -277,14 +282,24 @@ describe("Cloud diagnostic ingest refusals", () => {
     }
   });
 
-  dbTest("a firewall refusal answers 429 before authentication, stores nothing and names its rule", async () => {
+  dbTest("firewall refusals answer 429 before authentication, store nothing, and a flood leaves one counted span per window", async () => {
     const owner = fixture().owner;
-    const refused = await upload(owner, failures(1), { rateLimitRule: "cmux-analytics" });
+    const rule = { rateLimitRule: `cmux-analytics-${randomUUID()}` };
+    const start = Date.now();
+    const refused = await upload(owner, failures(1), rule, start);
     expect(refused.status).toBe(429);
     expect(refused.refusals).toEqual([expect.objectContaining({
-      "cmux.telemetry.refusal": "ingress_rate_limited", "cmux.telemetry.rate_limit_rule": "cmux-analytics", "http.response.status_code": 429,
+      "cmux.telemetry.refusal": "ingress_rate_limited", "cmux.telemetry.rate_limit_rule": rule.rateLimitRule,
+      "http.response.status_code": 429, "cmux.telemetry.refusal_count": 1,
     })]);
     expect(refused.refusals[0]!["cmux.account_key"]).toBeUndefined();
+    // Within the window the refusals are still answered but only counted.
+    for (let index = 0; index < 5; index += 1) {
+      const flooded = await upload(owner, failures(1), rule, start + 1_000);
+      expect([flooded.status, flooded.refusals.length]).toEqual([429, 0]);
+    }
+    const next = await upload(owner, failures(1), rule, start + 10_000);
+    expect(next.refusals).toEqual([expect.objectContaining({ "cmux.telemetry.refusal_count": 6 })]);
     expect((await storedEventIds(owner)).size).toBe(0);
   });
 

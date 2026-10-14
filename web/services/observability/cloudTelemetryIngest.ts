@@ -41,7 +41,7 @@ function ingest(request: Request, dependencies: CloudTelemetryIngestDependencies
     if (ingress !== true) {
       if (ingress) labels["cmux.telemetry.rate_limit_rule"] = ingress.rateLimitRule;
       // Before authentication and parsing, so only the cause and the rule are known.
-      return refuse(429, "rate_limited", { submitted: 0, accepted: 0, rejected: 0, coerced: 0, refusal: "ingress_rate_limited" }, labels);
+      return refuse(429, "rate_limited", { submitted: 0, accepted: 0, rejected: 0, coerced: 0, refusal: "ingress_rate_limited" }, labels, dependencies.now());
     }
     const encoding = request.headers.get("content-encoding");
     if (encoding && encoding !== "identity") return response(415, "unsupported_encoding");
@@ -52,18 +52,24 @@ function ingest(request: Request, dependencies: CloudTelemetryIngestDependencies
     if (accountKey) labels["cmux.account_key"] = accountKey;
     const body = yield* Effect.tryPromise(() => readBoundedJsonObject(request, CLOUD_TELEMETRY_MAX_BYTES));
     if (!body.ok) {
-      return refuse(body.error === "request_too_large" ? 413 : 400, body.error, { submitted: 0, accepted: 0, rejected: 0, coerced: 0, refusal: body.error }, labels);
+      return refuse(body.error === "request_too_large" ? 413 : 400, body.error, { submitted: 0, accepted: 0, rejected: 0, coerced: 0, refusal: body.error }, labels, dependencies.now());
     }
     const parsed = parseCloudTelemetryUpload(body.value, dependencies.now());
     if (!parsed.ok) {
-      return refuse(400, "invalid_diagnostics", { submitted: parsed.submitted, accepted: 0, rejected: parsed.submitted, coerced: 0, refusal: parsed.reason }, labels);
+      return refuse(400, "invalid_diagnostics", { submitted: parsed.submitted, accepted: 0, rejected: parsed.submitted, coerced: 0, refusal: parsed.reason }, labels, dependencies.now());
     }
     const { upload } = parsed;
     if (upload.batch.client.instanceId) labels["cmux.client.instance_id"] = upload.batch.client.instanceId;
     yield* store(user.id, upload.batch, dependencies).pipe(
-      Effect.tapError((error) => Effect.sync(() => recordRefusal(storeRefusalStatus(error), {
-        ...uploadCounts(upload), accepted: error instanceof CloudTelemetryLimitError ? error.storedSpans : 0, refusal: storeRefusal(error),
-      }, labels))),
+      Effect.tapError((error) => Effect.sync(() => {
+        const stored = error instanceof CloudTelemetryLimitError ? error.storedSpans : 0;
+        // Evidence kept from a refused batch is durable now; deliver it without waiting for the cron.
+        if (stored > 0) scheduleDrainSafely(dependencies);
+        // Budget, conflict and storage refusals follow authentication and client backoff, so each is recorded.
+        recordRefusal(storeRefusalStatus(error), {
+          ...uploadCounts(upload), accepted: 0, refusal: storeRefusal(error), ...(stored > 0 ? { stored } : {}),
+        }, labels);
+      })),
     );
     recordUploadOutcome(uploadCounts(upload), labels);
     // Sampled-out and rejected spans are acknowledged too: the client must not retry or re-queue them.
@@ -86,14 +92,20 @@ function store(userId: string, batch: CloudTelemetryBatch, dependencies: CloudTe
     yield* Effect.tryPromise({
       try: () => dependencies.accept(userId, { ...batch, spans: sampled.spans }, sampled.sampleWeights), catch: (error) => error,
     });
-    // A failed scheduling call must not revoke a durable receipt. The cron drain remains responsible.
-    yield* Effect.sync(() => dependencies.scheduleDrain()).pipe(Effect.catchAllDefect(() => Effect.void));
+    yield* Effect.sync(() => scheduleDrainSafely(dependencies));
   });
+}
+
+/** A failed scheduling call must not revoke a durable receipt. The cron drain remains responsible. */
+function scheduleDrainSafely(dependencies: CloudTelemetryIngestDependencies): void {
+  try { dependencies.scheduleDrain(); } catch { /* the cron drain delivers it */ }
 }
 
 type UploadOutcome = {
   readonly submitted: number; readonly accepted: number; readonly rejected: number; readonly coerced: number;
   readonly refusal?: string; readonly rejectedReasons?: string;
+  /** Spans of a refused batch that are stored anyway (reserve evidence or earlier receipts of a retry). */
+  readonly stored?: number;
 };
 
 function uploadCounts(upload: CloudTelemetryUpload): UploadOutcome {
@@ -113,6 +125,7 @@ function outcomeAttributes(outcome: UploadOutcome, labels: Readonly<Record<strin
     "cmux.telemetry.coerced_spans": outcome.coerced,
     ...(outcome.refusal ? { "cmux.telemetry.refusal": outcome.refusal } : {}),
     ...(outcome.rejectedReasons ? { "cmux.telemetry.rejected_reasons": outcome.rejectedReasons } : {}),
+    ...(outcome.stored ? { "cmux.telemetry.stored_spans": outcome.stored } : {}),
   };
 }
 
@@ -123,24 +136,49 @@ function recordUploadOutcome(outcome: UploadOutcome, labels: Readonly<Record<str
 
 /**
  * The route span is head-sampled with the app-wide 2% ratio, so a refusal also
- * leaves its own always-kept span: every refused upload is countable in Axiom by
- * cause, firewall rule, account and install. One short span per refusal.
+ * leaves its own always-kept span: refused uploads are countable in Axiom by
+ * cause, firewall rule, account and install. `cmux.telemetry.refusal_count` is
+ * the number of refusals the span stands for.
  */
-function recordRefusal(status: number, outcome: UploadOutcome, labels: Readonly<Record<string, string>>): void {
+function recordRefusal(status: number, outcome: UploadOutcome, labels: Readonly<Record<string, string>>, refusalCount = 1): void {
   recordUploadOutcome(outcome, labels);
   trace.getTracer("cmux.cloud-diagnostics").startSpan(CLOUD_TELEMETRY_REFUSAL_SPAN, {
     root: true, kind: SpanKind.INTERNAL,
-    attributes: { ...outcomeAttributes(outcome, labels), "cmux.priority": true, "http.response.status_code": status },
+    attributes: {
+      ...outcomeAttributes(outcome, labels), "cmux.priority": true, "http.response.status_code": status,
+      "cmux.telemetry.refusal_count": refusalCount,
+    },
   }).end();
+}
+
+/**
+ * Refusals a caller can repeat without backing off (a firewall refusal before
+ * authentication, a malformed body) are coalesced per cause, rule and account:
+ * at most one kept span per key per window on each server instance, carrying the
+ * count. A flood the firewall stops therefore cannot become a flood of kept spans.
+ * Refusals still pending when an instance stops are not reported.
+ */
+const REFUSAL_COALESCE_WINDOW_MS = 10_000;
+const REFUSAL_COALESCE_MAX_KEYS = 1_000;
+const pendingRefusals = new Map<string, { readonly emittedAtMs: number; readonly suppressed: number }>();
+
+function refuse(status: number, error: string, outcome: UploadOutcome, labels: Readonly<Record<string, string>>, nowMs: number): Response {
+  const key = [outcome.refusal, labels["cmux.telemetry.rate_limit_rule"], labels["cmux.account_key"]].join("\u0000");
+  const pending = pendingRefusals.get(key);
+  if (pending && nowMs - pending.emittedAtMs < REFUSAL_COALESCE_WINDOW_MS) {
+    pendingRefusals.set(key, { ...pending, suppressed: pending.suppressed + 1 });
+    recordUploadOutcome(outcome, labels);
+  } else {
+    if (!pending && pendingRefusals.size >= REFUSAL_COALESCE_MAX_KEYS) pendingRefusals.clear();
+    pendingRefusals.set(key, { emittedAtMs: nowMs, suppressed: 0 });
+    recordRefusal(status, outcome, labels, 1 + (pending?.suppressed ?? 0));
+  }
+  return response(status, error);
 }
 
 /** The always-sampled span name for a refused upload. */
 export const CLOUD_TELEMETRY_REFUSAL_SPAN = "cmux.cloud_diagnostics.refusal";
 
-function refuse(status: number, error: string, outcome: UploadOutcome, labels: Readonly<Record<string, string>>): Response {
-  recordRefusal(status, outcome, labels);
-  return response(status, error);
-}
 
 function storeRefusalStatus(error: unknown): number {
   if (error instanceof CloudTelemetryLimitError) return 429;
