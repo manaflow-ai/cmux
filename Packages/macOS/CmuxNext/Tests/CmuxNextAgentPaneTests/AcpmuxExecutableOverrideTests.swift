@@ -65,6 +65,26 @@ struct AcpmuxExecutableOverrideTests {
         #expect(AcpmuxEnvironment.isRegularExecutableFile(tool.path))
     }
 
+    /// Through the test seam (the public resolve passes `debugExecutableOverride`): the override
+    /// wins over a bundled binary, and nil leaves the usual search.
+    @Test func resolvePrefersTheOverrideOverTheBundle() throws {
+        let bin = URL(fileURLWithPath: "/Applications/cmux DEV.app/Contents/Resources/bin", isDirectory: true)
+        let override = URL(fileURLWithPath: "/Users/dev/cmux-tui/target/debug/acpmux")
+        func resolve(_ executableOverride: URL?) throws -> AcpmuxEnvironment {
+            try #require(AcpmuxEnvironment.resolve(tag: "dev", bundledBinDirectory: bin, environment: ["PATH": "/usr/bin"],
+                                                   userHome: URL(fileURLWithPath: "/Users/dev", isDirectory: true), uid: 501,
+                                                   isExecutable: { $0 == bin.appendingPathComponent("acpmux").path },
+                                                   executableOverride: executableOverride))
+        }
+        let overridden = try resolve(override)
+        #expect(overridden.executable == override)
+        let searched = try resolve(nil)
+        #expect(searched.executable == bin.appendingPathComponent("acpmux"))
+        // Only the executable differs: home, socket and arguments stay the tag's.
+        #expect(overridden.home == searched.home && overridden.socketPath == searched.socketPath)
+        #expect(overridden.daemonArguments == searched.daemonArguments)
+    }
+
     @Test func aSwapRestartsADaemonOfAnotherBinary() {
         let override = URL(fileURLWithPath: "/Users/dev/cmux-tui/target/debug/acpmux")
         let bundled = "/Applications/cmux DEV.app/Contents/Resources/bin/acpmux"
