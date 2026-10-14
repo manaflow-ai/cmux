@@ -10,6 +10,8 @@ extension SidebarListView {
         var sourceMachine: MachineID?
         /// A tab drag: a tab row's edge goes before that tab.
         var reordersTabRows = false
+        /// `externalDragMoved`'s slot dwell, kept for autoscroll's re-hit.
+        var slotDwell: CFTimeInterval = 0
         var springTarget: WorkspaceID?
         var springGroupTarget: GroupID?
         var springTask: Task<Void, Never>?
@@ -41,6 +43,7 @@ extension SidebarListView {
         external.windowPoint = windowPoint
         external.sourceMachine = sourceMachine
         external.reordersTabRows = reordersTabRows
+        external.slotDwell = slotDwell
         if self.external == nil {
             self.external = external
             setHovered(nil)

@@ -22,6 +22,7 @@ import argparse, json, socket, sys, time
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--out", default="/tmp", help="unused; accepted for capture drivers")
+parser.add_argument("--pace", type=float, help="instead: a straight 40-step drag from the tab to the row's center over this many seconds (the golden split-drag.workspace.via-sidebar gesture, 0.7 and 1.8 s)")
 parser.add_argument("--record", help="also record the window (debug.window_record) during the drag into this directory")
 opts = parser.parse_args()
 ROWS = []
@@ -47,8 +48,11 @@ def rpc(method, params=None, timeout=30):
         return {"error": str(error)}
 
 
-def action(name, args=None, focus=True):
-    return rpc("action.run", {"action": name, "args": args or {}, "focus": focus})
+def action(name, args=None, focus=True, target=None):
+    params = {"action": name, "args": args or {}, "focus": focus}
+    if target:
+        params["target"] = target
+    return rpc("action.run", params)
 
 
 def wait(check, seconds, step=0.25):
@@ -141,17 +145,37 @@ def main():
     if opts.record:
         rpc("debug.window_record", {"dir": opts.record, "seconds": 3.0})
         time.sleep(0.3)  # test harness: still frames before the press
+    if opts.pace:
+        # One step per call, paced: a slow hand crosses the slot above the row for longer.
+        points = [(sx + (cx - sx) * i / 40, sy + (cy - sy) * i / 40) for i in range(41)]
+        mouse(action="drag", x=sx, y=sy, to_x=points[1][0], to_y=points[1][1], steps=1, release=False)
+        for (ax, ay), (bx, by) in zip(points[1:], points[2:]):
+            time.sleep(opts.pace / 40)  # test harness: paced like a real-HID drag
+            mouse(action="drag", x=ax, y=ay, to_x=bx, to_y=by, steps=1, press=False, release=False)
+        mouse(action="drag", x=cx, y=cy, to_x=cx, to_y=cy, steps=1, press=False)
+    else:
+        drag_through_slot(sx, sy, cx, slot_y, top_y)
+    report(before, target, source)
+
+
+def drag_through_slot(sx, sy, cx, slot_y, top_y):
     mouse(action="drag", x=sx, y=sy, to_x=cx, to_y=slot_y, steps=12, release=False)
     time.sleep(0.08)  # test harness: a hand passing through the slot
     mouse(action="drag", x=cx, y=slot_y, to_x=cx, to_y=top_y, steps=4, press=False, release=False)
     time.sleep(0.03)  # test harness: a quick drop, well inside the 0.25 s slot dwell
     mouse(action="drag", x=cx, y=top_y, to_x=cx, to_y=top_y, steps=1, press=False)
+
+
+def report(before, target, source):
     after = wait(lambda: (lambda now: now if now != before else None)(workspaces()), 5) or workspaces()
     new = [w for w in after if w not in before]
     target_tabs = after.get(target, [])
     row("no new workspace", f"{len(before)} workspaces", f"{len(after)} workspaces, new {new}", not new)
     row("the tab joins the workspace whose row it was dropped on", f"{target} holds 2 tabs",
         f"{target} holds {len(target_tabs)}; source holds {len(after.get(source, []))}", len(target_tabs) == 2)
+    # Close what the run opened, so repeated runs on one app keep the target row in view.
+    for workspace in [target, source] + new:
+        action("closeWorkspace", {"confirm": True}, focus=False, target=f"workspace:{workspace}")
 
 
 main()
