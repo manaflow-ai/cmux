@@ -63,6 +63,20 @@ impl ConversationRejected {
     pub const CODE: &'static str = "conversation_rejected";
 }
 
+/// The conversation an idempotency key made, on the `idempotency_conflict`
+/// refusal of a create that reused the key with another request (a context
+/// of that [`ConversationRejected`]; its text is the same reason). Given only
+/// to a creator that takes part in it: a Chief brain whose grown DM was also
+/// retitled finds its DM again (hq-6d 2026-10-14), `error_details.conversation`.
+#[derive(Debug)]
+pub struct KeyedConversation(pub String);
+
+impl std::fmt::Display for KeyedConversation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(Reject::IdempotencyConflict.code())
+    }
+}
+
 impl std::fmt::Display for ConversationRejected {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.0.code())
@@ -333,7 +347,14 @@ impl ConversationStore {
             .optional()?;
         if let Some((stored, conversation)) = existing {
             if stored != fingerprint {
-                return Err(rejected(Reject::IdempotencyConflict));
+                let error = rejected(Reject::IdempotencyConflict);
+                let takes_part = load_head(&transaction, &conversation)?
+                    .is_some_and(|head| head.participants.iter().any(|p| p.id == actor));
+                return Err(if takes_part {
+                    error.context(KeyedConversation(conversation))
+                } else {
+                    error
+                });
             }
             let head = load_head(&transaction, &conversation)?
                 .context("created conversation is missing")?;
