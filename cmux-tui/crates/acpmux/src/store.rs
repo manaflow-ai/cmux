@@ -8,7 +8,7 @@ use crate::config::{StoreConfig, StoreMode, write_atomic};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -175,6 +175,10 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+    /// The seqs of this chat's `user_message` records the person bookmarked (the pane's thread
+    /// minimap; `hub/bookmarks.rs`). A fork renumbers its copies; a move keeps the log's seqs.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub bookmarks: BTreeSet<u64>,
 }
 
 impl SessionMeta {
