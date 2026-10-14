@@ -92,15 +92,8 @@ mod sidebar_order {
         let request = json!({"protocol": "cmux.protocol/2", "type": "request",
                              "id": format!("order-{key}"), "operation": operation,
                              "params": fields, "idempotency_key": key});
-        let stream = transport::connect(&server.socket).unwrap();
-        let mut writer = stream.try_clone_box().unwrap();
-        let mut reader = BufReader::new(stream);
-        writeln!(writer, "{request}").unwrap();
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        let reply: Value = serde_json::from_str(&line).unwrap_or_else(|_| {
-            panic!("{request}: no JSON reply: {line}; daemon:\n{}", server.stderr_tail())
-        });
+        let reply = try_json_socket_request(&server.socket, request.clone())
+            .unwrap_or_else(|| panic!("{request}: no reply; daemon:\n{}", server.stderr_tail()));
         assert_eq!(reply["ok"], true, "{request}: {reply}");
         reply["result"]["value"].clone()
     }
