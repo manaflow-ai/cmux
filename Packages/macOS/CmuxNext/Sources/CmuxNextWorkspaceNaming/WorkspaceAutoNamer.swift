@@ -1,7 +1,6 @@
 import CmuxNextBridge
 import CmuxNextCompat
-import CmuxNextDaemon
-import CmuxNextSettings
+public import CmuxNextDaemon
 
 /// Variant B of workspace auto-naming (`workspaces.autoName.variant` =
 /// `persist`, hq#1957): the first time a default-named workspace of this
@@ -17,30 +16,41 @@ import CmuxNextSettings
 /// windows showing one workspace send one rename. A rename changes no
 /// focus or selection.
 @MainActor
-final class WorkspaceAutoNamer {
+public final class WorkspaceAutoNamer {
     /// One rename the rule asks for.
     struct Rename: Equatable, Sendable {
         var workspaceID: String
         var name: String
     }
 
-    private weak var services: AppServices?
+    private let names: WorkspaceAutoNameReader
+    /// This Mac's daemon's workspaces (never a remote or Cloud machine's).
+    private let workspaces: @MainActor () -> [WorkspaceModel]
+    /// The tab the window showing a workspace selected in a pane, else nil for its default tab.
+    private let selection: @MainActor (WorkspaceModel, PaneModel) -> String?
+    /// Sends `rename-workspace` to this Mac's daemon (Rename Workspace's command).
+    private let rename: @MainActor (WorkspaceKey, String) -> Void
     /// Workspaces this app renamed or asked to rename: never again, even if
     /// the rename failed or the name went back to a default one.
     private var renamed: Set<String> = []
 
-    init(services: AppServices) {
-        self.services = services
+    /// - Parameters:
+    ///   - names: the rule and front-tab reader.
+    ///   - workspaces: the local daemon's workspaces.
+    ///   - selection: the window's tab selection in a workspace's pane.
+    ///   - rename: sends the rename to the local daemon.
+    public init(names: WorkspaceAutoNameReader, workspaces: @escaping @MainActor () -> [WorkspaceModel],
+                selection: @escaping @MainActor (WorkspaceModel, PaneModel) -> String?,
+                rename: @escaping @MainActor (WorkspaceKey, String) -> Void) {
+        self.names = names
+        self.workspaces = workspaces
+        self.selection = selection
+        self.rename = rename
     }
 
-    /// Starts following the stores once settings load. The task lives as long
-    /// as the app (an app-lifetime service, so it is never cancelled).
-    static func start(_ services: AppServices, settings: SettingsController) {
-        let namer = WorkspaceAutoNamer(services: services)
-        Task { [weak settings] in
-            await settings?.waitForLoad(atLeast: 1)
-            for await renames in ObservationStream({ namer.pending() }) { namer.apply(renames) }
-        }
+    /// Follows the stores until the task is cancelled; the app runs it for its lifetime.
+    public func run() async {
+        for await renames in ObservationStream({ self.pending() }) { apply(renames) }
     }
 
     /// The renames the rule asks for now, among this Mac's daemon's
@@ -50,15 +60,13 @@ final class WorkspaceAutoNamer {
     /// an agent chat is read further, so a terminal's title ticks or a
     /// page's loads never wake this.
     func pending() -> [Rename] {
-        guard let services else { return [] }
-        let names = WorkspaceAutoNameReader(services: services)
         let rule = names.rule
         guard rule.enabled, rule.variant == .persist else { return [] }
         var renames: [Rename] = []
-        for workspace in services.machines.local.store.workspaces
+        for workspace in workspaces()
         where workspace.kind != SidebarMapping.homeKind && workspace.app == nil && !renamed.contains(workspace.id)
             && rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title) {
-            guard let front = SidebarMapping.shared.frontTab(workspace, selectedTab: { [services] pane in Self.selection(pane, in: workspace, services) }),
+            guard let front = SidebarMapping.shared.frontTab(workspace, selectedTab: { [selection] pane in selection(workspace, pane) }),
                   front.agentSession != nil,
                   let name = rule.persistedName(name: workspace.name, title: workspace.title, front: names.front(front),
                                                 isLocalMachine: true, alreadyRenamed: false) else { continue }
@@ -67,27 +75,17 @@ final class WorkspaceAutoNamer {
         return renames
     }
 
-    /// Sends each rename once, to this Mac's daemon, unless the user named
-    /// the workspace since (`confirmsRename` on its current name and title).
-    /// `rename-workspace` takes no expected old name, so a rename the user
-    /// sends in the same instant can still lose to this one.
+    /// Sends each rename once, unless the user named the workspace since
+    /// (`confirmsRename` on its current name and title). `rename-workspace`
+    /// takes no expected old name, so a rename the user sends in the same
+    /// instant can still lose to this one.
     func apply(_ renames: [Rename]) {
-        guard let services else { return }
-        let daemon = services.machines.local
-        let rule = WorkspaceAutoNameReader(services: services).rule
-        for rename in renames where !renamed.contains(rename.workspaceID) {
-            renamed.insert(rename.workspaceID)
-            guard let workspace = daemon.store.workspaces.first(where: { $0.id == rename.workspaceID }), let key = workspace.key,
+        let rule = names.rule
+        for candidate in renames where !renamed.contains(candidate.workspaceID) {
+            renamed.insert(candidate.workspaceID)
+            guard let workspace = workspaces().first(where: { $0.id == candidate.workspaceID }), let key = workspace.key,
                   rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title) else { continue }
-            let name = rename.name
-            daemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
+            rename(key, candidate.name)
         }
-    }
-
-    /// The tab the window showing `workspace` selected in `pane` (the sidebar
-    /// row's front tab), else nil for the pane's default tab.
-    private static func selection(_ pane: PaneModel, in workspace: WorkspaceModel, _ services: AppServices) -> String? {
-        guard let window = services.windows.registry.value.owner(of: workspace.id) else { return nil }
-        return services.windows.controller(for: window)?.state.selection.selection(in: pane.id)
     }
 }

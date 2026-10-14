@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
 import CmuxNextTabs
+import CmuxNextWorkspaceNaming
 import Foundation
 
 extension AppServices {
@@ -23,7 +24,7 @@ extension AppServices {
         let incognito = tab.kind == .browser && cache.browserTabs.isIncognitoTab(tab.id)
         let favicon = tab.kind != .browser ? nil
             : browserFavicon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL).map { SidebarFavicon($0.cgImage) }
-        let names = WorkspaceAutoNameReader(services: self)
+        let names = WorkspaceAutoNameWiring(services: self).reader
         return .init(title: names.rule.label(name: workspace.name, title: workspace.title, front: names.front(tab)), favicon: favicon)
     }
 }

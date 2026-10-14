@@ -18,6 +18,7 @@ import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextTasks
+import CmuxNextWorkspaceNaming
 import Foundation
 
 /// Every tunable the app declares, by module. One list, so the window, the

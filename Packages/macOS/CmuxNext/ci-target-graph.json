@@ -207,7 +207,8 @@
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
         "CmuxNextUpdater",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWorkspaceNaming"
       ],
       "packages": [
         "CmuxAgentBrands",
@@ -941,6 +942,26 @@
         "CmuxNextCompat"
       ],
       "packages": []
+    },
+    "CmuxNextWorkspaceNaming": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWorkspaceNaming",
+      "targets": [
+        "CmuxNextBridge",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDesign"
+      ],
+      "packages": []
+    },
+    "CmuxNextWorkspaceNamingTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests",
+      "targets": [
+        "CmuxNextWorkspaceNaming"
+      ],
+      "packages": [],
+      "reads": []
     }
   }
 }
