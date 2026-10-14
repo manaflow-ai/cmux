@@ -600,7 +600,9 @@ jobs:
       # cmux-tui-pin-* push) still starts them.
       - name: Write the tree wait marker
         id: marker
-        if: steps.tree.outputs.tree_state == 'deferred' || steps.tree.outputs.tree_state == 'failed'
+        # A DEV daily run waits for its own tree (job dev-daily-tree-wait): a
+        # same-tree run would start only while the tip is still its SHA.
+        if: inputs.dev_daily != true && (steps.tree.outputs.tree_state == 'deferred' || steps.tree.outputs.tree_state == 'failed')
         env:
           KEY: ${{ steps.tree.outputs.tree_key }}
           DAEMON: ${{ steps.route.outputs.daemon }}
@@ -683,6 +685,41 @@ jobs:
           if [[ "$STATE" == deferred ]]; then
             echo "::notice title=same-tree cmux-tui deferred::$REASON"
           fi
+
+  # A cmux NEXT DEV daily run builds exactly the SHA main's dispatcher asked
+  # for. When its cmux-tui tree is cold, path routing starts the publisher and
+  # defers; the same-tree run a publication starts runs only while the
+  # feat-cmux-next tip is still that SHA, so on a busy branch no DEV build was
+  # published (from 01:59Z on 2026-10-14). This waits on Linux for the tree,
+  # then cmux-scheme-compile builds the DEV app in this run
+  # (scripts/cmux-next/wait-dev-daily-tree.sh, tested by
+  # scripts/cmux-next/tests/wait-dev-daily-tree.test.sh).
+  dev-daily-tree-wait:
+    needs: path_route
+    if: ${{ !cancelled() && inputs.dev_daily == true && inputs.same_tree_sha == '' && needs.path_route.outputs.tree_state == 'deferred' }}
+    name: cmux NEXT DEV daily tree wait
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 60
+    permissions:
+      # As path routing: the probe reads the cmux-tui artifacts runs and may
+      # start the publisher again if its run is gone.
+      actions: write
+      contents: write
+    outputs:
+      tree_state: ${{ steps.wait.outputs.tree_state }}
+      tree_fetch_key: ${{ steps.wait.outputs.tree_fetch_key }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Wait for this commit's cmux-tui tree
+        id: wait
+        env:
+          CMUX_TUI_TREE_PUBLISHER_SHA: ""
+          CMUX_TUI_TREE_DISPATCH: "1"
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/wait-dev-daily-tree.sh
 
   macos-placement:
     needs: [path_route, push-head-preflight]
@@ -975,6 +1012,7 @@ jobs:
           bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh
           bash scripts/cmux-next/tests/request-nightly-next.test.sh
           bash scripts/cmux-next/tests/continue-nightly-next.test.sh
+          bash scripts/cmux-next/tests/wait-dev-daily-tree.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
           bash scripts/cmux-next/tests/tree-key-embeds.test.sh
@@ -1048,7 +1086,9 @@ jobs:
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
-        run: python3 tests/test_cmux_next_checks_workflow.py
+        run: |
+          python3 tests/test_cmux_next_checks_workflow.py
+          python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
       # The tier routing on the committed target graph: a UI change selects its
       # own test targets, a daemon change the live-daemon suites, an unknown
@@ -2284,10 +2324,10 @@ jobs:
         run: scripts/cmux-next/continue-nightly-next.sh --repo "$GITHUB_REPOSITORY"
 
   cmux-scheme-compile:
-    needs: [path_route, macos-placement, push-head-preflight]
+    needs: [path_route, macos-placement, push-head-preflight, dev-daily-tree-wait]
     # This run's own tier on a published tree (path routing's probe), or
     # same-tree mode after the artifacts workflow published it.
-    if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme')))) }}
+    if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme')))) }}
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
@@ -2317,7 +2357,7 @@ jobs:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       # A pull request that changes no cmux-tui path runs on the newest
       # published tree when its own is not ready (path routing's probe).
-      CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && needs.path_route.outputs.tree_fetch_key || '' }}
+      CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && (needs.dev-daily-tree-wait.outputs.tree_fetch_key || needs.path_route.outputs.tree_fetch_key) || '' }}
     steps:
       # A dev_daily run (direct or same-tree) builds only the SHA the
       # dispatcher asked for. A merge that moved feat-cmux-next first must
