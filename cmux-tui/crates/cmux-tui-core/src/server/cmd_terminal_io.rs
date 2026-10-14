@@ -9,6 +9,7 @@ use super::styled_run_json;
 use base64::Engine;
 
 use super::ConnectionCancellation;
+use super::MessageWriter;
 use super::DeliveryClassifiedError;
 use super::ProtocolKeyInput;
 use super::get_surface;
@@ -64,14 +65,24 @@ pub(super) fn paste_image(
     .handle(mux, client)
 }
 
+#[allow(clippy::too_many_arguments)] // the `send` command's fields, plus the connection
 pub(super) fn send(
     mux: &Arc<Mux>,
     client: u64,
-    surface: SurfaceId,
+    writer: &MessageWriter,
+    surface: Option<SurfaceId>,
+    terminal_id: Option<String>,
     text: Option<String>,
     bytes: Option<String>,
     paste: bool,
 ) -> anyhow::Result<Value> {
+    let surface = match (surface, terminal_id) {
+        (Some(surface), None) => surface,
+        (None, Some(terminal_id)) => {
+            return super::creating_input::send_to_terminal(mux, client, writer, &terminal_id, text, bytes, paste);
+        }
+        _ => anyhow::bail!("bad request: send takes exactly one of surface and terminal_id"),
+    };
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
     if paste {

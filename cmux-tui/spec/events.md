@@ -18,6 +18,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
+| Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -71,6 +72,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
+| `terminal-input-unclaimed` | control | `terminal_id` | `terminal-input-while-creating-v1`; only to the connection that queued the bytes |
 | `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
@@ -1147,6 +1149,33 @@ Example:
 
 ```json
 {"event":"daemon-shutdown"}
+```
+
+### terminal-input-unclaimed
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-input-unclaimed` |
+| status | implemented control event |
+| since | protocol 12, capability `terminal-input-while-creating-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-input-unclaimed",terminal_id:string,bytes_base64:Base64,reason:string}
+```
+
+Meaning: Input that a connection queued for a terminal still being created (`send` with `terminal_id`,
+[commands.md](commands.md#send)) was not written, because the creation failed (`failed`), its connection
+closed first (`cancelled`), it did not end within 10 seconds of the first queued byte (`expired`), or the
+terminal refused the write (`write-failed`). `bytes_base64` holds this connection's bytes in the order they
+were queued. It is sent on the control queue of the connection that queued them, also without a
+subscription. The client should give the bytes to the terminal that has focus.
+
+Example:
+
+```json
+{"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
 ```
 
 ### terminal-clipboard-read

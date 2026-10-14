@@ -84,6 +84,7 @@ pub(super) fn advertised_capabilities(
         "attach-identity-v1",
         crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
+        creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,

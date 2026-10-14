@@ -35,6 +35,9 @@ struct CreationSlot {
     launched: Mutex<Option<Option<String>>>,
     /// Debug timing marks of this create (`CMUX_TUI_DEBUG_SPANS`).
     trace: Mutex<Option<crate::debug_spans::Trace>>,
+    /// The caller-minted terminal id, creating from submit to commit
+    /// (`terminal-input-while-creating-v1`: input for it waits, `mux::creating_input`).
+    creating_terminal: Option<String>,
 }
 
 impl Command {
@@ -171,10 +174,15 @@ impl ConnectionSurfaceScheduler {
             _ => "create",
         };
         let trace = crate::debug_spans::Trace::start(label, Instant::now());
+        let creating_terminal = pending.request.cmd.created_terminal_id();
+        if let Some(terminal_id) = &creating_terminal {
+            mux.begin_creating_input(terminal_id);
+        }
         let slot = Arc::new(CreationSlot {
             request: Mutex::new(Some(pending)),
             launched: Mutex::new(None),
             trace: Mutex::new(None),
+            creating_terminal,
         });
         self.begin_creation();
         self.creations.state.lock().unwrap().slots.push_back(slot.clone());
@@ -242,9 +250,10 @@ impl ConnectionSurfaceScheduler {
         let trace = slot.trace.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         crate::debug_spans::install(trace);
         crate::debug_spans::mark("commit.start");
+        let cancelled = self.cancelled.is_cancelled();
         let keep_open = match pending {
             // A closed connection drops its queued requests unexecuted.
-            Some(_) if self.cancelled.is_cancelled() => true,
+            Some(_) if cancelled => true,
             Some(mut pending) => {
                 if let Some(terminal_hex) = launched.as_ref() {
                     match &mut pending.request.cmd {
@@ -263,6 +272,11 @@ impl ConnectionSurfaceScheduler {
             }
             None => true,
         };
+        // Input queued for the new terminal goes to it now, before any later input, or back to
+        // its senders when the create failed or was dropped.
+        if let Some(terminal_id) = &slot.creating_terminal {
+            mux.finish_creating_input(terminal_id, cancelled.then_some("cancelled"));
+        }
         crate::debug_spans::mark("reply.queued");
         crate::debug_spans::finish(crate::debug_spans::take());
         if let Some(terminal_hex) = launched {
