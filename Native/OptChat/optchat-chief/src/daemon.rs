@@ -722,6 +722,21 @@ fn is_idempotency_conflict(error: &SdkError) -> bool {
     }
 }
 
+/// The conversation an `idempotency_conflict` names (`error_details.conversation`,
+/// cmux-tui-core conversation_store.rs `KeyedConversation`).
+fn keyed_conversation(error: &SdkError) -> Option<String> {
+    match error {
+        SdkError::Command {
+            error_details: Some(details),
+            ..
+        } => details
+            .get("conversation")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        _ => None,
+    }
+}
+
 /// The most distinct requests [`find_grown_dm`] sends the owner.
 const GROWN_DM_PROBES: usize = 8;
 
@@ -849,12 +864,24 @@ fn connect(config: &LinkConfig) -> Result<Connected, ConnectError> {
                 // select above missed it. Answer there; a new key would make
                 // a second DM. The DM keeps its stored title.
                 Err(CreateError::Conflict(e)) => {
-                    match find_grown_dm(&mut client, &key, listed, &config.participant)? {
-                        Some(found) => found,
-                        None => {
-                            return Err(ConnectError::Other(format!(
-                                "{e}: no conversation with the person replays {key}; its DM's title or names changed"
-                            )));
+                    // The owner names the conversation the key made (to a
+                    // creator that takes part in it): that is the DM, also
+                    // when its title changed. An older owner names none.
+                    let keyed = keyed_conversation(&e).and_then(|id| {
+                        listed.iter().find(|c| {
+                            c.id == id && c.participants.iter().any(|p| p.id == config.participant)
+                        })
+                    });
+                    if let Some(found) = keyed.cloned() {
+                        found
+                    } else {
+                        match find_grown_dm(&mut client, &key, listed, &config.participant)? {
+                            Some(found) => found,
+                            None => {
+                                return Err(ConnectError::Other(format!(
+                                    "{e}: no conversation with the person replays {key}; its DM's title or names changed"
+                                )));
+                            }
                         }
                     }
                 }
