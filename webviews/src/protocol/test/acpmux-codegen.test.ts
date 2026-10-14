@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { IrError } from "../../../protocol/codegen/ir";
-import { generate } from "./codegen";
+import { IrError } from "../codegen/ir";
+import { generate } from "../codegen/acpmux";
 
 const source = "cmux-tui/crates/acpmux/spec/acpmux-protocol.json";
 

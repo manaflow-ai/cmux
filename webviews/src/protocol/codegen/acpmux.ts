@@ -4,8 +4,8 @@
 // them. Schema compilation is the pane protocol's (src/protocol/codegen/schema.ts), so both
 // protocols accept and refuse the same JSON Schema subset.
 
-import { IrError, type JsonSchema } from "../../../protocol/codegen/ir";
-import { docComment, refName, renderType } from "../../../protocol/codegen/schema";
+import { IrError, type JsonSchema } from "./ir";
+import { docComment, refName, renderType } from "./schema";
 
 export interface GenerateOptions {
   /** Shown in the header; keep it repo-relative so --check output is stable across checkouts. */

@@ -11,7 +11,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { generate } from "../src/agent-session/acpmux/protocol/codegen";
+import { generate } from "../src/protocol/codegen/acpmux";
 
 const webviewsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(webviewsRoot, "..");
