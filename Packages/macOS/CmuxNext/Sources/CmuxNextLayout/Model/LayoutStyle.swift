@@ -58,13 +58,14 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var focusIndicator: FocusIndicator = .both
     public var inactiveTabStyle: InactiveTabStyle = .fade
     public var inactiveTabStrength: CGFloat = 0.35
-    /// Fraction of a pane's extent that counts as an edge drop zone.
-    public var dropEdgeFraction: CGFloat = 0.28
-    /// Clamp for the edge drop band.
-    public var dropEdgeRange: ClosedRange<CGFloat> = 28...180
+    /// Fraction of a pane's extent that counts as an edge drop zone. Classic
+    /// cmux's value (`max(80, extent * 0.25)`, pane-drop-targets DESIGN.md).
+    public var dropEdgeFraction: CGFloat = 0.25
+    /// Clamp for the edge drop band: at least 80 pt, no maximum (classic).
+    public var dropEdgeRange: ClosedRange<CGFloat> = 80...CGFloat.greatestFiniteMagnitude
     /// How far past a zone line the pointer goes before the drop preview
-    /// leaves the zone it shows (`DropZoneGeometry.zone`).
-    public var dropZoneHysteresis: CGFloat = 12
+    /// leaves the zone it shows (`DropZoneGeometry.zone`). 0, as classic.
+    public var dropZoneHysteresis: CGFloat = 0
     /// Width of the "new column" drop zone centered on each column gap.
     public var newColumnDropWidth: CGFloat = 36
     /// Height of the band at a screen's top and bottom edge that opens a
@@ -134,7 +135,9 @@ extension LayoutStyle {
         let edgeMinimum = LayoutTunables.dropEdgeMinimum.override, edgeMaximum = LayoutTunables.dropEdgeMaximum.override
         if edgeMinimum != nil || edgeMaximum != nil {
             let lower = edgeMinimum ?? style.dropEdgeRange.lowerBound
-            style.dropEdgeRange = lower...max(lower, edgeMaximum ?? style.dropEdgeRange.upperBound)
+            // A maximum of 0 is "no maximum" (the classic default).
+            let upper = edgeMaximum.map { $0 > 0 ? $0 : CGFloat.greatestFiniteMagnitude } ?? style.dropEdgeRange.upperBound
+            style.dropEdgeRange = lower...max(lower, upper)
         }
         if let value = LayoutTunables.dropZoneHysteresis.override { style.dropZoneHysteresis = value }
         if let value = LayoutTunables.newColumnDropWidth.override { style.newColumnDropWidth = value }

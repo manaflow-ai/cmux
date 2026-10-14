@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409. */
+/* cmux-tui mux protocol 12, IR a7c2333b3e697db29aec05d498eaef13b9c41d138991ba08fef02691f77ad20c. */
 
 
 import type * as T from "./types.js";
@@ -1710,6 +1710,7 @@ export interface RegisterBrowserProviderRequest extends CmuxRequestBase {
   "authentication": T.BrowserProviderAuthentication;
   "bearer_token"?: (string) | null;
   "endpoint": string;
+  "hosting"?: (T.BrowserProviderHosting) | null;
   "provider_id": string;
   "targets": Array<T.BrowserProviderTarget>;
 }

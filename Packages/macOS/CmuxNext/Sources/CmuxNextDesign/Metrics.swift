@@ -124,7 +124,11 @@ public struct Metrics {
     /// chrome line.
     public static var tabBackgroundInset: CGFloat { scale(ChromeTunables.tabBackgroundInset.value) }
     /// Inset of a tab's icon from its pill's leading edge.
-    public static var tabContentLeadingInset: CGFloat { scale(ChromeTunables.tabContentLeadingInset.value) }
+    public static var tabContentLeadingInset: CGFloat {
+        scale((compactTabs ? ChromeTunables.compactTabContentLeadingInset : ChromeTunables.tabContentLeadingInset).value)
+    }
+    /// The opt-in tight tab strip (`ChromeTunables.compactTabs`), at compact density only.
+    public static var compactTabs: Bool { density == .compact && ChromeTunables.compactTabs.value }
     /// The chrome line: tab pills and toolbar button shapes, from the
     /// content border's left edge.
     public static var paneChromeInset: CGFloat { PaneChromeMetrics.pillLeading }
@@ -148,10 +152,13 @@ public struct Metrics {
     public static var paneSeparation: PaneSeparation {
         PaneSeparation.resolve(DesignSettings.shared.paneChrome, unset: defaultPaneSeparation)
     }
-    /// The separation when cmux.json sets none: inside the curved main pane,
-    /// whose gutter is the window's one inset, panes are flush and divided by
-    /// one line (no padded, outlined box per pane); without it, borders.
-    public static var defaultPaneSeparation: PaneSeparation { mainPaneCurved ? .dividers : .borders }
+    /// The separation when cmux.json sets none: the `appearance.chromeStyle`
+    /// one, else inside the curved main pane, whose gutter is the window's
+    /// one inset, panes are flush and divided by one line (no padded,
+    /// outlined box per pane); without it, borders.
+    public static var defaultPaneSeparation: PaneSeparation {
+        DesignSettings.shared.chromeStyle.paneSeparation ?? (mainPaneCurved ? .dividers : .borders)
+    }
     /// Pane border: subtle only for the `borders` separation, and none
     /// under `appearance.borders` none. The line is one device pixel wide.
     public static var paneBorder: PaneBorderStyle {

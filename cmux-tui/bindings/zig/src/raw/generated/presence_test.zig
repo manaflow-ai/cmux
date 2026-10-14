@@ -142,6 +142,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "authentication");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "clients");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "endpoint");
+    try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "hosting");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "provider_id");
     try expectExplicitNullRejected(protocol.ConversationChange, "conversation");
     try expectExplicitNullRejected(protocol.ConversationChange, "message");
@@ -152,6 +153,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationMessage, "edited_at");
     try expectExplicitNullRejected(protocol.ConversationMessage, "reply_to");
     try expectExplicitNullRejected(protocol.ConversationMessage, "retracted_at");
+    try expectExplicitNullRejected(protocol.ConversationMessage, "thread");
     try expectExplicitNullRejected(protocol.ConversationMessage, "thread_root");
     try expectExplicitNullRejected(protocol.ConversationPart, "host");
     try expectExplicitNullRejected(protocol.ConversationPart, "preview");
@@ -171,6 +173,14 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationTabRecord, "route");
     try expectExplicitNullRejected(protocol.ConversationTextRun, "link");
     try expectExplicitNullRejected(protocol.ConversationTextRun, "mention");
+    try expectExplicitNullRejected(protocol.ConversationThreadState, "owner");
+    try expectExplicitNullRejected(protocol.ConversationThreadState, "resolved");
+    try expectExplicitNullRejected(protocol.ConversationThreadState, "title");
+    try expectExplicitNullRejected(protocol.ConversationThreadSummary, "owner");
+    try expectExplicitNullRejected(protocol.ConversationThreadSummary, "resolved_at");
+    try expectExplicitNullRejected(protocol.ConversationThreadSummary, "resolved_by");
+    try expectExplicitNullRejected(protocol.ConversationThreadSummary, "status");
+    try expectExplicitNullRejected(protocol.ConversationThreadSummary, "title");
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
     try expectExplicitNullRejected(protocol.IdentifyResult, "capabilities");
     try expectExplicitNullRejected(protocol.IdentifyResult, "lifecycle_ready");
