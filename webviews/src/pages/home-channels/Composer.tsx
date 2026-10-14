@@ -160,7 +160,9 @@ export function Composer({
       return owner !== null && owner !== undefined && owner !== zone;
     };
     const over = (event: DragEvent) => {
-      if (!event.dataTransfer?.types.includes("Files") || nested(event)) return;
+      if (!event.dataTransfer?.types.includes("Files")) return;
+      // Over the nested zone: that composer shows the hint, this one stops.
+      if (nested(event)) return setDropping(false);
       event.preventDefault();
       setDropping(true);
     };
@@ -168,7 +170,8 @@ export function Composer({
       if (!zone.contains(event.relatedTarget as Node | null)) setDropping(false);
     };
     const drop = (event: DragEvent) => {
-      if (!event.dataTransfer?.files.length || nested(event)) return;
+      if (nested(event)) return setDropping(false);
+      if (!event.dataTransfer?.files.length) return;
       event.preventDefault();
       setDropping(false);
       addRef.current(event.dataTransfer.files);
@@ -240,7 +243,11 @@ export function Composer({
       onPasteCapture={(event) => {
         // Pasted files (a screenshot, files copied in a file manager) attach; text still pastes as text.
         if (!attachments || event.clipboardData.files.length === 0) return;
-        if (!event.clipboardData.getData("text/plain")) event.preventDefault();
+        // A file copied in a file manager also carries its name (or path) as text: drop that text.
+        const text = event.clipboardData.getData("text/plain");
+        const names = [...event.clipboardData.files].map((file) => file.name);
+        const onlyNames = !text || event.clipboardData.types.includes("text/uri-list") || names.some((name) => text.includes(name));
+        if (onlyNames) event.preventDefault();
         addFiles(event.clipboardData.files);
       }}
     >
