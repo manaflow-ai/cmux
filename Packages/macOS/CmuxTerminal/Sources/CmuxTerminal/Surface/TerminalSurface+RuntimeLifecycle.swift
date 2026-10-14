@@ -496,10 +496,10 @@ extension TerminalSurface {
             }
 #if DEBUG
             if !surfaceWasFreedOutOfBand {
-                ghostty_surface_request_process_termination(surfaceToFree)
+                ghostty_surface_request_process_termination(surface)
             }
 #else
-            ghostty_surface_request_process_termination(surfaceToFree)
+            ghostty_surface_request_process_termination(surface)
 #endif
         }
 
