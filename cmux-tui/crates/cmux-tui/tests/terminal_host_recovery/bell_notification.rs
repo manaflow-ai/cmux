@@ -1,6 +1,6 @@
 //! cx-on7iu: a terminal bell marks its tab for attention like a notification
-//! (Lawrence 2026-10-14). A program that rings several times at once posts one
-//! notification, not one per BEL.
+//! (Lawrence 2026-10-14). A program that rings several
+//! times at once, or again while the mark is unread, posts one notification.
 
 use super::*;
 
@@ -25,7 +25,7 @@ fn a_terminal_bell_posts_one_attention_notification_for_its_terminal() {
         serde_json::json!({
             "id": 1,
             "cmd": "run",
-            "argv": ["/bin/sh", "-c", "printf '\\a\\a\\a'; printf 'rang\\r\\n'; sleep 600"],
+            "argv": ["/bin/sh", "-c", "printf '\\a\\a\\a'; printf 'rang\\r\\n'; sleep 11; printf '\\a'; printf 'again\\r\\n'; sleep 600"],
             "new_workspace": true,
             "name": "bell",
             "cols": 80,
@@ -64,8 +64,9 @@ fn a_terminal_bell_posts_one_attention_notification_for_its_terminal() {
         "the bell notification names its terminal: {bells:?}"
     );
     assert_eq!(bells[0]["unread"], true, "{bells:?}");
-    // The three bells came in one read or within the cooldown: still one notification.
-    std::thread::sleep(Duration::from_millis(500));
+    // A bell after the cooldown while the first mark is still unread posts nothing new.
+    std::thread::sleep(Duration::from_secs(11));
+    assert!(wait_for_screen(&harness.socket, surface, "again").contains("again"));
     let bells = bell_notifications(&harness, round + 1);
-    assert_eq!(bells.len(), 1, "three bells, one notification: {bells:?}");
+    assert_eq!(bells.len(), 1, "four bells, one unread mark: {bells:?}");
 }
