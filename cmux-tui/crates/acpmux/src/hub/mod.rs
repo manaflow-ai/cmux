@@ -6,6 +6,7 @@
 
 mod adoption;
 mod aside;
+mod budget;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
@@ -196,6 +197,8 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
+    /// Tool calls whose shell runs in the background now (`idle.rs` keeps such a chat).
+    pub(super) background_running: std::collections::HashSet<String>,
 }
 
 pub struct Hub {

@@ -39,6 +39,9 @@ impl Hub {
             && session.queued() == 0
             && session.pending_permissions().is_empty()
             && session.spawn_lock.try_lock().is_ok()
+            // A shell still running in the background (a dev server, a
+            // watcher) ends with the harness: never reap it for idleness.
+            && session.stream.lock().unwrap_or_else(|e| e.into_inner()).background_running.is_empty()
     }
 
     /// The daemon is stopping (`_acpmux/shutdown`, SIGTERM, then
@@ -53,6 +56,8 @@ impl Hub {
             let weak = Arc::downgrade(self);
             let wake = self.idle_wake.clone();
             tokio::spawn(async move { Self::idle_reaper_loop(weak, wake).await });
+            #[cfg(unix)]
+            tokio::spawn(Self::budget_loop(Arc::downgrade(self)));
         }
         self.idle_wake.notify_one();
     }

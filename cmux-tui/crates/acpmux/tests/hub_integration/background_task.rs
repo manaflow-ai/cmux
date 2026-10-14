@@ -198,3 +198,64 @@ async fn a_chat_starts_claude_with_its_limits_lifted_unless_the_profile_sets_one
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The guard for the lifted limits is the session's budget, not a count: a
+/// process under the harness that takes the session over its memory budget
+/// is killed and the chat says so; the harness keeps running.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_over_its_memory_budget_loses_its_largest_process() {
+    let root = std::env::temp_dir().join(format!("acpmux-budget-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    hub.config.write().await.session_budget = Some(acpmux::harness_limits::SessionBudget {
+        memory_bytes: 100 * 1024 * 1024,
+        cpu_cores: 0.0,
+        interval: Duration::from_millis(100),
+        launch_grace: Duration::from_secs(1),
+    });
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    // The harness is running, and what it starts from now on is its work
+    // (`launch_grace`), not part of the agent.
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["stopReason"], "end_turn");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let pid_file = root.join("hog.pid");
+    let said = format!("hog: {}", pid_file.display());
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": said}]}),
+    )
+    .await
+    .unwrap();
+    let hog: u32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+    let exceeded =
+        || hub.events(&id, 0, 10_000).unwrap().into_iter().find(|e| e.kind == "budget_exceeded");
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while exceeded().is_none() {
+        assert!(std::time::Instant::now() < deadline, "the session was never held to its budget");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let e = exceeded().unwrap();
+    assert_eq!(e.msg["resource"], "memory", "{}", e.msg);
+    assert_eq!(e.msg["stopped"]["pid"], hog, "{}", e.msg);
+    // The harness still answers.
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["stopReason"], "end_turn");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
