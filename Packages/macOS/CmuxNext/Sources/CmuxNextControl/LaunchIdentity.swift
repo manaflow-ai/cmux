@@ -22,11 +22,15 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// Sanitized tag (`[a-z0-9-]`), nil for untagged builds.
     public var tag: String?
     public var socketPath: String
+    /// The socket's old `/tmp` name, kept as a symlink to ``socketPath`` for
+    /// tools that still use it (``ControlSocketPath``); nil with an explicit path.
+    public var compatibilityLink: String?
 
-    public init(bundleID: String?, tag: String?, socketPath: String) {
+    public init(bundleID: String?, tag: String?, socketPath: String, compatibilityLink: String? = nil) {
         self.bundleID = bundleID
         self.tag = tag
         self.socketPath = socketPath
+        self.compatibilityLink = compatibilityLink
     }
 
     /// Variables every terminal of this app gets, so the `cmux` CLI inside
@@ -53,11 +57,13 @@ public struct LaunchIdentity: Sendable, Equatable {
         let tag = ControlSocketPath.shared.bundleTag(bundle)
             ?? bundledEnvironment["CMUX_TAG"].flatMap(ControlSocketPath.shared.sanitize)
             ?? taggedAppName(bundleName)
-        var path = ControlSocketPath.shared.resolve(bundleID: bundle, tag: tag, isDebugBuild: isDebugBuild, home: home)
         if let explicit = processEnvironment[socketOverrideKey]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
-            path = explicit
+            return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: explicit)
         }
-        return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: path)
+        let paths = ControlSocketPath.shared
+        return LaunchIdentity(bundleID: bundle, tag: tag,
+                              socketPath: paths.resolve(bundleID: bundle, tag: tag, isDebugBuild: isDebugBuild, home: home),
+                              compatibilityLink: paths.compatibilityLink(bundleID: bundle, tag: tag, isDebugBuild: isDebugBuild, home: home))
     }
 
     /// A fleet artifact is sometimes launched directly from its staged

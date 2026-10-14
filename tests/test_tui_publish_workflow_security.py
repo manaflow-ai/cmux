@@ -113,22 +113,31 @@ def valgrind_build_step() -> str:
 def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
     build = valgrind_build_step()
 
-    assert re.findall(
-        r"(?m)^\s+-p ([A-Za-z0-9_-]+) --(bin|test) "
-        r"([A-Za-z0-9_-]+) \\\s*$",
-        build,
-    ) == [
-        ("cmux-tui", "bin", "cmux-tui"),
-        ("ghostty-vt", "test", "terminal"),
-    ]
+    # The startup tests live in the cmux_tui library (src/main.rs since the
+    # Windows thin-exe split); the cmux-tui bin's test binary has the same
+    # cmux_tui-<hash> name and none of them.
+    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui/Cargo.toml").read_text()
+    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "src/main.rs"', cargo_toml)
     assert re.search(
-        r"cargo test \\\s+-p cmux-tui --bin cmux-tui \\\s+"
+        r"cargo test \\\s+-p cmux-tui --lib \\\s+"
         r"-p ghostty-vt --test terminal \\\s+"
         r"--locked --no-run --message-format=json",
         build,
     )
+    assert "--bin cmux-tui" not in build
     assert "cargo test --workspace" not in build
     assert build.count("cargo test") == 1
+
+
+def test_valgrind_runner_refuses_an_ambiguous_or_stale_startup_binary() -> None:
+    job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
+    run_step = job.split("      - name: Run test binaries under valgrind", 1)[1]
+
+    # Two cmux_tui-<hash> binaries (lib and bin) must not resolve silently to
+    # whichever cargo listed last.
+    assert "more than one cmux_tui test binary" in run_step
+    # A listed test that is gone names the list and the cargo selector to fix.
+    assert "update startup_tests and the cargo selector in Build test binaries" in run_step
 
 
 def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
@@ -2315,7 +2324,9 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
     # build legs beside them take the owned side lane on attempt 1. Once every
     # same-repo branch push ran this workflow (#19169), 16 daemon-test jobs sat
     # queued on Blacksmith macOS at its cap while the minis had room. The first
-    # attempt uses the same route as the build legs; a rerun goes to the PR pool.
+    # attempt uses the same route as the build legs. 2026-10-14: a rerun stays
+    # on the minis too; it fell through to MACOS_RUNNER_PR, the nightly build's
+    # 12 vCPU macOS 26 label (tests/test_ci_tui_routes_avoid_nightly_label.py).
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     build_route = jobs["build"]["with"]["macos_runner"]
@@ -2332,9 +2343,12 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
         "github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || "
     )
     assert fork_gate in build_route
-    assert daemon == build_route.replace(fork_gate, fork_gate + promote, 1), daemon
-    assert "github.run_attempt == 1" in daemon
-    assert retry_route.split("|| ", 1)[1] in daemon  # a rerun falls back to the PR pool
+    side_attempt_one = "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER"
+    assert side_attempt_one in build_route
+    every_attempt = build_route.replace(side_attempt_one, "vars.CI_SIDE_LANE_RUNNER", 1)
+    assert daemon == every_attempt.replace(fork_gate, fork_gate + promote, 1), daemon
+    assert "MACOS_RUNNER_PR" not in daemon
+    assert retry_route.split("|| ", 1)[1] in daemon  # owned pools off: Blacksmith macOS 15
 
 
 if __name__ == "__main__":
