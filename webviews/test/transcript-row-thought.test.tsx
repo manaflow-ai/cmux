@@ -74,12 +74,17 @@ test("a finished thought is one closed 'Thought for 4s' line that opens to its t
 
 test("the thought the agent is still writing reads 'Thinking…'", async () => {
   const { appendThought } = await import("../src/agent-session/acpmux/direct");
-  await render({
+  const row = {
     id: "activity-2",
     kind: "activity",
     at: 1_000,
     settled: false,
-    items: appendThought([], "Reading the retry helper first", 1_000),
-  });
+    items: appendThought(appendThought([], "Reading the retry helper ", 1_000), "first", 3_000),
+  };
+  // The running turn's last row (turns.ts liveTurn marks it).
+  await render({ ...row, live: true });
   expect(host.querySelector(".cv-thought")?.textContent).toBe("Thinking…");
+  // An earlier row of the same turn, with an answer after it, has finished thinking.
+  await render(row);
+  expect(host.querySelector(".cv-thought")?.textContent).toBe("Thought for 2s");
 });

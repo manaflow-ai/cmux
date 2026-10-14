@@ -54,6 +54,8 @@ export type AcpmuxRow = {
   /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
   /// folds under one summary line (conversation/toolRunSummary.ts).
   settled?: boolean;
+  /// The running turn's last row: the work the agent is on now, so its last thought reads "Thinking…".
+  live?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
@@ -74,9 +76,14 @@ export type AcpmuxActivity = {
   kind: string;
   text: string;
   status?: string;
+  /// A thought's first and latest chunk (epoch ms), for its "Thought for 4s" line.
+  startedAt?: number;
+  endedAt?: number;
   tool?: {
     id: string;
     title: string;
+    /// The harness's own name for the tool (Claude Code's `_meta.claude.tool`: `Task`, `Bash`).
+    name?: string;
     kind?: string;
     status: string;
     inputSummary?: string;
