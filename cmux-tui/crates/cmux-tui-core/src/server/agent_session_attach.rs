@@ -64,7 +64,7 @@ use serde_json::{Value, json};
 #[path = "agent_session_link.rs"]
 pub(super) mod agent_session_link;
 #[path = "agent_session_start.rs"]
-mod agent_session_start;
+pub(super) mod agent_session_start;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;

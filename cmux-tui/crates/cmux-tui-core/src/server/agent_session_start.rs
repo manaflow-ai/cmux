@@ -235,8 +235,12 @@ fn run(
     result
 }
 
-/// A link to acpmux, starting it once when nothing listens.
-fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxLink>, Refusal> {
+/// A link to acpmux, starting it once when nothing listens (also an
+/// `agent-update-apply`, `agent_update.rs`).
+pub(in crate::server) fn connect(
+    mux: &Mux,
+    socket: &std::path::Path,
+) -> Result<Arc<AcpmuxLink>, Refusal> {
     let open = || AcpmuxLink::connect(socket, |_| {});
     if let Ok(link) = open() {
         return Ok(link);
