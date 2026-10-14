@@ -130,8 +130,10 @@ struct SSHRemoteCommandCLIIntegrationTests {
             remotePath: "/tmp/cmux-drop-123.png"
         )
 
-        #expect(!scpArguments.contains(routeMarker))
-        #expect(configuration.sshOptions.contains(routeMarker))
+        #expect(!scpArguments.contains { $0.contains("__cmux_route_sensitive") })
+        #expect(scpArguments.contains("ControlPersist=600"))
+        // The route identity is kept beside the options for connection sharing.
+        #expect(configuration.routeSensitiveIdentifier == String(repeating: "a1", count: 32))
     }
 
     @Test
