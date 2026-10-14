@@ -77,6 +77,7 @@ enum ControlSidebarPanelOwner {
         }
     }
 
+    /// Applies a panel lifecycle mutation to the active workspace or Dock.
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,

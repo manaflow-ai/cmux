@@ -307,6 +307,7 @@ extension DockSplitStore {
         return didReplaceRuntime
     }
 
+    /// Stores a Dock panel lifecycle and its optional owning agent session.
     func setAgentLifecycle(
         key: String,
         panelId: UUID,

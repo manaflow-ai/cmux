@@ -143,7 +143,7 @@ extension Workspace {
 
     /// Returns the custom-sidebar wire value for the lifecycle recorded on an
     /// agent's hosting panel.
-    static func customSidebarAgentLifecycle(
+    nonisolated static func customSidebarAgentLifecycle(
         sessionID: String,
         currentSessionID: String?,
         state: ChatAgentState,

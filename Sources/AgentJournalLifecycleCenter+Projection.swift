@@ -58,6 +58,8 @@ extension AgentJournalLifecycleCenter {
         )
     }
 
+    /// Folds the journal and returns startup-safe assignments with session
+    /// ownership attached to each surviving lifecycle entry.
     static func reduceStartupReplay(
         store: AgentJournalStore,
         aliases: AgentJournalAliasResolver,
