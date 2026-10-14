@@ -36,7 +36,7 @@ import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
@@ -49,8 +49,10 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
+import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import {
@@ -3625,6 +3627,11 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        // The minimap's prompt bookmarks live in acpmux's session (threadMinimap/bookmarks.ts).
+        setBookmarkTransport({
+          get: (id) => client.readBookmarks(id),
+          set: (id, seq, on) => client.setBookmark(id, seq, on),
+        });
         // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
         client.onTrustRefused = (refusal, again) => {
@@ -4119,6 +4126,7 @@ function AcpmuxPane() {
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
+      setBookmarkTransport(undefined);
       delete window.cmuxAcpmuxActions;
       notifyDraftActionsChanged();
     };
@@ -4418,11 +4426,8 @@ function AcpmuxPane() {
       setImportError(error instanceof Error ? error.message : undefined);
     }
   }, []);
-  const openFromNewTab = (kind: TabKind, text: string, cwd?: string) => {
-    if (kind !== "agent") {
-      void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
-      return;
-    }
+  /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
+  const chatFromNewTab = (text: string, cwd?: string) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
     const start = (folder?: string) =>
@@ -5151,7 +5156,8 @@ function AcpmuxPane() {
               omnibar={newTab.omnibar}
               projects={newTabProjects}
               chips={ComposerChips}
-              onSubmit={(...args: Parameters<typeof openFromNewTab>) => whenHandshaken(() => openFromNewTab(...args))}
+              // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
+              onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
