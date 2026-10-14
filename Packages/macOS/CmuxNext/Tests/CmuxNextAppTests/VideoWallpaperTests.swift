@@ -140,7 +140,9 @@ import Testing
         panel.isOpaque = false
         panel.backgroundColor = .clear
         h.window.addChildWindow(panel, ordered: .above)
+        panel.orderFrontRegardless()
         defer { h.window.removeChildWindow(panel); panel.close() }
+        try #require(panel.windowNumber > 0, "the overlay panel has no window number")
         let frame = BackdropVideoView.screenFrame(h.window.frame)
         var above: [BackdropCoverage.Window] = [.init(bounds: frame, number: panel.windowNumber)]
         h.video.windowsAboveOverride = { above }

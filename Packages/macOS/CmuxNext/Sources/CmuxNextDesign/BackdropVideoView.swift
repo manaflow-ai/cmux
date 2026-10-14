@@ -151,7 +151,8 @@ public final class BackdropVideoView: NSView {
         var numbers: Set<Int> = []
         var pending = window.childWindows ?? []
         while let child = pending.popLast() {
-            numbers.insert(child.windowNumber)
+            // A child never put on screen has no number yet; 0 would hide every unnumbered window.
+            if child.windowNumber > 0 { numbers.insert(child.windowNumber) }
             pending += child.childWindows ?? []
         }
         return numbers
