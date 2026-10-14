@@ -180,3 +180,18 @@ def rig_pair(user_id):
     with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
         json.dump({"userID": user_id, "devices": devices, "denied": []}, f, indent=2, sort_keys=True)
     return rig_launch(), [d["id"] for d in devices]
+
+
+def sheet(name, fps=2, cols=6, start=None, dur=None, width=200):
+    """Contact sheet of RAW/<name>.mp4 for review: artifacts/sheets/<name>.jpg (<=1200 px wide)."""
+    src = os.path.join(RAW, f"{name}.mp4")
+    out = os.path.join(ART, "sheets", f"{name}.jpg")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    cut = (["-ss", str(start)] if start is not None else []) + (["-t", str(dur)] if dur is not None else [])
+    n = int(subprocess.run(["ffprobe", "-v", "error", "-count_packets", "-select_streams", "v:0", "-show_entries",
+                            "format=duration", "-of", "csv=p=0", src], capture_output=True, text=True).stdout.strip().split(".")[0] or 10)
+    rows = max(1, min(8, ((dur or n) * fps + cols - 1) // cols))
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", *cut, "-i", src, "-vf",
+                    f"fps={fps},scale={width}:-2,tile={cols}x{int(rows)}",
+                    "-frames:v", "1", "-q:v", "5", out], check=True)
+    return out
