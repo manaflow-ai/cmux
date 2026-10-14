@@ -152,6 +152,7 @@ impl Translator {
                                 task: None,
                                 background: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
+                                announced: false,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
@@ -492,8 +493,8 @@ impl Translator {
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
             }
             "system" if sub.starts_with("task_") => {
-                if let Some(ended) = self.background_shell_task(sub, line, &sid).await {
-                    out.push(ended);
+                if let Some(update) = self.background_shell_task(sub, line, &sid).await {
+                    out.push(update);
                 }
                 if let Some(ended) = self.subagent_task(sub, line).await {
                     out.push(upd(ended));
@@ -519,7 +520,8 @@ impl Translator {
 
     /// Claude's task events for a shell (cx-ncc.84): a `local_bash`
     /// task_started names its task and says whether it runs in the background,
-    /// a task_updated may move it there, and a background one's
+    /// a task_updated may move it there (either way a `running`
+    /// `background_task_update` goes out once), and a background one's
     /// `task_notification` returns a `background_task_update`
     /// saying how it ended (`completed`, `failed` or `stopped`), with Claude's
     /// reason or summary when it gave one. The update goes to the session the
@@ -539,21 +541,21 @@ impl Translator {
         let backgrounded = |at: Option<&Value>| at == Some(&Value::Bool(true));
         match sub {
             "task_started" if text("task_type") == Some("local_bash") => {
-                let shell = shells.entry(tool).or_insert_with(|| BackgroundShell {
+                let shell = shells.entry(tool.clone()).or_insert_with(|| BackgroundShell {
                     sid: sid.to_owned(),
                     command: text("description").unwrap_or("").to_owned(),
                     task: None,
                     background: false,
+                    announced: false,
                 });
                 shell.task = task.map(str::to_owned).or(shell.task.take());
                 shell.background |= backgrounded(line.get("is_backgrounded"));
-                return None;
+                return running(&tool, shell);
             }
             "task_updated" => {
-                if let Some(shell) = shells.get_mut(&tool) {
-                    shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
-                }
-                return None;
+                let shell = shells.get_mut(&tool)?;
+                shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
+                return running(&tool, shell);
             }
             "task_notification" => {}
             _ => return None,
@@ -694,6 +696,17 @@ fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> V
         "command": shell.command,
         "state": state,
     })
+}
+
+/// The `running` update of a shell Claude runs in the background now, once
+/// per shell: the hub keeps a chat with one alive (`hub/idle.rs`). Clients
+/// note only how a shell ended.
+fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
+    if !shell.background || shell.announced {
+        return None;
+    }
+    shell.announced = true;
+    Some(shell_update(shell, background_task_update(tool, shell, "running")))
 }
 
 /// `update` as a session update in the shell's session.

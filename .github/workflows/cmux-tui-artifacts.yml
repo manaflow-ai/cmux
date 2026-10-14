@@ -194,6 +194,8 @@ jobs:
       contents: read
       # The tree-claim authority identifies this run by its OIDC token.
       id-token: write
+      # The superseded check reads a pin's pull request.
+      pull-requests: read
     outputs:
       darwin_builder: ${{ steps.darwin-builder.outputs.builder }}
       key: ${{ steps.inspect.outputs.key }}
@@ -204,12 +206,32 @@ jobs:
       run_macos: ${{ steps.inspect.outputs.run_macos }}
       superseded: ${{ steps.inspect.outputs.superseded }}
       owner_run_id: ${{ steps.inspect.outputs.owner_run_id }}
+      stale: ${{ steps.stale.outputs.stale }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 1
+
+      # A queued run can be superseded before it gets a runner: on 2026-10-14
+      # 37% of the queued runs of this workflow were cmux-tui-pin-* merge trees
+      # of pull requests that had moved on, or lane-branch pushes whose branch
+      # had moved, and were cancelled by hand. The workflow group cannot drop
+      # them (a queued run is already admitted, GitHub replaces only a pending
+      # one, and cancel-in-progress would stop uploads), so the run asks here,
+      # before it claims its key, and skips its builds and daemon tests when
+      # superseded (stale=true; scripts/ci/cmux_tui_superseded_push.py has the
+      # rules). main, feat-cmux-next and next-batch/* pushes, pull request runs
+      # and dispatches are never superseded; any lookup failure keeps the run.
+      - name: Check whether a newer push superseded this one
+        id: stale
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
 
       # A lane-branch push publishes its tree without the cmux_next_ daemon
       # tests (source.json daemonTests "separate", no daemon-tests marker):
@@ -225,10 +247,14 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
+          STALE: ${{ steps.stale.outputs.stale }}
         run: |
           set -euo pipefail
           daemon_tests=true
-          if [[ "$EVENT_NAME" == push ]]; then
+          if [[ "${STALE:-}" == true ]]; then
+            daemon_tests=false
+            echo "A newer push superseded this one; its daemon tests are not run."
+          elif [[ "$EVENT_NAME" == push ]]; then
             case "$REF" in
               refs/heads/main|refs/heads/feat-cmux-next|refs/heads/cmux-tui-pin-*|refs/heads/next-batch/*) ;;
               *)
@@ -268,6 +294,7 @@ jobs:
           API_URL: ${{ github.api_url }}
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
+          STALE: ${{ steps.stale.outputs.stale }}
         run: |
           set -euo pipefail
           superseded=false
@@ -401,9 +428,13 @@ jobs:
           # owns it. The run-list election below is only the fallback when the
           # authority cannot be asked; it reads an eventually consistent list
           # and let three runs of tree bfbd3600debc each win on 2026-10-11.
+          # A superseded push (the stale step) builds nothing, so it neither
+          # claims the key nor elects an owner: the newer push's run owns it.
           owner_run_id="$RUN_ID"
           claimed=false
-          if [[ "$tree_ready" != true && "$EVENT_NAME" == push && "$REF" != refs/heads/main ]]; then
+          elect=true
+          [[ "${STALE:-}" == true ]] && elect=false
+          if [[ "$elect" == true && "$tree_ready" != true && "$EVENT_NAME" == push && "$REF" != refs/heads/main ]]; then
             if claim="$(scripts/ci/cmux-tui-tree-claim.sh "$key")"; then
               claimed=true
               claim_owner="${claim#owner=}"; claim_owner="${claim_owner%% *}"
@@ -413,7 +444,7 @@ jobs:
               echo "::warning::the tree-claim authority could not be asked; electing the owner from the run list"
             fi
           fi
-          if [[ "$claimed" != true && "$tree_ready" != true && "$EVENT_NAME" == push &&
+          if [[ "$elect" == true && "$claimed" != true && "$tree_ready" != true && "$EVENT_NAME" == push &&
                 "$REF" == refs/heads/feat-cmux-next ]]; then
             runs_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
@@ -449,7 +480,7 @@ jobs:
           # (tree-owner-wait). Active means not
           # completed: a run whose jobs already run can still read queued or
           # pending (two runs pushed together each saw the other that way).
-          if [[ "$claimed" != true && "$tree_ready" != true && "$EVENT_NAME" == push &&
+          if [[ "$elect" == true && "$claimed" != true && "$tree_ready" != true && "$EVENT_NAME" == push &&
                 "$REF" != refs/heads/main ]]; then
             same_sha_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
@@ -514,6 +545,9 @@ jobs:
           if [[ "$tree_ready" == true && "$REF" != refs/heads/main &&
                 "$EVENT_NAME" != workflow_dispatch &&
                 ( "$REF" != refs/heads/cmux-tui-pin-* || "$pin_duplicate" == true ) ]]; then
+            run_macos=false
+          fi
+          if [[ "${STALE:-}" == true ]]; then
             run_macos=false
           fi
           echo "run_macos=$run_macos" >> "$GITHUB_OUTPUT"
@@ -1023,16 +1057,42 @@ jobs:
       CARGO_HTTP_MULTIPLEXING: "false"
     permissions:
       contents: read
+      # The superseded re-check reads a pin's pull request and the key's
+      # deferral markers.
+      actions: read
+      pull-requests: read
     outputs:
+      # Empty when superseded (the key step is skipped), so neither
+      # publish-tree nor publish-tree-tested acts on this run's tests.
       key: ${{ steps.key.outputs.key }}
       legacy_key: ${{ steps.key.outputs.legacy_key }}
+      superseded: ${{ steps.current.outputs.stale }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
+      # This job can queue for an hour on the owned Macs, and the push can be
+      # superseded meanwhile: it asks again now that it has a Mac (tree-
+      # preflight's stale step) and skips the tests if so, unless another run
+      # of the key deferred to this one (it waits for this tree). The run then
+      # ends green without a tree, like any superseded push; its owner role
+      # passes to a deferred run (notify-unpublished-tree).
+      - name: Check whether a newer push superseded this one
+        id: current
+        if: github.event_name == 'push'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA" --key "$KEY" --run-id "$RUN_ID"
+
       - name: Tree key
+        if: steps.current.outputs.stale != 'true'
         id: key
         env:
           EXPECTED_COMMIT: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
@@ -1051,32 +1111,39 @@ jobs:
           echo "cmux-tui v1 tree key: $legacy_key"
 
       - name: Use short temporary directory for macOS socket tests
+        if: steps.current.outputs.stale != 'true'
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
+        if: steps.current.outputs.stale != 'true'
         run: git submodule update --init --depth 1 ghostty-next
 
       # A verified Zig tarball survives a mirror outage (FLAKE-ZIG-MIRRORS-502):
       # install-zig-ci.sh uses it only when it matches the pinned SHA-256.
       - name: Cache the verified Zig tarball
+        if: steps.current.outputs.stale != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/cmux-zig-tarballs
           key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
 
       - name: Install zig
+        if: steps.current.outputs.stale != 'true'
         env:
           GHOSTTY_ZIG_SOURCE: ghostty-next
           ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
 
       - name: Fetch the ghostty-next Zig packages (retried)
+        if: steps.current.outputs.stale != 'true'
         run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
 
       - name: Set up pinned Rust
+        if: steps.current.outputs.stale != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo build
+        if: steps.current.outputs.stale != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: cmux-tui -> target
@@ -1084,6 +1151,7 @@ jobs:
           cache-all-crates: true
 
       - name: cargo test cmux_next_
+        if: steps.current.outputs.stale != 'true'
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -2651,7 +2719,10 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci
 
+      # A run whose daemon tests found it superseded publishes no tree on
+      # purpose: no failure to report. It still hands the key on (below).
       - name: Report the unpublished tree to the cmux-next runs that wait for it
+        if: needs.cmux-next-daemon-tests.outputs.superseded != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

@@ -306,6 +306,30 @@ for line in sys.stdin:
                   "input": {"command": "rm -rf build", "run_in_background": True}}]}})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_err",
                   "is_error": True, "content": "Permission denied"}]}})
+        # "bg-running": a dev server starts in the background and is still running when the turn ends.
+        if said.strip() == "bg-running":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_run", "name": "Bash",
+                  "input": {"command": "npm run dev", "run_in_background": True}}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": "r1", "tool_use_id": "toolu_run",
+                  "description": "npm run dev", "task_type": "local_bash"})
+        # "agent-bg-running": a background subagent starts a dev server in the background, which
+        # is still running when the turn ends.
+        if said.strip() == "agent-bg-running":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_agbg", "name": "Agent",
+                  "input": {"description": "Serve", "prompt": "Start the dev server", "run_in_background": True}}]}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_agbg",
+                  "content": "Async agent launched"}]}})
+            send({"type": "assistant", "parent_tool_use_id": "toolu_agbg", "message": {"content": [
+                  {"type": "tool_use", "id": "toolu_agrun", "name": "Bash",
+                   "input": {"command": "npm run dev", "run_in_background": True}}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": "r2", "tool_use_id": "toolu_agrun",
+                  "description": "npm run dev", "task_type": "local_bash"})
+        # "limits-probe": the turn says the limit knobs this Claude Code started with.
+        if said.strip() == "limits-probe":
+            text = json.dumps({k: os.environ.get(k) for k in (
+                "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION",
+                "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY",
+                "BASH_MAX_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS")}, sort_keys=True)
         # "bg-moved": a foreground shell moved to the background while it ran (a task_updated
         # patch), then ended; its notification names only the task.
         if said.strip() == "bg-moved":
