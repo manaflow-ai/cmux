@@ -300,12 +300,20 @@ export function createAcpmuxDebug(
   };
 }
 
-/// The summary as drawn: docked or a popover, and each subagent's name and status; null when hidden.
+/// The summary card as drawn: beside the chat (push) or over it, where it sits in the page, and
+/// each subagent's name and status; null when hidden.
 function summaryCardState() {
   const card = document.querySelector(".acpmux-summary-card");
   if (!card) return null;
+  const rect = card.getBoundingClientRect();
   return {
     placement: card.getAttribute("data-placement"),
+    rect: {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    },
     agents: [...card.querySelectorAll<HTMLElement>(".acpmux-summary-agent")].map((row) => ({
       name: row.querySelector(".acpmux-summary-agent__name")?.textContent ?? "",
       status: row.dataset.status ?? "",
