@@ -1533,3 +1533,208 @@
 .hc-lightbox-body {
   display: contents;
 }
+
+/* ---------- Sheets (routes.ts): one dialog, one decision ---------- */
+/* The palette's surface and the shared popup rule (a dimmed page, the solid popup surface). */
+.lg-form.ui-dialog,
+.lg-form {
+  position: fixed;
+  top: 10vh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  width: min(480px, calc(100vw - 48px));
+  max-height: 80vh;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-shadow);
+  overflow: hidden;
+  z-index: var(--layer-overlay);
+}
+.lg-form.wide {
+  width: min(560px, calc(100vw - 48px));
+}
+.lg-form-frame,
+.lg-form-keys {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.lg-form-head {
+  flex: none;
+  padding: 20px 20px 4px;
+}
+.lg-form-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 700;
+  color: var(--page-text);
+}
+.lg-form-lead {
+  margin: 4px 0 0;
+  color: var(--page-text-2);
+}
+.lg-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 20px 4px;
+}
+.lg-form-actions {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px 20px;
+}
+.lg-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.lg-form-label {
+  padding: 0;
+  font-size: var(--text-detail);
+  font-weight: 600;
+  color: var(--page-text-2);
+}
+.lg-form-note {
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+.lg-form-error {
+  font-size: var(--text-detail);
+  color: var(--hc-danger);
+}
+.lg-form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lg-form-text.hc-link-field {
+  height: auto;
+  min-height: 56px;
+  padding: 6px 10px;
+  resize: vertical;
+  line-height: var(--text-body--line-height);
+}
+.lg-hidden-file {
+  display: none;
+}
+
+/* People and Chiefs to pick: tall rows, the picked ones first. */
+.lg-picker-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lg-picker-count {
+  min-height: var(--text-caption--line-height);
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+.lg-picker-rows {
+  display: flex;
+  flex-direction: column;
+  max-height: min(320px, 40vh);
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.lg-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--page-text);
+}
+.lg-picker-row:hover,
+.lg-picker-row:focus-within {
+  background: var(--page-hover);
+}
+.lg-picker-row input {
+  margin: 0;
+}
+.lg-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lg-picker-none {
+  margin: 12px 8px;
+  color: var(--page-text-3);
+}
+
+/* A Chief's profile: picture and names side by side, the grant as quiet checkboxes. */
+.lg-chief-identity {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.lg-chief-picture {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-top: 22px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.lg-chief-picture img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lg-chief-names {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.lg-grant-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.lg-grant-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  color: var(--page-text);
+}
+.lg-grant-item input {
+  margin: 0;
+}
+.lg-grant:disabled .lg-grant-item {
+  color: var(--page-text-2);
+}
+
+/* A Chief's picture in its tile. */
+.hc-avatar.picture {
+  overflow: hidden;
+  padding: 0;
+}
+.hc-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

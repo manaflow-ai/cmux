@@ -207,6 +207,7 @@ describe("one subtle elevation scale", () => {
     ["pages/markdown/styles.css", ".md-link-popover", "--elevation-2"],
     ["pages/cloud/styles.css", ".cloud-create-sheet", "--elevation-2"],
     ["pages/home-channels/ledger.css", ".lg-palette", "--elevation-2"],
+    ["pages/home-channels/ledger.css", ".lg-form", "--elevation-2"],
     ["pages/home-channels/ledger.css", ".lg-sheet", "--elevation-2"],
     ["pages/home-channels/styles.css", ".hc-msg-toolbar", "--elevation-2"],
     ["icon-picker/styles.css", ".icon-bar-pill", "--elevation-2"],

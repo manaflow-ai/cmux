@@ -4,9 +4,8 @@
 // create popover, the inline editor, the keyboard's current message and a short notice.
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
-import { AddChannel } from "./AddChannel";
 import { AttachmentContext } from "./AttachmentViews";
-import { Avatar, ChannelMark } from "./Avatar";
+import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
 import { ConversationList, useStamp } from "./ConversationList";
 import { HomeIcon } from "./icons";
@@ -31,20 +30,22 @@ import {
 import { Palette, type PaletteItem } from "./Palette";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
+import { RouteSheets } from "./RouteSheets";
 import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
 import { ThreadSheet } from "./ThreadSheet";
 import { Timeline } from "./Timeline";
-import type { HomeMessage, HomeParticipant, HomeRun } from "./types";
+import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
 
 const NOTICE_MS = 1600;
 
 export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const sheetState = useSyncExternalStore(store.sheets.subscribe, store.sheets.getSnapshot);
+  const caps = sheetState.capabilities;
   const [palette, setPalette] = useState(false);
-  const [addChannel, setAddChannel] = useState<Element | null>(null);
   const [editing, setEditing] = useState<{ id: string; surface: "main" | "thread" } | undefined>();
   const [focused, setFocused] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
@@ -100,13 +101,6 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     return map;
   }, [snap.conversations, snap.me]);
   const mentionable = useMemo(() => others(open, me), [open, me]);
-  const everyone = useMemo(
-    () =>
-      [...people.values()]
-        .filter((p) => p.id !== me)
-        .sort((a, b) => Number(b.chief) - Number(a.chief) || Number(b.kind === "agent") - Number(a.kind === "agent")),
-    [people, me],
-  );
   const channels = useMemo(() => channelIds(snap.conversations.values(), me), [snap.conversations, me]);
   const online = snap.connection === "online";
   const name = open ? conversationName(open, me) : "";
@@ -215,7 +209,8 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     openPalette: () => setPalette(true),
     move: moveList,
     escape: () => {
-      if (palette) setPalette(false);
+      if (sheetState.route) store.sheets.close();
+      else if (palette) setPalette(false);
       else if (editing) setEditing(undefined);
       else if (openRun) setOpenRun(undefined);
       else if (snap.thread) openThread(undefined);
@@ -256,6 +251,13 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     onRetract: (message: HomeMessage) => void store.retract(message),
   });
 
+  /** The Chief record of a direct message with a Chief (the page can edit it). */
+  const chiefOf = (conversation: HomeConversation) => {
+    if (channels.has(conversation.id)) return undefined;
+    const others = conversation.participants.filter((p) => p.id !== me);
+    return others.length === 1 && others[0]!.chief ? sheetState.chiefs.get(others[0]!.id) : undefined;
+  };
+  const openChief = open ? chiefOf(open) : undefined;
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = [];
     for (const c of chronological(snap.conversations.values())) {
@@ -286,13 +288,48 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
         run: () => openThread(entry.root.id),
       });
     }
-    if (online && everyone.length > 0)
+    if (online && caps.start)
       items.push({
-        id: "a:new-channel",
+        id: "a:new-message",
         group: "actions",
-        title: t("rail.addChannel"),
+        title: t("action.newMessage"),
+        keywords: [t("rail.addChannel")],
+        mark: <HomeIcon name="compose" size={16} />,
+        run: () => store.sheets.open({ kind: "newMessage" }),
+      });
+    if (online && caps.chiefs)
+      items.push({
+        id: "a:new-chief",
+        group: "actions",
+        title: t("action.newChief"),
         mark: <HomeIcon name="plus" size={16} />,
-        run: () => setAddChannel(document.querySelector(".lg-list-header .hc-icon-button") ?? document.body),
+        run: () => store.sheets.open({ kind: "newChief" }),
+      });
+    const current = snap.selected ? snap.conversations.get(snap.selected) : undefined;
+    if (online && caps.invite && current?.owner === "local")
+      items.push({
+        id: "a:invite",
+        group: "actions",
+        title: t("action.invite"),
+        mark: <HomeIcon name="personAdd" size={16} />,
+        run: () => store.sheets.open({ kind: "invite", conversation: current.id }),
+      });
+    const chiefHere = current ? chiefOf(current) : undefined;
+    if (online && chiefHere)
+      items.push({
+        id: "a:edit-chief",
+        group: "actions",
+        title: t("action.editChief"),
+        mark: <HomeIcon name="edit" size={16} />,
+        run: () => store.sheets.open({ kind: "editChief", chief: chiefHere.id }),
+      });
+    if (online && chiefHere && !chiefHere.isDefault && sheetState.chiefGrants)
+      items.push({
+        id: "a:archive-chief",
+        group: "actions",
+        title: t("action.archiveChief"),
+        mark: <HomeIcon name="close" size={16} />,
+        run: () => store.sheets.open({ kind: "archiveChief", chief: chiefHere.id }),
       });
     if (snap.thread)
       items.push({
@@ -346,13 +383,15 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     me,
     threads,
     online,
-    everyone,
     snap.thread,
     snap.selected,
     snap.inboxState,
     sheetThread?.status,
     sheetThread?.owner,
     stamp,
+    caps,
+    sheetState.chiefs,
+    sheetState.chiefGrants,
   ]);
 
   const empty = snap.conversations.size === 0 && !snap.loading;
@@ -367,6 +406,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   );
   return (
     <AttachmentContext.Provider value={store.attachments}>
+      <PicturesContext.Provider value={sheetState.pictures}>
       <div className="lg-page">
         <ConversationList
           conversations={snap.conversations}
@@ -378,7 +418,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           strings={strings}
           onSelect={select}
           onOpenPalette={() => setPalette(true)}
-          onAddChannel={online && everyone.length > 0 ? (anchor) => setAddChannel(anchor) : undefined}
+          onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
           actions={rowActions}
         />
         <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
@@ -386,8 +426,8 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
             <EmptyState
               strings={strings}
               noConversations={empty}
-              canCreate={online && everyone.length > 0}
-              onCreate={(anchor) => setAddChannel(anchor)}
+              canCreate={online && caps.start}
+              onCreate={() => store.sheets.open({ kind: "newMessage" })}
               onPalette={() => setPalette(true)}
             />
           ) : (
@@ -431,6 +471,28 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                       <Avatar key={p.id} participant={p} size={20} />
                     ))}
                   </span>
+                )}
+                {online && caps.invite && open.owner === "local" && (
+                  <button
+                    type="button"
+                    className="hc-icon-button"
+                    aria-label={t("action.invite")}
+                    title={t("action.invite")}
+                    onClick={() => store.sheets.open({ kind: "invite", conversation: open.id })}
+                  >
+                    <HomeIcon name="personAdd" size={16} />
+                  </button>
+                )}
+                {online && openChief && (
+                  <button
+                    type="button"
+                    className="hc-icon-button"
+                    aria-label={t("action.editChief")}
+                    title={t("action.editChief")}
+                    onClick={() => store.sheets.open({ kind: "editChief", chief: openChief.id })}
+                  >
+                    <HomeIcon name="edit" size={16} />
+                  </button>
                 )}
                 <button
                   type="button"
@@ -549,17 +611,16 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
             </>
           )}
         </section>
-        {addChannel && (
-          <AddChannel
-            anchor={addChannel}
-            people={everyone}
-            strings={strings}
-            onCreate={(title, participants) => store.createChannel(title, participants)}
-            onClose={() => setAddChannel(null)}
-          />
-        )}
+        <RouteSheets
+          sheets={store.sheets}
+          state={sheetState}
+          strings={strings}
+          conversations={snap.conversations}
+          me={me}
+        />
         {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
       </div>
+      </PicturesContext.Provider>
     </AttachmentContext.Provider>
   );
 }
@@ -574,7 +635,7 @@ function EmptyState({
   strings: Strings;
   noConversations: boolean;
   canCreate: boolean;
-  onCreate(anchor: Element): void;
+  onCreate(): void;
   onPalette(): void;
 }) {
   const { t } = strings;
@@ -584,8 +645,8 @@ function EmptyState({
       <p className="lg-empty-body">{t(noConversations ? "empty.body" : "empty.pick.body")}</p>
       <div className="lg-empty-actions">
         {noConversations && canCreate && (
-          <button type="button" className="lg-button primary" onClick={(event) => onCreate(event.currentTarget)}>
-            {t("rail.addChannel")}
+          <button type="button" className="lg-button primary" onClick={onCreate}>
+            {t("action.newMessage")}
           </button>
         )}
         <button type="button" className="lg-button" onClick={onPalette}>
