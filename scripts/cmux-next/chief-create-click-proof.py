@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""hq-6d P1 owner install key (cx-ebm.59.5) live proof on cmux-lawrence-2 (nx-remote --needs input --app-from-fleet,
+"""Chief create by a real click, and the page relay across a Chief owner restart (cx-ebm.59.5). Live proof on cmux-lawrence-2 (nx-remote --needs input --app-from-fleet,
 own tag, own socket, isolated HOME and a per-build Chief home under /tmp via CMUX_NEXT_CHIEF_ROOT; run under `zsh -lic`).
 Built from s7-proof-v3.py.
 
@@ -10,6 +10,8 @@ Built from s7-proof-v3.py.
 2. Page Chief create WITHOUT a gesture: refused (gesture_required).
 3. New Chief through the page with a REAL pointer click on Create Chief: the Chief is created on the owner (chief list),
    the page shows no "needs a verified cmux app connection".
+4. The owner restarts while the page is open: a page relay call answers within the relay deadline, and a second real
+   click on Create Chief makes a Chief on the new owner (no page call left in flight).
 Ends with quitEndSessions, endAgents, acpmux daemon shutdown + router shutdown, chief shutdown.
 Reads NX_APP, NX_APP_TAG, NX_APP_STOP, NX_APP_CLI, NX_CAPTURE, NX_ARTIFACTS."""
 import json, os, shutil, socket, subprocess, sys, tempfile, time
@@ -415,6 +417,41 @@ try:
     check("new_chief_created_owner_did_not_refuse", bool(made) and refused_text not in json.dumps(after_page)
           and name in json.dumps(after_page),
           {"click": R["create_click"], "list": (R.get("chief_list") or [{}])[-1], "page_tail": json.dumps(after_page)[-600:]})
+
+    # 4. The Chief owner restarts while the page is open (the app's main connection ensures a new owner process on
+    #    the same socket). A page relay call then answers within the relay's deadline (10 s) plus margin, and a real
+    #    click on Create Chief makes a Chief on the NEW owner: its gesture token is bound to a relay connection on the
+    #    new owner, so a relay still on the old owner (or a token bound to another connection) cannot pass.
+    before_restart = owner_status()
+    R["owner_stop"] = subprocess.run([CLI, "--session", owner_session(CHIEF), "--json", "server", "stop", "--force"],
+                                     capture_output=True, text=True, timeout=60, env={**env_base(), **OWNER_ENV}).returncode
+    def new_owner():
+        o = (res(rpc("debug.home", {}, 30)) or {}).get("chief_owner") or {}
+        return o if o.get("connected") and o.get("daemon_pid") and o.get("daemon_pid") != before_restart.get("pid") else None
+    restarted = until(new_owner, 120)
+    t0 = time.time()
+    relay_after = rpc("debug.page", {"page": "cmux.home-channels", "action": "call", "op": "cmux.chief.profile.list",
+                                     "params": {"machine": "current", "session": "current"}}, 30)
+    relay_ms = int((time.time() - t0) * 1000)
+    check("relay_call_answers_after_owner_restart", bool(restarted) and relay_ms <= 12000
+          and (res(relay_after) or {}).get("t") == "ok",
+          {"old_pid": before_restart.get("pid"), "owner": restarted, "ms": relay_ms, "reply": json.dumps(relay_after)[:600]})
+    name2 = "Second Chief %s" % MARK[-5:]
+    R["new_chief_action_2"] = rpc("action.run", {"id": "home.newChief", "focus": True, "wait": True}, 30)
+    until(lambda: (lambda s: s if "Create Chief" in json.dumps(s) else None)(page_state()), 30)
+    R["type_name_2"] = rpc("debug.page", {"page": "cmux.home-channels", "action": "type", "selector": ".lg-chief-names input",
+                                           "text": name2}, 30)
+    until(lambda: None, 1)  # proof pacing: React applies the typed name before the click
+    R["name_click_2"] = real_click_link(app.pid, name2, name2, role="textfield")
+    until(lambda: None, 1)  # proof pacing: the first click's activation settles before the gesture click
+    R["create_click_2"] = real_click_link(app.pid, "Create Chief", "Create Chief", role="button")
+    made2 = until(lambda: name2 in chief_list(), 30)
+    after2 = page_state()
+    R["in_flight_after_restart_click"] = after2.get("in_flight")
+    shot("3-after-owner-restart", app.pid)
+    check("new_chief_created_on_restarted_owner", bool(made2) and not after2.get("in_flight"),
+          {"click": R["create_click_2"], "list": (R.get("chief_list") or [{}])[-1], "in_flight": after2.get("in_flight"),
+           "hash": after2.get("hash"), "page_tail": json.dumps(after2)[-600:]})
 finally:
     app_pid = app.pid
     shutdown_all(app)
