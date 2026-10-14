@@ -31,9 +31,9 @@ public final class BrowserHistoryWriter {
     /// Whether the page engine's own history goes with the entries (this
     /// Mac's daemon only: it holds form data and every entry's state).
     private let keepsEngineState: Bool
-    /// The page showed a password field or a file field with chosen files: its engine state is
-    /// never saved again (WebKit leaves password values out of the form state it keeps, and
-    /// Chromium grants a restored entry read access to the files its form state names).
+    /// The page showed a password field, a file field with chosen files or a form post: its engine
+    /// state is never saved again (WebKit leaves password values out of the form state it keeps,
+    /// and Chromium grants a restored entry read access to the files its page state names).
     private var showedPrivateField = false
     /// Whether the last write carried engine state (`debug.browser.page_status`).
     public private(set) var savedEngineState = false
@@ -118,14 +118,22 @@ public final class BrowserHistoryWriter {
     private func write(_ session: BrowserSavedSession) async {
         guard var history = Self.history(session) else { return }
         if keepsEngineState, let page {
-            if !showedPrivateField, case .bool(true)? = try? await page.evaluate(Self.hasPrivateField, world: .isolated) {
-                showedPrivateField = true
+            // A form post (its body can name uploaded files) also keeps the page out for good: a
+            // later load of the same address clears the entry's flag but not the engine's body.
+            if session.entries.contains(where: \.formPost) { showedPrivateField = true }
+            var probed = false  // A probe that fails to run saves no state this time.
+            if !showedPrivateField {
+                switch try? await page.evaluate(Self.hasPrivateField, world: .isolated) {
+                case .bool(true)?: showedPrivateField = true
+                case .bool(false)?: probed = true
+                default: break
+                }
             }
             // Only state taken from the page the entries were saved at (the page may have moved on),
-            // with every engine entry known and no form post (a post body can name uploaded files).
+            // with every engine entry known.
             let native = (page as? any BrowserBackForwardListing)?.navigationList()?.entries.map(\.url)
             let list = native?.compactMap { $0 }
-            if !showedPrivateField, let list, list.count == native?.count, !session.entries.contains(where: \.formPost),
+            if probed, !showedPrivateField, let list, list.count == native?.count,
                let shown = page.state.url, shown == session.entries[session.current].url,
                Self.keepsFileAccess(list + session.entries.map(\.url), shown: shown) {
                 history = history.with(engineState: Self.engineState(of: page))
@@ -177,23 +185,27 @@ public final class BrowserHistoryWriter {
         return entries.count == history?.entries.count && keepsFileAccess(entries, shown: shown)
     }
 
+    /// Engine tags of state saved under the file-field and form-post rules (cx-5djb2). State
+    /// saved before them ("webkit", "chromium") can name chosen files, so restore drops it.
+    static let webKitTag = "webkit-2", chromiumTag = "chromium-2"
+
     /// The page engine's own history as the daemon stores it.
     static func engineState(of page: any BrowserTab) -> FrontendBrowserHistory.EngineState? {
         switch (page as? any BrowserHibernationSource)?.hibernationState() {
-        case .webKit(let data)?: data.isEmpty ? nil : .init(engine: "webkit", data: data.base64EncodedString())
-        case .chromium(let state)?: state.isEmpty ? nil : .init(engine: "chromium", data: state)
+        case .webKit(let data)?: data.isEmpty ? nil : .init(engine: webKitTag, data: data.base64EncodedString())
+        case .chromium(let state)?: state.isEmpty ? nil : .init(engine: chromiumTag, data: state)
         case nil: nil
         }
     }
 
     /// `history`'s engine state as a page restores it, when it was saved
-    /// at `url` (its current entry), for a page in `engine`.
+    /// at `url` (its current entry), for a page in `engine`, by this version (`chromiumTag`), with no form post.
     public static func restoreState(_ history: FrontendBrowserHistory?, at url: URL?, engine: BrowserEngineKind) -> BrowserRestoreState? {
-        guard let history, let state = history.engineState, let url,
+        guard let history, let state = history.engineState, let url, !history.entries.contains(where: { $0.formPost == true }),
               history.entries.indices.contains(history.index), history.entries[history.index].url == url.absoluteString else { return nil }
         switch (engine, state.engine) {
-        case (.webkit, "webkit"): return Data(base64Encoded: state.data).map(BrowserRestoreState.webKit)
-        case (.cef, "chromium"): return .chromium(state.data)
+        case (.webkit, webKitTag): return Data(base64Encoded: state.data).map(BrowserRestoreState.webKit)
+        case (.cef, chromiumTag): return .chromium(state.data)
         default: return nil
         }
     }
