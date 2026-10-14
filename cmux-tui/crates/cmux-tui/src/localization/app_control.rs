@@ -111,7 +111,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     wrong_kind: "{path} は cmux アプリの制御ソケットではありません (cmux アプリとして応答しませんでした)。アプリのコマンドにはアプリのソケットが必要です: --app-socket パス を指定してください。cmux は他のソケットを試していません",
     explicit_no_app: "このコマンドには cmux アプリが必要ですが、{flag} で指定したセッションを持つ cmux アプリはありません。--app-socket パス を指定してください。cmux は他のソケットを試していません",
     timeout: "cmux アプリが {seconds} 秒以内に応答しませんでした",
-    timeout_next: "{path} の cmux アプリは {what} を受け付けましたが、{seconds} 秒以内に応答しませんでした。`{next}` を実行して cmux が起動して応答しているか確認するか、cmux を開き直してください。",
+    timeout_next: "{path} の cmux アプリは {seconds} 秒以内に {what} に応答しませんでした。`{next}` を実行して cmux が起動して応答しているか確認するか、cmux を開き直してください。",
     waiting_progress: "cmux アプリが {what} を実行するのを待っています ({total} 秒中 {elapsed} 秒経過)",
     closed: "cmux アプリが応答せずに接続を閉じました",
     invalid_response: "cmux アプリの応答を読み取れません",

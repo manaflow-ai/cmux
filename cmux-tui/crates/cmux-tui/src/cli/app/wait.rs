@@ -11,14 +11,14 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{GlobalArgs, OutputMode, command_socket, request_with_retry};
+use super::{GlobalArgs, OutputMode, SCREENSHOT_TIMEOUT, command_socket, request_with_retry};
 
+/// Only the long waits (a screenshot's 35 s, a waiting run's 45 s) show
+/// notes; a 5 s control-plane read answers or fails before a note helps.
+const LONG_WAIT: Duration = SCREENSHOT_TIMEOUT;
 /// No note for a wait shorter than this.
 const FIRST_NOTE_AFTER: Duration = Duration::from_secs(2);
 const NOTE_EVERY: Duration = Duration::from_secs(5);
-/// What to run when the app does not answer: it asks the app the cheapest
-/// question there is and says which app the CLI reaches.
-const NEXT_COMMAND: &str = "cmux identify";
 
 /// [`request_with_retry`] with progress notes while it waits; a transport
 /// failure is the `app.transport` error to print, typed by [`timed_out`]
@@ -30,15 +30,16 @@ pub(super) fn request(
     params: &Value,
     timeout: Option<Duration>,
 ) -> Result<Result<Value, Value>, Value> {
+    let long = timeout.is_some_and(|timeout| timeout >= LONG_WAIT);
     let timeout = effective_timeout(timeout);
     let what = waiting_for(method, params);
-    let progress = Progress::start(&what, timeout, global.output);
+    let progress = Progress::start(&what, timeout.filter(|_| long), global.output);
     let response = request_with_retry(stream, method, params, timeout);
     let waited = progress.finish();
     response.map_err(|error| match timeout {
         Some(timeout) if error == timeout_message(timeout) => {
             let socket = command_socket(global).ok().map(|socket| socket.path);
-            timed_out(socket.as_deref(), method, &what, timeout, waited)
+            timed_out(socket.as_deref(), &next_command(global), method, &what, timeout, waited)
         }
         _ => {
             json!({ "code": "app.transport", "message": error, "details": {}, "retryable": false })
@@ -64,6 +65,31 @@ fn effective_timeout(timeout: Option<Duration>) -> Option<Duration> {
         return Some(Duration::from_millis(ms));
     }
     timeout
+}
+
+/// What to run when the app does not answer: `cmux identify` asks the app
+/// the cheapest question there is, over the route this call took
+/// (`--app-socket`, `--socket` or `--session`), so it reaches the same app.
+fn next_command(global: &GlobalArgs) -> String {
+    let route = if let Some(path) = &global.app_socket {
+        format!(" --app-socket {}", quote(&path.to_string_lossy()))
+    } else if let Some(path) = &global.socket {
+        format!(" --socket {}", quote(&path.to_string_lossy()))
+    } else if let Some(session) = &global.session {
+        format!(" --session {}", quote(session))
+    } else {
+        String::new()
+    };
+    format!("cmux{route} identify")
+}
+
+/// `value` as one shell word: unchanged when it has only safe characters.
+fn quote(value: &str) -> String {
+    let safe = |c: char| c.is_ascii_alphanumeric() || "/._-:@%+=,".contains(c);
+    if !value.is_empty() && value.chars().all(safe) {
+        return value.to_owned();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 /// What the app is asked to do: the action of an `action.run`, else the
@@ -98,7 +124,7 @@ impl Progress {
         let (stop, stopped) = mpsc::channel::<()>();
         let template = crate::localization::catalog().app_control.waiting_progress;
         let what = what.to_owned();
-        let thread = std::thread::spawn(move || {
+        let spawned = std::thread::Builder::new().name("app-wait-notes".into()).spawn(move || {
             let mut next = FIRST_NOTE_AFTER;
             while next < total {
                 let left = next.saturating_sub(started.elapsed());
@@ -116,7 +142,11 @@ impl Progress {
                 next += NOTE_EVERY;
             }
         });
-        Self { started, stop: Some(stop), thread: Some(thread) }
+        // No thread, no notes: the request itself still runs.
+        match spawned {
+            Ok(thread) => Self { started, stop: Some(stop), thread: Some(thread) },
+            Err(_) => Self { started, stop: None, thread: None },
+        }
     }
 
     /// Stops the notes before the answer or the error is printed.
@@ -144,6 +174,7 @@ impl Drop for Progress {
 /// fields of `details` beside the message.
 fn timed_out(
     socket: Option<&Path>,
+    next: &str,
     method: &str,
     what: &str,
     timeout: Duration,
@@ -156,7 +187,7 @@ fn timed_out(
         .replace("{path}", socket.as_deref().unwrap_or("?"))
         .replace("{what}", what)
         .replace("{seconds}", &timeout.as_secs().to_string())
-        .replace("{next}", NEXT_COMMAND);
+        .replace("{next}", next);
     json!({
         "code": "app.transport",
         "message": message,
@@ -167,7 +198,7 @@ fn timed_out(
             "waiting_for": what,
             "timeout_seconds": timeout.as_secs(),
             "waited_seconds": waited.as_secs(),
-            "next_command": NEXT_COMMAND,
+            "next_command": next,
         },
         "retryable": false,
     })
