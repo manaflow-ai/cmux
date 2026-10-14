@@ -1323,9 +1323,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     let head = match registry.session_journal_head() {
         Ok(head) => head,
         Err(error) => {
-            eprintln!(
-                "cmux-tui: agent roster journal head unavailable; starting empty: {error}"
-            );
+            eprintln!("cmux-tui: agent roster journal head unavailable; starting empty: {error}");
             return Ok(AgentRosterHost::default());
         }
     };

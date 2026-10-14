@@ -1397,13 +1397,9 @@ fn query_session_journal_without_output_after(
     let mut records = Vec::new();
     let mut reached = sequence;
     if sequence < archive_through {
-        if let Some((archived, archived_reached)) = archived_non_output_after(
-            connection,
-            sequence,
-            archive_through,
-            archive_end,
-            limit,
-        )? {
+        if let Some((archived, archived_reached)) =
+            archived_non_output_after(connection, sequence, archive_through, archive_end, limit)?
+        {
             records = archived;
             reached = archived_reached;
         } else {
@@ -1416,9 +1412,7 @@ fn query_session_journal_without_output_after(
                 .take_while(|record| record.sequence <= archive_through)
                 .collect::<Vec<_>>();
             reached = covered.last().map_or(archive_through, |record| record.sequence);
-            records.extend(
-                covered.into_iter().filter(|record| record.kind != "terminal.output"),
-            );
+            records.extend(covered.into_iter().filter(|record| record.kind != "terminal.output"));
             if records.len() >= limit || reached >= through {
                 records.truncate(limit);
                 return Ok((records, reached));
@@ -1502,10 +1496,9 @@ fn archived_non_output_after(
          ORDER BY start_sequence ASC",
     )?;
     let rows = statement
-        .query_map(
-            params![i64::try_from(sequence)?, i64::try_from(through)?],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
-        )?
+        .query_map(params![i64::try_from(sequence)?, i64::try_from(through)?], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     if rows.is_empty() {
         return Ok(None);
@@ -2577,8 +2570,7 @@ mod tests {
             )
             .unwrap();
 
-        let (records, reached) =
-            registry.session_journal_without_output_after(0, 1, 512).unwrap();
+        let (records, reached) = registry.session_journal_without_output_after(0, 1, 512).unwrap();
         assert!(records.is_empty());
         assert_eq!(reached, 1);
     }
@@ -2588,9 +2580,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("cmux-mixed-archive-{}", new_uuid_v4()));
         let mut registry = WorkspaceRegistry::open(&root, "mixed-archive-active").unwrap();
         let first = registry.connection.transaction().unwrap();
-        first
-            .execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", [])
-            .unwrap();
+        first.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
         append_resource_journal_record(
             &first,
             1,
@@ -2623,7 +2613,9 @@ mod tests {
             .unwrap()
         {
             JournalSegmentSealStart::Prepare(plan) => plan,
-            JournalSegmentSealStart::Replay(_) => panic!("first mixed segment seal unexpectedly replayed"),
+            JournalSegmentSealStart::Replay(_) => {
+                panic!("first mixed segment seal unexpectedly replayed")
+            }
         };
         let reader = SessionJournalReader::open(
             &registry.session_journal_database_path().expect("persistent registry has a path"),
@@ -2635,9 +2627,7 @@ mod tests {
             .unwrap()
             .expect("mixed segment boundary remained stable");
         let second = registry.connection.transaction().unwrap();
-        second
-            .execute("UPDATE meta SET value = '2' WHERE key = 'resource_revision'", [])
-            .unwrap();
+        second.execute("UPDATE meta SET value = '2' WHERE key = 'resource_revision'", []).unwrap();
         append_resource_journal_record(
             &second,
             2,
@@ -2653,18 +2643,16 @@ mod tests {
         second.commit().unwrap();
         let head = registry.session_journal_head().unwrap();
 
-        let (records, reached) = registry
-            .session_journal_without_output_after(0, head, 512)
-            .unwrap();
+        let (records, reached) =
+            registry.session_journal_without_output_after(0, head, 512).unwrap();
         assert_eq!(reached, head);
         assert!(records.iter().any(|record| record.sequence <= archived_through));
         assert!(records.iter().any(|record| record.sequence > archived_through));
 
         // A cursor at the sealed boundary must still use the active indexed
         // query, even though the archive helper has no range to own.
-        let (tail, tail_reached) = registry
-            .session_journal_without_output_after(archived_through, head, 512)
-            .unwrap();
+        let (tail, tail_reached) =
+            registry.session_journal_without_output_after(archived_through, head, 512).unwrap();
         assert!(!tail.is_empty());
         assert!(tail.iter().all(|record| record.sequence > archived_through));
         assert_eq!(tail_reached, head);
@@ -2697,9 +2685,7 @@ mod tests {
                 .unwrap();
         }
 
-        let error = registry
-            .session_journal_without_output_after(0, 3, 512)
-            .unwrap_err();
+        let error = registry.session_journal_without_output_after(0, 3, 512).unwrap_err();
         assert!(error.to_string().contains("gap"), "{error:#}");
     }
 
