@@ -1,0 +1,335 @@
+/* PROTOTYPE: the Background tasks panel (BackgroundTasksPanel.tsx), three layouts over one header
+   and one Finished section. Theme tokens only; rows are 28px except the shared subagent row (48px). */
+.bgtasks {
+  box-sizing: border-box;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--agent-page-bg);
+  color: var(--cv-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  font-variant-numeric: tabular-nums;
+}
+.bgtasks__header {
+  flex: none;
+  height: 40px;
+  padding: 0 8px 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--cv-rule);
+}
+.bgtasks__title {
+  margin: 0;
+  font-size: var(--text-control);
+  font-weight: 600;
+}
+.bgtasks__count {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
+.bgtasks__spacer {
+  flex: 1;
+  min-width: 4px;
+}
+.bgtasks__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px 12px;
+}
+.bgtasks__empty {
+  margin: 24px 0;
+  text-align: center;
+  color: var(--cv-text-muted);
+}
+.bgtasks__mono {
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  font-weight: 500;
+}
+.bgtasks__time {
+  flex: none;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
+
+/* Header and card controls: small-radius rects, 24px. */
+.bgtasks__icon-button,
+.bgtasks__text-button,
+.bgtasks__link {
+  appearance: none;
+  flex: none;
+  height: 24px;
+  margin: 0;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--cv-text-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: pointer;
+}
+.bgtasks__icon-button {
+  width: 24px;
+  padding: 0;
+}
+.bgtasks__icon-button:hover,
+.bgtasks__text-button:hover,
+.bgtasks__link:hover {
+  background: var(--agent-control-hover);
+  color: var(--cv-text);
+}
+.bgtasks__icon-button:focus-visible,
+.bgtasks__text-button:focus-visible,
+.bgtasks__link:focus-visible,
+.bgtasks__finished:focus-visible,
+.bgtasks-row:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+
+/* "Finished 3 ›": one quiet 28px disclosure line. */
+.bgtasks__finished {
+  appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  height: 28px;
+  margin: 8px 0 2px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--cv-text-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  text-align: start;
+  cursor: pointer;
+}
+.bgtasks__finished:hover {
+  color: var(--cv-text);
+}
+.bgtasks__finished-count {
+  font-weight: 600;
+}
+
+/* (A) the shared subagent rows, edge to edge in the panel. */
+.bgtasks__list .cv-subagent[data-edge="last"],
+.bgtasks__list .cv-subagent[data-edge="only"] {
+  margin-bottom: 0;
+}
+/* No chevron: keep the time in the agents' column. */
+.bgtasks-shell-row > .cv-subagent__time {
+  margin-right: 22px;
+}
+.bgtasks-shell-row .cv-subagent__state[data-empty] {
+  font-style: italic;
+}
+
+/* (B) cards. */
+.bgtasks__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bgtasks-card {
+  padding: 8px 8px 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 10px;
+  background: var(--cv-card-fill);
+  box-shadow: 0 0 0 1px var(--cv-card-ring);
+}
+.bgtasks-card__head {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.bgtasks-card__icon,
+.bgtasks-row__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--cv-text-muted);
+}
+.bgtasks-card__icon[data-state="running"],
+.bgtasks-row__icon[data-state="running"] {
+  color: var(--agent-accent);
+}
+.bgtasks-row__icon[data-state="failed"] {
+  color: var(--agent-danger);
+}
+.bgtasks-card__name,
+.bgtasks-row__name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.bgtasks-card__kind {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  line-height: 16px;
+}
+.bgtasks-card__action {
+  padding-right: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--cv-text);
+  font-size: var(--text-detail);
+}
+.bgtasks-card__foot {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bgtasks-card__meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+}
+.bgtasks__link {
+  color: var(--cv-text);
+}
+.bgtasks-output {
+  margin: 2px 4px 4px 0;
+  padding: 6px 8px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--cv-codeblock-bg);
+  color: var(--cv-text-dim);
+  font-family: var(--cv-mono);
+  font-size: var(--text-caption);
+  line-height: 16px;
+  white-space: pre;
+  text-overflow: ellipsis;
+}
+.bgtasks-output[data-empty] {
+  font-family: var(--cv-font);
+  font-style: italic;
+  color: var(--cv-text-muted);
+}
+
+/* Workflow progress: a 2px track, agents done of started. */
+.bgtasks__progress {
+  height: 2px;
+  margin: 2px 4px 2px 0;
+  border-radius: 1px;
+  background: var(--cv-rule);
+  overflow: hidden;
+}
+.bgtasks__progress > span {
+  display: block;
+  height: 100%;
+  background: var(--agent-accent);
+}
+
+/* (C) groups of 28px rows; (B) finished rows. */
+.bgtasks__groups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bgtasks-group__label {
+  height: 24px;
+  margin: 0;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  font-weight: 500;
+}
+.bgtasks-group__count {
+  font-weight: 400;
+}
+.bgtasks__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bgtasks-row {
+  appearance: none;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--cv-text);
+  font: inherit;
+  text-align: start;
+}
+button.bgtasks-row {
+  cursor: pointer;
+}
+button.bgtasks-row:hover {
+  background: var(--agent-control-hover);
+}
+/* The detail gives way first, then the name. */
+.bgtasks-row__name {
+  flex: 0 1 auto;
+  min-width: 48px;
+  font-weight: 500;
+}
+.bgtasks-row__detail {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
+.bgtasks__progress--row {
+  position: absolute;
+  left: 28px;
+  right: 6px;
+  bottom: 1px;
+  height: 2px;
+  margin: 0;
+}
+.bgtasks-row-stoppable {
+  position: relative;
+}
+.bgtasks-row-stoppable > .bgtasks-row {
+  padding-right: 34px;
+}
+.bgtasks-row__stop {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+}
+.bgtasks-output--inline {
+  margin: 0 6px 4px 28px;
+  padding: 4px 8px;
+}
