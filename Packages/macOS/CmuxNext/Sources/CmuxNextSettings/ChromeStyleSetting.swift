@@ -55,22 +55,10 @@ extension SettingsApplier {
 }
 
 extension ChromeStyleSetting {
-    /// Binds every `appearance.chromeStyle.<name>` palette action. `save`
-    /// returns a refusal (the key is managed) before anything changes, else
-    /// starts the cmux.json write and returns nil; the style then applies at
-    /// once and the file watcher reapplies the same value.
-    @MainActor public static func bindActions(
-        into registry: ActionRegistry, design: DesignSettings,
-        save: @escaping @MainActor (_ path: [String], _ value: JSONValue?) -> String?
-    ) {
-        for style in ChromeStyle.allCases {
-            registry.bind(ActionID(rawValue: actionID(style)), invoke: { [weak registry] _ in
-                if let refusal = save(configPath, fileValue(style)) {
-                    registry?.refuse(refusal)
-                    return
-                }
-                design.chromeStyle = style
-            })
+    /// Binds every `appearance.chromeStyle.<name>` palette action.
+    @MainActor public static func bindActions(into registry: ActionRegistry, design: DesignSettings, save: @escaping SettingChoiceActions.Save) {
+        SettingChoiceActions.bind(ChromeStyle.allCases, into: registry, id: actionID, path: configPath, fileValue: fileValue, save: save) {
+            design.chromeStyle = $0
         }
     }
 }
