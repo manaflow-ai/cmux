@@ -208,8 +208,11 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       }
       const mode = usageIncludedMode(plan, set)
       const includedUsd = usageIncludedUsd(plan, set)
-      const seats = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
       const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team!))
+      // The period's seats: the plan item's quantity, or more when the period already saw more (the bill and the console agree, review P3).
+      const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
+      const seen = mode === "per_seat" ? await meter.pushState(team!, sub.id, start) : null
+      const seats = seen?.mode === "per_seat" ? Math.max(quantity, seen.seats) : quantity
       // The team can be billed above its included amount until this period ends (inference/included-stop.ts);
       // the mark also names the period's included amount for the console (team.ai_limit.get).
       await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: includedUsd })

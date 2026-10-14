@@ -37,8 +37,9 @@ export const teamUsageLine = async (env: Env, team: string, plan: string | null)
   const usage = await env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team)).teamUsage(team).catch(() => null)
   const b = usage?.billable ?? null
   if (b) return { billed: true, included_usd: b.included_usd, per_seat: b.mode === "per_seat", seats: b.seats, spent_usd: b.spent_usd, period_start: b.period_start === null ? null : b.period_start * 1000, period_end: b.period_end * 1000, stop_applies: false, stopped: false }
+  // A plan the catalog does not know (free, or none yet) has no included amount to show (review P3: never "stopped" at 0).
   const usagePlan = includedPlanOf(plan)
-  const included = plan === null ? null : usagePlan ? usageIncludedUsd(usagePlan, usagePriceSet(env)) : 0
+  const included = usagePlan ? usageIncludedUsd(usagePlan, usagePriceSet(env)) : null
   const spent = usage ? usage.month_spent_usd : -1
   const stopApplies = env.USAGE_HARD_STOP_UNBILLED === "1"
   return { billed: false, included_usd: included, per_seat: false, seats: 1, spent_usd: spent, period_start: monthStart(now), period_end: nextMonthStart(now), stop_applies: stopApplies, stopped: stopApplies && included !== null && spent >= 0 && spent >= included }
