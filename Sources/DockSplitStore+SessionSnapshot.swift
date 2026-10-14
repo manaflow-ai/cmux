@@ -67,7 +67,8 @@ extension DockSplitStore {
                         revalidateProcessEvidence: false
                     ),
                     observationIsAuthoritative: restorableAgentIndex?.observesEveryLiveSession(
-                        forKind: surfaceResumeBindingsByPanelId[panelId]?.kind
+                        forPanelId: panelId,
+                        kind: surfaceResumeBindingsByPanelId[panelId]?.kind
                     ) ?? true,
                     detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
                         workspaceId: observationWorkspaceId,

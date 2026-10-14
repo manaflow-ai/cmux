@@ -1178,6 +1178,11 @@ struct RestorableAgentSessionIndex: Sendable {
     /// verification pass or had inconclusive durable evidence.
     private let incompleteCodexPanelKeys: Set<PanelKey>
     private let incompleteCodexPanelIds: Set<UUID>
+    /// The subset of `incompleteCodexPanelKeys` whose evidence was never
+    /// inspected (outside the bounded pass, or unavailable), as opposed to a
+    /// checkpoint that was inspected and rejected.
+    private let inconclusiveCodexPanelKeys: Set<PanelKey>
+    private let inconclusiveCodexPanelIds: Set<UUID>
     /// Panel owners that completed the bounded Codex verification pass.
     private let verifiedCodexPanelKeys: Set<PanelKey>
     private let verifiedCodexPanelIds: Set<UUID>
@@ -1260,15 +1265,39 @@ struct RestorableAgentSessionIndex: Sendable {
         return !hasUnboundedCodexIncompleteness || verifiedCodexPanelIds.contains(panelId)
     }
 
-    /// Whether this index's absence of a `kind` session is evidence it stopped.
+    /// Whether this index's absence of a `kind` session in a panel is
+    /// evidence that it stopped.
     ///
-    /// False only when the hook store for `kind` was not read, or the index is
-    /// a cached copy that may predate the session (`markingIncomplete()`,
-    /// #20186). Per-panel Codex verification gaps describe a recorded
-    /// checkpoint, not whether the census could have missed the current
-    /// session, so they must not let a stale record vouch for a binding.
-    func observesEveryLiveSession(forKind kind: String?) -> Bool {
-        hookStoreIsComplete(forKind: kind)
+    /// Like `isComplete`, except that a Codex checkpoint that was inspected
+    /// and rejected still counts as observed: a stale record must not vouch
+    /// for the panel's current binding. A store that was not read, a cached
+    /// copy (`markingIncomplete()`, #20186), and Codex evidence that was never
+    /// inspected all stay unobserved.
+    func observesEveryLiveSession(
+        forWorkspaceId workspaceId: UUID,
+        panelId: UUID,
+        kind: String?
+    ) -> Bool {
+        guard hookStoreIsComplete(forKind: kind) else { return false }
+        guard Self.isCodexOrUnspecified(kind) else { return true }
+        let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        if inconclusiveCodexPanelKeys.contains(key) { return false }
+        if incompleteCodexPanelKeys.contains(key) { return true }
+        return !hasUnboundedCodexIncompleteness || verifiedCodexPanelKeys.contains(key)
+    }
+
+    /// `observesEveryLiveSession(forWorkspaceId:panelId:kind:)` for a
+    /// restart-stable panel identity without its workspace.
+    func observesEveryLiveSession(forPanelId panelId: UUID, kind: String?) -> Bool {
+        guard hookStoreIsComplete(forKind: kind) else { return false }
+        guard Self.isCodexOrUnspecified(kind) else { return true }
+        if inconclusiveCodexPanelIds.contains(panelId) { return false }
+        if incompleteCodexPanelIds.contains(panelId) { return true }
+        return !hasUnboundedCodexIncompleteness || verifiedCodexPanelIds.contains(panelId)
+    }
+
+    private static func isCodexOrUnspecified(_ kind: String?) -> Bool {
+        kind == nil || kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
     }
 
     /// Whether the hook store that owns `kind` was read and decoded.
@@ -1300,6 +1329,7 @@ struct RestorableAgentSessionIndex: Sendable {
             isComplete: false,
             incompleteHookStoreKinds: [],
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
+            inconclusiveCodexPanelKeys: inconclusiveCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
             hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
         )
@@ -1755,6 +1785,7 @@ struct RestorableAgentSessionIndex: Sendable {
             isComplete: self.isComplete,
             incompleteHookStoreKinds: self.incompleteHookStoreKinds,
             incompleteCodexPanelKeys: self.incompleteCodexPanelKeys,
+            inconclusiveCodexPanelKeys: self.inconclusiveCodexPanelKeys,
             verifiedCodexPanelKeys: self.verifiedCodexPanelKeys,
             hasUnboundedCodexIncompleteness: self.hasUnboundedCodexIncompleteness
         )
@@ -1829,6 +1860,7 @@ struct RestorableAgentSessionIndex: Sendable {
         var codexRequestKeys = Set<String>()
         var codexRequestCount = 0
         var incompleteCodexPanelKeys = Set<PanelKey>()
+        var inconclusiveCodexPanelKeys = Set<PanelKey>()
         var verifiedCodexPanelKeys = Set<PanelKey>()
         var hasUnboundedCodexIncompleteness = false
         var codexIndexedStoreByHome: [String: Bool] = [:]
@@ -2006,6 +2038,7 @@ struct RestorableAgentSessionIndex: Sendable {
                         }
                         if selectedPanelKeys.contains(panelKey) {
                             incompleteCodexPanelKeys.insert(panelKey)
+                            inconclusiveCodexPanelKeys.insert(panelKey)
                         } else {
                             hasUnboundedCodexIncompleteness = true
                         }
@@ -2026,6 +2059,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     guard let key = codexVerificationKey(for: record) else {
                         if let panelKey = codexPanelKey(for: rawRecord) {
                             incompleteCodexPanelKeys.insert(panelKey)
+                            inconclusiveCodexPanelKeys.insert(panelKey)
                         }
                         continue
                     }
@@ -2033,6 +2067,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     guard codexRequestCount < CodexSessionResumeVerificationLimits.maximumBatchRequests else {
                         if let panelKey = codexPanelKey(for: rawRecord) {
                             incompleteCodexPanelKeys.insert(panelKey)
+                            inconclusiveCodexPanelKeys.insert(panelKey)
                         }
                         continue
                     }
@@ -2141,6 +2176,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     // hit a transient read limit) leaves this panel
                     // inconclusive, but must not poison unrelated owners.
                     incompleteCodexPanelKeys.insert(panelKey)
+                    inconclusiveCodexPanelKeys.insert(panelKey)
                 }
                 let codexOwnerIsAdmitted = hookRecordIsRestorable(
                     effectiveRecord,
@@ -2485,6 +2521,7 @@ struct RestorableAgentSessionIndex: Sendable {
             isComplete: incompleteHookStoreKinds.isEmpty,
             incompleteHookStoreKinds: incompleteHookStoreKinds,
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
+            inconclusiveCodexPanelKeys: inconclusiveCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
             hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
         )
@@ -3703,6 +3740,7 @@ struct RestorableAgentSessionIndex: Sendable {
         isComplete: Bool = true,
         incompleteHookStoreKinds: Set<RestorableAgentKind> = [],
         incompleteCodexPanelKeys: Set<PanelKey> = [],
+        inconclusiveCodexPanelKeys: Set<PanelKey>? = nil,
         verifiedCodexPanelKeys: Set<PanelKey> = [],
         hasUnboundedCodexIncompleteness: Bool = false
     ) {
@@ -3712,6 +3750,11 @@ struct RestorableAgentSessionIndex: Sendable {
         self.incompleteHookStoreKinds = incompleteHookStoreKinds
         self.incompleteCodexPanelKeys = incompleteCodexPanelKeys
         self.incompleteCodexPanelIds = Set(incompleteCodexPanelKeys.map(\.panelId))
+        // Callers that do not distinguish the two treat every gap as
+        // inconclusive, the conservative reading.
+        let inconclusive = inconclusiveCodexPanelKeys ?? incompleteCodexPanelKeys
+        self.inconclusiveCodexPanelKeys = inconclusive
+        self.inconclusiveCodexPanelIds = Set(inconclusive.map(\.panelId))
         self.verifiedCodexPanelKeys = verifiedCodexPanelKeys
         self.verifiedCodexPanelIds = Set(verifiedCodexPanelKeys.map(\.panelId))
         self.hasUnboundedCodexIncompleteness = hasUnboundedCodexIncompleteness
