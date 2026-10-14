@@ -49,9 +49,10 @@ extension TerminalController {
         case "vm.list":
             return v2CloudCall(id: id, method: method, params: params) {
                 let page = try await VMClient.shared.listPage()
-                var payload: [String: Any] = [
-                    "vms": page.vms.map(Self.socketWorkerVMSummaryPayload),
-                ]
+                let vmPayloads: [[String: Any]] = page.vms.map { vm in
+                    Self.socketWorkerVMSummaryPayload(vm)
+                }
+                var payload: [String: Any] = ["vms": vmPayloads]
                 if let limits = page.limits {
                     payload["limits"] = [
                         "maxActiveVms": limits.maxActiveVms.map { $0 as Any } ?? NSNull(),
