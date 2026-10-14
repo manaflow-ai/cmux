@@ -74,6 +74,12 @@ def running_rig_apps():
         if "exited" in entry:
             continue
         path = re.search(r'bundle path="([^"]+)"', entry)
+        try:
+            os.kill(int(pid.group(1)), 0)  # lsappinfo can keep an app that already exited
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            pass
         apps.append((int(pid.group(1)), bundle.group(1), path.group(1) if path else "?"))
     return apps
 

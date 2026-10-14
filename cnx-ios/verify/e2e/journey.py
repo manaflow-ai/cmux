@@ -1530,6 +1530,93 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
         self.s_mac_discovered()
         return "signed out to Welcome, signed back in and relinked the rig Mac"
 
+    # ---- persistence (verify/persistence.md) -------------------------------
+    def paired_phones(self):
+        """The rig Mac's approved phones ({id, identityKey, approvalKey, pairedAt}) from its
+        per-user paired-devices.json (written by the app, read-only here)."""
+        path = os.path.join(self.mac.hostd_state, "paired-devices.json")
+        try:
+            return json.load(open(path)).get("devices", [])
+        except (OSError, ValueError):
+            return []
+
+    def sign_out(self):
+        self.back_to_list()
+        self.tab("Settings")
+        for _ in range(6):
+            if self.sim.find(ident="settings.logout"):
+                break
+            self.sim.drag(201, 650, 201, 250, duration=0.4, hold=0.2)
+        lo = self.settings_find(ident="settings.logout")
+        check(lo, "no Log out row in Settings")
+        self.sim.tap_el(lo)
+        time.sleep(1.2)
+        conf = [e for e in self.sim.find(label="Log out", kind="Button") if e.ident != "settings.logout"]
+        check(conf, "no Log out confirmation")
+        self.sim.press(*conf[-1].center, hold=0.1)
+        check(self.sim.wait(label="Continue with email", kind="Button", timeout=20), "sign-out did not return to Welcome")
+
+    def s_persist_approval(self):
+        """Sign out and back in: the same phone (device id, keys) reconnects with no new
+        Mac approval. Then Settings > Devices > Remove This iPhone from My Macs: the Mac
+        forgets it, and the next connection asks the Mac again (the rig's DEBUG seed
+        answers that ask, so a new approval shows as a new paired-devices entry)."""
+        video = os.path.join(self.out, "persist-approval.mp4")
+        self.sim.record_start(video)
+        try:
+            result = self._persist_approval()
+        finally:
+            self.sim.record_stop()
+        result["video"] = video
+        return result
+
+    def _persist_approval(self):
+        before = self.paired_phones()
+        check(before, "the rig Mac lists no approved phone before sign-out (pairing never ran?)")
+        self.sim.shot("persist-1-paired")
+        self.sign_out()
+        self.sim.shot("persist-2-signed-out")
+        self.s_sign_in()
+        landed = "setup" if self.sim.find(ident="setup.teams.choose") or self.sim.find(ident="setup.teams.create") \
+            or self.sim.find(contains="Connect your Mac") else "Workspaces"
+        self.s_choose_space()
+        self.s_mac_discovered()
+        self.sim.shot("persist-3-reconnected")
+        after = self.paired_phones()
+        check(after == before, f"the Mac's approved phones changed across sign-out/sign-in: {before} -> {after}")
+        # The explicit removal.
+        self.back_to_list()
+        self.tab("Settings")
+        dev = self.settings_find(ident="settings.devices")
+        check(dev, "no Devices row in Settings")
+        self.sim.tap_el(dev); time.sleep(2.5)
+        rm = self.settings_find(ident="settings.removeThisPhone")
+        check(rm, "no 'Remove This iPhone from My Macs' on the Devices page")
+        self.sim.shot("persist-4-devices")
+        self.sim.tap_el(rm); time.sleep(1.2)
+        conf = self.sim.find(label="Remove", kind="Button")
+        check(conf, "no Remove confirmation")
+        self.sim.shot("persist-5-confirm")
+        self.sim.press(*conf[-1].center, hold=0.1)
+        t, replaced = time.time(), None
+        old = {(d["id"], d["identityKey"]) for d in before}
+        while time.time() - t < 90:
+            now = self.paired_phones()
+            ids = {d["id"] for d in before}
+            fresh = [d for d in now if d["id"] in ids and (d["id"], d["identityKey"]) not in old]
+            if fresh:
+                replaced = (time.time() - t, fresh[0])
+                break
+            time.sleep(1)
+        check(replaced, f"no new approval within 90 s of the removal: {self.paired_phones()}")
+        self.back_to_list()
+        dt = self.wait_connected(60)
+        self.sim.shot("persist-6-reapproved")
+        check(dt is not None, f"after the new approval the link never reached Connected ({self.link_status()!r})")
+        return {"notes": f"sign-out/in kept {len(before)} approval(s) unchanged (same device id, keys, pairedAt); "
+                         f"sign-in landed on {landed}; removal: the Mac asked again and approved new keys for "
+                         f"{replaced[1]['id'][:8]} in {replaced[0]:.1f} s; link Connected again"}
+
     def link_status(self):
         """The rig Mac's link line. Old list: the status row. Redesigned list: the
         subtitle of the rig Mac in the Filter menu (read by OCR; AX has only the name)."""
@@ -1690,6 +1777,7 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
             ("transport", "Transport WebRTC <-> WireGuard", "fastconn", self.s_transport),
             ("relay_only", "Relay only", "fastconn", self.s_relay_only),
             ("sign_out_in", "Sign out and back in", "prodinfra", self.s_sign_out_in),
+            ("persist_approval", "Sign-out keeps the Mac approval; Remove This iPhone asks again", "persist", self.s_persist_approval),
             ("background", "Background 45 s / foreground reconnect", "fastconn", self.s_background),
             ("mac_restart", "Mac app quit / relaunch, reconnect", "machost", self.s_mac_restart),
             ("device_removal", "Device removal", "machost", self.s_device_removal),

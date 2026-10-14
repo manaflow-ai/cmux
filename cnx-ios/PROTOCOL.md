@@ -44,7 +44,8 @@ ffi) and the app. Change this file first, then the implementations.
   `POST /v1/teams/:teamId/invites`, which answers `400 bad_request`
   "personal space has no members". Use it when the user has no Stack team.
 - Devices: `deviceId` is a client-generated UUID persisted in Keychain;
-  `kind` is `mac` or `phone`.
+  `kind` is `mac` or `phone`. A phone keeps one pair of ids (link, presence)
+  per account and keeps them across sign-out (`verify/persistence.md`).
 
 ## HTTP (base: production `https://cnx-ios-api.cmux.dev`, dev `https://cnx-ios-api-dev.debussy.workers.dev`)
 

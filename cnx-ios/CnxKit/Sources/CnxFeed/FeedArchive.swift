@@ -22,6 +22,11 @@ public struct FeedArchive: Sendable {
         return FeedArchive(url: base.appending(path: "Feed", directoryHint: .isDirectory).appending(path: "\(safe).json"))
     }
 
+    /// Sign-out: the account's Feed (agent names, places, turn text) leaves this phone.
+    public func remove() {
+        try? FileManager.default.removeItem(at: url)
+    }
+
     public func load() -> [FeedItem] {
         guard let data = try? Data(contentsOf: url),
               let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return [] }
