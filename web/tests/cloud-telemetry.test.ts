@@ -267,19 +267,25 @@ describe("one span outside the contract never costs the rest of the upload", () 
   test("stores an unknown future operation as unknown and drops only the span that breaks the contract", async () => {
     const { handler, sent, stored, exportedNames } = await exportingHandler();
     const payload = batch([
-      span({ eventId: ids[0], operation: "teleport", phase: "request" }),
+      span({ eventId: ids[0], operation: "teleport", phase: "request", failure: "quota_exceeded" }),
       span({ eventId: ids[1], phase: "terminal-content" }),
       span({ eventId: ids[2], operation: "terminal", phase: "connect", failure: "my-secret-key" }),
       span({ eventId: ids[3], operation: "create", phase: "provider", failure: "placement" }),
       span({ eventId: ids[4], operation: "open", phase: "ready", message: "user content" }),
+      span({ eventId: "66666666-6666-4666-8666-666666666666", operation: "constructor", phase: "route" }),
     ], "production");
     const response = await handler(request(payload));
     expect(response.status).toBe(202);
     // Every submitted id is acknowledged, so a shipped client neither retries nor resends a rejected span.
-    expect(await response.json()).toEqual({ accepted: 2, rejected: 3, eventIds: ids, rejectedEventIds: [ids[1], ids[2], ids[4]] });
-    expect(stored).toEqual([ids[0], ids[3]]);
-    expect(exportedNames()).toEqual(["cmux.cloud.unknown.request", "cmux.cloud.create.provider"]);
+    const submittedIds = payload.spans.map((item) => item.eventId);
+    expect(await response.json()).toEqual({ accepted: 3, rejected: 3, eventIds: submittedIds, rejectedEventIds: [ids[1], ids[2], ids[4]] });
+    expect(stored).toEqual([ids[0], ids[3], submittedIds[5]]);
+    expect(exportedNames()).toEqual(["cmux.cloud.unknown.request", "cmux.cloud.create.provider", "cmux.cloud.unknown.route"]);
+    const errors = sent.find((item) => item.url.endsWith("/v1/ingest/test-errors"))!.body;
+    expect(errors.map((item: any) => [item.operation, item.failure])).toEqual([["unknown", "unknown"], ["create", "placement"], ["unknown", "network"]]);
     expect(JSON.stringify(sent)).not.toContain("teleport");
+    expect(JSON.stringify(sent)).not.toContain("quota_exceeded");
+    expect(JSON.stringify(sent)).not.toContain("constructor");
     expect(JSON.stringify(sent)).not.toContain("secret");
     expect(JSON.stringify(sent)).not.toContain("user content");
   });

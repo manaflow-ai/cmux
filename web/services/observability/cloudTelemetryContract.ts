@@ -110,28 +110,36 @@ export type CloudTelemetryUpload = {
  * or failure code becomes `unknown`, and any other contract violation drops
  * the span. The upload is refused only when its envelope is invalid, an
  * event id cannot be acknowledged, or no span is valid.
+ *
+ * Storage hashes the normalized span. A retry of a span coerced to `unknown`
+ * conflicts (409) only when a deployment adds that value to the catalog
+ * between the first attempt and a retry, and the first receipt was lost.
  */
 export function parseCloudTelemetryUpload(
   value: unknown, now = Date.now(),
 ): { readonly ok: true; readonly upload: CloudTelemetryUpload } | { readonly ok: false; readonly reason: CloudTelemetryUploadRejection; readonly submitted: number } {
-  if (!record(value) || !onlyKeys(value, new Set(["version", "client", "spans"])) || value.version !== 1) return refused("envelope", 0);
-  const submitted = Array.isArray(value.spans) ? value.spans.length : 0;
+  const submitted = record(value) && Array.isArray(value.spans) ? value.spans.length : 0;
+  if (!record(value) || !onlyKeys(value, new Set(["version", "client", "spans"])) || value.version !== 1) return refused("envelope", submitted);
   if (!validClient(value.client)) return refused("client", submitted);
   if (!Array.isArray(value.spans) || submitted === 0 || submitted > CLOUD_TELEMETRY_MAX_SPANS) return refused("span_count", submitted);
-  const eventIds = value.spans.map((span) => (record(span) && textMatches(span.eventId, uuid) ? span.eventId as string : null));
-  if (eventIds.some((id) => id === null)) return refused("event_id", submitted);
+  const submittedSpans: { readonly raw: Record<string, unknown>; readonly eventId: string }[] = [];
+  for (const raw of value.spans as unknown[]) {
+    if (!record(raw) || typeof raw.eventId !== "string" || !uuid.test(raw.eventId)) return refused("event_id", submitted);
+    submittedSpans.push({ raw, eventId: raw.eventId });
+  }
+  const eventIds = submittedSpans.map((span) => span.eventId);
   if (new Set(eventIds).size !== submitted) return refused("duplicate_event", submitted);
   const spans: CloudTelemetrySpan[] = [];
   const rejected: { eventId: string; reason: CloudTelemetrySpanRejection }[] = [];
   let coerced = 0;
-  value.spans.forEach((raw: Record<string, unknown>, index) => {
+  for (const { raw, eventId } of submittedSpans) {
     const normalized = normalizeCatalogCodes(raw);
     const reason = spanRejection(normalized.span, now);
-    if (reason) rejected.push({ eventId: eventIds[index]!, reason });
+    if (reason) rejected.push({ eventId, reason });
     else { spans.push(normalized.span as CloudTelemetrySpan); if (normalized.coerced) coerced++; }
-  });
+  }
   if (spans.length === 0) return refused("no_valid_span", submitted);
-  return { ok: true, upload: { batch: { version: 1, client: value.client, spans }, rejected, coerced, eventIds: eventIds as string[] } };
+  return { ok: true, upload: { batch: { version: 1, client: value.client, spans }, rejected, coerced, eventIds } };
 }
 
 /** The spans of an upload that pass the contract, or `null` when the upload is refused. */
@@ -147,7 +155,8 @@ const catalogCode = /^[a-z][A-Za-z0-9_]{0,39}$/;
 function normalizeCatalogCodes(span: Record<string, unknown>): { span: Record<string, unknown>; coerced: boolean } {
   let coerced = false;
   const normalized = { ...span };
-  const alias = typeof span.operation === "string" ? cloudOperationAliases[span.operation] : undefined;
+  const alias = typeof span.operation === "string" && Object.hasOwn(cloudOperationAliases, span.operation)
+    ? cloudOperationAliases[span.operation] : undefined;
   if (alias) normalized.operation = alias;
   else if (!member(span.operation, cloudOperations) && textMatches(span.operation, catalogCode)) { normalized.operation = "unknown"; coerced = true; }
   if (span.failure !== undefined && !member(span.failure, cloudFailures) && textMatches(span.failure, catalogCode)) { normalized.failure = "unknown"; coerced = true; }
