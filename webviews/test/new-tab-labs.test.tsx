@@ -1,6 +1,8 @@
 // Labs on the New Tab page (hq#1980): in team builds (nightly and dev, `data-labs-team` on
 // <html>) the page offers the Labs flags as quick toggles, so the team tries prototypes where they
-// start work. The section is one quiet line, "Labs (N on)", until it is opened in place; open, each
+// start work. The section is one quiet line, "Labs (N on)" or plain "Labs" with none on, until it
+// is opened in place, and stays open or closed for this viewer; a row's right-click menu turns the
+// flag on or off and opens All Labs…. Open, each
 // flag is a row with its name, its one-line intent, a "New" or "Expires soon" hint and a toggle,
 // the flags this viewer toggled last first, else the newest. A toggle asks the app
 // (`newTab.setLab`), which saves it and answers with a new `data-labs`; "All Labs…" opens
@@ -25,6 +27,7 @@ const keys = [
   "requestAnimationFrame",
   "cancelAnimationFrame",
   "MutationObserver",
+  "MouseEvent",
   "cmuxLabsFixture",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
@@ -50,6 +53,7 @@ beforeAll(() => {
     Node: window.Node,
     Element: window.Element,
     MutationObserver: window.MutationObserver,
+    MouseEvent: window.MouseEvent,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
@@ -129,7 +133,8 @@ async function page(options: Options = {}) {
 const opener = () => host.querySelector<HTMLButtonElement>("[data-labs-open]")!;
 const rows = () => [...host.querySelectorAll<HTMLElement>("[data-lab]")];
 const order = () => rows().map((row) => row.dataset.lab);
-const toggle = (name: string) => host.querySelector<HTMLInputElement>(`[data-lab="${name}"] input[type=checkbox]`)!;
+const toggle = (name: string) =>
+  host.querySelector<HTMLInputElement>(`[data-lab="${name}"] input[type=checkbox]`)!;
 const open = () => act(async () => opener().click());
 
 test("outside a team build the page has no Labs section", async () => {
@@ -139,6 +144,7 @@ test("outside a team build the page has no Labs section", async () => {
 });
 
 test("closed, Labs is one quiet line that says how many flags are on", async () => {
+  localStorage.clear();
   await page({ team: true, flags: FLAGS, on: "middle fresh" });
   expect(opener().textContent).toContain("Labs (2 on)");
   expect(opener().getAttribute("aria-expanded")).toBe("false");
@@ -152,7 +158,12 @@ test("closed, Labs is one quiet line that says how many flags are on", async () 
 test("open, each flag is a row with its name, its intent and a toggle the app saves", async () => {
   const set: [string, boolean][] = [];
   let shown = 0;
-  await page({ team: true, flags: FLAGS, onSetLab: (name, on) => set.push([name, on]), onShowLabs: () => shown++ });
+  await page({
+    team: true,
+    flags: FLAGS,
+    onSetLab: (name, on) => set.push([name, on]),
+    onShowLabs: () => shown++,
+  });
   await open();
   expect(opener().getAttribute("aria-expanded")).toBe("true");
   for (const [name, value] of Object.entries(FLAGS)) {
@@ -181,7 +192,8 @@ test("open, each flag is a row with its name, its intent and a toggle the app sa
 test("a flag made in the last three days says New, one ending within three days says Expires soon", async () => {
   await page({ team: true, flags: FLAGS });
   await open();
-  const hint = (name: string) => host.querySelector(`[data-lab="${name}"] [data-lab-hint]`)?.textContent ?? "";
+  const hint = (name: string) =>
+    host.querySelector(`[data-lab="${name}"] [data-lab-hint]`)?.textContent ?? "";
   expect(hint("fresh")).toBe("New");
   expect(hint("ending")).toBe("Expires soon");
   expect(hint("middle")).toBe("");
@@ -199,9 +211,8 @@ test("the flags this viewer toggled last come first, then the newest; a toggle d
   // The rows stay where they were while the list is open, under the pointer.
   expect(order()).toEqual(["fresh", "middle", "ending", "oldest"]);
 
-  // The next time the page opens, the last toggled come first.
+  // The next time the page opens (open, as this viewer left it), the last toggled come first.
   await page({ team: true, flags: FLAGS });
-  await open();
   expect(order()).toEqual(["ending", "oldest", "fresh", "middle"]);
 });
 
@@ -222,4 +233,64 @@ test("without readable storage the order is the newest first", async () => {
   } finally {
     if (real) Object.defineProperty(scope, "localStorage", real);
   }
+});
+
+const rightClick = (element: Element) =>
+  act(async () =>
+    element.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }),
+    ),
+  );
+const menuItem = (label: string) =>
+  [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (entry) => entry.textContent === label,
+  );
+
+test("with no flag on, the line says plain Labs", async () => {
+  localStorage.clear();
+  await page({ team: true, flags: FLAGS, on: "" });
+  expect(opener().textContent).toBe("Labs");
+  await act(async () => document.documentElement.setAttribute("data-labs", "oldest"));
+  expect(opener().textContent).toBe("Labs (1 on)");
+});
+
+test("the line stays open or closed for this viewer, and starts closed", async () => {
+  localStorage.clear();
+  await page({ team: true, flags: FLAGS });
+  expect(rows()).toEqual([]);
+  await open();
+  // The next New Tab page opens with the rows showing.
+  await page({ team: true, flags: FLAGS });
+  expect(opener().getAttribute("aria-expanded")).toBe("true");
+  expect(order()).toEqual(["fresh", "middle", "ending", "oldest"]);
+  await open();
+  await page({ team: true, flags: FLAGS });
+  expect(rows()).toEqual([]);
+});
+
+test("a row's right-click menu turns its flag on or off and opens All Labs…", async () => {
+  localStorage.clear();
+  const set: [string, boolean][] = [];
+  let shown = 0;
+  await page({
+    team: true,
+    flags: FLAGS,
+    on: "middle",
+    onSetLab: (name, on) => set.push([name, on]),
+    onShowLabs: () => shown++,
+  });
+  await open();
+  await rightClick(host.querySelector('[data-lab="fresh"]')!);
+  expect(menuItem("Turn Off")).toBeUndefined();
+  await act(async () => menuItem("Turn On")!.click());
+  expect(set).toEqual([["fresh", true]]);
+
+  await rightClick(host.querySelector('[data-lab="middle"]')!);
+  expect(menuItem("Turn On")).toBeUndefined();
+  await act(async () => menuItem("Turn Off")!.click());
+  expect(set.at(-1)).toEqual(["middle", false]);
+
+  await rightClick(host.querySelector('[data-lab="oldest"]')!);
+  await act(async () => menuItem("All Labs…")!.click());
+  expect(shown).toBe(1);
 });
