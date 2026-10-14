@@ -134,15 +134,23 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
   });
 
   const open = async (page: Page) => {
+    // The page replaces its actions map as a chat starts (App.tsx `chat.send`): keep the stand-in
+    // panel in every map it sets.
     await page.addInitScript(() => {
-      Object.assign(window, {
-        cmuxAcpmuxActions: {
-          "chat.attach.choose": async () => ({
-            items: [
-              { path: "/home/dev/notes/drafts", folder: true },
-              { path: "/home/dev/notes/release notes.md", folder: false },
-            ],
-          }),
+      const panel = {
+        "chat.attach.choose": async () => ({
+          items: [
+            { path: "/home/dev/notes/drafts", folder: true },
+            { path: "/home/dev/notes/release notes.md", folder: false },
+          ],
+        }),
+      };
+      let actions: Record<string, unknown> = { ...panel };
+      Object.defineProperty(window, "cmuxAcpmuxActions", {
+        configurable: true,
+        get: () => actions,
+        set: (next: Record<string, unknown> | undefined) => {
+          actions = { ...next, ...panel };
         },
       });
     });
