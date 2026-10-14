@@ -510,6 +510,16 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     let lock = tokio::time::timeout(std::time::Duration::from_secs(30), lock_rx)
         .await
         .map_err(|_| anyhow::anyhow!("another local router holds router.lock"))???;
+    // Keys live in memory for one router run. macOS keeps the install secret in
+    // the Keychain; elsewhere a fresh random secret per run is equivalent.
+    // Chosen before the admin socket exists: a client that reaches the socket
+    // gets an answer.
+    #[cfg(target_os = "macos")]
+    let (store, kind) = macos_install_secret_store()?;
+    #[cfg(not(target_os = "macos"))]
+    let (store, kind): (Arc<dyn InstallSecretStore>, &'static str) =
+        (Arc::new(RandomInstallSecretStore::new("default")?), INSTALL_SECRET_EPHEMERAL);
+    let _ = INSTALL_SECRET_KIND.set(kind);
     let socket_path = router_dir.join("router.sock");
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = UnixListener::bind(&socket_path)?;
@@ -520,14 +530,6 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     }
     let bind_address: SocketAddr = "127.0.0.1:0".parse()?;
     let listener = TcpListener::bind(LoopbackAddr::try_from(bind_address)?.address()).await?;
-    // Keys live in memory for one router run. macOS keeps the install secret in
-    // the Keychain; elsewhere a fresh random secret per run is equivalent.
-    #[cfg(target_os = "macos")]
-    let (store, kind) = macos_install_secret_store()?;
-    #[cfg(not(target_os = "macos"))]
-    let (store, kind): (Arc<dyn InstallSecretStore>, &'static str) =
-        (Arc::new(RandomInstallSecretStore::new("default")?), INSTALL_SECRET_EPHEMERAL);
-    let _ = INSTALL_SECRET_KIND.set(kind);
     let keys = Arc::new(tokio::sync::RwLock::new(KeyRing::new(store)?));
     let port = listener.local_addr()?.port();
     let upstream: SharedUpstream = Arc::new(tokio::sync::RwLock::new(None));
@@ -557,10 +559,10 @@ fn macos_install_secret_store() -> anyhow::Result<(Arc<dyn InstallSecretStore>, 
     let loaded = if std::env::var_os("CMUX_CODEROUTER_TEST_NO_KEYCHAIN").is_some() {
         Err(anyhow::anyhow!("no default keychain (CMUX_CODEROUTER_TEST_NO_KEYCHAIN)"))
     } else {
-        keychain.load().map(drop)
+        probe_keychain()
     };
     #[cfg(not(debug_assertions))]
-    let loaded = keychain.load().map(drop);
+    let loaded = probe_keychain();
     match loaded {
         Ok(()) => Ok((Arc::new(keychain), INSTALL_SECRET_KEYCHAIN)),
         Err(e) => {
@@ -573,6 +575,24 @@ fn macos_install_secret_store() -> anyhow::Result<(Arc<dyn InstallSecretStore>, 
         }
     }
 }
+
+/// Ask the Keychain once, on its own thread and for at most
+/// `KEYCHAIN_PROBE_LIMIT`: a lookup can block (an access prompt with no one to
+/// answer it), and the router must still start.
+#[cfg(target_os = "macos")]
+fn probe_keychain() -> anyhow::Result<()> {
+    let (sent, answer) = std::sync::mpsc::channel();
+    std::thread::Builder::new().name("keychain-probe".into()).spawn(move || {
+        let loaded = KeychainInstallSecretStore::new("default").load().map(drop);
+        let _ = sent.send(loaded.map_err(|e| format!("{e:#}")));
+    })?;
+    match answer.recv_timeout(KEYCHAIN_PROBE_LIMIT) {
+        Ok(result) => result.map_err(|e| anyhow::anyhow!(e)),
+        Err(_) => anyhow::bail!("the Keychain did not answer within {KEYCHAIN_PROBE_LIMIT:?}"),
+    }
+}
+#[cfg(target_os = "macos")]
+const KEYCHAIN_PROBE_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Start the real loopback data plane for integration tests and composition.
 pub async fn spawn_data_plane(
