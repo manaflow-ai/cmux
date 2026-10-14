@@ -103,7 +103,8 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     }
     endPreview();
   };
-  const tile = (id: string, title: string, attribution: string) => (
+  // `video`: a moving wallpaper, marked over its first frame.
+  const tile = (id: string, title: string, attribution: string, choice?: { video?: boolean }) => (
     <button
       type="button"
       key={id}
@@ -125,6 +126,11 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         </span>
       ) : (
         <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(id)}`} />
+      )}
+      {choice?.video && (
+        <span className="backdrop-badge" aria-hidden="true">
+          ▶
+        </span>
       )}
       <span className="backdrop-title">{title}</span>
       <span className="row-help">{attribution}</span>
@@ -205,7 +211,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
           {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}
           <div className="backdrop-grid">
-            {group.choices.map((choice) => tile(choice.id, choice.title, choice.attribution))}
+            {group.choices.map((choice) => tile(choice.id, choice.title, choice.attribution, choice))}
           </div>
         </div>
       ))}

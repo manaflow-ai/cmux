@@ -191,7 +191,7 @@ public final class WindowMaterialView: NSView {
             }
         }
         artView.isHidden = hidesArt || artImage == nil
-        videoView.show(nil)
+        videoView.show(hidesArt || shown?.isVideo != true ? nil : shown?.resolvedImageURL(dark: dark))
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
         // flight runs on to it.
         artOpacity = Float(backdrop.artOpacity)

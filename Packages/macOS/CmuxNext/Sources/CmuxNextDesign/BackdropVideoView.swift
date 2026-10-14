@@ -65,7 +65,7 @@ public final class BackdropVideoView: NSView {
 
     /// Holds the shared player only while in a window, so a closed window releases its decoder.
     private func attach() {
-        guard url == nil, let url, window != nil, playerLayer.player == nil else { return update() }
+        guard let url, window != nil, playerLayer.player == nil else { return update() }
         playerLayer.opacity = 0
         playerLayer.player = players.attach(url, viewer: ObjectIdentifier(self))
         readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in

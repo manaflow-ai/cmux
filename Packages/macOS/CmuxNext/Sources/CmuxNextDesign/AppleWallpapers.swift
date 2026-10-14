@@ -30,12 +30,28 @@ public nonisolated struct AppleWallpapers: Sendable {
     /// Every moving wallpaper on disk: one per shipped wallpaper (its light cut, or its only one),
     /// then the downloaded aerials.
     public func videos(fileManager: FileManager = .default) -> [BackdropSelection] {
-        []
+        let shipped = Self.files(in: desktopPictures.appendingPathComponent(".wallpapers"), fileManager: fileManager)
+            .flatMap { Self.files(in: $0, fileManager: fileManager) }
+            .filter { Self.isVideo($0.path) && !$0.lastPathComponent.contains("Portrait") }
+            .filter { !$0.lastPathComponent.contains(" Dark ") || !fileManager.fileExists(atPath: Self.cut($0.path, dark: false)) }
+        let downloaded = Self.files(in: aerials, fileManager: fileManager)
+            .flatMap { Self.isVideo($0.path) ? [$0] : Self.files(in: $0, fileManager: fileManager) }
+            .filter { Self.isVideo($0.path) }
+        return (Self.byName(shipped) + Self.byName(downloaded)).map { .system(path: $0.path) }
     }
 
     /// The aerials' names from idleassetsd's `entries.json`, by asset id.
     public func aerialNames() -> [String: String] {
-        [:]
+        struct Entries: Decodable {
+            struct Asset: Decodable {
+                let id: String
+                let accessibilityLabel: String?
+            }
+            let assets: [Asset]
+        }
+        guard let data = try? Data(contentsOf: aerials.appendingPathComponent("entries.json")),
+              let entries = try? JSONDecoder().decode(Entries.self, from: data) else { return [:] }
+        return Dictionary(entries.assets.compactMap { asset in asset.accessibilityLabel.map { (asset.id, $0) } }) { first, _ in first }
     }
 
     /// Whether `path` names a video.
@@ -51,7 +67,8 @@ public nonisolated struct AppleWallpapers: Sendable {
     /// The file a window plays for `path` in light or dark: a shipped wallpaper's cut for the
     /// appearance when macOS has it, any other file itself.
     public static func file(for path: String, dark: Bool) -> URL {
-        URL(fileURLWithPath: path)
+        let cut = cut(path, dark: dark)
+        return URL(fileURLWithPath: hasCuts(path) && FileManager.default.fileExists(atPath: cut) ? cut : path)
     }
 
     /// A shipped video's light or dark cut (`Sonoma Graphic Light Landscape.mov`).
