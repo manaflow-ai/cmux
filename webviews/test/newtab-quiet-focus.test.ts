@@ -3,7 +3,9 @@
 // step in tone, never the accent, and still clears with appearance.borders none. The composer's
 // fill, the New Tab box's and the chat composer's alike, is no longer a gray slab darker than the
 // page ("same bg kinda weird"; Leo 10-14): in a light theme it is the page lifted toward white,
-// lighter than the page; in a dark theme a small step lighter than the page. Both are solid.
+// lighter than the page; in a dark theme a small step lighter than the page. Both are solid. Their
+// drop shadow is the shared --elevation-1 in a light theme and none in a dark one, where it shows
+// nothing (cg-design-judge, 10-14).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -54,6 +56,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       ({ page, theme }) => {
         const root = document.documentElement.style;
         root.colorScheme = theme;
+        document.documentElement.dataset.theme = theme;
         root.setProperty("--cmux-surface-solid", `rgb(${page.join(", ")})`);
         const shell = (document.querySelector(".acpmux-shell") as HTMLElement).style;
         shell.setProperty("--agent-text", theme === "dark" ? "rgb(236, 236, 236)" : "rgb(20, 20, 20)");
@@ -165,7 +168,9 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       const ground = pages[theme].map((channel) => channel / 255);
       for (const id of ["newtab", "composer"]) {
         const { rgba, image } = await fill(page, id);
-        expect(image, `${id} paints one flat color`).toBe("none");
+        // At rest any layer over the surface (the New Tab box's hover lift) is clear.
+        const layers = [...image.matchAll(/(?:rgba?|color)\([^)]*\)/g)].map((match) => parse(match[0]));
+        for (const layer of layers) expect(layer?.[3], `${id} paints one flat color at rest`).toBe(0);
         expect(rgba, `${id} fill parsed`).not.toBeNull();
         expect(rgba![3], `${id} is solid over a wallpaper`).toBe(1);
         const step = luminance(rgba!) - luminance(ground);
@@ -179,6 +184,45 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           expect(step, `${id} is a step lighter than the page`).toBeGreaterThan(0.02);
           expect(step, `${id} is only a small step`).toBeLessThan(0.12);
         }
+      }
+      await page.close();
+    });
+  }
+  for (const theme of ["dark", "light"] as const) {
+    test(`${theme}: the composers cast ${theme === "light" ? "--elevation-1" : "no shadow"}`, async () => {
+      const page = await open(2, theme);
+      const result = await page.evaluate(() => {
+        // The drop layers of a computed box-shadow (inset rims left out), and --elevation-1's own.
+        const drops = (shadow: string) => {
+          const entries: string[] = [];
+          let depth = 0;
+          let start = 0;
+          for (let index = 0; index < shadow.length; index++) {
+            const char = shadow[index];
+            if (char === "(") depth++;
+            else if (char === ")") depth--;
+            else if (char === "," && depth === 0) {
+              entries.push(shadow.slice(start, index).trim());
+              start = index + 1;
+            }
+          }
+          entries.push(shadow.slice(start).trim());
+          return entries.filter((entry) => entry !== "none" && !/\binset\b/.test(entry));
+        };
+        const probe = document.createElement("div");
+        probe.style.boxShadow = "var(--elevation-1)";
+        document.body.append(probe);
+        const elevation = drops(getComputedStyle(probe).boxShadow);
+        probe.remove();
+        const of = (id: string) => drops(getComputedStyle(document.getElementById(id)!).boxShadow);
+        return { elevation, newtab: of("newtab"), composer: of("composer") };
+      });
+      expect(result.elevation.length, "--elevation-1 resolves").toBe(1);
+      for (const id of ["newtab", "composer"] as const) {
+        if (theme === "light") expect(result[id], `${id} casts --elevation-1`).toEqual(result.elevation);
+        else
+          for (const layer of result[id])
+            expect(layer, `${id} casts no visible shadow`).toMatch(/^(?:rgba\(0, 0, 0, 0\)|transparent)|0px 0px 0px/);
       }
       await page.close();
     });
