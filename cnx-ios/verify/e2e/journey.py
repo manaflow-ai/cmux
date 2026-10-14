@@ -655,6 +655,56 @@ class Journey:
         return f"after q with the keyboard up: `top` line at y {before:.0f} pt; {marker} reached after {pulls} pull-down(s)" + \
                (", the content moved" if pulls else " (already on screen)")
 
+    def scroll_to_find(self, needle, tries=24):
+        """Fast pull-downs (keyboard down) until `needle` is on screen."""
+        for flicks in range(tries + 1):
+            hits = self.sim.ocr_find(needle, timeout=1.0)
+            if hits:
+                return flicks, hits
+            self.sim.swipe(201, 200, 201, 760, duration=0.12)
+            time.sleep(0.9)
+        return tries, []
+
+    def s_scrollback_history(self):
+        """User report 2026-10-14: the phone must reach the same first line of
+        history as the Mac. (a) 300 lines written on the Mac before the phone
+        attaches (the attach replay carries the history); (b) an inline TUI's
+        history (Codex CLI style: a scroll region from the top, then a line feed
+        per line) printed while the phone is attached."""
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        first = f"FIRST{random.randint(10000, 99999)}"
+        self.mac_write(term, f"clear; echo {first}; seq 2 300\n")
+        self.mac_wait_text(term, "\n300", timeout=10)
+        # A fresh attach: relaunch (restores this tab), so the history comes in the replay.
+        self.sim.terminate(BUNDLE); time.sleep(1); self.sim.launch(BUNDLE)
+        check(self.sim.wait(ident="terminal.composer.field", timeout=15), "the relaunch did not restore the terminal")
+        while self.sim.find(ident="terminal.connecting"):
+            time.sleep(0.3)
+        time.sleep(1.5)
+        flicks_a, seen_a = self.scroll_to_find(first)
+        self.sim.shot(f"history-replay-top-{self.run_id}")
+        check(seen_a, f"after a fresh attach, scrolling up never reached the first line ({first}) of 300 written on the Mac")
+        # (b) Codex CLI style history, live.
+        jump = self.sim.find(label="Scroll to bottom")
+        if jump:
+            self.sim.tap_el(jump[0]); time.sleep(1)
+        cx = f"CXTOP{random.randint(10000, 99999)}"
+        script = ("clear; printf '\\033[1;12r\\033[12;1H'; printf '\\r\\n%s' " + cx +
+                  "; for i in $(seq 1 150); do printf '\\r\\nCX%03d' $i; done; printf '\\033[r\\033[999;1H\\nCXDONE\\n'\n")
+        self.mac_write(term, script)
+        self.mac_wait_text(term, "\nCXDONE", timeout=10)
+        time.sleep(1.5)
+        flicks_b, seen_b = self.scroll_to_find(cx)
+        self.sim.shot(f"history-inline-top-{self.run_id}")
+        check(seen_b, f"lines an inline TUI printed with a scroll region from the top are not in the phone's history ({cx})")
+        jump = self.sim.find(label="Scroll to bottom")
+        if jump:
+            self.sim.tap_el(jump[0]); time.sleep(1)
+        return (f"first of 300 lines ({first}) reached after a fresh attach in {flicks_a} flick(s); "
+                f"Codex-style region history ({cx} + 150 lines) reached in {flicks_b} flick(s)")
+
     def s_keybar_swipe_no_back(self):
         """design/terminal R4-1: with the keyboard up, a rightward swipe that starts
         on the key bar (pinned ^C, the scroller, the joystick) stays on the
@@ -1235,6 +1285,7 @@ class Journey:
             ("relaunch_restore", "Relaunch restores the tab and attaches", "wsdesign", self.s_relaunch_restore),
             ("term_direct", "Terminal: direct typing (soft keyboard)", "termlive", self.s_term_direct),
             ("term_composer", "Terminal: composer", "termlive", self.s_term_composer),
+            ("scrollback_history", "Terminal: the phone reaches the Mac's first line of history", "termlive", self.s_scrollback_history),
             ("keybar_swipe_no_back", "Terminal: a swipe on the key bar never swipes back", "termlive", self.s_keybar_swipe_no_back),
             ("shell_pull_keyboard_up", "Terminal: pull-down with the keyboard up reaches history", "termlive", self.s_shell_pull_keyboard_up),
             ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),
