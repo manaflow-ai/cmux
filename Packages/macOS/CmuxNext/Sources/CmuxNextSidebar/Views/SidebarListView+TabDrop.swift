@@ -56,8 +56,8 @@ extension SidebarListView {
                 if external.slot?.drop != slot { external.slot = (slot, now) }
                 let deadline = (external.slot?.since ?? now) + slotDwell
                 // Only on a row: the empty list below the last row opens its gap at once.
-                if now < deadline, base.row(at: baseY) != nil, let row =DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections,
-                                                                         sourceMachine: sourceMachine, wholeRows: true),
+                if now < deadline, base.row(at: baseY) != nil, let row = DropResolver.resolveTabDrop(
+                    y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine, wholeRows: true),
                    case .intoWorkspace = row {
                     proposal = row
                     external.slotDeadline = deadline
