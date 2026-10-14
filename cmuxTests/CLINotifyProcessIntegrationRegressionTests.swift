@@ -446,7 +446,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
-            standardInput: #"{"session_id":"oversized-final-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo huge"}}"#
+            standardInput: #"{"session_id":"oversized-final-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo huge"}}"#,
+            fulfillWhen: { line in
+                line.contains(#""method":"feed.push""#)
+                    && line.contains(#""hook_event_name":"PreToolUse""#)
+            }
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -9877,9 +9881,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         context: ClaudeHookContext,
         arguments: [String],
         standardInput: String,
-        extraEnvironment: [String: String] = [:]
+        extraEnvironment: [String: String] = [:],
+        fulfillWhen: (@Sendable (String) -> Bool)? = nil
     ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+        let serverHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            fulfillWhen: fulfillWhen
+        ) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
