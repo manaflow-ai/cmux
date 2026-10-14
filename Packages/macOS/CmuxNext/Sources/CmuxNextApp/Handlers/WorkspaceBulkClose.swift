@@ -3,9 +3,10 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextSidebar
 
 /// The workspace closes that take several at once: Close Other Workspaces,
-/// Close Workspaces Above and Below, Close All Workspaces (one window) and
+/// Close Workspaces Above and Below, Close Others in Group, Close All Workspaces (one window) and
 /// Close All Workspaces in All Windows. One rule for all of them
 /// (RECOVERABLE-BY-DEFAULT, Lawrence 2026-10-07): they run at once, and a
 /// person's gesture that closes two or more gets "Closed N workspaces"
@@ -18,7 +19,7 @@ import CmuxNextSettings
 enum WorkspaceBulkClose {
     typealias Member = (WorkspaceModel, DaemonService)
     static let ids: [ActionID] = ["palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
-                                  "workspace.closeAll", "workspace.closeAllInAllWindows"]
+                                  "workspace.closeOthersInGroup", "workspace.closeAll", "workspace.closeAllInAllWindows"]
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         for id in ids { registry.bind(id, run: { invocation in try close(id, invocation, context) }) }
@@ -36,19 +37,33 @@ enum WorkspaceBulkClose {
             closing = try windows.registry.members(of: owner ?? context.window(invocation).state.id)
         case "workspace.closeAllInAllWindows":
             closing = windows.controllers.flatMap { windows.registry.members(of: $0.state.id) }
+        case "workspace.closeOthersInGroup":
+            let workspace = try context.workspace(invocation).model
+            guard let group = try WorkspaceVerbHandlers.group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
+            closing = group.workspaces.map(\.id.rawValue).filter { $0 != workspace.id }
         default:
+            // Sidebar order of the window that lists the target, every machine's rows.
             let target = try context.workspace(invocation).model
-            let order = context.sidebarOrder
-            guard let index = order.firstIndex(where: { $0 === target }) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
-            let picked = id == "palette.closeOtherWorkspaces" ? order.filter { $0 !== target }
+            let owner = windows.registry.value.owner(of: target.id).flatMap(windows.controller(for:)) ?? context.activeWindow
+            let order = owner?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? context.sidebarOrder.map(\.id)
+            guard let index = order.firstIndex(of: target.id) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
+            closing = id == "palette.closeOtherWorkspaces" ? order.filter { $0 != target.id }
                 : id == "palette.closeWorkspacesBelow" ? Array(order[(index + 1)...]) : Array(order[..<index])
-            closing = picked.map(\.id)
         }
+        // A workspace with no key cannot close (WorkspaceClose); it neither counts nor leaves.
+        let members = closing.compactMap { context.services.machines.workspace(id: $0) }.filter { $0.0.key != nil }
+        return (members, survivor(closing: members.map(\.0.id), context))
+    }
+
+    /// An open window that keeps a workspace after `closing` closes (the
+    /// active one first): where the undo toast shows. Nil when every window closes.
+    static func survivor(closing: [String], _ context: AppActionContext) -> NSWindow? {
+        let windows = context.services.windows
         let gone = Set(closing)
         let stays = ([context.activeWindow].compactMap { $0 } + windows.controllers).first { controller in
             !windows.registry.members(of: controller.state.id).allSatisfy(gone.contains)
         }
-        return (closing.compactMap { context.services.machines.workspace(id: $0) }, stays?.window)
+        return stays?.window
     }
 
     static func close(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
