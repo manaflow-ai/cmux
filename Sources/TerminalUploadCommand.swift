@@ -131,7 +131,16 @@ struct TerminalUploadCommand: Sendable, Equatable {
         let extensionValue = fileURL.pathExtension
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        let suffix = extensionValue.isEmpty ? "" : "." + extensionValue
+        // Keep the optional extension useful to commands that inspect the
+        // destination, but bound it by UTF-8 bytes so the generated name stays
+        // well below the 255-byte filename-component limit on remote filesystems.
+        var boundedExtension = String()
+        for scalar in extensionValue.unicodeScalars {
+            let scalarText = String(scalar)
+            guard boundedExtension.utf8.count + scalarText.utf8.count <= 16 else { break }
+            boundedExtension.append(scalar)
+        }
+        let suffix = boundedExtension.isEmpty ? "" : "." + boundedExtension
         return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(suffix)"
     }
 
