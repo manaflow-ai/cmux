@@ -97,14 +97,20 @@ export const SUBMENU_ROOM = 250;
 export const MODEL_PICKER_MAX_HEIGHT = 480;
 /// The shortest the open picker gets: the search field and about six model rows. A chip with less
 /// room than this, or a list that loads after the menu opened, never collapses the menu to its
-/// search field (Lawrence 2026-10-13); the menu then extends past the room instead.
+/// search field (Lawrence 2026-10-13). The menu opens on the side of the chip that has this much
+/// room (`useUiAnchor` `minHeight`; Leo: the menu stays inside the page). Only when neither side
+/// has it does it open below and run past the room, where the page scrolls to it; above, it ran off
+/// the top of the window (the New Tab chip's menu, 94 px).
 export const MODEL_PICKER_MIN_HEIGHT = 220;
 
 /// The open picker's height bounds: at most the anchor's room (`room`, when known) and
 /// MODEL_PICKER_MAX_HEIGHT, never below MODEL_PICKER_MIN_HEIGHT; at least its height when it
 /// opened (`opened`), so a narrowing search does not shrink it, while a list that loads later can
 /// still grow it.
-export function pickerHeightBounds(room: unknown, opened: number | undefined): { maxHeight: number; minHeight: number } {
+export function pickerHeightBounds(
+  room: unknown,
+  opened: number | undefined,
+): { maxHeight: number; minHeight: number } {
   const roomed = typeof room === "number" && Number.isFinite(room) ? room : MODEL_PICKER_MAX_HEIGHT;
   const maxHeight = Math.max(MODEL_PICKER_MIN_HEIGHT, Math.min(roomed, MODEL_PICKER_MAX_HEIGHT));
   const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));

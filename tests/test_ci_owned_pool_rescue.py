@@ -1433,6 +1433,11 @@ class Nightly(unittest.TestCase):
         # The pickers never hand it out: it is not a pull request pool.
         self.assertFalse(rescue.persistent(TRUSTED))
 
+    def test_the_fast_lane_is_an_owned_pool(self):
+        # cmux-next.yml's fast tier runs on CI_FAST_LANE_RUNNER, a reserved glaeda-fast-* runner.
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-fast-std-xcode-26.6"]}),
+                         "glaeda-fast-std-xcode-26.6")
+
     def test_the_marker_listing_pages_past_the_window_by_the_id_order_skew(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         start = dt.datetime(2026, 9, 27, 12, 0, tzinfo=dt.timezone.utc)

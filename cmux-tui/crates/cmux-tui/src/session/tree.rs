@@ -543,6 +543,26 @@ impl TreeView {
     pub(crate) fn invalidate_location_index(&mut self) {
         self.location_index = OnceLock::new();
     }
+
+    /// Put the workspaces in the order of `rank` (lower first; a workspace
+    /// with no rank keeps its relative place after the ranked ones). The
+    /// active workspace stays the same workspace.
+    pub(crate) fn order_workspaces_by(&mut self, rank: impl Fn(&WorkspaceView) -> Option<usize>) {
+        let active = self.workspaces.get(self.active_workspace).map(|workspace| workspace.id);
+        let mut keyed = std::mem::take(&mut self.workspaces)
+            .into_iter()
+            .enumerate()
+            .map(|(index, workspace)| ((rank(&workspace).unwrap_or(usize::MAX), index), workspace))
+            .collect::<Vec<_>>();
+        keyed.sort_by_key(|(key, _)| *key);
+        let ordered = keyed.into_iter().map(|(_, workspace)| workspace).collect::<Vec<_>>();
+        if let Some(active) = active
+            && let Some(index) = ordered.iter().position(|workspace| workspace.id == active)
+        {
+            self.active_workspace = index;
+        }
+        *self.workspaces_mut() = ordered;
+    }
 }
 
 impl WorkspaceView {

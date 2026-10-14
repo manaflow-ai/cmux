@@ -13,6 +13,7 @@ import java.util.Objects;
 /** Immutable move-tab-to-split request. Protocol v12; authority: control. */
 public final class MoveTabToSplitRequest implements WireValue {
     private final String edge;
+    private final Field<Boolean> keepFocus;
     private final UInt64 pane;
     private final Field<Double> ratio;
     private final Field<SplitRespawn> respawn;
@@ -22,6 +23,7 @@ public final class MoveTabToSplitRequest implements WireValue {
     private MoveTabToSplitRequest(Builder builder) {
         if (!builder.edgeSet) throw new IllegalArgumentException("edge is required");
         this.edge = Wire.nonNull(builder.edge, "edge");
+        this.keepFocus = builder.keepFocus;
         if (!builder.paneSet) throw new IllegalArgumentException("pane is required");
         this.pane = Wire.nonNull(builder.pane, "pane");
         this.ratio = builder.ratio;
@@ -34,6 +36,7 @@ public final class MoveTabToSplitRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public String edge() { return edge; }
+    public Field<Boolean> keepFocus() { return keepFocus; }
     public UInt64 pane() { return pane; }
     public Field<Double> ratio() { return ratio; }
     public Field<SplitRespawn> respawn() { return respawn; }
@@ -45,6 +48,10 @@ public final class MoveTabToSplitRequest implements WireValue {
         Builder builder = builder();
         Object rawEdge = Wire.required(object, "edge");
         builder.edge(Wire.string(rawEdge, "MoveTabToSplitRequest.edge"));
+        Object rawKeepFocus = Wire.optional(object, "keep_focus");
+        if (!Wire.isMissing(rawKeepFocus)) {
+            builder.keepFocus(Wire.bool(rawKeepFocus, "MoveTabToSplitRequest.keep_focus"));
+        }
         Object rawPane = Wire.required(object, "pane");
         builder.pane(Wire.uint64(rawPane, "MoveTabToSplitRequest.pane"));
         Object rawRatio = Wire.optional(object, "ratio");
@@ -68,6 +75,7 @@ public final class MoveTabToSplitRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "edge", edge);
+        Wire.put(object, "keep_focus", keepFocus);
         Wire.put(object, "pane", pane);
         Wire.put(object, "ratio", ratio);
         Wire.put(object, "respawn", respawn);
@@ -79,11 +87,11 @@ public final class MoveTabToSplitRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof MoveTabToSplitRequest that)) return false;
-        return Objects.equals(edge, that.edge) && Objects.equals(pane, that.pane) && Objects.equals(ratio, that.ratio) && Objects.equals(respawn, that.respawn) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction);
+        return Objects.equals(edge, that.edge) && Objects.equals(keepFocus, that.keepFocus) && Objects.equals(pane, that.pane) && Objects.equals(ratio, that.ratio) && Objects.equals(respawn, that.respawn) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(edge, pane, ratio, respawn, surface, transaction); }
+    public int hashCode() { return Objects.hash(edge, keepFocus, pane, ratio, respawn, surface, transaction); }
 
     @Override
     public String toString() { return "MoveTabToSplitRequest" + toWire(); }
@@ -91,6 +99,7 @@ public final class MoveTabToSplitRequest implements WireValue {
     public static final class Builder {
         private String edge;
         private boolean edgeSet;
+        private Field<Boolean> keepFocus = Field.omitted();
         private UInt64 pane;
         private boolean paneSet;
         private Field<Double> ratio = Field.omitted();
@@ -102,6 +111,10 @@ public final class MoveTabToSplitRequest implements WireValue {
         public Builder edge(String value) {
             this.edge = value;
             this.edgeSet = true;
+            return this;
+        }
+        public Builder keepFocus(Boolean value) {
+            this.keepFocus = Field.of(value);
             return this;
         }
         public Builder pane(UInt64 value) {

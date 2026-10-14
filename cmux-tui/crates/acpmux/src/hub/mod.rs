@@ -38,12 +38,14 @@ pub(crate) use route_switch::route_error;
 mod secrets;
 mod seen;
 mod session;
+pub(crate) mod session_pages;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
 use shutdown::ShutdownPlan;
 mod spawn;
 mod start_defaults;
+pub(crate) mod start_mode;
 mod steer_end;
 mod stream;
 mod tap;
@@ -171,6 +173,8 @@ pub struct PromptOptions {
     /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
     /// running turn and run this next" instead of waiting behind the queue.
     pub interrupt: bool,
+    /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
+    pub provenance: Option<Value>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -225,6 +229,8 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// Startup has read the login environment: the catalog sees its PATH.
+    pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
@@ -278,6 +284,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
+    pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
 }
@@ -304,6 +312,7 @@ impl Hub {
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
@@ -331,6 +340,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
@@ -426,6 +436,7 @@ impl Hub {
     pub fn begin_startup(&self, login_env: bool) {
         self.login_env_requested.store(login_env, Ordering::SeqCst);
         self.startup_ready.send_replace(false);
+        self.catalog_ready.send_replace(false);
     }
 
     /// Background startup: import the login environment (when requested),
@@ -462,6 +473,7 @@ impl Hub {
                 });
             }
         }
+        self.catalog_ready.send_replace(true);
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
         tracing::info!("startup complete; agents may spawn");
@@ -479,16 +491,11 @@ impl Hub {
     }
 
     /// The login environment changed: `CLAUDE_CONFIG_DIR` / `CODEX_HOME`
-    /// and harnesses on the login PATH may come from it only.
+    /// and harnesses on the login PATH may come from it only. Watchers hear
+    /// the new catalog, so a client that listed the old one catches up.
     async fn after_login_env(self: &Arc<Self>) -> bool {
         self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
-        match self.reload_catalog().await {
-            Ok(_) => true,
-            Err(e) => {
-                tracing::warn!("catalog reload after login env: {e}");
-                false
-            }
-        }
+        self.reload_and_announce().await
     }
 
     pub fn startup_complete(&self) -> bool {
@@ -592,6 +599,9 @@ impl Hub {
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
+            input_since: AtomicU64::new(0),
+            asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
+            asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
             route_switch: AtomicBool::new(false),
             inbound_tx,
@@ -930,7 +940,7 @@ impl Hub {
             }
             if let Some((seq, turn_id)) = open {
                 let error = "the daemon restarted before this turn settled";
-                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+                self.append_unknown_outcome(&session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
                 self.save_meta(&session);
             }
         }
@@ -952,6 +962,7 @@ impl Hub {
             changed
         };
         if changed {
+            session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
         }

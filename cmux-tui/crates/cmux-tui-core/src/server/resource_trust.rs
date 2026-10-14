@@ -79,4 +79,5 @@ pub(super) const fn handles_resource_connection_operation(operation: ResourceOpe
             | ResourceOperation::OriginConfirmationIssue
     ) || super::conversation_resource::handles(operation)
         || super::chief_control::handles(operation)
+        || super::chief_registry_resource::handles(operation)
 }

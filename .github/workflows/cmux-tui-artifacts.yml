@@ -60,7 +60,8 @@ on:
   #
   # Every other branch of this repository publishes its pushed head too
   # (cx-r2is), so a pull request's same-tree checks find their tree without a
-  # hand-pushed cmux-tui-pin-* ref. Forks never push here, and fork pull
+  # hand-pushed cmux-tui-pin-* ref. Those lane-branch pushes publish without
+  # the daemon tests (tree-preflight's daemon-policy step). Forks never push here, and fork pull
   # requests start no job. A push trigger cannot filter paths per branch, so
   # tree-preflight is the filter: a branch push whose tree key is already
   # published spends no macOS time (run_macos=false) and publishes nothing.
@@ -199,6 +200,7 @@ jobs:
       legacy_key: ${{ steps.inspect.outputs.legacy_key }}
       tree_ready: ${{ steps.inspect.outputs.tree_ready }}
       daemon_tested: ${{ steps.inspect.outputs.daemon_tested }}
+      daemon_tests: ${{ steps.daemon-policy.outputs.daemon_tests }}
       run_macos: ${{ steps.inspect.outputs.run_macos }}
       superseded: ${{ steps.inspect.outputs.superseded }}
       owner_run_id: ${{ steps.inspect.outputs.owner_run_id }}
@@ -208,6 +210,39 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 1
+
+      # A lane-branch push publishes its tree without the cmux_next_ daemon
+      # tests (source.json daemonTests "separate", no daemon-tests marker):
+      # they queued on the minis' shared side lane for every branch push,
+      # while the trees that gate a merge are tested by the pull request's own
+      # run and its cmux-tui-pin-* merge tree. feat-cmux-next, main,
+      # cmux-tui-pin-* and next-batch/* pushes, pull requests and dispatches
+      # still run them, and so does a push whose head commit carries the
+      # trailer `Cmux-Daemon-Tests: run`. A testing run that finds a tree
+      # published without the marker runs them and writes it.
+      - name: Decide whether this push runs the daemon tests
+        id: daemon-policy
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          daemon_tests=true
+          if [[ "$EVENT_NAME" == push ]]; then
+            case "$REF" in
+              refs/heads/main|refs/heads/feat-cmux-next|refs/heads/cmux-tui-pin-*|refs/heads/next-batch/*) ;;
+              *)
+                opt_in="$(git log -1 --format='%(trailers:key=Cmux-Daemon-Tests,valueonly)' HEAD | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+                if [[ "$opt_in" == run ]]; then
+                  echo "The head commit asks for the daemon tests (Cmux-Daemon-Tests: run)."
+                else
+                  daemon_tests=false
+                  echo "::notice title=daemon tests skipped::a lane-branch push publishes its tree without the cmux_next_ daemon tests; add the trailer 'Cmux-Daemon-Tests: run' to the head commit to run them (a dispatch on the branch also runs them, but marks the tree tested only once it is published)"
+                fi
+                ;;
+            esac
+          fi
+          echo "daemon_tests=$daemon_tests" >> "$GITHUB_OUTPUT"
 
       - name: Read the macOS builder switch
         id: darwin-builder
@@ -443,8 +478,9 @@ jobs:
           # promotable only with tree/<key>/daemon-tests.json. Its owner run
           # may never write it (a branch run whose publish-tree failed or whose
           # daemon tests stay queued: tree c77d397b3a9f, 2026-10-14, blocked
-          # every feat-cmux-next promotion with that key). A feat-cmux-next
-          # push then runs the daemon tests itself and writes the marker.
+          # every feat-cmux-next promotion with that key), and a lane-branch
+          # push publishes without them (daemon-policy). Any testing run
+          # (daemon_tests true, not main) then runs them and writes the marker.
           daemon_tested=true
           if [[ "$tree_ready" == true ]] &&
               source_json="$(curl -fsSL --proto '=https' --connect-timeout 5 --max-time 15 \
@@ -453,7 +489,7 @@ jobs:
               ! curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
                 "https://files.cmux.com/cmux-tui/tree/$published_key/daemon-tests.json?preflight=$RUN_ID" 2>/dev/null; then
             daemon_tested=false
-            echo "Tree $published_key has no daemon-tests marker; a feat-cmux-next push runs the daemon tests to write it."
+            echo "Tree $published_key has no daemon-tests marker; a testing run (daemon_tests true) runs the daemon tests to write it."
           elif [[ "$tree_ready" == true && -z "${source_json:-}" ]]; then
             echo "::warning::could not read tree/$published_key/source.json; the daemon-tests marker is not checked in this run"
           fi
@@ -491,6 +527,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       takeover: ${{ steps.wait.outputs.takeover }}
+      unmarked: ${{ steps.wait.outputs.unmarked }}
     permissions:
       actions: read
       contents: read
@@ -606,6 +643,21 @@ jobs:
             if tree_ready; then
               echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
               takeover=false
+              # A lane-branch owner publishes build-only (no daemon-tests
+              # marker), possibly after this run's preflight saw the key
+              # unpublished. A testing run then tests the tree here. A
+              # feat-cmux-next publisher tests its own tree, so not that one.
+              base="https://files.cmux.com/cmux-tui/tree/$KEY"
+              if ! curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
+                  "$base/daemon-tests.json?owner-wait=$GITHUB_RUN_ID-marker" 2>/dev/null; then
+                source_ref="$(curl --fail --silent --connect-timeout 5 --max-time 15 \
+                  "$base/source.json?owner-wait=$GITHUB_RUN_ID-source" 2>/dev/null |
+                  python3 -c 'import json,sys; print(json.load(sys.stdin).get("ref", ""))' 2>/dev/null || true)"
+                if [[ "$source_ref" != refs/heads/feat-cmux-next ]]; then
+                  unmarked=true
+                  echo "Tree $KEY has no daemon-tests marker (published from ${source_ref:-an unknown ref}); a testing run tests it here."
+                fi
+              fi
             elif [[ "$branch_owner_takeover" == true ]]; then
               feat_builder=true
               # Both may publish; the publish jobs keep whichever complete
@@ -651,6 +703,7 @@ jobs:
             echo "deferred=$deferred"
             echo "feat_builder=${feat_builder:-false}"
             echo "takeover=$takeover"
+            echo "unmarked=${unmarked:-false}"
           } >> "$GITHUB_OUTPUT"
 
       # The marker a later feat-cmux-next push of this key reads, so only
@@ -745,9 +798,12 @@ jobs:
       # glaeda-aws pools have no runners); Blacksmith macOS queued these
       # legs for up to 128 min (run 37567938722, 2026-10-07). Workflow text
       # never names an owned pool label (tests/test_ci_self_hosted_guard.sh).
-      # A rerun goes back to the PR pool through macos_retry_runner.
-      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
-      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+      # A rerun (cmux-tui-artifacts-retry re-runs a failed run) goes to
+      # Blacksmith macOS 15 through macos_retry_runner, never
+      # vars.MACOS_RUNNER_PR: that names the 12 vCPU macOS 26 label the
+      # nightly app build needs (tests/test_ci_tui_routes_avoid_nightly_label.py).
+      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
       checkout_ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
       # MACOS-CROSS-COMPILE-ON-LINUX switch: the committed file
       # scripts/ci/cmux-tui-darwin-builder (mac or linux), a tree-key input, so
@@ -856,9 +912,10 @@ jobs:
   cmux-next-daemon-tests:
     if: >-
       ${{ ((needs.tree-preflight.outputs.run_macos == 'true' &&
-          needs.tree-owner-wait.outputs.takeover == 'true') ||
-          (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' &&
-          needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false')) &&
+          needs.tree-owner-wait.outputs.takeover == 'true' && needs.tree-preflight.outputs.daemon_tests == 'true') ||
+          (github.ref != 'refs/heads/main' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
+          ((needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false') ||
+          needs.tree-owner-wait.outputs.unmarked == 'true'))) &&
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: [tree-preflight, tree-owner-wait]
     # The marker path (a published tree with no daemon-tests marker) holds one
@@ -871,15 +928,20 @@ jobs:
       # preflight skips duplicate work after the first complete run.
       cancel-in-progress: false
     name: cmux_next_ daemon tests (macOS)
-    # The build legs' route: the owned side lane on attempt 1, the PR pool on a
-    # rerun. Every same-repo branch push runs this job, so naming the PR pool
-    # here queued them on Blacksmith at its cap while the minis had room.
+    # The owned side lane on every attempt, a cmux-tui-pin-* push included.
+    # Every same-repo branch push runs this job, so naming the PR pool here
+    # queued them on Blacksmith at its cap while the minis had room, and a
+    # rerun (cmux-tui-artifacts-retry re-runs a failed run, no owned-pool
+    # rescue watches this workflow) fell through to vars.MACOS_RUNNER_PR, the
+    # 12 vCPU macOS 26 label the nightly app build needs. Blacksmith macOS 15
+    # only when the owned pools are off or the event is not trusted
+    # (tests/test_ci_tui_routes_avoid_nightly_label.py).
     # Attempt 1 of a feat-cmux-next push takes vars.CI_NEXT_PROMOTE_POOL, the
     # reserved promote runners that also run cmux-next.yml's Release compile:
     # these tests gate the nightly-next promotion, so they never wait for the
     # shared side pool. Clearing the variable rolls it back. The fork gate
     # stays first (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
@@ -1934,15 +1996,16 @@ jobs:
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.ref == 'refs/heads/feat-cmux-next' || (needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key)) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.ref == 'refs/heads/feat-cmux-next' || needs.tree-preflight.outputs.daemon_tests != 'true' || (needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key)) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     # On feat-cmux-next, independent of the daemon tests (chief 2026-10-13,
     # hq-11): their macOS runner queues up to ~1 h, and every dev build waited
     # for the tree. There a published tree does not mean the daemon tests
     # passed: publish-tree-tested writes tree/<key>/daemon-tests.json when they
-    # do, and nightly-next promotion (request-nightly-next.sh) requires it. Any
-    # other ref publishes only after its daemon tests pass, and writes the
-    # marker first (chief 2026-10-14): a feat-cmux-next push that finds the
-    # key published never runs them itself.
+    # do, and nightly-next promotion (request-nightly-next.sh) requires it. A
+    # lane-branch push (tree-preflight's daemon-policy) publishes without them
+    # and writes no marker; a testing run that finds the key unmarked runs
+    # them. Any other ref publishes only after its daemon tests pass, and
+    # writes the marker first (chief 2026-10-14).
     needs: [tree-preflight, build-ok, publish, cmux-next-daemon-tests]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -2016,7 +2079,7 @@ jobs:
       # 38511998456 published tree c77d397b3a9f without one and blocked every
       # feat-cmux-next promotion with that key (2026-10-14).
       - name: Mark the tree daemon-tested before publishing it
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.daemon_tests == 'true' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -2220,8 +2283,8 @@ jobs:
   publish-tree-tested:
     environment: artifacts
     name: mark the published tree as daemon-tested
-    needs: [tree-preflight, publish-tree, publish-pr-tree, cmux-next-daemon-tests]
-    if: ${{ !cancelled() && (needs.publish-tree.result == 'success' || needs.publish-pr-tree.result == 'success' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true')) && needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [tree-preflight, tree-owner-wait, publish-tree, publish-pr-tree, cmux-next-daemon-tests]
+    if: ${{ !cancelled() && (needs.publish-tree.result == 'success' || needs.publish-pr-tree.result == 'success' || needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.unmarked == 'true') && needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:

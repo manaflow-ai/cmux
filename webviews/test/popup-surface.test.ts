@@ -69,6 +69,7 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
       "icon-picker/styles.css",
       "pages/markdown/styles.css",
       "pages/home-channels/styles.css",
+      "pages/home-channels/ledger.css",
       "pages/editor/styles.css",
     ),
     body: `<div class="ui-positioner"><div class="ui-popup" id="menu">Menu</div></div>
@@ -78,7 +79,7 @@ ${tooltips}
 <div class="md-link-card" id="md-link-card">https://example.com</div>
 <div class="md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
-<div class="hc-switcher" id="hc-switcher">Switch channel</div>
+<div class="lg-palette" id="lg-palette">Search conversations</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     surfaces: [
       "menu",
@@ -89,7 +90,7 @@ ${tooltips}
       "md-link-card",
       "md-link-popover",
       "hc-msg-toolbar",
-      "hc-switcher",
+      "lg-palette",
       "editor-widget",
     ],
   };
@@ -206,8 +207,11 @@ ${tooltips}`,
           path.resolve(import.meta.dir, "../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PopupStyle.swift"),
           "utf8",
         );
-        const value = (name: string) => Number(swift.match(new RegExp(`let ${name}: CGFloat = ([\\d.]+)`))![1]);
-        const [offset, blur, alpha] = [value("shadowOffset"), value("shadowBlur"), value("shadowAlpha")];
+        // The raised step of the shared scale (`elevation2`; subtle-elevation.test.ts).
+        const raised = swift.match(
+          /static let elevation2 = Elevation\(offset: ([\d.]+), blur: ([\d.]+), alpha: ([\d.]+)\)/,
+        )!;
+        const [offset, blur, alpha] = raised.slice(1, 4).map(Number);
         const page = await open(browser, pages);
         const shadow = await page.$eval("#menu", (node) => getComputedStyle(node).boxShadow);
         // Black at an alpha serializes as rgba() or, from color-mix(), as color(srgb ...).

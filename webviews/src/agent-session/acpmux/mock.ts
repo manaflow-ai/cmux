@@ -650,17 +650,17 @@ export class MockAcpmuxSocket {
 
   /// A page of a session's events, as `_acpmux/events` returns it: after `afterSeq`, or the
   /// newest `limit` before `beforeSeq`; `kinds` keeps the commands or the transcript.
-  private page(target: string, params: Record<string, any>): { events: EventRecord[]; more: boolean } {
+  private page(target: string, params: Record<string, any>): { events: EventRecord[]; hasMore: boolean } {
     const kinds: string[] = Array.isArray(params.kinds) ? params.kinds : [];
     const wanted = (event: EventRecord) =>
       kinds.length === 0 ||
       (event.kind === "available_commands_update" ? kinds.includes(event.kind) : kinds.includes("transcript"));
     const own = this.events.filter((event) => event.sessionId === target && wanted(event));
     if (params.beforeSeq === undefined)
-      return { events: own.filter((event) => event.seq > Number(params.afterSeq ?? 0)), more: false };
+      return { events: own.filter((event) => event.seq > Number(params.afterSeq ?? 0)), hasMore: false };
     const older = own.filter((event) => event.seq < Number(params.beforeSeq));
     const limit = Math.max(1, Number(params.limit ?? older.length));
-    return { events: older.slice(-limit), more: older.length > limit };
+    return { events: older.slice(-limit), hasMore: older.length > limit };
   }
 
   private record(target: string, step: Step, at = Date.now()): EventRecord {

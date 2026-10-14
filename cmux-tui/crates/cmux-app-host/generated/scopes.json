@@ -209,6 +209,34 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.avatar.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.profile.avatar.set": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.create": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.delete": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.profile.list": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.profile.update": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.stop": {
       "scope": "chief:write",
       "class": "mutation"
@@ -1313,6 +1341,78 @@
       "scope": "sidebar_view:write",
       "class": "mutation"
     },
+    "sidebar.adopt": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.apply": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.get": {
+      "scope": "sidebar:read",
+      "class": "read"
+    },
+    "sidebar.group.create": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.group.ungroup": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.group.update": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.add": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.remove": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.remove_ref": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.update": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.move": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.pin": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.reset": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.add": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.move": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.remove": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.update": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.unpin": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
     "skills_app.cycle_variant": {
       "scope": "skills_app:write",
       "class": "mutation"
@@ -1844,6 +1944,7 @@
     "user.text_confirm.lower.challenge",
     "workspace.agent_folder.set",
     "workspace.agent_start.get",
-    "workspace.close"
+    "workspace.close",
+    "workspace.open_url"
   ]
 }

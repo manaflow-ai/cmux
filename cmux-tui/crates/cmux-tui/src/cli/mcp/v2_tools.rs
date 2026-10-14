@@ -48,6 +48,10 @@ const CONVERSATION_REASON: &str = "A conversation belongs to the person: MCP cli
 /// agent-bound connection); an MCP client is an agent acting as the user.
 const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux chief, Home and the owner's scripts control them, never an agent.";
 
+/// The person's Chiefs: the owner and each Chief itself (its own bound
+/// connection) use the registry; an MCP client is an agent acting as the user.
+const CHIEF_REGISTRY_REASON: &str = "The person's Chiefs are edited by the person (cmux chief new|edit|delete, Home) and by each Chief on its own bound connection, never by an agent acting as the user.";
+
 /// Launch credentials (identity.md section 2) are the session host's and the
 /// owner's; an MCP client is an agent and never mints, rotates or checks one.
 const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host and the owner: acpmux and the owner's connection call them, never an agent.";
@@ -88,6 +92,13 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.engine.get", CHIEF_REASON),
     ("chief.engine.set", CHIEF_REASON),
     ("chief.stop", CHIEF_REASON),
+    ("chief.profile.list", CHIEF_REGISTRY_REASON),
+    ("chief.profile.get", CHIEF_REGISTRY_REASON),
+    ("chief.profile.create", CHIEF_REGISTRY_REASON),
+    ("chief.profile.update", CHIEF_REGISTRY_REASON),
+    ("chief.profile.delete", CHIEF_REGISTRY_REASON),
+    ("chief.profile.avatar.set", CHIEF_REGISTRY_REASON),
+    ("chief.profile.avatar.get", CHIEF_REGISTRY_REASON),
     ("machine.list", MACHINE_REASON),
     ("machine.get", MACHINE_REASON),
     ("session.list", MACHINE_REASON),
@@ -127,6 +138,24 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("window_record.delete", WINDOW_RECORD_REASON),
     ("sidebar_layout.get", SIDEBAR_LAYOUT_REASON),
     ("sidebar_layout.update", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.adopt", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.apply", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.get", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.group.create", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.group.ungroup", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.group.update", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.item.add", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.item.remove", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.item.remove_ref", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.item.update", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.move", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.pin", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.reset", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.section.add", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.section.move", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.section.remove", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.section.update", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.unpin", SIDEBAR_LAYOUT_REASON),
     ("project.list", PROJECT_REASON),
     ("project.observe", PROJECT_REASON),
     ("project.add", PROJECT_REASON),
@@ -633,6 +662,7 @@ fn summary(wire: &str, target: &str) -> String {
         "run" => format!("Run a command in a new terminal of the {target}"),
         "create terminal" => "Open a terminal tab in a pane".into(),
         "create browser" => "Open a browser tab in a pane".into(),
+        "open url" => "Open a web link on a workspace's right side, reusing its browser tab".into(),
         "split" => "Split a pane and open a new one beside it".into(),
         "swap" => "Swap two panes".into(),
         "zoom" => "Zoom or unzoom a pane".into(),

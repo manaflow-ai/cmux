@@ -420,8 +420,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openGroup(2)(ctx);
         await ctx.click({ role: "button", name: "Open Read b" });
-        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] })
-          .cmuxGalleryLog;
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
         await ctx.waitFor(() =>
           log.some((call) => call.method === "chat.subagentPane" && call.params?.subagent === CODEX_B.id),
         );
@@ -437,8 +436,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openSummary(ctx);
         await ctx.click({ selector: '.acpmux-summary-agent[title="Read a"]' });
-        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] })
-          .cmuxGalleryLog;
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
         await ctx.waitFor(() =>
           log.some((call) => call.method === "chat.subagentPane" && call.params?.subagent === CODEX_A.id),
         );
@@ -454,8 +452,7 @@ export default agentPaneEntry({
         await openSummary(ctx);
         await ctx.click({ selector: '.acpmux-summary-agent[title="Test coverage"]' });
         await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".cv-subagent-of") && cardRow(ctx, "Test coverage")?.ariaCurrent === "true",
+          () => ctx.document.querySelector(".cv-subagent-of") && cardRow(ctx, "Test coverage")?.ariaCurrent === "true",
         );
       },
     },

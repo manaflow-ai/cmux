@@ -66,6 +66,7 @@ pub(crate) mod palette_usage_store;
 pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
+pub(crate) mod placement_shift;
 mod prelude;
 pub(crate) mod project_sources;
 pub(crate) mod project_watch;
@@ -84,6 +85,10 @@ pub(crate) mod router;
 mod screen_group_icon_tests;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
+pub(crate) mod sidebar_doc_legacy;
+pub(crate) mod sidebar_doc_ops;
+pub(crate) mod sidebar_doc_store;
+pub(crate) mod sidebar_doc_sync;
 #[cfg(test)]
 mod tab_changed_pin_tests;
 pub(crate) use cmux_layout_reducer::sidebar_layout;

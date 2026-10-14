@@ -62,9 +62,9 @@ enum TabMoves {
     /// New pane on `edge` of `pane` holding the tab. `roomDecided`: the
     /// caller already chose a split over a new column with the same room
     /// rule (a drag's preview did, with the emptied source pane removed),
-    /// so the move runs that choice instead of deciding again.
+    /// so the move runs that choice instead of deciding again. `keepFocus`: the new pane does not take focus.
     static func toNewSplit(_ tab: TabModel, pane: PaneModel, edge: PaneEdge, services: AppServices,
-                           respawn: SplitRespawn? = nil, roomDecided: Bool = false,
+                           respawn: SplitRespawn? = nil, roomDecided: Bool = false, keepFocus: Bool = false,
                            transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
@@ -78,7 +78,7 @@ enum TabMoves {
         case .split:
             break
         case .newColumn(let afterColumn, _):
-            return toNewColumn(tab, anchor: pane, afterColumn: afterColumn, services: services, transaction: transaction, completion: completion)
+            return toNewColumn(tab, anchor: pane, afterColumn: afterColumn, services: services, keepFocus: keepFocus, transaction: transaction, completion: completion)
         case .refused(let reason):
             services.registry.refuse(reason)
             return completion(false)
@@ -92,7 +92,7 @@ enum TabMoves {
                         try await MoveTabToSplitRespawnRequest(surface: surface, pane: paneHandle, edge: edge, respawn: respawn,
                                                                transaction: echoes ? transaction : nil).send(on: connection)
                     } else {
-                        _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, transaction: echoes ? transaction : nil)
+                        _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, keepFocus: keepFocus, transaction: echoes ? transaction : nil)
                     }
                 } catch DaemonError.missingCapabilities where respawn == nil {
                     try await fallbackSplit(surface, target: paneHandle, edge: edge, connection: connection)
@@ -104,7 +104,7 @@ enum TabMoves {
     }
 
     /// New strip column after `afterColumn` (nil = after the screen's last column, the daemon's default).
-    static func toNewColumn(_ tab: TabModel, anchor pane: PaneModel, afterColumn: DaemonColumnID? = nil, services: AppServices,
+    static func toNewColumn(_ tab: TabModel, anchor pane: PaneModel, afterColumn: DaemonColumnID? = nil, services: AppServices, keepFocus: Bool = false,
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
@@ -118,7 +118,7 @@ enum TabMoves {
             let ok = await daemon.request("move-tab-to-column") { connection -> Void in
                 do {
                     _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), afterColumn: afterColumn,
-                                                             width: width, transaction: echoes ? transaction : nil)
+                                                             width: width, keepFocus: keepFocus, transaction: echoes ? transaction : nil)
                 } catch DaemonError.missingCapabilities {
                     let created = try await connection.newColumn(rightOf: paneHandle, width: width)
                     _ = try await adopt(surface, into: created, connection: connection)

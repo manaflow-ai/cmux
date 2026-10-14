@@ -250,6 +250,7 @@ pub(super) fn next_browser_lifecycle_deadline(
     [
         next_pointer_lifecycle_deadline(failures),
         surface.as_browser().and_then(BrowserSurface::pending_authority_deadline),
+        surface.as_browser().and_then(BrowserSurface::frame_demand_retry_at),
     ]
     .into_iter()
     .flatten()
@@ -273,6 +274,9 @@ pub(super) fn service_due_browser_lifecycles(
     failures: &mut BrowserWorkerErrorState,
 ) {
     release_due_pointer_presses(surface, mux, id, failures);
+    if let Some(browser) = surface.as_browser() {
+        browser.reconcile_frame_demand();
+    }
     if let Some(message) =
         surface.as_browser().and_then(|browser| browser.expire_navigation_authority(Instant::now()))
     {

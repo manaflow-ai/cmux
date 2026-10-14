@@ -21,7 +21,8 @@ use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
     closed_history_query, palette_usage_store, personal_state_store, projects_store,
-    screen_state_store, sidebar_layout_store, tab_state_store, window_record_store,
+    screen_state_store, sidebar_doc_store, sidebar_layout_store, tab_state_store,
+    window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
@@ -87,6 +88,24 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WindowRecordDelete
             | Op::SidebarLayoutGet
             | Op::SidebarLayoutUpdate
+            | Op::SidebarGet
+            | Op::SidebarMove
+            | Op::SidebarPin
+            | Op::SidebarUnpin
+            | Op::SidebarItemAdd
+            | Op::SidebarItemRemove
+            | Op::SidebarItemUpdate
+            | Op::SidebarItemRemoveRef
+            | Op::SidebarSectionAdd
+            | Op::SidebarSectionUpdate
+            | Op::SidebarSectionMove
+            | Op::SidebarSectionRemove
+            | Op::SidebarGroupCreate
+            | Op::SidebarGroupUpdate
+            | Op::SidebarGroupUngroup
+            | Op::SidebarAdopt
+            | Op::SidebarApply
+            | Op::SidebarReset
             | Op::ProjectList
             | Op::ProjectObserve
             | Op::ProjectAdd
@@ -641,6 +660,34 @@ pub(crate) fn dispatch(
             let op = fields.get("op").cloned().unwrap_or_default();
             let commit =
                 mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // The sidebar document (sidebar-doc-v1)
+        Op::SidebarGet => {
+            ensure_session(mux, selectors)?;
+            read(mux, sidebar_doc_store::snapshot)
+        }
+        Op::SidebarMove
+        | Op::SidebarPin
+        | Op::SidebarUnpin
+        | Op::SidebarItemAdd
+        | Op::SidebarItemRemove
+        | Op::SidebarItemUpdate
+        | Op::SidebarItemRemoveRef
+        | Op::SidebarSectionAdd
+        | Op::SidebarSectionUpdate
+        | Op::SidebarSectionMove
+        | Op::SidebarSectionRemove
+        | Op::SidebarGroupCreate
+        | Op::SidebarGroupUpdate
+        | Op::SidebarGroupUngroup
+        | Op::SidebarAdopt
+        | Op::SidebarApply
+        | Op::SidebarReset => {
+            ensure_session(mux, selectors)?;
+            let commit = mux
+                .state_sidebar_apply(&mutation(&request)?, operation.wire_name(), fields)
+                .map_err(state_error)?;
             state_result(mux, commit)
         }
         // The project list (project-list-v1, plans/cmux-next/projects.md)

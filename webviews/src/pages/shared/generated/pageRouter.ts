@@ -10,6 +10,15 @@ export interface PageOperations {
 }
 
 export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
+  "agent": {
+    "read": [
+      "agent_session.trust.get"
+    ],
+    "gesture": [
+      "agent_session.trust.set"
+    ],
+    "confirm": []
+  },
   "apps": {
     "read": [
       "apps.asset.get",
@@ -44,7 +53,9 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
   },
   "home-channels": {
     "read": [],
-    "gesture": [],
+    "gesture": [
+      "workspace.open_url"
+    ],
     "confirm": []
   }
 };
@@ -56,6 +67,15 @@ export interface RoutedNamespace {
 }
 
 export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
+  "agent_session": {
+    "owner": "agent_session.trust",
+    "read": [
+      "agent_session.trust.get"
+    ],
+    "mutation": [
+      "agent_session.trust.set"
+    ]
+  },
   "apps": {
     "owner": "apps.store",
     "read": [

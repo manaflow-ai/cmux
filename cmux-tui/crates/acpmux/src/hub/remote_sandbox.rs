@@ -518,6 +518,17 @@ impl Hub {
         if !session.meta().remote_origin {
             return Ok((plan, std::borrow::Cow::Borrowed(profile)));
         }
+        // A remote chain never runs without the permission prompt: no switch
+        // to bypassPermissions (its settings disable the mode as well).
+        let mut plan = plan;
+        plan.args.retain(|a| a != crate::claude_stdio::ALLOW_BYPASS_FLAG);
+        // A chat moved here in full access (a transfer keeps its mode)
+        // starts in Claude's asking default instead.
+        if let Some(i) = plan.args.iter().position(|a| a == "--permission-mode")
+            && plan.args.get(i + 1).is_some_and(|m| m == "bypassPermissions")
+        {
+            plan.args[i + 1] = "default".into();
+        }
         let (program, args) =
             self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;
         let mut profile = profile.clone();

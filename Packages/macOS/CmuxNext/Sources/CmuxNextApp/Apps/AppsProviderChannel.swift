@@ -177,6 +177,9 @@ final class AppsProviderChannel {
         }
     }
 
+    var isRegistered: Bool { registeredEpoch != nil && registeredEpoch == epoch }
+    var runningCount: Int { running.count }
+
     /// The policy turned apps off: every running call ends with `apps.disabled`, on its own connection.
     private func answerRunningDisabled(_ reason: String) {
         let calls = running

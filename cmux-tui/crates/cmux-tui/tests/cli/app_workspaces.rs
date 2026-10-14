@@ -8,6 +8,9 @@ use super::*;
 #[path = "workspace_resource_deltas.rs"]
 mod workspace_resource_deltas;
 
+#[path = "conversation_tab_once.rs"]
+mod conversation_tab_once;
+
 const APP: &str = "cmux/coderouter";
 
 /// The daemon's installed apps: the first-party packages of this checkout,

@@ -1,16 +1,23 @@
 public import Foundation
 
-/// UPDATE-CARD-CLOSE: the update cards' x (the staged "Update Ready" card and the found-update
-/// notice) and its menu (``UpdateCardCloseOption``). Closing never skips the update in Sparkle:
+/// UPDATE-CARD-CLOSE: the update cards' "Hide" button (the staged "Update Ready" card and the
+/// found-update notice; one click hides this version until a newer one, Lawrence 2026-10-14) and
+/// their right-click menu (``UpdateCardCloseOption``). Hiding never skips the update in Sparkle:
 /// it still downloads and stages, a quit still installs it, and Check for Updates shows it.
 extension UpdaterService {
-    /// The x's menu, in order: (action id, title).
+    /// The right-click menu, in order: (action id, title).
     public static var updateCloseMenu: [(id: String, title: String)] {
         UpdateCardCloseOption.allCases.map { ($0.rawValue, $0.title) }
     }
 
-    /// The x's tooltip and VoiceOver label (it opens ``updateCloseMenu``).
-    public static var updateCloseLabel: String { UpdaterStrings.text("updater.close.options", "Close or Remind Me Later") }
+    /// The Hide button's text. "Hide" says what one click does and fits beside "Update Ready" at
+    /// the default sidebar width; "Skip This Version" would promise Sparkle's skip, which this is
+    /// not (the update still installs on quit).
+    public static var updateHideTitle: String { UpdaterStrings.text("updater.close.hide", "Hide") }
+    /// The Hide button's tooltip and VoiceOver label: how long it hides.
+    public static var updateCloseLabel: String { UpdateCardCloseOption.hideVersion.title }
+    /// The Hide button's action id.
+    public static var updateHideAction: String { UpdateCardCloseOption.hideVersion.rawValue }
 
     /// The update version a card shows now: the staged one, else the found one.
     var shownUpdateVersion: String? {
@@ -20,7 +27,7 @@ extension UpdaterService {
         }
     }
 
-    /// An x menu item: hide the shown update's version until a newer one, or every update card
+    /// The Hide button or a right-click menu item: hide the shown update's version until a newer one, or every update card
     /// until the chosen time (persisted; a relaunch keeps it). With no update shown any more (it
     /// began installing while the menu was open), Hide Until a Newer Version does nothing: a
     /// recorded "" would hide every later update that names no version.
@@ -67,7 +74,7 @@ extension UpdaterService {
     }
 
     /// `debug.updater {action: "snooze", press?, at?}` (socket proofs): presses `press` (an
-    /// ``UpdateCardCloseOption`` id, or `clear`) like the x's menu does, or else re-reads the
+    /// ``UpdateCardCloseOption`` id, or `clear`) like the button or the menu does, or else re-reads the
     /// reminder as at launch at `at` (epoch seconds, default now: a reminder that ended there
     /// clears). Returns the closed version, the reminder's end, and whether each card shows.
     public func debugSnooze(press: String?, at epoch: Double?) -> [String: String] {

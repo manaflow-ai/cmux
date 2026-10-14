@@ -41,7 +41,7 @@ struct AcpmuxBundleReplacedTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.copyItem(at: binary, to: bin.appendingPathComponent("acpmux"))
         func environment() throws -> AcpmuxEnvironment {
-            try #require(AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
+            try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin,
                                                    environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]))
         }
 

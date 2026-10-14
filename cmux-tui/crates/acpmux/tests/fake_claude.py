@@ -56,6 +56,19 @@ if STORE:
             if flag == "--resume":
                 RESUME = SESSION
 
+SESSION_RULES = []
+DESTINATIONS = []
+
+
+def ask(rid, tool):
+    """A Bash permission ask with the rule Claude Code suggests for it."""
+    return {"type": "control_request", "request_id": rid, "request": {
+        "subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": tool,
+        "input": {"command": "npm test", "description": "Run the tests"},
+        "permission_suggestions": [{"type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": "npm test:*"}],
+                                    "behavior": "allow", "destination": "localSettings"}]}}
+
+
 for line in sys.stdin:
     try:
         msg = json.loads(line)
@@ -68,8 +81,34 @@ for line in sys.stdin:
         send({"type": "stream_event", "parent_tool_use_id": "toolu_lateag", "event": {"type": "content_block_delta",
               "index": 0, "delta": {"type": "text_delta", "text": "late " + behavior}}})
         continue
+    # The answers to "always-ask" (below): like Claude Code, an allow's updatedPermissions with
+    # destination "session" become rules this process keeps, and a covered call is not asked again.
+    if kind == "control_response" and (msg.get("response") or {}).get("request_id") in ("ask-1", "ask-2"):
+        rid = msg["response"]["request_id"]
+        answer = msg["response"].get("response") or {}
+        updates = answer.get("updatedPermissions") or []
+        for update in updates:
+            if update.get("destination") == "session" and update.get("behavior") == "allow":
+                SESSION_RULES.extend(r.get("ruleContent") for r in update.get("rules") or [])
+        DESTINATIONS.extend(u.get("destination") for u in updates)
+        if rid == "ask-1" and "npm test:*" not in SESSION_RULES:
+            send(ask("ask-2", "toolu_ask2"))
+            continue
+        said = "asked once" if rid == "ask-1" else "asked twice"
+        said += " " + json.dumps(DESTINATIONS)
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": said}}})
+        send({"type": "result", "subtype": "success", "result": said, "num_turns": 1, "duration_api_ms": 1,
+              "usage": {"input_tokens": 1, "output_tokens": 1}})
+        continue
     if kind == "control_request":
         request = msg.get("request") or {}
+        # Like Claude Code: bypassPermissions only for a process launched with a skip flag.
+        if (request.get("subtype") == "set_permission_mode" and request.get("mode") == "bypassPermissions"
+                and not {"--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"} & set(sys.argv)):
+            send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
+                  "error": "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}})
+            continue
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
         if request.get("subtype") == "initialize":
             send({"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
@@ -142,6 +181,11 @@ for line in sys.stdin:
             time.sleep(0.02)
         elif STORE:
             open(stored(SESSION), "w").close()
+        # "always-ask": the turn runs `npm test` twice; each run asks unless the first answer's
+        # session rule covers it. The turn ends at the last answer (above).
+        if said.strip() == "always-ask":
+            send(ask("ask-1", "toolu_ask1"))
+            continue
         # "hold: PATH" keeps the turn running until PATH exists.
         if said.startswith("hold: "):
             import time

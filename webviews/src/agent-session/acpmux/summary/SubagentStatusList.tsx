@@ -29,7 +29,9 @@ export function subagentStatus(agent: Subagent, waiting: ReadonlySet<string>): S
 
 /// The tool calls the chat's open asks are about: the pending permission (`snapshot.permission`),
 /// the pending items of permission groups, and permission rows still pending.
-export function pendingToolCalls(snapshot: Pick<AcpmuxSnapshot, "rows" | "permission" | "permissionGroups">): Set<string> {
+export function pendingToolCalls(
+  snapshot: Pick<AcpmuxSnapshot, "rows" | "permission" | "permissionGroups">,
+): Set<string> {
   const calls = new Set<string>();
   const add = (value: unknown) => {
     if (typeof value === "string" && value) calls.add(value);
@@ -38,13 +40,17 @@ export function pendingToolCalls(snapshot: Pick<AcpmuxSnapshot, "rows" | "permis
   for (const group of snapshot.permissionGroups?.groups ?? [])
     for (const item of group.items)
       if (item.state === "pending") add((item.request.toolCall as { toolCallId?: unknown } | undefined)?.toolCallId);
-  for (const row of snapshot.rows) if (row.kind === "permission" && row.permission?.pending) add(row.permission.toolCallId);
+  for (const row of snapshot.rows)
+    if (row.kind === "permission" && row.permission?.pending) add(row.permission.toolCallId);
   return calls;
 }
 
 /// The subagents that wait on the user: an open ask about one of their own tool calls (their
 /// view's tool calls).
-export function waitingSubagents(calls: ReadonlySet<string>, views: Record<string, AcpmuxRow[]> | undefined): Set<string> {
+export function waitingSubagents(
+  calls: ReadonlySet<string>,
+  views: Record<string, AcpmuxRow[]> | undefined,
+): Set<string> {
   const waiting = new Set<string>();
   if (calls.size === 0 || !views) return waiting;
   for (const [id, own] of Object.entries(views))
@@ -128,7 +134,12 @@ export function SubagentStatusList({
       </ul>
       {autoOpen && (
         <label className="acpmux-summary-row acpmux-summary-autoopen">
-          <input type="checkbox" checked={autoOpen.on} onChange={(event) => autoOpen.set(event.currentTarget.checked)} />
+          <input
+            type="checkbox"
+            aria-label={t("summary.subagents.openPanes")}
+            checked={autoOpen.on}
+            onChange={(event) => autoOpen.set(event.currentTarget.checked)}
+          />
           <span className="acpmux-summary-text">{t("summary.subagents.openPanes")}</span>
         </label>
       )}
