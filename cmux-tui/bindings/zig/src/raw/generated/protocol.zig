@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "302d51a4d2d282b70f41cd68d02758ff82046e30519acc670db98d208a0996ad";
+pub const ir_sha256 = "b18c74d45c19743aac182ef9d622608ac8b17ac47c2bc5e18a08fd000fa6b90f";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3825,6 +3825,99 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
                 .{ .name = "origin", .since = 7, .capability = null },
                 .{ .name = "reason", .since = null, .capability = "close-reason-v1" },
             },
+        },
+        request,
+    );
+}
+
+pub const CloudAttachmentLinkRequest = struct {
+    conversation: []const u8,
+    hash: []const u8,
+    name: wire.Field([]const u8) = .absent,
+    variant: wire.Field([]const u8) = .absent,
+};
+
+pub const CloudAttachmentLinkResult = struct {
+    expires_in_ms: u64,
+    path: []const u8,
+};
+
+pub fn cloudAttachmentLink(client: anytype, request: CloudAttachmentLinkRequest) !wire.Decoded(CloudAttachmentLinkResult) {
+    return client.callTyped(
+        CloudAttachmentLinkResult,
+        .{
+            .name = "cloud-attachment-link",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-attachments-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudAttachmentReadRequest = struct {
+    conversation: []const u8,
+    hash: []const u8,
+    length: wire.Field(u64) = .absent,
+    offset: wire.Field(u64) = .absent,
+    variant: wire.Field([]const u8) = .absent,
+};
+
+pub const CloudAttachmentReadResult = struct {
+    byte_count: u64,
+    data: []const u8,
+    eof: bool,
+    hash: []const u8,
+    mime_type: []const u8,
+    offset: u64,
+};
+
+pub fn cloudAttachmentRead(client: anytype, request: CloudAttachmentReadRequest) !wire.Decoded(CloudAttachmentReadResult) {
+    return client.callTyped(
+        CloudAttachmentReadResult,
+        .{
+            .name = "cloud-attachment-read",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-attachments-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudAttachmentUploadRequest = struct {
+    byte_count: wire.Field(u64) = .absent,
+    conversation: wire.Field([]const u8) = .absent,
+    data: wire.Field([]const u8) = .absent,
+    duration_ms: wire.Field(u64) = .absent,
+    height: wire.Field(u32) = .absent,
+    mime_type: wire.Field([]const u8) = .absent,
+    name: wire.Field([]const u8) = .absent,
+    offset: wire.Field(u64) = .absent,
+    op: []const u8,
+    piece: wire.Field([]const u8) = .absent,
+    poster: wire.Field(JsonValue) = .absent,
+    preview: wire.Field(JsonValue) = .absent,
+    sha256: wire.Field([]const u8) = .absent,
+    upload: wire.Field([]const u8) = .absent,
+    width: wire.Field(u32) = .absent,
+};
+
+pub const CloudAttachmentUploadResult = struct {
+    needs: wire.Field([]const []const u8) = .absent,
+    received: wire.Field(u64) = .absent,
+    stored: wire.Field(wire.Value) = .absent,
+    upload: wire.Field([]const u8) = .absent,
+};
+
+pub fn cloudAttachmentUpload(client: anytype, request: CloudAttachmentUploadRequest) !wire.Decoded(CloudAttachmentUploadResult) {
+    return client.callTyped(
+        CloudAttachmentUploadResult,
+        .{
+            .name = "cloud-attachment-upload",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-attachments-v1",
         },
         request,
     );
@@ -10712,7 +10805,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 266;
+pub const command_count: usize = 269;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10747,6 +10840,9 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-tabs", .authority = "control", .since = 12, .capability = "batch-close-v1", .stream = null },
     .{ .name = "close-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "close-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "cloud-attachment-link", .authority = "local-admin", .since = 12, .capability = "cloud-attachments-v1", .stream = null },
+    .{ .name = "cloud-attachment-read", .authority = "local-admin", .since = 12, .capability = "cloud-attachments-v1", .stream = null },
+    .{ .name = "cloud-attachment-upload", .authority = "local-admin", .since = 12, .capability = "cloud-attachments-v1", .stream = null },
     .{ .name = "cloud-conversation-history", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-conversation-op", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-conversation-run", .authority = "local-admin", .since = 12, .capability = "cloud-conversation-runs-v1", .stream = null },
