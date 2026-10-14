@@ -140,8 +140,8 @@ public final class PaletteModel {
     @ObservationIgnored let searcher = PaletteSearcher()
     @ObservationIgnored var searchGeneration = 0
     @ObservationIgnored var searchTask: Task<Void, Never>?
-    /// A typed query's rank is still running off the main actor, so `rows` are the previous
-    /// query's rows (automation reads this before trusting `rows`).
+    /// A query's rank is still running off the main actor, so `rows` are stand-ins (automation
+    /// reads this before trusting `rows`). Not observable: views must not bind to it.
     public var isRanking: Bool { searchTask != nil }
     /// Cmd-W pressed while a search was in flight; runs when it lands.
     @ObservationIgnored var pendingClose = false
