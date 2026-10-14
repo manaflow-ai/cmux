@@ -27,6 +27,7 @@ pub use model_options::{current_model, current_option, resolve_config_id, web_ur
 mod model_hint;
 mod models_view;
 mod paging;
+mod personal_stats;
 mod pool;
 mod queue;
 mod queue_edit;
@@ -554,6 +555,11 @@ impl Hub {
             }
         };
         let mut sessions = self.sessions.lock().unwrap();
+        let waiting: Vec<String> = metas
+            .iter()
+            .filter(|m| m.status == SessionStatus::Waiting)
+            .map(|m| m.id.clone())
+            .collect();
         for mut meta in metas {
             if meta.status != SessionStatus::Closed {
                 meta.status = SessionStatus::Idle;
@@ -572,7 +578,9 @@ impl Hub {
         tracing::info!("loaded {} sessions from store", sessions.len());
         drop(sessions);
         // A turn whose agent host still runs is not lost: the host is adopted.
-        self.mark_unknown_outcomes(&Self::live_host_sessions());
+        let hosted = Self::live_host_sessions();
+        self.mark_lost_waits(&waiting, &hosted);
+        self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
     }
 
@@ -815,15 +823,6 @@ impl Hub {
         }
         self.save_meta(session);
         Ok(draft)
-    }
-
-    /// Personal stats over every session log (`crate::stats`): blocking,
-    /// one pass over the store.
-    pub fn stats(
-        &self,
-        options: &crate::stats::StatsOptions,
-    ) -> Result<crate::stats::StatsSummary> {
-        crate::stats::summarize(&*self.store, options, &std::collections::HashSet::new())
     }
 
     /// Turn-by-turn summary from the event log.

@@ -9,6 +9,13 @@
 //! `turn_result` (older logs: `turn_end` or `turn_error`). Waiting is time
 //! in status `waiting` (a permission question open). Parallel agents count
 //! turns that overlap in time, across every session.
+//!
+//! A turn or wait the daemon lost when it died ends at the session's last
+//! record before the loss: at a restart's own record (`turn_result
+//! outcome_unknown`, `status idle` with `detail: restart`), or at the end of
+//! the log for a session this daemon does not hold running or waiting now.
+//! A prompt that never got `turn_started` and was never settled has no
+//! outcome: it counts as a prompt, not a turn.
 
 use crate::store::{EventRecord, SessionMeta, SessionStatus, Store};
 use anyhow::Result;
@@ -117,7 +124,7 @@ pub struct Streak {
 pub fn summarize(
     store: &dyn Store,
     options: &StatsOptions,
-    _live: &HashSet<String>,
+    live: &HashSet<String>,
 ) -> Result<StatsSummary> {
     let mut fold = Fold::new(*options);
     for meta in store.list()? {
@@ -135,7 +142,7 @@ pub fn summarize(
             tracing::warn!(session = %meta.id, "stats: skipping an unreadable log: {error:#}");
             continue;
         }
-        session.finish(&meta);
+        session.finish(live.contains(&meta.id));
         fold.add(&meta, session);
     }
     Ok(fold.finish())
@@ -146,12 +153,16 @@ struct SessionFold {
     options: StatsOptions,
     /// The open turn's start.
     open: Option<u64>,
+    /// The open turn got `turn_started`.
+    open_started: bool,
     /// A `turn_end`/`turn_error` closed the last turn; the `turn_result`
     /// that follows it in current logs sets that turn's status.
     awaiting_result: bool,
     turns: Vec<Turn>,
     prompts: u64,
     steers: u64,
+    /// Prompt ids of the steers counted.
+    steered: HashSet<String>,
     tool_calls: u64,
     permission_requests: u64,
     permission_auto: u64,
@@ -159,7 +170,8 @@ struct SessionFold {
     waiting_since: Option<u64>,
     waiting_ms: u64,
     /// When the record before the current one was written: where a turn or
-    /// a wait the daemon never closed (it died) really stopped.
+    /// a wait the daemon never closed (it died) really stopped. A restart's
+    /// own records do not move it.
     last_at: Option<u64>,
 }
 
@@ -175,6 +187,9 @@ enum TurnStatus {
     Cancelled,
     Failed,
     Running,
+    /// Lost when the daemon died: its working time counts, but it is not a
+    /// turn (`Hub::history` leaves it running).
+    Unknown,
 }
 
 impl SessionFold {
@@ -182,10 +197,12 @@ impl SessionFold {
         Self {
             options: *options,
             open: None,
+            open_started: false,
             awaiting_result: false,
             turns: Vec::new(),
             prompts: 0,
             steers: 0,
+            steered: HashSet::new(),
             tool_calls: 0,
             permission_requests: 0,
             permission_auto: 0,
@@ -202,27 +219,54 @@ impl SessionFold {
 
     fn record(&mut self, record: &EventRecord) {
         let at = record.at;
-        let last = self.last_at.replace(at).unwrap_or(at);
+        // A restarted daemon's marks of what it lost (`mark_unknown_outcomes`,
+        // `mark_lost_waits`).
+        let detail = record.msg.get("detail").and_then(Value::as_str);
+        let restart = matches!(
+            (record.kind.as_str(), detail),
+            ("turn_result", Some("outcome_unknown")) | ("status", Some("restart"))
+        );
+        let last = if restart {
+            self.last_at.unwrap_or(at)
+        } else {
+            self.last_at.replace(at).unwrap_or(at)
+        };
         match record.kind.as_str() {
             "user_message" => {
                 let steer = record.msg.get("steer").and_then(Value::as_bool) == Some(true);
+                let prompt_id =
+                    record.msg.get("promptId").and_then(Value::as_str).filter(|id| !id.is_empty());
                 if steer {
                     if self.in_range(at) {
                         self.steers += 1;
+                        if let Some(id) = prompt_id {
+                            self.steered.insert(id.to_owned());
+                        }
                     }
                 } else {
+                    // A steer that found no running turn is sent again as
+                    // the next prompt under its id (`steer_turn`): one
+                    // message, counted as the prompt.
+                    if let Some(id) = prompt_id
+                        && self.steered.remove(id)
+                    {
+                        self.steers -= 1;
+                    }
                     self.awaiting_result = false;
                     // A prompt while a turn is open (an older log without its
                     // end, or a daemon that died mid-turn) closes that turn at
-                    // its last record, and so any wait it left open.
-                    if let Some(start) = self.open.take() {
+                    // its last record, and so any wait it left open; one that
+                    // never started has no outcome and is not a turn. A wait
+                    // after a turn ended was live up to this prompt.
+                    let wait_end = if self.open.is_some() { last } else { at };
+                    if let Some((start, true)) = self.take_open() {
                         self.turns.push(Turn {
                             start: Some(start),
                             end: last.max(start),
                             status: TurnStatus::Completed,
                         });
                     }
-                    self.end_wait(last);
+                    self.end_wait(wait_end);
                     self.open = Some(at);
                     if self.in_range(at) {
                         self.prompts += 1;
@@ -231,6 +275,7 @@ impl SessionFold {
             }
             "turn_started" if record.dir == "mux" && self.open.is_some() => {
                 self.open = Some(at);
+                self.open_started = true;
             }
             "turn_result" if record.dir == "mux" => {
                 let status = match record.msg.get("status").and_then(Value::as_str) {
@@ -240,7 +285,7 @@ impl SessionFold {
                 };
                 // A restarted daemon marks the turn it lost (`mark_unknown_outcomes`):
                 // the turn and its wait stopped at the last record before it.
-                if record.msg.get("detail").and_then(Value::as_str) == Some("outcome_unknown") {
+                if restart {
                     self.end_wait(last);
                     let end = self.open.map_or(last, |start| last.max(start));
                     self.close(end, status);
@@ -275,6 +320,11 @@ impl SessionFold {
                     .cloned()
                     .and_then(|value| serde_json::from_value::<SessionStatus>(value).ok());
                 if let Some(status) = status {
+                    // A restarted daemon marks the wait it lost
+                    // (`mark_lost_waits`): it stopped at the record before.
+                    if restart {
+                        self.end_wait(last);
+                    }
                     self.set_status(status, at);
                 }
             }
@@ -285,14 +335,19 @@ impl SessionFold {
     /// A `turn_end`/`turn_error` ends the open turn; a `turn_result` after
     /// it only sets the status.
     fn close_pending(&mut self, at: u64, status: TurnStatus) {
-        if let Some(start) = self.open.take() {
+        if let Some((start, _)) = self.take_open() {
             self.turns.push(Turn { start: Some(start), end: at, status });
             self.awaiting_result = true;
         }
     }
 
+    fn take_open(&mut self) -> Option<(u64, bool)> {
+        let started = std::mem::take(&mut self.open_started);
+        self.open.take().map(|start| (start, started))
+    }
+
     fn close(&mut self, at: u64, status: TurnStatus) {
-        if let Some(start) = self.open.take() {
+        if let Some((start, _)) = self.take_open() {
             self.turns.push(Turn { start: Some(start), end: at, status });
         } else if std::mem::take(&mut self.awaiting_result)
             && let Some(last) = self.turns.last_mut()
@@ -326,24 +381,29 @@ impl SessionFold {
         self.status = Some(status);
     }
 
-    /// A turn still open at the end of the log is running now when the
-    /// session says so; otherwise the daemon stopped mid-turn and it is
-    /// dropped.
-    fn finish(&mut self, meta: &SessionMeta) {
-        let live = matches!(meta.status, SessionStatus::Running | SessionStatus::Waiting);
-        if let Some(start) = self.open.take()
-            && live
-        {
-            self.turns.push(Turn {
-                start: Some(start),
-                end: self.options.until,
-                status: TurnStatus::Running,
-            });
+    /// A turn or wait still open at the end of the log runs to now when
+    /// this daemon holds the session running or waiting (`live`); otherwise
+    /// the daemon that ran it died and it ended at the last record. The disk
+    /// status cannot tell: a restart resets it in memory only.
+    fn finish(&mut self, live: bool) {
+        let end =
+            if live { self.options.until } else { self.last_at.unwrap_or(self.options.until) };
+        match self.take_open() {
+            Some((start, _)) if live => {
+                self.turns.push(Turn { start: Some(start), end, status: TurnStatus::Running });
+            }
+            // A prompt that never started has no outcome and is not a turn.
+            Some((start, true)) => {
+                self.turns.push(Turn {
+                    start: Some(start),
+                    end: end.max(start),
+                    status: TurnStatus::Unknown,
+                });
+            }
+            _ => {}
         }
-        if let Some(since) = self.waiting_since.take()
-            && live
-        {
-            self.waiting_ms += clipped(since, self.options.until, &self.options);
+        if let Some(since) = self.waiting_since.take() {
+            self.waiting_ms += clipped(since, end.max(since), &self.options);
         }
     }
 }
@@ -409,6 +469,10 @@ impl Fold {
         let mut turns = 0;
         let mut working = 0;
         for turn in &session.turns {
+            if turn.status == TurnStatus::Unknown {
+                working += turn.start.map_or(0, |start| self.work(start, turn.end));
+                continue;
+            }
             if turn.status != TurnStatus::Running
                 && turn.status != TurnStatus::Failed
                 && turn.end >= self.streak_since()
@@ -430,7 +494,7 @@ impl Fold {
                 TurnStatus::Completed => self.summary.turns_completed += 1,
                 TurnStatus::Cancelled => self.summary.turns_cancelled += 1,
                 TurnStatus::Failed => self.summary.turns_failed += 1,
-                TurnStatus::Running => {}
+                TurnStatus::Running | TurnStatus::Unknown => {}
             }
             if turn.status != TurnStatus::Running {
                 let day = self.local_day(turn.end);
