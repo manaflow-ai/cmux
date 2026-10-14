@@ -111,7 +111,7 @@ mock.module("../app/lib/stack", () => ({
 // snapshots, kept as plain arrays so route tests can assert on them.
 let pendingGrantRows: Array<Record<string, unknown>> = [];
 let grantsTableMissing = false;
-let subscriptionRows: Array<{ id: string }> = [];
+let subscriptionRows: Array<Record<string, unknown>> = [];
 let subscriptionListRows: Array<Record<string, unknown>> = [];
 let subscriptionUpdates: Array<Record<string, unknown>> = [];
 const stripeSubscriptionUpdate = mock(async (id: unknown, params: unknown) => ({
@@ -138,12 +138,12 @@ function adminDbMock() {
           where: () => ({
             then: (resolve: (rows: unknown[]) => unknown) => Promise.resolve([]).then(resolve),
             limit: async () => (table === stripeSubscriptions ? [] : []),
-            orderBy: () => ({
+              orderBy: () => ({
               limit: async () =>
                 table === adminPlanGrants
                   ? pendingGrantRows.filter((row) => !row.appliedAt && !row.revokedAt)
                   : table === stripeSubscriptions
-                    ? subscriptionRows
+                    ? subscriptionRows.filter((row) => row.status !== "revoked")
                     : [],
             }),
           }),
@@ -178,7 +178,14 @@ function adminDbMock() {
                 for (const row of hit) Object.assign(row, values);
                 return hit;
               }
-              if (table === stripeSubscriptions) subscriptionUpdates.push(values);
+              if (table === stripeSubscriptions) {
+                subscriptionUpdates.push(values);
+                if (values.status === "revoked") {
+                  for (const row of subscriptionRows) {
+                    if (typeof row.id === "string" && values.status === "revoked") row.status = "revoked";
+                  }
+                }
+              }
               return [];
             };
             const promise = run();
@@ -533,6 +540,32 @@ describe("admin subscriptions route", () => {
     currentUser = stackUser({ id: "user", primaryEmail: "pat@example.com" });
     expect((await POST_SUBSCRIPTIONS(postRequest({ scope: "user", ownerId: "u1", action: "cancel" }, {}, "/api/admin/subscriptions"))).status).toBe(403);
     expect(stripeSubscriptionUpdate).not.toHaveBeenCalled();
+  });
+
+  test("revokes a lifetime Founder entitlement", async () => {
+    directory = [
+      stackUser({
+        id: "u1",
+        primaryEmail: "founder@example.com",
+        clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      }),
+    ];
+    subscriptionRows = [{
+      id: "founders_cs_1",
+      stackUserId: "u1",
+      scope: "user",
+      plan: "pro",
+      status: "active",
+      raw: { metadata: { founders_edition: "true" } },
+    }];
+
+    const response = await POST_SUBSCRIPTIONS(
+      postRequest({ scope: "user", ownerId: "u1", action: "revoke-founder" }, {}, "/api/admin/subscriptions"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(subscriptionUpdates[0]).toMatchObject({ status: "revoked" });
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({});
   });
 });
 
