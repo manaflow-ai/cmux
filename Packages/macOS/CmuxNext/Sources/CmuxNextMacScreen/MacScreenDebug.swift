@@ -1,9 +1,9 @@
 public import CmuxNextControl
+public import Foundation
 #if DEBUG
 import AppKit
 public import CmuxNextSettings
 import CmuxScreenKit
-import Foundation
 
 /// `debug.mac_screen` (development builds): Mac Screen tabs and Share This
 /// Mac, for live checks. Pairing links carry a room secret, so they move
@@ -31,7 +31,7 @@ extension MacScreenPages {
     }
 
     /// `openTab` opens a URL in a new tab of the named pane (or the focused one); nil on success, else an error.
-    public func debug(_ params: [String: JSONValue], openTab: (URL, String?) -> String?) async -> JSONValue {
+    public func debug(_ params: [String: JSONValue], openTab: @MainActor (URL, String?) -> String?) async -> JSONValue {
         let only = params["tab"]?.stringValue
         let tabs = MacScreenPageTab.live.allObjects.filter { only == nil || $0.id.rawValue == only }
         func open(_ url: URL) -> JSONValue {
