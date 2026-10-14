@@ -32,3 +32,10 @@ label such as "Needs permission".
 
 Program status rows are terminal state, not agent state: they do not change agent hibernation,
 agent detection, or desktop notifications. Use `cmux notify` or OSC 9/99/777 for notifications.
+
+One exception keeps agent rows honest. Claude Code reports its turns as `app=claude-code`
+records. When such a `working` or `blocked` record ends (a `done`, `idle`, `error` or `clear`
+report, a prompt start, or the process exiting) while that pane's Claude Code row still says
+Running, and no Claude Code hook reports anything for 3 seconds, cmux marks the turn finished and
+shows Idle. This covers turns that end without a Stop hook, such as an Esc interrupt or a Stop hook
+that timed out. It never sends a notification, and it only moves a pane from Running to Idle.

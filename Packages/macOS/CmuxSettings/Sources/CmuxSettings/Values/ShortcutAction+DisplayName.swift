@@ -20,6 +20,8 @@ extension ShortcutAction {
         case .showWindowHints:
             return String(localized: "shortcut.showWindowHints.label", defaultValue: "Click by Hint")
         case .newTab: return "New Workspace"
+        case .newLocalWorkspace:
+            return String(localized: "shortcut.newLocalWorkspace.label", defaultValue: "New Local Workspace")
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
         case .newCloudWorkspace:
@@ -105,10 +107,6 @@ extension ShortcutAction {
             return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
-        case .previousAgentTurn:
-            return String(localized: "shortcut.previousAgentTurn.label", defaultValue: "Previous Agent Turn")
-        case .nextAgentTurn:
-            return String(localized: "shortcut.nextAgentTurn.label", defaultValue: "Next Agent Turn")
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .cycleTextBoxSubmitAction:
             return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")

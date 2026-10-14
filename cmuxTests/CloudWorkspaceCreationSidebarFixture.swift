@@ -22,12 +22,14 @@ final class CloudWorkspaceCreationSidebarFixture {
     let windowID = UUID()
     let originalWorkspaceID: UUID
     private let defaults: UserDefaults
-    /// The shared catalog's rename service, restored on close when this
-    /// fixture routes `SurfaceCatalog.shared` bindings to its own manager.
-    private let previousSharedRenameService: CloudWorkspaceRenameService?
     private let defaultsName = "cloud-workspace-creation-\(UUID().uuidString)"
+    private let previousSharedRenameService: CloudWorkspaceRenameService?
+    private let cloudOptIn: CloudMachinesOptInForTesting?
 
-    init(useSharedCatalog: Bool = false, machine: SurfaceMachineID? = nil) throws {
+    /// - Parameter enablesCloudMachines: Holds the Cloud opt-in on for tests
+    ///   that press a Cloud creation action, which otherwise shows the welcome.
+    init(useSharedCatalog: Bool = false, machine: SurfaceMachineID? = nil, enablesCloudMachines: Bool = false) throws {
+        cloudOptIn = enablesCloudMachines ? CloudMachinesOptInForTesting() : nil
         defaults = try #require(UserDefaults(suiteName: defaultsName))
         manager = TabManager(autoWelcomeIfNeeded: false, settings: UserDefaultsSettingsClient(defaults: defaults))
         originalWorkspaceID = try #require(manager.selectedTabId)
@@ -46,8 +48,8 @@ final class CloudWorkspaceCreationSidebarFixture {
             shared.installCloudWorkspaceRenameService(CloudWorkspaceRenameService(environment: ownerEnvironment))
             catalog = shared
         } else {
-            catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: ownerEnvironment))
             previousSharedRenameService = nil
+            catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: ownerEnvironment))
         }
         if let machine {
             provider = CloudWorkspaceCreationSidebarProvider(catalog: catalog, machine: machine)
@@ -94,5 +96,6 @@ final class CloudWorkspaceCreationSidebarFixture {
         AppDelegate.shared = previousApp
         TerminalController.shared.setActiveTabManager(previousManager)
         defaults.removePersistentDomain(forName: defaultsName)
+        cloudOptIn?.restore()
     }
 }

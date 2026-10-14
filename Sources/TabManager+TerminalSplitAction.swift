@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxPanes
+import CmuxProductAnalytics
 import Foundation
 
 /// Preserves asynchronous acceptance through the shared terminal split action.
@@ -19,18 +20,40 @@ extension TabManager {
         direction: SplitDirection,
         focus: Bool = true
     ) -> TerminalPanelCreationOutcome {
-        guard let workspace = tabs.first(where: { $0.id == tabId }),
-              workspace.panels[surfaceId] != nil else { return .failed }
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return .failed }
+        // Keyboard and menu actions identify the focused terminal surface.
+        // A projected tmux pane is owned by its mirror, outside workspace.panels.
+        // Route to that exact pane instead of rejecting it or splitting its
+        // container's currently active pane.
+        if let remotePane = workspace.remoteTmuxControlPane(surfaceID: surfaceId) {
+            workspace.clearSplitZoom()
+            sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
+            let accepted = remotePane.owner.requestSplit(
+                fromPane: remotePane.pane.tmuxPaneID,
+                vertical: direction.orientation == .vertical,
+                focusIntent: focus ? .focusCreatedPane : .preserveActivePane,
+                insertBefore: direction.insertFirst,
+                shellCommand: nil,
+                workingDirectory: nil
+            )
+            if accepted { ProductAnalytics.app.featureUsed(.split) }
+            return accepted ? .routedToRemote : .failed
+        }
+        guard workspace.panels[surfaceId] != nil else { return .failed }
         workspace.clearSplitZoom()
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
         let outcome = workspace.newTerminalSplitOutcome(
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
-            focus: focus
+            focus: focus,
+            honorsGhosttySplitInheritance: true
         )
         if let panel = outcome.panel {
             workspace.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+            ProductAnalytics.app.featureUsed(.split)
+        } else if case .routedToRemote = outcome {
+            ProductAnalytics.app.featureUsed(.split)
         } else if case .noSpace = outcome {
             // Shortcut, menu, palette and Ghostty split actions all land here:
             // a split with no room for another pane beeps instead of doing
@@ -56,7 +79,8 @@ extension TabManager {
             from: surfaceId,
             orientation: .horizontal,
             focus: focus,
-            autoLayout: true
+            autoLayout: true,
+            honorsGhosttySplitInheritance: true
         )
     }
 

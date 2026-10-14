@@ -345,8 +345,7 @@ struct CompletedRestoredAgentGenerationTests {
     }
 
     private func expectedClaudeProjectDirectoryName(_ path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        expectedClaudeProjectSlug(path)
     }
 
     private func writeClaudeTranscript(sessionId: String, transcriptURL: URL) throws {

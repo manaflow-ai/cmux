@@ -21,6 +21,7 @@ final class RemoteTmuxConnectionObservers {
     private var paneTitleObservers: [Token: (_ paneId: Int) -> Void] = [:]
     private var activePaneObservers: [Token: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
     private var sessionChangedObservers: [Token: (_ oldName: String, _ newName: String) -> Void] = [:]
+    private var paneAgentObservers: [Token: (_ paneId: Int, _ rawValue: String) -> Void] = [:]
     private var topologyObservers: [Token: () -> Void] = [:]
     private var reconnectReadyObservers: [Token: () -> Void] = [:]
     private var exitObservers: [Token: () -> Void] = [:]
@@ -76,6 +77,7 @@ final class RemoteTmuxConnectionObservers {
         onPaneTitleChanged: ((_ paneId: Int) -> Void)?,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?,
+        onPaneAgent: ((_ paneId: Int, _ rawValue: String) -> Void)? = nil,
         onTopologyChanged: (() -> Void)?,
         onReconnectReady: (() -> Void)?,
         onExit: (() -> Void)?,
@@ -90,6 +92,7 @@ final class RemoteTmuxConnectionObservers {
         if let onPaneTitleChanged { paneTitleObservers[token] = onPaneTitleChanged }
         if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
         if let onSessionChanged { sessionChangedObservers[token] = onSessionChanged }
+        if let onPaneAgent { paneAgentObservers[token] = onPaneAgent }
         if let onTopologyChanged { topologyObservers[token] = onTopologyChanged }
         if let onReconnectReady { reconnectReadyObservers[token] = onReconnectReady }
         if let onExit { exitObservers[token] = onExit }
@@ -107,6 +110,7 @@ final class RemoteTmuxConnectionObservers {
         paneTitleObservers[token] = nil
         activePaneObservers[token] = nil
         sessionChangedObservers[token] = nil
+        paneAgentObservers[token] = nil
         topologyObservers[token] = nil
         reconnectReadyObservers[token] = nil
         exitObservers[token] = nil
@@ -157,6 +161,11 @@ final class RemoteTmuxConnectionObservers {
     /// Notifies every observer that the remote session name changed.
     func emitSessionChanged(oldName: String, newName: String) {
         for callback in Array(sessionChangedObservers.values) { callback(oldName, newName) }
+    }
+
+    /// Fans a pane's raw `@cmux_agent` value out to every agent-status observer.
+    func emitPaneAgent(_ paneId: Int, _ rawValue: String) {
+        for callback in Array(paneAgentObservers.values) { callback(paneId, rawValue) }
     }
 
     /// Notifies every topology observer that the window/pane layout changed.

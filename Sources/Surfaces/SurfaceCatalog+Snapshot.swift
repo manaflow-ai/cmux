@@ -128,6 +128,8 @@ extension SurfaceCatalog {
                     key = .tab(machine: machine, id: id)
                 case .terminalCreate:
                     continue
+                case .browserCreate:
+                    continue
                 }
                 if names[key] == nil, let name = write.name { names[key] = name }
             }

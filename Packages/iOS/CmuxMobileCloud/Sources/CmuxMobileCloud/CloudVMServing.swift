@@ -51,6 +51,8 @@ public protocol CloudVMServing: Sendable {
     func pauseMachine(id: String) async throws
     /// Bring a paused machine's compute back.
     func resumeMachine(id: String) async throws
+    /// Hard-restart a running machine through the provider recovery path.
+    func restartMachine(id: String) async throws
     /// Delete a machine and its disk.
     func deleteMachine(id: String) async throws
 }

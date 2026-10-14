@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 import CmuxFoundation
 
 enum SSHPTYAttachStartupCommandBuilder {
@@ -7,6 +8,9 @@ enum SSHPTYAttachStartupCommandBuilder {
         let port: Int?
         let identityFile: String?
         let sshOptions: [String]
+        /// The route state a ``WorkspaceRemoteConfiguration`` keeps beside
+        /// its options, so the merge still picks the route's private master.
+        let routeSensitivity: WorkspaceRemoteRouteSensitivity
         let token: String
         let postAuthenticationCommand: String?
 
@@ -15,6 +19,7 @@ enum SSHPTYAttachStartupCommandBuilder {
             port: Int?,
             identityFile: String?,
             sshOptions: [String],
+            routeSensitivity: WorkspaceRemoteRouteSensitivity = .shared,
             token: String,
             postAuthenticationCommand: String? = nil
         ) {
@@ -22,6 +27,7 @@ enum SSHPTYAttachStartupCommandBuilder {
             self.port = port
             self.identityFile = identityFile
             self.sshOptions = sshOptions
+            self.routeSensitivity = routeSensitivity
             self.token = token
             self.postAuthenticationCommand = postAuthenticationCommand
         }
@@ -158,7 +164,12 @@ enum SSHPTYAttachStartupCommandBuilder {
             named: "RemoteCommand",
             from: sharingOptions.mergingDefaults(
                 into: auth.sshOptions,
-                routeSensitiveOptions: auth.identityFile.map { ["IdentityFile=\($0)"] } ?? []
+                routeSensitiveOptions: (auth.identityFile.map { ["IdentityFile=\($0)"] } ?? [])
+                    + auth.routeSensitivity.markerOptions,
+                routeIdentifier: {
+                    guard case .identified(let identifier) = auth.routeSensitivity else { return nil }
+                    return identifier
+                }()
             )
         )
         if !hasSSHOptionKey(options, key: "ConnectTimeout") {

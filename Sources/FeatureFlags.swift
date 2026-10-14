@@ -401,7 +401,7 @@ final class CmuxFeatureFlags {
     }
 
     var isWindowHintsEnabled: Bool {
-        effectiveValue(for: Self.windowHintsFlag)
+        effectiveValue(for: Self.windowHintsFlag) || ClickByHintPreview.isOptedIn()
     }
 
     var isConversationSidebarAvailable: Bool {
