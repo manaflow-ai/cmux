@@ -23,6 +23,8 @@ import StoreKit
 public struct MobilePlansView: View {
     @Environment(BillingModel.self) private var billing
     @State private var showingManageSubscriptions = false
+    /// The Monthly/Yearly choice. Yearly first, as on cmux.com/pricing.
+    @State private var period: BillingPeriod = .yearly
     private let entryPoint: BillingEntryPoint
 
     /// The Terms of Use page.
@@ -128,7 +130,21 @@ public struct MobilePlansView: View {
             }
         } else {
             let applePlan = account.currentPlan.source == .apple ? account.currentPlan.planID : nil
-            ForEach(billing.offers) { offer in
+            if hasPeriodChoice {
+                Section {
+                    Picker(L10n.string("mobile.billing.period", defaultValue: "Billing period"), selection: $period) {
+                        Text(L10n.string("mobile.billing.period.monthly", defaultValue: "Monthly"))
+                            .tag(BillingPeriod.monthly)
+                        Text(L10n.string("mobile.billing.period.yearly", defaultValue: "Yearly"))
+                            .tag(BillingPeriod.yearly)
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("BillingPeriodPicker")
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            }
+            ForEach(visibleOffers) { offer in
                 Section {
                     MobilePlanOfferRow(
                         offer: offer,
@@ -140,6 +156,22 @@ public struct MobilePlansView: View {
                 }
             }
         }
+    }
+
+    /// True when at least one plan is sold both monthly and yearly.
+    private var hasPeriodChoice: Bool {
+        Set(billing.offers.map(\.billingPeriod)).count > 1
+    }
+
+    /// One offer per plan: the chosen period when the plan has it, else the
+    /// period the plan is sold in (Go is monthly only).
+    private var visibleOffers: [BillingOffer] {
+        var byPlan: [BillingPlanID: BillingOffer] = [:]
+        for offer in billing.offers {
+            if let existing = byPlan[offer.planID], existing.billingPeriod == period { continue }
+            byPlan[offer.planID] = offer
+        }
+        return byPlan.values.sorted { $0.planID < $1.planID }
     }
 
     @ViewBuilder
@@ -184,7 +216,7 @@ public struct MobilePlansView: View {
         } footer: {
             Text(L10n.string(
                 "mobile.billing.disclosure",
-                defaultValue: "Subscriptions renew automatically each month at the price shown until cancelled. Payment is charged to your Apple Account when you confirm the purchase. Your account is charged for renewal within 24 hours before the current period ends unless auto-renew is turned off at least 24 hours before then. Manage or cancel your subscription in your Apple Account settings."
+                defaultValue: "Subscriptions renew automatically at the end of each month or year, as shown, at the price shown until cancelled. Payment is charged to your Apple Account when you confirm the purchase. Your account is charged for renewal within 24 hours before the current period ends unless auto-renew is turned off at least 24 hours before then. Manage or cancel your subscription in your Apple Account settings."
             ))
         }
     }

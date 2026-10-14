@@ -141,14 +141,17 @@ public actor LiveStoreKitClient: StoreKitClient {
     }
 
     private static func storeProduct(_ product: Product) -> StoreProduct {
-        StoreProduct(
+        let period = product.subscription?.subscriptionPeriod
+        let isYearly = period.map { $0.unit == .year && $0.value == 1 } ?? false
+        return StoreProduct(
             id: product.id,
             displayName: product.displayName,
             productDescription: product.description,
             displayPrice: product.displayPrice,
-            periodUnitName: product.subscription.map { $0.subscriptionPeriod.unit.localizedDescription },
+            periodUnitName: period.map { $0.unit.localizedDescription },
             price: product.price,
-            currencyCode: product.priceFormatStyle.currencyCode
+            currencyCode: product.priceFormatStyle.currencyCode,
+            monthlyEquivalentDisplayPrice: isYearly ? (product.price / 12).formatted(product.priceFormatStyle) : nil
         )
     }
 

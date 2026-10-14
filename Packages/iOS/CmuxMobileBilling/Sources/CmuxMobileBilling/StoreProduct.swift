@@ -19,6 +19,9 @@ public struct StoreProduct: Sendable, Equatable, Hashable, Identifiable {
     public let price: Decimal?
     /// The ISO 4217 currency code of ``price``, such as `USD`; nil when unknown.
     public let currencyCode: String?
+    /// For a yearly product, the yearly price divided by 12 in the
+    /// storefront's currency format, such as `$58.33`; nil otherwise.
+    public let monthlyEquivalentDisplayPrice: String?
 
     /// Creates a product value.
     /// - Parameters:
@@ -29,6 +32,7 @@ public struct StoreProduct: Sendable, Equatable, Hashable, Identifiable {
     ///   - periodUnitName: The localized renewal period, when known.
     ///   - price: The numeric price, when known.
     ///   - currencyCode: The ISO 4217 currency code of `price`, when known.
+    ///   - monthlyEquivalentDisplayPrice: A yearly product's per-month price.
     public init(
         id: String,
         displayName: String,
@@ -36,7 +40,8 @@ public struct StoreProduct: Sendable, Equatable, Hashable, Identifiable {
         displayPrice: String,
         periodUnitName: String? = nil,
         price: Decimal? = nil,
-        currencyCode: String? = nil
+        currencyCode: String? = nil,
+        monthlyEquivalentDisplayPrice: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -45,5 +50,6 @@ public struct StoreProduct: Sendable, Equatable, Hashable, Identifiable {
         self.periodUnitName = periodUnitName
         self.price = price
         self.currencyCode = currencyCode
+        self.monthlyEquivalentDisplayPrice = monthlyEquivalentDisplayPrice
     }
 }

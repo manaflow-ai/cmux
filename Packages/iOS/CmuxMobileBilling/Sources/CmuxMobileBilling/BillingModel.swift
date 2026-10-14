@@ -108,6 +108,7 @@ public final class BillingModel {
             "entry_point": .string(entryPoint.rawValue),
             "product_id": .string(offer.product.id),
             "plan_id": .string(offer.planID.rawValue),
+            "billing_period": .string(offer.billingPeriod.rawValue),
         ]
         capture(.purchaseStarted, properties)
         guard let account = account.account else {
@@ -323,14 +324,19 @@ public final class BillingModel {
         guard generation == accountGeneration else { return }
         let byID = Dictionary(products.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         offers = account.products
-            .compactMap { reference in byID[reference.productID].map { BillingOffer(planID: reference.planID, product: $0) } }
-            .sorted { $0.planID < $1.planID }
+            .compactMap { reference in
+                byID[reference.productID].map {
+                    BillingOffer(planID: reference.planID, product: $0, billingPeriod: reference.billingPeriod)
+                }
+            }
+            .sorted { ($0.planID, $0.billingPeriod) < ($1.planID, $1.billingPeriod) }
         if offers.isEmpty {
             offersFailure = .productUnavailable
             await captureProductsFailed(reason: BillingFailure.productUnavailable.analyticsReason, generation: generation)
         } else {
             offersFailure = nil
             let loadedIDs = offers.map(\.product.id)
+            let periods = Set(offers.map(\.billingPeriod)).sorted().map(\.rawValue).joined(separator: ",")
             let signature = "loaded:" + loadedIDs.joined(separator: ",")
             guard signature != lastProductsEvent else { return }
             let storefront = await store.storefrontCountryCode()
@@ -340,6 +346,7 @@ public final class BillingModel {
                 "product_ids": .string(loadedIDs.joined(separator: ",")),
                 "storefront": .string(storefront ?? "unknown"),
                 "count": .int(loadedIDs.count),
+                "billing_period": .string(periods),
             ])
         }
     }
@@ -360,6 +367,7 @@ public final class BillingModel {
         var properties: [String: AnalyticsValue] = [
             "product_id": .string(transaction.productID),
             "plan_id": .string(offer.planID.rawValue),
+            "billing_period": .string(offer.billingPeriod.rawValue),
             "environment": .string(transaction.environment ?? "unknown"),
             "delivery": .string(delivery),
         ]
