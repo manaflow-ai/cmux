@@ -3,9 +3,9 @@ import AppKit
 import Testing
 
 /// A window becoming or leaving main changes one thing in its tab strip: whether the selected
-/// tab shows its fill. A DEV build hung 10 s in that path on activation (watchdog, cosmic-gray
-/// 2026-10-14) while every tab of every strip re-resolved its theme and recolored itself, so
-/// activation now repaints the selected tab only, however many tabs the strip holds.
+/// tab shows its fill. Every tab of every strip used to re-resolve its theme and recolor itself
+/// on each activation (where a DEV build's 10 s watchdog hang was sampled, cosmic-gray
+/// 2026-10-14), so activation repaints the selected tab only, however many tabs the strip holds.
 @MainActor @Suite(.serialized) struct TabStripActivationRecolorTests {
     static let tabs = 300
 

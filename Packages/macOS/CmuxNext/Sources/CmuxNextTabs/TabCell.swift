@@ -26,8 +26,7 @@ final class TabCell {
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true, showing: isCloseHovered) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
-    /// The strip's window is main (in front); off, the selected tab has no fill. Only the selected
-    /// tab draws it, so activation repaints one tab per strip, not every tab (watchdog 2026-10-14).
+    /// The strip's window is main (in front); off, the selected tab has no fill, so only it repaints.
     var isWindowMain = true { didSet { if oldValue != isWindowMain, isSelected { updateColors(animated: false) } } }
     /// The strip's window is on screen and not fully covered: a busy indicator spins only then
     /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
