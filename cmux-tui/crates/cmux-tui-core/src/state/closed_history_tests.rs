@@ -97,6 +97,11 @@ fn a_partial_reopen_restores_the_chosen_members_and_keeps_the_rest() {
     assert_eq!(rest["tab_ids"].as_array().unwrap().len(), 2);
     assert_eq!(rest["remaining"], 0);
     assert_eq!(pane_tab_ids(&mux, tabs[0]).len(), 4);
+    // The first reopen formed the closed group again; the rest join it.
+    let groups = read(&mux, "tab_group.list", json!({}));
+    assert_eq!(groups.as_array().map(Vec::len), Some(1), "{groups}");
+    assert_eq!(groups[0]["id"], group["id"]);
+    assert_eq!(groups[0]["tab_ids"].as_array().map(Vec::len), Some(3), "{groups}");
 }
 
 /// Reopen Closed without an id (Cmd-Shift-T): the newest group of the
