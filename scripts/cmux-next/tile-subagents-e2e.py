@@ -21,7 +21,7 @@ import argparse, glob, json, os, re, socket, sys, threading, time
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--out", default="/tmp/tile-subagents", help="snapshots and frames go here")
-parser.add_argument("--tag", default="", help="text in the build's tag (its acpmux home is .acpmux/tags/<slug>)")
+parser.add_argument("--tag", default="", help="the build's tag (its acpmux home is .acpmux/builds/<key>, the key ending in the tag)")
 parser.add_argument("--home", action="append", default=[], help="a HOME the app may run with")
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAKE_AGENT = next((p for p in (os.path.join(HERE, "fake_agent.py"),
@@ -150,12 +150,15 @@ def slug(tag):
 
 
 def acpmux_homes():
-    """Tag homes with a live daemon: any under the slot HOME (only this app runs there), and
-    under the account home only those whose slug starts with --tag's."""
+    """Build homes with a live daemon: any under the slot HOME (only this app runs there), and
+    under the account home only those naming --tag as a word. A build's home is
+    ~/.acpmux/builds/<key> (cx-is1kf.3, the key ends in the tag); older builds used ~/.acpmux/tags/<slug>."""
     found = {}
     for index, user_home in enumerate(opts.home):
-        for home in glob.glob(os.path.join(user_home, ".acpmux", "tags", "*")):
-            if index > 0 and not (opts.tag and os.path.basename(home).startswith(slug(opts.tag))):
+        for home in glob.glob(os.path.join(user_home, ".acpmux", "builds", "*")) + \
+                glob.glob(os.path.join(user_home, ".acpmux", "tags", "*")):
+            named = f"-{slug(os.path.basename(home))}-"
+            if index > 0 and not (opts.tag and f"-{slug(opts.tag)}-" in named):
                 continue
             if live(socket_of(home)):
                 found[home] = socket_of(home)
