@@ -369,8 +369,14 @@ jobs:
           data = json.loads(pathlib.Path(sys.argv[1]).read_text())
           status = data.get("status", "unknown")
           tours = ", ".join(data.get("tours", [])) or "none"
+          # Name only the tours with a failed step, not every tour that ran.
+          failed = set()
+          for path in pathlib.Path(sys.argv[1]).parent.glob("*/manifest.json"):
+              manifest = json.loads(path.read_text())
+              if manifest.get("error") or any(step.get("status") == "failed" for step in manifest.get("steps", [])):
+                  failed.add(manifest.get("comparison") or manifest.get("name") or path.parent.name)
           if status == "recorder-failed":
-              print(f"The path-selected recorder failed for {tours}; see the run artifact and failed manifests.")
+              print(f"The path-selected recorder failed for {', '.join(sorted(failed)) or tours}; see the run artifact and failed manifests.")
           elif status == "no-ui-paths":
               print("No UI paths changed; no interaction tour was needed.")
           PY
