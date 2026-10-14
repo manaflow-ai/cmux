@@ -1,4 +1,3 @@
-import { trace } from "@opentelemetry/api";
 import { after } from "next/server";
 import { checkRateLimit } from "@vercel/firewall";
 import { verifyRequest } from "../../../../services/vms/auth";
@@ -17,11 +16,8 @@ export const POST = makeCloudTelemetryHandler({
       throw new Error("diagnostics_rate_limit_unconfigured");
     }
     const result = await checkRateLimit(rule, { request });
-    if (result.rateLimited || result.error === "blocked") {
-      // Names the firewall rule that refused, so a shared or misconfigured rule is visible in Axiom.
-      trace.getActiveSpan()?.setAttribute("cmux.telemetry.rate_limit_rule", rule);
-      return false;
-    }
+    // Names the firewall rule that refused, so a shared or misconfigured rule is visible in Axiom.
+    if (result.rateLimited || result.error === "blocked") return { rateLimitRule: rule };
     if (result.error) throw new Error("diagnostics_rate_limit_unavailable");
     return true;
   },

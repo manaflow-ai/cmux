@@ -13,7 +13,8 @@ const POLLED_OPERATIONS: ReadonlySet<CloudTelemetrySpan["operation"]> = new Set(
  * sampling convention. The trace predicate matches the Mac uploader, which
  * already keeps successful poll detail spans only when the last four hex digits
  * of the trace ID are divisible by 50. Using the same predicate keeps a sampled
- * trace whole and drops an unsampled trace whole, including for old clients.
+ * trace whole and drops an unsampled trace whole, including for old clients;
+ * the one exception is a span that reports client queue drops (see below).
  */
 export const CLOUD_POLL_SAMPLE_WEIGHT = Math.round(1 / DEFAULT_BASE_SAMPLE_RATIO);
 
@@ -25,11 +26,12 @@ export type SampledCloudTelemetryBatch = {
 };
 
 /**
- * Keep every non-success span, every non-poll span, every span that reports
- * client queue drops, and every span of a trace
+ * Keep every non-success span, every non-poll span, and every span of a trace
  * that has a non-success span in this batch. Successful poll spans of other
  * traces are kept with weight `CLOUD_POLL_SAMPLE_WEIGHT` when their trace is
- * sampled, and otherwise dropped. Development builds keep everything.
+ * sampled; otherwise only one that reports client queue drops is kept, unweighted,
+ * because it is the only record of that loss. Development builds keep everything.
+ * `droppedCount` is a raw count: never multiply it by the sample weight.
  *
  * Contract: the decision holds no state across batches. Whether a trace is kept is a
  * deterministic hash of its trace ID, shared with the Mac uploader, and every

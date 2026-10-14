@@ -6,7 +6,8 @@ import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "
 import { sql } from "drizzle-orm";
 import { cloudDb } from "../db/client";
 import { acceptCloudTelemetry, claimCloudDiagnostics, cloudDiagnosticsFinishStatement, expireCloudDiagnostics, finishCloudDiagnostics } from "../services/observability/cloudTelemetryRepository";
-import { CloudTelemetryConflictError, makeCloudTelemetryHandler } from "../services/observability/cloudTelemetryIngest";
+import { CLOUD_TELEMETRY_REFUSAL_SPAN, CloudTelemetryConflictError, makeCloudTelemetryHandler } from "../services/observability/cloudTelemetryIngest";
+import { buildCmuxTraceSampler } from "../services/observability/sampler";
 import { CloudOperationProgress, readCloudOperationProgress } from "../services/observability/cloudOperationProgress";
 import type { CloudTelemetryBatch, CloudTelemetrySpan } from "../services/observability/cloudTelemetryContract";
 import { parseCloudTelemetryBatch } from "../services/observability/cloudTelemetryContract";
@@ -165,9 +166,13 @@ describe("Cloud diagnostic durable storage", () => {
 });
 
 // The ingest route as deployed: the real handler, durable acceptance in Postgres,
-// and the OpenTelemetry route span that Axiom receives.
+// and the production trace sampler with its head-sampling ratio at zero, so only
+// spans that are always kept reach the exporter.
 const exporter = new InMemorySpanExporter();
-const provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
+const provider = new BasicTracerProvider({
+  sampler: buildCmuxTraceSampler({ CMUX_OTEL_BASE_SAMPLE_RATIO: "0" }),
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
+});
 trace.disable();
 trace.setGlobalTracerProvider(provider);
 otelContext.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
@@ -182,15 +187,18 @@ function telemetrySpan(overrides: Partial<CloudTelemetrySpan> = {}): CloudTeleme
     startedAtMs: now - 100, endedAtMs: now, attempt: 1, ...overrides,
   };
 }
-async function upload(owner: string, spans: CloudTelemetrySpan[], options: { readonly ingress?: boolean } = {}) {
+const routine = (count: number) => Array.from({ length: count }, () => telemetrySpan());
+const failures = (count: number) => Array.from({ length: count }, () => telemetrySpan({ outcome: "failure", failure: "network" }));
+const instanceId = randomUUID();
+async function upload(owner: string, spans: CloudTelemetrySpan[], ingress: boolean | { rateLimitRule: string } = true) {
   const handler = makeCloudTelemetryHandler({
     authenticate: async () => ({ id: owner }),
-    checkIngress: async () => options.ingress ?? true,
+    checkIngress: async () => ingress,
     accept: (userId, batch, sampleWeights) => acceptCloudTelemetry(userId, batch, { sampleWeights }),
     scheduleDrain: () => {},
     now: Date.now,
   });
-  const body = { version: 1, client: { channel: "production", version: "0.65.0", build: "110", revision: "abcdef123", osVersion: "26.0", architecture: "arm64", instanceId: randomUUID() }, spans };
+  const body = { version: 1, client: { channel: "production", version: "0.65.0", build: "110", revision: "abcdef123", osVersion: "26.0", architecture: "arm64", instanceId }, spans };
   exporter.reset();
   const response = await trace.getTracer("cloud-diagnostics-test").startActiveSpan("POST /api/observability/cloud", async (span) => {
     try {
@@ -199,8 +207,17 @@ async function upload(owner: string, spans: CloudTelemetrySpan[], options: { rea
       }));
     } finally { span.end(); }
   });
-  const routeSpan = exporter.getFinishedSpans().find((finished) => finished.name === "POST /api/observability/cloud");
-  return { status: response.status, attributes: (routeSpan?.attributes ?? {}) as Attributes, instanceId: body.client.instanceId };
+  const exported = exporter.getFinishedSpans();
+  return {
+    status: response.status,
+    refusals: exported.filter((finished) => finished.name === CLOUD_TELEMETRY_REFUSAL_SPAN).map((finished) => finished.attributes as Attributes),
+    routeSpanExported: exported.some((finished) => finished.name === "POST /api/observability/cloud"),
+  };
+}
+async function uploadUntilRefused(owner: string, batch: () => CloudTelemetrySpan[]) {
+  let result = await upload(owner, batch());
+  for (let attempt = 0; result.status === 202 && attempt < 40; attempt += 1) result = await upload(owner, batch());
+  return result;
 }
 async function storedEventIds(owner: string): Promise<Set<string>> {
   const rows = await cloudDb().execute(sql`select event_id::text from cloud_diagnostic_events where user_id = ${owner}`);
@@ -208,48 +225,66 @@ async function storedEventIds(owner: string): Promise<Set<string>> {
 }
 
 describe("Cloud diagnostic ingest refusals", () => {
-  dbTest("routine detail that fills an account's minute cannot refuse its failures, and each refusal names its cause", async () => {
+  dbTest("routine detail that fills an account's minute cannot refuse its failures, and every refusal is counted", async () => {
     const owner = fixture().owner;
     const previousKey = process.env.CMUX_CLOUD_TELEMETRY_ID_KEY;
     process.env.CMUX_CLOUD_TELEMETRY_ID_KEY = identityKey;
     try {
       // Successful command spans are not sampled, so 40 per upload fill the routine budget in a few uploads.
-      let routine = await upload(owner, Array.from({ length: 40 }, () => telemetrySpan()));
-      for (let attempt = 0; routine.status === 202 && attempt < 40; attempt += 1) {
-        routine = await upload(owner, Array.from({ length: 40 }, () => telemetrySpan()));
-      }
-      expect(routine.status).toBe(429);
-      expect(routine.attributes).toMatchObject({
-        "cmux.telemetry.refusal": "account_byte_budget", "cmux.telemetry.submitted_spans": 40, "cmux.telemetry.accepted_spans": 0,
+      const full = await uploadUntilRefused(owner, () => routine(40));
+      expect(full.status).toBe(429);
+      // The route span is head-sampled away; the refusal is still exported, once.
+      expect(full.routeSpanExported).toBe(false);
+      expect(full.refusals).toEqual([expect.objectContaining({
+        "cmux.telemetry.refusal": "account_byte_budget", "http.response.status_code": 429, "cmux.priority": true,
+        "cmux.telemetry.submitted_spans": 40, "cmux.telemetry.accepted_spans": 0,
         "cmux.account_key": createHmac("sha256", identityKey).update(owner).digest("hex"),
-        "service.instance.id": routine.instanceId,
-      });
+        "cmux.client.instance_id": instanceId,
+      })]);
 
-      const failure = telemetrySpan({ outcome: "failure", failure: "network" });
-      const signIn = telemetrySpan({ operation: "session", phase: "authentication", outcome: "failure", failure: "rate_limit", httpStatus: 429 });
-      expect((await upload(owner, [failure, signIn])).status).toBe(202);
-      const stored = await storedEventIds(owner);
-      expect(stored.has(failure.eventId)).toBe(true);
-      expect(stored.has(signIn.eventId)).toBe(true);
+      // Evidence that shares a batch with routine detail is stored on the first attempt; the batch still answers 429.
+      let failure = telemetrySpan();
+      let signIn = telemetrySpan();
+      let mixed: CloudTelemetrySpan[] = [];
+      let refusedMixed = full;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        // A minute boundary resets the budget; fill it again before the evidence arrives.
+        if (attempt > 0) await uploadUntilRefused(owner, () => routine(40));
+        failure = telemetrySpan({ outcome: "failure", failure: "network" });
+        signIn = telemetrySpan({ operation: "session", phase: "authentication", outcome: "failure", failure: "rate_limit", httpStatus: 429 });
+        mixed = [...routine(38), failure, signIn];
+        refusedMixed = await upload(owner, mixed);
+        if (refusedMixed.status === 429) break;
+      }
+      expect(refusedMixed.status).toBe(429);
+      expect(refusedMixed.refusals[0]).toMatchObject({ "cmux.telemetry.refusal": "account_byte_budget", "cmux.telemetry.accepted_spans": 2 });
+      let stored = await storedEventIds(owner);
+      expect([stored.has(failure.eventId), stored.has(signIn.eventId), stored.has(mixed[0]!.eventId)]).toEqual([true, true, false]);
+      // The client's retry of the same batch is deduplicated, never a conflict.
+      expect((await upload(owner, mixed)).status).not.toBe(409);
+
+      // A batch of only evidence is accepted in full.
+      const evidence = failures(2);
+      expect((await upload(owner, evidence)).status).toBe(202);
+      stored = await storedEventIds(owner);
+      expect(evidence.every((span) => stored.has(span.eventId))).toBe(true);
 
       // The reserve is bounded: an account that sends only failures is still refused.
-      let flood = await upload(owner, Array.from({ length: 40 }, () => telemetrySpan({ outcome: "failure", failure: "network" })));
-      for (let attempt = 0; flood.status === 202 && attempt < 40; attempt += 1) {
-        flood = await upload(owner, Array.from({ length: 40 }, () => telemetrySpan({ outcome: "failure", failure: "network" })));
-      }
-      expect(flood.status).toBe(429);
+      expect((await uploadUntilRefused(owner, () => failures(40))).status).toBe(429);
     } finally {
       if (previousKey === undefined) delete process.env.CMUX_CLOUD_TELEMETRY_ID_KEY;
       else process.env.CMUX_CLOUD_TELEMETRY_ID_KEY = previousKey;
     }
   });
 
-  dbTest("an ingress refusal answers 429 before authentication, stores nothing and names its cause", async () => {
+  dbTest("a firewall refusal answers 429 before authentication, stores nothing and names its rule", async () => {
     const owner = fixture().owner;
-    const refused = await upload(owner, [telemetrySpan({ outcome: "failure", failure: "network" })], { ingress: false });
+    const refused = await upload(owner, failures(1), { rateLimitRule: "cmux-analytics" });
     expect(refused.status).toBe(429);
-    expect(refused.attributes["cmux.telemetry.refusal"]).toBe("ingress_rate_limited");
-    expect(refused.attributes["cmux.account_key"]).toBeUndefined();
+    expect(refused.refusals).toEqual([expect.objectContaining({
+      "cmux.telemetry.refusal": "ingress_rate_limited", "cmux.telemetry.rate_limit_rule": "cmux-analytics", "http.response.status_code": 429,
+    })]);
+    expect(refused.refusals[0]!["cmux.account_key"]).toBeUndefined();
     expect((await storedEventIds(owner)).size).toBe(0);
   });
 
@@ -258,7 +293,9 @@ describe("Cloud diagnostic ingest refusals", () => {
     // A trace ID whose last four hex digits are not divisible by 50 is outside the 2% poll sample.
     const reported = telemetrySpan({ operation: "list", traceId: `${randomBytes(14).toString("hex")}0001`, droppedCount: 7 });
     const silent = telemetrySpan({ operation: "list", traceId: `${randomBytes(14).toString("hex")}0001` });
-    expect((await upload(owner, [reported, silent])).status).toBe(202);
+    const accepted = await upload(owner, [reported, silent]);
+    expect(accepted.status).toBe(202);
+    expect(accepted.refusals).toEqual([]);
     const claimed = await claimCloudDiagnostics(100, owner);
     expect(claimed.rows.map((row) => [row.eventId, row.payload.span.droppedCount, row.payload.sampleWeight])).toEqual([[reported.eventId, 7, undefined]]);
     await finishCloudDiagnostics(claimed, true);
