@@ -1491,6 +1491,8 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
         this.stopGaveUp = false;
+        // A Stop before this turn never judges it.
+        clearTimeout(this.stopTimer);
         this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
       } else if (event.kind === "message_superseded") {
         const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
