@@ -3030,10 +3030,14 @@
     "AgentMessageState": {
       "kind": "enum",
       "values": [
+        "held",
         "queued",
         "delivered",
         "acknowledged",
-        "failed"
+        "failed",
+        "unsent",
+        "retracted",
+        "declined"
       ]
     },
     "AgentMessageDelivery": {
@@ -3089,6 +3093,68 @@
               "name": "string"
             }
           }
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Why the delivery is held or declined: workspace_unknown or cross_workspace (held), approved (released), declined or expired (declined)."
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "queued_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When the delivery became queued: at the send, or when a person approved it."
+        },
+        "delivered_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When a delivery path last handed the message over."
+        },
+        "acknowledged_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When the recipient acknowledged the message."
+        },
+        "held_until_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When a held delivery expires (declined, reason expired) without a decision."
         }
       },
       "extra": false
@@ -13230,6 +13296,85 @@
         "validation.invalid"
       ]
     },
+    "agent.message.release": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "message_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "recipient": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          },
+          "decision": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "approve",
+                "decline"
+              ]
+            },
+            "description": "approve queues the held delivery; decline declines it."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only a held delivery is released; another state is refused with operation.failed, reason not_held, or reason expired once its 24 hours ended.",
+          "Only the person decides: a request whose actor is an agent (a terminal or ACP session launch credential) is refused with operation.failed, reason agent_release."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AgentMessageSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "agent.message.send": {
       "class": "mutation",
       "idempotency": "required",
@@ -13264,9 +13409,9 @@
             "type": {
               "kind": "primitive",
               "name": "string",
-              "min_length": 1,
-              "max_length": 32768
-            }
+              "min_length": 1
+            },
+            "description": "At most 32768 bytes of UTF-8; a longer body is refused with validation.invalid, reason body_too_large."
           },
           "sender": {
             "required": false,
@@ -13276,7 +13421,7 @@
               "min_length": 1,
               "max_length": 256
             },
-            "description": "The sender's address, as the caller asserts it; it is not verified. Defaults to cli."
+            "description": "The sender is the request's verified actor: the terminal (term_...) or ACP session (acp:<session id>) its launch credential names, else cli (the person). A sender given here must match it, or the send is refused with validation.invalid, reason sender_mismatch."
           },
           "sender_name": {
             "required": false,
@@ -13319,7 +13464,9 @@
         "extra": false,
         "constraints": [
           "The body is text: newlines and tabs are the only control characters allowed.",
-          "Every recipient starts queued. Messages survive a daemon restart; messages beyond the newest 2000 are pruned once no recipient is still queued."
+          "A recipient's delivery starts queued when the sender is the person or shares the recipient's workspace, held (reason workspace_unknown) when either workspace is unknown, and for different workspaces as the daemon's CMUX_AGENT_MESSAGE_CROSS_WORKSPACE says: hold (default; reason cross_workspace), refuse (operation.failed, reason cross_workspace) or allow (queued). A held delivery waits 24 hours for agent.message.release, then is declined with reason expired.",
+          "Limits, each refused with operation.failed and its details.reason: 5 sends in 10 seconds per sender and 20 a minute per sender and recipient (rate_limited), 50 queued or held deliveries per recipient (queue_full), replies at most 8 deep (reply_depth), 40 messages per thread (thread_budget), and the same body from the same sender to the same recipient within 10 seconds (duplicate). Every limit counts stored rows, so a restart keeps them.",
+          "Messages survive a daemon restart; messages beyond the newest 2000 are pruned once no recipient is still queued or held."
         ]
       },
       "result": {
