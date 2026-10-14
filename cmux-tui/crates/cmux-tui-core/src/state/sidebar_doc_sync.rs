@@ -815,6 +815,7 @@ pub(crate) fn write_back(
         if came_back {
             continue;
         }
+        let index_before = super::personal::row_index(transaction, session, &key)?;
         transaction.execute(
             "UPDATE personal_workspaces SET group_id = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
             params![session, key, group],
@@ -827,6 +828,16 @@ pub(crate) fn write_back(
             &key,
             previous.as_ref().map(|(s, k)| (s.as_str(), k.as_str())),
         )?;
+        // The row (its group or place) and the rows it passed: restated for
+        // `workspace_placement` readers without `sidebar-doc-v1`.
+        if let Some(index_after) = super::personal::row_index(transaction, session, &key)? {
+            let index_before = index_before.unwrap_or(index_after);
+            super::placement_shift::queue(
+                transaction,
+                index_before.min(index_after),
+                Some(index_before.max(index_after)),
+            )?;
+        }
         wrote = true;
     }
     // Group slots: before the next loose workspace of the group's section.

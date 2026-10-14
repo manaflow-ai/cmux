@@ -1994,6 +1994,10 @@ pub struct ResourceEventBatch {
     pub previous_revision: u64,
     pub revision: u64,
     pub changes: Value,
+    /// The journal record's `placement_shift`: placements that moved by
+    /// ordinal only and are not restated in `changes`
+    /// (`crate::state::placement_shift`).
+    pub placement_shift: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

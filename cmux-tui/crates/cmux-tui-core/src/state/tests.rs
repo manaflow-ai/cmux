@@ -89,12 +89,30 @@ pub(super) fn error_code(result: Result<Value, ResourceError>) -> String {
 }
 
 /// Every change of every resource batch after `revision`.
+/// The changes after `revision` as a connection without `sidebar-doc-v1`
+/// reads them: each batch's placement shift restated from the current state
+/// (server/session_event_stream.rs `delta_item`).
 pub(super) fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
     mux.resource_events_after(revision)
         .unwrap()
         .batches
         .into_iter()
-        .flat_map(|batch| batch.changes.as_array().cloned().unwrap_or_default())
+        .flat_map(|batch| {
+            let mut changes = batch.changes.as_array().cloned().unwrap_or_default();
+            if let Some(shift) = batch
+                .placement_shift
+                .as_ref()
+                .and_then(super::placement_shift::PlacementShift::from_value)
+            {
+                changes.extend(
+                    mux.read_registry_state(|connection| {
+                        super::placement_shift::restatement(connection, shift)
+                    })
+                    .unwrap(),
+                );
+            }
+            changes
+        })
         .collect()
 }
 

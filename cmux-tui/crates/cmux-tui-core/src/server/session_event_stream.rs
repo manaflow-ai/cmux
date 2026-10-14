@@ -16,6 +16,8 @@ use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
 use crate::resource::StreamPublicId;
 use crate::resource::WireDecimal;
+use crate::state::placement_shift::PlacementShift;
+use crate::state::sidebar_doc_store::CAPABILITY as SIDEBAR_DOC_CAPABILITY;
 use crate::stream_interrupt::StreamInterrupt;
 use serde_json::Value;
 use serde_json::json;
@@ -137,16 +139,14 @@ pub(super) fn prepare_session_event_stream(
                         "generation":page.generation,
                         "revision":batch.revision.to_string(),
                     });
-                    initial_items.push((
-                        cursor.clone(),
-                        json!({
-                            "kind":"delta",
-                            "cursor":cursor,
-                            "previous_revision":batch.previous_revision.to_string(),
-                            "revision":batch.revision.to_string(),
-                            "changes":batch.changes,
-                        }),
-                    ));
+                    let item = delta_item(mux, client, &cursor, batch).map_err(|error| {
+                        ResourceError::operation_failed(
+                            "session.events",
+                            "could not read the placements of a session event",
+                            json!({"error":error.to_string()}),
+                        )
+                    })?;
+                    initial_items.push((cursor, item));
                 }
                 last_revision = page.head_revision;
                 opened_cursor = json!({
@@ -327,6 +327,18 @@ pub(super) fn run_session_event_stream(
                     "generation":page.generation,
                     "revision":batch.revision.to_string(),
                 });
+                let revision = batch.revision;
+                let Ok(item) = delta_item(mux, client, &cursor, batch) else {
+                    let end = resource_stream_end(
+                        &stream.stream_id,
+                        "gap",
+                        None,
+                        Some("request a fresh session snapshot"),
+                        None,
+                    );
+                    let _ = writer.send_terminal(&end, &stream.outbound);
+                    break 'stream;
+                };
                 let end = resource_stream_end(
                     &stream.stream_id,
                     "gap",
@@ -342,13 +354,7 @@ pub(super) fn run_session_event_stream(
                         &stream.stream_id,
                         stream.next_sequence,
                         &cursor,
-                        json!({
-                            "kind":"delta",
-                            "cursor":cursor,
-                            "previous_revision":batch.previous_revision.to_string(),
-                            "revision":batch.revision.to_string(),
-                            "changes":batch.changes,
-                        }),
+                        item,
                     )
                 {
                     mux.control_clients.finish_resource_stream(
@@ -359,7 +365,7 @@ pub(super) fn run_session_event_stream(
                     return;
                 }
                 stream.next_sequence = stream.next_sequence.saturating_add(1);
-                stream.last_revision = batch.revision;
+                stream.last_revision = revision;
             }
             if stream.last_revision >= head_revision {
                 break;
@@ -367,4 +373,63 @@ pub(super) fn run_session_event_stream(
         }
     }
     mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+/// One journal batch as the `session.events` delta item `client` reads. A
+/// batch with a placement shift (`crate::state::placement_shift`) restates
+/// the shifted placements, from the current state, for a connection that
+/// did not echo `sidebar-doc-v1`; a connection that did reads the order
+/// from the sidebar document and gets the batch as stored.
+fn delta_item(
+    mux: &Mux,
+    client: u64,
+    cursor: &Value,
+    batch: crate::workspace_registry::ResourceEventBatch,
+) -> anyhow::Result<Value> {
+    let mut changes = batch.changes;
+    if let Some(shift) =
+        batch.placement_shift.as_ref().and_then(PlacementShift::from_value)
+        && !mux.control_clients.supports_capability(client, SIDEBAR_DOC_CAPABILITY)
+        && let Some(array) = changes.as_array_mut()
+    {
+        let generation = cursor["generation"].as_str().unwrap_or_default();
+        for mut change in restatement(mux, generation, batch.revision, shift)?.iter().cloned() {
+            change["sequence"] = json!(array.len());
+            array.push(change);
+        }
+    }
+    Ok(json!({
+        "kind":"delta",
+        "cursor":cursor,
+        "previous_revision":batch.previous_revision.to_string(),
+        "revision":batch.revision.to_string(),
+        "changes":changes,
+    }))
+}
+
+/// The last batch's restatement, shared by every connection that sends it:
+/// `(generation, revision)` and the changes. Any read at or after the
+/// batch's commit is valid (see `crate::state::placement_shift`), so the
+/// first stream to send a batch reads it once for all.
+type RestatementCache = Option<((String, u64), Arc<Vec<Value>>)>;
+static RESTATEMENT: std::sync::Mutex<RestatementCache> = std::sync::Mutex::new(None);
+
+fn restatement(
+    mux: &Mux,
+    generation: &str,
+    revision: u64,
+    shift: PlacementShift,
+) -> anyhow::Result<Arc<Vec<Value>>> {
+    let key = (generation.to_string(), revision);
+    let mut cache = RESTATEMENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((cached, changes)) = cache.as_ref()
+        && *cached == key
+    {
+        return Ok(changes.clone());
+    }
+    let changes = Arc::new(mux.read_registry_state(|connection| {
+        crate::state::placement_shift::restatement(connection, shift)
+    })?);
+    *cache = Some((key, changes.clone()));
+    Ok(changes)
 }
