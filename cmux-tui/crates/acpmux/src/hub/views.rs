@@ -111,7 +111,6 @@ impl Hub {
             "parentId": m.parent_id,
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             "forkSeq": m.fork_seq,
-            "spawnedBy": m.spawned_by,
             "title": m.title,
             "lastPrompt": m.last_prompt,
             "preview": m.preview.as_deref().map(|p| short_text(p, 160)),

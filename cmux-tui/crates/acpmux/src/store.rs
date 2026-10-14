@@ -97,10 +97,6 @@ pub struct SessionMeta {
     pub parent_id: Option<String>,
     #[serde(default)]
     pub fork_seq: Option<u64>,
-    /// The session whose agent started this one (`session/new` from inside it: the caller's
-    /// `ACPMUX_SESSION_ID`). A child lists under it, never on its own in a chat list.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub spawned_by: Option<String>,
     #[serde(default)]
     pub agent_info: Option<Value>,
     #[serde(default)]
