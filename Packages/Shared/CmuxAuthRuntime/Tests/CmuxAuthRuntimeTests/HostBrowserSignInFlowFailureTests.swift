@@ -54,7 +54,7 @@ import Testing
         let harness = HostBrowserSignInFlowHarness(
             user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil)
         )
-        await harness.client.setCurrentUserError(StackAuthError(code: "RATE_LIMIT", message: "try later"))
+        await harness.client.setCurrentUserError(StackAuthError(code: "UNEXPECTED", message: "raw server detail"))
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()

@@ -38,6 +38,10 @@ pub const CONVERSATION_THREADS_CAPABILITY: &str = "conversation-threads-v1";
 /// `conversation-snapshot` and `conversation-history`, and with
 /// `cloud-conversations-v1` also `cloud-conversation-thread` (cx-59n8.6).
 pub const CONVERSATION_THREAD_READ_CAPABILITY: &str = "conversation-thread-v1";
+/// Threads nest without a limit (`reply_to` is the parent, `thread_root` the
+/// top root; a reply to a thread reply joins its thread) and
+/// `conversation-link-resolve` opens a message permalink.
+pub const CONVERSATION_TREE_CAPABILITY: &str = "conversation-tree-v1";
 /// The local conversation owner on an authenticated WebSocket connection
 /// (static credential or approved pairing) as `user_local`, the same as on
 /// the Unix socket: `conversation-*` commands, `conversation.*` operations
@@ -82,6 +86,13 @@ pub(super) struct ThreadParams {
     after_seq: u64,
     #[serde(default)]
     limit: Option<u32>,
+}
+
+/// `conversation-link-resolve`: the conversation and message a permalink
+/// names (`<scheme>://conversation/<id>[/message/<id>]`).
+#[derive(Deserialize)]
+pub(super) struct LinkResolveParams {
+    url: String,
 }
 
 /// Default page of `conversation-thread`.
@@ -322,6 +333,19 @@ pub(super) fn thread(mux: &Mux, client: u64, params: ThreadParams) -> anyhow::Re
     let page =
         mux.with_conversations(|store| store.thread(&conversation, &root, after_seq, limit))?;
     Ok(serde_json::to_value(page)?)
+}
+
+pub(super) fn link_resolve(
+    mux: &Mux,
+    client: u64,
+    params: LinkResolveParams,
+) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let link = cmux_conversation::parse_link(&params.url).ok_or_else(|| {
+        anyhow::anyhow!("bad request: url is not a cmux conversation or message link")
+    })?;
+    let resolved = mux.with_conversations(|store| store.resolve_link(&link))?;
+    Ok(serde_json::to_value(resolved)?)
 }
 
 pub(super) fn search(mux: &Mux, client: u64, params: SearchParams) -> anyhow::Result<Value> {
