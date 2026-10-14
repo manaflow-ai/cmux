@@ -672,7 +672,7 @@ export default agentPaneEntry({
       snapshot: chat(finished, {
         commands: [
           { name: "review", description: "Review the current changes", source: "agent" },
-          { name: "cmux-browser", description: "Use cmux browser controls", source: "skill" },
+          { name: "$cmux-browser", description: "Use cmux browser controls", source: "skill" },
           { name: "daily-plan", description: "Plan the next work block", source: "prompt" },
         ],
       }),

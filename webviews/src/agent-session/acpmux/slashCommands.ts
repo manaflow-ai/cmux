@@ -27,7 +27,9 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
   for (const entry of update.availableCommands) {
     // ACP calls these commands, while Claude skills and Codex prompts use the
     // same update in their adapters. Keep one picker and one insertion path.
-    const name = typeof entry?.name === "string" ? entry.name.replace(/^[/\\$]/, "").trim() : "";
+    // codex-acp names a skill `$name` and passes `/$name` through to Codex as a
+    // skill mention, so only a leading `/` is dropped.
+    const name = typeof entry?.name === "string" ? entry.name.replace(/^\//, "").trim() : "";
     if (!name) continue;
     const hint = typeof entry.input?.hint === "string" && entry.input.hint.trim() ? entry.input.hint.trim() : undefined;
     commands.push({
@@ -35,7 +37,7 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
       description: typeof entry.description === "string" ? entry.description : "",
       hint,
       source:
-        entry?.kind === "skill" || entry?.type === "skill" || entry?.source === "skill"
+        name.startsWith("$") || entry?.kind === "skill" || entry?.type === "skill" || entry?.source === "skill"
           ? "skill"
           : entry?.kind === "prompt" || entry?.type === "prompt" || entry?.source === "prompt"
             ? "prompt"
