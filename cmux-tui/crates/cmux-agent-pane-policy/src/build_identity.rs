@@ -118,7 +118,10 @@ impl KeptNames {
         // <tag>.app` name) keeps that tag's names, as before; untagged: none.
         if bundle_id == "com.cmuxterm.app.debug" {
             let tag = shipped.filter(|tag| !OWNED_TAGS.contains(tag))?;
-            return Some(Self { session_tag: Some(tag.to_owned()), socket: Some(format!("debug-{tag}")) });
+            return Some(Self {
+                session_tag: Some(tag.to_owned()),
+                socket: Some(format!("debug-{tag}")),
+            });
         }
         let suffix_tag = suffix.and_then(tag_slug);
         if shipped.is_some() && shipped != suffix_tag.as_deref() {
@@ -302,7 +305,9 @@ impl BuildIdentity {
         };
         Some(match &self.kept {
             Some(KeptNames { socket: None, .. }) => user_home.join(".local/state/cmux/cmux.sock"),
-            Some(KeptNames { socket: Some(name), .. }) => PathBuf::from(format!("/tmp/cmux-{name}.sock")),
+            Some(KeptNames { socket: Some(name), .. }) => {
+                PathBuf::from(format!("/tmp/cmux-{name}.sock"))
+            }
             None => PathBuf::from(format!("/tmp/cmux-{word}--{}.sock", self.key_hash())),
         })
     }

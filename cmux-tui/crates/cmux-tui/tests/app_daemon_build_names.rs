@@ -53,12 +53,7 @@ const FOREIGN: [&str; 9] = [
 
 /// `cmux <args>` as the CLI inside an app terminal of the build `bundle_id`
 /// (shipping `bundled_tag`), for a person whose home directory is `user_home`.
-fn cmux_as(
-    bundle_id: &str,
-    bundled_tag: Option<&str>,
-    user_home: &Path,
-    args: &[&str],
-) -> Output {
+fn cmux_as(bundle_id: &str, bundled_tag: Option<&str>, user_home: &Path, args: &[&str]) -> Output {
     let mut command = Command::new(bin());
     command.args(args).env("LC_ALL", "C").env("HOME", user_home);
     for key in FOREIGN {
@@ -72,7 +67,11 @@ fn cmux_as(
 }
 
 fn text_of(output: &Output) -> String {
-    format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
 }
 
 fn vectors() -> Value {
@@ -94,12 +93,18 @@ fn rebased(path: &str, vector_home: &str, user_home: &Path) -> PathBuf {
 /// are the vectors' and do not change with per-build isolation.
 fn is_real_build(bundle_id: &str) -> bool {
     bundle_id.starts_with("com.cmuxterm.app.nightly")
-        || ["com.cmuxterm.app", "com.cmuxterm.app.rc", "com.cmuxterm.app.staging"].contains(&bundle_id)
+        || ["com.cmuxterm.app", "com.cmuxterm.app.rc", "com.cmuxterm.app.staging"]
+            .contains(&bundle_id)
 }
 
 /// Refuses a socket path or session name of a real build.
 fn refuse_real_name(name: &str) {
-    let real = ["/tmp/cmux-nightly", "/tmp/cmux-rc.sock", "/tmp/cmux-staging.sock", "/tmp/cmux-debug.sock"];
+    let real = [
+        "/tmp/cmux-nightly",
+        "/tmp/cmux-rc.sock",
+        "/tmp/cmux-staging.sock",
+        "/tmp/cmux-debug.sock",
+    ];
     assert!(
         !real.iter().any(|prefix| name.contains(prefix))
             && !["cmux-app", "cmux-app-nightly", "cmux-app-cmux-next"].contains(&name),
@@ -154,7 +159,8 @@ fn cmux_reaches_the_control_socket_of_its_own_build() {
     }
     let untagged = rebased("/tmp/cmux-debug--650e93e3.sock", vector_home, &user_home);
     if !reached.contains_key(&untagged) || release.as_ref() == Some(&untagged) {
-        wrong.push(format!("the untagged DEV build is not on its own socket (release {release:?})"));
+        wrong
+            .push(format!("the untagged DEV build is not on its own socket (release {release:?})"));
     }
     let _ = fs::remove_dir_all(&user_home);
     assert!(wrong.is_empty(), "control sockets of the wrong build:\n{}", wrong.join("\n"));
