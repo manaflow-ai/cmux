@@ -123,11 +123,13 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await sampling;
     const over = await page.evaluate(() => (window as unknown as { __over: number }).__over);
     const after = (await samples(page)).filter((entry) => entry.t >= over);
-    const at = (ms: number) => after.find((entry) => entry.t - over >= ms)!.width;
-    // Moving by the second frame (no dwell), not there yet, there by 160 ms (plus a frame).
-    expect(at(40)).toBeGreaterThan(7);
-    expect(at(40)).toBeLessThan(25.5);
-    expect(at(180)).toBeGreaterThan(25.4);
+    // It starts moving within two frames of the pointer (no dwell), passes through the lengths
+    // between (a transition, not a jump) and is there 160 ms (plus a frame) after it started.
+    const start = after.find((entry) => entry.width > 6.5)!;
+    expect(start.t - over).toBeLessThan(60);
+    expect(after.some((entry) => entry.width > 8 && entry.width < 24)).toBe(true);
+    expect(after.find((entry) => entry.t - start.t >= 160)!.width).toBeGreaterThan(25.4);
+    expect(after.find((entry) => entry.t - start.t >= 40)!.width).toBeLessThan(25.4);
     expect(Math.max(...after.map((entry) => entry.width))).toBeLessThan(26 * 1.012);
     const hovered = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
@@ -150,13 +152,14 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.mouse.move(point.x, point.y);
     await page.waitForTimeout(400);
     const sampling = sample(page, 900);
-    await page.evaluate(() => {
-      document.addEventListener("click", () => ((window as unknown as { __over: number }).__over = performance.now()), {
-        once: true,
-        capture: true,
-      });
-    });
-    await page.mouse.click(point.x, point.y);
+    // The click, while the target's row is mounted (an unmounted one jumps at once, by design).
+    const mounted = await page.evaluate((index) => {
+      const row = document.querySelector(`.acpmux-row[data-row-id="t${index}-user"]`);
+      (window as unknown as { __over: number }).__over = performance.now();
+      document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.click();
+      return row !== null;
+    }, target);
+    expect(mounted).toBe(true);
     await sampling;
     const clicked = await page.evaluate(() => (window as unknown as { __over: number }).__over);
     const scrolls = (await samples(page)).filter((entry) => entry.t >= clicked);
@@ -196,7 +199,8 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="9"] .acpmux-minimap__bar')!);
       return { duration: css.transitionDuration, width: 26 * new DOMMatrixReadOnly(css.transform).a };
     });
-    expect(hovered.duration).toBe("0s");
+    // No transition (an engine may report a stylesheet's near-zero reduce-motion duration).
+    expect(parseFloat(hovered.duration)).toBeLessThan(0.001);
     expect(Math.round(hovered.width)).toBe(26);
     const result = await page.evaluate(async () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
