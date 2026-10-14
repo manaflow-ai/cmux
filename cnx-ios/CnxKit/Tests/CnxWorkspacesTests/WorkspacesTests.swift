@@ -51,17 +51,51 @@ import SwiftUI
         let refusing = MockWorkspaceCreationBackend(latency: .zero)
         let (_, source) = make(backend: refusing)
         refusing.failNext = "no pane"
-        let id = await source.createTab(source.newTabOptions.first { $0.id == "terminal" }!)
+        let id = await source.requestTab(source.newTabOptions.first { $0.id == "terminal" }!)
         #expect(id == nil)
         #expect(source.tabs.count == 3)
         #expect(source.toastText?.hasPrefix("Couldn't open a terminal on") == true)
         #expect(source.toastText?.contains("no pane") == false)
     }
 
+    /// User report (build 38484): + then New Claude Chat made the grid reflow around a
+    /// placeholder card, and a refusal snapped it back. Pending, then refused, the tab
+    /// list and every card label stay exactly as they were.
+    @Test func aPendingThenRefusedNewTabLeavesTheGridUntouched() async {
+        let refusing = MockWorkspaceCreationBackend(latency: .milliseconds(50))
+        let (_, source) = make(backend: refusing)
+        refusing.failNext = "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
+        let before = source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] }
+        let option = source.newTabOptions.first { $0.id.hasPrefix("agent:") }!
+        // TabsKit gets no tab back, so its placeholder never stays; the request runs here.
+        let returned = await source.createTab(option)
+        #expect(returned == nil)
+        #expect(source.pendingTabTitle == option.title)
+        #expect(source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] } == before)
+        // A second + while one is pending does nothing.
+        #expect(await source.createTab(option) == nil)
+        for _ in 0..<200 where source.pendingTabTitle != nil { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(source.pendingTabTitle == nil)
+        #expect(source.openedTab == nil)
+        #expect(source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] } == before)
+        #expect(source.toastText == "Can't start \(option.title.dropFirst(4).dropLast(5)) in this folder from your iPhone yet.")
+    }
+
+    @Test func aConfirmedNewTabOpensOnceTheMacListsIt() async {
+        let (_, source) = make(backend: MockWorkspaceCreationBackend(latency: .milliseconds(50)))
+        let count = source.tabs.count
+        _ = await source.createTab(source.newTabOptions.first { $0.id == "terminal" }!)
+        #expect(source.tabs.count == count)
+        for _ in 0..<200 where source.openedTab == nil { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(source.tabs.count == count + 1)
+        #expect(source.openedTab == source.tabs.last?.id)
+        #expect(source.activeTabID == source.tabs.last?.id)
+    }
+
     @Test func withoutAMacNoTabsAreMade() async {
         let (_, source) = make(backend: nil)
         #expect(source.newTabOptions.isEmpty)
-        let id = await source.createTab(TabsKitNewTabOption(id: "terminal", title: "New Terminal", systemImage: "apple.terminal", kind: .terminal))
+        let id = await source.requestTab(TabsKitNewTabOption(id: "terminal", title: "New Terminal", systemImage: "apple.terminal", kind: .terminal))
         #expect(id == nil)
         #expect(source.tabs.count == 3)
         let closed = await source.close("t-zsh")
@@ -97,7 +131,7 @@ import SwiftUI
     @Test func newTabsGoLastAndBecomeActive() async {
         let (store, source) = make()
         let option = source.newTabOptions.first { $0.id == "terminal" }!
-        let id = await source.createTab(option)
+        let id = await source.requestTab(option)
         #expect(source.tabs.last?.id == id)
         #expect(source.activeTabID == id)
         #expect(store.lastTabByWorkspace["ws-cmux"] == id)
@@ -175,7 +209,7 @@ import SwiftUI
         created.pageAppeared("t-claude")
         #expect(created.surface("t-claude").composerFocused)
         // A new terminal tab raises the keyboard on its composer.
-        let id = await created.createTab(try #require(created.newTabOptions.first { $0.id == "terminal" }))
+        let id = await created.requestTab(try #require(created.newTabOptions.first { $0.id == "terminal" }))
         #expect(content.focused == [try #require(id)])
     }
 
