@@ -59,8 +59,7 @@ enum AppearanceHandlers {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
-            try requireUnmanaged(fontSizePath, context)
-            context.design.interfaceScale = CGFloat(InterfaceScaleSetting().fallback)
+            try requireUnmanaged(fontSizePath, context); context.design.interfaceScale = CGFloat(InterfaceScaleSetting().fallback)
             context.writeSetting("reset interface size", fontSizePath, nil, reloadOnFailure: true)
         })
     }
@@ -154,7 +153,7 @@ enum AppearanceHandlers {
         context.writeSetting("set center focused column", CenterFocusedColumnSetting.configPath, .string(mode.rawValue), reloadOnFailure: true)
     }
 
-    /// The selected chrome multiplier. The setting is palette-only and Labs-gated.
+    /// The selected Labs-gated chrome multiplier.
     static func interfaceSize(_ design: DesignSettings = .shared) -> Double {
         Double(design.interfaceScale)
     }
