@@ -6,7 +6,9 @@ public import Foundation
 /// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins, else a
 /// tagged dev build uses `~/.acpmux/tags/<slug>`, else `~/.acpmux`, shared
 /// with a standalone `acpmux`. A daemon this app starts for a tag listens on
-/// an ephemeral port, never the release daemon's 47811.
+/// an ephemeral port, never the release daemon's 47811. `ACPMUX_SOCKET` counts
+/// only with an explicit `ACPMUX_HOME`: inherited alone (an app launched from
+/// another cmux's terminal), it is another daemon's socket.
 public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public var executable: URL
     public var home: URL
@@ -43,15 +45,17 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         guard let executable = executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
             .first(where: { isExecutable($0.path) }) else { return nil }
         let slug = tag.flatMap(tagSlug)
+        let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
         let home: URL
-        if let custom = environment["ACPMUX_HOME"], !custom.isEmpty {
-            home = URL(fileURLWithPath: custom, isDirectory: true)
+        if let customHome {
+            home = URL(fileURLWithPath: customHome, isDirectory: true)
         } else if let slug {
             home = userHome.appendingPathComponent(".acpmux/tags/\(slug)", isDirectory: true)
         } else {
             home = userHome.appendingPathComponent(".acpmux", isDirectory: true)
         }
-        let socket = socketPath(configured: environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }, home: home, uid: uid)
+        let configured = customHome == nil ? nil : environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
+        let socket = socketPath(configured: configured, home: home, uid: uid)
         var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
                                 "ACPMUX_SECRET_TOOLS": "1"]
         childEnvironment.merge(launchEnvironment) { _, new in new }
