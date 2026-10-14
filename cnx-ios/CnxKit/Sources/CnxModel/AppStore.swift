@@ -32,6 +32,21 @@ public final class AppStore {
     /// a screen opened on the placeholder follows the real workspace.
     public private(set) var workspaceAliases: [String: String] = [:]
 
+    /// Which Macs' workspace lists are current (live mode).
+    public struct WorkspaceListSync: Hashable, Sendable {
+        /// Listed on the open link.
+        public var current: Set<String>
+        /// The linked Mac, before its first list arrives.
+        public var loading: Set<String>
+
+        public enum State: Hashable, Sendable { case current, loading, notConnected }
+
+        public init(current: Set<String> = [], loading: Set<String> = []) {
+            self.current = current
+            self.loading = loading
+        }
+    }
+
     /// Phases of a remote load.
     public enum LoadState: Hashable, Sendable {
         case loading, loaded, failed
@@ -139,12 +154,37 @@ public final class AppStore {
         return workspaces.filter { macIDs.contains($0.macID) }
     }
 
-    /// The tab a workspace opens to: the last one used on this device, else its first tab.
+    /// The tab a workspace opens to: the last one used on this device, else
+    /// the tab on screen on the Mac, else its first tab.
     public func openingTab(for workspace: Workspace) -> WorkspaceTab? {
         if let id = lastTabByWorkspace[workspace.id], let tab = workspace.tabs.first(where: { $0.id == id }) {
             return tab
         }
+        if let id = workspace.activeTabID, let tab = workspace.tabs.first(where: { $0.id == id }) {
+            return tab
+        }
         return workspace.tabs.first
+    }
+
+    /// Live mode: which Macs' workspace lists are current. Nil (mock) means
+    /// every list is current. The phone links one Mac at a time, so another
+    /// online Mac's list is not known until the user picks it.
+    public var workspaceListSync: WorkspaceListSync?
+
+    /// How far a Mac's workspace list can be trusted.
+    public func listState(macID: String) -> WorkspaceListSync.State {
+        guard let sync = workspaceListSync else { return .current }
+        if sync.current.contains(macID) { return .current }
+        if sync.loading.contains(macID) { return .loading }
+        return .notConnected
+    }
+
+    /// When this device last opened each workspace (this session): "Done"
+    /// stays cleared until the workspace has newer activity.
+    public private(set) var seenAt: [String: Date] = [:]
+
+    public func markSeen(_ workspaceID: String, at date: Date = Date()) {
+        seenAt[resolvedWorkspaceID(workspaceID)] = date
     }
 
     /// Records the tab on screen in a workspace (every activation).

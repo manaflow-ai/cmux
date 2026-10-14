@@ -113,6 +113,7 @@ public final class LiveCoordinator {
         feedStore.onItemsChange = { [weak self] _ in self?.scheduleFeedSave(archive) }
         feedStore.actions = feed
         store.workspaces = []
+        store.workspaceListSync = AppStore.WorkspaceListSync()
         store.teamDataState = .loading
         link.onLink = { [weak self] link in self?.linkChanged(link) }
         workspaces.onTree = { [weak self] tree in self?.apply(tree) }
@@ -337,6 +338,8 @@ public final class LiveCoordinator {
     private func linkChanged(_ link: (any MacLink)?) {
         acpmux.macLink = link
         currentLink = link
+        // A new link (or none): no Mac's list is current until it lists again.
+        updateListSync(reset: true)
         guard let link, let macID = self.link.target?.macID else {
             Task {
                 await workspaces.bind(nil, macID: "")
@@ -430,6 +433,7 @@ public final class LiveCoordinator {
             AgentSessionDirectory.shared.invalidate(id: tabID)
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
+        updateListSync(listed: macID)
         // History items name their workspace and tab once the tree places their session.
         if acpmux.isReady { feed.hydrate(Array(acpmux.sessions.values)) }
     }
@@ -470,9 +474,23 @@ public final class LiveCoordinator {
         }
     }
 
+    /// Which Mac's workspace list is current (listed on the open link) or
+    /// loading (the link's target, before its first list). The Workspaces
+    /// list shows the difference instead of an empty or stale list.
+    private func updateListSync(reset: Bool = false, listed: String? = nil) {
+        var sync = store.workspaceListSync ?? AppStore.WorkspaceListSync()
+        let target = link.target?.macID
+        if reset || currentLink == nil { sync.current = [] }
+        sync.current = sync.current.filter { $0 == target }
+        if let listed, listed == target { sync.current.insert(listed) }
+        sync.loading = target.map { sync.current.contains($0) ? [] : [$0] } ?? []
+        if sync != store.workspaceListSync { store.workspaceListSync = sync }
+    }
+
     private func phaseChanged() {
         let phase = link.phase
         let target = link.target
+        updateListSync()
         var status = store.macLinkStatus
         status = [:]
         if let target, let line = phase.statusLine(macName: target.name) { status[target.macID] = line }

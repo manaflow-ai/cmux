@@ -54,10 +54,32 @@ struct HomeScreen: View {
 
 struct WorkspacesScreen: View {
     let shell: ShellModel
+    #if DEBUG
+    @State private var protoPath: [Workspace] = []
+    #endif
 
     var body: some View {
+        #if DEBUG
+        if let (direction, mac) = WorkspacesPrototype.launchDirection {
+            // Design prototypes (verify/workspaces-design-loop.md): `-cnx-wsproto A|B|C`.
+            NavigationStack(path: $protoPath) {
+                WorkspacesPrototype(direction: direction, filterMacID: mac) { protoPath.append($0) }
+                    .background(theme.colors.bg.color.ignoresSafeArea())
+                    .navigationBarTitleDisplayMode(.inline)
+                    .navigationDestination(for: Workspace.self) { ProtoWorkspaceDestination(workspace: $0) }
+                    .toolbar { SidebarToolbarItem(sidebar: shell.sidebar) }
+            }
+        } else {
+            list
+        }
+        #else
+        list
+        #endif
+    }
+
+    private var list: some View {
         @Bindable var shell = shell
-        NavigationStack(path: $shell.workspacesPath) {
+        return NavigationStack(path: $shell.workspacesPath) {
             WorkspacesList(
                 store: shell.store, creator: shell.creator, accountEmail: shell.auth.user?.email,
                 reconnect: shell.live.map { live in
