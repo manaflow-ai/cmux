@@ -3,7 +3,7 @@ public import AppKit
 /// One look for every native popover and menu (hover cards, group editors,
 /// the icon picker, page info, the palette's actions menu): the web's popup
 /// surface (webviews/src/ui/popupSurface.css, #18729) in AppKit. Small-radius
-/// rects, compact rows and one subtle shadow; each surface keeps its own
+/// rects, compact rows and one subtle shadow (`elevation`); each surface keeps its own
 /// material and theme colors. `PopupStyleTests` holds the two in step.
 public struct PopupStyle: Sendable {
     /// The style every native popover uses.
@@ -15,26 +15,14 @@ public struct PopupStyle: Sendable {
     public let rowCornerRadius: CGFloat = 5
     public let openDuration: TimeInterval = 0.12
 
-    /// The one shadow, `0 2px 8px` black at 12%.
-    public let shadowOffset: CGFloat = 2
-    public let shadowBlur: CGFloat = 8
-    public let shadowAlpha: CGFloat = 0.12
+    /// The one popover shadow: the raised step of the elevation scale.
+    public var elevation: Elevation { Self.elevation2 }
 
     public init() {}
 
     /// The transparent band a popover window keeps around its card, so the
     /// card's shadow is never clipped by the window.
-    public var shadowMargin: CGFloat { shadowBlur + shadowOffset }
-
-    /// The shadow as an `NSShadow`, for a card that casts its own (AppKit's
-    /// offset is y-up: negative falls below).
-    public func shadow() -> NSShadow {
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(shadowAlpha)
-        shadow.shadowBlurRadius = shadowBlur
-        shadow.shadowOffset = NSSize(width: 0, height: -shadowOffset)
-        return shadow
-    }
+    public var shadowMargin: CGFloat { elevation.blur + elevation.offset }
 
     /// The window frame for a card at `card` (screen coordinates).
     public func windowFrame(forCard card: CGRect) -> CGRect {
@@ -114,11 +102,11 @@ public final class PopupHostView: NSView {
         wantsLayer = true
         card.translatesAutoresizingMaskIntoConstraints = true
         if let surface = card as? OverlaySurfaceView { surface.cornerRadius = PopupStyle.standard.cornerRadius }
+        let elevation = PopupStyle.standard.elevation
         shadowLayer.shadowColor = NSColor.black.cgColor
-        shadowLayer.shadowOpacity = Float(PopupStyle.standard.shadowAlpha)
-        // Core Animation's radius is about half a CSS blur.
-        shadowLayer.shadowRadius = PopupStyle.standard.shadowBlur / 2
-        shadowLayer.shadowOffset = CGSize(width: 0, height: -PopupStyle.standard.shadowOffset)
+        shadowLayer.shadowOpacity = Float(elevation.alpha)
+        shadowLayer.shadowRadius = elevation.layerRadius
+        shadowLayer.shadowOffset = elevation.layerOffset()
         shadowCutout.fillRule = .evenOdd
         shadowLayer.mask = shadowCutout
         layer?.addSublayer(shadowLayer)

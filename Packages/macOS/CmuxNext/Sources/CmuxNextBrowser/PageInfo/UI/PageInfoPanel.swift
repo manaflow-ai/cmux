@@ -71,7 +71,7 @@ final class PageInfoCardView: NSView {
     /// the omnibar's scope when it opens).
     private func applyColors() {
         performWithTheme {
-            shadow = PopupStyle.standard.shadow()
+            shadow = PopupStyle.elevation2.shadow()
             glass.applyTheme()
         }
     }

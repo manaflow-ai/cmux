@@ -51,7 +51,7 @@ const layers = (value: string) => {
 // The lengths of a literal layer (calls such as color-mix() and var() removed first).
 const lengths = (layer: string) => {
   let bare = layer;
-  for (let before = ""; before !== bare; ) {
+  for (let before = ""; before !== bare;) {
     before = bare;
     bare = bare.replace(/[\w-]+\([^()]*\)/g, " ");
   }
@@ -107,7 +107,9 @@ const alpha = (layer: string): number => {
 };
 
 const rootBlocks = (text: string, selector: RegExp) =>
-  [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((match) => selector.test(match[1].trim())).map((match) => match[2]);
+  [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter((match) => selector.test(match[1].trim()))
+    .map((match) => match[2]);
 
 const desktop = css.find(({ file }) => file === "pages/shared/desktop.css")!.text;
 const tokenValue = (block: string, token: string) => block.match(new RegExp(`${token}\\s*:\\s*([^;}]+)`))?.[1].trim();
@@ -146,7 +148,9 @@ describe("one subtle elevation scale", () => {
     const light = rootBlocks(desktop, /^:root$/).join(";");
     for (const [index, token] of ELEVATIONS.entries()) {
       const native = swift.match(
-        new RegExp(`static let elevation${index + 1} = Elevation\\(offset: ([\\d.]+), blur: ([\\d.]+), alpha: ([\\d.]+)\\)`),
+        new RegExp(
+          `static let elevation${index + 1} = Elevation\\(offset: ([\\d.]+), blur: ([\\d.]+), alpha: ([\\d.]+)\\)`,
+        ),
       );
       expect({ token, native: Boolean(native) }).toEqual({ token, native: true });
       const value = tokenValue(light, token)!;
