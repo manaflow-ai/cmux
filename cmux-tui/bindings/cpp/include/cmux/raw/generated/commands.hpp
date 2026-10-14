@@ -76,6 +76,8 @@ public:
     [[nodiscard]] Result<WorkspaceMutationResult> close_workspace(const CloseWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_history(const CloudConversationHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_op(const CloudConversationOpRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_run(const CloudConversationRunRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_runs(const CloudConversationRunsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_snapshot(const CloudConversationSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_subscribe(const CloudConversationSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_thread(const CloudConversationThreadRequest& request, RequestOptions options = {});
@@ -90,6 +92,7 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_session_set(const CloudSessionSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_status(const CloudSessionStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAgentTokenResult> conversation_agent_token(const ConversationAgentTokenRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationAttachmentLinkResult> conversation_attachment_link(const ConversationAttachmentLinkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAttachmentReadResult> conversation_attachment_read(const ConversationAttachmentReadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAttachmentUploadResult> conversation_attachment_upload(const ConversationAttachmentUploadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationBindResult> conversation_bind(const ConversationBindRequest& request, RequestOptions options = {});
@@ -100,6 +103,9 @@ public:
     [[nodiscard]] Result<ConversationLinkResolveResult> conversation_link_resolve(const ConversationLinkResolveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationListResult> conversation_list(const ConversationListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ConversationOpResult> conversation_op(const ConversationOpRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationRunResult> conversation_run(const ConversationRunRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationRunAppendResult> conversation_run_append(const ConversationRunAppendRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationRunsResult> conversation_runs(const ConversationRunsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSearchResult> conversation_search(const ConversationSearchRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSnapshotResult> conversation_snapshot(const ConversationSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationThreadResult> conversation_thread(const ConversationThreadRequest& request, RequestOptions options = {});

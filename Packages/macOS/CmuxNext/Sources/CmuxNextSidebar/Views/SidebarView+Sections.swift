@@ -109,8 +109,8 @@ extension SidebarView {
         let look = SidebarSectionTunables.currentLook
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,
-            preferences: SidebarAppHeights.preferences(below: belowRegion), minimumList: Metrics.sidebarRowHeight * 3,
-            bandFloor: Metrics.sidebarRowHeight + Metrics.space2)
+            preferences: SidebarAppHeights.preferences(below: belowRegion), minimumList: SidebarDensityTokens.rowHeight * 3,
+            bandFloor: SidebarDensityTokens.rowHeight + Metrics.space2)
         aboveFade.frame = NSRect(x: 0, y: y, width: b.width, height: aboveHeight)
         size(aboveRegion, in: aboveScroll, width: b.width)
         // The band below sits on the footer section; the dots and cards go above it.

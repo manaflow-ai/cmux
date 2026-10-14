@@ -5280,6 +5280,9 @@ mod upgrade;
 #[path = "terminal_host_recovery/program_status_restart.rs"]
 mod program_status_restart;
 
+#[path = "terminal_host_recovery/bell_notification.rs"]
+mod bell_notification;
+
 #[path = "terminal_host_recovery/command_activity.rs"]
 mod command_activity;
 

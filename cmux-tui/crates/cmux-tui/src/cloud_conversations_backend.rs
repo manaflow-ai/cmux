@@ -97,6 +97,34 @@ impl CloudBackend for RemoteCloudBackend {
         })
     }
 
+    fn get(
+        &self,
+        url: &str,
+        bearer: &str,
+        client_version: Option<&str>,
+    ) -> Result<HttpReply, TransportError> {
+        let mut request = self
+            .http
+            .get(url)
+            .bearer_auth(bearer)
+            .header(reqwest::header::ACCEPT, "application/json");
+        if let Some(version) = client_version {
+            request = request.header(CLIENT_VERSION_HEADER, version);
+        }
+        self.runtime.block_on(async move {
+            let response = request.send().await.map_err(|error| transport(&error))?;
+            let status = response.status().as_u16();
+            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
+            if bytes.len() > MAX_BODY_BYTES {
+                return Err(TransportError(format!(
+                    "reply of {} bytes exceeds the limit",
+                    bytes.len()
+                )));
+            }
+            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
+        })
+    }
+
     fn connect(
         &self,
         url: &str,
