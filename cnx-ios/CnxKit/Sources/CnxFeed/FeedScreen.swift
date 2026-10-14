@@ -130,14 +130,19 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                                     .font(.caption.weight(.bold))
                                     .foregroundStyle(Color.cnxOnAccent)
                                     .padding(.horizontal, 6)
+                                    .padding(.vertical, 1)
                                     .frame(minWidth: 18, minHeight: 18)
                                     .background(Color.cnxAccent, in: .capsule)
                                     .contentTransition(.numericText())
                             }
                         }
                         .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                        .fixedSize()
                         .padding(.horizontal, 14)
-                        .frame(height: 36)
+                        .padding(.vertical, 6)
+                        // Grows with Dynamic Type: at AX sizes the text and badge stay inside the capsule.
+                        .frame(minHeight: 36)
                         .background(store.filter == filter ? Color.cnxFillSelected : Color.clear, in: .capsule)
                         .contentShape(.capsule)
                     }

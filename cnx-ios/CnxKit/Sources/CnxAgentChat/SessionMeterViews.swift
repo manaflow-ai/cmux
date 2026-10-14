@@ -2,33 +2,93 @@
 import CnxDesign
 import SwiftUI
 
-/// The context meter in the composer's controls row: a small ring (used / size) whose
-/// menu shows the tokens, as in the ACP web UI.
+/// The context meter in the composer's controls row, after the ACP web UI's context ring
+/// (`ComposerPickers.tsx` `ContextRing`): a gauge that fills clockwise from 12 o'clock
+/// over a visible track (a solid pie, so it never reads as an activity spinner), with the
+/// share used beside it. It turns to the warning tint at 80 %. Tapping opens the details:
+/// the share used, a bar and the tokens used of the window.
 struct ContextUsageRing: View {
     let usage: ContextUsage
+    @State private var showsDetails = false
 
     var body: some View {
-        Menu {
-            Section("Context window") {
-                Text("\(usage.percent)% used")
-                Text(usage.tokensLabel)
+        Button { showsDetails = true } label: {
+            HStack(spacing: 4) {
+                ContextUsagePie(fraction: usage.fraction, tint: tint)
+                    .frame(width: 16, height: 16)
+                Text("\(usage.percent)%")
+                    .font(.caption.monospacedDigit().weight(.medium))
+                    .foregroundStyle(usage.isNearlyFull ? Color.cnxWarning : .secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .contentTransition(.numericText(value: Double(usage.percent)))
             }
-        } label: {
-            ZStack {
-                Circle().stroke(Color.cnxFillSelected, lineWidth: 3)
-                Circle()
-                    .trim(from: 0, to: usage.fraction)
-                    .stroke(usage.isNearlyFull ? Color.cnxWarning : Color.primary.opacity(0.7),
-                            style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .animation(.cnxSmooth, value: usage.fraction)
-            }
-            .frame(width: 18, height: 18)
-            .frame(width: 44, height: 44)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 44, minHeight: 44)
             .contentShape(.rect)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("Context used")
         .accessibilityValue(Text("\(usage.percent) percent, \(usage.tokensLabel)"))
+        .popover(isPresented: $showsDetails) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Context window").font(.caption).foregroundStyle(.secondary)
+                Text("\(usage.percent)% used").font(.subheadline.weight(.medium)).padding(.top, 2)
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.primary.opacity(0.14))
+                        Capsule().fill(tint).frame(width: proxy.size.width * usage.fraction)
+                    }
+                }
+                .frame(height: 4)
+                .padding(.top, 8)
+                Text(usage.tokensLabel)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+            }
+            .padding(14)
+            .frame(width: 240, alignment: .leading)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private var tint: Color { usage.isNearlyFull ? .cnxWarning : .blue }
+}
+
+/// A filled pie on a track ring: the used share is a wedge from 12 o'clock.
+private struct ContextUsagePie: View {
+    let fraction: Double
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Color.primary.opacity(0.12))
+            Circle().strokeBorder(tint.opacity(0.55), lineWidth: 1.5)
+            PieWedge(fraction: fraction)
+                .fill(tint)
+                .padding(3)
+                .animation(.cnxSmooth, value: fraction)
+        }
+    }
+}
+
+private struct PieWedge: Shape {
+    var fraction: Double
+    var animatableData: Double {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard fraction > 0 else { return path }
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        path.move(to: center)
+        path.addArc(center: center, radius: min(rect.width, rect.height) / 2,
+                    startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * min(fraction, 1)), clockwise: false)
+        path.closeSubpath()
+        return path
     }
 }
 

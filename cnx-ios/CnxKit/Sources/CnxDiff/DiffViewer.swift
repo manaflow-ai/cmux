@@ -139,7 +139,12 @@ struct StatusBadge: View {
         Text(status.rawValue)
             .font(.caption.weight(.semibold).monospaced())
             .foregroundStyle(color)
-            .frame(width: 20, height: 20)
+            .lineLimit(1)
+            .fixedSize()
+            // Grows with its glyph at accessibility sizes instead of clipping it.
+            .padding(.horizontal, 3)
+            .padding(.vertical, 1)
+            .frame(minWidth: 20, minHeight: 20)
             .background(color.opacity(0.18), in: .rect(cornerRadius: 5))
             .accessibilityLabel(Text(label))
     }
@@ -196,7 +201,7 @@ struct ViewedToggle: View {
                 .font(.system(size: 20))
                 .foregroundStyle(isViewed ? Color.cnxSuccess : Color.secondary)
                 .contentTransition(.symbolEffect(.replace))
-                .frame(width: 32, height: 32)
+                .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
         .buttonStyle(.borderless)
@@ -228,6 +233,8 @@ struct DiffOptionsMenu: View {
             Toggle("Show viewed files", systemImage: "checkmark.circle", isOn: $state.showViewed)
         } label: {
             Image(systemName: "ellipsis")
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
         }
         .accessibilityLabel("Diff options")
     }

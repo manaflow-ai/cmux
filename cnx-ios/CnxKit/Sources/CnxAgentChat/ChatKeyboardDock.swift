@@ -297,7 +297,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             jump.isUserInteractionEnabled = surface.showJump
             NSLayoutConstraint.activate([
                 jump.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                jump.bottomAnchor.constraint(equalTo: dockGuide.topAnchor, constant: -4),
+                jump.bottomAnchor.constraint(equalTo: dockGuide.topAnchor, constant: -8),
                 jump.widthAnchor.constraint(equalToConstant: Self.jumpHostSize),
                 jump.heightAnchor.constraint(equalToConstant: Self.jumpHostSize),
             ])

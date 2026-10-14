@@ -45,7 +45,7 @@ and are cited by file name only. Do not copy them into the repo.
 | Dark background | #151515 warm gray | #000000 | #000000 | #000000: 2 of 3, OLED, and the brief asks for true black. |
 | Assistant font | Serif (Tiempos-like) | SF Pro | SF Pro | SF Pro `body`. A serif is Claude's brand, not shared language. |
 | User bubble | #2C2C2A gray | #020661 blue tint | #333333 gray | Gray (`bubble` token). No blue. |
-| Primary circle when empty | Voice waveform (white) | Voice waveform (blue) | "Speak" capsule (white) | We have no voice mode: a send arrow, disabled at 30% when empty (ChatGPT's own Scheduled composer, `chatgpt-30-scheduled`). Dictation lives on the mic glyph. |
+| Primary circle when empty | Voice waveform (white) | Voice waveform (blue) | "Speak" capsule (white) | We have no voice mode: a send arrow, disabled at 30% when empty (ChatGPT's own Scheduled composer, `chatgpt-30-scheduled`). There is no mic button: iOS has no API to start dictation, so the keyboard's own mic dictates into the field. |
 | `+` | Sheet with photo strip | Menu | Menu | Menu (2 of 3). Photos opens `PhotosPicker` inline. |
 | Sidebar | Push-aside card | Push-aside card | Full-screen page | Push-aside card (2 of 3), section 3.3. |
 | Settings presentation | Sheet, swipe to dismiss | Full-screen, X only | Sheet | It is a tab in cnx-ios (the brief), so no presentation question. Sub-pages push. |

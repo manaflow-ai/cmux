@@ -104,7 +104,9 @@ files apart.
 - `Button "Close zsh"` at (372, 0), 30 x 30, under the status bar: the active
   card's close button overlay in `TabsScreen.pageLayer` (`UI/TabsView.swift`,
   `.accessibilityLabel("Close \(activeTab?.title ?? "")")`). It is invisible on
-  the page (opacity 0 when settled) but reachable by VoiceOver.
+  the page (opacity 0 when settled) but reachable by VoiceOver. Agent chat
+  tabs have the same element, `Button "Close <session title>"` at (372, 0),
+  30 x 30 (chat-feed round 1 review, F10).
 - `Button "Page Menu"` at (90, 792) and `Button "Reload"` at (268, 792), inside
   the title pill (`TabsToolbar.capsule`, `UI/Toolbar.swift`). For a `.title`
   address `showsMenuGlyph` and `showsReload` are false, so neither is drawn,
