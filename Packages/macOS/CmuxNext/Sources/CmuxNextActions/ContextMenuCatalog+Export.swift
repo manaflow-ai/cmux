@@ -15,7 +15,7 @@ nonisolated extension ContextMenuCatalog {
         "A submenu takes its label, else its action's title, without a trailing ellipsis; a folder takes its own title. A submenu or folder without a shown row is left out.",
         "A separator shows only after a shown row and before another shown row: runs collapse to one, and leading and trailing separators drop.",
         "A choices row is a submenu with one item per value in choices.values (then a separator and More… when more_opens_palette). It shows by the same visible_when as every row, and only when its action is bound and enabled (otherwise it is left out, not disabled).",
-        "A choices row with choices.trailer ends its submenu with that action under trailer.label, on the same target, after a separator when there are values. With a trailer the row shows even when it has no values (Move to Group > New Group).",
+        "A choices row with choices.trailer ends its submenu with that action under its own title, on the same target, after a separator when there are values. With a trailer the row shows even when it has no values (Move to Group > New Group).",
         "context_menus_not_exported lists the menus built by hand in their views; they are not in context_menus. Whoever adds a new hand-built menu adds it to that list (ContextMenuCatalog.exportHandBuiltMenus).",
     ]
 
@@ -85,7 +85,7 @@ nonisolated extension ContextMenuCatalog {
                     row["choices"] = ["argument": argument.name, "target_kind": kind.rawValue] as [String: Any]
                 }
                 if case .choices = entry, let trailer = ContextMenuEssentials.choiceTrailers[id], var choices = row["choices"] as? [String: Any] {
-                    choices["trailer"] = ["id": trailer.rawValue, "label": SpaceMenuLabels.newGroup] as [String: Any]
+                    choices["trailer"] = ["id": trailer.rawValue, "title_from": "action"] as [String: Any]
                     row["choices"] = choices
                 }
             case .submenu(let id, let children):

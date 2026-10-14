@@ -28,6 +28,9 @@ enum RoomMenuHandlers {
         let targets = PaletteSourcesBridge.targetSource(context.services)
         registry.targetChoices = { [weak services = context.services] action, kind, target in
             guard let services else { return nil }
+            if action == "moveWorkspaceToGroup", let ws = try? context.workspace(ActionInvocation(target: target)).model, let sections = try? WorkspaceVerbHandlers.sidebar(showing: ws, context).model.sections {
+                return ActionTargetChoices(cases: SidebarEdits.joinableGroups(for: SidebarWorkspaceID(ws.id), in: sections).map { ActionEnumCase(value: $0.id.rawValue, title: SidebarGroup.named($0.name)) })
+            }
             let cases = targets.targets(of: kind).map { ActionEnumCase(value: $0.id, title: $0.title) }
             return ActionTargetChoices(cases: cases, current: current(action, target: target, services))
         }

@@ -32,8 +32,8 @@ parser.add_argument("--capture-pid", type=int, help="with $NX_CAPTURE: real righ
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 ROWS = []
-GROUP_NAME = "Groups proof"
-NEW_GROUP, REMOVE, GROUP_SELECTED = "New Group", "Remove Workspace from Group", "Group Selected Workspaces"
+GROUP_NAME = f"Groups proof {int(time.time()) % 100000}"
+NEW_GROUP, REMOVE, GROUP_SELECTED = "Move Workspace to New Group", "Remove Workspace from Group", "Group Selected Workspaces"
 
 
 def move_row(top, subs):
@@ -127,8 +127,13 @@ def right_click_shot(r, name):
     frame = r["window_frame"]
     rpc("debug.mouse", {"x": frame["x"] + frame["width"] / 2, "y": frame["y"] + frame["height"] / 2, "action": "click", "button": "right"}, timeout=5)
     time.sleep(1.5)  # test harness: the menu opens
-    subprocess.run(["bash", capture, "shot", "--pid", str(opts.capture_pid), "--with-popups", "--out", os.path.join(opts.out, f"{name}.png")],
-                   capture_output=True, timeout=60)
+    try:
+        shot = subprocess.run(["bash", capture, "shot", "--pid", str(opts.capture_pid), "--with-popups", "--out", os.path.join(opts.out, f"{name}.png")],
+                              capture_output=True, text=True, timeout=60)
+        if shot.returncode:
+            print(f"WARN | capture {name} exit {shot.returncode}: {shot.stderr.strip()[:200]}", flush=True)
+    except subprocess.TimeoutExpired:
+        print(f"WARN | capture {name} timed out", flush=True)
     rpc("debug.key", {"key": "escape"}, timeout=5)
     time.sleep(0.8)  # test harness: the menu closes
 
@@ -184,8 +189,10 @@ def setup():
     moved = wait(lambda: (row_by_id(w2) or {}).get("group") == group, 10)
     check("Move to Group > the group moves the workspace in", group, (row_by_id(w2) or {}).get("group"), moved)
 
-    top, _ = menu_at(row_by_id(w1))
+    top, subs = menu_at(row_by_id(w1))
     check("A grouped workspace's menu has Remove from Group at the top level", REMOVE, top, REMOVE in top)
+    own = subs.get(move_row(top, subs)) or []
+    check("A grouped workspace's Move to Group does not list its own group", f"no {GROUP_NAME}", own, GROUP_NAME not in own)
     top, _ = menu_at(row_by_id(w3))
     check("An ungrouped workspace's menu still has no Remove from Group", f"no {REMOVE}", top, REMOVE not in top)
 
@@ -200,22 +207,23 @@ def setup():
     action("workspaceGroup.expand", target=target)
     check("Expand shows them again", "both members shown", [shown(w1), shown(w2)], wait(lambda: shown(w1) and shown(w2), 10))
     titles = [(row_by_id(w) or {}).get("title") for w in (w1, w2)]
-    return {"group": group, "members": [w1, w2], "titles": titles, "outside": w3}
+    return {"group": group, "name": GROUP_NAME, "members": [w1, w2], "titles": titles, "outside": w3}
 
 
 def verify():
     """After a relaunch: the group's header is listed and its members (by title; ids may be new) are in it."""
     with open(opts.state) as f:
         state = json.load(f)
-    group, titles = state["group"], state["titles"]
+    group, titles, name = state["group"], state["titles"], state["name"]
     check("After a relaunch the group is listed", f"header {group}", bool(wait(lambda: header(group), 30)), header(group) is not None)
     def members():
-        return sorted(r.get("title") for r in rows() if str(r.get("key", "")).startswith("workspace(") and r.get("group") == group)
-    ok = wait(lambda: members() == sorted(titles), 15)
+        return sorted(str(r.get("title")) for r in rows() if str(r.get("key", "")).startswith("workspace(") and r.get("group") == group)
+    ok = wait(lambda: members() == sorted(str(t) for t in titles), 15)
     check("After a relaunch both workspaces are in the group", sorted(titles), members(), ok)
-    top, subs = menu_at(next(r for r in rows() if str(r.get("key", "")).startswith("workspace(") and r.get("group") is None))
+    outside = next((r for r in rows() if str(r.get("key", "")).startswith("workspace(") and r.get("group") is None), None)
+    top, subs = menu_at(outside) if outside else ([], {})
     listed = subs.get(move_row(top, subs)) or []
-    check("After a relaunch Move to Group still lists the group", GROUP_NAME, listed, GROUP_NAME in listed)
+    check("After a relaunch Move to Group still lists the group", name, listed, name in listed)
     snapshot("4-relaunched")
 
 
