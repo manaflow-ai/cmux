@@ -19,6 +19,10 @@ public enum ConversationCellPoolWarmUp {
     /// The content offset to lay out at, or nil when the loaded rows do not
     /// reach a screenful beyond what is on screen.
     public static func offset(restingY: CGFloat, topY: CGFloat, viewport: CGFloat) -> CGFloat? {
-        nil
+        guard viewport > 0 else { return nil }
+        let y = max(topY, restingY - viewportsAbove * viewport)
+        // A screenful there must not share rows with the one on screen.
+        guard y + viewport <= restingY else { return nil }
+        return y
     }
 }

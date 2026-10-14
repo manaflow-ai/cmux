@@ -103,6 +103,8 @@ public final class ConversationViewController: UIViewController {
     /// The typer's avatar (frame in the transcript, initials) leaving with the indicator.
     var typingAvatarHandoff: (frame: CGRect, initials: String)?
     private(set) var hasPositionedInitially = false
+    /// The open is laying rows out off screen for spare cells (`warmCellPools`).
+    private var isWarmingCellPools = false
     /// Rows already prefetched (see +Prefetch); reset when rows change.
     var prefetchedRange: Range<Int> = 0..<0
     /// The reuse class each message row last dequeued its cell with.
@@ -1127,6 +1129,7 @@ public final class ConversationViewController: UIViewController {
                 // and leave the newest message under the composer.
                 collectionView.setContentOffset(bottomOffset, animated: false)
                 hasPositionedInitially = true
+                warmCellPools()
             }
             return
         }
@@ -1307,6 +1310,27 @@ public final class ConversationViewController: UIViewController {
         popArrivals()
         announceArrivals(newRows, inserted: inserted, isLive: animateLive)
         playQueuedEffects()
+    }
+
+    /// Leaves spare cells in the reuse queues (`ConversationCellPoolWarmUp`):
+    /// lays the transcript out at a screenful of older rows and straight
+    /// back, inside this update, so nothing at the other offset is ever
+    /// committed or shown, and the scroll callbacks ignore the round trip.
+    private func warmCellPools() {
+        let resting = collectionView.contentOffset
+        guard let y = ConversationCellPoolWarmUp.offset(
+            restingY: resting.y,
+            topY: -collectionView.adjustedContentInset.top,
+            viewport: collectionView.bounds.height
+        ) else { return }
+        isWarmingCellPools = true
+        UIView.performWithoutAnimation {
+            collectionView.contentOffset = CGPoint(x: resting.x, y: y)
+            collectionView.layoutIfNeeded()
+            collectionView.contentOffset = resting
+            collectionView.layoutIfNeeded()
+        }
+        isWarmingCellPools = false
     }
 
     private struct ScreenPlace { var rowTop: CGFloat; var bubbleTop: CGFloat }
@@ -1706,6 +1730,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // The open's round trip for spare cells is not the reader's scroll.
+        if isWarmingCellPools { return }
         // The finger drags the keyboard below the safe area, where the guide
         // stops reporting it; the composer follows the finger there.
         if keyboardDragLocation != nil { followKeyboardProgress() }
