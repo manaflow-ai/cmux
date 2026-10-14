@@ -315,3 +315,30 @@ fn after_an_owner_restart_a_fresh_page_credential_connects_again() {
     let mut page = Page::open(&addr, Some(CHANNELS_ORIGIN), &fresh).expect("reconnect");
     assert_eq!(page.rpc(json!({"cmd": "conversation-list"}))["ok"], true);
 }
+
+#[test]
+fn the_channels_page_hears_its_chiefs_change() {
+    // cx-ebm.60.4: the app connects the Channels page with a page-bound
+    // credential; that page redraws its Chiefs on chief-changed.
+    let owner = Fixture::new("chiefs");
+    owner.ensure();
+    let mut app = owner.unix();
+    let addr = app.listen();
+    let credential = app.channels_credential();
+    let mut page = Page::open(&addr, Some(CHANNELS_ORIGIN), &credential)
+        .expect("the Channels page was refused its own credential");
+    let info = page.rpc(json!({"cmd": "set-client-info", "name": "channels",
+        "capabilities": ["chief-events-v1"]}));
+    assert_eq!(info["ok"], true, "{info}");
+    assert_eq!(page.rpc(json!({"cmd": "subscribe"}))["ok"], true);
+
+    // The person renames the default Chief from the page itself.
+    let mut rename =
+        v2("chief.profile.update", json!({"chief": "agent_mux", "display_name": "Boss"}));
+    rename["idempotency_key"] = json!("rename-boss");
+    let renamed = page.rpc(rename);
+    assert_eq!(renamed["ok"], true, "{renamed}");
+    page.until_event("chief-changed");
+    let event = page.events.iter().find(|event| event["event"] == "chief-changed").unwrap();
+    assert_eq!((&event["chief"], &event["change"]), (&json!("agent_mux"), &json!("updated")));
+}
