@@ -118,6 +118,10 @@ extension HomeNativeTranscriptView {
     public func debugReplyNewest(mine: Bool) -> String? { transcript.debugReplyNewest(mine: mine) }
     /// A real Esc key press through the app's event queue (`outside`: the key focus leaves the pane first).
     public func debugPostEscape(outside: Bool) { transcript.debugPostEscape(outside: outside) }
+    /// Esc as a key window would dispatch it (the focused field's own Esc, else the app's local monitors).
+    public func debugKeyEscape() { transcript.debugKeyEscape() }
+    /// A left click at a window point (bottom-left origin) through the real mouse path; `count` 2: a double click.
+    public func debugClick(atWindow p: CGPoint, count: Int = 1) -> Bool { transcript.debugClick(atWindow: p, count: count) }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
 }

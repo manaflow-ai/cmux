@@ -451,6 +451,41 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// Automation (DEBUG socket): a left click at `wp` (window points, bottom-left origin: the space of
+    /// the socket's "rows") through the real mouse path: the view AppKit's hit test finds there gets the
+    /// mouse down and up (TranscriptDocumentView -> ChatController.mouseDown/mouseUp), as a key
+    /// window sends them. Only the window's first-click rule is skipped (a window that is not key
+    /// swallows the first click into the transcript, as MessagesLab's). `count` 2 is a double
+    /// click (two presses, click counts 1 and 2). False when no view takes the point.
+    public func debugClick(atWindow wp: CGPoint, count: Int = 1) -> Bool {
+        let host = controller.host
+        guard let window, let target = host.hitTest(convert(wp, from: nil)) else { return false }
+        for n in 1...max(1, min(count, 3)) {
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let e = NSEvent.mouseEvent(with: type, location: wp, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: n, clickCount: n,
+                                                 pressure: type == .leftMouseDown ? 1 : 0) else { return false }
+                if type == .leftMouseDown { target.mouseDown(with: e) } else { target.mouseUp(with: e) }
+            }
+        }
+        return true
+    }
+
+    /// Automation (DEBUG socket): an Esc key press as a key window would dispatch it, in a window that
+    /// may not be key: with the key focus in the field, the window sends it to its first responder
+    /// (the field's own Esc, `ChatController.escape`); elsewhere it goes through `NSApp.sendEvent`,
+    /// whose local monitors (the pane's thread and selection Esc) see it.
+    public func debugKeyEscape() {
+        guard let window else { return }
+        let field = controller.demo?.compose.textView.view
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            guard let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
+                                           charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) else { return }
+            if field != nil, window.firstResponder === field { window.sendEvent(e) } else { NSApp.sendEvent(e) }
+        }
+    }
+
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points
     /// through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) {
