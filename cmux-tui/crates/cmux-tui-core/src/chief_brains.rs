@@ -724,7 +724,7 @@ impl Supervisor {
 /// Blocks until child `pid` has exited, without reaping it (`WNOWAIT`).
 #[cfg(unix)]
 fn wait_exited(pid: u32) {
-    let Ok(id) = libc::id_t::try_from(pid) else { return };
+    let id = libc::id_t::from(pid);
     loop {
         // SAFETY: a zeroed siginfo_t is a valid out buffer for waitid.
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };

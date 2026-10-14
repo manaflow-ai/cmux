@@ -140,7 +140,7 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     assert!(alive(scout_pid));
     let env = env_of(&scout_home.join("env.1"));
     let expect = |key: &str, value: &str| {
-        assert_eq!(env.get(key).map(String::as_str), Some(value), "{key}: {env:?}")
+        assert_eq!(env.get(key).map(String::as_str), Some(value), "{key}: {env:?}");
     };
     expect("MUX_HOME", scout_home.to_str().unwrap());
     expect("OPTCHAT_CHIEF_PARTICIPANT", &scout);
