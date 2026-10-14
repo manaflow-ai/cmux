@@ -32,6 +32,7 @@ on:
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
+      - scripts/cmux-next/state-roots-baseline.tsv
       # Local packages CmuxNext depends on and files its tests read
       # (ci-target-graph.json `packages` and `reads`).
       - Packages/Shared/**
@@ -939,6 +940,11 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
 
+      - name: No literal state roots (per-build isolation S7, cx-is1kf.8)
+        id: state-roots
+        continue-on-error: true
+        run: bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
+
       - name: Main-thread concurrency
         id: concurrency
         continue-on-error: true
@@ -1069,6 +1075,7 @@ jobs:
           bash scripts/cmux-next/tests/fast-tier.test.sh
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
           bash scripts/cmux-next/tests/check-no-process-scan.test.sh
+          bash scripts/cmux-next/tests/check-state-roots.test.sh
           bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
           bash scripts/cmux-next/tests/ratchet-tiers.test.sh
           bash scripts/cmux-next/tests/base-autofix.test.sh
@@ -1215,6 +1222,7 @@ jobs:
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
+            ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
