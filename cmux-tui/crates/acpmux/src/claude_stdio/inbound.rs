@@ -179,31 +179,17 @@ impl Translator {
                     }
                 }
             }
-            // Claude Code's echo of a user line it read (`--replay-user-messages`):
-            // first the turn's prompt, then each steered line in order.
-            // Matched by the line's uuid; an echo of anything else is ignored.
+            // Claude Code's echo of a user line it read (`--replay-user-messages`),
+            // matched by the line's uuid; an echo of anything else is ignored.
             "user" if line.get("isReplay").and_then(Value::as_bool) == Some(true) => {
                 let uuid = line.get("uuid").and_then(Value::as_str).unwrap_or("");
-                let mut prompt = self.prompt_echo.lock().await;
-                if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
-                    *prompt = None;
-                    return out;
-                }
-                drop(prompt);
-                let mut steers = self.steers.lock().await;
-                if let Some(at) = steers.iter().position(|(u, _)| !uuid.is_empty() && u == uuid)
-                    && let Some((_, k)) = steers.remove(at)
-                {
-                    drop(steers);
-                    let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
-                    out.push(Message::ok(id, json!({"stopReason": "steered"})));
-                    // A turn the client stopped: Claude Code runs a line it
-                    // read after the stop as one more turn, so that turn is
-                    // stopped too, and the prompt ends cancelled.
-                    if self.cancelled.load(Ordering::SeqCst) {
-                        let n = self.next_control.fetch_add(1, Ordering::SeqCst);
-                        self.stdin_replies.lock().await.push(json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}));
-                    }
+                let (answer, interrupt) = self.ledger.lock().await.read(uuid);
+                out.extend(answer.map(|a| self.answer(a, line)));
+                // A line Claude Code read after a Stop runs as one more turn
+                // (it keeps queued lines past an interrupt): stopped too.
+                if interrupt {
+                    let n = self.next_control.fetch_add(1, Ordering::SeqCst);
+                    self.stdin_replies.lock().await.push(json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}));
                 }
             }
             "user" => {
@@ -389,20 +375,26 @@ impl Translator {
                 // `is_error` with a success subtype is how Claude reports a
                 // usage limit or an API refusal: a failed turn, not a reply.
                 let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                let named = named_lines(line);
+                let mut ledger = self.ledger.lock().await;
                 // A resumed process emits one empty result (num_turns 0, no
                 // API time) right after its system/init, before the real
                 // turn. That is startup noise, not the end of our prompt; a
                 // failed result is never noise. A local slash command's result
                 // looks the same but follows its output, and ends the prompt.
-                let startup_noise = sub == "success"
+                // A result that names our line is never noise.
+                let startup_noise = named.is_none()
+                    && sub == "success"
                     && !is_error
                     && !self.turn_output.load(Ordering::SeqCst)
                     && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                     && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0)
-                    && !self.cancelled.load(Ordering::SeqCst);
+                    && !ledger.head_cancelled();
                 if startup_noise {
                     return out;
                 }
+                let ended = ledger.result(named.as_deref());
+                drop(ledger);
                 // The window Claude Code reports for the chat's model: the pane's
                 // context ring fills by used over it (cx-ncc.79).
                 if let Some(window) = self.result_context_window(line).await {
@@ -414,63 +406,20 @@ impl Translator {
                         ));
                     }
                 }
-                // The result of a turn acpmux already ended, before Claude Code
-                // read the next prompt: it ends only the abandoned prompts.
-                let abandoned = std::mem::take(&mut *self.abandoned.lock().await);
-                if !abandoned.is_empty() && self.prompt_echo.lock().await.is_some() {
-                    for k in abandoned {
-                        self.pending.lock().await.remove(&k);
-                        let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
-                        out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
-                    }
-                    return out;
-                }
-                // A steered line Claude Code has not read yet: it runs it as
-                // one more turn of this prompt, whose result ends it (when
-                // echoes come at all; without them the steer fails below).
-                // A stop stays in force for that turn (`cancelled` is kept).
-                let unread = !self.steers.lock().await.is_empty();
-                if unread && self.prompt_echo.lock().await.is_none() {
-                    return out;
-                }
-                out.extend(self.fail_steers().await);
-                *self.prompt_echo.lock().await = None;
-                self.in_turn.store(false, Ordering::SeqCst);
-                let waiting: Vec<String> = self
-                    .pending
-                    .lock()
-                    .await
-                    .iter()
-                    .filter(|(_, p)| matches!(p, Pending::Prompt))
-                    .map(|(k, _)| k.clone())
-                    .collect();
-                let cancelled = self.cancelled.swap(false, Ordering::SeqCst);
-                let stop = if cancelled
-                    || (sub == "error_during_execution"
-                        && line.get("result").map(Value::is_null).unwrap_or(true))
-                {
-                    "cancelled"
-                } else if sub == "error_max_turns" {
-                    "max_turn_requests"
-                } else if sub.starts_with("error") {
-                    "refusal"
-                } else {
-                    "end_turn"
-                };
                 // An interrupted turn stops its foreground subagents;
                 // background ones run on until their task_notification.
-                if stop == "cancelled" {
+                if ended.as_ref().is_some_and(|e| e.cancelled) || interrupted(line) {
                     let background = self.background_subagents.lock().await;
                     let mut subagents = self.subagents.lock().await;
-                    let mut ended: Vec<String> = subagents
+                    let mut stopped: Vec<String> = subagents
                         .iter()
                         .filter(|(tool, _)| !background.contains(*tool))
                         .map(|(_, child)| child.clone())
                         .collect();
                     subagents.retain(|tool, _| background.contains(tool));
                     drop((subagents, background));
-                    ended.sort();
-                    for child in ended {
+                    stopped.sort();
+                    for child in stopped {
                         out.push(upd(json!({
                             "sessionUpdate": "subagent_state_update",
                             "subagentSessionId": child,
@@ -478,24 +427,12 @@ impl Translator {
                         })));
                     }
                 }
-                for k in waiting {
-                    self.pending.lock().await.remove(&k);
-                    let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
-                    // Hitting the turn limit is a normal stop, not a failure.
-                    if (sub.starts_with("error") || is_error)
-                        && !cancelled
-                        && stop != "cancelled"
-                        && stop != "max_turn_requests"
-                    {
-                        out.push(Message::err(
-                            id,
-                            RpcError::internal(
-                                line.get("result").and_then(Value::as_str).unwrap_or(sub),
-                            ),
-                        ));
-                    } else {
-                        out.push(Message::ok(id, json!({"stopReason": stop, "_meta": {"claude": {"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")}}})));
+                let Some(ended) = ended else { return out };
+                for answer in ended.answers {
+                    if let ledger::Answer::Prompt { id, .. } = &answer {
+                        self.pending.lock().await.remove(id);
                     }
+                    out.push(self.answer(answer, line));
                 }
             }
             // A compaction left the context smaller than the last message held:
@@ -515,6 +452,54 @@ impl Translator {
             _ => {}
         }
         out
+    }
+
+    /// The ACP answer to a steer or prompt the ledger says `line` (a result,
+    /// or a steer's echo) ended.
+    fn answer(&self, answer: ledger::Answer, line: &Value) -> Message {
+        let id = |k: String| -> Id { serde_json::from_str(&k).unwrap_or(Value::String(k)) };
+        let (id, cancelled) = match answer {
+            ledger::Answer::Steered(k) => {
+                return Message::ok(id(k), json!({"stopReason": "steered"}));
+            }
+            ledger::Answer::SteerUnread(k) => {
+                return Message::err(
+                    id(k),
+                    RpcError::internal("steer: the turn ended before Claude Code read the message"),
+                );
+            }
+            // A prompt whose result never came (Claude Code read past it)
+            // has no outcome of its own.
+            ledger::Answer::Prompt { id: k, cancelled, own: false } => {
+                let stop = if cancelled { "cancelled" } else { "end_turn" };
+                return Message::ok(id(k), json!({"stopReason": stop}));
+            }
+            ledger::Answer::Prompt { id: k, cancelled, own: true } => (id(k), cancelled),
+        };
+        let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
+        let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+        let stop = if cancelled || interrupted(line) {
+            "cancelled"
+        } else if sub == "error_max_turns" {
+            "max_turn_requests"
+        } else if sub.starts_with("error") {
+            "refusal"
+        } else {
+            "end_turn"
+        };
+        // Hitting the turn limit is a normal stop, not a failure.
+        if (sub.starts_with("error") || is_error)
+            && !matches!(stop, "cancelled" | "max_turn_requests")
+        {
+            return Message::err(
+                id,
+                RpcError::internal(line.get("result").and_then(Value::as_str).unwrap_or(sub)),
+            );
+        }
+        Message::ok(
+            id,
+            json!({"stopReason": stop, "_meta": {"claude": {"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")}}}),
+        )
     }
 
     /// A result's context window for the chat's model (`modelUsage`, keyed by
@@ -665,6 +650,28 @@ impl Translator {
             "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
         })
     }
+}
+
+/// The user lines a result says it ends (`user_message_uuids`, else
+/// `user_message_uuid`; Claude Code 2.1.299), None when it names none.
+fn named_lines(line: &Value) -> Option<Vec<String>> {
+    let many = line.get("user_message_uuids").and_then(Value::as_array);
+    let named: Vec<String> = match many {
+        Some(many) => many.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
+        None => line
+            .get("user_message_uuid")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .into_iter()
+            .collect(),
+    };
+    (!named.is_empty()).then_some(named)
+}
+
+/// A result Claude Code wrote for a turn it interrupted.
+fn interrupted(line: &Value) -> bool {
+    line.get("subtype").and_then(Value::as_str) == Some("error_during_execution")
+        && line.get("result").is_none_or(Value::is_null)
 }
 
 /// Adds a file edit's diff and location to its ACP tool call.

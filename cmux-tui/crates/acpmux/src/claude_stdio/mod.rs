@@ -126,6 +126,7 @@ pub fn models() -> &'static [(String, String)] {
 #[cfg(test)]
 mod edit_diff_tests;
 mod inbound;
+mod ledger;
 mod outbound;
 #[cfg(test)]
 mod subagent_tests;
@@ -224,23 +225,12 @@ pub struct Translator {
     effort: Mutex<String>,
     /// Claude Code's fast mode (`fastMode`), on or off.
     pub fast: Mutex<bool>,
-    in_turn: AtomicBool,
     /// Claude Code wrote something for the prompt (an assistant line, a
     /// conversation reset): its result ends the turn, never startup noise.
     turn_output: AtomicBool,
-    /// The `uuid` of the turn's prompt line until Claude Code echoes it
-    /// (`isReplay` carries the line's `uuid`).
-    prompt_echo: Mutex<Option<String>>,
-    /// Prompts still unanswered when the next one went out: acpmux ended
-    /// their turn itself (a Stop Claude Code answered late, `hub/cancel.rs`).
-    /// Claude Code's result for them comes before it reads the next prompt.
-    abandoned: Mutex<Vec<String>>,
-    /// Steered prompts (user lines written during a turn) Claude Code has
-    /// not echoed yet, oldest first, as (line uuid, ACP request id): each is
-    /// answered at its echo.
-    steers: Mutex<std::collections::VecDeque<(String, String)>>,
-    /// Text streamed so far in the current turn, to build the prompt result.
-    pub cancelled: AtomicBool,
+    /// The prompt and steer lines Claude Code has not finished, oldest
+    /// first: which prompt a result ends, even after a forced Stop.
+    ledger: Mutex<ledger::Ledger>,
     pub slash_commands: Mutex<Vec<Value>>,
     /// Lines for claude's stdin produced while reading its stdout (answers
     /// to control requests acpmux declines). The reader drains them.
@@ -316,12 +306,8 @@ impl Translator {
             model: Mutex::new(model.to_owned()),
             effort: Mutex::new(effort.to_owned()),
             fast: Mutex::new(false),
-            in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
-            prompt_echo: Mutex::new(None),
-            abandoned: Mutex::new(Vec::new()),
-            steers: Mutex::new(std::collections::VecDeque::new()),
-            cancelled: AtomicBool::new(false),
+            ledger: Mutex::new(ledger::Ledger::default()),
             slash_commands: Mutex::new(Vec::new()),
             stdin_replies: Mutex::new(Vec::new()),
             subagents: Mutex::new(HashMap::new()),
@@ -342,28 +328,11 @@ impl Translator {
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
         let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
-        ids.extend(self.steers.lock().await.drain(..).map(|(_, id)| id));
+        ids.extend(self.ledger.lock().await.drain_steers());
         ids.into_iter()
             .map(|id| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
                 Message::err(id, RpcError::internal(message))
-            })
-            .collect()
-    }
-
-    /// Error answers for the steered prompts Claude Code never echoed: the
-    /// turn ended without reading them (no echo support).
-    async fn fail_steers(&self) -> Vec<Message> {
-        self.steers
-            .lock()
-            .await
-            .drain(..)
-            .map(|(_, id)| {
-                let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-                Message::err(
-                    id,
-                    RpcError::internal("steer: the turn ended before Claude Code read the message"),
-                )
             })
             .collect()
     }

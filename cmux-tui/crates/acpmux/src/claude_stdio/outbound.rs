@@ -54,7 +54,7 @@ impl Translator {
                     method::SESSION_PROMPT => {
                         let steer =
                             p.pointer("/_meta/steer").and_then(Value::as_bool) == Some(true);
-                        if steer && !self.in_turn.load(Ordering::SeqCst) {
+                        if steer && !self.ledger.lock().await.is_open() {
                             return Outbound::Reply(Message::err(
                                 id.clone(),
                                 RpcError::invalid_params(super::STEER_NO_TURN),
@@ -110,20 +110,12 @@ impl Translator {
                         if steer {
                             // Claude Code reads it at its next tool boundary
                             // and echoes it; the echo answers this request.
-                            self.steers.lock().await.push_back((uuid, id.to_string()));
+                            self.ledger.lock().await.push_steer(uuid, id.to_string());
                             return Outbound::Lines(vec![line]);
                         }
-                        self.in_turn.store(true, Ordering::SeqCst);
                         self.turn_output.store(false, Ordering::SeqCst);
-                        *self.prompt_echo.lock().await = Some(uuid);
-                        self.cancelled.store(false, Ordering::SeqCst);
-                        let mut pending = self.pending.lock().await;
-                        *self.abandoned.lock().await = pending
-                            .iter()
-                            .filter(|(_, p)| matches!(p, Pending::Prompt))
-                            .map(|(k, _)| k.clone())
-                            .collect();
-                        pending.insert(id.to_string(), Pending::Prompt);
+                        self.ledger.lock().await.push_prompt(uuid, id.to_string());
+                        self.pending.lock().await.insert(id.to_string(), Pending::Prompt);
                         Outbound::Lines(vec![line])
                     }
                     method::SESSION_SET_MODE => {
@@ -235,7 +227,7 @@ impl Translator {
             }
             Message::Notification { method: m, .. } => {
                 if m == method::SESSION_CANCEL {
-                    self.cancelled.store(true, Ordering::SeqCst);
+                    self.ledger.lock().await.stop();
                     let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                     Outbound::Lines(vec![
                         json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}),
