@@ -213,6 +213,24 @@ final class TerminalSurfaceView: UIView {
         return TerminalDocumentLayout.leadingNewlines(in: bytes, limit: lastRow + 1)
     }
 
+    /// Plain text of the active screen's rows `0...lastRow` (the alternate
+    /// screen in a TUI). Takes the surface lock: on demand only.
+    func screenRowsText(through lastRow: Int) -> String? {
+        guard let surface, lastRow >= 0 else { return nil }
+        let columns = max(1, grid.columns)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
+                                          x: UInt32(columns - 1), y: UInt32(lastRow)),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
     /// Columns and rows of the local grid.
     var grid: (columns: Int, rows: Int) {
         guard let surface else { return (0, 0) }
@@ -232,6 +250,17 @@ final class TerminalSurfaceView: UIView {
         let row = cursorViewportRow
         if let pinnedRow { scrollViewport(pinnedRow) }
         return row.map { activeTop + $0 }
+    }
+
+    /// The cursor's cell in this view's coordinates, when it is in the viewport.
+    var visibleCursorCell: CGRect? {
+        guard let surface else { return nil }
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cursor_in_viewport, metrics.cell_height > 0 else { return nil }
+        return CGRect(x: metrics.padding_left + Double(metrics.cursor_column) * metrics.cell_width,
+                      y: metrics.padding_top + Double(metrics.cursor_row) * metrics.cell_height,
+                      width: metrics.cell_width * Double(max(1, metrics.cursor_width_cells)),
+                      height: metrics.cell_height)
     }
 
     /// The cursor row relative to the viewport top, when the cursor is in the viewport.

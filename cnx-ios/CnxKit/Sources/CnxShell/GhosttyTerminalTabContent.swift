@@ -57,7 +57,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         guard let frameStore else { return }
         for (id, host) in hosts where liveTabs.contains(id) {
             host.model.captureSnapshot()
-            if let data = host.model.snapshot?.jpegData(compressionQuality: 0.7) { frameStore.save(data, for: id) }
+            if let data = host.model.frameForSaving()?.jpegData(compressionQuality: 0.7) { frameStore.save(data, for: id) }
         }
     }
 
@@ -200,7 +200,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         guard let host = hosts.removeValue(forKey: id) else { return }
         if let frame = host.model.snapshot {
             lastFrames[id] = frame
-            if let data = frame.jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: id) }
+            if let data = (host.model.frameForSaving() ?? frame).jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: id) }
         }
         slots[id] = nil
         upgrade.removed(tabID: id)

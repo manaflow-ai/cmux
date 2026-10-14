@@ -61,6 +61,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// and replay are drawn, so the page never shows a black frame (R2-3).
     private var freezeView: UIView?
     private var freezeBatches = 0
+    private var freezeStarted: CFTimeInterval = 0
     /// Clips the key bar while its height follows the keyboard; the bar
     /// itself keeps its 44 pt layout pinned to the clip's top.
     private let keyBarClip = UIView()
@@ -185,6 +186,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         keyBarHost = keyBar
         composerHost = composer
         keyBarClip.clipsToBounds = true
+        // A rightward swipe on the key bar scrolls it or moves the joystick;
+        // it never swipes back to the workspaces (R4-1).
+        NavigationPopExclusion.shared.exclude(keyBarClip)
         keyBarClip.translatesAutoresizingMaskIntoConstraints = false
         bottomStack.translatesAutoresizingMaskIntoConstraints = false
         // The terminal background under the whole bottom chrome, from the
@@ -441,13 +445,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// A still of the page for the tab grid (the render server's copy of
     /// what is on screen, so the Metal surface is included). Cheap: no
     /// second Ghostty surface; taken when the grid opens or the page leaves.
-    func snapshot() -> UIImage? {
+    func snapshot(hidingCursor: Bool = false) -> UIImage? {
         guard view.window != nil, view.bounds.width > 0 else { return nil }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 2
         format.opaque = true
-        return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
+        // The frame kept for a cold launch has no cursor block: it is not
+        // where typing goes until the live screen is back (R3-4).
+        let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view) } : nil
+        return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { context in
             view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+            if let cursor {
+                CnxGhosttyApp.background.setFill()
+                context.fill(cursor.insetBy(dx: -0.5, dy: -0.5))
+            }
         }
     }
 
@@ -672,8 +683,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         freezeView = snapshot
         freezeBatches = 0
         // A TUI's replay at a new size can be an empty alternate screen until
-        // the program repaints (R3-2); the held frame waits for that, but
-        // never longer than this.
+        // the program repaints (R3-2: `top` waits for its 1 s tick); the held
+        // frame waits for that, but never longer than this.
+        freezeStarted = CACurrentMediaTime()
         let held = ObjectIdentifier(snapshot)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.freezeCap) { [weak self] in
             guard let self, let view = self.freezeView, ObjectIdentifier(view) == held else { return }
@@ -682,16 +694,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     /// The longest a held frame stays up after a reset.
-    static let freezeCap: TimeInterval = 0.5
+    static let freezeCap: TimeInterval = TerminalHeldFrame.cap
 
-    /// Whether the screen now has something to show: on the alternate screen,
-    /// a TUI that has repainted (any text); the primary screen's replay
-    /// always counts.
+    /// Whether the new screen has enough to show (`TerminalHeldFrame`): on the
+    /// alternate screen, 30 % of the TUI's rows with text; a shell's replay
+    /// once it has any text.
     private func replayHasContent() -> Bool {
-        guard model.isTUI else { return true }
-        let rows = surface.grid.rows
-        guard rows > 0, let blank = surface.leadingBlankRows(through: rows - 1) else { return true }
-        return blank < rows
+        let rows = model.isTUI ? max(1, tuiRows) : max(1, surface.grid.rows)
+        guard let text = surface.screenRowsText(through: rows - 1) else { return true }
+        return TerminalHeldFrame().shouldRelease(isAlternate: model.isTUI,
+                                                 nonBlankRows: TerminalHeldFrame.nonBlankRows(in: text, limit: rows),
+                                                 rows: rows, elapsed: CACurrentMediaTime() - freezeStarted)
     }
 
     private func unfreeze() {

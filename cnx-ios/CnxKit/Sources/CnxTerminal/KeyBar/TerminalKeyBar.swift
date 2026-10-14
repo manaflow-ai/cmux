@@ -16,27 +16,49 @@ struct TerminalKeyBar: View {
     @State private var cut: Set<KeyBarKey> = []
     /// The row is being dragged or is decelerating or snapping.
     @State private var scrolling = false
-    /// Key widths, for spreading the settled row's leftover (R3-5).
-    @State private var widths: [KeyBarKey: CGFloat] = [:]
-
-    private var spread: [CGFloat] {
-        guard !scrolling, widths.count == KeyBarKey.middle.count else { return [] }
-        return KeyBarSpread().shifts(widths: KeyBarKey.middle.map { widths[$0] ?? 40 }, spacing: 6,
-                                     contentOffset: edges.offset, visibleWidth: edges.visibleWidth)
-    }
+    /// The width the scroller may take; it uses a whole number of keys of it.
+    @State private var available: CGFloat = 0
 
     var body: some View {
         HStack(spacing: 6) {
             ForEach(KeyBarKey.pinned, id: \.self) { key in
                 KeyCap(key: key, model: model)
             }
-            ScrollView(.horizontal) {
-                let shifts = spread
-                HStack(spacing: 6) {
-                    ForEach(Array(KeyBarKey.middle.enumerated()), id: \.element) { index, key in
-                        let hidesCut = !scrolling && cut.contains(key)
-                        let shift = index < shifts.count ? shifts[index] : 0
-                        KeyCap(key: key, model: model)
+            // The scroller is exactly a whole number of equal keys with 6 pt
+            // gaps, so every snapped position shows whole keys with no hole
+            // and no stretched gap (R3-5, round 5); the rest of the space goes
+            // beside the joystick.
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: 34)
+                .onGeometryChange(for: CGFloat.self) { proxy in proxy.size.width } action: { available = $0 }
+                .overlay(alignment: .leading) { scroller }
+            Joystick(engine: model.joystickEngine)
+            Button {
+                model.keyBar(.hideKeyboard)
+            } label: {
+                Image(systemName: "keyboard.chevron.compact.down")
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(width: 30, height: 34)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Hide Keyboard")
+        }
+        .padding(.horizontal, 4)
+        .frame(height: 44)
+        .background(Color(uiColor: CnxGhosttyApp.background).opacity(0.85), in: .capsule)
+        .glassEffect(.regular, in: .capsule)
+        .padding(.horizontal, 6)
+        .tint(.primary)
+    }
+
+    private var scroller: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: KeyBarLayout.spacing) {
+                ForEach(KeyBarKey.middle, id: \.self) { key in
+                    let hidesCut = !scrolling && cut.contains(key)
+                    KeyCap(key: key, model: model, width: KeyBarLayout.keyWidth)
+
                             .onGeometryChange(for: Bool.self) { proxy in
                                 KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
                             } action: { visible in
@@ -47,14 +69,8 @@ struct TerminalKeyBar: View {
                             } action: { whole in
                                 if whole { cut.remove(key) } else { cut.insert(key) }
                             }
-                            .onGeometryChange(for: CGFloat.self) { proxy in proxy.size.width } action: { width in
-                                widths[key] = width
-                            }
-                            // At rest, a key the edge cuts is not drawn: no sliver (R2-4),
-                            // and the leftover is spread over the gaps (R3-5).
+                            // At rest, a key the edge cuts is not drawn: no sliver (R2-4).
                             .opacity(hidesCut ? 0 : 1)
-                            .offset(x: shift)
-                            .animation(.easeOut(duration: 0.12), value: shift)
                             .animation(.easeOut(duration: 0.12), value: hidesCut)
                             .accessibilityHidden(clipped.contains(key) || hidesCut)
                     }
@@ -90,7 +106,7 @@ struct TerminalKeyBar: View {
                     ], startPoint: .leading, endPoint: .trailing)
                 }
             }
-            .frame(maxWidth: .infinity)
+            .frame(width: KeyBarLayout().scrollerWidth(available: available))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("More keys")
             .accessibilityActions {
@@ -98,24 +114,6 @@ struct TerminalKeyBar: View {
                     Button(key.accessibilityLabel) { model.keyBar(key) }
                 }
             }
-            Joystick(engine: model.joystickEngine)
-            Button {
-                model.keyBar(.hideKeyboard)
-            } label: {
-                Image(systemName: "keyboard.chevron.compact.down")
-                    .font(.system(size: 15, weight: .medium))
-                    .frame(width: 30, height: 34)
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Hide Keyboard")
-        }
-        .padding(.horizontal, 4)
-        .frame(height: 44)
-        .background(Color(uiColor: CnxGhosttyApp.background).opacity(0.85), in: .capsule)
-        .glassEffect(.regular, in: .capsule)
-        .padding(.horizontal, 6)
-        .tint(.primary)
     }
 }
 
@@ -124,6 +122,8 @@ struct TerminalKeyBar: View {
 struct KeyCap: View {
     let key: KeyBarKey
     let model: TerminalModel
+    /// The scroller's keys share one width (`KeyBarLayout.keyWidth`).
+    var width: CGFloat?
     @State private var taps = 0
     @AppStorage(CnxPreferences.Key.keyClicks) private var keyClicks = CnxPreferences.defaultKeyClicks
 
@@ -146,9 +146,11 @@ struct KeyCap: View {
         } label: {
             Text(key.label)
                 .font(.system(size: 15, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
                 .foregroundStyle(locked || armed ? Color.white : .primary)
         }
-        .buttonStyle(KeyCapStyle(locked: locked, armed: armed))
+        .buttonStyle(KeyCapStyle(locked: locked, armed: armed, width: width))
         .buttonRepeatBehavior(key.repeats ? .enabled : .disabled)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: taps)
         .accessibilityLabel(key.accessibilityLabel)
@@ -171,11 +173,12 @@ enum KeyClick {
 struct KeyCapStyle: ButtonStyle {
     var locked = false
     var armed = false
+    var width: CGFloat?
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .padding(.horizontal, 8)
-            .frame(minWidth: 40, minHeight: 34)
+            .padding(.horizontal, width == nil ? 8 : 3)
+            .frame(minWidth: width ?? 40, maxWidth: width, minHeight: 34)
             .background(
                 // Armed: accent fill, white label. Locked: the same plus a
                 // 2 pt underline (SPEC M1). Rest: the quiet fill.

@@ -62,12 +62,25 @@ public struct SetupFlow: View {
             Group {
                 if let first = steps.first { page(first) } else { theme.colors.bg.color.ignoresSafeArea() }
             }
-            .navigationDestination(for: Step.self) { page($0) }
+            // On every setup page, loading and failure included: who is signed
+            // in, and a way back to Welcome to start over. Inset per page: on
+            // the stack, pushed pages did not leave room for it and the footer
+            // sat over the bottom of Continue (terminal review round 4).
+            .safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+            .navigationDestination(for: Step.self) { step in
+                page(step).safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+            }
         }
         .tint(theme.colors.label.color)
-        // On every setup page, loading and failure included: who is signed
-        // in, and a way back to Welcome to start over.
-        .safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+        #if DEBUG
+        .onChange(of: DemoDirector.shared.serial) {
+            switch DemoDirector.shared.command {
+            case .setupSignOut: confirmsSignOut = true
+            case .setupConfirmSignOut: confirmsSignOut = false; signOut()
+            default: break
+            }
+        }
+        #endif
         #if DEBUG
         // A screen demo (`-CnxDemo chat-feed`, …) on a fresh install skips setup in
         // Personal, so its driver never waits here. The onboarding demo drives setup itself.
@@ -116,15 +129,6 @@ public struct SetupFlow: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(theme.colors.bg.color.ignoresSafeArea())
-        #if DEBUG
-        .onChange(of: DemoDirector.shared.serial) {
-            switch DemoDirector.shared.command {
-            case .setupSignOut: confirmsSignOut = true
-            case .setupConfirmSignOut: confirmsSignOut = false; signOut()
-            default: break
-            }
-        }
-        #endif
     }
 
     @ViewBuilder private func page(_ step: Step) -> some View {

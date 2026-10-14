@@ -42,6 +42,9 @@ public struct TerminalTabPage: View {
     public var body: some View {
         @Bindable var model = host.model
         EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive)
+            // Zoomed into the grid or mid-swipe, the page is a picture: its
+            // composer and key bar are not controls then (R4-3).
+            .accessibilityHidden(!isInteractive)
             .ignoresSafeArea()
             .background(Color.black)
             // Not attached yet: the honest placeholder over the empty surface.
@@ -97,6 +100,12 @@ public struct TerminalTabCard: View {
     }
 
     public var body: some View {
+        // A picture of the page: TabsKit labels the card; nothing inside it
+        // is a control (R4-3).
+        cardContent.accessibilityHidden(true)
+    }
+
+    private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 Color(uiColor: CnxGhosttyApp.background)

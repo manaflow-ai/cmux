@@ -205,7 +205,11 @@ private struct InteractivePopEnabler: UIViewControllerRepresentable {
         }
 
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-            (navigationController?.viewControllers.count ?? 0) > 1
+            guard (navigationController?.viewControllers.count ?? 0) > 1 else { return false }
+            // Not from the terminal's key bar (R4-1): its keys scroll and its
+            // joystick drags sideways.
+            let window = view.window
+            return !NavigationPopExclusion.shared.excludes(NavigationPopExclusion.startPoint(of: recognizer, in: window), in: window)
         }
     }
 }

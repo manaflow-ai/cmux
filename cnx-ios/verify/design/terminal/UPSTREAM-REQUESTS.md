@@ -140,6 +140,14 @@ ends, and confuse UI automation (the E2E rig finds "Close zsh" at y 0).
 **Host workaround meanwhile.** None possible from the data source. cnx-ios
 already omits `.reload` for terminal and agent tabs (`WorkspaceTabsSource.kitTab`).
 
+**Round 5 (terminal review round 4, R4-3).** Still open in CmuxTabsKit
+7808631e: the zoomed card's close button (`Close <tab>`, the page layer's
+overlay) is in the accessibility tree while the page is settled. cnx-ios now
+hides everything it draws while the page is not interactive
+(`TerminalTabPage` with `isInteractive == false`, and the grid card content of
+`TerminalTabCard`), so the thumbnails' live composer and key bar are no longer
+announced; the close overlay itself can only be fixed in CmuxTabsKit.
+
 ## U4. Thumbnail anchoring hook
 
 **Today.** On the settled grid the active tab's card is its live page, scaled
