@@ -159,6 +159,9 @@ public final class TerminalSession {
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
+        #if DEBUG
+        if NewTerminalTrace.shared.isArmed { traceSurfaceCreated(io: io) }
+        #endif
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -238,6 +241,9 @@ public final class TerminalSession {
     // MARK: Events
 
     private func handle(_ event: TerminalIOEvent) async {
+        #if DEBUG
+        if NewTerminalTrace.shared.isArmed { traceEvent(event) }
+        #endif
         switch event {
         case .replay(let data):
             if surfaceHasContent { swapSurface() }
@@ -305,6 +311,9 @@ public final class TerminalSession {
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1
+        #if DEBUG
+        if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
+        #endif
         fresh.ownsGeometry = ownsGeometry
         fresh.isRenderingSuspended = isRenderingSuspended
         fresh.mirrorDemand = mirrorDemand
