@@ -11533,7 +11533,7 @@ struct VerticalTabsSidebar: View, Equatable {
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        return Self.customSidebarDataContext(
+        return ContentView.customSidebarDataContext(
             workspaces: workspaces,
             workspaceGroups: tabManager.workspaceGroups,
             selectedWorkspaceId: selectedId,
