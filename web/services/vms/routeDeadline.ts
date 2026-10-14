@@ -405,8 +405,9 @@ export function isVmProviderHang(error: VmWorkflowError): boolean {
 
 /**
  * A hung mutation that may still complete at the provider. A stuck guest
- * (#19307's vm_guest_unresponsive) is excluded: that answer names the
- * machine and its restart action on every route.
+ * (#19307's vm_guest_unresponsive) is excluded: that answer preserves the
+ * machine and gives support guidance instead of claiming an unverified
+ * recovery operation.
  */
 function isUnfinishedMutation(error: VmWorkflowError): boolean {
   return isVmProviderHang(error) && !(error._tag === "VmProviderOperationError" && hasProviderGuestUnresponsiveCause(error.cause));
