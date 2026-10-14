@@ -72,6 +72,7 @@ export function narrowProblems(document: Document): string[] {
   if (page.scrollWidth > view.innerWidth + 1) problems.push(`the page scrolls sideways (${page.scrollWidth} > ${view.innerWidth})`);
   const rows: [string, string][] = [
     [".acpmux-composer-bar", "composer bar"],
+    [".nt-pickers", "New Tab chips"],
     [".acpmux-composer-context", "location row"],
     [".acpmux-pr-dock", "pull request bar"],
   ];
@@ -95,6 +96,15 @@ export function narrowProblems(document: Document): string[] {
           const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
           if (width > 1 && height > 1) problems.push(`${name}: ${label(rects[i]!.control)} overlaps ${label(rects[j]!.control)}`);
         }
+      // An icon drawn narrower than its own size is a squeezed control (a model chip read as "•").
+      for (const icon of row.querySelectorAll<SVGSVGElement>("svg[viewBox]")) {
+        const { width, height } = icon.getBoundingClientRect();
+        const box = icon.viewBox.baseVal;
+        if (!width || !height || !box?.height) continue;
+        const drawn = height * (box.width / box.height);
+        if (width + 1 < drawn)
+          problems.push(`${name}: an icon of ${label(icon.closest("button") ?? icon)} is squeezed to ${width.toFixed(1)}px of ${drawn.toFixed(1)}px`);
+      }
       for (const text of row.querySelectorAll("span, button, a")) {
         if (!visible(text) || !text.textContent?.trim() || text.children.length) continue;
         const style = getComputedStyle(text);
