@@ -1,3 +1,5 @@
+import { agentKey } from "../shared/agentKey";
+
 /// Claude Code slash commands that need its terminal UI. Sent through acpmux, Claude Code answers
 /// them only with "isn't available in this environment" (2.1.299), and before acpmux ended such a
 /// turn they left the chat running (cosmic-gray, 2026-10-14). The composer keeps them and names
@@ -34,7 +36,8 @@ export function cliOnlyCommand(
   prompt: string,
   harness: string | undefined,
 ): { name: string; use: CliOnlyUse } | undefined {
-  if (harness !== "claude") return undefined;
+  // Variants ("claude-sr") run the same Claude Code.
+  if (agentKey(harness) !== "claude") return undefined;
   const match = /^\/([a-z][\w-]*)(\s+[\s\S]*)?$/i.exec(prompt.trim());
   if (!match) return undefined;
   const name = match[1].toLowerCase();
