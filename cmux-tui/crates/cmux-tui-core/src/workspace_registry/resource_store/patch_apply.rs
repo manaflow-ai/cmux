@@ -34,6 +34,18 @@ pub(crate) fn apply_resource_patch_timed(
     apply_effective_resource_patch(transaction, &patch, revision)?;
     delete_closed_browser_rows(transaction, &closing)?;
     crate::state::personal_order::place_created_workspaces(transaction, &created)?;
+    // sidebar-doc-v1: a closed workspace leaves its machine section.
+    let closed: Vec<String> = patch
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            ResourceChange::TombstoneWorkspace { workspace_id, .. } => {
+                Some(workspace_id.as_str().to_string())
+            }
+            _ => None,
+        })
+        .collect();
+    crate::state::sidebar_doc_sync::close_workspaces(transaction, &closed)?;
     Ok((patch, prune))
 }
 

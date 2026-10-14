@@ -13,6 +13,8 @@ import java.util.Objects;
 public final class AgentRecord implements WireValue {
     /** Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports. */
     private final Field<String> agent;
+    /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
+    private final Field<String> lastPrompt;
     private final String session;
     /** When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`. */
     private final Field<UInt64> sinceMs;
@@ -23,6 +25,7 @@ public final class AgentRecord implements WireValue {
 
     private AgentRecord(Builder builder) {
         this.agent = builder.agent;
+        this.lastPrompt = builder.lastPrompt;
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = builder.session;
         this.sinceMs = builder.sinceMs;
@@ -39,6 +42,7 @@ public final class AgentRecord implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<String> agent() { return agent; }
+    public Field<String> lastPrompt() { return lastPrompt; }
     public String session() { return session; }
     public Field<UInt64> sinceMs() { return sinceMs; }
     public AgentSource source() { return source; }
@@ -52,6 +56,10 @@ public final class AgentRecord implements WireValue {
         Object rawAgent = Wire.optional(object, "agent");
         if (!Wire.isMissing(rawAgent)) {
             builder.agent(rawAgent == null ? null : Wire.string(rawAgent, "AgentRecord.agent"));
+        }
+        Object rawLastPrompt = Wire.optional(object, "last_prompt");
+        if (!Wire.isMissing(rawLastPrompt)) {
+            builder.lastPrompt(rawLastPrompt == null ? null : Wire.string(rawLastPrompt, "AgentRecord.last_prompt"));
         }
         Object rawSession = Wire.required(object, "session");
         builder.session(rawSession == null ? null : Wire.string(rawSession, "AgentRecord.session"));
@@ -74,6 +82,7 @@ public final class AgentRecord implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "agent", agent);
+        Wire.put(object, "last_prompt", lastPrompt);
         Wire.put(object, "session", session);
         Wire.put(object, "since_ms", sinceMs);
         Wire.put(object, "source", source);
@@ -86,17 +95,18 @@ public final class AgentRecord implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AgentRecord that)) return false;
-        return Objects.equals(agent, that.agent) && Objects.equals(session, that.session) && Objects.equals(sinceMs, that.sinceMs) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
+        return Objects.equals(agent, that.agent) && Objects.equals(lastPrompt, that.lastPrompt) && Objects.equals(session, that.session) && Objects.equals(sinceMs, that.sinceMs) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(agent, session, sinceMs, source, state, surface, updatedAtMs); }
+    public int hashCode() { return Objects.hash(agent, lastPrompt, session, sinceMs, source, state, surface, updatedAtMs); }
 
     @Override
     public String toString() { return "AgentRecord" + toWire(); }
 
     public static final class Builder {
         private Field<String> agent = Field.omitted();
+        private Field<String> lastPrompt = Field.omitted();
         private String session;
         private boolean sessionSet;
         private Field<UInt64> sinceMs = Field.omitted();
@@ -111,6 +121,10 @@ public final class AgentRecord implements WireValue {
 
         public Builder agent(String value) {
             this.agent = Field.ofNullable(value);
+            return this;
+        }
+        public Builder lastPrompt(String value) {
+            this.lastPrompt = Field.ofNullable(value);
             return this;
         }
         public Builder session(String value) {

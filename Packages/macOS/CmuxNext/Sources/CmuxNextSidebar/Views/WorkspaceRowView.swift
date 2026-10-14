@@ -182,7 +182,7 @@ final class WorkspaceRowView: SidebarRowView {
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
         title.stringValue = ws.title
-        title.font = SidebarStyle.titleFont
+        title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
         subtitle.stringValue = row.detail ?? ""
         hasSubtitle = row.detail != nil
@@ -357,10 +357,10 @@ final class WorkspaceRowView: SidebarRowView {
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {
-            agentMark.frame = statusGlyphFrame(trailing: trailing, titleTop: top)
+            agentMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
             trailing = agentMark.frame.minX - Metrics.space2
         } else if activity.showsGlyph {
-            activity.frame = statusGlyphFrame(trailing: trailing, titleTop: top)
+            activity.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
             trailing = activity.frame.minX - Metrics.space2
         }
         if !mutedMark.isHidden {
