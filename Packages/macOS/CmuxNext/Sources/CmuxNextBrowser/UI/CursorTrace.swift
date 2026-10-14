@@ -1,5 +1,5 @@
 #if DEBUG
-import AppKit
+public import AppKit
 import ObjectiveC
 
 /// DEBUG only, with `CMUX_NEXT_CURSOR_TRACE=1`: every `NSCursor.set` (with
