@@ -992,6 +992,25 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 mod tests {
     use super::*;
 
+    /// A server may answer and close before the hook child reads. macOS then
+    /// refuses `setsockopt(SO_RCVTIMEO)` with EINVAL although the receipt is
+    /// still readable; treating that as a failed attempt re-sent the event,
+    /// so the journal received it twice and out of order.
+    #[cfg(unix)]
+    #[test]
+    fn a_receipt_from_a_server_that_already_closed_is_still_read() {
+        let (client, mut server) = std::os::unix::net::UnixStream::pair().unwrap();
+        server.write_all(b"{\"type\":\"response\"}\n").unwrap();
+        drop(server);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        match read_before(Box::new(client), deadline) {
+            Ok(response) => assert_eq!(response, b"{\"type\":\"response\"}\n"),
+            Err(AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error)) => {
+                panic!("the written receipt was not read: {error:#}")
+            }
+        }
+    }
+
     fn cmux_environ(pid: u32) -> Option<std::collections::HashMap<String, String>> {
         let environment = |terminal: &str| {
             Some(
