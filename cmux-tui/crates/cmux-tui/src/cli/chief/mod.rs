@@ -312,7 +312,18 @@ fn target(
     }
     let user_home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
     let cwd = std::env::current_dir().unwrap_or_default();
-    let home = home::ChiefHome::resolve(chief_home, |k| std::env::var(k).ok(), &user_home, &cwd);
+    // The app this CLI belongs to picks its Chief home (one Chief per build).
+    let exe = std::env::current_exe().ok();
+    let bundle =
+        crate::app_identity::AppIdentity::detect(|k| std::env::var(k).ok(), exe.as_deref())
+            .and_then(|identity| identity.bundle_id);
+    let home = home::ChiefHome::resolve_for(
+        chief_home,
+        |k| std::env::var(k).ok(),
+        &user_home,
+        &cwd,
+        bundle.as_deref(),
+    );
     if link::is_brain_socket(&home.root) {
         return Err((1, m.brain_socket.replace("{socket}", &home.root.display().to_string())));
     }

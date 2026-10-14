@@ -1,11 +1,22 @@
 //! The Chief's home, resolved as the cmux-next app resolves it
-//! (CmuxNextApp/Home/ChiefHome.swift), so the CLI and Home open one
+//! (CmuxNextHomeEngine/ChiefHome.swift), so the CLI and Home open one
 //! conversation owner, one brain and one memory. The home holds the brain's
 //! memory and lock (`optchat/`, `state/host.lock`), the conversation
 //! owner's state (`tui/`, its own session daemon) and the acpmux daemon of
 //! the Chief's turns (`acpmux/`).
+//!
+//! One Chief per build (2026-10-14): the CLI resolves the home of the app it
+//! belongs to, by bundle id (`CMUX_BUNDLE_ID` in the app's terminals, else
+//! the bundle around this executable). NIGHTLY keeps the shared home of
+//! older builds, `~/.cmux/chief/<account>`; every other build has
+//! `~/.cmux/chief/<bundle id>[.<account>]`. A CLI outside any app resolves
+//! `~/.cmux/chief/<account>` as before. The app's terminals also get the
+//! exact home as `CMUX_CHIEF_HOME`, which wins.
 
 use std::path::{Component, Path, PathBuf};
+
+/// The build that keeps the shared home of older builds (ChiefHome.swift).
+const SHARED_HOME_BUILD_ID: &str = "com.cmuxterm.app.nightly";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) struct ChiefHome {
@@ -15,16 +26,30 @@ pub(in crate::cli) struct ChiefHome {
 }
 
 impl ChiefHome {
-    /// First match wins: `explicit` (`--chief-home`), `CMUX_CHIEF_HOME`,
-    /// `CMUX_NEXT_CHIEF_HOME` (or `CMUX_NEXT_MUX_HOME`), an isolated launch
-    /// (`CMUX_NEXT_CHIEF_ISOLATED=1` and the app's other isolation markers)
-    /// at `~/.cmux/chief/isolated/<CMUX_TAG or untagged>`, else
-    /// `~/.cmux/chief/<CMUX_NEXT_CHIEF_ACCOUNT or default>`.
+    /// [`Self::resolve_for`] outside any app (no bundle id).
     pub(super) fn resolve(
         explicit: Option<&Path>,
         env: impl Fn(&str) -> Option<String>,
         user_home: &Path,
         cwd: &Path,
+    ) -> Self {
+        Self::resolve_for(explicit, env, user_home, cwd, None)
+    }
+
+    /// First match wins: `explicit` (`--chief-home`), `CMUX_CHIEF_HOME`,
+    /// `CMUX_NEXT_CHIEF_HOME` (or `CMUX_NEXT_MUX_HOME`); then under
+    /// `CMUX_NEXT_CHIEF_ROOT` (isolation markers ignored) or `~/.cmux/chief`:
+    /// an isolated launch (`CMUX_NEXT_CHIEF_ISOLATED=1` and the app's other
+    /// isolation markers) at `isolated/<CMUX_TAG or untagged>`, else the
+    /// build's home: `<account>` for NIGHTLY and outside any app,
+    /// `<bundle id>[.<account>]` for any other build. A DEV bundle may name
+    /// another build in `CMUX_NEXT_CHIEF_BUILD_ID` (tests only).
+    pub(super) fn resolve_for(
+        explicit: Option<&Path>,
+        env: impl Fn(&str) -> Option<String>,
+        user_home: &Path,
+        cwd: &Path,
+        bundle_id: Option<&str>,
     ) -> Self {
         let value = |key: &str| env(key).filter(|v| !v.is_empty());
         let given = explicit.map(Path::to_path_buf).or_else(|| {
@@ -38,12 +63,14 @@ impl ChiefHome {
             // An explicit home is the caller's; the default Chief is never it.
             return Self { root: standardized(&absolute), isolated: true };
         }
-        let base = user_home.join(".cmux/chief");
-        let isolated = value("CMUX_NEXT_CHIEF_ISOLATED").as_deref() == Some("1")
-            || value("CMUX_NEXT_NO_ACTIVATE").as_deref() == Some("1")
-            || value("CMUX_NEXT_SHOWCASE").as_deref() == Some("1")
-            || value("CMUX_NEXT_TEST_WINDOW_FRAME").is_some()
-            || value("CMUX_NEXT_TEST_WINDOW_SCREEN").is_some();
+        let root_override = value("CMUX_NEXT_CHIEF_ROOT").map(|p| standardized(&cwd.join(p)));
+        let base = root_override.clone().unwrap_or_else(|| user_home.join(".cmux/chief"));
+        let isolated = root_override.is_none()
+            && (value("CMUX_NEXT_CHIEF_ISOLATED").as_deref() == Some("1")
+                || value("CMUX_NEXT_NO_ACTIVATE").as_deref() == Some("1")
+                || value("CMUX_NEXT_SHOWCASE").as_deref() == Some("1")
+                || value("CMUX_NEXT_TEST_WINDOW_FRAME").is_some()
+                || value("CMUX_NEXT_TEST_WINDOW_SCREEN").is_some());
         if isolated {
             let tag = value("CMUX_TAG").and_then(|t| component(&t)).unwrap_or("untagged".into());
             return Self { root: standardized(&base.join("isolated").join(tag)), isolated: true };
@@ -51,7 +78,18 @@ impl ChiefHome {
         let account = value("CMUX_NEXT_CHIEF_ACCOUNT")
             .and_then(|a| component(&a))
             .unwrap_or("default".into());
-        Self { root: standardized(&base.join(account)), isolated: false }
+        let build = bundle_id
+            .filter(|id| crate::app_identity::is_debug_bundle(id))
+            .and_then(|_| value("CMUX_NEXT_CHIEF_BUILD_ID"))
+            .or_else(|| bundle_id.map(str::to_owned));
+        let name = match build.as_deref() {
+            None | Some(SHARED_HOME_BUILD_ID) => account,
+            Some(id) => {
+                let id = component(id).unwrap_or("unbundled".into());
+                if account == "default" { id } else { format!("{id}.{account}") }
+            }
+        };
+        Self { root: standardized(&base.join(name)), isolated: false }
     }
 
     /// `cmux-chief-<FNV-1a 32 of the root path>`, the app's session name.

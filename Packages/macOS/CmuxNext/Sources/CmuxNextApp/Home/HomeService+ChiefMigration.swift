@@ -25,8 +25,11 @@ extension HomeService {
     /// brain host use its owner (home-state-ownership.md section 7). While an
     /// older build's host still runs, Home says so and the owner stays
     /// unpublished; the next launch tries again. Nothing is stopped.
+    /// A build's own Chief home (one Chief per build) starts empty: only a
+    /// shared home (NIGHTLY's, or an explicit one) takes in the old Chiefs.
     func installChiefMigration() {
         let home = chief.home
+        guard home.importsOldChiefs else { return }
         let create = HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
