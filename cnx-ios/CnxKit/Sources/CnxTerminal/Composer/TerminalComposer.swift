@@ -72,8 +72,10 @@ struct TerminalComposer: View {
                 text: $model.composerText,
                 placeholder: model.composerPlaceholder,
                 focusRequest: model.composerFocusRequest,
+                focusOnAppear: model.composerFocusOnAppear,
                 onFocusChange: { isFocused in
                     model.composerFocused = isFocused
+                    if isFocused { model.composerFocusOnAppear = false }
                     if isFocused { model.directTyping = false }
                 },
                 onReturn: { model.send() }

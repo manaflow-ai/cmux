@@ -20,7 +20,9 @@ public enum TurnRow: Identifiable, Hashable, Sendable {
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
         case .tool(let call): "c-\(call.id)"
-        case .toolGroup(let id, _): "g-\(id)"
+        // A run keeps the id of its first call from one call to many, so the
+        // row is updated in place, never crossfaded with a new row.
+        case .toolGroup(let id, _): "c-\(id)"
         case .edit(let call): "e-\(call.id)"
         case .plan(let id, _): "p-\(id)"
         case .permission(let record): "r-\(record.request.id)"

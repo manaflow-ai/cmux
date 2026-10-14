@@ -187,6 +187,7 @@ public final class WorkspaceCreator {
         let request = NewWorkspaceRequest(macID: mac.id, directory: dir, start: start)
         let placeholder = Self.placeholder(for: request, existing: store.workspaces.filter { $0.macID == mac.id }.map(\.title))
         store.insertPending(placeholder)
+        store.requestFocusOnOpen(placeholder.id)
         phases[placeholder.id] = .pending
         if let dir { recents.note(dir, macID: mac.id) }
         tasks[placeholder.id] = Task { [weak self] in

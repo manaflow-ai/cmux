@@ -155,6 +155,79 @@ public struct ArtifactExtractor: Sendable {
         return found
     }
 
+    // MARK: Logical lines
+
+    /// The output stream breaks a line wherever the sender did: a grid replay
+    /// or a shell that moves to the next row at the right margin turns one
+    /// long path into two rows, which the stream scan reads as two
+    /// references. The terminal's own screen knows better. Ghostty's text read
+    /// joins rows it soft-wrapped, and a row that fills the whole width with
+    /// no trailing space continues on the next row (`columns`).
+    public static func logicalLines(in text: String, columns: Int?) -> [String] {
+        let rows = text.components(separatedBy: CharacterSet.newlines)
+        guard let columns, columns > 0 else { return rows }
+        var lines: [String] = []
+        var current: String?
+        for (index, row) in rows.enumerated() {
+            let joined = (current ?? "") + row
+            let next = index + 1 < rows.count ? rows[index + 1] : ""
+            if row.count == columns, continues(row, into: next) {
+                current = joined
+            } else {
+                lines.append(joined)
+                current = nil
+            }
+        }
+        if let current { lines.append(current) }
+        return lines
+    }
+
+    private static let referenceCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/._-~@+%?=&#:"))
+
+    /// A full row continues only through a reference: it ends, and the next
+    /// row starts, with a path or URL character, and the row's last word is
+    /// not a rule (`-----`, `=====`).
+    private static func continues(_ row: String, into next: String) -> Bool {
+        guard let last = row.unicodeScalars.last, let first = next.unicodeScalars.first,
+              referenceCharacters.contains(last), referenceCharacters.contains(first) else { return false }
+        let word = row.split(whereSeparator: \.isWhitespace).last ?? ""
+        return Set(word).count > 1
+    }
+
+    /// Rescans the terminal's screen text (logical lines) and merges it with
+    /// what the stream scan found: a reference the stream saw in pieces
+    /// replaces its pieces (start, middle or end: a path over three rows has a
+    /// middle piece) and takes the first piece's place; references that
+    /// left the screen (history) stay. New ones go to the end.
+    public mutating func reconcile(_ existing: [TerminalArtifact], screenText: String, columns: Int?) -> [TerminalArtifact] {
+        var screen = ArtifactExtractor()
+        var whole: [TerminalArtifact] = []
+        for line in Self.logicalLines(in: screenText, columns: columns) where !line.isEmpty {
+            whole += screen.scanLine(line)
+        }
+        let onScreen = Set(whole.map(\.reference))
+        var result = existing
+        for artifact in whole where !result.contains(where: { $0.reference == artifact.reference }) {
+            let pieces = result.filter { piece in
+                !onScreen.contains(piece.reference)
+                    && artifact.reference.contains(piece.reference)
+            }
+            var artifact = artifact
+            if let first = pieces.min(by: { $0.order < $1.order }) {
+                artifact.order = first.order
+                let dropped = Set(pieces.map(\.reference))
+                result.removeAll { dropped.contains($0.reference) }
+                result.append(artifact)
+            } else {
+                artifact.order = count
+                count += 1
+                result.append(artifact)
+            }
+            seen.insert(artifact.reference)
+        }
+        return result.sorted { $0.order < $1.order }
+    }
+
     private mutating func add(_ artifact: TerminalArtifact, to found: inout [TerminalArtifact]) {
         guard seen.insert(artifact.reference).inserted else { return }
         var artifact = artifact

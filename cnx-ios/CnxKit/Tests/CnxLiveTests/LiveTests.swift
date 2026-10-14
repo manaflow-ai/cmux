@@ -660,3 +660,82 @@ final class Seen: @unchecked Sendable {
         #expect((try? result.get()) == 3)
     }
 }
+
+// MARK: Feed history (round 2: the Feed was empty after a relaunch)
+
+@MainActor
+@Suite struct FeedHistoryTests {
+    nonisolated static let endedAt = 1_760_000_000_000.0
+
+    /// A Mac whose watch reports a session with a finished turn, and that sends
+    /// the next turn's `session_changed` when asked to (`session/prompt`).
+    static func macWithHistory() -> MockMacLink {
+        MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String else { return [] }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
+            switch method {
+            case "_acpmux/watch":
+                return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"claude","cwd":"/tmp/w","status":"idle","preview":"Tests pass.","lastPrompt":"run the tests","lastSeq":40,"lastTurn":{"turnId":"t9","status":"completed","endedAt":\#(endedAt)}},{"sessionId":"s2","name":"New","harness":"codex","cwd":"/tmp/w","status":"idle","lastSeq":0}]}"#)]
+            case "session/prompt":
+                return [reply("{}"), Data(#"{"jsonrpc":"2.0","method":"_acpmux/session_changed","params":{"sessionId":"s1","kind":"record","recordKind":"turn_result","seq":44,"session":{"sessionId":"s1","name":"Fix","harness":"claude","cwd":"/tmp/w","status":"idle","preview":"Tests pass.","lastPrompt":"run the tests","lastSeq":44,"lastTurn":{"turnId":"t9","status":"completed","endedAt":\#(endedAt)}}}}"#.utf8)]
+            default:
+                return [reply("{}")]
+            }
+        }
+    }
+
+    @Test func connectingShowsTheMacsLastTurns() async throws {
+        let hub = AcpmuxHub()
+        let feedStore = FeedStore(items: [])
+        let feed = LiveFeed(store: feedStore, hub: hub, place: { _ in nil })
+        hub.onWatchEvent = { feed.handle($0, sessions: hub.sessions) }
+        await hub.bind(try await Self.macWithHistory().openChannel(service: "acpmux", args: [:]))
+        #expect(feedStore.items.map(\.id) == ["turn-s1-t9"])
+        let item = try #require(feedStore.items.first)
+        #expect(item.markdown == "Tests pass.")
+        #expect(item.quote?.text == "run the tests")
+        #expect(item.createdAt == Date(timeIntervalSince1970: Self.endedAt / 1000))
+        #expect(feedStore.unseenNewIDs.isEmpty)
+
+        // The same turn arriving live (a late session_changed) is not a second item.
+        _ = try await hub.request("session/prompt", .object([:]))
+        for _ in 0..<200 { await Task.yield() }
+        #expect(feedStore.items.map(\.id) == ["turn-s1-t9"])
+    }
+
+    @Test func historyKeepsWhatThePersonDid() {
+        let date = Date(timeIntervalSince1970: 1_000)
+        let item = FeedItem(id: "turn-s1-t9", kind: .response, workspaceID: "", tabID: "s1", agentName: "Claude", harness: "claude",
+                            workspaceTitle: "w", markdown: "Done", quote: nil, createdAt: date)
+        let store = FeedStore(items: [item])
+        store.markDone(item.id)
+        store.mergeHistory([item])
+        #expect(store.items.first?.isDone == true)
+        store.upsert(item, atTop: true)
+        #expect(store.items.first?.isDone == true)
+        #expect(store.visibleItems.isEmpty)
+    }
+
+    @Test func archiveRoundTripsFinishedTurnsOnly() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "feed-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let archive = FeedArchive(url: url)
+        var done = FeedItem(id: "turn-a", kind: .response, workspaceID: "ws", tabID: "t", agentName: "Claude", harness: "claude",
+                            workspaceTitle: "cmux", markdown: "**Done**", quote: .init("go"), createdAt: Date(timeIntervalSince1970: 2_000))
+        done.isDone = true
+        done.isRead = true
+        let failed = FeedItem(id: "turn-b", kind: .failed, workspaceID: "ws", tabID: "t", agentName: "Codex", harness: "codex",
+                              workspaceTitle: "cmux", markdown: "The turn failed.", quote: nil, createdAt: Date(timeIntervalSince1970: 3_000))
+        let request = ACPPermissionRequest(id: "p", toolCall: .init(id: "c", title: "rm", kind: .execute), options: [])
+        let ask = FeedItem(id: "ask-p", kind: .permission(request), workspaceID: "ws", tabID: "t", agentName: "Claude", harness: "claude",
+                           workspaceTitle: "cmux", markdown: "rm", quote: nil, createdAt: Date(timeIntervalSince1970: 4_000))
+        archive.save([done, failed, ask])
+        let loaded = archive.load()
+        #expect(loaded.map(\.id) == ["turn-b", "turn-a"])
+        #expect(loaded.last?.isDone == true)
+        #expect(loaded.last?.quote?.text == "go")
+        #expect(loaded.first?.kind == .failed)
+    }
+}

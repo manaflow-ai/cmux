@@ -154,7 +154,7 @@ tables per section 6.6; blockquote 3 pt leading bar `separator`.
 | Toolbar vertical center | safe-area top + 22 | System toolbar; do not hand-place. |
 | Composer card | radius 24 continuous, min height 96, side margin 12 (ChatGPT/Grok 18..22, chosen 12 to widen text) | `claude-09-chat` 823..918, `grok-03`. |
 | Composer collapsed capsule | height 48, radius 24, side margin 20 | `chatgpt-17` "Work with ChatGPT". |
-| Composer gap above keyboard | 8 | `chatgpt-01` (~10). |
+| Composer gap above keyboard | 8 (card bottom to the keyboard's top edge) | Measured in pixels (round 2, `verify/round2.md`): `claude-05` 7, `grok-01` and `grok-03` 7, `chatgpt-01` 13; Messages 16. The AI apps cluster at 7; 8 is within the 0.7 pt measurement step. cnx-ios measures 8.0 (`gap-tab`). |
 | Composer gap above home indicator (no tab bar) | 8 above the bottom safe area | `claude-09-chat`. |
 | Small circle in composer (`+`, mic, primary) | 36 x 36, symbol 15 pt semibold for primary, 17 regular for others | All three. |
 | Model pill | height 34, horizontal padding 12, capsule, `fill` | `claude-05-composer-focused`. |

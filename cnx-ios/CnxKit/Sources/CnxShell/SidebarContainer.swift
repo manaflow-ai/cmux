@@ -401,6 +401,14 @@ private final class EdgeSwipePriority: UIGestureRecognizer {
                     scroll.panGestureRecognizer.require(toFail: pop)
                     linked.add(scroll.panGestureRecognizer)
                 }
+                // Waiting is not always enough: over the diff's 2D code view
+                // (the page's own scroller) the pop still yielded and the
+                // code bounced (round2.md). A scroller at its leading edge has
+                // nothing to scroll back to, so it sits this edge touch out.
+                for scroll in scrollers where scroll.contentOffset.x <= -scroll.adjustedContentInset.left + 0.5 {
+                    scroll.panGestureRecognizer.isEnabled = false
+                    scroll.panGestureRecognizer.isEnabled = true
+                }
                 return
             }
             responder = current.next

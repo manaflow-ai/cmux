@@ -36,6 +36,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The chrome insets the pages were last laid out with, for cards.
     @ObservationIgnored private var lastInsets = EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)
     @ObservationIgnored var pageHeight: CGFloat = 874
+    /// A workspace created on this phone opens its first tab ready to type.
+    /// Kept while the Mac creates it, since the placeholder tab becomes the
+    /// Mac's real tab (a new page) once it confirms.
+    @ObservationIgnored private var focusOnOpen = false
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
                 sessions: AgentSessionDirectory = .shared) {
@@ -47,6 +51,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             selectedTabID = tab.id
             store.noteOpened(tabID: tab.id, in: workspaceID)
         }
+        focusOnOpen = store.takeFocusOnOpen(workspaceID)
         for tab in store.workspace(id: workspaceID)?.tabs ?? [] where tab.kind == .browser {
             browsers[tab.id] = BrowserTabModel(url: tab.url)
         }
@@ -146,10 +151,26 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if tab.kind == .agent { surface(id).composerFocused = true }
         store.appendTab(tab, to: workspaceID)
         activate(id)
+        // A new terminal is the same: a fresh shell's next step is a
+        // command, and terminal apps (Blink, Termius, Prompt) raise the
+        // keyboard for a new session.
+        if tab.kind == .terminal, let workspace { terminal.focusInput(for: tab, in: workspace) }
         return id
     }
 
     // MARK: Per-tab state
+
+    /// A page appeared: in a workspace this phone just created, its active
+    /// agent chat or terminal opens with the keyboard up.
+    func pageAppeared(_ tabID: String) {
+        guard focusOnOpen, tabID == activeTabID, let workspace, let tab = workspaceTab(tabID) else { return }
+        switch tab.kind {
+        case .agent: surface(tabID).composerFocused = true
+        case .terminal: terminal.focusInput(for: tab, in: workspace)
+        case .browser: break
+        }
+        if !store.isPending(workspaceID) { focusOnOpen = false }
+    }
 
     func surface(_ id: String) -> AgentChatSurface {
         if let surface = surfaces[id] { return surface }
@@ -268,7 +289,10 @@ struct WorkspaceTabPage: View {
     var body: some View {
         if let workspace = source.workspace, let tab = workspace.tabs.first(where: { $0.id == tabID }) {
             page(tab, workspace)
-                .onAppear { source.remember(context.safeAreaInsets, pageHeight: context.pageSize.height) }
+                .onAppear {
+                    source.remember(context.safeAreaInsets, pageHeight: context.pageSize.height)
+                    source.pageAppeared(tabID)
+                }
         }
     }
 

@@ -106,6 +106,9 @@ public struct AcpmuxSession: Hashable, Sendable {
     public var updatedAt: Date?
     /// `lastTurn.status`: completed, cancelled or failed.
     public var lastTurnStatus: String?
+    /// `lastTurn.turnId` and `lastTurn.endedAt`: the turn a Feed item is about.
+    public var lastTurnID: String?
+    public var lastTurnEndedAt: Date?
 
     init?(_ value: JSONValue) {
         guard let id = value["sessionId"]?.stringValue else { return nil }
@@ -120,6 +123,8 @@ public struct AcpmuxSession: Hashable, Sendable {
         pendingPermissions = Int(value["pendingPermissions"]?.numberValue ?? 0)
         lastSeq = Int(value["lastSeq"]?.numberValue ?? 0)
         lastTurnStatus = value["lastTurn"]?["status"]?.stringValue
+        lastTurnID = value["lastTurn"]?["turnId"]?.stringValue
+        lastTurnEndedAt = value["lastTurn"]?["endedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
         updatedAt = value["updatedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 

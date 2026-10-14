@@ -27,17 +27,22 @@ public final class TerminalModel {
     var composerFocused = false
     /// Incremented to ask the composer field to take focus.
     var composerFocusRequest = 0
+    /// Focus asked for before the composer was on screen (a new tab).
+    var composerFocusOnAppear = false
     public internal(set) var attachments: [ComposerAttachment] = []
     var showPhotoPicker = false
     var showFileImporter = false
 
     // Artifacts
     public internal(set) var artifacts: [TerminalArtifact] = []
-    public var showArtifacts = false
+    public var showArtifacts = false {
+        didSet { if showArtifacts, !oldValue { reconcileArtifactsWithScreen() } }
+    }
     var artifactPath: [TerminalArtifact] = []
     /// Previews of HTML and Markdown show their source.
     var previewShowsSource = false
     private var extractor = ArtifactExtractor()
+    private var reconcilePending = false
 
     let joystickEngine = JoystickEngine()
 
@@ -60,6 +65,7 @@ public final class TerminalModel {
         case .output(let data):
             let found = extractor.scan(data)
             if !found.isEmpty { artifacts.append(contentsOf: found) }
+            if showArtifacts { scheduleReconcile() }
         case .alternateScreen(let on):
             isTUI = on
             programName = session.programName
@@ -68,6 +74,28 @@ public final class TerminalModel {
             programName = session.programName
         case .exited:
             break
+        }
+    }
+
+    /// The stream scan sees a path the sender broke at the right margin as
+    /// two references. The surface's screen text has logical lines (soft
+    /// wraps joined, full-width rows continued), so the list is rescanned
+    /// against it whenever Files and Links is open.
+    func reconcileArtifactsWithScreen() {
+        guard let surface = controller?.surface, let text = surface.screenText() else { return }
+        let columns = surface.grid.columns
+        artifacts = extractor.reconcile(artifacts, screenText: text, columns: columns > 0 ? columns : nil)
+    }
+
+    /// Output arrives in bursts and the surface parses it off the main queue:
+    /// one rescan per main-queue turn, after the burst.
+    private func scheduleReconcile() {
+        guard !reconcilePending else { return }
+        reconcilePending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            reconcilePending = false
+            if showArtifacts { reconcileArtifactsWithScreen() }
         }
     }
 
@@ -118,6 +146,9 @@ public final class TerminalModel {
 
     public func focusComposer() {
         directTyping = false
+        // The field may not exist yet (a new tab whose page just appeared):
+        // it then takes focus once it is in a window.
+        composerFocusOnAppear = true
         composerFocusRequest += 1
     }
 

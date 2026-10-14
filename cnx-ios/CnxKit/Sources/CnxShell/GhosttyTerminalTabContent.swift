@@ -55,6 +55,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         AnyView(TerminalTabPage(host: host(for: tab, in: workspace), insets: context.safeAreaInsets, isInteractive: context.isInteractive))
     }
 
+    func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
+        host(for: tab, in: workspace).model.focusComposer()
+    }
+
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
         AnyView(TerminalTabCard(model: host(for: tab, in: workspace).model, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
     }

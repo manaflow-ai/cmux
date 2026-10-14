@@ -106,7 +106,11 @@ public final class FeedStore {
     @ObservationIgnored public weak var actions: (any FeedActions)?
     public static let shared = FeedStore(items: FeedStore.mockItems(now: Date()))
 
-    public private(set) var items: [FeedItem]
+    public private(set) var items: [FeedItem] {
+        didSet { if items != oldValue { onItemsChange?(items) } }
+    }
+    /// Called after every change (live mode saves the Feed with `FeedArchive`).
+    @ObservationIgnored public var onItemsChange: (@MainActor ([FeedItem]) -> Void)?
     public var filter: FeedFilter = .all
     public var mutedWorkspaces: Set<String> = []
     /// Events that arrived while the person was scrolled away from the top.
@@ -165,12 +169,34 @@ public final class FeedStore {
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             var next = item
             next.isRead = items[index].isRead
+            next.isDone = items[index].isDone
             next.resolution = items[index].resolution ?? item.resolution
             next.replies = items[index].replies
             items[index] = next
         } else {
             insert(item, atTop: atTop)
         }
+    }
+
+    /// Adds history (events from before this launch or this connection) in
+    /// time order. Known items keep what the person did with them (read, done,
+    /// answered); nothing counts as newly arrived.
+    public func mergeHistory(_ history: [FeedItem]) {
+        var next = items
+        for item in history {
+            if let index = next.firstIndex(where: { $0.id == item.id }) {
+                var merged = item
+                merged.isRead = next[index].isRead
+                merged.isDone = next[index].isDone
+                merged.resolution = next[index].resolution ?? item.resolution
+                merged.replies = next[index].replies
+                merged.createdAt = next[index].createdAt
+                next[index] = merged
+            } else {
+                next.append(item)
+            }
+        }
+        items = next.sorted { $0.createdAt > $1.createdAt }
     }
 
     public func item(id: String) -> FeedItem? { items.first { $0.id == id } }

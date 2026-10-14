@@ -651,9 +651,11 @@ struct TurnView: View {
         case .thought(_, let text):
             ThoughtRow(text: text, isLive: turn.status == .running && isLastRow)
         case .tool(let call):
-            ToolRowView(call: call)
+            // One row (same id) as the run grows into a group: swap in
+            // place instead of crossfading two labels over each other.
+            ToolRowView(call: call).transition(.identity)
         case .toolGroup(_, let calls):
-            ToolGroupView(calls: calls, turnRunning: turn.status == .running)
+            ToolGroupView(calls: calls, turnRunning: turn.status == .running).transition(.identity)
         case .edit(let call):
             if call.isRunning {
                 ToolRowView(call: call)
@@ -832,10 +834,7 @@ struct AnswerActionRow: View {
             }
             .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
             ShareLink(item: turn.answerMarkdown) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 16))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 32)
+                IconActionLabel("square.and.arrow.up")
             }
             .accessibilityLabel("Share")
             if isLast {
@@ -847,16 +846,13 @@ struct AnswerActionRow: View {
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
                 }
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 16))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 32)
-                    .contentShape(.rect)
+                IconActionLabel("ellipsis")
             }
             .accessibilityLabel("More")
             Spacer()
             if let duration = turn.duration {
                 Text(ToolWording().duration(duration)).font(.footnote.monospacedDigit()).foregroundStyle(.tertiary)
+                    .lineLimit(1).fixedSize()
             }
         }
         .padding(.top, 2)

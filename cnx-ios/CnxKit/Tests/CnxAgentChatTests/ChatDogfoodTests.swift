@@ -177,3 +177,18 @@ extension StopWhileWaitingTests {
         #expect(question?.state == .cancelled)
     }
 }
+
+/// Round 2: a run of tool calls that grows from one call to a group kept
+/// changing row identity (`c-a` to `g-a`), so the transcript crossfaded the
+/// old row ("Read lib.rs") over the new one ("Read 2 files").
+@Suite struct ToolRunIdentityTests {
+    @Test func aRunKeepsItsRowWhileItGrows() {
+        let first = ACPToolCall(id: "a", title: "Read lib.rs", kind: .read, status: .completed)
+        let second = ACPToolCall(id: "b", title: "Read dial.rs", kind: .read, status: .inProgress)
+        var turn = AgentTurn(id: "t", prompt: "p", promptAt: Date())
+        turn.items = [.tool(first)]
+        let single = turn.rows.map(\.id)
+        turn.items = [.tool(first), .tool(second)]
+        #expect(turn.rows.map(\.id) == single)
+    }
+}

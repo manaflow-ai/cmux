@@ -31,6 +31,8 @@ public final class AcpmuxHub {
         case sessionChanged(AcpmuxSession, recordKind: String, seq: Int)
         case permissionPending(sessionID: String, permissionID: String, request: JSONValue)
         case permissionResolved(sessionID: String)
+        /// Every session, as the watch reported them on (re)connecting.
+        case sessionsLoaded([AcpmuxSession])
     }
 
     private struct WeakSource { weak var source: AcpmuxSessionSource? }
@@ -70,6 +72,7 @@ public final class AcpmuxHub {
             lastError = nil
             log.info("acpmux ready, \(next.count, privacy: .public) sessions")
             for entry in sources.values { entry.source?.linkUp() }
+            onWatchEvent?(.sessionsLoaded(Array(next.values)))
             await seedPending(connection)
         } catch {
             lastError = LinkController.reason(error)

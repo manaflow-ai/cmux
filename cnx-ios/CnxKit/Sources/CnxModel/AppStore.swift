@@ -160,6 +160,20 @@ public final class AppStore {
         workspaceAliases[id] ?? id
     }
 
+    /// Workspaces this phone just created: their first tab opens ready to
+    /// type (keyboard up), like a new chat in ChatGPT or Claude.
+    public private(set) var focusOnOpenWorkspaceIDs: Set<String> = []
+
+    public func requestFocusOnOpen(_ workspaceID: String) {
+        focusOnOpenWorkspaceIDs.insert(resolvedWorkspaceID(workspaceID))
+    }
+
+    /// True once per request (placeholder or the real id it became).
+    public func takeFocusOnOpen(_ workspaceID: String) -> Bool {
+        focusOnOpenWorkspaceIDs.remove(workspaceID) != nil
+            || focusOnOpenWorkspaceIDs.remove(resolvedWorkspaceID(workspaceID)) != nil
+    }
+
     public func isPending(_ workspaceID: String) -> Bool {
         pendingWorkspaceIDs.contains(workspaceID)
     }

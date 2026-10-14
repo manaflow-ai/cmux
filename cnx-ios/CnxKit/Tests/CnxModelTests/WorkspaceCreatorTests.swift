@@ -41,6 +41,16 @@ final class ScriptedBackend: WorkspaceCreationBackend {
         return (store, WorkspaceCreator(store: store, backend: backend, defaults: defaults), backend)
     }
 
+    /// Round 2: a workspace made from the list opened with the keyboard down.
+    @Test func aCreatedWorkspaceOpensReadyToType() async throws {
+        let (store, creator, _) = make()
+        let placeholder = try #require(creator.create())
+        #expect(store.takeFocusOnOpen(placeholder.id))
+        #expect(!store.takeFocusOnOpen(placeholder.id))
+        // Opening an existing workspace does not raise the keyboard.
+        #expect(!store.takeFocusOnOpen("ws-cmux"))
+    }
+
     @Test func tapInsertsAPendingRowAndSettlesToTheSameWorkspace() async throws {
         let (store, creator, backend) = make()
         backend.holds = true

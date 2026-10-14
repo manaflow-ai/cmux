@@ -74,15 +74,31 @@ public struct IconAction: View {
 
     public var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(.secondary)
-                .contentTransition(.symbolEffect(.replace))
-                .frame(width: 32, height: 32)
-                .contentShape(.rect)
+            IconActionLabel(systemImage)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+}
+
+/// The glyph of an `IconAction` (also the label of a `ShareLink` or `Menu`
+/// in the same row): 16 pt in a 32 pt target at the default text size,
+/// scaled with Dynamic Type like the text around it.
+public struct IconActionLabel: View {
+    let systemImage: String
+    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 16
+
+    public init(_ systemImage: String) {
+        self.systemImage = systemImage
+    }
+
+    public var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: size, weight: .regular))
+            .foregroundStyle(.secondary)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(width: size * 2, height: size * 2)
+            .contentShape(.rect)
     }
 }
 

@@ -123,10 +123,12 @@ struct ToolGroupView: View {
                         .font(.system(size: 14))
                         .foregroundStyle(calls.contains(where: \.isFailed) ? Color.cnxDanger : .secondary)
                         .frame(width: 18)
+                    // The summary changes as calls arrive and finish: swap the
+                    // label in place, never crossfade old and new text.
                     if calls.contains(where: \.isRunning) {
-                        WorkingLabel(wording.summary(calls), font: .subheadline)
+                        WorkingLabel(wording.summary(calls), font: .subheadline).transition(.identity)
                     } else {
-                        Text(wording.summary(calls)).font(.subheadline).foregroundStyle(.secondary)
+                        Text(wording.summary(calls)).font(.subheadline).foregroundStyle(.secondary).transition(.identity)
                     }
                     Spacer(minLength: 4)
                     if let duration = groupDuration {

@@ -110,6 +110,8 @@ import SwiftUI
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView { AnyView(EmptyView()) }
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView { AnyView(EmptyView()) }
     func overviewWillAppear(active tab: WorkspaceTab) { prepared.append(tab.id) }
+    var focused: [String] = []
+    func focusInput(for tab: WorkspaceTab, in workspace: Workspace) { focused.append(tab.id) }
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] {
         [TerminalTabAction(title: "Show Keyboard", systemImage: "keyboard") { self.performed.append("keyboard") },
          TerminalTabAction(title: "Files and Links", systemImage: "folder") { self.performed.append("files") }]
@@ -128,6 +130,24 @@ import SwiftUI
         #expect(groups.last?.map(\.title) == ["Close Tab"])
         groups.first?.last?.action()
         #expect(content.performed == ["files"])
+    }
+
+    /// Round 2: new chats and terminals open with the keyboard up; existing ones do not.
+    @Test func newWorkspacesAndTabsOpenReadyToType() async throws {
+        let content = RecordingTerminalContent()
+        let store = AppStore.mock(tabMemory: .inMemory(["ws-cmux": "t-claude"]))
+        // Opening an existing workspace leaves the keyboard down.
+        let existing = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
+        existing.pageAppeared("t-claude")
+        #expect(existing.surface("t-claude").composerFocused == false)
+        // A workspace this phone just created opens focused (agent chat).
+        store.requestFocusOnOpen("ws-cmux")
+        let created = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
+        created.pageAppeared("t-claude")
+        #expect(created.surface("t-claude").composerFocused)
+        // A new terminal tab raises the keyboard on its composer.
+        let id = await created.createTab(try #require(created.newTabOptions.first { $0.id == "terminal" }))
+        #expect(content.focused == [try #require(id)])
     }
 
     @Test func gridOpeningPreparesTheActiveTerminalCard() {

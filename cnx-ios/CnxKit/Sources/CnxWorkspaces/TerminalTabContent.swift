@@ -39,12 +39,15 @@ public protocol TerminalTabContent: AnyObject {
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction]
     /// The tab grid is about to open with `tab` active: refresh its card.
     func overviewWillAppear(active tab: WorkspaceTab)
+    /// A new terminal tab or workspace: put the keyboard up on its composer.
+    func focusInput(for tab: WorkspaceTab, in workspace: Workspace)
 }
 
 extension TerminalTabContent {
     public func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView? { nil }
     public func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] { [] }
     public func overviewWillAppear(active tab: WorkspaceTab) {}
+    public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
 }
 
 /// A page menu row a terminal tab adds.

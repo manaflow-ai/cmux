@@ -144,6 +144,23 @@ final class TerminalSurfaceView: UIView {
         return CGSize(width: CGFloat(size.cell_width_px) / scale, height: CGFloat(size.cell_height_px) / scale)
     }
 
+    /// The whole screen (scrollback and active area) as text. Ghostty joins
+    /// the rows it soft-wrapped, so a long path reads as one line. Takes the
+    /// surface lock: call it on demand (Files and Links), never per frame.
+    func screenText() -> String? {
+        guard let surface else { return nil }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
     /// Columns and rows of the local grid.
     var grid: (columns: Int, rows: Int) {
         guard let surface else { return (0, 0) }

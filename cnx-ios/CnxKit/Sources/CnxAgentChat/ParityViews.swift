@@ -273,9 +273,11 @@ struct SubagentRowView: View {
         case .thought(_, let text):
             ThoughtRow(text: text, isLive: turn.status == .running && isLast)
         case .tool(let call):
-            ToolRowView(call: call)
+            // One row (same id) as the run grows into a group: swap in
+            // place instead of crossfading two labels over each other.
+            ToolRowView(call: call).transition(.identity)
         case .toolGroup(_, let calls):
-            ToolGroupView(calls: calls, turnRunning: turn.status == .running)
+            ToolGroupView(calls: calls, turnRunning: turn.status == .running).transition(.identity)
         case .edit(let call):
             if call.isRunning {
                 ToolRowView(call: call)

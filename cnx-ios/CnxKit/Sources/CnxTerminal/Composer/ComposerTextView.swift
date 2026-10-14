@@ -10,6 +10,9 @@ struct ComposerTextView: UIViewRepresentable {
     @Binding var text: String
     let placeholder: String
     let focusRequest: Int
+    /// A focus request made before the field existed (a new terminal tab):
+    /// take focus once the field is in a window.
+    var focusOnAppear = false
     let onFocusChange: (Bool) -> Void
     let onReturn: () -> Void
 
@@ -39,6 +42,7 @@ struct ComposerTextView: UIViewRepresentable {
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.setContentHuggingPriority(.required, for: .vertical)
         context.coordinator.lastFocusRequest = focusRequest
+        view.focusWhenInWindow = focusOnAppear
         return view
     }
 
@@ -92,6 +96,14 @@ struct ComposerTextView: UIViewRepresentable {
 /// UITextView with a placeholder label.
 final class ComposerUITextView: UITextView {
     private let placeholderLabel = UILabel()
+    var focusWhenInWindow = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, focusWhenInWindow else { return }
+        focusWhenInWindow = false
+        becomeFirstResponder()
+    }
 
     var placeholder: String = "" {
         didSet { placeholderLabel.text = placeholder }

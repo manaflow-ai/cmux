@@ -69,13 +69,38 @@ public final class LiveFeed: FeedActions {
                 for id in asks { store.resolveElsewhere(id, text: "Answered") }
             }
             guard recordKind == "turn_result" else { return }
-            let failed = session.lastTurnStatus == "failed"
-            let markdown = session.preview.flatMap { $0.isEmpty ? nil : $0 } ?? (failed ? "The turn failed." : "Finished.")
-            store.upsert(item(id: "turn-\(session.id)-\(seq)", kind: failed ? .failed : .response, sessionID: session.id, session: session,
-                              markdown: markdown, quote: session.lastPrompt.map { FeedItem.Quote($0) }), atTop: true)
+            store.upsert(turnItem(session, fallbackKey: "\(seq)", at: now()), atTop: true)
         case .permissionResolved:
             break
+        case .sessionsLoaded(let sessions):
+            hydrate(sessions)
         }
+    }
+
+    /// The watch reports only what happens after it starts, so a relaunched
+    /// phone (or a new connection) would show an empty Feed while the Mac has
+    /// history. Each session's last finished turn becomes its Feed item, with
+    /// the same id a live `turn_result` uses, at the time the turn ended.
+    func hydrate(_ sessions: [AcpmuxSession]) {
+        let history = sessions.compactMap { session -> FeedItem? in
+            guard session.lastTurnStatus != nil, let turnID = session.lastTurnID else { return nil }
+            return turnItem(session, fallbackKey: turnID, at: session.lastTurnEndedAt ?? session.updatedAt ?? now())
+        }
+        log.info("feed history \(history.count, privacy: .public) turns")
+        store.mergeHistory(history)
+    }
+
+    /// A finished turn's item: keyed by the turn (live and history agree).
+    func turnItem(_ session: AcpmuxSession, fallbackKey: String, at date: Date) -> FeedItem {
+        let failed = session.lastTurnStatus == "failed"
+        let stopped = session.lastTurnStatus == "cancelled"
+        let markdown = session.preview.flatMap { $0.isEmpty ? nil : $0 }
+            ?? (failed ? "The turn failed." : stopped ? "Stopped." : "Finished.")
+        var item = item(id: "turn-\(session.id)-\(session.lastTurnID ?? fallbackKey)", kind: failed ? .failed : .response,
+                        sessionID: session.id, session: session, markdown: markdown,
+                        quote: session.lastPrompt.map { FeedItem.Quote($0) })
+        item.createdAt = date
+        return item
     }
 
     func item(id: String, kind: FeedItem.Kind, sessionID: String, session: AcpmuxSession?, markdown: String, quote: FeedItem.Quote?) -> FeedItem {

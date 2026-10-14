@@ -45,8 +45,30 @@ public struct SessionArtifacts: Sendable {
         var inline: [String: ArtifactContent] = [:]
         var count = 0
 
+        /// Relevance order (the browser lists the highest `order` first):
+        /// files the agent edited or created and your attachments, then files
+        /// it read, then other files it touched or named, then links. Newest
+        /// first within each tier.
         var result: SessionArtifacts {
-            SessionArtifacts(artifacts: entries.values.map(\.artifact).sorted { $0.order < $1.order }, inline: inline)
+            let ranked = entries.values.sorted { lhs, rhs in
+                let (a, b) = (Self.tier(lhs.artifact, lhs.weight), Self.tier(rhs.artifact, rhs.weight))
+                return a != b ? a < b : lhs.artifact.order > rhs.artifact.order
+            }
+            let artifacts = ranked.enumerated().map { index, entry in
+                var artifact = entry.artifact
+                artifact.order = ranked.count - 1 - index
+                return artifact
+            }
+            return SessionArtifacts(artifacts: artifacts, inline: inline)
+        }
+
+        static func tier(_ artifact: TerminalArtifact, _ weight: Weight) -> Int {
+            if artifact.kind == .link { return 3 }
+            switch weight {
+            case .edited, .attached: return 0
+            case .read: return 1
+            case .searched, .output, .linked, .mentioned: return 2
+            }
         }
 
         /// Paths inside the session's folder show relative to it.

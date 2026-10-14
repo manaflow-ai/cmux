@@ -52,6 +52,59 @@ import Testing
         #expect(extractor.scan(Data("ME.md\n".utf8)).map(\.reference) == ["README.md"])
         #expect(extractor.scan(Data("README.md again\n".utf8)).isEmpty)
     }
+
+    /// e2e-live.md: a path the Mac's grid wrapped arrived as two rows, and the
+    /// stream scan listed `/live/work/demo/REA` and `DME.md`.
+    @Test func wrappedPathInTheStreamIsTwoFragments() {
+        var extractor = ArtifactExtractor()
+        let found = extractor.scan(Data("cat /live/work/demo/REA\r\nDME.md\r\n".utf8))
+        #expect(found.map(\.reference) == ["/live/work/demo/REA", "DME.md"])
+    }
+
+    @Test func rowsThatFillTheWidthJoinTheNextRow() {
+        // 20 columns: the first row is full, so the next one continues it.
+        let rows = "$ cat /live/work/dem\no/README.md\nshort line\n$ "
+        #expect(ArtifactExtractor.logicalLines(in: rows, columns: 20)
+            == ["$ cat /live/work/demo/README.md", "short line", "$ "])
+        // Without a width, rows are lines as written.
+        #expect(ArtifactExtractor.logicalLines(in: rows, columns: nil).count == 4)
+        // A full row that ends in a space is a finished line.
+        #expect(ArtifactExtractor.logicalLines(in: "abcdefghi \nnext", columns: 10) == ["abcdefghi ", "next"])
+        // A full-width rule is a line of its own, so the path after it keeps its start.
+        #expect(ArtifactExtractor.logicalLines(in: "----------\n/etc/hosts", columns: 10) == ["----------", "/etc/hosts"])
+    }
+
+    @Test func screenTextReplacesWrappedFragments() {
+        var extractor = ArtifactExtractor()
+        var artifacts = extractor.scan(Data("open docs/a.md\r\ncat /live/work/demo/REA\r\nDME.md\r\nhttps://example.com/lo\r\nng/page\r\n".utf8))
+        #expect(artifacts.map(\.reference).contains("/live/work/demo/REA"))
+        // Ghostty's screen read joins soft-wrapped rows into one logical line.
+        let screen = "open docs/a.md\ncat /live/work/demo/README.md\nhttps://example.com/long/page\n"
+        artifacts = extractor.reconcile(artifacts, screenText: screen, columns: nil)
+        #expect(artifacts.map(\.reference) == ["docs/a.md", "/live/work/demo/README.md", "https://example.com/long/page"])
+        // The whole reference takes its first fragment's place.
+        #expect(artifacts.map(\.order) == artifacts.map(\.order).sorted())
+        // Later output does not list it again.
+        #expect(extractor.scan(Data("ls /live/work/demo/README.md\n".utf8)).isEmpty)
+    }
+
+    /// Seen live (round2.md): a command over three rows left its middle row,
+    /// `e/r2/live/.../2026-10-13-round2-verifica`, as a folder.
+    @Test func aMiddlePieceIsReplacedToo() {
+        var extractor = ArtifactExtractor()
+        let stream = "ls /Users/cmux/cnx-ios-e2\r\ne/r2/live/work/demo/reports/2026-10-13-round2-verifica\r\ntion/long-folder/x.md\r\n"
+        var artifacts = extractor.scan(Data(stream.utf8))
+        #expect(artifacts.count == 3)
+        artifacts = extractor.reconcile(artifacts, screenText: "ls /Users/cmux/cnx-ios-e2e/r2/live/work/demo/reports/2026-10-13-round2-verification/long-folder/x.md\n", columns: nil)
+        #expect(artifacts.map(\.reference) == ["/Users/cmux/cnx-ios-e2e/r2/live/work/demo/reports/2026-10-13-round2-verification/long-folder/x.md"])
+    }
+
+    @Test func reconcileKeepsHistoryThatLeftTheScreen() {
+        var extractor = ArtifactExtractor()
+        let artifacts = extractor.scan(Data("old/notes.md\n".utf8))
+        let merged = extractor.reconcile(artifacts, screenText: "new/plan.md\n", columns: nil)
+        #expect(merged.map(\.reference) == ["old/notes.md", "new/plan.md"])
+    }
 }
 
 #if os(iOS)

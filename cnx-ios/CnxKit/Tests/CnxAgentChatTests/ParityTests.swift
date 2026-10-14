@@ -54,6 +54,26 @@ import Testing
         #endif
     }
 
+    /// Round 2: links from the answer came before the files the agent edited.
+    /// The browser lists by `order`, highest first.
+    @Test func strongestReferencesComeFirst() async throws {
+        let store = await historyStore()
+        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+        let shown = collected.artifacts.sorted { $0.order > $1.order }
+        func rank(_ artifact: TerminalArtifact) -> Int {
+            let detail = artifact.detail ?? ""
+            if artifact.kind == .link { return 3 }
+            if detail.hasPrefix("Edited") || detail.hasPrefix("Created") || detail.hasPrefix("Deleted")
+                || detail.hasPrefix("Moved") || detail == "Attached" { return 0 }
+            if detail.hasPrefix("Read") || detail.hasPrefix("Fetched") { return 1 }
+            return 2
+        }
+        let ranks = shown.map(rank)
+        #expect(ranks == ranks.sorted())
+        #expect(shown.first.map(rank) == 0)
+        #expect(shown.contains { $0.kind == .link })
+    }
+
     @Test func absolutePathsAndRelativeReferences() {
         let collector = SessionArtifacts.Collector(cwd: "/Users/me/cmux")
         #expect(collector.normalize("/Users/me/cmux/src/a.swift") == "src/a.swift")

@@ -107,7 +107,10 @@ public final class LiveCoordinator {
         }
         feed.place = { [weak self] sessionID in self?.place(sessionID: sessionID) }
         feed.hub = acpmux
-        feedStore.replaceAll([])
+        // The Feed as this phone last saw it; the Mac's history merges in on connect.
+        let archive = FeedArchive.forAccount(userID)
+        feedStore.replaceAll(archive.load())
+        feedStore.onItemsChange = { [weak self] _ in self?.scheduleFeedSave(archive) }
         feedStore.actions = feed
         store.workspaces = []
         store.teamDataState = .loading
@@ -425,6 +428,21 @@ public final class LiveCoordinator {
             AgentSessionDirectory.shared.invalidate(id: tabID)
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
+        // History items name their workspace and tab once the tree places their session.
+        if acpmux.isReady { feed.hydrate(Array(acpmux.sessions.values)) }
+    }
+
+    @ObservationIgnored private var feedSavePending = false
+
+    /// One write per main-queue turn, however many items a burst changed.
+    private func scheduleFeedSave(_ archive: FeedArchive) {
+        guard !feedSavePending else { return }
+        feedSavePending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            feedSavePending = false
+            archive.save(feed.store.items)
+        }
     }
 
     private func place(sessionID: String) -> LiveFeed.Place? {
