@@ -8,7 +8,9 @@
 //! each one:
 //!
 //! - **verified**: the process descends from a live cmux terminal's child
-//!   through a chain of parents, each started before its child.
+//!   through a chain of parents, each started before its child; or the
+//!   daemon saw it (or an ancestor) so descend earlier, and its terminal has
+//!   since closed or it left the terminal's tree ([`ledger`]).
 //! - **probable**: the process was reparented out of that chain but is still
 //!   in the session a live cmux terminal's child leads.
 //! - **unattributed**: anything else. A shared controlling terminal is never
@@ -17,17 +19,22 @@
 //! Phase 1 is read-only: [`Runtime::can_stop_safely`] is always false, and a
 //! scan that was cut or partly unreadable is reported as incomplete.
 
+pub mod ledger;
 mod redact;
 mod vendor;
 
 #[cfg(test)]
 mod tests;
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
 use crate::process_inventory::{InventoryProcess, ProcessInventory};
+use crate::process_resources::Sampler;
+
+use ledger::{LedgerView, Observation, ProcessKey, ledger_descendants};
 
 pub use redact::{redact_args, redact_path};
 pub use vendor::{Role, Vendor, recognize};
@@ -61,6 +68,9 @@ pub enum AttributionStatus {
 pub enum AttributionSource {
     /// An unbroken parent chain from a live cmux terminal's child.
     TerminalProcessTree,
+    /// Seen descending from a cmux terminal earlier, by this daemon: the
+    /// terminal closed or the process left its tree.
+    LaunchLedger,
     /// Reparented, but still in a live cmux terminal's session.
     TerminalSession,
     /// No evidence.
@@ -123,18 +133,72 @@ pub struct RuntimeInventory {
     /// missing and attributions may be weaker than the truth.
     pub complete: bool,
     pub scanned_processes: usize,
+    /// Every process the scan showed descending from a cmux terminal (live,
+    /// or through the ledger), agent or not, for the launch ledger.
+    pub observations: Vec<Observation>,
 }
 
-/// Recognize and attribute the agent processes of one scan. `home` turns
-/// the home directory into `~` in paths.
+/// The parent link of one process generation; nothing else about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessLink {
+    pub pid: u32,
+    pub ppid: u32,
+    pub started_ms: u64,
+}
+
+impl ProcessLink {
+    pub fn of(process: &InventoryProcess) -> Self {
+        Self { pid: process.pid, ppid: process.ppid, started_ms: process.started_ms }
+    }
+
+    pub fn key(&self) -> ProcessKey {
+        ProcessKey { pid: self.pid, started_ms: self.started_ms }
+    }
+}
+
+/// Every process generation of a complete scan, for pruning the ledger;
+/// `None` for an incomplete one, which must never prune.
+pub fn complete_keys(scan: &ProcessInventory) -> Option<HashSet<ProcessKey>> {
+    (!scan.truncated && scan.unreadable == 0)
+        .then(|| scan.processes.iter().map(|process| ProcessLink::of(process).key()).collect())
+}
+
+/// Recognize and attribute the agent processes of one scan. `ledger` is
+/// what the daemon saw before; `home` turns the home directory into `~` in
+/// paths.
 pub fn classify(
     scan: &ProcessInventory,
     terminals: &[CmuxTerminal],
+    ledger: &LedgerView,
     home: Option<&str>,
 ) -> RuntimeInventory {
     let by_pid: HashMap<u32, &InventoryProcess> =
         scan.processes.iter().map(|process| (process.pid, process)).collect();
-    let owners = tree_owners(scan, terminals, &by_pid);
+    let links: Vec<ProcessLink> = scan.processes.iter().map(ProcessLink::of).collect();
+    let tree = descendants(
+        &links,
+        terminals.iter().map(|terminal| (terminal.pid, terminal.terminal_id.as_str())),
+    );
+    let ledgered = ledger_descendants(&links, ledger);
+    let mut observations = Vec::with_capacity(tree.len() + ledgered.len());
+    let mut owners: HashMap<u32, (AttributionSource, &str)> = HashMap::new();
+    for (source, list) in [
+        (AttributionSource::TerminalProcessTree, &tree),
+        (AttributionSource::LaunchLedger, &ledgered),
+    ] {
+        for &(pid, terminal_id) in list {
+            let Entry::Vacant(slot) = owners.entry(pid) else {
+                continue;
+            };
+            slot.insert((source, terminal_id));
+            if let Some(process) = by_pid.get(&pid) {
+                observations.push(Observation {
+                    key: ProcessLink::of(process).key(),
+                    terminal_id: terminal_id.to_string(),
+                });
+            }
+        }
+    }
     let mut runtimes: Vec<Runtime> = scan
         .processes
         .iter()
@@ -142,10 +206,10 @@ pub fn classify(
             let (vendor, role) = recognize(process)?;
             let attribution = owners
                 .get(&process.pid)
-                .map(|terminal| Attribution {
+                .map(|(source, terminal_id)| Attribution {
                     status: AttributionStatus::Verified,
-                    source: AttributionSource::TerminalProcessTree,
-                    terminal_id: Some(terminal.terminal_id.clone()),
+                    source: *source,
+                    terminal_id: Some((*terminal_id).to_string()),
                 })
                 .or_else(|| session_owner(process, terminals, &by_pid))
                 .unwrap_or(Attribution::NONE);
@@ -173,32 +237,38 @@ pub fn classify(
         runtimes,
         complete: !scan.truncated && scan.unreadable == 0,
         scanned_processes: scan.processes.len(),
+        observations,
     }
 }
 
-/// The terminal each process descends from. A child counts only when it
-/// started no earlier than its parent: a reused parent pid started later
-/// and is not the parent.
-fn tree_owners<'t>(
-    scan: &ProcessInventory,
-    terminals: &'t [CmuxTerminal],
-    by_pid: &HashMap<u32, &InventoryProcess>,
-) -> HashMap<u32, &'t CmuxTerminal> {
-    let mut children: HashMap<u32, Vec<&InventoryProcess>> = HashMap::new();
-    for process in &scan.processes {
-        if process.pid != process.ppid {
-            children.entry(process.ppid).or_default().push(process);
+/// The processes each root reaches, as `(pid, root's owner)`, roots
+/// first: a child counts only when it started no earlier than its parent (a
+/// reused parent pid started later and is not the parent). A process belongs
+/// to the first root that reaches it; a root missing from the scan reaches
+/// nothing.
+pub(crate) fn descendants<'t>(
+    links: &[ProcessLink],
+    roots: impl IntoIterator<Item = (u32, &'t str)>,
+) -> Vec<(u32, &'t str)> {
+    let by_pid: HashMap<u32, &ProcessLink> = links.iter().map(|link| (link.pid, link)).collect();
+    let mut children: HashMap<u32, Vec<&ProcessLink>> = HashMap::new();
+    for link in links {
+        if link.pid != link.ppid {
+            children.entry(link.ppid).or_default().push(link);
         }
     }
-    let mut owners = HashMap::new();
-    for terminal in terminals {
-        let Some(root) = by_pid.get(&terminal.pid) else {
+    let mut owned = Vec::new();
+    let mut seen = HashSet::new();
+    for (pid, owner) in roots {
+        let Some(root) = by_pid.get(&pid) else {
             continue;
         };
-        let mut seen = HashSet::from([root.pid]);
+        if !seen.insert(root.pid) {
+            continue;
+        }
         let mut stack = vec![*root];
         while let Some(parent) = stack.pop() {
-            owners.entry(parent.pid).or_insert(terminal);
+            owned.push((parent.pid, owner));
             for child in children.get(&parent.pid).into_iter().flatten() {
                 if child.started_ms.saturating_add(START_SLACK_MS) >= parent.started_ms
                     && seen.insert(child.pid)
@@ -208,7 +278,27 @@ fn tree_owners<'t>(
             }
         }
     }
-    owners
+    owned
+}
+
+/// The terminals whose child is still the process cmux started: its parent
+/// is this daemon (an in-daemon PTY) or runs this daemon's executable (a
+/// terminal host). A surface's pid outlives its child until the exit is
+/// noticed; a reused pid has some other parent, and its tree must not be
+/// attributed to the terminal. An adopted child whose parent cannot be
+/// shown is left out, so the error is a missing attribution, never a false
+/// one.
+pub fn cmux_started(links: &[ProcessLink], terminals: Vec<CmuxTerminal>) -> Vec<CmuxTerminal> {
+    let sampler = Sampler::new();
+    let own = std::process::id();
+    terminals
+        .into_iter()
+        .filter(|terminal| {
+            links.iter().find(|link| link.pid == terminal.pid).is_some_and(|child| {
+                child.ppid == own || (child.ppid > 1 && sampler.runs_own_executable(child.ppid))
+            })
+        })
+        .collect()
 }
 
 /// A reparented process still in the session a live cmux terminal leads.

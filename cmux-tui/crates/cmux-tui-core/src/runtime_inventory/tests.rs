@@ -35,6 +35,15 @@ fn scan(processes: Vec<InventoryProcess>) -> ProcessInventory {
     ProcessInventory { processes, truncated: false, unreadable: 0 }
 }
 
+/// [`super::classify`] with an empty launch ledger.
+fn classify(
+    scan: &ProcessInventory,
+    terminals: &[CmuxTerminal],
+    home: Option<&str>,
+) -> RuntimeInventory {
+    super::classify(scan, terminals, &LedgerView::default(), home)
+}
+
 fn terminal(n: u32, pid: u32) -> CmuxTerminal {
     CmuxTerminal { terminal_id: format!("terminal:{n}"), pid }
 }

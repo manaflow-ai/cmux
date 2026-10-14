@@ -10,6 +10,12 @@
 //! so a busy stream can hold it for the whole control timeout. Many closes
 //! therefore end their hosts in parallel instead of one after another on the
 //! requesting connection.
+//!
+//! Before a terminal's process is ended, the launch ledger records its
+//! process tree (runtime_inventory/ledger.rs), so an agent that detached
+//! from it stays attributed. A hosted close records it on the pool, before
+//! the host is signaled; a local one inline, before the kill. Neither holds
+//! a daemon lock.
 
 #[cfg(any(unix, windows))]
 use std::collections::VecDeque;
@@ -17,6 +23,9 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use super::*;
+#[cfg(any(unix, windows))]
+use crate::runtime_inventory::CmuxTerminal;
+use crate::runtime_inventory::ledger::LaunchLedger;
 
 /// Upper bound on concurrent host-exit waiters. Every host already received
 /// its termination request, so a waiter only observes an exit in progress.
@@ -29,6 +38,34 @@ struct PendingHostClose {
     step: HostCloseStep,
     identity: Option<TerminalHostIdentity>,
     host_root: Option<PathBuf>,
+    /// Record the terminal's process tree before it is signaled.
+    observe: Option<ClosingTerminal>,
+}
+
+/// A terminal about to be ended, for the launch ledger.
+#[cfg(any(unix, windows))]
+struct ClosingTerminal {
+    ledger: Arc<LaunchLedger>,
+    terminal: CmuxTerminal,
+    requested: Instant,
+}
+
+#[cfg(any(unix, windows))]
+impl ClosingTerminal {
+    fn of(ledger: &Arc<LaunchLedger>, runtime: &Surface) -> Option<Self> {
+        Some(Self {
+            ledger: ledger.clone(),
+            terminal: CmuxTerminal {
+                terminal_id: runtime.terminal_public_id()?.as_str().to_string(),
+                pid: runtime.process_id()?,
+            },
+            requested: Instant::now(),
+        })
+    }
+
+    fn observe(&self) {
+        self.ledger.observe_closing(&self.terminal, self.requested);
+    }
 }
 
 #[cfg(any(unix, windows))]
@@ -159,6 +196,9 @@ impl TerminalHostCloses {
 /// local runtime was killed inline.
 #[cfg(any(unix, windows))]
 fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
+    if let Some(closing) = close.observe.take() {
+        closing.observe();
+    }
     let termination = match close.runtime.begin_host_termination() {
         Ok(Some(termination)) => Some(termination),
         Ok(None) => {
@@ -190,7 +230,7 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
 
 #[cfg(any(unix, windows))]
 fn finish_host_close(close: PendingHostClose) {
-    let PendingHostClose { runtime, step, identity, host_root } = close;
+    let PendingHostClose { runtime, step, identity, host_root, observe: _ } = close;
     let HostCloseStep::Await(termination, deadline) = step else {
         unreachable!("only a signaled host close is awaited");
     };
@@ -232,6 +272,9 @@ impl Mux {
             if !runtime.has_host_termination() {
                 // A local runtime: kill it inline, and end any host record
                 // left for the same terminal.
+                if let Some(closing) = ClosingTerminal::of(&self.launch_ledger, runtime) {
+                    closing.observe();
+                }
                 runtime.kill();
                 if let Some(identity) = identity {
                     self.terminate_discovered_terminal_host(
@@ -243,6 +286,7 @@ impl Mux {
             }
             let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             self.terminal_host_closes.enqueue(PendingHostClose {
+                observe: ClosingTerminal::of(&self.launch_ledger, runtime),
                 runtime: runtime.clone(),
                 step: HostCloseStep::Signal,
                 identity,
@@ -270,6 +314,7 @@ impl Mux {
                     self.terminal_respawns.forget_argv(&identity.terminal_id);
                 }
                 self.terminal_host_closes.enqueue(PendingHostClose {
+                    observe: ClosingTerminal::of(&self.launch_ledger, &runtime),
                     runtime,
                     step: HostCloseStep::Signal,
                     identity,
@@ -288,5 +333,10 @@ impl Mux {
     /// until `ceiling`. Returns whether all finished.
     pub fn wait_for_terminal_host_closes(&self, stall: Duration, ceiling: Instant) -> bool {
         self.terminal_host_closes.wait_idle(stall, ceiling)
+    }
+
+    /// The launch ledger `agent.runtime.list` reads and feeds.
+    pub(crate) fn launch_ledger(&self) -> &Arc<LaunchLedger> {
+        &self.launch_ledger
     }
 }

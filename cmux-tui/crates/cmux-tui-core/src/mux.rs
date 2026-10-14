@@ -730,6 +730,9 @@ pub struct Mux {
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
+    /// Processes seen under cmux terminals (runtime_inventory/ledger.rs).
+    /// Its locks are leaves: never taken under another daemon lock.
+    launch_ledger: Arc<crate::runtime_inventory::ledger::LaunchLedger>,
     /// Reap grace period for unplaced terminals, in milliseconds.
     terminal_reap_grace_ms: AtomicU64,
     creating_inputs: creating_input::CreatingInputs,
