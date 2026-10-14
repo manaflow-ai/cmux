@@ -15,6 +15,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var atTop = true
     @State private var expanded: Set<String> = []
     @State private var columnWidth: CGFloat = 0
+    /// More chips off the trailing edge (large text sizes): shows the trailing fade.
+    @State private var chipsOverflow = false
     @State private var swipe = FeedSwipeCoordinator()
     @Environment(AppStore.self) private var appStore
     #if DEBUG
@@ -148,6 +150,18 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .padding(.horizontal, 20)
         }
         .scrollIndicators(.hidden)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.x + geometry.containerSize.width < geometry.contentSize.width - 1
+        } action: { _, more in
+            withAnimation(.cnxSnap) { chipsOverflow = more }
+        }
+        .mask {
+            HStack(spacing: 0) {
+                Rectangle()
+                LinearGradient(colors: [.black, chipsOverflow ? .clear : .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 32)
+            }
+        }
         .padding(.vertical, 6)
         .sensoryFeedback(.selection, trigger: store.filter)
     }
