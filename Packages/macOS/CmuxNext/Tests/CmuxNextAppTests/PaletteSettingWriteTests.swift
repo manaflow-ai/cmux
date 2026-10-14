@@ -57,9 +57,11 @@ import Testing
         harness.palette.model.run(row.primary, of: row)
     }
 
-    /// Yields (no sleep) until `done`, for a write that lands off this task.
+    /// Waits up to 5 s for `done`, for a write that lands off this task (file I/O on another actor).
+    /// The row's own value is checked before this runs, so the wait never hides a delay in the row.
     func settle(until done: () -> Bool) async {
-        for _ in 0..<5000 where !done() { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(5)) }
     }
 
     @Test func aToggledSettingShowsItsNewValueAtOnceAndKeepsItWhenTheWriteLands() async throws {
