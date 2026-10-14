@@ -52,7 +52,8 @@
   overflow: auto;
   overscroll-behavior: contain;
   padding: var(--ui-popup-padding);
-  border: 1px solid var(--ui-line);
+  /* One rim: the hairline in --ui-popup-shadow (ui/popupSurface.css), no border over it. */
+  border: 0;
   border-radius: var(--ui-popup-radius);
   background: var(--surface-popup);
   color: var(--ui-fg);
