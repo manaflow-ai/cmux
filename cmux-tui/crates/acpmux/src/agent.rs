@@ -242,8 +242,8 @@ pub(crate) fn harness_command(
             .env("ACPMUX_SESSION_ID", id)
             .env("ACPMUX_SESSION_NAME", sname)
             .env("ACPMUX_SOCKET", crate::config::socket_path())
-            // Its caller token (hub/person.rs (a)); the cmux CLI's caller (beside_caller).
-            .env(crate::hub::person::CALLER_TOKEN_ENV, crate::hub::person::caller_token(id))
+            // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
+            .envs(crate::hub::person::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
     }
     cmd.args(args)

@@ -30,14 +30,17 @@ impl Hub {
     /// every env value and argv word. The preset's args (checked against the
     /// allowlist again) and its system prompt file (checked against its
     /// recorded sha256) are appended here, at every spawn; a remote-origin
-    /// session never gets either.
+    /// session never gets either. The approval digest of the preset contents
+    /// read here is noted on the session (`hub/start_gate/preset_bind.rs`).
     pub(super) async fn spawn_profile(
         &self,
         session: &Session,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<HarnessProfile, RpcError> {
-        self.spawn_profile_for(&session.meta(), profile, defaults_env).await
+        let (p, digest) = self.spawn_profile_read(&session.meta(), profile, defaults_env).await?;
+        self.note_preset_spawned(session, digest);
+        Ok(p)
     }
 
     /// `spawn_profile` for a session's meta, also before the session exists
@@ -48,7 +51,19 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<HarnessProfile, RpcError> {
+        self.spawn_profile_read(meta, profile, defaults_env).await.map(|(p, _)| p)
+    }
+
+    /// `spawn_profile_for`, and the approval digest of the preset contents
+    /// it read (under the one config lock it read them with).
+    async fn spawn_profile_read(
+        &self,
+        meta: &SessionMeta,
+        profile: &HarnessProfile,
+        defaults_env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<(HarnessProfile, Option<String>), RpcError> {
         let mut p = profile.clone();
+        let mut digest = None;
         for (k, v) in defaults_env {
             p.env.entry(k.clone()).or_insert_with(|| v.clone());
         }
@@ -58,6 +73,7 @@ impl Hub {
             if let Some(name) = &meta.preset
                 && let Some(preset) = cfg.presets.get(name)
             {
+                digest = preset.approval_digest();
                 if meta.remote_origin && preset.shapes_command() {
                     return Err(RpcError::invalid_params(format!(
                         "preset {name:?} now carries harness args or a system prompt, which a remote-origin session never starts with"
@@ -109,7 +125,7 @@ impl Hub {
             p.argv.push("--system-prompt-file".into());
             p.argv.push(file.to_string_lossy().into_owned());
         }
-        Ok(p)
+        Ok((p, digest))
     }
 }
 

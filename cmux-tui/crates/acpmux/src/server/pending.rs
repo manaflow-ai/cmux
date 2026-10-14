@@ -24,10 +24,11 @@ pub(super) fn permission_pending(session_id: &str, rec: &EventRecord, via: &str)
 
 /// A peer's `_acpmux/permission_pending` for a watcher of this daemon that
 /// did not attach the session (`hub/person.rs` (c)): the peer's own
-/// notification (its `decisionNonce` and `personInstance` included), with
-/// which peer asks.
-pub(super) fn peer_permission_pending(rec: &EventRecord, peer: &str) -> Value {
+/// notification (its `decisionNonce` and `personInstance` included), for the
+/// session it was checked for (`hub/peers.rs`), with which peer asks.
+pub(super) fn peer_permission_pending(session_id: &str, rec: &EventRecord, peer: &str) -> Value {
     let mut p = rec.msg.clone();
+    p["sessionId"] = Value::String(session_id.to_owned());
     p["peer"] = Value::String(peer.to_owned());
     p["via"] = Value::String("peer".into());
     p

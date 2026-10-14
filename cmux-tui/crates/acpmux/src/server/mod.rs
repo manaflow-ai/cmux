@@ -867,14 +867,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
     if watching {
         if let Some(remote) = &ev.remote {
-            // A peer's prompt the person must answer, for a watcher that did
-            // not attach the session (`hub/person.rs` (c)): the peer's own
-            // notification, with which peer asks.
+            // A peer's prompt the person must answer, for a unix socket or app
+            // watcher that did not attach the session (`hub/person.rs` (c)):
+            // never relayed on to a Web client or another peer daemon.
             if rec.kind == crate::hub::PEER_PERMISSION_PENDING {
-                if !attached {
+                if !attached && !conn.origin.web_class() {
                     conn.send(&Message::notification(
                         method::MUX_PERMISSION_PENDING,
-                        peer_permission_pending(rec, &remote.peer),
+                        peer_permission_pending(&ev.session_id, rec, &remote.peer),
                     ));
                 }
                 return;

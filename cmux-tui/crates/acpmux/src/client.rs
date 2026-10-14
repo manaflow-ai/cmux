@@ -93,11 +93,16 @@ impl Client {
         });
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}});
         // Inside an acpmux session: say which, with the caller token the
-        // daemon put in that session's env (`hub/person.rs` (a)).
+        // daemon put in that session's env (`hub/person.rs` (a)), only to
+        // the socket of the daemon that issued it (never to another daemon,
+        // or whatever listens on a path the agent pointed the CLI at).
         let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-        if let (Some(id), Some(token)) =
-            (caller("ACPMUX_SESSION_ID"), caller(crate::hub::person::CALLER_TOKEN_ENV))
-        {
+        let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
+        if let (Some(id), Some(token), true) = (
+            caller("ACPMUX_SESSION_ID"),
+            caller(crate::hub::person::CALLER_TOKEN_ENV),
+            issuer.is_some_and(|socket| Path::new(&socket) == path),
+        ) {
             let mut meta = serde_json::Map::new();
             meta.insert(
                 crate::hub::person::CALLER_FIELD.to_owned(),

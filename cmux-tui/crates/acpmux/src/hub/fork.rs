@@ -144,6 +144,8 @@ impl Hub {
             adopted_cwd: None,
             harness_roots: vec![],
             composer_draft: None,
+            // It runs the parent's mode: a spawn from other preset contents leaves it too.
+            preset_mode_approval: parent_meta.preset_mode_approval.clone(),
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {

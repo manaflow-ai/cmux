@@ -6,9 +6,15 @@
 use super::person::{REASON, person_required, valid_key};
 use super::*;
 
+mod preset_bind;
+pub(crate) use preset_bind::StartGrant;
+
 /// The env var that carries a session's caller token to its harness (and
 /// so to the acpmux CLI its agent runs).
 pub const CALLER_TOKEN_ENV: &str = "ACPMUX_SESSION_TOKEN";
+/// The env var that names the socket of the daemon that issued the caller
+/// token: the CLI sends the token to that socket only (`client.rs`).
+pub const CALLER_SOCKET_ENV: &str = "ACPMUX_SESSION_TOKEN_SOCKET";
 /// `_meta.acpmux` field of a first `initialize`: `{sessionId, token}`.
 pub const CALLER_FIELD: &str = "callerSession";
 /// `_meta.acpmux` field of `session/new`: the mode the session starts in.
@@ -36,6 +42,13 @@ pub fn caller_token(session_id: &str) -> String {
         caller_secret(),
         &message,
     ))
+}
+
+/// The env a harness of session `session_id` gets for (a): its caller token
+/// and this daemon's socket, the one place the token is sent.
+pub fn caller_env(session_id: &str) -> [(&'static str, String); 2] {
+    let socket = crate::config::socket_path().to_string_lossy().into_owned();
+    [(CALLER_TOKEN_ENV, caller_token(session_id)), (CALLER_SOCKET_ENV, socket)]
 }
 
 /// Whether `token` is the caller token of `session_id` (constant time).
@@ -87,9 +100,16 @@ fn read_host_name() -> Option<String> {
 
 /// The refusal of a mode that does not ask (module docs, (d)): one
 /// sentence that names where the person approves it. `start`: a
-/// `session/new`; else a mode change of a running session.
-pub fn mode_person_required(mode: &str, preset: Option<&str>, start: bool) -> RpcError {
-    let host = host_label();
+/// `session/new`; else a mode change of a running session. `local`: the
+/// unix socket or the local app; a Web or peer client never learns this
+/// host's name (it reads "the Mac that runs it" instead, and no `host`).
+pub fn mode_person_required(
+    mode: &str,
+    preset: Option<&str>,
+    start: bool,
+    local: bool,
+) -> RpcError {
+    let host = if local { host_label() } else { "the Mac that runs it" };
     let message = match (start, preset) {
         (true, Some(p)) => format!(
             "mode {mode} does not ask before it acts, so only the person starts a session in it: approve preset {p} once in cmux NEXT on {host}, or start the session there"
@@ -101,8 +121,11 @@ pub fn mode_person_required(mode: &str, preset: Option<&str>, start: bool) -> Rp
             "mode {mode} does not ask before it acts, so only the person sets it: set it in cmux NEXT on {host}, or start the session from a preset approved there once"
         ),
     };
-    RpcError::new(-32000, message)
-        .with_data(json!({"reason": REASON, "host": host, "mode": mode, "preset": preset}))
+    let mut data = json!({"reason": REASON, "mode": mode, "preset": preset});
+    if local {
+        data["host"] = json!(host);
+    }
+    RpcError::new(-32000, message).with_data(data)
 }
 
 /// What a `session/new` asks to start in (module docs, (a) and (b)).
@@ -112,9 +135,18 @@ pub struct StartMode {
     pub mode: String,
     /// The preset the request names, for the refusal.
     pub preset: Option<String>,
-    /// The person approved the named preset's current contents, its mode is
-    /// this one, and the request keeps its harness and adopts nothing.
+    /// The request starts the named preset as it is: its own mode, its
+    /// harness, no adopted conversation and no model, effort, policy or env
+    /// of its own (module docs, (b)); a folder is fine.
+    pub preset_fits: bool,
+    /// `preset_fits`, and the person approved the preset's current contents.
+    /// The start checks it again against the contents the session resolved
+    /// and spawned with (`start_gate/preset_bind.rs`).
     pub preset_approved: bool,
+    /// The request adopts a conversation (`_meta.acpmux.adopt`), which may be
+    /// a session already running: a mode that does not ask never applies to
+    /// it without the person.
+    pub adopts: bool,
 }
 
 impl StartMode {
@@ -134,13 +166,18 @@ impl StartMode {
         let mode = requested.or_else(|| preset.and_then(|p| p.mode.clone()))?;
         let adopts = meta.and_then(|m| m.get("adopt")).is_some_and(|v| !v.is_null());
         let harness = pick("harness");
-        let preset_approved = preset.is_some_and(|p| {
+        let given = |key: &str| meta.and_then(|m| m.get(key)).or_else(|| params.get(key));
+        let overrides = ["model", "effort", "policy"].into_iter().any(|k| pick(k).is_some())
+            || given("env")
+                .is_some_and(|e| !e.is_null() && e.as_object().is_none_or(|o| !o.is_empty()));
+        let preset_fits = preset.is_some_and(|p| {
             p.mode.as_deref() == Some(mode.as_str())
-                && p.mode_approved()
                 && harness.as_deref().is_none_or(|h| h == p.harness)
                 && !adopts
+                && !overrides
         });
-        Some(Self { mode, preset: preset_name, preset_approved })
+        let preset_approved = preset_fits && preset.is_some_and(|p| p.mode_approved());
+        Some(Self { mode, preset: preset_name, preset_fits, preset_approved, adopts })
     }
 }
 
@@ -196,23 +233,28 @@ impl Hub {
                 Err(_) => return Ok(()),
             }
         };
-        self.start_mode_check(caller, &family, &start)
+        self.start_mode_check(caller, &family, &start).map(|_| ())
     }
 
     /// Whether a client that is not the person may start a session of
-    /// `family` in `start` (module docs, (a), (b)); the refusal names where
-    /// to approve it (d).
+    /// `family` in `start` (module docs, (a), (b)), and why; the refusal
+    /// names where to approve it (d). An adopt never takes a mode that does
+    /// not ask: it may find a session already running, which only the
+    /// person widens (`session/set_mode`).
     pub(crate) fn start_mode_check(
         &self,
         caller: Option<&str>,
         family: &str,
         start: &StartMode,
-    ) -> Result<(), RpcError> {
+    ) -> Result<StartGrant, RpcError> {
         if self.web_modes().config_value_asks(family, None, Some(start.mode.as_str())) {
-            return Ok(());
+            return Ok(StartGrant::Asks);
+        }
+        if start.adopts {
+            return Err(mode_person_required(&start.mode, start.preset.as_deref(), true, true));
         }
         if start.preset_approved {
-            return Ok(());
+            return Ok(StartGrant::Preset);
         }
         // The caller's mode now, on the session the daemon bound it to.
         let inherits =
@@ -222,9 +264,9 @@ impl Hub {
                     && crate::web_modes::mode_of(&m).as_deref() == Some(start.mode.as_str())
             });
         if inherits {
-            Ok(())
+            Ok(StartGrant::Inherit)
         } else {
-            Err(mode_person_required(&start.mode, start.preset.as_deref(), true))
+            Err(mode_person_required(&start.mode, start.preset.as_deref(), true, true))
         }
     }
 
@@ -287,8 +329,10 @@ impl Hub {
     /// `_meta.acpmux.mode`, else its preset's. The request check ran
     /// against the harness the request resolved to; this checks again
     /// against the session as it started (`person`: the connection is the
-    /// person), then sets the mode. A refused or failed mode ends a session
-    /// this request created (never one an adopt found already running).
+    /// person), with a preset's approval held against the contents the
+    /// session resolved and spawned with, then sets the mode. A refused or
+    /// failed mode ends a session this request created (never one an adopt
+    /// found already running).
     pub(crate) async fn start_in_mode(
         self: &Arc<Self>,
         person: bool,
@@ -297,18 +341,20 @@ impl Hub {
         s: &Arc<Session>,
         adopting: bool,
     ) -> Result<(), RpcError> {
-        let start = {
-            let cfg = self.config.read().await;
-            StartMode::of(params, &cfg)
-        };
-        let Some(start) = start else { return Ok(()) };
+        let Some((start, bound)) = self.bound_start(params, s).await else { return Ok(()) };
         let checked = if person {
-            Ok(())
+            Ok(StartGrant::Person)
         } else {
             self.start_mode_check(caller, &crate::web_modes::family_of(&s.meta()), &start)
         };
         let applied = match checked {
-            Ok(()) => self.set_mode(s, &start.mode).await.map(|_| ()),
+            Ok(grant) => match self.set_mode(s, &start.mode).await {
+                Ok(_) => {
+                    self.note_start_grant(s, grant, bound);
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            },
             Err(e) => Err(e),
         };
         if let Err(e) = applied {

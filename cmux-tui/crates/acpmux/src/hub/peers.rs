@@ -386,7 +386,14 @@ impl Hub {
                         // clients derive it from the permission_request event):
                         // the peer's decision nonce and run come with it, so the
                         // app that holds the peer's key can answer
-                        // (`hub/person.rs` (c)).
+                        // (`hub/person.rs` (c)). Only the peer's own session
+                        // in its own run, never one of this daemon's.
+                        method::MUX_PERMISSION_PENDING
+                            if !self.peer_pending_counts(&peer, &id, &params) =>
+                        {
+                            tracing::warn!(peer = %peer, session = %id, "a peer's pending prompt for a session or run that is not its own: dropped");
+                            return;
+                        }
                         method::MUX_PERMISSION_PENDING => EventRecord {
                             seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
                             at: now_ms(),
@@ -405,6 +412,32 @@ impl Hub {
                 }
             }
         }
+    }
+
+    /// Whether peer `peer`'s `_acpmux/permission_pending` for session `id`
+    /// may reach this daemon's watchers (`hub/person.rs` (c)): a session the
+    /// peer listed as its own and that is not one of this daemon's, in the
+    /// daemon run the peer named at its handshake, which is not this run and
+    /// no other peer's. A prompt with this daemon's session or run would let
+    /// the peer show the person other text for one of this daemon's real
+    /// prompts, whose allow the app proves with this daemon's key.
+    fn peer_pending_counts(&self, peer: &str, id: &str, params: &Value) -> bool {
+        let Some(instance) = params.get("personInstance").and_then(Value::as_str) else {
+            return false;
+        };
+        let listed = self
+            .remote_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .is_some_and(|r| r.peer == peer);
+        let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id);
+        let peers: Vec<_> =
+            self.peers.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        let named = |p: &crate::peer::Peer| p.person_instance().as_deref() == Some(instance);
+        let own_run = peers.iter().any(|p| p.name == peer && named(p));
+        let others = peers.iter().any(|p| p.name != peer && named(p));
+        listed && !local && own_run && !others && instance != self.person.instance()
     }
 
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name.

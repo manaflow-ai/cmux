@@ -28,7 +28,7 @@ impl Hub {
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let Resolved { agent, profile, defaults, head, preset_name, folder_root } = {
+        let Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest } = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?
         };
@@ -84,8 +84,7 @@ impl Hub {
                 Adoption::Existing(existing) => return Ok(existing),
                 Adoption::Found { cwd, fork, file, store } => (cwd, fork, file, store),
             };
-        // A fork resumes nothing as itself: its process forks the adopted id
-        // into a new conversation, so the adopted id is not this session's.
+        // A fork resumes nothing as itself: it forks the adopted id into a new conversation.
         let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
         // A gone recorded folder may be remapped: git runs to compare repositories.
         let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
@@ -188,6 +187,7 @@ impl Hub {
             };
             self.append(&session, "mux", "adopted", adopted);
         }
+        self.note_preset_resolved(&session, preset_digest);
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
             Err(e) => Err(e),

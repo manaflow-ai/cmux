@@ -99,13 +99,30 @@
 //!   `parentSessionId` or a `callerSession` in any other request counts for
 //!   nothing. The check reads the caller's mode at the time of the request:
 //!   a caller the person moved back to asking inherits nothing. A peer or
-//!   Web connection never has a caller.
+//!   Web connection never has a caller. The harness also gets
+//!   `ACPMUX_SESSION_TOKEN_SOCKET`, this daemon's socket, and the CLI sends
+//!   the token only to that socket ([`caller_env`], `client.rs`).
+//! - No start mode that does not ask applies to an adopt without the
+//!   person: an adopt may find a session already running
+//!   (`hub/adoption.rs`, `ifLive: "open"`), and only the person widens a
+//!   running session (`session/set_mode` above). Such a request is refused
+//!   before anything starts.
 //! - (b) A preset the person approved: `_acpmux/presets {name, approveMode:
 //!   true}` from the person records `modeApproval`, the sha256 of the
 //!   preset's contents (everything but its description and the approval
 //!   itself, `Preset::approval_digest`). The approval counts only while the
 //!   preset still hashes to it and only for that preset's own mode, with no
-//!   other harness and no adopted conversation in the request. Bound to the
+//!   other harness, no adopted conversation and no model, effort, policy or
+//!   env of the request's own (a folder is fine). The contents are read
+//!   three times for one start (the request check, the resolve of model,
+//!   effort and env, the spawn of args, env and system prompt): each read
+//!   records the digest of what it used, and the start counts the approval
+//!   only when the resolve's and the spawn's digests are the approved one
+//!   (`hub/start_gate/preset_bind.rs`), so an edit that is put back between
+//!   reads gains nothing. Such a preset never takes a pooled harness. The
+//!   session records the approved digest; a later spawn from other
+//!   contents (an edit, then a respawn) starts in the harness's own mode
+//!   instead of replaying the approved one. Bound to the
 //!   contents, not cleared on a write, so every way the preset can change
 //!   (a `_acpmux/presets` write from any client, a hand edit of config.json
 //!   and a reload, a future write path) drops it without having to know
@@ -116,12 +133,24 @@
 //! - (d) The refusal ([`mode_person_required`]) is one sentence that names
 //!   where to approve: cmux NEXT on this host ([`host_label`]), or the
 //!   preset to approve there once; `error.data` carries `host`, `mode` and
-//!   `preset` so an app can show its own (localized) text.
+//!   `preset` so an app can show its own (localized) text. A Web or peer
+//!   client never gets this host's name, in the text or in `host`.
 //! - (c) A pending prompt reaches every app that sees the session: a peer's
 //!   `_acpmux/permission_pending` reaches the watchers of this daemon that
 //!   did not attach the session (`hub/peers.rs`), with the peer's
 //!   `decisionNonce` and `personInstance`; an answer still goes to the peer,
-//!   which counts an allow only with its own person's proof (above).
+//!   which counts an allow only with its own person's proof (above). The
+//!   proof covers the prompt's ids, not the text the app shows, so a peer
+//!   that re-sends a real prompt with other text could get the person's
+//!   allow of that text counted for the real one. A peer's prompt is
+//!   therefore relayed only for a session that peer listed as its own and
+//!   that is not this daemon's, in the run the peer named at its handshake,
+//!   which is neither this daemon's run nor one another peer named; and only
+//!   to unix socket and app watchers, never to a Web client or on to
+//!   another peer daemon. The app holds the key of the daemons it enrolled,
+//!   so this daemon's prompts (whose proofs it can make) never arrive with
+//!   a peer's text. Binding the proof to the prompt's text would need the
+//!   app to hash what it shows; not done.
 //!
 //! The default start mode (`hub/start_mode.rs`, cx-wx93i) is not a request:
 //! with no `mode` asked, a new chat starts in the person's latest pick, else
@@ -157,7 +186,14 @@
 //!   See docs/security/threat-model.md "Remote approvals (acpmux person key)".
 //! - Same-uid file writes: an agent that edits config.json, a profile file
 //!   or the store directly. That needs an OS boundary between the agent and
-//!   the user's files.
+//!   the user's files. A preset's `modeApproval` is an unkeyed sha256 in
+//!   config.json, so such a write can approve a preset itself.
+//! - A preset approval covers the preset's `harness` string, not the
+//!   profile it resolves to: `_acpmux/defaults` `prefer` or
+//!   `_acpmux/harness/add` can point that name at another program, which
+//!   `_acpmux/harness/add` can run anyway.
+//! - The person's own pick of a no-ask mode on a preset session (not through
+//!   an approval) stays on respawn even when the preset changed meanwhile.
 //! - `_acpmux/harness/add` (a new harness profile), `_acpmux/defaults`
 //!   `prefer` and a preset's `harness` (which profile, and so which profile
 //!   default policy, a new session gets), a preset's `args`,
@@ -189,8 +225,8 @@
 use super::*;
 
 pub use super::start_gate::{
-    CALLER_FIELD, CALLER_TOKEN_ENV, START_MODE_FIELD, StartMode, caller_proves, caller_token,
-    host_label, mode_person_required, take_caller,
+    CALLER_FIELD, CALLER_SOCKET_ENV, CALLER_TOKEN_ENV, START_MODE_FIELD, StartMode, caller_env,
+    caller_proves, caller_token, host_label, mode_person_required, take_caller,
 };
 
 /// The old place of the key in `initialize` (`_meta.acpmux`): stripped, never read.
@@ -759,7 +795,7 @@ impl Hub {
                 if self.web_modes().config_value_asks(&family, id, value) {
                     Ok(())
                 } else if let (None | Some("mode"), Some(mode)) = (id, value) {
-                    Err(mode_person_required(mode, None, false))
+                    Err(mode_person_required(mode, None, false, starts_modes))
                 } else {
                     Err(person_required("a mode that does not ask"))
                 }
