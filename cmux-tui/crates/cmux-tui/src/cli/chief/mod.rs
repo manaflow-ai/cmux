@@ -110,7 +110,13 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             {
                 parsed.control = Some(control::Control::Stop(Some(name.to_owned())));
             }
-            "--harness" | "--model" | "--effort" | "--speed" | "--compactor-speed" => {
+            "--harness"
+            | "--model"
+            | "--effort"
+            | "--speed"
+            | "--compactor-speed"
+            | "--compactor-harness"
+            | "--compactor-model" => {
                 let key = flag.trim_start_matches("--").replace('-', "_");
                 let value = value()?;
                 match &mut parsed.control {

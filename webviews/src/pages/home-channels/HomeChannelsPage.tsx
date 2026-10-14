@@ -30,7 +30,7 @@ import {
   withDraft,
 } from "./model";
 import { Palette, type PaletteItem } from "./Palette";
-import { conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
+import { backToList, conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
 import { RouteSheets } from "./RouteSheets";
@@ -195,7 +195,7 @@ export function HomeChannelsPage({
   };
   /** Back to the list (the narrow page's one pane). */
   const back = () => {
-    if (store.routed) setHash("#/");
+    if (store.routed) backToList();
   };
   const canGoBack = narrow && pane === "conversation" && store.routed;
   const listShown = narrow && pane === "list";
@@ -261,8 +261,11 @@ export function HomeChannelsPage({
     openPalette: () => setPalette(true),
     move: moveList,
     escape: (inField) => {
+      // The narrow list pane hides the conversation: its edit, run, thread and focus are not
+      // what Escape closes there.
       if (sheetState.route) store.sheets.close();
       else if (palette) setPalette(false);
+      else if (listShown) return false;
       else if (editing) setEditing(undefined);
       else if (openRun) setOpenRun(undefined);
       else if (snap.thread) openThread(undefined);
