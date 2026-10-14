@@ -206,6 +206,14 @@ final class ShellModel {
 
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
+        #if DEBUG
+        // Layout captures only: `-cnx-banner-demo pairing|pairing-reset`.
+        switch UserDefaults.standard.string(forKey: "cnx-banner-demo") {
+        case "pairing"?: return .waitingForPairing(on: "Mac Studio")
+        case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
+        default: break
+        }
+        #endif
         if store.isOffline { return .offline }
         // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
         switch live?.pairingState {

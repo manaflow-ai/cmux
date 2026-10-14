@@ -86,6 +86,14 @@ for inline code or a code block. cnx does not rewrite the message text.
    block form for fenced code. The host would supply runs without rewriting the
    text, so it could keep the markers.
 
+**Precedence with host runs:** when a message has `ConversationTextRun`s
+(bold, italic, effects from the sender's composer) and the flag is on, the
+host's runs win. Markdown is parsed only for a message with no runs, and an
+incoming message with runs renders as it does today. The two never merge:
+Chief's turns carry no runs, and a person's styled text is never re-read as
+Markdown. Under option 2 there is nothing to combine, because the host
+supplies every run itself.
+
 **Rendering (from SPEC 3.2):**
 
 - Inline code is SF Mono at the bubble's size minus 1 pt, on the bubble's own
@@ -114,7 +122,11 @@ behind the menu.
 - **Blur:** `systemUltraThinMaterial` strength, with the content dimmed to 70%.
 - **Motion:** the blur animates in with the menu's spring and out with its
   dismissal.
-- **Default:** on. This is Messages parity, so no option is needed.
+- **Default:** on. This is Messages parity, so no option is needed. This
+  deliberately changes every host, including the Messages lab host and the
+  Mac Home, which get the blur too; that is the point (both compare
+  against Messages). A host that must keep the sharp backdrop would need an
+  opt-out, and none is asking for one.
 
 ## U4. Keyboard from a scrolled-up transcript (Polish, verify first)
 
@@ -182,11 +194,13 @@ the package's Call/FaceTime/Mail details again.
 /// name pill, and the trailing button in its plain state). nil keeps the
 /// package's details.
 public var onShowDetails: (() -> Void)?
-/// The trailing button's VoiceOver label in its plain state.
+/// The trailing button's VoiceOver label in its plain state. nil keeps
+/// the package's own label for the symbol ("Call" for "video").
 public var trailingAccessibilityLabel: String?
 ```
 
-- **Default:** `nil`, which shows the package's details.
+- **Defaults:** both `nil`. `onShowDetails: nil` shows the package's
+  details; `trailingAccessibilityLabel: nil` keeps the package's label.
 - **Chief passes:** a closure that presents `ChiefSettingsView`.
 
 ## U7. Focus the composer from the host (new)

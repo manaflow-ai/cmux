@@ -1,3 +1,4 @@
+import CmuxAgentQuestion
 import CmuxConversationCore
 import CnxModel
 import Foundation
@@ -55,6 +56,13 @@ public final class ChiefSession {
     public private(set) var avatar: String
     /// The Mac Chief's newest engine report (``ChiefControl/engine()``).
     public private(set) var engineReport: ChiefEngineReport?
+    /// Chief's questions in the conversation, in message order.
+    public private(set) var questions: [AgentQuestion] = []
+    /// Each answer's progress, by question id (``ChiefAnswerFlow``).
+    public private(set) var answers: [String: ChiefAnswerFlow] = [:]
+    /// The signer for answers (Face ID with this phone's approval key), asked
+    /// at answer time: the link's pairing may change while Chief is open.
+    public var answerSigner: (@MainActor () -> (any ChiefAnswerSigning)?)?
     /// The newest message the user has seen with the conversation open.
     private var seenMessageID: String?
     /// Messages waiting for Chief to connect (``ChiefOutbox``).
@@ -85,7 +93,41 @@ public final class ChiefSession {
         control = (backend as? ChiefDaemonBackend)?.control
         engineReport = nil
         alertedSeq = nil
+        questions = []
+        answers = [:]
         attach()
+    }
+
+    /// The question waiting for an answer from this phone: the newest
+    /// pending one, or one whose answer is in flight or failed.
+    public var openQuestion: AgentQuestion? {
+        questions.last { question in
+            question.isPending || (answers[question.id].map { $0.isBusy } ?? false)
+        }
+    }
+
+    /// Answers `question` (Face ID, then the Mac). The flow says where it is;
+    /// a second call while one is in flight does nothing.
+    public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) {
+        guard let source = backend as? any ChiefQuestionSource else { return }
+        var flow = answers[question.id] ?? ChiefAnswerFlow()
+        guard flow.begin() else { return }
+        answers[question.id] = flow
+        let id = question.id
+        let signer = answerSigner?()
+        let approved: @Sendable () -> Void = { [weak self] in
+            Task { @MainActor [weak self] in self?.answers[id]?.approved() }
+        }
+        Task { @MainActor [weak self] in
+            do {
+                try await source.answer(question, with: answer, signer: signer, approved: approved)
+                // The approval hop can still be queued: approve before storing.
+                self?.answers[id]?.approved()
+                self?.answers[id]?.stored()
+            } catch {
+                self?.answers[id]?.failed(error)
+            }
+        }
     }
 
     /// Keeps what the Mac Chief's engine report says about Chief (its
@@ -93,8 +135,13 @@ public final class ChiefSession {
     /// with each report it reads or writes.
     public func adopt(_ report: ChiefEngineReport) {
         engineReport = report
-        let text = report.avatar ?? identity.avatar
-        if avatar != text { avatar = text }
+        if let daemon = backend as? ChiefDaemonBackend {
+            // The backend draws the header; `refresh` reads it back from the store.
+            Task { await daemon.applyAvatar(report.avatar) }
+        } else {
+            let text = report.avatar ?? identity.avatar
+            if avatar != text { avatar = text }
+        }
     }
 
     /// Reads the engine report once Chief is reachable over the Mac link.
@@ -121,10 +168,11 @@ public final class ChiefSession {
         return message.text.contains("?") && message.id != seenMessageID
     }
 
-    /// Home's Needs You filter: something waits in the outbox, or Chief is
-    /// idle with its newest message unread.
+    /// Home's Needs You filter: something waits in the outbox, Chief is
+    /// waiting on the user (the pin's preview, F6), or Chief is idle with its
+    /// newest message unread.
     public var needsYou: Bool {
-        if !outbox.isEmpty { return true }
+        if !outbox.isEmpty || isWaitingOnYou { return true }
         guard !isTyping, let message = lastMessage else { return false }
         return message.senderID == identity.chiefID && unreadCount > 0
     }
@@ -158,6 +206,14 @@ public final class ChiefSession {
 
     private func attach() {
         let store = store
+        if let source = backend as? any ChiefQuestionSource {
+            source.questionFeed.observe { [weak self] found in
+                Task { @MainActor [weak self] in
+                    guard let self, self.store === store, self.questions != found else { return }
+                    self.questions = found
+                }
+            }
+        }
         store.addObserver { [weak self, weak store] _ in
             guard let self, let store, store === self.store else { return }
             self.refresh()
@@ -177,6 +233,11 @@ public final class ChiefSession {
         let connected = store.connection == .connected
         if isConnected != connected { isConnected = connected }
         if title != store.info?.title { title = store.info?.title }
+        // Chief's avatar as the conversation draws it (the Mac's text, live).
+        if let drawn = store.info?.participants.first(where: { $0.id == identity.chiefID })?.initials,
+           !drawn.isEmpty, drawn != avatar {
+            avatar = drawn
+        }
         let listState = store.info?.listState
         if isMuted != (listState?.muted ?? false) { isMuted = listState?.muted ?? false }
         if sendsReadReceipts != (listState?.sendReadReceipts ?? true) { sendsReadReceipts = listState?.sendReadReceipts ?? true }

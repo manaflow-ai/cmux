@@ -7,13 +7,25 @@ import Foundation
 public struct ChiefEngineReport: Decodable, Sendable, Equatable {
     public struct Engine: Decodable, Sendable, Equatable {
         public var harness: String?
+        /// The model turns run. On a Mac with #20531 it is resolved: the
+        /// chosen model, else what the default resolves to
+        /// (`modelIsDefault`); older Macs send only the chosen one.
         public var model: String?
         public var effort: String?
+        /// True when `model` is what the default resolves to; nil from an
+        /// older Mac, which does not say.
+        public var modelIsDefault: Bool?
 
-        public init(harness: String? = nil, model: String? = nil, effort: String? = nil) {
+        public init(harness: String? = nil, model: String? = nil, effort: String? = nil, modelIsDefault: Bool? = nil) {
             self.harness = harness
             self.model = model
             self.effort = effort
+            self.modelIsDefault = modelIsDefault
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case harness, model, effort
+            case modelIsDefault = "model_is_default"
         }
     }
 
@@ -35,23 +47,44 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
     public struct Model: Decodable, Sendable, Equatable, Hashable {
         public var id: String
         public var name: String
+        /// On acpmux's "default" entry (#20531): the model id it resolves to.
+        public var resolvesTo: String?
+
+        public init(id: String, name: String, resolvesTo: String? = nil) {
+            self.id = id
+            self.name = name
+            self.resolvesTo = resolvesTo
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id, name
+            case resolvesTo = "resolves_to"
+        }
     }
 
     public struct Offered: Decodable, Sendable, Equatable {
         public var models: [Model] = []
         public var efforts: [String] = []
+        /// What the default resolves to (#20531), {id, name}; nil when the
+        /// Mac does not know or is older.
+        public var defaultModel: Model?
 
-        public init(models: [Model] = [], efforts: [String] = []) {
+        public init(models: [Model] = [], efforts: [String] = [], defaultModel: Model? = nil) {
             self.models = models
             self.efforts = efforts
+            self.defaultModel = defaultModel
         }
 
-        enum CodingKeys: String, CodingKey { case models, efforts }
+        enum CodingKeys: String, CodingKey {
+            case models, efforts
+            case defaultModel = "default_model"
+        }
 
         public init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             models = try c.decodeIfPresent([Model].self, forKey: .models) ?? []
             efforts = try c.decodeIfPresent([String].self, forKey: .efforts) ?? []
+            defaultModel = try? c.decodeIfPresent(Model.self, forKey: .defaultModel)
         }
     }
 
@@ -89,22 +122,39 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         recent = try c.decodeIfPresent([Turn].self, forKey: .recent) ?? []
         offered = try c.decodeIfPresent(Offered.self, forKey: .offered) ?? Offered()
         avatarSupported = c.contains(.avatar)
-        avatar = try c.decodeIfPresent(String.self, forKey: .avatar).flatMap(Self.avatarText)
+        // A non-string avatar (a newer picture object) reads as none.
+        avatar = Self.avatarText((try? c.decodeIfPresent(String.self, forKey: .avatar)) ?? nil)
     }
 
     /// Avatar text as Chief is drawn: trimmed, at most two characters, and
     /// never a picture's file name (`cat.png`); nil when there is none.
-    public static func avatarText(_ raw: String) -> String? {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
-        let pictureExtensions = ["png", "jpg", "jpeg", "heic"]
-        if !text.contains("/"), pictureExtensions.contains((text as NSString).pathExtension.lowercased()) { return nil }
+    public static func avatarText(_ raw: String?) -> String? {
+        guard let text = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        // Defensive (F7): a Mac before #20531 could send profile.json's
+        // picture name; anything that looks like a file or a path is not text.
+        if text.contains("/") || text.contains("\\") { return nil }
+        let pictureExtensions = ["png", "jpg", "jpeg", "heic", "heif", "gif", "webp", "tif", "tiff", "bmp", "svg"]
+        if pictureExtensions.contains((text as NSString).pathExtension.lowercased()) { return nil }
+        if text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) { return nil }
         return String(text.prefix(2))
     }
 
-    /// acpmux's own "default" model entry, which names what it resolves to
-    /// ("Default (GPT-6.1 Sol)"); the pickers list it first, as on the Mac.
-    public var defaultModel: Model? { offered.models.first { $0.id == "default" } }
+    /// acpmux's own "default" model entry; on a #20531 Mac it is named after
+    /// what it resolves to ("Default (GPT-6.1 Sol)", `resolvesTo`).
+    public var defaultEntry: Model? { offered.models.first { $0.id == "default" } }
+
+    /// The display name of the model the default resolves to, from a Mac
+    /// that resolves it (#20531): `offered.default_model`, else the default
+    /// entry's `resolves_to`, else `engine.model` with `model_is_default`.
+    /// nil from an older Mac, which shows plain "Default".
+    public var resolvedDefaultName: String? {
+        if let model = offered.defaultModel {
+            return model.name.isEmpty ? modelName(model.id) ?? model.id : model.name
+        }
+        if let id = defaultEntry?.resolvesTo, !id.isEmpty { return modelName(id) ?? id }
+        if engine.modelIsDefault == true, let id = engine.model, id != "default" { return modelName(id) ?? id }
+        return nil
+    }
 
     /// The models to pick, without acpmux's "default" entry.
     public var pickableModels: [Model] { offered.models.filter { $0.id != "default" } }
