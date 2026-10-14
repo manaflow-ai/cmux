@@ -160,7 +160,8 @@ public final class BrowserRecordWriter {
             return state
         }
         self.current = current
-        follow = recordURL == nil ? { [tab] url in tab.load(url) } : nil
+        let load: @MainActor (URL) -> Void = { [tab] url in tab.load(url) }
+        follow = recordURL == nil ? load : nil
         observation = Task { [weak self, tab] in
             for await _ in ObservationStream({ tab.state }) {
                 self?.pageDidChange(current())
