@@ -1,8 +1,66 @@
 import CMUXAgentLaunch
+import Foundation
 import Testing
 
 @Suite("AgentResumeWorkingDirectory")
 struct AgentResumeWorkingDirectoryTests {
+    @Test("Claude resumes from the worktree that owns its transcript", arguments: [false, true])
+    func claudeTranscriptOverridesStaleLaunchDirectory(nested: Bool) {
+        let sessionID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        let transcript = "/custom/claude/projects/-Users-x-repo--claude-worktrees-feature/"
+            + (nested ? "\(sessionID)/messages/" : "") + "\(sessionID).jsonl"
+        #expect(AgentResumeWorkingDirectory().resolve(
+            kind: "claude",
+            runtimeCwd: "/Users/x/repo/.claude/worktrees/feature",
+            launchWorkingDirectory: "/Users/x/repo",
+            transcriptPath: transcript
+        ) == "/Users/x/repo/.claude/worktrees/feature")
+    }
+
+    @Test("Claude uses the final projects directory in a nested transcript path")
+    func claudeTranscriptUsesFinalProjectsDirectory() {
+        let transcript = "/Users/x/projects/.claude/projects/-Users-x-repo--claude-worktrees-feature/session.jsonl"
+        #expect(AgentResumeWorkingDirectory().resolve(
+            kind: "claude",
+            runtimeCwd: "/Users/x/repo/.claude/worktrees/feature",
+            launchWorkingDirectory: "/Users/x/repo",
+            transcriptPath: transcript
+        ) == "/Users/x/repo/.claude/worktrees/feature")
+    }
+
+    @Test("Claude project slugs preserve non-ASCII and punctuation normalization")
+    func claudeTranscriptMatchesGeneralProjectSlug() {
+        let transcript = "/custom/claude/projects/-Users-a-my-proj-v2-home--/session.jsonl"
+        #expect(AgentResumeWorkingDirectory().resolve(
+            kind: "claude",
+            runtimeCwd: "/Users/a/my_proj.v2/home/é",
+            launchWorkingDirectory: "/Users/a",
+            transcriptPath: transcript
+        ) == "/Users/a/my_proj.v2/home/é")
+    }
+
+    @Test("Claude recovers the launch cwd from a transcript when both candidates drift")
+    func claudeTranscriptRecoversRecordedWorkingDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resume-cwd-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transcript = root
+            .appendingPathComponent("projects/-Users-a-my-proj-v2-home--/session.jsonl")
+        try FileManager.default.createDirectory(
+            at: transcript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let record = Data(#"{"cwd":"/Users/a/my_proj.v2/home/é"}"#.utf8)
+        try record.write(to: transcript, options: .atomic)
+
+        #expect(AgentResumeWorkingDirectory().resolve(
+            kind: "claude",
+            runtimeCwd: "/Users/a/other-worktree",
+            launchWorkingDirectory: "/Users/a/repo",
+            transcriptPath: transcript.path
+        ) == "/Users/a/my_proj.v2/home/é")
+    }
+
     @Test("Directory-namespaced agents pin the launch cwd over a drifted runtime cwd")
     func directoryNamespacedPrefersLaunch() {
         #expect(

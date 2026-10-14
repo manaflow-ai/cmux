@@ -3645,17 +3645,23 @@ struct RestorableAgentSessionIndex: Sendable {
         validator: CachedAgentProcessIdentityValidator,
         hermesSessionValidation: CachedAgentProcessIdentityValidator.HermesSessionValidation = .cachedSnapshot
     ) -> RestorableAgentProcessMatch {
-        guard let recordedProcessIdentity,
-              Int(recordedProcessIdentity.pid) == processID else {
-            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
+        if let recordedProcessIdentity {
+            guard Int(recordedProcessIdentity.pid) == processID else {
+                return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
+            }
+            guard let currentProcessIdentity,
+                  Int(currentProcessIdentity.pid) == processID else {
+                return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
+            }
+            guard currentProcessIdentity == recordedProcessIdentity else {
+                return .mismatches
+            }
         }
-        guard let currentProcessIdentity,
-              Int(currentProcessIdentity.pid) == processID else {
-            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
-        }
-        guard currentProcessIdentity == recordedProcessIdentity else {
-            return .mismatches
-        }
+
+        // Legacy hook records have no saved process generation. Inspect argv and cmux scope before
+        // falling back to inconclusive liveness: a reused PID owned by another executable must not
+        // block the session's restore after reboot. A matching process remains unknown because its
+        // historical generation cannot be authenticated.
         guard let process = processArgumentsProvider(processID) else {
             // A present process may be temporarily uninspectable. Only ESRCH-grade
             // absence proves that the recorded generation exited.
@@ -3664,11 +3670,15 @@ struct RestorableAgentSessionIndex: Sendable {
         guard process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
             return .mismatches
         }
-        return validator.currentProcess(
+        let matchesExpectedProcess = validator.currentProcess(
             process,
             matches: snapshot,
             hermesSessionValidation: hermesSessionValidation
-        ) ? .matches : .mismatches
+        )
+        if recordedProcessIdentity == nil {
+            return matchesExpectedProcess ? .unknown : .mismatches
+        }
+        return matchesExpectedProcess ? .matches : .mismatches
     }
 
     private static func normalizedNonEmptyValue(_ value: String?) -> String? {
