@@ -51,7 +51,10 @@ A machine can instead keep its agents current: with `agentUpdates: "latest"`
 (New Machine's "Keep coding agents up to date", checked by default in the
 sheet, `cmux vm agent-updates <vm> latest`, or `PUT /api/vm/{id}/agent-updates`),
 create and each attach start a detached updater
-(`web/services/vms/guestAgentUpdates.ts`). It never uses npm: for every agent
+(`web/services/vms/guestAgentUpdates.ts`). On a clone that resumed less than
+10 minutes ago (the boot supervisor's `HOUSEKEEPING_DELAY`) it waits out that
+window so it never competes with the daemon's start, and it always runs at idle
+CPU and I/O priority. It never uses npm: for every agent
 it reads the tool's GitHub releases (`web/services/vms/images/agents.ts`) and
 installs the newest x.y.z release that has been public for 3 days and is not
 above the latest release, after checking the download's sha256, at most once a

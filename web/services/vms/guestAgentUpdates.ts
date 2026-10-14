@@ -24,7 +24,8 @@ import {
  * - `install` (the devbox bake): installs the Dockerfile's pins exactly,
  *   checking each download against the sha256 pinned beside the version. It
  *   never reads release metadata.
- * - `update` (a machine opted into "latest", started detached on attach): for
+ * - `update` (a machine opted into "latest", started detached on attach, after
+ *   a just-resumed clone's resume window and at idle priority): for
  *   each agent, installs the newest x.y.z release that has been public for at
  *   least GUEST_AGENT_MIN_RELEASE_AGE_SECONDS and is not above the repository's
  *   latest release, checking the download against the sha256 digest GitHub's
@@ -540,22 +541,66 @@ export function guestAgentInstallCommand(
   return guestAgentUpdaterCommand(configDir, { ...options, pins }, "install");
 }
 
+/**
+ * How long after a clone resumes the updater stays off the machine. A clone's
+ * disk is slow for its first minutes, and the attach that starts the updater
+ * arrives seconds after resume, while the cmux-tui daemon is still starting:
+ * a full update's downloads and unpacks there stalled the daemon's journal
+ * commits past its readiness timeout, and the Mac saw the daemon port refuse
+ * (https://github.com/manaflow-ai/cmux/issues/20438). Equal to cmux-devbox-boot's
+ * HOUSEKEEPING_DELAY, the window the boot supervisor keeps systemd timers off
+ * the same path; vm-agent-updates.test.ts pins the equality.
+ */
+export const GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS = 10 * 60;
+
+/** Written by cmux-devbox-boot when it binds a resumed clone (TEMPLATE_RUN_DIR). */
+export const GUEST_CLONE_STARTED_MARKER = "/run/cmux/clone-started";
+
 export type GuestAgentUpdatesPaths = {
   readonly configDir: string;
   readonly log: string;
   readonly updater: GuestAgentUpdaterOptions;
+  readonly cloneStartedMarker: string;
+  readonly resumeWindowSeconds: number;
 };
 
 const GUEST_AGENT_UPDATES_PATHS: GuestAgentUpdatesPaths = {
   configDir: "/etc/cmux",
   log: GUEST_AGENT_UPDATES_LOG,
   updater: GUEST_AGENT_UPDATER_DEFAULTS,
+  cloneStartedMarker: GUEST_CLONE_STARTED_MARKER,
+  resumeWindowSeconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS,
 };
+
+/**
+ * The detached updater run: wait out the resume window, then run the updater
+ * at idle CPU and I/O priority. The window is measured from the clone marker's
+ * mtime and re-read after every wait, so a fork resumed mid-wait (whose boot
+ * supervisor rewrites the marker) starts its own window instead of firing on
+ * the clock jump. A machine with no marker (not a clone, or rebooted since)
+ * or an expired window runs at once.
+ */
+export function guestAgentUpdaterLaunchScript(paths: GuestAgentUpdatesPaths = GUEST_AGENT_UPDATES_PATHS): string {
+  const marker = shellQuote(paths.cloneStartedMarker);
+  return [
+    `while [ -e ${marker} ]; do`,
+    `started=$(date -r ${marker} +%s 2>/dev/null) || break`,
+    `left=$((started + ${paths.resumeWindowSeconds} - $(date +%s)))`,
+    `[ "$left" -gt 0 ] || break`,
+    `echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) update: waiting \${left}s for the resumed machine to settle"`,
+    `sleep "$left"`,
+    `done`,
+    `io=""`,
+    `if command -v ionice >/dev/null 2>&1; then io="ionice -c 3"; fi`,
+    `exec nice -n 19 $io ${guestAgentUpdaterCommand(paths.configDir, paths.updater)}`,
+  ].join("\n");
+}
 
 /**
  * The root shell script behind {@link guestAgentUpdatesCommand}: record the
  * setting atomically and, for "latest", start the updater detached (its own
  * session, no stdin, output appended to the log) so the script returns at once.
+ * The detached run is {@link guestAgentUpdaterLaunchScript}.
  */
 export function guestAgentUpdatesScript(
   setting: VmAgentUpdatesSetting,
@@ -570,7 +615,7 @@ export function guestAgentUpdatesScript(
     `mv -f "$tmp" ${shellQuote(`${configDir}/agent-updates`)}`,
   ];
   const launch = setting === "latest"
-    ? [`(setsid nohup ${guestAgentUpdaterCommand(configDir, paths.updater)} </dev/null >>${shellQuote(paths.log)} 2>&1 &)`]
+    ? [`(setsid nohup sh -c ${shellQuote(guestAgentUpdaterLaunchScript(paths))} </dev/null >>${shellQuote(paths.log)} 2>&1 &)`]
     : [];
   return [...record, ...launch].join(" && ");
 }

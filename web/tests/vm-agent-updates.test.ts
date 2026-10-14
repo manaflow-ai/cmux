@@ -15,6 +15,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,12 +27,15 @@ import { parseAgentUpdatesBody, parseCreateAgentUpdates } from "../services/vms/
 import {
   GUEST_AGENTS,
   GUEST_AGENT_UPDATES_LOG,
+  GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS,
   GUEST_AGENT_UPDATER_DEFAULTS,
+  GUEST_CLONE_STARTED_MARKER,
   guestAgentInstallCommand,
   guestAgentUpdaterCommand,
   guestAgentUpdatesCommand,
   guestAgentUpdatesScript,
   type GuestAgentUpdaterOptions,
+  type GuestAgentUpdatesPaths,
 } from "../services/vms/guestAgentUpdates";
 import { GUEST_AGENT_UPDATE_DOMAINS, type GuestAgent } from "../services/vms/images/agents";
 import { CMUX_REQUIRED_DOMAINS } from "../services/vms/networkPolicy";
@@ -288,6 +292,28 @@ function state(g: Guest): { checkedAt: string; ok: boolean; versions: Record<str
   return JSON.parse(readFileSync(path.join(g.configDir, "agent-updates.state"), "utf8"));
 }
 
+/** The attach script's paths in `g`'s tree; no clone marker unless a test writes one. */
+function launchPaths(g: Guest, log: string): GuestAgentUpdatesPaths {
+  return {
+    configDir: g.configDir,
+    log,
+    updater: g.options,
+    cloneStartedMarker: path.join(g.root, "clone-started"),
+    resumeWindowSeconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS,
+  };
+}
+
+/** `g`'s env plus a setsid stand-in: setsid is util-linux, absent on macOS test hosts. */
+function shimmedEnv(g: Guest): NodeJS.ProcessEnv {
+  const shims = path.join(g.root, "shims");
+  if (!existsSync(shims)) {
+    mkdirSync(shims);
+    writeFileSync(path.join(shims, "setsid"), "#!/bin/sh\nexec \"$@\"\n");
+    chmodSync(path.join(shims, "setsid"), 0o755);
+  }
+  return { ...g.env, PATH: `${g.env.PATH}:${shims}` };
+}
+
 /** What `binary` on PATH runs now: its --version output, through the real links. */
 async function runs(g: Guest, binary: string): Promise<string> {
   const entry = binary === "opencode" ? path.join(g.options.libexecDir, "cmux-opencode-real") : path.join(g.options.binDir, binary);
@@ -317,7 +343,12 @@ describe("guest agent updates", () => {
     expect(image).not.toContain("setsid");
     const latest = guestAgentUpdatesCommand("latest");
     expect(latest).toContain("latest > \"$tmp\"");
-    expect(latest).toContain("setsid nohup python3 -c");
+    expect(latest).toContain("setsid nohup sh -c");
+    expect(latest).toContain("python3 -c");
+    // Off the daemon's start on a resumed clone, and at idle priority.
+    expect(latest).toContain(GUEST_CLONE_STARTED_MARKER);
+    expect(latest).toContain("nice -n 19");
+    expect(latest).toContain("ionice -c 3");
     expect(latest).toContain(GUEST_AGENT_UPDATES_LOG);
     // Root runs it directly; the work user goes through passwordless sudo.
     expect(latest.startsWith(`if [ "$(id -u)" = 0 ]; then sh -c `)).toBe(true);
@@ -331,13 +362,8 @@ describe("guest agent updates", () => {
     const g = await guest(null);
     publish(g, "codex", "2.0.0");
     const log = path.join(g.root, "updates.log");
-    const paths = { configDir: g.configDir, log, updater: g.options };
-    // setsid is util-linux; stand in for it where the test host has none (macOS).
-    const shims = path.join(g.root, "shims");
-    mkdirSync(shims);
-    writeFileSync(path.join(shims, "setsid"), "#!/bin/sh\nexec \"$@\"\n");
-    chmodSync(path.join(shims, "setsid"), 0o755);
-    const env = { ...g.env, PATH: `${g.env.PATH}:${shims}` };
+    const paths = launchPaths(g, log);
+    const env = shimmedEnv(g);
     const recorded = await runChild("sh", ["-c", guestAgentUpdatesScript("image", paths)], { env });
     expect(recorded.status).toBe(0);
     expect(readFileSync(path.join(g.configDir, "agent-updates"), "utf8")).toBe("image\n");
@@ -350,6 +376,51 @@ describe("guest agent updates", () => {
     for (let i = 0; i < 200 && !existsSync(statePath); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
     expect(readFileSync(log, "utf8")).toContain("installing codex 2.0.0");
+  });
+
+  test("the resume window equals the boot supervisor's housekeeping delay", () => {
+    const boot = readFileSync(path.join(import.meta.dir, "../services/vms/images/devbox/cmux-devbox-boot"), "utf8");
+    const delay = /^HOUSEKEEPING_DELAY=(\d+)min$/m.exec(boot);
+    expect(delay).not.toBeNull();
+    expect(Number(delay![1]) * 60).toBe(GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS);
+    expect(boot).toContain(': > "$TEMPLATE_RUN_DIR/clone-started"');
+    expect(GUEST_CLONE_STARTED_MARKER).toBe("/run/cmux/clone-started");
+  });
+
+  test("a just-resumed clone defers the updater until its resume window ends", async () => {
+    const g = await guest(null);
+    publish(g, "codex", "2.0.0");
+    const log = path.join(g.root, "updates.log");
+    const marker = path.join(g.root, "clone-started");
+    writeFileSync(marker, "");
+    const paths = { ...launchPaths(g, log), cloneStartedMarker: marker, resumeWindowSeconds: 2 };
+    const launched = await runChild("sh", ["-c", guestAgentUpdatesScript("latest", paths)], { env: shimmedEnv(g) });
+    expect(launched.status).toBe(0);
+    const statePath = path.join(g.configDir, "agent-updates.state");
+    // Inside the window nothing is fetched.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(existsSync(statePath)).toBe(false);
+    expect(calls(g)).toEqual([]);
+    expect(readFileSync(log, "utf8")).toMatch(/update: waiting [12]s for the resumed machine to settle/);
+    for (let i = 0; i < 200 && !existsSync(statePath); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("a clone resumed longer ago than the window updates at once", async () => {
+    const g = await guest(null);
+    publish(g, "codex", "2.0.0");
+    const log = path.join(g.root, "updates.log");
+    const marker = path.join(g.root, "clone-started");
+    writeFileSync(marker, "");
+    const old = Date.now() / 1000 - 3600;
+    utimesSync(marker, old, old);
+    const paths = { ...launchPaths(g, log), cloneStartedMarker: marker };
+    const launched = await runChild("sh", ["-c", guestAgentUpdatesScript("latest", paths)], { env: shimmedEnv(g) });
+    expect(launched.status).toBe(0);
+    const statePath = path.join(g.configDir, "agent-updates.state");
+    for (let i = 0; i < 200 && !existsSync(statePath); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+    expect(readFileSync(log, "utf8")).not.toContain("waiting");
   });
 
   test("installs only the agents behind the channel, verified, and keeps the bake's links", async () => {
