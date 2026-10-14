@@ -33,6 +33,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/status": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
+        "_acpmux/bookmark_get": (["sessionId"], []),
+        "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
         "_acpmux/ask": (["sessionId", "text"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "index"], []),
