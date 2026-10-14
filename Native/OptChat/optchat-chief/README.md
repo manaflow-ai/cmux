@@ -1164,10 +1164,23 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   build at all (a setup error such as a missing acpmux preset or a refused
   harness, or a request error on every try) is stuck at once and holds no
   turn; the Chief status says why. The class rule: a user message never
-  waits more than 10 s on the compactor (a turn's start and `spawn` alike).
+  waits more than 1 s on the compactor (a turn's start and `spawn` alike).
   Cost: a deferred turn's cache mark covers a view with placeholders, so the
   next turn, which reads the summaries there, misses the cache from that
-  line on once.
+  line on once. At 1 s, more turns defer: a quick follow-up may read the
+  previous turn's long messages as the placeholder and spend a `zoom` on
+  them. `PROGRESS_TICK` (2 s) is longer than the bound, so `settle.json`
+  (the app's "Organizing Chief history") never shows. Measured 2026-10-14
+  (chiefux on cmux-lawrence-2, 7 turns with a 3-message burst): settle
+  13-22 ms, no deferred turn, no zoom call; a busy compactor (an import) is
+  not measured.
+- **Turns paragraph.** The spec says "do the user's tasks yourself ... use
+  subagents only when the user asks". The Chief's base prompt replaces that
+  paragraph with `prompt.rs` `CHIEF_TURNS`: keep turns short, give builds,
+  tests, many tool calls and long work to one subagent per ask, hand the
+  rest on after about 8 tool calls. `optchat_core::TAELIN_PROMPT` stays the
+  spec text for its other users (optchat-host's Taelin/Cmux prompts, wasm,
+  cache replays).
 - **Claude Code compactor tools.** Compactions send the turns' system text,
   but a compactor session keeps `--tools ""` and deny-all (isolation), so
   on the Claude Code route its tool prefix differs from the turns' and it
