@@ -76,3 +76,16 @@ public final class RemoteInputSurface {
         wantsControl && !isReleased && capture.window?.firstResponder === capture
     }
 }
+
+extension RemoteMouseButton {
+    /// The button of a mouse down or up. The event type names left and right
+    /// (synthetic right clicks carry button number 0); other buttons come
+    /// from the button number.
+    public init?(event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown, .leftMouseUp: self = .left
+        case .rightMouseDown, .rightMouseUp: self = .right
+        default: self.init(appKitButtonNumber: event.buttonNumber)
+        }
+    }
+}

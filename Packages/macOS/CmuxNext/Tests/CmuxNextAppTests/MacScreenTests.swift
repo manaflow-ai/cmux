@@ -239,8 +239,8 @@ struct MacScreenRightClickTests {
     }
 
     @Test func syntheticRightMouseDownIsTheRightButton() throws {
-        #expect(RemoteMouseButton(appKitButtonNumber: try event(.rightMouseDown).buttonNumber) == .right)
-        #expect(RemoteMouseButton(appKitButtonNumber: try event(.rightMouseUp).buttonNumber) == .right)
-        #expect(RemoteMouseButton(appKitButtonNumber: try event(.leftMouseDown).buttonNumber) == .left)
+        #expect(RemoteMouseButton(event: try event(.rightMouseDown)) == .right)
+        #expect(RemoteMouseButton(event: try event(.rightMouseUp)) == .right)
+        #expect(RemoteMouseButton(event: try event(.leftMouseDown)) == .left)
     }
 }

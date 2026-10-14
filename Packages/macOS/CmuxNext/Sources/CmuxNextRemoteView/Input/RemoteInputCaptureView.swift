@@ -134,7 +134,7 @@ final class RemoteInputCaptureView: NSView {
     private func press(_ event: NSEvent, down: Bool) {
         if down { onMouseDown?() }
         if down, window?.firstResponder !== self { window?.makeFirstResponder(self) }
-        guard let geometry = geometry(), let button = RemoteMouseButton(appKitButtonNumber: event.buttonNumber) else { return }
+        guard let geometry = geometry(), let button = RemoteMouseButton(event: event) else { return }
         let point = convert(event.locationInWindow, from: nil)
         if down {
             guard let pixel = geometry.streamPixel(at: point) else { return }
