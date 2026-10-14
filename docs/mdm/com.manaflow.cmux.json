@@ -126,6 +126,12 @@
       "title" : "Global Hot Key",
       "type" : "boolean"
     },
+    "app.hideDockIconWithoutWindows" : {
+      "default" : true,
+      "description" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens.",
+      "title" : "Hide Dock Icon When No Windows Are Open",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
