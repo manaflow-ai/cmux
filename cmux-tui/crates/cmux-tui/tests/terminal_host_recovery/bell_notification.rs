@@ -54,8 +54,15 @@ fn a_terminal_bell_posts_one_attention_notification_for_its_terminal() {
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
-    assert_eq!(terminals.as_array().map(Vec::len), Some(1), "one terminal ({terminal_id}): {terminals}");
-    assert_eq!(bells[0]["terminal_id"], terminals[0]["id"], "the bell notification names its terminal: {bells:?}");
+    assert_eq!(
+        terminals.as_array().map(Vec::len),
+        Some(1),
+        "one terminal ({terminal_id}): {terminals}"
+    );
+    assert_eq!(
+        bells[0]["terminal_id"], terminals[0]["id"],
+        "the bell notification names its terminal: {bells:?}"
+    );
     assert_eq!(bells[0]["unread"], true, "{bells:?}");
     // The three bells came in one read or within the cooldown: still one notification.
     std::thread::sleep(Duration::from_millis(500));
