@@ -133,13 +133,7 @@ for (const look of STYLE_SWITCHES) {
     } else {
       // At rest the style names are tooltips (the page's instant `title` tooltips), not text.
       expect(host.textContent).toBe("");
-      expect(titles()).toEqual([
-        "Default",
-        "Composer",
-        "Threads",
-        "Console",
-        "Classic",
-      ]);
+      expect(titles()).toEqual(["Default", "Composer", "Threads", "Console", "Classic"]);
     }
 
     let fieldAsked = 0;
