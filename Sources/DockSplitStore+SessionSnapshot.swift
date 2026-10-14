@@ -164,7 +164,7 @@ extension DockSplitStore {
             terminalFontSizeSnapshotProjection = nil
         }
 
-        return sessionPanelSnapshot(
+        let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
             observation: restorableAgentIndex?.entryForStablePanel(
@@ -200,6 +200,8 @@ extension DockSplitStore {
                 return PIDPresence.current(pid: pid_t($0))
             }
         )
+        guard let snapshot, let restorableAgentIndex else { return snapshot }
+        return restorableAgentIndex.removingTranscriptlessClaudeResume(from: [snapshot]).first
     }
 
     private func orderedSessionPanelIds() -> [UUID] {

@@ -1193,8 +1193,8 @@ struct RestorableAgentSessionIndex: Sendable {
     /// transcript was not on disk in any config root, keyed to the paths where
     /// Claude would write it. Claude only writes the transcript after the first
     /// message, so these cannot be resumed. Consumers re-check the paths
-    /// because the first prompt may land after this load; a copy marked
-    /// incomplete drops the map entirely.
+    /// because the first prompt may land after this load, which also keeps
+    /// the map safe to carry into a cached copy marked incomplete.
     let claudeTranscriptPathsBySessionWithoutTranscript: [String: [String]]
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
     private let entriesByPanelId: [UUID: Entry]
@@ -1338,7 +1338,11 @@ struct RestorableAgentSessionIndex: Sendable {
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
             inconclusiveCodexPanelKeys: inconclusiveCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
-            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
+            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness,
+            // Consumers re-check the expected transcript paths, so evidence
+            // from an older load cannot drop a session that wrote one since.
+            claudeTranscriptPathsBySessionWithoutTranscript:
+                claudeTranscriptPathsBySessionWithoutTranscript
         )
     }
 

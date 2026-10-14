@@ -226,14 +226,27 @@ struct ClaudeTranscriptlessRestoreTests {
         #expect(result.input == " cmux restore claude \(binding.checkpointId ?? "")\n")
     }
 
-    @Test("A cached index is not evidence that a transcript is still missing")
-    func cachedIndexKeepsClaudeBinding() throws {
+    @Test("A cached index marked incomplete still drops a transcript-less Claude session")
+    func cachedIndexDropsTranscriptlessClaudeSession() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
-        // The cached copy may predate the first prompt. The restore CLI checks
-        // the transcript again before it launches anything.
+        // Update relaunch and the quit deadline fallback save from a cached
+        // index. Its evidence is re-checked on disk before anything is dropped.
         let result = try saveAndRestore(fixture, transcript: .never) {
+            loadIndex($0).markingIncomplete()
+        }
+
+        #expect(result.terminal?.resumeBinding == nil)
+        #expect(result.input == nil, Comment(rawValue: result.input ?? ""))
+    }
+
+    @Test("A cached index keeps a Claude session whose first prompt landed after it loaded")
+    func cachedIndexKeepsClaudeSessionWithLaterTranscript() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let result = try saveAndRestore(fixture, transcript: .afterIndexLoad) {
             loadIndex($0).markingIncomplete()
         }
 

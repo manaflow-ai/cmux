@@ -209,8 +209,11 @@ extension CMUXCLI {
     /// Whether a Claude resume record names a session Claude never wrote a
     /// transcript for. Claude writes it only after the first message, so a
     /// session quit before any prompt fails with "No conversation found".
-    /// Every config directory the record or this shell names is searched,
-    /// along with the default roots, so a miss is not a lookup gap.
+    ///
+    /// The check runs only when the session says where its transcript lives:
+    /// the `transcript_path` Claude reported to the hook store, or a captured
+    /// `CLAUDE_CONFIG_DIR`. Without either, Claude may write to a root this
+    /// lookup cannot see, so the restore proceeds unchanged.
     func claudeRestoreTranscriptIsMissing(
         record: RestoreRecord,
         processEnvironment: [String: String]
@@ -220,11 +223,27 @@ extension CMUXCLI {
               let sessionID = normalizedHookValue(record.checkpointID) else {
             return false
         }
-        let configuredDirectories = [
+        let hookRecord = try? ClaudeHookSessionStore(processEnv: processEnvironment).lookup(
+            sessionId: sessionID,
+            deadline: Date().addingTimeInterval(1)
+        )
+        let reportedTranscriptPath = normalizedHookValue(hookRecord?.transcriptPath)
+            .map { ($0 as NSString).expandingTildeInPath }
+        let capturedConfigDirectories = [
             record.environment["CLAUDE_CONFIG_DIR"],
             record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
-            processEnvironment["CLAUDE_CONFIG_DIR"],
+            hookRecord?.launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
         ].compactMap { normalizedHookValue($0) }
+        guard reportedTranscriptPath != nil || !capturedConfigDirectories.isEmpty else {
+            return false
+        }
+        if let reportedTranscriptPath,
+           let size = (try? FileManager.default.attributesOfItem(atPath: reportedTranscriptPath))?[.size] as? NSNumber,
+           size.intValue > 0 {
+            return false
+        }
+        let configuredDirectories = capturedConfigDirectories
+            + [processEnvironment["CLAUDE_CONFIG_DIR"]].compactMap { normalizedHookValue($0) }
         return !ClaudeResumeTranscriptLocator().transcriptExists(
             sessionId: sessionID,
             configuredDirectories: configuredDirectories
@@ -263,7 +282,7 @@ extension CMUXCLI {
             stage: "claude.restore.transcript-missing",
             message: String(
                 localized: "cli.restore.error.conversationNotFound",
-                defaultValue: "restore: this session ended before its first message, so there is no conversation to resume. Start the agent again in this terminal."
+                defaultValue: "restore: this session has no saved conversation to resume. Start the agent again in this terminal."
             )
         )
     }

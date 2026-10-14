@@ -919,7 +919,7 @@ extension Workspace {
                 for: self,
                 panelIds: [panelId]
             )
-        guard let snapshot = sessionPanelSnapshot(
+        guard let builtSnapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
             restorableAgentObservation: restorableAgentObservation,
@@ -932,6 +932,8 @@ extension Workspace {
         ) else {
             return nil
         }
+        let snapshot = agentIndex.removingTranscriptlessClaudeResume(from: [builtSnapshot]).first
+            ?? builtSnapshot
         let projection = SurfaceCatalog.shared.projectionRecord(forPanel: panelId)
         return ClosedPanelHistoryEntry(
             workspaceId: id,

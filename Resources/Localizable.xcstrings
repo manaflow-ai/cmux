@@ -652384,55 +652384,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: this session ended before its first message, so there is no conversation to resume. Start the agent again in this terminal."
+            "value": "restore: this session has no saved conversation to resume. Start the agent again in this terminal."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: انتهت هذه الجلسة قبل رسالتها الأولى، لذا لا توجد محادثة لاستئنافها. ابدأ الوكيل مرة أخرى في هذه الطرفية."
+            "value": "restore: لا تحتوي هذه الجلسة على محادثة محفوظة لاستئنافها. ابدأ الوكيل مرة أخرى في هذه الطرفية."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: Diese Sitzung wurde vor ihrer ersten Nachricht beendet, daher gibt es keine Unterhaltung zum Fortsetzen. Starten Sie den Agenten in diesem Terminal neu."
+            "value": "restore: Diese Sitzung hat keine gespeicherte Unterhaltung zum Fortsetzen. Starten Sie den Agenten in diesem Terminal neu."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: esta sesión terminó antes de su primer mensaje, así que no hay ninguna conversación que reanudar. Vuelva a iniciar el agente en esta terminal."
+            "value": "restore: esta sesión no tiene ninguna conversación guardada que reanudar. Vuelva a iniciar el agente en esta terminal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore : cette session s'est terminée avant son premier message ; il n'y a donc aucune conversation à reprendre. Redémarrez l'agent dans ce terminal."
+            "value": "restore : cette session n'a aucune conversation enregistrée à reprendre. Redémarrez l'agent dans ce terminal."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: このセッションは最初のメッセージの前に終了したため、再開できる会話がありません。このターミナルでエージェントをもう一度起動してください。"
+            "value": "restore: このセッションには再開できる保存済みの会話がありません。このターミナルでエージェントをもう一度起動してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: 이 세션은 첫 메시지 전에 종료되어 재개할 대화가 없습니다. 이 터미널에서 에이전트를 다시 시작하십시오."
+            "value": "restore: 이 세션에는 재개할 저장된 대화가 없습니다. 이 터미널에서 에이전트를 다시 시작하십시오."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: 此会话在第一条消息之前就已结束，因此没有可恢复的对话。请在此终端中重新启动代理。"
+            "value": "restore: 此会话没有可恢复的已保存对话。请在此终端中重新启动代理。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore：此工作階段在第一則訊息之前就已結束，因此沒有可繼續的對話。請在此終端機中重新啟動代理程式。"
+            "value": "restore：此工作階段沒有可繼續的已儲存對話。請在此終端機中重新啟動代理程式。"
           }
         }
       }
