@@ -107,6 +107,16 @@ open(path, "w", encoding="utf-8").write(text.replace('" : ', '": '))
 EOF
 if out="$(run)"; then fail "a non-encoder separator passed: $out"; fi
 
+# CRLF line endings differ in bytes too; a text-mode read must not hide them.
+write_json "remote-terminal-tabs-v1 sidebar-layout-v1 workspace-groups-v1" ""
+python3 - "$json" <<'EOF'
+import sys
+path = sys.argv[1]
+data = open(path, "rb").read()
+open(path, "wb").write(data.replace(b"\n", b"\r\n"))
+EOF
+if out="$(run)"; then fail "a CRLF export passed: $out"; fi
+
 # The committed export passes as it is.
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 out="$(python3 "$check" --repo "$repo" 2>&1)" || fail "the committed export failed: $out"
