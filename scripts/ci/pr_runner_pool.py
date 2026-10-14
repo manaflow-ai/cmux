@@ -325,14 +325,17 @@ RUN_CLASSES = ("std", "light")
 # `glaeda-side-...` are its side runners, the other runners: the light side-lane workflows take it
 # (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS), and so do
 # this picker's side lanes (side_runner()). Its jobs hold its pool's machines.
+# `glaeda-fast-...` is a dedicated runner pool for cmux-next's fast tier
+# (vars.CI_NEXT_FAST_POOL): owned like the side label, but no pool of its own
+# here, so the picker never routes a run to it.
 XCODE_VERSION = r"[0-9]+(?:\.[0-9]+)*"
 # Optional namespaces keep explicitly configured fleets (such as AWS) out of
 # the ordinary mini family while retaining the role labels' semantics.
-OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
+OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-|fast-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
-ROLE_NAMES = ("root", "side", "gui")
+ROLE_NAMES = ("root", "side", "gui", "fast")
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not

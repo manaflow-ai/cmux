@@ -120,7 +120,10 @@ TRUSTED_SIDE_EVENTS), their small macOS jobs take vars.CI_LIGHT_LANE_RUNNER
 both glaeda-side-* labels that only the minis' non-root runners carry. Most
 side lanes take the job's Blacksmith default on attempt 2 and later. cmux-next
 keeps trusted attempts 1 and 2 on the owned side label and only overflows a
-later bot attempt after its ten-minute queue budget. So the first job on an owned label marks the run as on a persistent
+later bot attempt after its ten-minute queue budget. Its fast tier may take
+vars.CI_NEXT_FAST_POOL, a dedicated runner pool
+(glaeda-fast-<class>-xcode-<version>), on those attempts; job_pool() counts that
+label like the side label. So the first job on an owned label marks the run as on a persistent
 pool (a job behind a Linux gate appears once the gate ends), and the watch
 stops once every owned job has been accepted, which a side lane's few short
 jobs reach in minutes. A refused side-lane job gets the run's failed jobs

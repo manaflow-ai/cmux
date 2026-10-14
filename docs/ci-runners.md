@@ -794,6 +794,12 @@ take the Blacksmith default. ci-owned-pool-rescue.yml watches these runs while
 `CI_SIDE_LANE_RUNNER` is set and re-runs a job that waits past
 `CI_OWNED_POOL_RESCUE_SECONDS`, or is refused, on the next attempt's label.
 
+cmux-next's fast tier can run on a dedicated runner pool for the fast tier,
+chosen by a repository variable: attempts 1 and 2 take `CI_NEXT_FAST_POOL`
+(a `glaeda-fast-<class>-xcode-<version>` label) when it is set, and attempt 3
+and later take the shared route above. With the variable unset the fast tier
+routes as before. The rescue watches that label like the side label.
+
 relay-tls `system-keychain` (it changes the System keychain trust store and
 selects Xcode 16.2) and plain-paste-worker (macOS 15 only) stay on Blacksmith.
 Clear both variables to send every side lane back.
