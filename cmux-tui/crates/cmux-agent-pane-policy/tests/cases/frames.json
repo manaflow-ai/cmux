@@ -465,6 +465,15 @@
   }
  },
  {
+  "name": "request _acpmux/sessions passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/sessions\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
   "name": "request acp.session.fork passes",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"acp.session.fork\",\"params\":{}}",
   "first": false,
